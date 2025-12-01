@@ -3923,6 +3923,69 @@ public class Chrome
     }
 
     /**
+     * Creates a new themed JDialog with the Brokk icon set properly and optional title bar styling.
+     * On macOS, configures full-window content and transparent title bar to match frame behavior.
+     * On other platforms, creates a standard dialog.
+     *
+     * @param owner The parent window for this dialog (may be null for unowned dialogs)
+     * @param title The title for the new dialog
+     * @param modal Whether this dialog should be modal
+     * @param initializeTitleBar Whether to apply custom title bar styling (macOS only)
+     * @return A configured JDialog with the application icon
+     */
+    public static JDialog newDialog(Window owner, String title, boolean modal, boolean initializeTitleBar) {
+        JDialog dialog = new JDialog(owner, title, modal ? Dialog.ModalityType.APPLICATION_MODAL : Dialog.ModalityType.MODELESS);
+        applyIcon(dialog);
+        // macOS full-window-content configuration (see https://www.formdev.com/flatlaf/macos/)
+        if (SystemInfo.isMacOS) {
+            if (SystemInfo.isMacFullWindowContentSupported) {
+                dialog.getRootPane().putClientProperty("apple.awt.fullWindowContent", true);
+                dialog.getRootPane().putClientProperty("apple.awt.transparentTitleBar", true);
+
+                // hide window title
+                if (SystemInfo.isJava_17_orLater)
+                    dialog.getRootPane().putClientProperty("apple.awt.windowTitleVisible", false);
+                else dialog.setTitle(null);
+            }
+        }
+        if (initializeTitleBar) applyDialogTitleBar(dialog, title);
+        return dialog;
+    }
+
+    /**
+     * Creates a new themed JDialog with default settings (modal, title bar styling enabled).
+     *
+     * @param owner The parent window for this dialog
+     * @param title The title for the new dialog
+     * @return A configured JDialog with the application icon
+     */
+    public static JDialog newDialog(Window owner, String title) {
+        return newDialog(owner, title, true, true);
+    }
+
+    /**
+     * Applies macOS full-window-content configuration and title bar styling to an existing dialog.
+     * On non-macOS platforms, this is a no-op.
+     *
+     * @param dialog The dialog to style
+     * @param title The title for the dialog
+     */
+    public static void applyDialogTitleBar(JDialog dialog, String title) {
+        if (!SystemInfo.isMacOS || !SystemInfo.isMacFullWindowContentSupported) {
+            return;
+        }
+        dialog.getRootPane().putClientProperty("apple.awt.fullWindowContent", true);
+        dialog.getRootPane().putClientProperty("apple.awt.transparentTitleBar", true);
+
+        // hide window title
+        if (SystemInfo.isJava_17_orLater)
+            dialog.getRootPane().putClientProperty("apple.awt.windowTitleVisible", false);
+        else dialog.setTitle(null);
+
+        ThemeTitleBarManager.applyTitleBar(dialog, title);
+    }
+
+    /**
      * If using full window content, creates a themed title bar.
      * Uses ThemeTitleBarManager for unified theme-driven configuration.
      *
