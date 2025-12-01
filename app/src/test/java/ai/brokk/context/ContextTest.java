@@ -67,7 +67,7 @@ class ContextTest {
         var p1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
         var p2 = new ContextFragment.ProjectPathFragment(pf, contextManager);
 
-        var ctx = new Context(contextManager, "init");
+        var ctx = new Context(contextManager);
         ctx = ctx.addFragments(List.of(p1, p2));
 
         // Dedup: only one path fragment
@@ -83,7 +83,7 @@ class ContextTest {
         var v2 = new ContextFragment.StringFragment(
                 contextManager, "same text", "desc-1", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        var ctx = new Context(contextManager, "init");
+        var ctx = new Context(contextManager);
         ctx = ctx.addFragments(v1);
         ctx = ctx.addFragments(v2);
 
@@ -116,7 +116,7 @@ class ContextTest {
                 .orElseThrow();
         var codeFrag = new ContextFragment.CodeFragment(contextManager, cu);
 
-        var ctx = new Context(contextManager, "init")
+        var ctx = new Context(contextManager)
                 .addFragments(List.of(projectFragA, projectFragB))
                 .addFragments(List.of(extFrag))
                 .addFragments(codeFrag);
@@ -146,7 +146,7 @@ class ContextTest {
         Files.writeString(pf.absPath(), "class Rm {}");
         var ppf = new ContextFragment.ProjectPathFragment(pf, contextManager);
 
-        var ctx = new Context(contextManager, "init").addFragments(List.of(ppf));
+        var ctx = new Context(contextManager).addFragments(List.of(ppf));
         ctx = ctx.setReadonly(ppf, true);
         assertTrue(ctx.isMarkedReadonly(ppf));
 
@@ -162,7 +162,7 @@ class ContextTest {
 
     @Test
     void testWithBuildResultFailureAndSuccessClears() {
-        var ctx = new Context(contextManager, "init");
+        var ctx = new Context(contextManager);
 
         // Build failed -> fragment added
         ctx = ctx.withBuildResult(false, "Some error");
@@ -179,7 +179,7 @@ class ContextTest {
 
     @Test
     void testBuildResultFragmentIsNonEditableButShownAsReadonly() {
-        var ctx = new Context(contextManager, "init").withBuildResult(false, "Build failed: something went wrong");
+        var ctx = new Context(contextManager).withBuildResult(false, "Build failed: something went wrong");
         var buildFrag = ctx.getBuildFragment().orElseThrow();
 
         // Build fragment should be part of the read-only workspace view, but not editable.
@@ -195,12 +195,12 @@ class ContextTest {
     void testIsAiResultDetection() {
         List<ChatMessage> msgs = List.of(UserMessage.from("U"), AiMessage.from("A"));
         var tf = new ContextFragment.TaskFragment(contextManager, msgs, "task");
-        var ctx = new Context(contextManager, "init").withParsedOutput(tf, "action");
+        var ctx = new Context(contextManager).withParsedOutput(tf, "action");
         assertTrue(ctx.isAiResult(), "AI result should be true when AI message is present");
 
         List<ChatMessage> msgs2 = List.of(UserMessage.from("Only user"));
         var tf2 = new ContextFragment.TaskFragment(contextManager, msgs2, "task");
-        var ctx2 = new Context(contextManager, "init").withParsedOutput(tf2, "action");
+        var ctx2 = new Context(contextManager).withParsedOutput(tf2, "action");
         assertFalse(ctx2.isAiResult(), "AI result should be false with no AI messages");
     }
 
@@ -213,7 +213,7 @@ class ContextTest {
 
         var sf = new ContextFragment.StringFragment(contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        var ctx = new Context(contextManager, "init").addFragments(List.of(ppf)).addFragments(sf);
+        var ctx = new Context(contextManager).addFragments(List.of(ppf)).addFragments(sf);
 
         var refreshed = ctx.copyAndRefresh(Set.of(pf));
 
@@ -239,7 +239,7 @@ class ContextTest {
         Files.writeString(pf.absPath(), "class RefreshRO {}");
         var ppf = new ContextFragment.ProjectPathFragment(pf, contextManager);
 
-        var ctx = new Context(contextManager, "init").addFragments(List.of(ppf));
+        var ctx = new Context(contextManager).addFragments(List.of(ppf));
         // Mark the fragment read-only
         ctx = ctx.setReadonly(ppf, true);
         assertTrue(ctx.isMarkedReadonly(ppf), "Precondition: fragment should be read-only");
@@ -265,8 +265,8 @@ class ContextTest {
         var s1 = new ContextFragment.StringFragment(contextManager, "Text-1", "D1", SyntaxConstants.SYNTAX_STYLE_NONE);
         var s2 = new ContextFragment.StringFragment(contextManager, "Text-2", "D2", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        var ctx1 = new Context(contextManager, "c1").addFragments(List.of(ppf1)).addFragments(s1);
-        var ctx2 = new Context(contextManager, "c2").addFragments(List.of(ppf1)).addFragments(s2);
+        var ctx1 = new Context(contextManager).addFragments(List.of(ppf1)).addFragments(s1);
+        var ctx2 = new Context(contextManager).addFragments(List.of(ppf1)).addFragments(s2);
 
         var merged = ctx1.union(ctx2);
 
@@ -278,7 +278,7 @@ class ContextTest {
     @Test
     void testGetAllFragmentsInDisplayOrderIncludesHistoryFirst() {
         var s1 = new ContextFragment.StringFragment(contextManager, "T", "D", SyntaxConstants.SYNTAX_STYLE_NONE);
-        var ctx = new Context(contextManager, "init").addFragments(s1);
+        var ctx = new Context(contextManager).addFragments(s1);
 
         // Add a history entry
         var msgs = List.<ChatMessage>of(UserMessage.from("User"), AiMessage.from("AI"));
@@ -299,7 +299,7 @@ class ContextTest {
 
     @Test
     void testGetActionSummarizingWhenIncomplete() {
-        var ctx = new Context(contextManager, "init").withAction(new CompletableFuture<>());
+        var ctx = new Context(contextManager).withAction(new CompletableFuture<>());
         assertEquals(Context.SUMMARIZING, ctx.getAction(), "Should show summarizing when action is incomplete");
     }
 
@@ -312,8 +312,8 @@ class ContextTest {
         var f1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
         var f2 = new ContextFragment.ProjectPathFragment(pf, contextManager); // different instance, same source
 
-        var c1 = new Context(contextManager, "c1").addFragments(List.of(f1));
-        var c2 = new Context(contextManager, "c2").addFragments(List.of(f2));
+        var c1 = new Context(contextManager).addFragments(List.of(f1));
+        var c2 = new Context(contextManager).addFragments(List.of(f2));
 
         assertTrue(c1.workspaceContentEquals(c2), "Contexts with same sources should be equivalent");
     }
@@ -327,7 +327,7 @@ class ContextTest {
         var ppf = new ContextFragment.ProjectPathFragment(pfWorkspace, contextManager);
 
         // Another class not in workspace should be added as CodeFragment
-        var ctx = new Context(contextManager, "init").addFragments(List.of(ppf));
+        var ctx = new Context(contextManager).addFragments(List.of(ppf));
         ctx = Context.withAddedClasses(
                 ctx, List.of("com.example.CodeFragmentTarget", "com.example.AnotherClass"), analyzer);
 
@@ -341,7 +341,7 @@ class ContextTest {
 
     @Test
     void testWithGroupSetsFields() {
-        var ctx = new Context(contextManager, "init");
+        var ctx = new Context(contextManager);
         var gid = UUID.randomUUID();
         var labeled = ctx.withGroup(gid, "group-label");
         assertEquals(gid, labeled.getGroupId());

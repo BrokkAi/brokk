@@ -98,7 +98,7 @@ public class SessionManagerTest {
         SessionInfo sessionInfo = sessionManager.newSession("History Test Session");
         UUID sessionId = sessionInfo.id();
 
-        var initialContext = new Context(mockContextManager, "Welcome to session history test.");
+        var initialContext = new Context(mockContextManager);
         ContextHistory originalHistory = new ContextHistory(initialContext);
 
         // Create dummy file
@@ -112,7 +112,7 @@ public class SessionManagerTest {
                 mockContextManager, "Test string fragment content", "TestSF", SyntaxConstants.SYNTAX_STYLE_NONE);
         ContextFragment.ProjectPathFragment pf = new ContextFragment.ProjectPathFragment(dummyFile, mockContextManager);
         Context context2 =
-                new Context(mockContextManager, "Second context with fragments").addFragments(List.of(sf, pf));
+                new Context(mockContextManager).addFragments(List.of(sf, pf));
         originalHistory.pushContext(context2);
 
         // Get initial modified time
@@ -396,7 +396,7 @@ public class SessionManagerTest {
         assertEventually(() -> assertTrue(Files.exists(originalHistoryFile)));
 
         // Create some history content
-        Context context = new Context(mockContextManager, "Test content");
+        Context context = new Context(mockContextManager);
         ContextHistory originalHistory = new ContextHistory(context);
         sessionManager.saveHistory(originalHistory, originalId);
 

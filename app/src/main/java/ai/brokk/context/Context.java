@@ -51,7 +51,7 @@ public class Context {
     private static final Logger logger = LogManager.getLogger(Context.class);
 
     private final UUID id;
-    public static final Context EMPTY = new Context(new IContextManager() {}, null);
+    public static final Context EMPTY = new Context(new IContextManager() {});
 
     private static final String WELCOME_ACTION = "Session Start";
     public static final String SUMMARIZING = "(Summarizing)";
@@ -89,7 +89,7 @@ public class Context {
     /**
      * Constructor for initial empty context
      */
-    public Context(IContextManager contextManager, @Nullable String initialOutputText) {
+    public Context(IContextManager contextManager) {
         this(
                 newContextId(),
                 contextManager,

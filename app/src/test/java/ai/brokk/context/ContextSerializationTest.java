@@ -112,7 +112,7 @@ public class ContextSerializationTest {
 
     @Test
     void testWriteReadHistoryWithSingleContext_NoFragments() throws IOException {
-        var history = new ContextHistory(new Context(mockContextManager, "Initial welcome."));
+        var history = new ContextHistory(new Context(mockContextManager));
 
         Path zipFile = tempDir.resolve("single_context_no_fragments.zip");
         HistoryIo.writeZip(history, zipFile);
@@ -133,7 +133,7 @@ public class ContextSerializationTest {
         Files.writeString(projectFile1.absPath(), "public class File1 {}");
 
         // Context 1: Project file, string fragment
-        var context1 = new Context(mockContextManager, "Context 1 started")
+        var context1 = new Context(mockContextManager)
                 .addFragments(List.of(new ContextFragment.ProjectPathFragment(projectFile1, mockContextManager)))
                 .addFragments(new ContextFragment.StringFragment(
                         mockContextManager, "Virtual content 1", "VC1", SyntaxConstants.SYNTAX_STYLE_JAVA));
@@ -144,7 +144,7 @@ public class ContextSerializationTest {
         var pasteImageFragment1 = new ContextFragment.AnonymousImageFragment(
                 mockContextManager, image1, CompletableFuture.completedFuture("Pasted Red Image"));
 
-        var context2 = new Context(mockContextManager, "Context 2 started").addFragments(pasteImageFragment1);
+        var context2 = new Context(mockContextManager).addFragments(pasteImageFragment1);
 
         List<ChatMessage> taskMessages = List.of(UserMessage.from("User query"), AiMessage.from("AI response"));
         var taskFragment = new ContextFragment.TaskFragment(mockContextManager, taskMessages, "Test Task");
@@ -342,11 +342,11 @@ public class ContextSerializationTest {
                 mockContextManager, sharedImage, CompletableFuture.completedFuture(sharedDescription));
 
         // Context 1 with first image fragment
-        var ctx1 = new Context(mockContextManager, "Context 1 with shared image").addFragments(liveImageFrag1);
+        var ctx1 = new Context(mockContextManager).addFragments(liveImageFrag1);
         var originalHistory = new ContextHistory(ctx1);
 
         // Context 2 with second image fragment (same content, should intern to same FrozenFragment)
-        var ctx2 = new Context(mockContextManager, "Context 2 with shared image").addFragments(liveImageFrag2);
+        var ctx2 = new Context(mockContextManager).addFragments(liveImageFrag2);
         originalHistory.pushContext(ctx2);
 
         // Write to ZIP - this should NOT throw ZipException: duplicate entry
@@ -426,7 +426,7 @@ public class ContextSerializationTest {
         var strFragment = new ContextFragment.StringFragment(
                 mockContextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        var context = new Context(mockContextManager, "Initial")
+        var context = new Context(mockContextManager)
                 .addFragments(List.of(ctxFragment))
                 .addFragments(strFragment);
         var history = new ContextHistory(context);
@@ -487,7 +487,7 @@ public class ContextSerializationTest {
 
     @Test
     void testActionPersistenceAcrossSerializationRoundTrip() throws Exception {
-        var context1 = new Context(mockContextManager, "Initial context");
+        var context1 = new Context(mockContextManager);
 
         // Create context with a completed action
         var projectFile = new ProjectFile(tempDir, "test.java");
@@ -508,7 +508,7 @@ public class ContextSerializationTest {
             }
         });
 
-        var context2 = new Context(mockContextManager, "Second context").withAction(slowFuture);
+        var context2 = new Context(mockContextManager).withAction(slowFuture);
         history.pushContext(context2);
 
         // Create context with a very slow action that should timeout
@@ -521,7 +521,7 @@ public class ContextSerializationTest {
             }
         });
 
-        var context3 = new Context(mockContextManager, "Third context").withAction(timeoutFuture);
+        var context3 = new Context(mockContextManager).withAction(timeoutFuture);
         history.pushContext(context3);
 
         // Wait for the slow future to complete before serialization
@@ -559,7 +559,7 @@ public class ContextSerializationTest {
 
     @Test
     void testFragmentInterningDuringDeserialization() throws IOException {
-        var context1 = new Context(mockContextManager, "Context 1");
+        var context1 = new Context(mockContextManager);
         var projectFile = new ProjectFile(tempDir, "shared.txt");
         Files.writeString(projectFile.absPath(), "shared content");
 
@@ -580,7 +580,7 @@ public class ContextSerializationTest {
         var history = new ContextHistory(updatedContext1);
 
         // Context 2 also uses the same live instances
-        var context2 = new Context(mockContextManager, "Context 2")
+        var context2 = new Context(mockContextManager)
                 .addFragments(List.of(liveProjectPathFragment))
                 .addFragments(liveStringFragment);
         history.pushContext(context2);
@@ -650,14 +650,14 @@ public class ContextSerializationTest {
                 mockContextManager, taskMessages, "Shared Task Log"); // Content-hashed ID
         String sharedTaskFragmentId = sharedTaskFragment.id();
 
-        var ctxWithTask1 = new Context(mockContextManager, "CtxTask1");
+        var ctxWithTask1 = new Context(mockContextManager);
         var taskEntry = new TaskEntry(1, sharedTaskFragment, null);
 
         var updatedCtxWithTask1 = ctxWithTask1.addHistoryEntry(
                 taskEntry, sharedTaskFragment, CompletableFuture.completedFuture("action1"));
         var origHistoryWithTask = new ContextHistory(updatedCtxWithTask1);
 
-        var ctxWithTask2 = new Context(mockContextManager, "CtxTask2")
+        var ctxWithTask2 = new Context(mockContextManager)
                 .addHistoryEntry(taskEntry, sharedTaskFragment, CompletableFuture.completedFuture("action2"));
         origHistoryWithTask.pushContext(ctxWithTask2);
 
@@ -695,7 +695,7 @@ public class ContextSerializationTest {
 
         var fragment = new ContextFragment.GitFileFragment(projectFile, "abcdef1234567890", "content for git file");
 
-        var context = new Context(mockContextManager, "Test GitFileFragment").addFragments(List.of(fragment));
+        var context = new Context(mockContextManager).addFragments(List.of(fragment));
         ContextHistory originalHistory = new ContextHistory(context);
 
         Path zipFile = tempDir.resolve("test_gitfile_history.zip");
@@ -725,7 +725,7 @@ public class ContextSerializationTest {
         var externalFile = new ExternalFile(externalFilePath);
         var fragment = new ContextFragment.ExternalPathFragment(externalFile, mockContextManager);
 
-        var context = new Context(mockContextManager, "Test ExternalPathFragment").addFragments(List.of(fragment));
+        var context = new Context(mockContextManager).addFragments(List.of(fragment));
         ContextHistory originalHistory = new ContextHistory(context);
 
         Path zipFile = tempDir.resolve("test_externalpath_history.zip");
@@ -760,7 +760,7 @@ public class ContextSerializationTest {
                 new ProjectFile(tempDir, tempDir.relativize(imageFilePath)); // Treat as project file for test
         var fragment = new ContextFragment.ImageFileFragment(brokkImageFile, mockContextManager);
 
-        var context = new Context(mockContextManager, "Test ImageFileFragment").addFragments(List.of(fragment));
+        var context = new Context(mockContextManager).addFragments(List.of(fragment));
         ContextHistory originalHistory = new ContextHistory(context);
 
         Path zipFile = tempDir.resolve("test_imagefile_history.zip");
@@ -802,7 +802,7 @@ public class ContextSerializationTest {
     void testRoundTripUsageFragment() throws Exception {
         var fragment = new ContextFragment.UsageFragment(mockContextManager, "com.example.MyClass.myMethod");
 
-        var context = new Context(mockContextManager, "Test UsageFragment").addFragments(fragment);
+        var context = new Context(mockContextManager).addFragments(fragment);
         ContextHistory originalHistory = new ContextHistory(context);
 
         Path zipFile = tempDir.resolve("test_usage_history.zip");
@@ -829,7 +829,7 @@ public class ContextSerializationTest {
     void testRoundTripUsageFragmentIncludeTestFiles() throws Exception {
         var fragment = new ContextFragment.UsageFragment(mockContextManager, "com.example.MyClass.myMethod", true);
 
-        var context = new Context(mockContextManager, "Test UsageFragment include").addFragments(fragment);
+        var context = new Context(mockContextManager).addFragments(fragment);
         ContextHistory originalHistory = new ContextHistory(context);
 
         Path zipFile = tempDir.resolve("test_usage_include_history.zip");
@@ -856,7 +856,7 @@ public class ContextSerializationTest {
         var fragment =
                 new ContextFragment.CallGraphFragment(mockContextManager, "com.example.MyClass.doStuff", 3, true);
 
-        var context = new Context(mockContextManager, "Test CallGraphFragment").addFragments(fragment);
+        var context = new Context(mockContextManager).addFragments(fragment);
         ContextHistory originalHistory = new ContextHistory(context);
 
         Path zipFile = tempDir.resolve("test_callgraph_history.zip");
@@ -888,7 +888,7 @@ public class ContextSerializationTest {
         var taskEntry = new TaskEntry(1, taskFragment, null);
         var fragment = new ContextFragment.HistoryFragment(mockContextManager, List.of(taskEntry));
 
-        var context = new Context(mockContextManager, "Test HistoryFragment").addFragments(fragment);
+        var context = new Context(mockContextManager).addFragments(fragment);
         ContextHistory originalHistory = new ContextHistory(context);
 
         Path zipFile = tempDir.resolve("test_history_frag_history.zip");
@@ -915,7 +915,7 @@ public class ContextSerializationTest {
                 CompletableFuture.completedFuture("Pasted text summary"),
                 CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
 
-        var context = new Context(mockContextManager, "Test PasteTextFragment").addFragments(fragment);
+        var context = new Context(mockContextManager).addFragments(fragment);
         ContextHistory originalHistory = new ContextHistory(context);
 
         Path zipFile = tempDir.resolve("test_pastetext_history.zip");
@@ -952,7 +952,7 @@ public class ContextSerializationTest {
                 "NullPointerException",
                 "ErrorSource.java:10");
 
-        var context = new Context(mockContextManager, "Test StacktraceFragment").addFragments(fragment);
+        var context = new Context(mockContextManager).addFragments(fragment);
         ContextHistory originalHistory = new ContextHistory(context);
 
         Path zipFile = tempDir.resolve("test_stacktrace_history.zip");
@@ -980,7 +980,7 @@ public class ContextSerializationTest {
 
     @Test
     void testVirtualFragmentDeduplicationAfterSerialization() throws Exception {
-        var context = new Context(mockContextManager, "Test Deduplication");
+        var context = new Context(mockContextManager);
 
         // Add virtual fragments, some with duplicate text content
         // The IDs will be 3, 4, 5, 6, 7 based on current setup
@@ -1064,7 +1064,7 @@ public class ContextSerializationTest {
     @Test
     void testWriteReadHistoryWithGitState() throws IOException {
         // 1. Setup context 1 with a git state that has a diff
-        var context1 = new Context(mockContextManager, "Context with git state");
+        var context1 = new Context(mockContextManager);
         var history = new ContextHistory(context1);
         var context1Id = context1.id();
         var diffContent =
@@ -1080,7 +1080,7 @@ public class ContextSerializationTest {
         history.addGitState(context1Id, gitState1);
 
         // 2. Setup context 2 with a git state that has a null diff
-        var context2 = new Context(mockContextManager, "Context with null diff git state");
+        var context2 = new Context(mockContextManager);
         history.pushContext(context2);
         var context2Id = context2.id();
         var gitState2 = new ContextHistory.GitState("test-commit-hash-2", null);
@@ -1121,7 +1121,7 @@ public class ContextSerializationTest {
 
         var fragment = new ContextFragment.CodeFragment(mockContextManager, codeUnit);
 
-        var context = new Context(mockContextManager, "Test CodeFragment").addFragments(fragment);
+        var context = new Context(mockContextManager).addFragments(fragment);
         ContextHistory originalHistory = new ContextHistory(context);
 
         Path zipFile = tempDir.resolve("test_codefragment_history.zip");
@@ -1154,7 +1154,7 @@ public class ContextSerializationTest {
                 mockContextManager, "com.example.TargetClass", ContextFragment.SummaryType.CODEUNIT_SKELETON);
 
         var context1 =
-                new Context(mockContextManager, "Test SummaryFragment CODEUNIT_SKELETON").addFragments(fragment1);
+                new Context(mockContextManager).addFragments(fragment1);
         ContextHistory originalHistory1 = new ContextHistory(context1);
 
         Path zipFile1 = tempDir.resolve("test_summary_codeunit_history.zip");
@@ -1187,7 +1187,7 @@ public class ContextSerializationTest {
         var fragment2 = new ContextFragment.SummaryFragment(
                 mockContextManager, projectFile.toString(), ContextFragment.SummaryType.FILE_SKELETONS);
 
-        var context2 = new Context(mockContextManager, "Test SummaryFragment FILE_SKELETONS").addFragments(fragment2);
+        var context2 = new Context(mockContextManager).addFragments(fragment2);
         ContextHistory originalHistory2 = new ContextHistory(context2);
 
         Path zipFile2 = tempDir.resolve("test_summary_file_history.zip");
@@ -1223,7 +1223,7 @@ public class ContextSerializationTest {
                 new Service.ModelConfig("test-model", Service.ReasoningLevel.DEFAULT, Service.ProcessingTier.DEFAULT));
         var taskEntry = new TaskEntry(42, taskFragment, null, meta);
 
-        var ctx = new Context(mockContextManager, "ctx")
+        var ctx = new Context(mockContextManager)
                 .addHistoryEntry(taskEntry, taskFragment, CompletableFuture.completedFuture("action"));
         ContextHistory ch = new ContextHistory(ctx);
 
@@ -1257,7 +1257,7 @@ public class ContextSerializationTest {
         var sf = new ContextFragment.StringFragment(
                 mockContextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        var ctx = new Context(mockContextManager, "ctx-ro")
+        var ctx = new Context(mockContextManager)
                 .addFragments(List.of(ppf))
                 .addFragments(codeFrag)
                 .addFragments(sf);
@@ -1446,7 +1446,7 @@ public class ContextSerializationTest {
         var ppf = new ContextFragment.ProjectPathFragment(projectFile, mockContextManager);
         var sf = new ContextFragment.StringFragment(mockContextManager, "s", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        var ctx = new Context(mockContextManager, "ctx-bc")
+        var ctx = new Context(mockContextManager)
                 .addFragments(List.of(ppf))
                 .addFragments(sf);
 
@@ -1489,7 +1489,7 @@ public class ContextSerializationTest {
 
         // Case 2: Shorter list (explicitly clear readonly even if we set it true pre-serialization)
         // Set readOnly via Context and serialize
-        var ctx2 = new Context(mockContextManager, "ctx-bc2").addFragments(List.of(ppf));
+        var ctx2 = new Context(mockContextManager).addFragments(List.of(ppf));
         ctx2 = ctx2.setReadonly(ppf, true);
         ContextHistory ch2 = new ContextHistory(ctx2);
         Path marked = tempDir.resolve("bc_marked.zip");
@@ -1602,7 +1602,7 @@ public class ContextSerializationTest {
         assertFalse(epfSnapshot.text().isBlank());
         assertEquals(externalFileContent, epfSnapshot.text());
 
-        var context = new Context(mockContextManager, "Test Snapshots").addFragments(List.of(ppf, epf));
+        var context = new Context(mockContextManager).addFragments(List.of(ppf, epf));
         ContextHistory originalHistory = new ContextHistory(context);
 
         Path zipFile = tempDir.resolve("test_snapshots_history.zip");

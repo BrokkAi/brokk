@@ -26,7 +26,7 @@ public class UndoRedoRestoreTest {
         var pf = new ProjectFile(tempDir, "sample.txt");
         pf.write("v1");
 
-        var live = new Context(cm, "Initial").addFragments(List.of(new ContextFragment.ProjectPathFragment(pf, cm)));
+        var live = new Context(cm).addFragments(List.of(new ContextFragment.ProjectPathFragment(pf, cm)));
         live.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
 
         // 2) Build history with the initial snapshot

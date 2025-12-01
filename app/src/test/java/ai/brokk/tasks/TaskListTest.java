@@ -20,7 +20,7 @@ public class TaskListTest {
     @BeforeEach
     void setUp() {
         cm = new IContextManager() {};
-        context = new Context(cm, (String) null);
+        context = new Context(cm);
     }
 
     // ===== createOrReplaceTaskList Tests =====

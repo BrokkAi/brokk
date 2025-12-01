@@ -287,7 +287,7 @@ public class MergeAgent {
         // to verification
         var testFiles = testFilesReferencedInOursAndTheirs();
         logger.debug("Test files referenced in changes: {}", testFiles);
-        var buildContext = new Context(cm, "").addFragments(cm.toPathFragments(testFiles));
+        var buildContext = new Context(cm).addFragments(cm.toPathFragments(testFiles));
 
         // Run verification step if configured
         logger.debug("Running verification step.");
@@ -309,7 +309,7 @@ public class MergeAgent {
             logger.debug(msg);
             cm.getIo().llmOutput(msg, ChatMessageType.AI);
 
-            var ctx = new Context(cm, "Resolved conflicts").addFragments(cm.toPathFragments(changedFiles));
+            var ctx = new Context(cm).addFragments(cm.toPathFragments(changedFiles));
             return new TaskResult(
                     cm,
                     "Merge",

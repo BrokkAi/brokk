@@ -84,7 +84,7 @@ public class CodeAgent {
         this.model = model;
         this.io = io;
         // placeholder to make Null Away happy; initialized in runTaskInternal
-        this.context = new Context(contextManager, null);
+        this.context = new Context(contextManager);
     }
 
     public enum Option {
@@ -93,7 +93,7 @@ public class CodeAgent {
 
     /** Implicitly includes the DEFER_BUILD option. */
     public TaskResult runSingleFileEdit(ProjectFile file, String instructions, List<ChatMessage> readOnlyMessages) {
-        var ctx = new Context(contextManager, null)
+        var ctx = new Context(contextManager)
                 .addFragments(List.of(new ContextFragment.ProjectPathFragment(file, contextManager)));
 
         contextManager.getAnalyzerWrapper().pause();

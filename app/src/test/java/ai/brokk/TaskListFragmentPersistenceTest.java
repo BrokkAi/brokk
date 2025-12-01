@@ -24,7 +24,7 @@ public class TaskListFragmentPersistenceTest {
     void setTaskList_pushesFragmentAndTracksAction() throws Exception {
         // Given: initial empty context (headless IContextManager)
         var cm = new IContextManager() {};
-        var initial = new Context(cm, (String) null);
+        var initial = new Context(cm);
 
         var data = new TaskList.TaskListData(
                 List.of(new TaskList.TaskItem("Do A", "Do A", false), new TaskList.TaskItem("Do B", "Do B", true)));

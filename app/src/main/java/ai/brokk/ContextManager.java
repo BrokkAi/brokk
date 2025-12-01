@@ -219,7 +219,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public ContextManager(IProject project, Service.Provider serviceProvider) {
         this.project = project;
 
-        this.contextHistory = new ContextHistory(new Context(this, null));
+        this.contextHistory = new ContextHistory(new Context(this));
         this.serviceProvider = serviceProvider;
         this.serviceProvider.reinit(project);
 
@@ -284,7 +284,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var loadedCH = sessionManager.loadHistory(currentSessionId, this);
         if (loadedCH == null) {
             if (forceNew) {
-                contextHistory = new ContextHistory(new Context(this, null));
+                contextHistory = new ContextHistory(new Context(this));
             } else {
                 initializeCurrentSessionAndHistory(true);
                 return;
@@ -2334,7 +2334,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             updateActiveSession(sessionInfo.id()); // Mark as active for this project
 
             // initialize history for the session
-            contextHistory = new ContextHistory(new Context(this, null));
+            contextHistory = new ContextHistory(new Context(this));
             project.getSessionManager()
                     .saveHistory(contextHistory, currentSessionId); // Save the initial empty/welcome state
 

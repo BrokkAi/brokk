@@ -936,7 +936,7 @@ class CodeAgentTest {
     }
 
     private Context newContext() {
-        return new Context(cm, null);
+        return new Context(cm);
     }
 
     // RO-3: Guardrail precedence - editable ProjectPathFragment takes precedence over read-only virtual fragment
@@ -1106,7 +1106,7 @@ class CodeAgentTest {
                         .orElseThrow());
 
         // Compose a single Context with all of these fragments
-        var ctx = new Context(cm, null)
+        var ctx = new Context(cm)
                 .addFragments(List.of(ppfAndSummaryEditablePpf, ppfReadonlyPpf))
                 .addFragments(List.of(
                         summarySummaryOnly,
