@@ -66,7 +66,8 @@ public class Completions {
         for (CodeUnit cu : candidates) {
             String id = cu.identifier();
             int dotIdx = id.indexOf('.');
-            if (dotIdx > 0) {
+            // Be robust if an identifier ever starts with a dot; treat ".Foo" as having an empty first segment.
+            if (dotIdx >= 0) {
                 String firstSegment = id.substring(0, dotIdx);
                 if (firstSegment.equalsIgnoreCase(query)) {
                     String parentFqn =
