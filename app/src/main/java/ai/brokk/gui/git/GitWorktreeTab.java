@@ -692,11 +692,13 @@ public class GitWorktreeTab extends JPanel {
                         selectedBranchName =
                                 newBranchNameField.getText().trim(); // Raw name, will be sanitized on background thread
                     } else {
-                        selectedBranchName = branchComboBox.getSelectedItem();
+                        var selected = branchComboBox.getSelectedItem();
+                        selectedBranchName = selected != null ? selected : "";
                     }
+                    var sourceBranch = sourceBranchForNewComboBox.getSelectedItem();
                     dialogFuture.complete(new AddWorktreeDialogResult(
                             selectedBranchName,
-                            sourceBranchForNewComboBox.getSelectedItem(),
+                            sourceBranch != null ? sourceBranch : "",
                             createNewBranchRadio.isSelected(),
                             copyWorkspaceCheckbox.isSelected(),
                             true));

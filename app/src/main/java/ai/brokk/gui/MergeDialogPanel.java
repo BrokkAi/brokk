@@ -314,7 +314,12 @@ public class MergeDialogPanel extends JDialog {
 
     private void checkConflictsAsync() {
         okButton.setEnabled(false);
-        var selectedTargetBranch = (String) targetBranchComboBox.getSelectedItem();
+        if (targetBranchComboBox == null) {
+            conflictStatusLabel.setText("Branch selector not initialized.");
+            conflictStatusLabel.setForeground(Color.RED);
+            return;
+        }
+        var selectedTargetBranch = targetBranchComboBox.getSelectedItem();
         var selectedMergeMode = (GitRepo.MergeMode) mergeModeComboBox.getSelectedItem();
 
         if (selectedTargetBranch == null) {
@@ -385,11 +390,11 @@ public class MergeDialogPanel extends JDialog {
     public Result showDialog() {
         setVisible(true);
 
-        var target = (String) targetBranchComboBox.getSelectedItem();
+        var target = targetBranchComboBox != null ? targetBranchComboBox.getSelectedItem() : null;
         var mode = (GitRepo.MergeMode) mergeModeComboBox.getSelectedItem();
         boolean deleteWorktree = deleteWorktreeCb.isSelected();
         boolean deleteBranch = deleteBranchCb.isSelected();
 
-        return new Result(confirmed, sourceBranch, target == null ? "" : target, mode, deleteWorktree, deleteBranch);
+        return new Result(confirmed, sourceBranch, target != null ? target : "", mode, deleteWorktree, deleteBranch);
     }
 }
