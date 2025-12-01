@@ -11,10 +11,9 @@ import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.List;
+import java.util.*;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.autocomplete.ShorthandCompletion;
@@ -66,7 +65,8 @@ public class Completions {
         for (CodeUnit cu : candidates) {
             String id = cu.identifier();
             int dotIdx = id.indexOf('.');
-            // Be robust if an identifier ever starts with a dot; treat ".Foo" as having an empty first segment.
+            // Identifiers should not normally start with '.', but be robust: treat ".Foo" as having an empty first
+            // segment.
             if (dotIdx >= 0) {
                 String firstSegment = id.substring(0, dotIdx);
                 if (firstSegment.equalsIgnoreCase(query)) {
@@ -98,15 +98,14 @@ public class Completions {
                 .sorted(Comparator.<ScoredCU>comparingInt(ScoredCU::score)
                         .thenComparing(sc -> sc.cu().fqName()))
                 .map(ScoredCU::cu)
-                .collect(java.util.stream.Collectors.toMap(
-                        CodeUnit::fqName,
-                        java.util.function.Function.identity(),
-                        (a, b) -> a,
-                        java.util.LinkedHashMap::new))
-                .values()
-                .stream()
-                .limit(100)
-                .toList();
+                .collect(Collectors.collectingAndThen(
+                        Collectors.toMap(CodeUnit::fqName, Function.identity(), (a, b) -> a, LinkedHashMap::new), m -> {
+                            var ordered = new ArrayList<>(m.values());
+                            if (ordered.size() > 100) {
+                                return ordered.subList(0, 100);
+                            }
+                            return ordered;
+                        }));
     }
 
     /** Expand paths that may contain wildcards (*, ?), returning all matches. */
@@ -117,9 +116,9 @@ public class Completions {
                 .map(p -> {
                     var abs = p.toAbsolutePath().normalize();
                     if (abs.startsWith(root)) {
-                        return (BrokkFile) new ProjectFile(root, root.relativize(abs));
+                        return new ProjectFile(root, root.relativize(abs));
                     } else {
-                        return (BrokkFile) new ExternalFile(abs);
+                        return new ExternalFile(abs);
                     }
                 })
                 .toList();
@@ -189,7 +188,7 @@ public class Completions {
                 // UNC root without server/share is not walkable; require at least \\server\share\
                 return List.of();
             } else if (trimmed.length() >= 2 && Character.isLetter(trimmed.charAt(0)) && trimmed.charAt(1) == ':') {
-                baseDir = Path.of(Character.toString(trimmed.charAt(0)) + ":\\");
+                baseDir = Path.of(trimmed.charAt(0) + ":\\");
             } else {
                 baseDir = Path.of(File.separator);
             }
