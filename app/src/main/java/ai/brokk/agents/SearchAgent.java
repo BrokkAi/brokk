@@ -813,8 +813,8 @@ public class SearchAgent {
 
     /**
      * Scan initial context using ContextAgent and add recommendations to the workspace.
-     * Returns a TaskResult that the caller should append to scope.
      * Callers should invoke this before calling execute() if they want the initial context scan.
+     * Updates the SearchAgent's internal Context, and also returns it.
      */
     public Context scanInitialContext(StreamingChatModel model) throws InterruptedException {
         // Prune initial workspace when not empty

@@ -353,11 +353,8 @@ public class ArchitectAgent {
     }
 
     /**
-     * Execute Architect with a SearchAgent pass first.
-     *
-     * <p>ACHTUNG! Unlike bare execute(), executeWithSearch appends both results to the provided scope.
-     *
-     * <p>Returns the search result if it fails, otherwise returns the Architect result.
+     * Execute Architect with a ContextAgent pass first. Both the Context scan and the Architect
+     * results are appended to the provided scope.
      */
     public TaskResult executeWithScan() throws InterruptedException {
         // ContextAgent Scan
