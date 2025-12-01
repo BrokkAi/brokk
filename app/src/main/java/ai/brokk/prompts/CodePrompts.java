@@ -973,10 +973,12 @@ public abstract class CodePrompts {
                 """
         4. One of the following SEARCH types:
           - Line-based SEARCH: a contiguous chunk of the EXACT lines to search for in the existing source code,
-          - Full-file SEARCH: a single line `BRK_ENTIRE_FILE` indicating replace-the-entire-file (or create-new-file)
+          - Full-file SEARCH: a single line `BRK_ENTIRE_FILE` indicating replace-the-entire-file, or create-new-file
         """;
-        var hints = """
-        - Use full-file SEARCH when you are changing over half of the file.
+        var hints =
+                """
+        - Use BRK_ENTIRE_FILE as your SEARCH token only when the structure of the file is changing so drastically
+          that using a series of more precise SEARCH blocks would be larger than the file itself
         """;
 
         if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
@@ -986,10 +988,8 @@ public abstract class CodePrompts {
               `BRK_[CLASS|FUNCTION] $fqname`. This applies to any named class-like (struct, record, interface, etc)
               or function-like (method, static method) entity, but NOT anonymous ones. `BRK_FUNCTION` replaces an
               EXISTING function's signature, annotations, and body, including any Javadoc; it CANNOT create new functions
-              without an existing one to replace.
-              **IMPORTANT**: The `BRK_` token is NOT part of the file content, it is an entity locator used only in SEARCH.
-              When writing the REPLACE block, do **not** repeat the `BRK_` line.
-              The REPLACE block must contain *only* the valid code (annotations, signature, body) that will overwrite the target.
+              without an existing one to replace. Do not generate more than one BRK_CLASS or BRK_FUNCTION edit
+              for the same fully qualified symbol in a single response; combine all changes for that symbol into a single block.
             """;
             hints = "- Use syntax-aware SEARCH when you are replacing an entire class or function.\n" + hints;
         }
@@ -1000,23 +1000,21 @@ public abstract class CodePrompts {
               where $n is the conflict number.""";
             hints = "- ALWAYS use conflict SEARCH when you are fixing conflicts.\n" + hints;
         }
-        hints +=
-                """
-        - Line-based SEARCH is jack of all trades, master of none. Accuracy degrades as the number of lines grows.
-          Use when none of the more specialized and more efficient options is a good fit.
-          Include just the changing lines, plus a few surrounding lines if needed for uniqueness.
-          You should not need to cite an entire large block to change a line or two.
-        """;
+        if (!flags.isEmpty()) {
+            hints +=
+                    """
+            - Line-based SEARCH is jack of all trades, master of none. Accuracy degrades as the number of lines grows.
+              Use it when it is the most efficient option, especially for changes of just a few lines.
+              Include just the changing lines, plus a few surrounding lines if needed for uniqueness.
+              You should not need to cite an entire large block to change a line or two.
+            """;
+        }
 
         var examples = buildExamples(flags);
 
         var intro = flags.isEmpty()
                 ? ""
                 : "The *SEARCH/REPLACE* engine has been upgraded and supports more powerful features than simple line-based edits; pay close attention to the instructions. ";
-
-        var brkRestriction = flags.contains(InstructionsFlags.SYNTAX_AWARE)
-                ? "Do not generate more than one BRK_CLASS or BRK_FUNCTION edit for the same fully qualified symbol in a single response;\ncombine all changes for that symbol into a single block.\n\n"
-                : "";
 
         return """
 <rules>
@@ -1032,9 +1030,7 @@ public abstract class CodePrompts {
 7. The end of the replace block: >>>>>>> REPLACE
 8. The closing fence: ```
 
-Points to remember:
-- Use the *FULL* file path, as shown to you by the user. No other text should appear on the marker lines.
-%s
+Remember to ALWAYS use the *FULL* file path, as shown to you by the user. No other text should appear on the marker lines.
 
 ## Examples (format only; illustrative, not real code)
 Follow these patterns exactly when you emit edits.
@@ -1048,7 +1044,7 @@ Keep *SEARCH/REPLACE* blocks concise.
 Break large changes into a series of smaller blocks that each change a small portion.
 
 Avoid generating overlapping *SEARCH/REPLACE* blocks, combine them into a single edit.
-%sIf you want to move code within a filename, use 2 blocks: one to delete from the old location,
+If you want to move code within a filename, use 2 blocks: one to delete from the old location,
 and one to insert in the new location.
 
 Pay attention to which filenames the user wants you to edit, especially if they are asking
@@ -1062,6 +1058,13 @@ If they haven't explicitly confirmed the edits have been applied, they probably 
 NEVER use smart quotes in your *SEARCH/REPLACE* blocks, not even in comments.  ALWAYS
 use vanilla ascii single and double quotes.
 
+Your first goal when generating *SEARCH/REPLACE* blocks is correctness. Your second goal is to minimize output tokens
+by using the different SEARCH types correctly:
+%s
+**IMPORTANT**: The `BRK_` tokens are NEVER part of the file content, they are entity locators used only in SEARCH.
+When writing REPLACE blocks, do **not** repeat the `BRK_` line.
+The REPLACE block must ALWAYS contain ONLY the valid code (annotations, signature, body) that will overwrite the target.
+
 # General
 Always write elegant, well-encapsulated code that is easy to maintain and use without mistakes.
 
@@ -1074,7 +1077,7 @@ Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLAC
 %s
 </goal>
 """
-                .formatted(intro, searchContents, hints, examples, brkRestriction, reminder, input);
+                .formatted(intro, searchContents, examples, hints, reminder, input);
     }
 
     /**
