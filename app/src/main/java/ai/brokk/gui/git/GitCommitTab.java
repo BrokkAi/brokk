@@ -941,8 +941,9 @@ Would you like to resolve these conflicts with the Merge Agent?
                         .formatted(conflict.state(), conflict.otherCommitId(), conflictCount);
 
         // Create custom dialog with instructions textarea
-        var dialog = new JDialog(chrome.getFrame(), "Merge Conflicts Detected", true);
-        dialog.setLayout(new BorderLayout(Constants.H_GAP, Constants.V_GAP));
+        var dialog = new BaseThemedDialog(chrome.getFrame(), "Merge Conflicts Detected");
+        var root = dialog.getContentRoot();
+        root.setLayout(new BorderLayout(Constants.H_GAP, Constants.V_GAP));
 
         // Message panel
         var messageArea = new JTextArea(message);
@@ -992,9 +993,9 @@ Would you like to resolve these conflicts with the Merge Agent?
         dialogButtonPanel.add(cancelButton);
 
         // Layout
-        dialog.add(messagePanel, BorderLayout.NORTH);
-        dialog.add(customPanel, BorderLayout.CENTER);
-        dialog.add(dialogButtonPanel, BorderLayout.SOUTH);
+        root.add(messagePanel, BorderLayout.NORTH);
+        root.add(customPanel, BorderLayout.CENTER);
+        root.add(dialogButtonPanel, BorderLayout.SOUTH);
 
         dialog.pack();
         dialog.setLocationRelativeTo(chrome.getFrame());
