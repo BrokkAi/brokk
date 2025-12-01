@@ -1,6 +1,7 @@
 package ai.brokk.gui.git;
 
 import ai.brokk.ContextManager;
+import ai.brokk.FuzzyMatcher;
 import ai.brokk.IConsoleIO;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
@@ -9,6 +10,7 @@ import ai.brokk.git.ICommitInfo;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialLoadingButton;
+import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitUiUtil;
@@ -29,7 +31,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.AbstractTableModel;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellRenderer;
 import org.apache.logging.log4j.LogManager;
@@ -37,6 +42,7 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.MergeResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.ProgressMonitor;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Panel that contains the "Log" tab UI and related functionality: - Branch tables (local & remote) - Commits table -
@@ -64,6 +70,13 @@ public class GitLogTab extends JPanel implements ThemeAware {
     // Tags
     private JTable tagsTable;
     private DefaultTableModel tagsTableModel;
+
+    // Fuzzy search wrappers and fields
+    private FilterableTableModelWrapper remoteBranchWrapper;
+    private FilterableTableModelWrapper tagsWrapper;
+    private JTextField localBranchSearchField;
+    private JTextField remoteBranchSearchField;
+    private JTextField tagsSearchField;
 
     // Branch-specific UI
     private JMenuItem captureDiffVsBranchItem;
@@ -119,7 +132,8 @@ public class GitLogTab extends JPanel implements ThemeAware {
 
         // Local branches panel
         JPanel localBranchPanel = new JPanel(new BorderLayout());
-        branchTableModel = new LocalBranchTableModel();
+        var localBranchTableModel = new LocalBranchTableModel();
+        branchTableModel = localBranchTableModel;
         branchTable = new JTable(branchTableModel) {
             @Override
             public Component prepareRenderer(TableCellRenderer renderer, int row, int column) {
@@ -153,6 +167,55 @@ public class GitLogTab extends JPanel implements ThemeAware {
         branchTableCol0.setMinWidth(20);
         branchTableCol0.setMaxWidth(20);
         branchTableCol0.setPreferredWidth(20);
+
+        // Add cell renderer with fuzzy highlighting for local branches
+        branchTable.getColumnModel().getColumn(1).setCellRenderer(new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(
+                    JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+                super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                var matcher = localBranchTableModel.getCurrentMatcher();
+                String text = (String) value;
+                if (matcher != null && text != null) {
+                    var fragments = matcher.getMatchingFragments(text);
+                    if (fragments != null && !fragments.isEmpty()) {
+                        setText(highlightMatches(text, fragments));
+                    }
+                }
+                String branchName = (String) table.getValueAt(row, 1);
+                if (STASHES_VIRTUAL_BRANCH.equals(branchName)) {
+                    setFont(new Font(Font.MONOSPACED, Font.ITALIC, 13));
+                } else {
+                    setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
+                }
+                return this;
+            }
+        });
+
+        // Add search field above local branch table
+        localBranchSearchField = new JTextField();
+        localBranchSearchField.putClientProperty("JTextField.placeholderText", "Search...");
+        localBranchSearchField.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                filterLocalBranches();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                filterLocalBranches();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                filterLocalBranches();
+            }
+
+            private void filterLocalBranches() {
+                localBranchTableModel.filterRows(localBranchSearchField.getText());
+            }
+        });
+        localBranchPanel.add(localBranchSearchField, BorderLayout.NORTH);
         localBranchPanel.add(new JScrollPane(branchTable), BorderLayout.CENTER);
 
         // Remote branches panel
@@ -168,10 +231,55 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 return String.class;
             }
         };
+        remoteBranchWrapper = new FilterableTableModelWrapper(remoteBranchTableModel);
         remoteBranchTable = new JTable(remoteBranchTableModel);
         remoteBranchTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
         remoteBranchTable.setRowHeight(18);
         remoteBranchTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+
+        // Add cell renderer with fuzzy highlighting for remote branches
+        remoteBranchTable.getColumnModel().getColumn(0).setCellRenderer(new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(
+                    JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+                super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                var matcher = remoteBranchWrapper.getCurrentMatcher();
+                String text = (String) value;
+                if (matcher != null && text != null) {
+                    var fragments = matcher.getMatchingFragments(text);
+                    if (fragments != null && !fragments.isEmpty()) {
+                        setText(highlightMatches(text, fragments));
+                    }
+                }
+                setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
+                return this;
+            }
+        });
+
+        // Add search field above remote branch table
+        remoteBranchSearchField = new JTextField();
+        remoteBranchSearchField.putClientProperty("JTextField.placeholderText", "Search...");
+        remoteBranchSearchField.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                filterRemoteBranches();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                filterRemoteBranches();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                filterRemoteBranches();
+            }
+
+            private void filterRemoteBranches() {
+                remoteBranchWrapper.filter(remoteBranchSearchField.getText());
+            }
+        });
+        remoteBranchPanel.add(remoteBranchSearchField, BorderLayout.NORTH);
         remoteBranchPanel.add(new JScrollPane(remoteBranchTable), BorderLayout.CENTER);
 
         branchTabbedPane.addTab("Local", localBranchPanel);
@@ -190,10 +298,55 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 return String.class;
             }
         };
+        tagsWrapper = new FilterableTableModelWrapper(tagsTableModel);
         tagsTable = new JTable(tagsTableModel);
         tagsTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
         tagsTable.setRowHeight(18);
         tagsTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+
+        // Add cell renderer with fuzzy highlighting for tags
+        tagsTable.getColumnModel().getColumn(0).setCellRenderer(new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(
+                    JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+                super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                var matcher = tagsWrapper.getCurrentMatcher();
+                String text = (String) value;
+                if (matcher != null && text != null) {
+                    var fragments = matcher.getMatchingFragments(text);
+                    if (fragments != null && !fragments.isEmpty()) {
+                        setText(highlightMatches(text, fragments));
+                    }
+                }
+                setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
+                return this;
+            }
+        });
+
+        // Add search field above tags table
+        tagsSearchField = new JTextField();
+        tagsSearchField.putClientProperty("JTextField.placeholderText", "Search...");
+        tagsSearchField.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                filterTags();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                filterTags();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                filterTags();
+            }
+
+            private void filterTags() {
+                tagsWrapper.filter(tagsSearchField.getText());
+            }
+        });
+        tagsPanel.add(tagsSearchField, BorderLayout.NORTH);
         tagsPanel.add(new JScrollPane(tagsTable), BorderLayout.CENTER);
 
         branchTabbedPane.addTab("Tags", tagsPanel);
@@ -637,14 +790,19 @@ public class GitLogTab extends JPanel implements ThemeAware {
                     // no branch selected
 
                     ((LocalBranchTableModel) branchTableModel).setRows(branchRows);
-                    remoteBranchTableModel.setRowCount(0);
-                    tagsTableModel.setRowCount(0);
+                    remoteBranchWrapper.clear();
+                    tagsWrapper.clear();
+
+                    // Clear search fields when data is refreshed
+                    localBranchSearchField.setText("");
+                    remoteBranchSearchField.setText("");
+                    tagsSearchField.setText("");
 
                     for (var rowData : remoteBranchRows) {
-                        remoteBranchTableModel.addRow(rowData);
+                        remoteBranchWrapper.addRow(rowData);
                     }
                     for (var rowData : tagRows) {
-                        tagsTableModel.addRow(rowData);
+                        tagsWrapper.addRow(rowData);
                     }
 
                     if (finalTargetSelectionIndex >= 0 && finalSelectedBranchName != null) {
@@ -668,7 +826,8 @@ public class GitLogTab extends JPanel implements ThemeAware {
                     var errorRow =
                             new LocalBranchTableModel.BranchRow("", "Error fetching branches: " + e.getMessage());
                     ((LocalBranchTableModel) branchTableModel).setRows(List.of(errorRow));
-                    remoteBranchTableModel.setRowCount(0);
+                    remoteBranchWrapper.clear();
+                    tagsWrapper.clear();
                     gitCommitBrowserPanel.clearCommitView();
                 });
             }
@@ -1034,6 +1193,82 @@ public class GitLogTab extends JPanel implements ThemeAware {
     // Helper Methods
     // ==================================================================
 
+    /**
+     * Wrapper for filtering DefaultTableModel tables with fuzzy search.
+     */
+    private static class FilterableTableModelWrapper {
+        private final DefaultTableModel model;
+        private final List<Object[]> allRows = new ArrayList<>();
+        private @Nullable FuzzyMatcher currentMatcher;
+
+        public FilterableTableModelWrapper(DefaultTableModel model) {
+            this.model = model;
+        }
+
+        public void addRow(Object[] row) {
+            allRows.add(row);
+            model.addRow(row);
+        }
+
+        public void clear() {
+            allRows.clear();
+            model.setRowCount(0);
+            currentMatcher = null;
+        }
+
+        public void filter(String query) {
+            model.setRowCount(0);
+            if (query.trim().isEmpty()) {
+                currentMatcher = null;
+                for (var row : allRows) {
+                    model.addRow(row);
+                }
+            } else {
+                currentMatcher = new FuzzyMatcher(query.trim());
+                var matcher = currentMatcher;
+                allRows.stream()
+                        .filter(row -> matcher.matches((String) row[0]))
+                        .sorted(Comparator.comparingInt(row -> matcher.score((String) row[0])))
+                        .forEach(model::addRow);
+            }
+        }
+
+        public @Nullable FuzzyMatcher getCurrentMatcher() {
+            return currentMatcher;
+        }
+    }
+
+    /**
+     * Highlights matching text fragments using HTML with theme colors.
+     */
+    private static String highlightMatches(String text, List<FuzzyMatcher.TextRange> fragments) {
+        fragments.sort(Comparator.comparingInt(FuzzyMatcher.TextRange::getStartOffset));
+        var highlightColor = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT);
+        var hexColor = String.format(
+                "#%02x%02x%02x", highlightColor.getRed(), highlightColor.getGreen(), highlightColor.getBlue());
+        var fg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT_TEXT);
+        var fgHex = String.format("#%02x%02x%02x", fg.getRed(), fg.getGreen(), fg.getBlue());
+
+        var parts = new ArrayList<String>();
+        int lastEnd = 0;
+        for (var range : fragments) {
+            if (range.getStartOffset() > lastEnd) {
+                parts.add(escapeHtml(text.substring(lastEnd, range.getStartOffset())));
+            }
+            parts.add("<span style='background-color:" + hexColor + ";color:" + fgHex + "'>"
+                    + escapeHtml(text.substring(range.getStartOffset(), range.getEndOffset())) + "</span>");
+            lastEnd = range.getEndOffset();
+        }
+        if (lastEnd < text.length()) {
+            parts.add(escapeHtml(text.substring(lastEnd)));
+        }
+        return "<html>" + String.join("", parts) + "</html>";
+    }
+
+    private static String escapeHtml(String s) {
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
     private void refreshAllGitUi(String branchName) {
         chrome.updateGitRepo();
         chrome.getInstructionsPanel().refreshBranchUi(branchName);
@@ -1229,16 +1464,39 @@ public class GitLogTab extends JPanel implements ThemeAware {
 
         record BranchRow(String mark, String name) {}
 
-        private List<BranchRow> rows = List.of();
+        private List<BranchRow> allRows = List.of();
+        private List<BranchRow> filteredRows = List.of();
+        private @Nullable FuzzyMatcher currentMatcher;
 
         public void setRows(List<BranchRow> newRows) {
-            this.rows = List.copyOf(newRows);
+            this.allRows = List.copyOf(newRows);
+            this.filteredRows = this.allRows;
+            this.currentMatcher = null;
             fireTableDataChanged();
+        }
+
+        public void filterRows(String query) {
+            if (query.trim().isEmpty()) {
+                filteredRows = allRows;
+                currentMatcher = null;
+            } else {
+                currentMatcher = new FuzzyMatcher(query.trim());
+                var matcher = currentMatcher;
+                filteredRows = allRows.stream()
+                        .filter(row -> matcher.matches(row.name()))
+                        .sorted(Comparator.comparingInt(row -> matcher.score(row.name())))
+                        .toList();
+            }
+            fireTableDataChanged();
+        }
+
+        public @Nullable FuzzyMatcher getCurrentMatcher() {
+            return currentMatcher;
         }
 
         @Override
         public int getRowCount() {
-            return rows.size();
+            return filteredRows.size();
         }
 
         @Override
@@ -1258,14 +1516,14 @@ public class GitLogTab extends JPanel implements ThemeAware {
 
         @Override
         public Object getValueAt(int rowIndex, int columnIndex) {
-            var row = rows.get(rowIndex);
+            var row = filteredRows.get(rowIndex);
             return columnIndex == COL_MARK ? row.mark() : row.name();
         }
 
         @Override
         public boolean isCellEditable(int row, int column) {
             if (column == COL_NAME) {
-                String branchName = rows.get(row).name();
+                String branchName = filteredRows.get(row).name();
                 return !STASHES_VIRTUAL_BRANCH.equals(branchName);
             }
             return false;
@@ -1277,7 +1535,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 return;
             }
 
-            String oldName = rows.get(row).name();
+            String oldName = filteredRows.get(row).name();
             String newName = ((String) aValue).trim();
 
             if (newName.isEmpty() || newName.equals(oldName)) {
