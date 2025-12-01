@@ -18,18 +18,16 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * A combo box replacement that supports fuzzy search with IntelliJ-style highlighting.
- * Shows a search field and a scrollable list of items that are filtered as the user types.
+ * Shows a button with the current selection; clicking opens a popup with search field
+ * and filtered list, similar to BranchSelectorButton.
  *
  * @param <T> The type of items in the combo box
  */
 public class FuzzyComboBox<T> extends JPanel {
     private final List<T> allItems;
     private final Function<T, String> displayMapper;
-    private final JTextField searchField;
-    private final JList<T> list;
-    private final DefaultListModel<T> model;
-    private final JScrollPane scrollPane;
-    @Nullable private FuzzyMatcher currentMatcher;
+    private final MaterialButton button;
+    private @Nullable T selectedItem;
 
     /**
      * Creates a new FuzzyComboBox with the given items.
@@ -38,53 +36,18 @@ public class FuzzyComboBox<T> extends JPanel {
      * @param displayMapper Function to convert items to display strings
      */
     public FuzzyComboBox(List<T> items, Function<T, String> displayMapper) {
-        super(new BorderLayout(0, 2));
+        super(new BorderLayout());
         this.allItems = new ArrayList<>(items);
         this.displayMapper = displayMapper;
 
-        searchField = new JTextField();
-        searchField.putClientProperty("JTextField.placeholderText", "Search...");
-        searchField.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createEmptyBorder(2, 2, 2, 2), searchField.getBorder()));
+        button = new MaterialButton("");
+        button.setHorizontalAlignment(SwingConstants.LEFT);
+        button.addActionListener(e -> showPopup());
 
-        model = new DefaultListModel<>();
-        for (T item : allItems) {
-            model.addElement(item);
-        }
+        add(button, BorderLayout.CENTER);
 
-        list = new JList<>(model);
-        list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        list.setVisibleRowCount(Math.min(8, items.size()));
-
-        list.setCellRenderer(new DefaultListCellRenderer() {
-            @SuppressWarnings("unchecked")
-            @Override
-            public Component getListCellRendererComponent(
-                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                String text = displayMapper.apply((T) value);
-                if (currentMatcher != null) {
-                    var fragments = currentMatcher.getMatchingFragments(text);
-                    if (fragments != null && !fragments.isEmpty()) {
-                        setText(highlightMatches(text, fragments));
-                    }
-                } else {
-                    setText(text);
-                }
-                return this;
-            }
-        });
-
-        scrollPane = new JScrollPane(list);
-        scrollPane.setPreferredSize(new Dimension(200, 150));
-
-        add(searchField, BorderLayout.NORTH);
-        add(scrollPane, BorderLayout.CENTER);
-
-        setupListeners();
-
-        if (!model.isEmpty()) {
-            list.setSelectedIndex(0);
+        if (!allItems.isEmpty()) {
+            setSelectedItem(allItems.getFirst());
         }
     }
 
@@ -98,7 +61,47 @@ public class FuzzyComboBox<T> extends JPanel {
         return new FuzzyComboBox<>(items, Function.identity());
     }
 
-    private void setupListeners() {
+    private void showPopup() {
+        var menu = new JPopupMenu();
+
+        var model = new DefaultListModel<T>();
+        for (T item : allItems) {
+            model.addElement(item);
+        }
+
+        var list = new JList<>(model);
+        list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        list.setVisibleRowCount(-1);
+        list.setFocusable(true);
+
+        final FuzzyMatcher[] currentMatcher = {null};
+
+        var searchField = new JTextField();
+        searchField.putClientProperty("JTextField.placeholderText", "Search...");
+        searchField.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createEmptyBorder(4, 4, 4, 4), searchField.getBorder()));
+        menu.add(searchField);
+
+        list.setCellRenderer(new DefaultListCellRenderer() {
+            @SuppressWarnings("unchecked")
+            @Override
+            public Component getListCellRendererComponent(
+                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                String text = displayMapper.apply((T) value);
+                var matcher = currentMatcher[0];
+                if (matcher != null) {
+                    var fragments = matcher.getMatchingFragments(text);
+                    if (fragments != null && !fragments.isEmpty()) {
+                        setText(highlightMatches(text, fragments));
+                    }
+                } else {
+                    setText(text);
+                }
+                return this;
+            }
+        });
+
         searchField.getDocument().addDocumentListener(new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) {
@@ -114,6 +117,33 @@ public class FuzzyComboBox<T> extends JPanel {
             public void changedUpdate(DocumentEvent e) {
                 filterItems();
             }
+
+            private void filterItems() {
+                String query = searchField.getText().trim();
+                model.clear();
+                if (query.isEmpty()) {
+                    currentMatcher[0] = null;
+                    for (T item : allItems) {
+                        model.addElement(item);
+                    }
+                } else {
+                    var matcher = new FuzzyMatcher(query);
+                    currentMatcher[0] = matcher;
+                    var matches = new ArrayList<T>();
+                    for (T item : allItems) {
+                        if (matcher.matches(displayMapper.apply(item))) {
+                            matches.add(item);
+                        }
+                    }
+                    matches.sort(Comparator.comparingInt(item -> matcher.score(displayMapper.apply(item))));
+                    for (T item : matches) {
+                        model.addElement(item);
+                    }
+                }
+                if (!model.isEmpty()) {
+                    list.setSelectedIndex(0);
+                }
+            }
         });
 
         searchField.addKeyListener(new KeyAdapter() {
@@ -125,36 +155,20 @@ public class FuzzyComboBox<T> extends JPanel {
                         list.setSelectedIndex(0);
                     }
                     e.consume();
-                } else if (e.getKeyCode() == KeyEvent.VK_UP) {
-                    list.requestFocusInWindow();
+                } else if (e.getKeyCode() == KeyEvent.VK_ENTER) {
                     if (!model.isEmpty()) {
                         int idx = list.getSelectedIndex();
-                        if (idx <= 0) {
-                            list.setSelectedIndex(model.size() - 1);
-                        }
+                        if (idx < 0) idx = 0;
+                        selectItem(model.getElementAt(idx), menu);
                     }
                     e.consume();
                 } else if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
                     if (!searchField.getText().isEmpty()) {
                         searchField.setText("");
                         e.consume();
+                    } else {
+                        menu.setVisible(false);
                     }
-                }
-            }
-        });
-
-        list.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
-                    if (!searchField.getText().isEmpty()) {
-                        searchField.setText("");
-                        searchField.requestFocusInWindow();
-                        e.consume();
-                    }
-                } else if (Character.isLetterOrDigit(e.getKeyChar())) {
-                    searchField.requestFocusInWindow();
-                    searchField.dispatchEvent(e);
                 }
             }
         });
@@ -162,45 +176,68 @@ public class FuzzyComboBox<T> extends JPanel {
         list.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2) {
-                    int idx = list.locationToIndex(e.getPoint());
+                int idx = list.locationToIndex(e.getPoint());
+                if (idx >= 0) {
+                    selectItem(model.getElementAt(idx), menu);
+                }
+            }
+        });
+
+        list.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+                    int idx = list.getSelectedIndex();
                     if (idx >= 0) {
-                        list.setSelectedIndex(idx);
+                        selectItem(model.getElementAt(idx), menu);
+                    }
+                } else if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
+                    if (!searchField.getText().isEmpty()) {
+                        searchField.setText("");
+                        searchField.requestFocusInWindow();
+                        e.consume();
+                    } else {
+                        menu.setVisible(false);
                     }
                 }
             }
         });
+
+        menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+            @Override
+            public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {
+                SwingUtilities.invokeLater(searchField::requestFocusInWindow);
+            }
+
+            @Override
+            public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) {}
+
+            @Override
+            public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) {}
+        });
+
+        var scrollPane = new JScrollPane(list);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+
+        int maxHeight = Math.min(200, allItems.size() * 20 + 20);
+        int prefWidth = Math.max(button.getWidth(), 200);
+        scrollPane.setPreferredSize(new Dimension(prefWidth, maxHeight));
+
+        menu.add(scrollPane);
+
+        if (selectedItem != null) {
+            list.setSelectedValue(selectedItem, true);
+        } else if (!model.isEmpty()) {
+            list.setSelectedIndex(0);
+        }
+
+        menu.show(button, 0, button.getHeight());
     }
 
-    private void filterItems() {
-        String query = searchField.getText().trim();
-        T previousSelection = list.getSelectedValue();
-        model.clear();
-
-        if (query.isEmpty()) {
-            currentMatcher = null;
-            for (T item : allItems) {
-                model.addElement(item);
-            }
-        } else {
-            var matcher = new FuzzyMatcher(query);
-            currentMatcher = matcher;
-            var matches = new ArrayList<T>();
-            for (T item : allItems) {
-                if (matcher.matches(displayMapper.apply(item))) {
-                    matches.add(item);
-                }
-            }
-            matches.sort(Comparator.comparingInt(item -> matcher.score(displayMapper.apply(item))));
-            for (T item : matches) {
-                model.addElement(item);
-            }
-        }
-
-        if (!model.isEmpty()) {
-            int prevIdx = previousSelection != null ? model.indexOf(previousSelection) : -1;
-            list.setSelectedIndex(prevIdx >= 0 ? prevIdx : 0);
-        }
+    private void selectItem(T item, JPopupMenu menu) {
+        setSelectedItem(item);
+        menu.setVisible(false);
     }
 
     private String highlightMatches(String text, List<FuzzyMatcher.TextRange> fragments) {
@@ -240,63 +277,27 @@ public class FuzzyComboBox<T> extends JPanel {
      */
     @Nullable
     public T getSelectedItem() {
-        return list.getSelectedValue();
+        return selectedItem;
     }
 
     /**
-     * Sets the selected item. If the item is not in the list, selection is cleared.
+     * Sets the selected item and updates the button text.
      */
     public void setSelectedItem(@Nullable T item) {
-        if (item == null) {
-            list.clearSelection();
-        } else {
-            list.setSelectedValue(item, true);
-        }
-    }
-
-    /**
-     * Returns the index of the selected item, or -1 if nothing is selected.
-     */
-    public int getSelectedIndex() {
-        return list.getSelectedIndex();
-    }
-
-    /**
-     * Sets the selected index.
-     */
-    public void setSelectedIndex(int index) {
-        if (index >= 0 && index < model.size()) {
-            list.setSelectedIndex(index);
-        }
+        this.selectedItem = item;
+        button.setText(item != null ? displayMapper.apply(item) : "");
     }
 
     @Override
     public void setEnabled(boolean enabled) {
         super.setEnabled(enabled);
-        searchField.setEnabled(enabled);
-        list.setEnabled(enabled);
-        scrollPane.setEnabled(enabled);
+        button.setEnabled(enabled);
     }
 
     /**
-     * Requests focus on the search field.
+     * Returns the button for additional customization.
      */
-    @Override
-    public void requestFocus() {
-        searchField.requestFocusInWindow();
-    }
-
-    /**
-     * Returns the underlying JList for additional customization.
-     */
-    public JList<T> getList() {
-        return list;
-    }
-
-    /**
-     * Returns the search field for additional customization.
-     */
-    public JTextField getSearchField() {
-        return searchField;
+    public MaterialButton getButton() {
+        return button;
     }
 }
