@@ -35,7 +35,6 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
-import java.util.function.Function;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -189,38 +188,6 @@ public class Context {
         return getReadonlyFragments().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
     }
 
-    @Blocking
-    public Context addFragments(Collection<? extends ContextFragment> toAdd) {
-        // Partition into path vs non-path fragments for separate action messages
-        var pathCandidates = new ArrayList<ContextFragment.PathFragment>();
-        var otherCandidates = new ArrayList<ContextFragment>();
-        for (var f : toAdd) {
-            if (f instanceof ContextFragment.PathFragment pf) {
-                pathCandidates.add(pf);
-            } else {
-                otherCandidates.add(f);
-            }
-        }
-
-        Context newCtx = this;
-        if (!pathCandidates.isEmpty()) {
-            newCtx = newCtx.addFragments(pathCandidates, added -> {
-                String actionDetails = toAdd.stream()
-                        .map(ContextFragment::shortDescription)
-                        .map(ComputedValue::join)
-                        .collect(Collectors.joining(", "));
-                return "Edit " + actionDetails;
-            });
-        }
-        if (!otherCandidates.isEmpty()) {
-            newCtx = newCtx.addFragments(otherCandidates, added -> {
-                int addedCount = added.size();
-                return "Added " + addedCount + " fragment" + (addedCount == 1 ? "" : "s");
-            });
-        }
-        return newCtx;
-    }
-
     /**
      * Adds fragments to the context.
      * <p>
@@ -229,19 +196,15 @@ public class Context {
      * This method also handles context promotion: if a full {@code PATH} fragment is being added, any existing
      * {@code SKELETON} fragments covering the same files are considered superseded and are removed from the context.
      *
-     * @param toAdd         the collection of fragments to add
-     * @param actionBuilder function to generate the action description based on the net-new fragments actually added
+     * @param toAdd the collection of fragments to add
      * @return the updated Context
      */
-    private Context addFragments(
-            Collection<? extends ContextFragment> toAdd, Function<List<ContextFragment>, String> actionBuilder) {
-
+    public Context addFragments(Collection<? extends ContextFragment> toAdd) {
         if (toAdd.isEmpty()) {
             return this;
         }
 
         // 1. Deduplicate the input 'toAdd' collection internally first.
-        // We use a LinkedHashSet or manual stream to preserve insertion order if that matters.
         var uniqueInputs = new ArrayList<ContextFragment>();
         for (var f : toAdd) {
             if (uniqueInputs.stream().noneMatch(existing -> existing.hasSameSource(f))) {
@@ -279,19 +242,36 @@ public class Context {
                 .toList();
 
         if (fragmentsToAdd.isEmpty()) {
-            // If we filtered out skeletons but didn't actually add anything new (rare but possible),
-            // we might still want to return the updated context with skeletons removed.
-            // If strict "no-op if nothing added" is preferred, return 'this';
-            // otherwise return the keptExistingFragments.
-            // Assuming we return updated context:
-            return this.withFragments(keptExistingFragments, CompletableFuture.completedFuture(null));
+            return this;
         }
 
-        // 5. Merge and Build Action
+        // 5. Merge and Build unified action message
         keptExistingFragments.addAll(fragmentsToAdd);
-        String action = actionBuilder.apply(fragmentsToAdd);
+        String action = buildAddFragmentsAction(fragmentsToAdd);
 
         return this.withFragments(keptExistingFragments, CompletableFuture.completedFuture(action));
+    }
+
+    /**
+     * Builds a concise action message for added fragments.
+     * Shows first few fragment descriptions (up to 2) and indicates if there are more.
+     */
+    private String buildAddFragmentsAction(List<ContextFragment> added) {
+        int count = added.size();
+        if (count == 1) {
+            var shortDesc = added.getFirst().shortDescription().join();
+            return "Added " + shortDesc;
+        }
+
+        // Show up to 2 fragments, then indicate count
+        var descriptions =
+                added.stream().limit(2).map(f -> f.shortDescription().join()).toList();
+
+        var message = "Added " + String.join(", ", descriptions);
+        if (count > 2) {
+            message += ", " + (count - 2) + " more";
+        }
+        return message;
     }
 
     public Context addFragments(ContextFragment fragment) {
