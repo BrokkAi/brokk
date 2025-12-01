@@ -36,6 +36,7 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -460,6 +461,7 @@ public class DtoMapper {
         return new ExternalFile(path);
     }
 
+    @Blocking
     public static @Nullable VirtualFragmentDto toVirtualFragmentDto(ContextFragment fragment, ContentWriter writer) {
         return switch (fragment) {
             case ContextFragment.TaskFragment tf -> toTaskFragmentDto(tf, writer);
@@ -567,6 +569,7 @@ public class DtoMapper {
         return new TaskEntryDto(entry.sequence(), logDto, summaryContentId);
     }
 
+    @Blocking
     public static TaskFragmentDto toTaskFragmentDto(ContextFragment.TaskFragment fragment, ContentWriter writer) {
         var messagesDto = fragment.messages().stream()
                 .map(m -> toChatMessageDto(m, writer))

@@ -29,6 +29,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
     }
 
     @Override
+    @Blocking
     public SystemMessage systemMessage(IContextManager cm, String reminder) {
         var workspaceSummary = formatWorkspaceToc(cm.liveContext());
         var styleGuide = resolveAggregatedStyleGuide(cm, cm.liveContext());
@@ -51,6 +52,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
     }
 
     @Override
+    @Blocking
     public SystemMessage systemMessage(IContextManager cm, Context ctx, String reminder) {
         var workspaceSummary = formatWorkspaceToc(ctx);
         var styleGuide = resolveAggregatedStyleGuide(cm, ctx);

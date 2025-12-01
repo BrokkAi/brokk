@@ -444,11 +444,6 @@ public class BuildAgent {
         return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
     }
 
-    /** Backwards-compatible shim using CM.liveContext(). Prefer the Context-based overload. */
-    public static @Nullable String determineVerificationCommand(IContextManager cm) throws InterruptedException {
-        return determineVerificationCommand(cm.liveContext());
-    }
-
     /**
      * Runs {@link #determineVerificationCommand(IContextManager)} on the {@link ContextManager} background pool and
      * delivers the result asynchronously.
@@ -456,7 +451,7 @@ public class BuildAgent {
      * @return a {@link CompletableFuture} that completes on the background thread.
      */
     public static CompletableFuture<@Nullable String> determineVerificationCommandAsync(ContextManager cm) {
-        return cm.submitBackgroundTask("Determine build verification command", () -> determineVerificationCommand(cm));
+        return cm.submitBackgroundTask("Determine build verification command", () -> determineVerificationCommand(cm.liveContext()));
     }
 
     /**
@@ -726,6 +721,7 @@ public class BuildAgent {
      * <p>Returns empty string on success (or when no command is configured), otherwise the raw combined error/output
      * text.
      */
+    @Blocking
     public static String runVerification(IContextManager cm) throws InterruptedException {
         var interrupted = new AtomicReference<InterruptedException>(null);
         var updated = cm.pushContext(ctx -> {
@@ -749,6 +745,7 @@ public class BuildAgent {
      * Context-based overload that performs build/check and returns an updated Context with the build results. No pushes
      * are performed here; callers decide when to persist.
      */
+    @Blocking
     public static Context runVerification(Context ctx) throws InterruptedException {
         var cm = ctx.getContextManager();
         var io = cm.getIo();

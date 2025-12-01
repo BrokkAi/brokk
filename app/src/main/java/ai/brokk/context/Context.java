@@ -199,6 +199,7 @@ public class Context {
      * @param toAdd the collection of fragments to add
      * @return the updated Context
      */
+    @Blocking
     public Context addFragments(Collection<? extends ContextFragment> toAdd) {
         if (toAdd.isEmpty()) {
             return this;

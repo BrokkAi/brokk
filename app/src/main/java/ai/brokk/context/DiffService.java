@@ -129,6 +129,7 @@ public final class DiffService {
      * Compute per-fragment diffs between curr (new/right) and other (old/left) contexts.
      * Triggers async computations and awaits their completion.
      */
+    @Blocking
     public static List<Context.DiffEntry> computeDiff(Context curr, Context other) {
         try {
             var diffFutures = curr.getEditableFragments()
