@@ -154,7 +154,10 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     public CompletableFuture<Void> setMainThenHistoryAsync(
             List<? extends ChatMessage> mainMessages, List<TaskEntry> history) {
         setMainIfChanged(mainMessages);
-        return flushAsync().thenRun(() -> SwingUtilities.invokeLater(() -> setHistoryIfChanged(history)));
+        return flushAsync().thenRun(() -> {
+            logger.debug("MOP: applying history after main flush ({} entries)", history.size());
+            setHistoryIfChanged(history);
+        });
     }
 
     /** Convenience overload to accept a TaskEntry as the main content. */
@@ -163,17 +166,22 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         List<? extends ChatMessage> mainMessages = main.hasLog()
                 ? castNonNull(main.log()).messages()
                 : List.of(Messages.customSystem(Objects.toString(main.summary(), "Summary not available")));
-        
-        // Send main messages first (which triggers clear on frontend), then send live summary after flush
-        // This ensures the summary is associated with the correct live threadId (post-clear)
+
+        // Send main messages first (which triggers clear on frontend). After the flush, apply history in-order,
+        // then send live summary so it cannot be cleared by a subsequent history-reset on the frontend.
         var summary = main.summary();
         CompletableFuture<Void> result = setMainThenHistoryAsync(mainMessages, history);
-        
+
         if (summary != null && !summary.isEmpty()) {
-            // Send live summary after main messages have been flushed to the frontend
-            result = result.thenRun(() -> webHost.sendLiveSummary(main.sequence(), main.isCompressed(), summary));
+            // Send live summary strictly after history is applied
+            result = result.thenRun(() -> {
+                logger.debug(
+                        "MOP: sending live-summary after history; seq={} compressed={} len={}",
+                        main.sequence(), main.isCompressed(), summary.length());
+                webHost.sendLiveSummary(main.sequence(), main.isCompressed(), summary);
+            });
         }
-        
+
         return result;
     }
 
