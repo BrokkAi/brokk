@@ -625,13 +625,13 @@ public interface ContextFragment {
 
         private ProjectPathFragment(
                 ProjectFile file, String id, IContextManager contextManager, @Nullable String snapshotText) {
+            this.file = file;
             super(
                     id,
                     contextManager,
-                    snapshotText != null
-                            ? decodeFrozen(file, contextManager, snapshotText.getBytes(StandardCharsets.UTF_8))
-                            : null);
-            this.file = file;
+                    snapshotText == null
+                            ? null
+                            : decodeFrozen(file, contextManager, snapshotText.getBytes(StandardCharsets.UTF_8)));
         }
 
         @Override
@@ -831,11 +831,11 @@ public interface ContextFragment {
 
         private ExternalPathFragment(
                 ExternalFile file, String id, IContextManager contextManager, @Nullable String snapshotText) {
+            this.file = file;
             super(
                     id,
                     contextManager,
                     snapshotText != null ? decodeFrozen(file, snapshotText.getBytes(StandardCharsets.UTF_8)) : null);
-            this.file = file;
         }
 
         @Override
@@ -886,8 +886,8 @@ public interface ContextFragment {
         }
 
         private ImageFileFragment(BrokkFile file, String id, IContextManager contextManager) {
-            super(id, contextManager);
             this.file = file;
+            super(id, contextManager);
         }
 
         public static ImageFileFragment withId(BrokkFile file, String existingId, IContextManager contextManager) {
@@ -1098,10 +1098,10 @@ public interface ContextFragment {
                 String text,
                 Future<String> descriptionFuture,
                 Future<String> syntaxStyleFuture) {
-            super(id, contextManager);
             this.text = text;
             this.descriptionFuture = descriptionFuture;
             this.syntaxStyleFuture = syntaxStyleFuture;
+            super(id, contextManager);
         }
 
         @Override
@@ -1165,9 +1165,9 @@ public interface ContextFragment {
 
         public AnonymousImageFragment(
                 String id, IContextManager contextManager, Image image, Future<String> descriptionFuture) {
-            super(id, contextManager);
             this.image = image;
             this.descriptionFuture = descriptionFuture;
+            super(id, contextManager);
         }
 
         @Nullable
@@ -1258,6 +1258,9 @@ public interface ContextFragment {
                 String original,
                 String exception,
                 String code) {
+            this.original = original;
+            this.exception = exception;
+            this.code = code;
             super(
                     id,
                     contextManager,
@@ -1271,9 +1274,6 @@ public interface ContextFragment {
                             sources,
                             sources.stream().map(CodeUnit::source).collect(Collectors.toSet()),
                             (List<Byte>) null));
-            this.original = original;
-            this.exception = exception;
-            this.code = code;
         }
 
         @Override
@@ -1334,14 +1334,14 @@ public interface ContextFragment {
                 String targetIdentifier,
                 boolean includeTestFiles,
                 @Nullable String snapshotText) {
+            this.targetIdentifier = targetIdentifier;
+            this.includeTestFiles = includeTestFiles;
             super(
                     id,
                     contextManager,
                     snapshotText != null
                             ? decodeFrozen(targetIdentifier, snapshotText.getBytes(StandardCharsets.UTF_8))
                             : null);
-            this.targetIdentifier = targetIdentifier;
-            this.includeTestFiles = includeTestFiles;
         }
 
         private static FragmentSnapshot decodeFrozen(String targetIdentifier, byte[] bytes) {
@@ -1443,6 +1443,7 @@ public interface ContextFragment {
 
         public CodeFragment(
                 String id, IContextManager contextManager, String fullyQualifiedName, @Nullable String snapshotText) {
+            this.fullyQualifiedName = fullyQualifiedName;
             super(
                     id,
                     contextManager,
@@ -1452,7 +1453,6 @@ public interface ContextFragment {
                                     snapshotText.getBytes(StandardCharsets.UTF_8),
                                     contextManager.getAnalyzerUninterrupted())
                             : null);
-            this.fullyQualifiedName = fullyQualifiedName;
         }
 
         private static FragmentSnapshot decodeFrozen(String fullyQualifiedName, byte[] bytes, IAnalyzer analyzer) {
@@ -1477,9 +1477,9 @@ public interface ContextFragment {
         }
 
         public CodeFragment(IContextManager contextManager, CodeUnit unit) {
-            super(String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
             this.fullyQualifiedName = unit.fqName();
             this.preResolvedUnit = unit;
+            super(String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
         }
 
         @Override
@@ -1557,10 +1557,10 @@ public interface ContextFragment {
 
         public CallGraphFragment(
                 String id, IContextManager contextManager, String methodName, int depth, boolean isCalleeGraph) {
-            super(id, contextManager);
             this.methodName = methodName;
             this.depth = depth;
             this.isCalleeGraph = isCalleeGraph;
+            super(id, contextManager);
         }
 
         @Override
@@ -1709,9 +1709,9 @@ public interface ContextFragment {
 
         public SummaryFragment(
                 String id, IContextManager contextManager, String targetIdentifier, SummaryType summaryType) {
-            super(id, contextManager);
             this.targetIdentifier = targetIdentifier;
             this.summaryType = summaryType;
+            super(id, contextManager);
         }
 
         @Override
@@ -1835,6 +1835,7 @@ public interface ContextFragment {
         }
 
         public HistoryFragment(String id, IContextManager contextManager, List<TaskEntry> history) {
+            this.history = List.copyOf(history);
             super(
                     id,
                     contextManager,
@@ -1847,7 +1848,6 @@ public interface ContextFragment {
                                             : castNonNull(e.log()).messages().stream())
                                     .toList()),
                             SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
-            this.history = List.copyOf(history);
         }
 
         @Override
@@ -1909,6 +1909,8 @@ public interface ContextFragment {
                 List<ChatMessage> messages,
                 String description,
                 boolean escapeHtml) {
+            this.messages = List.copyOf(messages);
+            this.escapeHtml = escapeHtml;
             super(
                     id,
                     contextManager,
@@ -1917,8 +1919,6 @@ public interface ContextFragment {
                             description,
                             TaskEntry.formatMessages(messages),
                             SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
-            this.messages = List.copyOf(messages);
-            this.escapeHtml = escapeHtml;
         }
 
         @Override

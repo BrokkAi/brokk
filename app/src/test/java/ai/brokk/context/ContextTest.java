@@ -72,7 +72,7 @@ class ContextTest {
 
         // Dedup: only one path fragment
         assertEquals(1, ctx.fileFragments().count(), "Duplicate path fragments should be deduped");
-        assertTrue(ctx.getAction().startsWith("Edit "), "Action should summarize edit");
+        assertTrue(ctx.getAction().startsWith("Added "), ctx.getAction());
     }
 
     @Test
