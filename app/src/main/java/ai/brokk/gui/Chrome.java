@@ -3226,9 +3226,12 @@ public class Chrome
             applyAdvancedModeToInstructionsSafely(advanced);
 
             // Ensure the small header above the right tab stack is updated immediately.
+            // Keep the branch selector header visible whenever the project has Git,
+            // regardless of EZ/Advanced mode.
             try {
                 if (rightTabbedHeader != null) {
-                    rightTabbedHeader.setVisible(advanced);
+                    boolean showHeader = getProject().hasGit();
+                    rightTabbedHeader.setVisible(showHeader);
                     if (rightTabbedContainer != null) {
                         rightTabbedContainer.revalidate();
                         rightTabbedContainer.repaint();
@@ -3415,10 +3418,12 @@ public class Chrome
             rightTabbedPanel.revalidate();
             rightTabbedPanel.repaint();
 
-            // Show/hide the small header above the right tab stack (e.g. branch selector)
+            // Show/hide the small header above the right tab stack (e.g. branch selector).
+            // Keep it visible whenever the project has Git, regardless of EZ/Advanced mode.
             try {
                 if (rightTabbedHeader != null) {
-                    rightTabbedHeader.setVisible(advanced);
+                    boolean showHeader = getProject().hasGit();
+                    rightTabbedHeader.setVisible(showHeader);
                     if (rightTabbedContainer != null) {
                         rightTabbedContainer.revalidate();
                         rightTabbedContainer.repaint();
