@@ -164,13 +164,17 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
                 ? castNonNull(main.log()).messages()
                 : List.of(Messages.customSystem(Objects.toString(main.summary(), "Summary not available")));
         
-        // Send live summary to frontend if available (enables summary toggle in live area)
+        // Send main messages first (which triggers clear on frontend), then send live summary after flush
+        // This ensures the summary is associated with the correct live threadId (post-clear)
         var summary = main.summary();
+        CompletableFuture<Void> result = setMainThenHistoryAsync(mainMessages, history);
+        
         if (summary != null && !summary.isEmpty()) {
-            webHost.sendLiveSummary(main.sequence(), main.isCompressed(), summary);
+            // Send live summary after main messages have been flushed to the frontend
+            result = result.thenRun(() -> webHost.sendLiveSummary(main.sequence(), main.isCompressed(), summary));
         }
         
-        return setMainThenHistoryAsync(mainMessages, history);
+        return result;
     }
 
     public void clear() {

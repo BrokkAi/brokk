@@ -137,8 +137,6 @@ function onLiveSummary(payload: any): void {
     // Get the current live thread's threadId directly (doesn't depend on bubbles existing)
     const threadId = getCurrentLiveThreadId();
 
-    mainLog.debug('live-summary: taskSequence=%d, threadId=%d, compressed=%s', taskSequence, threadId, compressed);
-
     // Clear any previous summary entry for this threadId
     const prevEntry = getSummaryParseEntry(threadId);
     if (prevEntry && isRegistered(prevEntry.seq)) {
