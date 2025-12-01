@@ -8,6 +8,9 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.IProject;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import java.io.IOException;
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
@@ -1354,33 +1357,91 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
                     file, header + resultLine, fileExists ? StandardOpenOption.APPEND : StandardOpenOption.CREATE);
         }
 
-        void saveToFile(Path file) throws IOException {
-            var resultsJson =
-                    results.entrySet().stream().map(this::formatProjectJson).collect(Collectors.joining(",\n"));
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        private static final class LangMetrics {
+            public int files_processed;
+            public int total_matched_files;
+            public int declarations_found;
+            public long file_discovery_time_ms;
+            public long analysis_time_ms;
+            public double analysis_time_seconds;
+            public long total_time_ms;
+            public double memory_delta_mb;
+            public double peak_memory_mb;
+            public double memory_per_file_kb;
+            public double files_per_second;
+            public long gc_collections;
+            public long gc_time_ms;
+            public boolean failed;
+            public @Nullable String failure_reason;
+        }
 
-            var json = String.format(
-                    Locale.ROOT,
-                    """
-                    {
-                      "timestamp": "%s",
-                      "jvm_settings": {
-                        "heap_max": "%dMB",
-                        "processors": %d
-                      },
-                      "results": {
-                    %s
-                      },
-                      "failures": [
-                    %s
-                      ]
-                    }
-                    """,
-                    LocalDateTime.now(),
-                    Runtime.getRuntime().maxMemory() / (1024 * 1024),
-                    Runtime.getRuntime().availableProcessors(),
-                    resultsJson,
-                    formatFailuresJson());
-            Files.writeString(file, json);
+        private static final class JvmSettings {
+            public String heap_max;
+            public int processors;
+        }
+
+        private static final class Report {
+            public String timestamp;
+            public JvmSettings jvm_settings;
+            public Map<String, Map<String, LangMetrics>> results;
+            public List<String> failures;
+        }
+
+        void saveToFile(Path file) throws IOException {
+            // Build the report object in a type-safe manner
+            var report = new Report();
+            report.timestamp = LocalDateTime.now().toString();
+
+            var js = new JvmSettings();
+            js.heap_max = (Runtime.getRuntime().maxMemory() / (1024 * 1024)) + "MB";
+            js.processors = Runtime.getRuntime().availableProcessors();
+            report.jvm_settings = js;
+
+            // results: project -> language(internalName) -> metrics
+            Map<String, Map<String, LangMetrics>> outResults = new LinkedHashMap<>();
+            for (var projectEntry : results.entrySet()) {
+                String projectName = projectEntry.getKey();
+                Map<String, LangMetrics> langMapOut = new LinkedHashMap<>();
+                for (var langEntry : projectEntry.getValue().entrySet()) {
+                    Language lang = langEntry.getKey();
+                    BaselineResult r = langEntry.getValue();
+
+                    var m = new LangMetrics();
+                    m.files_processed = r.filesProcessed;
+                    m.total_matched_files = r.totalMatched;
+                    m.declarations_found = r.declarationsFound;
+                    m.file_discovery_time_ms = r.discoveryTime.toMillis();
+                    m.analysis_time_ms = r.duration.toMillis();
+                    m.analysis_time_seconds = r.duration.toMillis() / 1000.0;
+                    m.total_time_ms = r.discoveryTime.toMillis() + r.duration.toMillis();
+                    m.memory_delta_mb = r.memoryDeltaMB;
+                    m.peak_memory_mb = r.peakMemoryMB;
+                    m.memory_per_file_kb = r.filesProcessed > 0 ? (r.peakMemoryMB * 1024.0 / r.filesProcessed) : 0.0;
+                    m.files_per_second =
+                            r.duration.toMillis() > 0 ? (r.filesProcessed / (r.duration.toMillis() / 1000.0)) : 0.0;
+                    m.gc_collections = r.gcCollections;
+                    m.gc_time_ms = r.gcTimeMs;
+                    m.failed = r.failed;
+                    m.failure_reason = r.failureReason;
+
+                    langMapOut.put(lang.internalName(), m);
+                }
+                outResults.put(projectName, langMapOut);
+            }
+            report.results = outResults;
+
+            report.failures = List.copyOf(failures);
+
+            // Ensure parent directory exists and write JSON using Jackson
+            var parent = file.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            var mapper = new ObjectMapper();
+            mapper.enable(SerializationFeature.INDENT_OUTPUT);
+            mapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
+            mapper.writeValue(file.toFile(), report);
         }
 
         private String formatProjectJson(Map.Entry<String, Map<Language, BaselineResult>> projectEntry) {
