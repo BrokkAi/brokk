@@ -455,7 +455,7 @@ public class CodeAgent {
                         TaskResult.StopReason.PARSE_ERROR, "Parse error limit reached; ending task."));
             }
 
-            var nextCs = new ConversationState(cs.taskMessages(), messageForRetry, cs.turnStartIndex());
+            var nextCs = cs.withNextRequest(messageForRetry);
             // Add any newly parsed blocks before the error to the pending list for the next apply phase
             var nextPending = new ArrayList<>(es.pendingBlocks());
             nextPending.addAll(newlyParsedBlocks);
@@ -490,7 +490,7 @@ public class CodeAgent {
                 consoleLogForRetry = "LLM indicated response was partial after %d clean blocks; asking to continue"
                         .formatted(newlyParsedBlocks.size());
             }
-            var nextCs = new ConversationState(cs.taskMessages(), messageForRetry, cs.turnStartIndex());
+            var nextCs = cs.withNextRequest(messageForRetry);
             var nextEs = es.withPendingBlocks(mutablePendingBlocks, updatedConsecutiveParseFailures);
             report(consoleLogForRetry);
             return new Step.Retry(nextCs, nextEs);
@@ -635,7 +635,7 @@ public class CodeAgent {
         cs.taskMessages().add(streamingResultFromLlm.aiMessage());
 
         // Null out nextRequest after use (Task 3)
-        var nextCs = new ConversationState(cs.taskMessages(), null, cs.turnStartIndex());
+        var nextCs = cs.withNextRequest(null);
         return new Step.Continue(nextCs, es);
     }
 
@@ -820,7 +820,7 @@ public class CodeAgent {
                     }
                     String retryPromptText = CodePrompts.getApplyFailureMessage(failedBlocks, succeededCount);
                     UserMessage retryRequest = new UserMessage(retryPromptText);
-                    csForStep = new ConversationState(cs.taskMessages(), retryRequest, cs.turnStartIndex());
+                    csForStep = cs.withNextRequest(retryRequest);
                     esForStep = es.afterApply(
                             nextPendingBlocks,
                             updatedConsecutiveApplyFailures,
@@ -1189,10 +1189,10 @@ public class CodeAgent {
             int turnStartIndex,
             String originalGoal) {
 
-        /** Convenience constructor for when originalGoal isn't yet known (backward compat). */
-        ConversationState(List<ChatMessage> taskMessages, @Nullable UserMessage nextRequest, int turnStartIndex) {
-            this(taskMessages, nextRequest, turnStartIndex, "");
+        ConversationState withNextRequest(@Nullable UserMessage request) {
+            return new ConversationState(taskMessages, request, turnStartIndex, originalGoal);
         }
+
         /**
          * Compact the conversation for build-retry: extract all reasoning/redacted content from AI messages
          * and return a minimal conversation of [originalGoal, accumulated reasoning].
@@ -1241,7 +1241,7 @@ public class CodeAgent {
                 logger.warn("Invalid turnStartIndex {}; cannot replace current turn messages safely.", turnStartIndex);
                 // Fall back: just append a synthetic message (should never happen in practice)
                 msgs.add(new AiMessage(summaryText));
-                return new ConversationState(msgs, nextRequest, msgs.size());
+                return new ConversationState(msgs, nextRequest, msgs.size(), originalGoal);
             }
 
             var startMsg = msgs.get(turnStartIndex);

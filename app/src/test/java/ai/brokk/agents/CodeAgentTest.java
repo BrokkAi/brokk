@@ -108,7 +108,7 @@ class CodeAgentTest {
 
     protected CodeAgent.ConversationState createConversationState(
             List<ChatMessage> taskMessages, UserMessage nextRequest) {
-        return new CodeAgent.ConversationState(new ArrayList<>(taskMessages), nextRequest, taskMessages.size());
+        return new CodeAgent.ConversationState(new ArrayList<>(taskMessages), nextRequest, taskMessages.size(), "");
     }
 
     private CodeAgent.EditState createEditState(
@@ -199,7 +199,7 @@ class CodeAgentTest {
         taskMessages.add(originalRequest);
         taskMessages.add(badAiResponse);
 
-        var cs = new CodeAgent.ConversationState(taskMessages, new UserMessage("placeholder"), taskMessages.size());
+        var cs = new CodeAgent.ConversationState(taskMessages, new UserMessage("placeholder"), taskMessages.size(), "");
         var es = createEditState(List.of(), 0);
 
         // Act
@@ -785,7 +785,7 @@ class CodeAgentTest {
         msgs.add(new UserMessage("retry prompt"));
         msgs.add(new AiMessage("partial response 2"));
 
-        var cs = new CodeAgent.ConversationState(msgs, new UserMessage("next request"), turnStart);
+        var cs = new CodeAgent.ConversationState(msgs, new UserMessage("next request"), turnStart, "");
         var summary = "Here are the SEARCH/REPLACE blocks:\n\n<summary>";
         var replaced = cs.replaceCurrentTurnMessages(summary);
 

@@ -40,7 +40,7 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
                 """.stripIndent());
 
         // Minimal conversation and edit state; use raw generics to avoid direct ChatMessage dependency.
-        var cs = new CodeAgent.ConversationState(List.of(), null, 0);
+        var cs = new CodeAgent.ConversationState(List.of(), null, 0, "");
 
         var es = new CodeAgent.EditState(
                 List.of(badSemanticBlock), // pendingBlocks
@@ -114,7 +114,7 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
                 """
                         .stripIndent());
 
-        var cs = new CodeAgent.ConversationState(new ArrayList<>(), null, 0);
+        var cs = new CodeAgent.ConversationState(new ArrayList<>(), null, 0, "");
         var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 0, "", Set.of(), Map.of(), Map.of(), false);
 
         // parsePhase
