@@ -1633,7 +1633,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         otherModelsVendorHolder = new JPanel(new BorderLayout(0, 0));
         otherModelsVendorHolder.add(otherModelsVendorCombo, BorderLayout.CENTER);
 
-        // Build dynamic tooltip with current Default model names from MainProject's code-defined defaults
         String defaultQuick = MainProject.getDefaultQuickModelConfig().name();
         String defaultQuickEdit = MainProject.getDefaultQuickEditModelConfig().name();
         String defaultQuickest = MainProject.getDefaultQuickestModelConfig().name();
@@ -1643,7 +1642,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 + "Selecting a vendor sets Quick, Quick Edit, Quickest, and Scan to vendor defaults.<br/><br/>"
                 + "<b>OpenAI:</b> Quick=gpt-5-nano; Quick Edit=gpt-5-nano; Quickest=gpt-5-nano; Scan=gpt-5-mini<br/>"
                 + "<b>Anthropic:</b> Quick=claude-haiku-4-5; Quick Edit=claude-haiku-4-5; Quickest=claude-haiku-4-5; Scan=claude-haiku-4-5<br/>"
-                + "<b>Default:</b> Quick=" + defaultQuick + "; Quick Edit=" + defaultQuickEdit + "; Quickest=" + defaultQuickest
+                + "<b>Default:</b> Quick=" + defaultQuick
+                + "; Quick Edit=" + defaultQuickEdit
+                + "; Quickest=" + defaultQuickest
                 + "; Scan=" + defaultScan
                 + "</div></html>";
 
