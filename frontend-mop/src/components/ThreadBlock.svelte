@@ -1,7 +1,6 @@
 <script lang="ts">
     import type { BubbleState } from '../types';
     import { threadStore } from '../stores/threadStore';
-    import { summaryViewStore } from '../stores/summaryViewStore';
     import { summaryStore } from '../stores/summaryStore';
     import { getBubbleDisplayDefaults } from '../lib/bubble-utils';
     import { deleteHistoryTaskByThreadId } from '../stores/historyStore';
@@ -23,10 +22,21 @@
     $: collapsed = $threadStore[threadId] ?? false;
     // Determine if we should show summary view
     $: hasSummaryContent = compressed && !!summary;
-    $: userSelectedSummary = $summaryViewStore[threadId] === 'summary';
+
+    // Local view mode for this thread: 'messages' | 'summary'
+    let viewMode: 'messages' | 'summary' = 'messages';
+    let _viewInitialized = false;
+    $: {
+        // Initialize default only once: prefer messages if present; otherwise fall back to summary-only (legacy)
+        if (!_viewInitialized) {
+            viewMode = hasSummaryContent && !hasMessages ? 'summary' : 'messages';
+            _viewInitialized = true;
+        }
+    }
+
     $: isLegacySummaryOnly = hasSummaryContent && !hasMessages;
     // Show summary if user selected it, OR if this is a legacy summary-only task (no messages to show)
-    $: showSummary = hasSummaryContent && (userSelectedSummary || isLegacySummaryOnly);
+    $: showSummary = hasSummaryContent && ((viewMode === 'summary') || isLegacySummaryOnly);
 
 
     // All bubbles are message bubbles (summary is on the task, not in entries)
@@ -78,7 +88,7 @@
     }
 
     function setSummaryViewMode(mode: 'messages' | 'summary') {
-        summaryViewStore.setViewMode(threadId, mode);
+        viewMode = mode;
     }
 
     function handleDelete(threadIdParam: number) {

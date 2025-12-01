@@ -11,12 +11,14 @@
   import EmptyState from './components/EmptyState.svelte';
   import { get } from 'svelte/store';
   import { threadStore } from './stores/threadStore';
-  import { historyCollapsedStore } from './stores/historyCollapsedStore';
   import Icon from '@iconify/svelte';
   import { summaryStore } from './stores/summaryStore';
   import { getCurrentLiveThreadId } from './stores/bubblesStore';
 
   export let bubblesStore: Writable<BubbleState[]>;
+
+  // Local collapsed state for the history section
+  let historyCollapsed = true;
 
   let stopAutoScroll: (() => void) | null = null;
 
@@ -64,7 +66,7 @@
 
   // Toggle handlers for collapse control
   function toggleHistoryCollapsed() {
-    historyCollapsedStore.update(v => !v);
+    historyCollapsed = !historyCollapsed;
   }
 
   function onToggleKeydown(e: KeyboardEvent) {
@@ -77,7 +79,7 @@
   function onSummaryKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      historyCollapsedStore.set(false);
+      historyCollapsed = false;
     }
   }
 </script>
@@ -209,7 +211,7 @@
   {#if hasHistory || hasLive}
     <!-- History tasks (expanded) OR a single-line summary (collapsed) -->
     {#if hasHistory}
-      {#if !$historyCollapsedStore}
+      {#if !historyCollapsed}
         {#each $historyStore as task (task.threadId)}
           {#if task.entries.length > 0 || task.summary}
             <ThreadBlock taskSequence={task.taskSequence} threadId={task.threadId} bubbles={task.entries} compressed={task.compressed} summary={task.summary} />
@@ -221,7 +223,7 @@
           role="button"
           tabindex="0"
           aria-label="Expand history"
-          on:click={() => historyCollapsedStore.set(false)}
+          on:click={() => historyCollapsed = false}
           on:keydown={onSummaryKeydown}
         >
           <Icon icon="mdi:chevron-right" style="color: var(--chat-text);" />
@@ -239,12 +241,12 @@
           class="history-toggle"
           role="button"
           tabindex="0"
-          aria-label={$historyCollapsedStore ? 'Expand history' : 'Collapse history'}
-          aria-pressed={!$historyCollapsedStore}
+          aria-label={historyCollapsed ? 'Expand history' : 'Collapse history'}
+          aria-pressed={!historyCollapsed}
           on:click={toggleHistoryCollapsed}
           on:keydown={onToggleKeydown}
         >
-          <Icon icon={$historyCollapsedStore ? 'mdi:chevron-right' : 'mdi:chevron-down'} style="color: var(--chat-text);" />
+          <Icon icon={historyCollapsed ? 'mdi:chevron-right' : 'mdi:chevron-down'} style="color: var(--chat-text);" />
         </div>
         <div class="line"></div>
       </div>
