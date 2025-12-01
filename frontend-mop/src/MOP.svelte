@@ -51,13 +51,19 @@
   });
 
   // Derived UI helpers for rendering
-  $: hasHistory = $historyStore.some(t => t.entries.length > 0);
-  $: hasLive = $bubblesStore.length > 0;
-  $: historyTaskCount = $historyStore.filter(t => t.entries.length > 0).length;
+  $: hasHistory = $historyStore.some(t => t.entries.length > 0 || t.summary);
+  $: historyTaskCount = $historyStore.filter(t => t.entries.length > 0 || t.summary).length;
 
-  // Live summary lookup: derive compressed and summary for the current live thread
-  $: liveThreadId = hasLive ? $bubblesStore[0].threadId : undefined;
+  // Live view: check for bubbles and/or legacy summaries
+  $: hasLiveBubbles = $bubblesStore.length > 0;
+  $: liveThreadIdFromBubbles = hasLiveBubbles ? $bubblesStore[0].threadId : undefined;
+  $: liveThreadIdFromSummary = Object.keys($liveSummaryStore).length > 0 
+      ? Number(Object.keys($liveSummaryStore)[0]) 
+      : undefined;
+  $: liveThreadId = liveThreadIdFromBubbles ?? liveThreadIdFromSummary;
   $: liveSummary = liveThreadId !== undefined ? $liveSummaryStore[liveThreadId] : undefined;
+  $: hasLiveSummaryOnly = !hasLiveBubbles && liveSummary?.compressed && !!liveSummary?.summary;
+  $: hasLive = hasLiveBubbles || hasLiveSummaryOnly;
 
   // Toggle handlers for collapse control
   function toggleHistoryCollapsed() {
@@ -208,7 +214,7 @@
     {#if hasHistory}
       {#if !$historyCollapsedStore}
         {#each $historyStore as task (task.threadId)}
-          {#if task.entries.length > 0}
+          {#if task.entries.length > 0 || task.summary}
             <ThreadBlock taskSequence={task.taskSequence} threadId={task.threadId} bubbles={task.entries} compressed={task.compressed} summary={task.summary} />
           {/if}
         {/each}
@@ -248,9 +254,9 @@
     {/if}
 
     <!-- Live bubbles -->
-    {#if hasLive}
+    {#if hasLive && liveThreadId !== undefined}
       <ThreadBlock
-        threadId={$bubblesStore[0].threadId}
+        threadId={liveThreadId}
         bubbles={$bubblesStore}
         compressed={liveSummary?.compressed}
         summary={liveSummary?.summary}

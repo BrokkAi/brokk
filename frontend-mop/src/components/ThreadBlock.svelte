@@ -21,12 +21,18 @@
 
     // Stores-derived state
     $: collapsed = $threadStore[threadId] ?? false;
-    $: showSummary = compressed && !!summary && $summaryViewStore[threadId] === 'summary';
+    // Determine if we should show summary view
+    $: hasSummaryContent = compressed && !!summary;
+    $: userSelectedSummary = $summaryViewStore[threadId] === 'summary';
+    $: isLegacySummaryOnly = hasSummaryContent && !hasMessages;
+    // Show summary if user selected it, OR if this is a legacy summary-only task (no messages to show)
+    $: showSummary = hasSummaryContent && (userSelectedSummary || isLegacySummaryOnly);
 
     // All bubbles are message bubbles (summary is on the task, not in entries)
     $: messageBubbles = bubbles;
     $: firstMessageBubble = messageBubbles[0];
     $: remainingMessageBubbles = messageBubbles.slice(1);
+    $: hasMessages = bubbles.length > 0;
 
     // Header tag/label
     $: defaults = getBubbleDisplayDefaults(firstMessageBubble?.type ?? 'USER');
@@ -124,6 +130,7 @@
         taskSequence={taskSequence}
         allowDelete={allowDelete}
         showSummary={showSummary}
+        hasMessages={hasMessages}
         onToggleCollapse={toggle}
         onSetViewMode={setSummaryViewMode}
         onCopy={handleCopy}
@@ -147,6 +154,7 @@
             showEdits={showEdits}
             msgLabel={msgLabel}
             totalLines={totalLinesAll}
+            hasMessages={hasMessages}
             onToggleCollapse={toggle}
             onSetViewMode={setSummaryViewMode}
             onCopy={handleCopy}

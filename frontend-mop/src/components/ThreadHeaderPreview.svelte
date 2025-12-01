@@ -28,6 +28,7 @@
   export let onSetViewMode: ((mode: 'messages' | 'summary') => void) | undefined;
   export let onCopy: () => void;
   export let onDelete: (threadId: number) => void;
+  export let hasMessages: boolean = true;
 
   function handleToggle() {
     onToggleCollapse?.();
@@ -71,6 +72,7 @@
       allowDelete={allowDelete}
       compressed={compressed}
       showSummaryOnly={showSummary}
+      hasMessages={hasMessages}
       onCopy={onCopy}
       onDelete={onDelete}
       onSetViewMode={onSetViewMode}
