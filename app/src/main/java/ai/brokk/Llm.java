@@ -1387,6 +1387,7 @@ public class Llm {
             var formattedRequest = "# Request to %s:\n\n%s\n"
                     .formatted(contextManager.getService().nameOf(model), TaskEntry.formatMessages(request.messages()));
             var formattedTools = request.toolSpecifications() == null
+                            || request.toolSpecifications().isEmpty()
                     ? ""
                     : "# Tools:\n\n"
                             + request.toolSpecifications().stream()
@@ -1444,7 +1445,7 @@ public class Llm {
                 if (pricing.bands().isEmpty()) {
                     message = "Cost unknown for %s (%s)".formatted(modelName, tokenSummary);
                 } else {
-                    double cost = pricing.estimateCost(uncached, cached, output);
+                    double cost = pricing.getCostFor(uncached, cached, output);
                     DecimalFormat df = (DecimalFormat) NumberFormat.getNumberInstance(Locale.US);
                     df.applyPattern("#,##0.0000");
                     String costStr = df.format(cost);

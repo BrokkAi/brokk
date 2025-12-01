@@ -144,6 +144,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     // Advanced mode (General tab)
     private JCheckBox advancedModeCheckbox = new JCheckBox("Enable Advanced Mode (show all UI)");
+    private JCheckBox skipCommitGateEzCheckbox = new JCheckBox("Skip commit gate in EZ mode");
 
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
@@ -238,6 +239,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Advanced Mode
         advancedModeCheckbox.setSelected(GlobalUiSettings.isAdvancedMode());
+
+        // EZ-mode skip commit gate
+        skipCommitGateEzCheckbox.setSelected(GlobalUiSettings.isSkipCommitGateInEzMode());
+        skipCommitGateEzCheckbox.setVisible(!GlobalUiSettings.isAdvancedMode());
     }
 
     private void populateServiceTab(SettingsData data) {
@@ -1022,6 +1027,23 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         panel.add(advancedModeCheckbox, gbc);
+
+        skipCommitGateEzCheckbox.setToolTipText(
+                "When EZ mode is enabled, skip the commit confirmation gate before applying changes.");
+        skipCommitGateEzCheckbox.setVisible(!GlobalUiSettings.isAdvancedMode());
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(skipCommitGateEzCheckbox, gbc);
+
+        advancedModeCheckbox.addActionListener(e -> {
+            boolean advanced = advancedModeCheckbox.isSelected();
+            skipCommitGateEzCheckbox.setVisible(!advanced);
+            panel.revalidate();
+            panel.repaint();
+        });
+
         gbc.insets = new Insets(2, 5, 2, 5);
 
         // Filler
@@ -1611,22 +1633,19 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         otherModelsVendorHolder = new JPanel(new BorderLayout(0, 0));
         otherModelsVendorHolder.add(otherModelsVendorCombo, BorderLayout.CENTER);
 
-        // Build dynamic tooltip with current Default model names
-        String quickName =
-                chrome.getProject().getMainProject().getQuickModelConfig().name();
-        String quickEditName =
-                chrome.getProject().getMainProject().getQuickEditModelConfig().name();
-        String quickestName =
-                chrome.getProject().getMainProject().getQuickestModelConfig().name();
-        String scanName =
-                chrome.getProject().getMainProject().getScanModelConfig().name();
+        String defaultQuick = MainProject.getDefaultQuickModelConfig().name();
+        String defaultQuickEdit = MainProject.getDefaultQuickEditModelConfig().name();
+        String defaultQuickest = MainProject.getDefaultQuickestModelConfig().name();
+        String defaultScan = MainProject.getDefaultScanModelConfig().name();
 
         String vendorTooltip = "<html><div style='width: 340px;'>"
                 + "Selecting a vendor sets Quick, Quick Edit, Quickest, and Scan to vendor defaults.<br/><br/>"
                 + "<b>OpenAI:</b> Quick=gpt-5-nano; Quick Edit=gpt-5-nano; Quickest=gpt-5-nano; Scan=gpt-5-mini<br/>"
                 + "<b>Anthropic:</b> Quick=claude-haiku-4-5; Quick Edit=claude-haiku-4-5; Quickest=claude-haiku-4-5; Scan=claude-haiku-4-5<br/>"
-                + "<b>Default:</b> Quick=" + quickName + "; Quick Edit=" + quickEditName + "; Quickest=" + quickestName
-                + "; Scan=" + scanName
+                + "<b>Default:</b> Quick=" + defaultQuick
+                + "; Quick Edit=" + defaultQuickEdit
+                + "; Quickest=" + defaultQuickest
+                + "; Scan=" + defaultScan
                 + "</div></html>";
 
         var vendorHelpButton = new MaterialButton();
@@ -2050,6 +2069,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 generalSettings,
                 modelSettings);
         GlobalUiSettings.saveAllUiSettings(notificationSettings, uiPreferences);
+        GlobalUiSettings.saveSkipCommitGateInEzMode(skipCommitGateEzCheckbox.isSelected());
 
         // Persist force tool emulation immediately so runtime behavior reflects the user's choice.
         MainProject.setForceToolEmulation(forceToolEmulation);
@@ -2132,8 +2152,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             chrome.getProject().getMainProject().setQuickEditModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
             chrome.getProject().getMainProject().setQuickestModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
             chrome.getProject().getMainProject().setScanModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
+        } else if ("Default".equals(selectedVendor)) {
+            var mp = chrome.getProject().getMainProject();
+            mp.setQuickModelConfig(MainProject.getDefaultQuickModelConfig());
+            mp.setQuickEditModelConfig(MainProject.getDefaultQuickEditModelConfig());
+            mp.setQuickestModelConfig(MainProject.getDefaultQuickestModelConfig());
+            mp.setScanModelConfig(MainProject.getDefaultScanModelConfig());
         }
-        // For "Default" (or any other value), do not rewrite model configs; only the preference above is saved
 
         logger.debug("Applied all settings successfully (2 atomic writes)");
         return true;

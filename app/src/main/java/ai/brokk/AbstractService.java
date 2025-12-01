@@ -147,7 +147,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
                     .orElse(bands.getLast()); // fallback to last band if no match
         }
 
-        public double estimateCost(long uncachedInputTokens, long cachedTokens, long outputTokens) {
+        public double getCostFor(long uncachedInputTokens, long cachedTokens, long outputTokens) {
             var promptTokens = uncachedInputTokens + cachedTokens;
             var band = bandFor(promptTokens);
             return uncachedInputTokens * band.inputCostPerToken()
@@ -512,7 +512,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     public boolean isLazy(StreamingChatModel model) {
         String modelName = nameOf(model);
-        return !(modelName.contains("sonnet") || modelName.contains("gemini-2.5-pro"));
+        return !modelName.contains("gpt-5");
     }
 
     public boolean requiresEmulatedTools(StreamingChatModel model) {

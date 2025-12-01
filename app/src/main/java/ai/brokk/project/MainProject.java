@@ -15,6 +15,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
@@ -405,6 +406,46 @@ public final class MainProject extends AbstractProject {
     private ModelConfig getModelConfigInternal(ModelType modelType) {
         var props = loadGlobalProperties();
         return ModelProperties.getModelConfig(props, modelType);
+    }
+
+    /**
+     * Returns the code-defined default ModelConfig for the Quick role.
+     *
+     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
+     * persisted user settings or overrides.
+     */
+    public static ModelConfig getDefaultQuickModelConfig() {
+        return ModelProperties.ModelType.QUICK.preferredConfig();
+    }
+
+    /**
+     * Returns the code-defined default ModelConfig for the Quick Edit role.
+     *
+     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
+     * persisted user settings or overrides.
+     */
+    public static ModelConfig getDefaultQuickEditModelConfig() {
+        return ModelProperties.ModelType.QUICK_EDIT.preferredConfig();
+    }
+
+    /**
+     * Returns the code-defined default ModelConfig for the Quickest role.
+     *
+     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
+     * persisted user settings or overrides.
+     */
+    public static ModelConfig getDefaultQuickestModelConfig() {
+        return ModelProperties.ModelType.QUICKEST.preferredConfig();
+    }
+
+    /**
+     * Returns the code-defined default ModelConfig for the Scan role.
+     *
+     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
+     * persisted user settings or overrides.
+     */
+    public static ModelConfig getDefaultScanModelConfig() {
+        return ModelProperties.ModelType.SCAN.preferredConfig();
     }
 
     private void setModelConfigInternal(ModelType modelType, ModelConfig config) {
@@ -1283,7 +1324,7 @@ public final class MainProject extends AbstractProject {
 
     public static String getTheme() {
         var props = loadGlobalProperties();
-        return props.getProperty("theme", "dark");
+        return props.getProperty("theme", GuiTheme.THEME_DARK_PLUS);
     }
 
     public static void setTheme(String theme) {

@@ -126,20 +126,33 @@ public class SearchAgent {
     private boolean beastMode;
     private boolean codeAgentJustSucceeded;
 
+    /**
+     * Creates a SearchAgent with explicit IO (streaming is enabled unless IO is MutedConsoleIO).
+     *
+     * @param initialContext the initial context
+     * @param goal the search goal
+     * @param model the LLM model to use
+     * @param objective the search objective
+     * @param scope the task scope for history recording
+     * @param io the IConsoleIO instance for output (null defaults to cm.getIo())
+     */
     public SearchAgent(
             Context initialContext,
             String goal,
             StreamingChatModel model,
             Objective objective,
-            ContextManager.TaskScope scope) {
+            ContextManager.TaskScope scope,
+            @Nullable IConsoleIO io) {
         this.goal = goal;
         this.cm = initialContext.getContextManager();
         this.model = model;
         this.scope = scope;
 
-        this.io = cm.getIo();
-        this.llm = cm.getLlm(new Llm.Options(model, "Search: " + goal).withEcho());
-        this.llm.setOutput(io);
+        this.io = io != null ? io : cm.getIo();
+        var llmOptions = new Llm.Options(model, "Search: " + goal).withEcho();
+        this.llm = cm.getLlm(llmOptions);
+        this.llm.setOutput(this.io);
+
         var summarizeConfig = new Service.ModelConfig(
                 cm.getService().nameOf(cm.getService().getScanModel()), Service.ReasoningLevel.LOW);
         var summarizeModel = requireNonNull(cm.getService().getModel(summarizeConfig));
@@ -163,6 +176,18 @@ public class SearchAgent {
         }
         this.mcpTools = List.copyOf(tools);
         this.context = initialContext;
+    }
+
+    /**
+     * Creates a SearchAgent with output streaming enabled (default behavior) and default IO.
+     */
+    public SearchAgent(
+            Context initialContext,
+            String goal,
+            StreamingChatModel model,
+            Objective objective,
+            ContextManager.TaskScope scope) {
+        this(initialContext, goal, model, objective, scope, null);
     }
 
     /** Entry point. Runs until answer/abort or interruption. */
@@ -376,11 +401,18 @@ public class SearchAgent {
     private ToolExecutionResult executeTool(ToolExecutionRequest req, ToolRegistry registry, WorkspaceTools wst)
             throws InterruptedException {
         metrics.recordToolCall(req.name());
+
+        // ensure WorkspaceTools sees the freshest Context before executing any tool.
+        // This hardens against future tools that might mutate context between calls
+        wst.setContext(context);
+
         var result = registry.executeTool(req);
-        // Only copy context back if this was a workspace tool
+
+        // If this was a WorkspaceTools call, copy its immutable update back to the agent-local Context.
         if (isWorkspaceTool(req, registry)) {
             context = wst.getContext();
         }
+
         return result;
     }
 
@@ -451,6 +483,12 @@ public class SearchAgent {
 
         // Current Workspace contents (apply viewing policy for visibility filtering)
         messages.addAll(precomputedWorkspaceMessages);
+
+        // Dynamically inform the model about non-droppable fragments to avoid futile pruning attempts
+        var nonDroppableMsg = buildNonDroppableSystemMessage();
+        if (nonDroppableMsg != null) {
+            messages.add(nonDroppableMsg);
+        }
 
         // Related identifiers from nearby files
         var related = context.buildRelatedIdentifiers(10);
@@ -639,7 +677,9 @@ public class SearchAgent {
         // FIXME re-enable when context freezing is solved
         //        names.add("addSymbolUsagesToWorkspace");
         names.add("appendNote");
-        names.add("dropWorkspaceFragments");
+        if (hasDroppableFragments()) {
+            names.add("dropWorkspaceFragments");
+        }
 
         // Human-in-the-loop tool (only meaningful when GUI is available; safe to include otherwise)
         if (io instanceof Chrome) {
@@ -757,10 +797,17 @@ public class SearchAgent {
         var tr = cm.getToolRegistry().builder().register(wst).register(this).build();
 
         var messages = buildInitialPruningPrompt();
-        var toolSpecs = tr.getTools(List.of("performedInitialReview", "dropWorkspaceFragments"));
+        var toolNames = new ArrayList<String>();
+        toolNames.add("performedInitialReview");
+        if (hasDroppableFragments()) {
+            toolNames.add("dropWorkspaceFragments");
+        }
+        var toolSpecs = tr.getTools(toolNames);
 
         io.llmOutput("\n**Brokk** performing initial workspace review…", ChatMessageType.AI, true, false);
-        var jLlm = cm.getLlm(new Llm.Options(model, "Janitor: " + goal).withEcho());
+        var janitorOpts = new Llm.Options(model, "Janitor: " + goal).withEcho();
+        var jLlm = cm.getLlm(janitorOpts);
+        jLlm.setOutput(this.io);
         var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.AUTO, tr));
         if (result.error() != null || result.isEmpty()) {
             return;
@@ -796,6 +843,12 @@ public class SearchAgent {
         messages.addAll(
                 CodePrompts.instance.getWorkspaceContentsMessages(context, new ViewingPolicy(TaskResult.Type.CONTEXT)));
 
+        // Dynamically inform the janitor about non-droppable fragments
+        var nonDroppableMsg = buildNonDroppableSystemMessage();
+        if (nonDroppableMsg != null) {
+            messages.add(nonDroppableMsg);
+        }
+
         // Goal and project context
         messages.add(new UserMessage(
                 """
@@ -813,16 +866,26 @@ public class SearchAgent {
 
     /**
      * Scan initial context using ContextAgent and add recommendations to the workspace.
-     * Returns a TaskResult that the caller should append to scope.
      * Callers should invoke this before calling execute() if they want the initial context scan.
+     * Updates the SearchAgent's internal Context, and also returns it.
+     * <p>
+     * If {@code appendToScope} is {@code true}, the context scan result is appended to the scope's history.
+     * If {@code appendToScope} is {@code false}, the method returns the context resulting from the scan
+     * without modifying or appending to the scope's history.
+     * <p>
+     * Callers should invoke this before calling {@code execute()} if they want the initial context scan.
+     *
+     * @param model the LLM model to use for context scanning
+     * @param appendToScope if true, appends the context scan result to the scope; if false, returns context without appending to the scope's history
+     * @return the resulting {@link Context} after the scan, either appended to the scope or not, depending on {@code appendToScope}
      */
-    public Context scanInitialContext(StreamingChatModel model) throws InterruptedException {
+    public Context scanInitialContext(StreamingChatModel model, boolean appendToScope) throws InterruptedException {
         // Prune initial workspace when not empty
         performInitialPruningTurn(model);
 
         Set<ProjectFile> filesBeforeScan = getWorkspaceFileSet();
 
-        var contextAgent = new ContextAgent(cm, model, goal);
+        var contextAgent = new ContextAgent(cm, model, goal, this.io);
         io.llmOutput("\n**Brokk Context Engine** analyzing repository context…\n", ChatMessageType.AI, true, false);
 
         var recommendation = contextAgent.getRecommendations(context);
@@ -833,7 +896,11 @@ public class SearchAgent {
             io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.AI);
             var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
             metrics.recordContextScan(0, false, Set.of(), md);
-            context = scope.append(contextAgentResult);
+            if (appendToScope) {
+                context = scope.append(contextAgentResult);
+            } else {
+                context = contextAgentResult.context();
+            }
             return context;
         }
 
@@ -867,12 +934,29 @@ public class SearchAgent {
         Set<ProjectFile> filesAdded = new HashSet<>(filesAfterScan);
         filesAdded.removeAll(filesBeforeScan);
         metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
-        context = scope.append(contextAgentResult);
+        if (appendToScope) {
+            context = scope.append(contextAgentResult);
+        } else {
+            context = contextAgentResult.context();
+        }
         return context;
     }
 
+    /**
+     * Scan initial context using ContextAgent and add recommendations to the workspace.
+     * Appends the result to scope by default.
+     */
     public Context scanInitialContext() throws InterruptedException {
-        return scanInitialContext(cm.getService().getScanModel());
+        return scanInitialContext(cm.getService().getScanModel(), true);
+    }
+
+    /**
+     * Scan initial context using ContextAgent and add recommendations to the workspace.
+     *
+     * @param model the LLM model to use for context scanning
+     */
+    public Context scanInitialContext(StreamingChatModel model) throws InterruptedException {
+        return scanInitialContext(model, true);
     }
 
     public void addToWorkspace(ContextAgent.RecommendationResult recommendationResult) {
@@ -1173,6 +1257,56 @@ public class SearchAgent {
                                 .sorted()
                                 .toList()))
                 .toList();
+    }
+
+    // =======================
+    // Non-droppable helpers
+    // =======================
+
+    /**
+     * Returns a SystemMessage listing non-droppable fragments present in the current workspace,
+     * or null when no such fragments exist. This educates the LLM to avoid futile pruning loops.
+     */
+    private @Nullable SystemMessage buildNonDroppableSystemMessage() {
+        var items = context.allFragments()
+                .filter(f -> f instanceof ContextFragment.StringFragment)
+                .map(f -> (ContextFragment.StringFragment) f)
+                .filter(sf ->
+                        sf.specialType().isPresent() && !sf.specialType().get().droppable())
+                .map(sf -> "- " + sf.description() + " (fragmentid=" + sf.id() + "): non-droppable by policy.")
+                .sorted()
+                .toList();
+
+        if (items.isEmpty()) {
+            return null;
+        }
+
+        String body =
+                """
+                <non_droppable>
+                The following fragments cannot be dropped by policy. Do NOT attempt to drop them:
+                %s
+                </non_droppable>
+                """
+                        .formatted(String.join("\n", items));
+        return new SystemMessage(body);
+    }
+
+    /**
+     * True when there exists at least one droppable fragment in the current workspace.
+     * Special text fragments may be marked non-droppable via SpecialTextType.
+     */
+    private boolean hasDroppableFragments() {
+        return context.allFragments().anyMatch(f -> {
+            if (f instanceof ContextFragment.StringFragment sf) {
+                var st = sf.specialType();
+                if (st.isPresent()) {
+                    return st.get().droppable();
+                }
+            }
+            // All other fragment types are considered droppable by default
+            return true;
+        });
     }
 
     // =======================

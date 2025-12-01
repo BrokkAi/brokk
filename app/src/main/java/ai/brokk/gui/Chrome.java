@@ -84,7 +84,8 @@ public class Chrome
     // Default layout proportions - can be overridden by saved preferences
     private static final double DEFAULT_WORKSPACE_INSTRUCTIONS_SPLIT = 0.583; // 58.3% workspace, 41.7% instructions
     private static final double DEFAULT_OUTPUT_MAIN_SPLIT = 0.4; // 40% output, 60% main content
-    private static final double MIN_SIDEBAR_WIDTH_FRACTION = 0.10; // 10% minimum sidebar width
+    private static final double MIN_SIDEBAR_WIDTH_FRACTION = 0.12; // 12% minimum sidebar width
+    private static final int MIN_SIDEBAR_WIDTH_PX = 220; // absolute minimum sidebar width for usability
     private static final double MAX_SIDEBAR_WIDTH_FRACTION = 0.40; // 40% maximum sidebar width (normal screens)
     private static final double MAX_SIDEBAR_WIDTH_FRACTION_WIDE = 0.25; // 25% maximum sidebar width (wide screens)
     private static final int WIDE_SCREEN_THRESHOLD = 2000; // Screen width threshold for wide screen layout
@@ -140,10 +141,15 @@ public class Chrome
             if (currentLocation >= SIDEBAR_COLLAPSED_THRESHOLD) {
                 lastExpandedSidebarLocation = currentLocation;
             }
+
+            // Relax minimum sizes to allow full collapse to compact width
+            leftVerticalSplitPane.setMinimumSize(new Dimension(0, 0));
+            leftTabbedPanel.setMinimumSize(new Dimension(0, 0));
+
             leftTabbedPanel.setSelectedIndex(0); // Always show Project Files when collapsed
             bottomSplitPane.setDividerSize(0);
-            bottomSplitPane.setDividerLocation(40);
             sidebarCollapsed = true;
+            bottomSplitPane.setDividerLocation(40);
         } else {
             leftTabbedPanel.setSelectedIndex(tabIndex);
             // Restore panel if it was minimized
@@ -154,6 +160,12 @@ public class Chrome
                         : computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
                 bottomSplitPane.setDividerLocation(target);
                 sidebarCollapsed = false;
+
+                // Restore minimum sizes for normal operation so min-width clamp is enforced again,
+                // using the current dynamic minimum instead of a hard constant.
+                int minPx = computeMinSidebarWidthPx();
+                leftVerticalSplitPane.setMinimumSize(new Dimension(minPx, 0));
+                leftTabbedPanel.setMinimumSize(new Dimension(minPx, 0));
             }
 
             // Refresh Project Files tab badge if that tab was selected
@@ -368,8 +380,8 @@ public class Chrome
 
         // Create left vertical-tabbed pane for ProjectFiles and Git with vertical tab placement
         leftTabbedPanel = new JTabbedPane(JTabbedPane.LEFT);
-        // Allow the divider to move further left by reducing the minimum width
-        leftTabbedPanel.setMinimumSize(new Dimension(120, 0));
+        // Enforce a reasonable minimum width so the sidebar cannot be shrunk to an unusable size
+        leftTabbedPanel.setMinimumSize(new Dimension(MIN_SIDEBAR_WIDTH_PX, 0));
         // Ensure all tabs are accessible when there are too many to fit (prevents "missing" icons)
         leftTabbedPanel.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
 
@@ -671,11 +683,14 @@ public class Chrome
         leftVerticalSplitPane.setTopComponent(leftTabbedPanel);
         leftVerticalSplitPane.setBottomComponent(historyTabbedPane);
         leftVerticalSplitPane.setResizeWeight(0.7); // top gets most space by default
+        // Ensure the entire left stack (tabs + per-file history) honors the minimum sidebar width
+        leftVerticalSplitPane.setMinimumSize(new Dimension(MIN_SIDEBAR_WIDTH_PX, 0));
         originalLeftVerticalDividerSize = leftVerticalSplitPane.getDividerSize();
         leftVerticalSplitPane.setDividerSize(0); // hide divider when no history is shown
 
         bottomSplitPane.setLeftComponent(leftVerticalSplitPane);
         bottomSplitPane.setRightComponent(outputStackSplit);
+        // Let the left side drive the minimum width for the whole sidebar region
         // Ensure the right stack can shrink enough so the sidebar can grow
         outputStackSplit.setMinimumSize(new Dimension(200, 0));
         // Left panel keeps its preferred width; right panel takes the remaining space
@@ -2902,17 +2917,47 @@ public class Chrome
         });
 
         bottomSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-            if (bottomSplitPane.isShowing()) {
-                var newPos = bottomSplitPane.getDividerLocation();
-                if (newPos > 0) {
-                    // Keep backward-compat but persist globally as the source of truth
-                    project.saveHorizontalSplitPosition(newPos);
-                    GlobalUiSettings.saveHorizontalSplitPosition(newPos);
-                    // Remember expanded locations only (ignore collapsed sidebar)
-                    if (newPos >= SIDEBAR_COLLAPSED_THRESHOLD) {
-                        lastExpandedSidebarLocation = newPos;
+            if (!bottomSplitPane.isShowing()) {
+                return;
+            }
+
+            int newPos = bottomSplitPane.getDividerLocation();
+            if (newPos <= 0) {
+                return;
+            }
+
+            // Treat the UI as "collapsed" when the divider is hidden or very close to the left edge.
+            // In that state we do NOT clamp or persist positions, so collapse via tab toggle works.
+            boolean isCollapsedUi = bottomSplitPane.getDividerSize() == 0 || newPos < SIDEBAR_COLLAPSED_THRESHOLD;
+            if (isCollapsedUi) {
+                return;
+            }
+
+            // When the sidebar is expanded, clamp the divider so the left drawer
+            // can never be shrunk below the minimum usable width.
+            if (!sidebarCollapsed) {
+                int minWidth = computeMinSidebarWidthPx();
+                if (newPos < minWidth) {
+                    // Clamp visually and skip persistence of too-small positions
+                    if (SwingUtilities.isEventDispatchThread()) {
+                        bottomSplitPane.setDividerLocation(minWidth);
+                    } else {
+                        try {
+                            SwingUtilities.invokeAndWait(() -> bottomSplitPane.setDividerLocation(minWidth));
+                        } catch (InterruptedException | InvocationTargetException ex) {
+                            // Log or handle as appropriate; here we ignore
+                        }
                     }
+                    return;
                 }
+            }
+
+            // Keep backward-compat but persist globally as the source of truth
+            project.saveHorizontalSplitPosition(newPos);
+            GlobalUiSettings.saveHorizontalSplitPosition(newPos);
+            // Remember expanded locations only (ignore collapsed sidebar)
+            if (newPos >= SIDEBAR_COLLAPSED_THRESHOLD) {
+                lastExpandedSidebarLocation = newPos;
             }
         });
 
@@ -3226,9 +3271,12 @@ public class Chrome
             applyAdvancedModeToInstructionsSafely(advanced);
 
             // Ensure the small header above the right tab stack is updated immediately.
+            // Keep the branch selector header visible whenever the project has Git,
+            // regardless of EZ/Advanced mode.
             try {
                 if (rightTabbedHeader != null) {
-                    rightTabbedHeader.setVisible(advanced);
+                    boolean showHeader = getProject().hasGit();
+                    rightTabbedHeader.setVisible(showHeader);
                     if (rightTabbedContainer != null) {
                         rightTabbedContainer.revalidate();
                         rightTabbedContainer.repaint();
@@ -3415,10 +3463,12 @@ public class Chrome
             rightTabbedPanel.revalidate();
             rightTabbedPanel.repaint();
 
-            // Show/hide the small header above the right tab stack (e.g. branch selector)
+            // Show/hide the small header above the right tab stack (e.g. branch selector).
+            // Keep it visible whenever the project has Git, regardless of EZ/Advanced mode.
             try {
                 if (rightTabbedHeader != null) {
-                    rightTabbedHeader.setVisible(advanced);
+                    boolean showHeader = getProject().hasGit();
+                    rightTabbedHeader.setVisible(showHeader);
                     if (rightTabbedContainer != null) {
                         rightTabbedContainer.revalidate();
                         rightTabbedContainer.repaint();
@@ -4248,13 +4298,24 @@ public class Chrome
         int ideal = projectFilesPanel.getPreferredSize().width;
         int frameWidth = frame.getWidth();
 
-        // Allow between minimum and maximum percentage based on screen width
-        int min = (int) (frameWidth * MIN_SIDEBAR_WIDTH_FRACTION);
+        // Allow between minimum and maximum percentage based on screen width,
+        // but never below the absolute minimum pixel width.
+        int min = Math.max(MIN_SIDEBAR_WIDTH_PX, (int) (frameWidth * MIN_SIDEBAR_WIDTH_FRACTION));
         double maxFraction =
                 frameWidth > WIDE_SCREEN_THRESHOLD ? MAX_SIDEBAR_WIDTH_FRACTION_WIDE : MAX_SIDEBAR_WIDTH_FRACTION;
         int max = (int) (frameWidth * maxFraction);
 
         return Math.max(min, Math.min(ideal, max));
+    }
+
+    /**
+     * Computes the minimum allowed sidebar width in pixels, combining the
+     * absolute minimum with a fraction of the current frame width.
+     */
+    private int computeMinSidebarWidthPx() {
+        int frameWidth = frame.getWidth();
+        int byFraction = (int) (frameWidth * MIN_SIDEBAR_WIDTH_FRACTION);
+        return Math.max(MIN_SIDEBAR_WIDTH_PX, byFraction);
     }
 
     /**

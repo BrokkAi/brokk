@@ -70,8 +70,8 @@ public class GuiTheme {
     public static void setupLookAndFeel(String themeName) {
         String effectiveTheme = themeName;
         if (effectiveTheme == null || effectiveTheme.isEmpty()) {
-            logger.warn("Null or empty theme name, defaulting to dark");
-            effectiveTheme = THEME_DARK;
+            logger.warn("Null or empty theme name, defaulting to dark-plus");
+            effectiveTheme = THEME_DARK_PLUS;
         }
 
         String themeFile =
