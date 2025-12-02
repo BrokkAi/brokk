@@ -1380,9 +1380,6 @@ public final class MainProject extends AbstractProject {
     private static final String STARTUP_OPEN_MODE_KEY = "startupOpenMode";
     private static final String FORCE_TOOL_EMULATION_KEY = "forceToolEmulation";
     private static final String OTHER_MODELS_VENDOR_KEY = "otherModelsVendor";
-    private static final String HISTORY_AUTO_COMPRESS_KEY = "historyAutoCompress";
-    private static final String HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY = "historyAutoCompressThresholdPercent";
-    private static final String HISTORY_COMPRESSION_CONCURRENCY_KEY = "historyCompressionConcurrency";
 
     public static String getUiScalePref() {
         var props = loadGlobalProperties();
@@ -1479,73 +1476,6 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
 
-    public static boolean getHistoryAutoCompress() {
-        var props = loadGlobalProperties();
-        return Boolean.parseBoolean(props.getProperty(HISTORY_AUTO_COMPRESS_KEY, "true"));
-    }
-
-    public static void setHistoryAutoCompress(boolean autoCompress) {
-        var props = loadGlobalProperties();
-        props.setProperty(HISTORY_AUTO_COMPRESS_KEY, Boolean.toString(autoCompress));
-        saveGlobalProperties(props);
-    }
-
-    public static int getHistoryAutoCompressThresholdPercent() {
-        var props = loadGlobalProperties();
-        String value = props.getProperty(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY);
-        int def = 10;
-        if (value == null || value.isBlank()) {
-            return def;
-        }
-        try {
-            int parsed = Integer.parseInt(value.trim());
-            if (parsed < 1) parsed = 1;
-            if (parsed > 50) parsed = 50;
-            return parsed;
-        } catch (NumberFormatException e) {
-            return def;
-        }
-    }
-
-    public static void setHistoryAutoCompressThresholdPercent(int percent) {
-        int clamped = Math.max(1, Math.min(50, percent));
-        var props = loadGlobalProperties();
-        if (clamped == 10) {
-            props.remove(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY);
-        } else {
-            props.setProperty(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY, Integer.toString(clamped));
-        }
-        saveGlobalProperties(props);
-    }
-
-    public static int getHistoryCompressionConcurrency() {
-        var props = loadGlobalProperties();
-        String value = props.getProperty(HISTORY_COMPRESSION_CONCURRENCY_KEY);
-        int def = 2;
-        if (value == null || value.isBlank()) {
-            return def;
-        }
-        try {
-            int parsed = Integer.parseInt(value.trim());
-            if (parsed < 1) parsed = 1;
-            if (parsed > 8) parsed = 8;
-            return parsed;
-        } catch (NumberFormatException e) {
-            return def;
-        }
-    }
-
-    public static void setHistoryCompressionConcurrency(int value) {
-        int clamped = Math.max(1, Math.min(8, value));
-        var props = loadGlobalProperties();
-        if (clamped == 2) {
-            props.remove(HISTORY_COMPRESSION_CONCURRENCY_KEY);
-        } else {
-            props.setProperty(HISTORY_COMPRESSION_CONCURRENCY_KEY, Integer.toString(clamped));
-        }
-        saveGlobalProperties(props);
-    }
-
     // JVM memory settings (global)
     private static final String JVM_MEMORY_MODE_KEY = "jvmMemoryMode";
     private static final String JVM_MEMORY_MB_KEY = "jvmMemoryMb";
@@ -1614,18 +1544,6 @@ public final class MainProject extends AbstractProject {
         }
     }
 
-    public record CompressionSettings(boolean autoCompress, int thresholdPercent) {
-        public void applyTo(Properties props) {
-            props.setProperty(HISTORY_AUTO_COMPRESS_KEY, String.valueOf(autoCompress));
-            int clamped = Math.max(0, Math.min(100, thresholdPercent));
-            if (clamped == 80) {
-                props.remove(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY);
-            } else {
-                props.setProperty(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY, Integer.toString(clamped));
-            }
-        }
-    }
-
     public record StartupSettings(StartupOpenMode openMode) {
         public void applyTo(Properties props) {
             props.setProperty(STARTUP_OPEN_MODE_KEY, openMode.name());
@@ -1664,14 +1582,12 @@ public final class MainProject extends AbstractProject {
     public static void saveAllGlobalSettings(
             ServiceSettings service,
             AppearanceSettings appearance,
-            CompressionSettings compression,
             StartupSettings startup,
             GeneralSettings general,
             ModelSettings models) {
         var props = loadGlobalProperties();
         service.applyTo(props);
         appearance.applyTo(props);
-        compression.applyTo(props);
         startup.applyTo(props);
         general.applyTo(props);
         models.applyTo(props);

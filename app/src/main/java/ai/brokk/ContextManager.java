@@ -1711,25 +1711,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         contextPushed(contextHistory.liveContext());
-
-        // Auto-compress conversation history if enabled and exceeds configured threshold of the context window.
-        // This does not run for headless tasks, I think this is not a problem b/c we still compress
-        // after each task; this is to protect users doing repeated manual Ask/Code.
-        // (null check here against IP is NOT redundant; this is called during Chrome init)
-        if (io instanceof Chrome
-                && MainProject.getHistoryAutoCompress()
-                && !newLiveContext.getTaskHistory().isEmpty()) {
-            var cf = new ContextFragment.HistoryFragment(this, newLiveContext.getTaskHistory());
-            int tokenCount = Messages.getApproximateTokens(cf.format());
-
-            var svc = getService();
-            var model = io.getInstructionsPanel().getSelectedModel();
-            int maxInputTokens = svc.getMaxInputTokens(model);
-            double thresholdPct = MainProject.getHistoryAutoCompressThresholdPercent() / 100.0;
-            if (tokenCount > (int) Math.ceil(maxInputTokens * thresholdPct)) {
-                compressHistoryAsync();
-            }
-        }
         return newLiveContext;
     }
 
@@ -2741,7 +2722,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /**
      * Asynchronously compresses the entire conversation history of the currently selected context. Replaces the history
-     * with summarized versions of each task entry. This runs as a cancellable LLM action.
+     * with summarized versions of each task entry. This runs as a cancellable LLM action, so it should NOT be
+     * called from other exclusive-tasks (or it will deadlock).
      */
     public CompletableFuture<?> compressHistoryAsync() {
         return submitLlmAction(() -> {
@@ -2766,10 +2748,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Compressing conversation history...");
 
             // Use bounded-concurrency executor to avoid overwhelming the LLM provider
-            int concurrency = MainProject.getHistoryCompressionConcurrency();
-            ExecutorService exec = ExecutorServiceUtil.newFixedThreadExecutor(concurrency, "HistoryCompress-");
             List<Future<TaskEntry>> futures = new ArrayList<>(taskHistoryToCompress.size());
-            try {
+            try (var exec = ExecutorServiceUtil.newFixedThreadExecutor(5, "HistoryCompress-")) {
                 // Submit all compression tasks
                 for (TaskEntry entry : taskHistoryToCompress) {
                     futures.add(exec.submit(() -> compressHistory(entry)));
@@ -2806,8 +2786,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // and add a frozen version to contextHistory.
                 pushContext(currentLiveCtx -> currentLiveCtx.withCompressedHistory(List.copyOf(compressedTaskEntries)));
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Task history compressed successfully.");
-            } finally {
-                exec.shutdownNow();
             }
         } finally {
             SwingUtilities.invokeLater(io::enableHistoryPanel);
