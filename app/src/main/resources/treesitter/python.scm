@@ -67,8 +67,11 @@
 (module
   [(if_statement (block (function_definition name: (identifier) @function.name) @function.definition))
    (if_statement (else_clause (block (function_definition name: (identifier) @function.name) @function.definition)))
+   (if_statement (elif_clause (block (function_definition name: (identifier) @function.name) @function.definition)))
    (try_statement (block (function_definition name: (identifier) @function.name) @function.definition))
    (try_statement (except_clause (block (function_definition name: (identifier) @function.name) @function.definition)))
+   (try_statement (else_clause (block (function_definition name: (identifier) @function.name) @function.definition)))
+   (try_statement (finally_clause (block (function_definition name: (identifier) @function.name) @function.definition)))
    (with_statement (block (function_definition name: (identifier) @function.name) @function.definition))
    (for_statement (block (function_definition name: (identifier) @function.name) @function.definition))
    (while_statement (block (function_definition name: (identifier) @function.name) @function.definition))])
@@ -105,8 +108,11 @@
 (module
   [(if_statement (block (expression_statement (assignment left: (identifier) @field.name) @field.definition)))
    (if_statement (else_clause (block (expression_statement (assignment left: (identifier) @field.name) @field.definition))))
+   (if_statement (elif_clause (block (expression_statement (assignment left: (identifier) @field.name) @field.definition))))
    (try_statement (block (expression_statement (assignment left: (identifier) @field.name) @field.definition)))
    (try_statement (except_clause (block (expression_statement (assignment left: (identifier) @field.name) @field.definition))))
+   (try_statement (else_clause (block (expression_statement (assignment left: (identifier) @field.name) @field.definition))))
+   (try_statement (finally_clause (block (expression_statement (assignment left: (identifier) @field.name) @field.definition))))
    (with_statement (block (expression_statement (assignment left: (identifier) @field.name) @field.definition)))
    (for_statement (block (expression_statement (assignment left: (identifier) @field.name) @field.definition)))
    (while_statement (block (expression_statement (assignment left: (identifier) @field.name) @field.definition)))])

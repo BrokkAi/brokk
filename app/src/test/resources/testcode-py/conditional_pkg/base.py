@@ -65,3 +65,40 @@ except ImportError:
 # With statement pattern (less common but valid)
 with open(__file__) if False else type("ctx", (), {"__enter__": lambda s: s, "__exit__": lambda *a: None})():
     WITH_VAR = "with_value"
+
+
+# elif clause pattern
+if False:
+    ELIF_IF_VAR = "if_branch"
+elif True:
+    def elif_function():
+        """Function defined in elif block."""
+        return "elif"
+
+    ELIF_VAR = "elif_value"
+else:
+    ELIF_ELSE_VAR = "else_branch"
+
+
+# try-else pattern (runs when no exception)
+try:
+    TRY_ELSE_SETUP = "setup"
+except Exception:
+    TRY_ELSE_EXCEPT = "exception"
+else:
+    def try_else_function():
+        """Function defined in try-else block."""
+        return "try_else"
+
+    TRY_ELSE_VAR = "try_else_value"
+
+
+# try-finally pattern (always runs)
+try:
+    TRY_FINALLY_SETUP = "setup"
+finally:
+    def finally_function():
+        """Function defined in finally block."""
+        return "finally"
+
+    FINALLY_VAR = "finally_value"

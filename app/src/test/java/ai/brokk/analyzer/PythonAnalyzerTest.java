@@ -1040,6 +1040,30 @@ public final class PythonAnalyzerTest {
                 fields.stream().anyMatch(cu -> cu.identifier().equals("WITH_VAR")),
                 "Variable inside 'with' should be captured");
 
+        // Verify elif clause captures
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("elif_function")),
+                "Function inside 'elif' should be captured");
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("ELIF_VAR")),
+                "Variable inside 'elif' should be captured");
+
+        // Verify try-else clause captures (runs when no exception)
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("try_else_function")),
+                "Function inside try-else should be captured");
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("TRY_ELSE_VAR")),
+                "Variable inside try-else should be captured");
+
+        // Verify try-finally clause captures (always runs)
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("finally_function")),
+                "Function inside 'finally' should be captured");
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("FINALLY_VAR")),
+                "Variable inside 'finally' should be captured");
+
         // Test subclass resolution
         ProjectFile subclassPy = new ProjectFile(testProject.getRoot(), "conditional_pkg/subclass.py");
         Set<CodeUnit> subclassDecls = testAnalyzer.getDeclarations(subclassPy);
