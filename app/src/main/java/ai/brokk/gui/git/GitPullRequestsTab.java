@@ -101,7 +101,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private FilterBox authorFilter;
     private FilterBox labelFilter;
     private FilterBox assigneeFilter;
-    private FilterBox reviewFilter;
     private MaterialButton refreshPrButton;
 
     private final GitHubTokenMissingPanel gitHubTokenMissingPanel;
@@ -212,14 +211,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     // Store default options for static filters to easily reset them
     private static final List<String> STATUS_FILTER_OPTIONS = List.of("Open", "Closed"); // "All" is null selection
-    private static final List<String> REVIEW_FILTER_OPTIONS = List.of(
-            "No reviews",
-            "Required",
-            "Approved",
-            "Changes requested",
-            "Reviewed by you",
-            "Not reviewed by you",
-            "Awaiting review from you"); // "All" is null selection
 
     // Lists to hold choices for dynamic filters
     private List<String> authorChoices = new ArrayList<>();
@@ -304,16 +295,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             filterAndDisplayPrs();
         });
         filtersContainer.add(assigneeFilter);
-
-        String savedReview = project.getUiFilterProperty("prs.review");
-        reviewFilter = new FilterBox(this.chrome, "Review", () -> REVIEW_FILTER_OPTIONS, savedReview);
-        reviewFilter.setToolTipText("Filter by review status (Note: Some options may be placeholders)");
-        reviewFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        reviewFilter.addPropertyChangeListener("value", e -> {
-            project.setUiFilterProperty("prs.review", reviewFilter.getSelected());
-            filterAndDisplayPrs();
-        });
-        filtersContainer.add(reviewFilter);
 
         // Wrap filters in a scroll pane so they can overflow cleanly
         // Directly add the wrapping container – no horizontal scrollbar needed
@@ -938,7 +919,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         authorFilter.setEnabled(enabled);
         labelFilter.setEnabled(enabled);
         assigneeFilter.setEnabled(enabled);
-        reviewFilter.setEnabled(enabled);
     }
 
     /** Determines the expected local branch name for a PR based on whether it's from the same repository or a fork. */
@@ -1228,8 +1208,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         String selectedAuthorDisplay = authorFilter.getSelected(); // e.g., "John Doe (5)" or null
         String selectedLabelDisplay = labelFilter.getSelected(); // e.g., "bug (2)" or null
         String selectedAssigneeDisplay = assigneeFilter.getSelected(); // e.g., "Jane Roe (1)" or null
-        String selectedReviewStatusActual =
-                reviewFilter.getSelected(); // Review options are direct strings, e.g., "Approved"
 
         String selectedAuthorActual = getBaseFilterValue(selectedAuthorDisplay);
         String selectedLabelActual = getBaseFilterValue(selectedLabelDisplay);
@@ -1260,14 +1238,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     }
                     matches = assigneeMatch;
                 }
-                // Review filter
-                if (matches && selectedReviewStatusActual != null) {
-                    // Basic placeholder logic: log and don't filter out for now for unimplemented options
-                    logger.info(
-                            "Review filter selected: '{}'. Full client-side filtering for this option is not yet implemented or may be slow.",
-                            selectedReviewStatusActual);
-                }
-
             } catch (IOException e) {
                 logger.warn("Error accessing PR data during filtering for PR #{}", pr.getNumber(), e);
                 matches = false; // Skip PR if data can't be accessed
