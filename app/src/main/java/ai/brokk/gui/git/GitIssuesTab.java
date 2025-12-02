@@ -81,11 +81,17 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
     private FilterBox statusFilter;
 
     @Nullable
-    private FilterBox resolutionFilter; // Initialized conditionally
+    private FilterBox resolutionFilter; // Jira only
 
-    private FilterBox authorFilter;
-    private FilterBox labelFilter;
-    private FilterBox assigneeFilter;
+    @Nullable
+    private FilterBox authorFilter; // GitHub only (not yet implemented for Jira)
+
+    @Nullable
+    private FilterBox labelFilter; // GitHub only (not yet implemented for Jira)
+
+    @Nullable
+    private FilterBox assigneeFilter; // GitHub only (not yet implemented for Jira)
+
     private LoadingTextBox searchBox;
     private Timer searchDebounceTimer;
     private static final int SEARCH_DEBOUNCE_DELAY = 400; // ms for search debounce
@@ -332,43 +338,52 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         filtersContainer.add(statusFilter);
         filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
 
-        String savedAuthor = project.getUiFilterProperty("issues.author");
-        authorFilter = new FilterBox(
-                this.chrome, "Author", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "author"), savedAuthor);
-        authorFilter.setToolTipText("Filter by issue author");
-        authorFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        authorFilter.addPropertyChangeListener("value", e -> {
-            project.setUiFilterProperty("issues.author", authorFilter.getSelected());
-            updateIssueList();
-        });
-        filtersContainer.add(authorFilter);
-        filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
+        // Author/Label/Assignee filters only shown for GitHub (not yet implemented for Jira)
+        if (!(this.issueService instanceof JiraIssueService)) {
+            String savedAuthor = project.getUiFilterProperty("issues.author");
+            var author = new FilterBox(
+                    this.chrome,
+                    "Author",
+                    () -> generateFilterOptionsFromIssues(allIssuesFromApi, "author"),
+                    savedAuthor);
+            author.setToolTipText("Filter by issue author");
+            author.setAlignmentX(Component.LEFT_ALIGNMENT);
+            author.addPropertyChangeListener("value", e -> {
+                project.setUiFilterProperty("issues.author", author.getSelected());
+                updateIssueList();
+            });
+            filtersContainer.add(author);
+            filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
+            authorFilter = author;
 
-        String savedLabel = project.getUiFilterProperty("issues.label");
-        labelFilter = new FilterBox(
-                this.chrome, "Label", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "label"), savedLabel);
-        labelFilter.setToolTipText("Filter by issue label");
-        labelFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        labelFilter.addPropertyChangeListener("value", e -> {
-            project.setUiFilterProperty("issues.label", labelFilter.getSelected());
-            updateIssueList();
-        });
-        filtersContainer.add(labelFilter);
-        filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
+            String savedLabel = project.getUiFilterProperty("issues.label");
+            var label = new FilterBox(
+                    this.chrome, "Label", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "label"), savedLabel);
+            label.setToolTipText("Filter by issue label");
+            label.setAlignmentX(Component.LEFT_ALIGNMENT);
+            label.addPropertyChangeListener("value", e -> {
+                project.setUiFilterProperty("issues.label", label.getSelected());
+                updateIssueList();
+            });
+            filtersContainer.add(label);
+            filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
+            labelFilter = label;
 
-        String savedAssignee = project.getUiFilterProperty("issues.assignee");
-        assigneeFilter = new FilterBox(
-                this.chrome,
-                "Assignee",
-                () -> generateFilterOptionsFromIssues(allIssuesFromApi, "assignee"),
-                savedAssignee);
-        assigneeFilter.setToolTipText("Filter by issue assignee");
-        assigneeFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        assigneeFilter.addPropertyChangeListener("value", e -> {
-            project.setUiFilterProperty("issues.assignee", assigneeFilter.getSelected());
-            updateIssueList();
-        });
-        filtersContainer.add(assigneeFilter);
+            String savedAssignee = project.getUiFilterProperty("issues.assignee");
+            var assignee = new FilterBox(
+                    this.chrome,
+                    "Assignee",
+                    () -> generateFilterOptionsFromIssues(allIssuesFromApi, "assignee"),
+                    savedAssignee);
+            assignee.setToolTipText("Filter by issue assignee");
+            assignee.setAlignmentX(Component.LEFT_ALIGNMENT);
+            assignee.addPropertyChangeListener("value", e -> {
+                project.setUiFilterProperty("issues.assignee", assignee.getSelected());
+                updateIssueList();
+            });
+            filtersContainer.add(assignee);
+            assigneeFilter = assignee;
+        }
 
         // Put the horizontal filter bar in a scroll pane so it can overflow cleanly
         // Add bottom padding and attach the container directly; FlowLayout wraps rows automatically
@@ -858,9 +873,10 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 final String queryForApi = currentSearchQuery.isBlank() ? null : currentSearchQuery;
 
                 final String statusVal = getBaseFilterValue(statusFilter.getSelected());
-                final String authorVal = getBaseFilterValue(authorFilter.getSelected());
-                final String labelVal = getBaseFilterValue(labelFilter.getSelected());
-                final String assigneeVal = getBaseFilterValue(assigneeFilter.getSelected());
+                final String authorVal = authorFilter != null ? getBaseFilterValue(authorFilter.getSelected()) : null;
+                final String labelVal = labelFilter != null ? getBaseFilterValue(labelFilter.getSelected()) : null;
+                final String assigneeVal =
+                        assigneeFilter != null ? getBaseFilterValue(assigneeFilter.getSelected()) : null;
 
                 FilterOptions apiFilterOptions;
                 if (this.issueService instanceof JiraIssueService) {
