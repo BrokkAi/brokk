@@ -451,6 +451,17 @@ public final class PythonAnalyzerTest {
                 .filter(cu -> cu.isField() && cu.fqName().contains("LOCAL_VAR"))
                 .collect(Collectors.toList());
         assertEquals(0, localVarFields.size(), "Function-local variables should not be captured as fields");
+
+        // Negative tests: ensure nested definitions are NOT captured as top-level
+        var classVarFields = declarations.stream()
+                .filter(cu -> cu.isField() && cu.identifier().equals("CLASS_VAR"))
+                .toList();
+        assertEquals(0, classVarFields.size(), "Class-level variables should not be captured as module-level fields");
+
+        var methodVarFields = declarations.stream()
+                .filter(cu -> cu.isField() && cu.identifier().equals("METHOD_VAR"))
+                .toList();
+        assertEquals(0, methodVarFields.size(), "Method-local variables should not be captured as fields");
     }
 
     @Test
@@ -1063,6 +1074,20 @@ public final class PythonAnalyzerTest {
         assertTrue(
                 fields.stream().anyMatch(cu -> cu.identifier().equals("FINALLY_VAR")),
                 "Variable inside 'finally' should be captured");
+
+        // Negative tests: ensure nested definitions are NOT captured as module-level
+        // outer_conditional_function is module-level (in if block) - should be captured
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("outer_conditional_function")),
+                "Function in module-level if block should be captured");
+        // inner_nested_function is inside outer_conditional_function - should NOT be module-level
+        assertFalse(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("inner_nested_function")),
+                "Nested function inside another function should NOT be captured as module-level");
+        // INNER_VAR is local to outer_conditional_function - should NOT be module-level
+        assertFalse(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("INNER_VAR")),
+                "Local variable inside function should NOT be captured as module-level field");
 
         // Test subclass resolution
         ProjectFile subclassPy = new ProjectFile(testProject.getRoot(), "conditional_pkg/subclass.py");

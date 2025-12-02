@@ -102,3 +102,17 @@ finally:
         return "finally"
 
     FINALLY_VAR = "finally_value"
+
+
+# Negative test: nested definitions inside module-level conditional functions
+# These should NOT be captured as module-level declarations
+if True:
+    def outer_conditional_function():
+        """Module-level function in if block - SHOULD be captured."""
+
+        def inner_nested_function():
+            """Nested function inside conditional function - should NOT be module-level."""
+            pass
+
+        INNER_VAR = "nested"  # Local variable - should NOT be module-level
+        return inner_nested_function
