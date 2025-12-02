@@ -3,7 +3,13 @@ package ai.brokk;
 import java.util.List;
 import org.jetbrains.annotations.Nullable;
 
-/* package-private */ interface SystemScaleProvider {
+/**
+ * Abstraction for platform-specific access used by {@link SystemScaleDetector} to determine UI scale.
+ *
+ * <p>The default implementation is {@link SystemScaleProviderImpl}, but tests can provide their own
+ * implementation to simulate various environments.
+ */
+public interface SystemScaleProvider {
     /** Return the scale derived from GraphicsConfiguration default transform (or null if unavailable). */
     @Nullable
     Double getGraphicsConfigScale();

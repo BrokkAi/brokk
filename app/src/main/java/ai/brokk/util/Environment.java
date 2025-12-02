@@ -18,6 +18,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -556,6 +557,56 @@ public class Environment {
     /** Determines if the current operating system is Windows. */
     public static boolean isWindows() {
         return System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win");
+    }
+
+    /**
+     * Detects the current UI scale factor for the platform, when available.
+     * <p>
+     * On Windows, this uses {@code SystemScaleDetector.tryDetectScaleViaWindows} with a provider
+     * that delegates to {@link #runShellCommand(String, java.nio.file.Path, java.util.function.Consumer, java.time.Duration)}.
+     * For other platforms this currently returns {@code null}.
+     *
+     * @return the detected scale factor (e.g., 1.0, 1.5, 2.0) or {@code null} if unavailable.
+     */
+    public @Nullable Double detectUiScale() {
+        if (!isWindows()) {
+            return null;
+        }
+
+        // Provider that delegates process execution to Environment.runShellCommand with our default timeout,
+        // but uses the default implementation for AWT-based queries.
+        ai.brokk.SystemScaleProvider base = new ai.brokk.SystemScaleProviderImpl();
+
+        ai.brokk.SystemScaleProvider provider = new ai.brokk.SystemScaleProvider() {
+            @Override
+            public @Nullable Double getGraphicsConfigScale() {
+                return base.getGraphicsConfigScale();
+            }
+
+            @Override
+            public @Nullable Integer getToolkitDpi() {
+                return base.getToolkitDpi();
+            }
+
+            @Override
+            public @Nullable List<String> runCommand(String... command) {
+                List<String> lines = new ArrayList<>();
+                try {
+                    String joined = String.join(" ", command);
+                    runShellCommand(joined, Path.of("."), lines::add, DEFAULT_TIMEOUT);
+                    return lines.isEmpty() ? null : lines;
+                } catch (SubprocessException e) {
+                    logger.debug("UI scale detection command failed: {}", e.getMessage());
+                    return null;
+                } catch (InterruptedException e) {
+                    logger.debug("UI scale detection command interrupted: {}", e.getMessage());
+                    Thread.currentThread().interrupt();
+                    return null;
+                }
+            }
+        };
+
+        return ai.brokk.SystemScaleDetector.tryDetectScaleViaWindows(provider);
     }
 
     public static boolean isMacOs() {

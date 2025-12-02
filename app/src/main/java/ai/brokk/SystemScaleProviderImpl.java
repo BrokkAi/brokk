@@ -15,7 +15,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
-/* package-private */ final class SystemScaleProviderImpl implements SystemScaleProvider {
+/**
+ * Default implementation of {@link SystemScaleProvider} that uses AWT and subprocesses.
+ */
+public final class SystemScaleProviderImpl implements SystemScaleProvider {
     private static final Logger logger = LogManager.getLogger(SystemScaleProviderImpl.class);
 
     @Override
@@ -74,7 +77,10 @@ import org.jetbrains.annotations.Nullable;
                 }
             }
             if (proc.exitValue() != 0) {
-                logger.debug("Command exited with non-zero status {}: {}", proc.exitValue(), String.join(" ", command));
+                logger.debug(
+                        "Command exited with non-zero status {}: {}",
+                        proc.exitValue(),
+                        String.join(" ", command));
             }
             return lines;
         } catch (IOException | InterruptedException e) {
