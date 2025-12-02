@@ -746,6 +746,8 @@
       "badge_border": "#1AEBFF",
       "badge_foreground": "#1AEBFF",
       "badge_hover_border": "#00EAFF",
+      "badge_muted_bg": "#3A3A3A",
+      "badge_muted_fg": "#9E9E9E",
       "selected_badge_border": "#FFFFFF",
       "selected_badge_foreground": "#FFFFFF",
 
