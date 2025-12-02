@@ -7,7 +7,6 @@
 - [Running Brokk](#running-brokk)
 - [Documentation](#documentation)
 - [Contributing](#contributing)
-- [Brokk Versioning](#brokk-versioning)
 - [Increasing JVM heap when running via Gradle](#increasing-jvm-heap-when-running-via-gradle)
 
 # Overview
@@ -38,27 +37,6 @@ Brokk uses Gradle with Scala support. To build Brokk,
 3. Available commands: `run`, `test`, `build`, `shadowJar`, `tidy`, etc.
 
 The frontend uses **pnpm** for package management. Gradle automatically handles pnpm installation and dependency management during builds.
-
-## Brokk Versioning
-
-Brokk’s version is derived from the git tags in this repository:
-
-- The root `build.gradle.kts` computes the Gradle `version` by calling `git describe` over tags that look like semantic versions (for example `0.14.1`).
-- The computed version is cached in `build/version.txt` so subsequent builds do not need to shell out to git when the HEAD commit has not changed.
-- The `app` module generates a small build-time class `ai.brokk.BuildInfo` with a public static field `version` set to this value.
-
-You can inspect the version in different ways:
-
-- From source checkouts, run:
-
-  ```bash
-  ./gradlew printVersion
-  ```
-
-- From inside the application code, read `BuildInfo.version`.
-- When using JBang:
-  - The `brokk` alias always points at the latest released JAR on GitHub.
-  - Versioned aliases such as `brokk-0.14.1` pin to a specific released version.
 
 ## Increasing JVM heap when running via Gradle
 
