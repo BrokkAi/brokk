@@ -177,7 +177,9 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
             result = result.thenRun(() -> {
                 logger.debug(
                         "MOP: sending live-summary after history; seq={} compressed={} len={}",
-                        main.sequence(), main.isCompressed(), summary.length());
+                        main.sequence(),
+                        main.isCompressed(),
+                        summary.length());
                 webHost.sendLiveSummary(main.sequence(), main.isCompressed(), summary);
             });
         }

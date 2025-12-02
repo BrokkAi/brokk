@@ -35,8 +35,7 @@ public class ContextCompressionTest {
     void testCompressionPreservesOriginalLog() {
         // Create a TaskEntry with a log (original messages)
         List<ChatMessage> messages = List.of(
-                UserMessage.from("What is the capital of France?"),
-                AiMessage.from("The capital of France is Paris."));
+                UserMessage.from("What is the capital of France?"), AiMessage.from("The capital of France is Paris."));
 
         var taskFragment = new ContextFragment.TaskFragment(contextManager, messages, "Geography Question");
         var originalEntry = new TaskEntry(1, taskFragment, null);
@@ -52,8 +51,8 @@ public class ContextCompressionTest {
         // Verify compressed state: still has log, now also has summary
         assertTrue(compressedEntry.hasLog(), "Compressed entry should preserve original log");
         assertSame(originalEntry.log(), compressedEntry.log(), "Log instance should be identical");
-        assertEquals(messages.size(), compressedEntry.log().messages().size(), 
-                "Log should have same number of messages");
+        assertEquals(
+                messages.size(), compressedEntry.log().messages().size(), "Log should have same number of messages");
 
         assertTrue(compressedEntry.isCompressed(), "Compressed entry should now have summary");
         assertEquals(compressedSummary, compressedEntry.summary(), "Summary should match");
@@ -100,9 +99,7 @@ public class ContextCompressionTest {
     @Test
     void testLogOnlyEntryIndicatesNeedForCompression() {
         // Entry with only log, no summary: indicates it needs compression
-        List<ChatMessage> messages = List.of(
-                UserMessage.from("Hello"),
-                AiMessage.from("Hi there!"));
+        List<ChatMessage> messages = List.of(UserMessage.from("Hello"), AiMessage.from("Hi there!"));
 
         var taskFragment = new ContextFragment.TaskFragment(contextManager, messages, "Greeting");
         var logOnlyEntry = new TaskEntry(1, taskFragment, null);
@@ -127,9 +124,8 @@ public class ContextCompressionTest {
     @Test
     void testCompressionWithMetaPreservation() {
         // Verify compression preserves all TaskMeta fields
-        List<ChatMessage> messages = List.of(
-                UserMessage.from("Refactor this code"),
-                AiMessage.from("Here's the refactored version..."));
+        List<ChatMessage> messages =
+                List.of(UserMessage.from("Refactor this code"), AiMessage.from("Here's the refactored version..."));
 
         var taskFragment = new ContextFragment.TaskFragment(contextManager, messages, "Code Refactor");
         var meta = new TaskResult.TaskMeta(
@@ -147,13 +143,17 @@ public class ContextCompressionTest {
         assertNotNull(compressedEntry.meta());
         assertEquals(TaskResult.Type.CODE, compressedEntry.meta().type());
         assertEquals("gpt-4", compressedEntry.meta().primaryModel().name());
-        assertEquals(Service.ReasoningLevel.DEFAULT, compressedEntry.meta().primaryModel().reasoning());
-        assertEquals(Service.ProcessingTier.DEFAULT, compressedEntry.meta().primaryModel().tier());
-        
+        assertEquals(
+                Service.ReasoningLevel.DEFAULT,
+                compressedEntry.meta().primaryModel().reasoning());
+        assertEquals(
+                Service.ProcessingTier.DEFAULT,
+                compressedEntry.meta().primaryModel().tier());
+
         // Verify messages are intact
         assertTrue(compressedEntry.hasLog());
         assertEquals(2, compressedEntry.log().messages().size());
-        
+
         // Verify summary is attached
         assertEquals(summary, compressedEntry.summary());
     }
@@ -162,19 +162,17 @@ public class ContextCompressionTest {
     void testToStringPreferringFullMessagesWhenCompressed() {
         // When an entry has both log and summary, toString() should indicate
         // that it's summarized but prefer showing the full messages
-        List<ChatMessage> messages = List.of(
-                UserMessage.from("Question"),
-                AiMessage.from("Answer"));
+        List<ChatMessage> messages = List.of(UserMessage.from("Question"), AiMessage.from("Answer"));
 
         var taskFragment = new ContextFragment.TaskFragment(contextManager, messages, "Q&A");
         String summary = "Q&A interaction";
         var compressedEntry = new TaskEntry(1, taskFragment, summary);
 
         String str = compressedEntry.toString();
-        
+
         // Should indicate summarized
         assertTrue(str.contains("summarized=true"), "toString should indicate summarized");
-        
+
         // Should include message types (prefers full messages)
         assertTrue(str.contains("message"), "toString should include message content");
     }
@@ -194,7 +192,7 @@ public class ContextCompressionTest {
         var withBoth = new TaskEntry(1, logOnly.log(), summary);
         assertTrue(withBoth.isCompressed());
         assertTrue(withBoth.hasLog());
-        
+
         // State 3: Summary only (legacy, AI uses summary)
         var summaryOnly = new TaskEntry(1, null, summary);
         assertTrue(summaryOnly.isCompressed());
