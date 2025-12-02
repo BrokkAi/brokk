@@ -611,15 +611,24 @@ class HeadlessHttpConsoleTest {
         }
 
         var events = awaitEvents(10, 10_000);
-        assertTrue(events.size() >= 10, "Expected at least 10 events to be persisted, but saw " + events.size());
 
-        // Verify monotonic, contiguous sequence numbers and correct type
-        for (int i = 0; i < events.size(); i++) {
-            assertEquals("LLM_TOKEN", events.get(i).type());
+        // We expect exactly 10 events from this burst; awaitEvents already enforces
+        // contiguity for the first 10 events and fences on console.getLastSeq().
+        assertEquals(
+                10,
+                events.size(),
+                "Expected exactly 10 events to be persisted by this test, but saw " + events.size());
+
+        // Verify monotonic, contiguous sequence numbers and correct type for these 10 events.
+        // Do not assume a particular starting seq, only that each is +1 from the previous.
+        for (int i = 0; i < 10; i++) {
+            var event = events.get(i);
+            assertEquals("LLM_TOKEN", event.type(), "Unexpected type at index " + i);
             if (i > 0) {
+                var prev = events.get(i - 1);
                 assertEquals(
-                        events.get(i - 1).seq() + 1,
-                        events.get(i).seq(),
+                        prev.seq() + 1,
+                        event.seq(),
                         "Expected contiguous seq between index " + (i - 1) + " and " + i);
             }
         }
