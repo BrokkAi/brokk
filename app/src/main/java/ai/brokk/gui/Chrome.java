@@ -291,6 +291,14 @@ public class Chrome
     public Chrome(ContextManager contextManager) {
         assert SwingUtilities.isEventDispatchThread() : "Chrome constructor must run on EDT";
         this.contextManager = contextManager;
+        this.contextManager.addFileChangeListener(changedFiles -> {
+            // Refresh preview windows when tracked files change
+            Set<ProjectFile> openPreviewFiles = new HashSet<>(projectFileToPreviewWindow.keySet());
+            openPreviewFiles.retainAll(changedFiles);
+            if (!openPreviewFiles.isEmpty()) {
+                refreshPreviewsForFiles(openPreviewFiles);
+            }
+        });
         this.activeContext = Context.EMPTY; // Initialize activeContext
 
         // 2) Build main window
@@ -1712,14 +1720,6 @@ public class Chrome
 
     @Override
     public void onTrackedFileChange() {
-        // Refresh preview windows when tracked files change
-        // Get all currently open preview files
-        Set<ProjectFile> openPreviewFiles = new HashSet<>(projectFileToPreviewWindow.keySet());
-        logger.debug("onTrackedFileChange called - open preview files: {}", openPreviewFiles);
-        if (!openPreviewFiles.isEmpty()) {
-            refreshPreviewsForFiles(openPreviewFiles);
-        }
-
         // Also refresh the Review tab to show updated changes
         historyOutputPanel.refreshBranchDiffPanel();
     }
@@ -2002,8 +2002,14 @@ public class Chrome
         });
 
         // Bring window to front and make visible
-        previewFrame.toFront();
         previewFrame.setVisible(true);
+        previewFrame.toFront();
+        previewFrame.requestFocus();
+        // On macOS, sometimes need to explicitly request focus
+        if (SystemInfo.isMacOS) {
+            previewFrame.setAlwaysOnTop(true);
+            previewFrame.setAlwaysOnTop(false);
+        }
     }
 
     /**
@@ -2011,7 +2017,6 @@ public class Chrome
      * with an actual file, uses the file path. For fragment previews (no file) or other content, uses the title.
      */
     private String generatePreviewWindowKey(String title, JComponent contentComponent) {
-        // Prefer stable file-based keys when a ProjectFile is present on the preview component
         if (contentComponent instanceof PreviewTextPanel textPanel && textPanel.getFile() != null) {
             return "file:" + textPanel.getFile().toString();
         }
@@ -2100,31 +2105,25 @@ public class Chrome
      * @param excludeFrame Optional frame to exclude from refresh (typically the one that just saved)
      */
     public void refreshPreviewsForFiles(Set<ProjectFile> changedFiles, @Nullable JFrame excludeFrame) {
-        logger.debug("refreshPreviewsForFiles called with files: {}, excludeFrame: {}", changedFiles, excludeFrame);
         SwingUtilities.invokeLater(() -> {
             for (ProjectFile file : changedFiles) {
                 JFrame previewFrame = projectFileToPreviewWindow.get(file);
-                logger.debug("Preview frame for {}: {}", file, previewFrame);
                 if (previewFrame != null && previewFrame.isDisplayable() && previewFrame != excludeFrame) {
                     // Get the content panel from the frame
                     Container contentPane = previewFrame.getContentPane();
 
                     // Refresh based on panel type
                     if (contentPane instanceof PreviewTextPanel textPanel) {
-                        logger.debug("Refreshing PreviewTextPanel for {}", file);
                         textPanel.refreshFromDisk();
                     } else if (contentPane instanceof PreviewImagePanel imagePanel) {
-                        logger.debug("Refreshing PreviewImagePanel for {}", file);
                         imagePanel.refreshFromDisk();
                     } else {
                         // Content might be nested in a BorderLayout
                         Component centerComponent =
                                 ((BorderLayout) contentPane.getLayout()).getLayoutComponent(BorderLayout.CENTER);
                         if (centerComponent instanceof PreviewTextPanel textPanel) {
-                            logger.debug("Refreshing nested PreviewTextPanel for {}", file);
                             textPanel.refreshFromDisk();
                         } else if (centerComponent instanceof PreviewImagePanel imagePanel) {
-                            logger.debug("Refreshing nested PreviewImagePanel for {}", file);
                             imagePanel.refreshFromDisk();
                         }
                     }
@@ -2298,7 +2297,6 @@ public class Chrome
                 previewVirtualFragment(fragment, initialTitle, computedDescNow);
             }
         } catch (Exception ex) {
-            logger.debug("Error opening preview", ex);
             toolError("Error opening preview: " + ex.getMessage());
         }
     }
@@ -2447,7 +2445,6 @@ public class Chrome
                 }
             } catch (Exception e) {
                 txt = "Error loading preview: " + e.getMessage();
-                logger.debug("Error reading file for preview", e);
             }
             final String fTxt = txt;
             SwingUtilities.invokeLater(() -> {
