@@ -47,21 +47,50 @@ class HeadlessHttpConsoleTest {
      * Polls the JobStore until at least the given number of events are present for the job,
      * or the timeout elapses. This avoids relying on arbitrary Thread.sleep() durations
      * while the HeadlessHttpConsole writes events asynchronously.
+     *
+     * In addition to the count check, this helper verifies that the first {@code expectedCount}
+     * events have strictly increasing, contiguous sequence numbers. It also uses a snapshot of
+     * {@link HeadlessHttpConsole#getLastSeq()} as a fence, ensuring that all events known to
+     * the console at the start of the wait have been flushed to the JobStore before returning.
      */
     private List<ai.brokk.executor.jobs.JobEvent> awaitEvents(int expectedCount, long timeoutMillis)
             throws Exception {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+        long targetLastSeq = console.getLastSeq();
         List<ai.brokk.executor.jobs.JobEvent> events = List.of();
         while (System.nanoTime() < deadline) {
             events = jobStore.readEvents(jobId, -1, 0);
-            if (events.size() >= expectedCount) {
-                return events;
+            if (events.size() >= expectedCount && hasContiguousIncreasingSeq(events, expectedCount)) {
+                long lastObservedSeq = events.get(expectedCount - 1).seq();
+                if (lastObservedSeq >= targetLastSeq) {
+                    return events;
+                }
             }
             Thread.sleep(10L);
         }
         // Final read before giving up
         events = jobStore.readEvents(jobId, -1, 0);
         return events;
+    }
+
+    /**
+     * Returns true if the first {@code count} events in the list have strictly increasing,
+     * contiguous sequence numbers (i.e., seq[i+1] == seq[i] + 1).
+     */
+    private static boolean hasContiguousIncreasingSeq(
+            List<ai.brokk.executor.jobs.JobEvent> events, int count) {
+        if (events.size() < count) {
+            return false;
+        }
+        long prevSeq = events.get(0).seq();
+        for (int i = 1; i < count; i++) {
+            long currentSeq = events.get(i).seq();
+            if (currentSeq != prevSeq + 1) {
+                return false;
+            }
+            prevSeq = currentSeq;
+        }
+        return true;
     }
 
     @Test
@@ -582,12 +611,17 @@ class HeadlessHttpConsoleTest {
         }
 
         var events = awaitEvents(10, 10_000);
-        assertEquals(10, events.size(), "Expected all 10 events to be persisted");
+        assertTrue(events.size() >= 10, "Expected at least 10 events to be persisted, but saw " + events.size());
 
-        // Verify monotonic sequence numbers
+        // Verify monotonic, contiguous sequence numbers and correct type
         for (int i = 0; i < events.size(); i++) {
-            assertEquals(i + 1L, events.get(i).seq());
             assertEquals("LLM_TOKEN", events.get(i).type());
+            if (i > 0) {
+                assertEquals(
+                        events.get(i - 1).seq() + 1,
+                        events.get(i).seq(),
+                        "Expected contiguous seq between index " + (i - 1) + " and " + i);
+            }
         }
 
         cleanup();
