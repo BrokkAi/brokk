@@ -405,7 +405,7 @@ public class ProjectFilesPanel extends JPanel {
         @Override
         protected List<Completion> getCompletionsImpl(JTextComponent comp) {
             String pattern = getAlreadyEnteredText(comp);
-            var minLength = 3;
+            var minLength = 2;
             if (pattern.isEmpty() || !project.hasGit()) {
                 return Collections.emptyList();
             }
