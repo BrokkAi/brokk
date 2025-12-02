@@ -999,7 +999,7 @@ public abstract class CodePrompts {
                                 EXISTING function's signature, annotations, and body, including any Javadoc; it CANNOT create new functions
                                 without an existing one to replace. Do not generate more than one BRK_CLASS or BRK_FUNCTION edit
                                 for the same fully qualified symbol in a single response; combine all changes for that symbol into a single block.
-                                
+
                                 For BRK_CLASS specifically: include only the class/struct/interface declaration and its members (the class
               header and body). Do NOT include file-level `package` declarations or `import` statements inside a
               BRK_CLASS REPLACE — package and import lines belong at the top of the file and must be edited separately.
