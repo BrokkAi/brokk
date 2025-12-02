@@ -58,11 +58,11 @@ import org.eclipse.jgit.transport.URIish;
 import org.jetbrains.annotations.Nullable;
 import org.kohsuke.github.GHIssue;
 import org.kohsuke.github.GHIssueComment;
-import org.kohsuke.github.HttpException;
 import org.kohsuke.github.GHIssueState;
 import org.kohsuke.github.GHLabel;
 import org.kohsuke.github.GHPullRequest;
 import org.kohsuke.github.GHUser;
+import org.kohsuke.github.HttpException;
 
 public class GitPullRequestsTab extends JPanel implements SettingsChangeListener, ai.brokk.gui.theme.ThemeAware {
     private static final Logger logger = LogManager.getLogger(GitPullRequestsTab.class);
