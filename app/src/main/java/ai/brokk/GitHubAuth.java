@@ -217,21 +217,15 @@ public class GitHubAuth {
     }
 
     public static boolean validateStoredToken() {
-        String token = getStoredToken();
-        if (token.isEmpty()) {
+        if (getStoredToken().isEmpty()) {
             return false;
         }
 
         try {
-            var github = new GitHubBuilder()
-                    .withOAuthToken(token)
-                    .withRateLimitHandler(GitHubRateLimitHandler.FAIL)
-                    .withAbuseLimitHandler(GitHubAbuseLimitHandler.FAIL)
-                    .build();
-            github.getMyself();
+            createClient().getMyself();
             logger.debug("Stored GitHub token is valid");
             return true;
-        } catch (IOException e) {
+        } catch (Exception e) {
             logger.warn("Stored GitHub token is invalid: {}", e.getMessage());
             MainProject.setGitHubToken("");
             invalidateInstance();
@@ -248,19 +242,33 @@ public class GitHubAuth {
         return MainProject.getGitHubToken();
     }
 
-    public static @Nullable String getAuthenticatedUsername() {
-        String token = getStoredToken();
+    /**
+     * Creates a GitHub client configured with the stored token and fail-fast rate limit handlers.
+     * This is the preferred way to create GitHub clients to ensure consistent behavior.
+     *
+     * @return a configured GitHub client
+     * @throws IOException if the client cannot be created or the token is invalid
+     * @throws IllegalStateException if no GitHub token is configured
+     */
+    public static GitHub createClient() throws IOException {
+        var token = getStoredToken();
         if (token.isEmpty()) {
+            throw new IllegalStateException("No GitHub token configured");
+        }
+        return new GitHubBuilder()
+                .withOAuthToken(token)
+                .withRateLimitHandler(GitHubRateLimitHandler.FAIL)
+                .withAbuseLimitHandler(GitHubAbuseLimitHandler.FAIL)
+                .build();
+    }
+
+    public static @Nullable String getAuthenticatedUsername() {
+        if (getStoredToken().isEmpty()) {
             return null;
         }
 
         try {
-            var github = new GitHubBuilder()
-                    .withOAuthToken(token)
-                    .withRateLimitHandler(GitHubRateLimitHandler.FAIL)
-                    .withAbuseLimitHandler(GitHubAbuseLimitHandler.FAIL)
-                    .build();
-            return github.getMyself().getLogin();
+            return createClient().getMyself().getLogin();
         } catch (Exception e) {
             // Silently ignore all errors for this nice-to-have feature
             return null;
