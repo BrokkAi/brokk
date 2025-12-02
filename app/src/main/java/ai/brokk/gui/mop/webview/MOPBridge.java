@@ -1,7 +1,5 @@
 package ai.brokk.gui.mop.webview;
 
-import static java.util.Objects.requireNonNull;
-
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.TaskEntry;
