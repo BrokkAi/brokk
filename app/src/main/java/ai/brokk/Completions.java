@@ -251,7 +251,23 @@ public class Completions {
             Function<T, String> extractLong,
             Function<T, Integer> tiebreaker,
             Function<T, ShorthandCompletion> toCompletion) {
-        var matcher = new FuzzyMatcher(pattern);
+        return scoreShortAndLong(pattern, candidates, extractShort, extractLong, tiebreaker, toCompletion, 1);
+    }
+
+    public static <T> List<ShorthandCompletion> scoreShortAndLong(
+            String pattern,
+            Collection<T> candidates,
+            Function<T, String> extractShort,
+            Function<T, String> extractLong,
+            Function<T, Integer> tiebreaker,
+            Function<T, ShorthandCompletion> toCompletion,
+            int minLength) {
+        String trimmed = pattern.trim();
+        if (trimmed.length() < minLength) {
+            return List.of();
+        }
+
+        var matcher = new FuzzyMatcher(trimmed);
         var scoredCandidates = candidates.stream()
                 .map(c -> {
                     int shortScore = matcher.score(extractShort.apply(c));
