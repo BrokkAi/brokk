@@ -406,15 +406,14 @@ public class ProjectFilesPanel extends JPanel {
         protected List<Completion> getCompletionsImpl(JTextComponent comp) {
             String pattern = getAlreadyEnteredText(comp);
             var minLength = 3;
-            String trimmed = pattern.trim();
-            if (trimmed.length() < minLength || !project.hasGit()) {
+            if (pattern.isEmpty() || !project.hasGit()) {
                 return Collections.emptyList();
             }
 
             Set<ProjectFile> candidates = project.getRepo().getTrackedFiles();
 
             var scoredCompletions = Completions.scoreShortAndLong(
-                    trimmed,
+                    pattern,
                     candidates,
                     ProjectFile::getFileName,
                     pf -> pf.getRelPath().toString(),
