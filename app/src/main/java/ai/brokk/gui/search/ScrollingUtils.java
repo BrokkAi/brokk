@@ -80,8 +80,7 @@ public final class ScrollingUtils {
                     desiredY = Math.max(0, desiredY);
                     viewport.setViewPosition(new Point(viewRect.x, desiredY));
                 } else {
-                    component.scrollRectToVisible(
-                            new Rectangle(0, 0, component.getWidth(), component.getHeight()));
+                    component.scrollRectToVisible(new Rectangle(0, 0, component.getWidth(), component.getHeight()));
                 }
                 return;
             }
@@ -93,8 +92,8 @@ public final class ScrollingUtils {
             }
 
             // Translate component bounds into the coordinate system of the viewport's view
-            Rectangle compBoundsInView = SwingUtilities.convertRectangle(
-                    component.getParent(), component.getBounds(), view);
+            Rectangle compBoundsInView =
+                    SwingUtilities.convertRectangle(component.getParent(), component.getBounds(), view);
             Rectangle viewRect = viewport.getViewRect();
 
             int currentY = viewRect.y;
