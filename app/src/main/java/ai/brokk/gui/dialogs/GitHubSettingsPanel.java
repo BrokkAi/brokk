@@ -235,14 +235,19 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
                 gitHubStatusLabel.setFont(gitHubStatusLabel.getFont().deriveFont(Font.PLAIN));
             } else {
                 if (connected) {
-                    String username = GitHubAuth.getAuthenticatedUsername();
-                    if (username != null) {
-                        gitHubStatusLabel.setText("✓ Step 1 complete: Connected as @" + username);
-                    } else {
-                        gitHubStatusLabel.setText("✓ Step 1 complete: Connected");
-                    }
+                    // Show initial "Connected" text, then fetch username async
+                    gitHubStatusLabel.setText("✓ Step 1 complete: Connected");
                     gitHubStatusLabel.setForeground(new Color(0, 128, 0)); // Green for completed step
                     gitHubStatusLabel.setFont(gitHubStatusLabel.getFont().deriveFont(Font.ITALIC));
+                    // Fetch username in background to avoid blocking EDT on rate limit
+                    CompletableFuture.supplyAsync(GitHubAuth::getAuthenticatedUsername)
+                            .thenAccept(username -> {
+                                SwingUtil.runOnEdt(() -> {
+                                    if (gitHubStatusLabel != null && username != null) {
+                                        gitHubStatusLabel.setText("✓ Step 1 complete: Connected as @" + username);
+                                    }
+                                });
+                            });
                 } else {
                     gitHubStatusLabel.setText("Status: Not connected");
                     gitHubStatusLabel.setForeground(UIManager.getColor("Label.foreground"));
