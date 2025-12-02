@@ -1582,21 +1582,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Execute a single task using ArchitectAgent with explicit options.
      *
      * @param task Task to execute (non-blank text).
-     * @param autoCommit whether to commit any modified files after a successful run
      * @return TaskResult from ArchitectAgent execution.
      */
-    public TaskResult executeTask(TaskList.TaskItem task, boolean autoCommit)
+    public TaskResult executeTask(TaskList.TaskItem task)
             throws InterruptedException {
         var planningModel = io.getInstructionsPanel().getSelectedModel();
         var codeModel = getCodeModel();
-        return executeTask(task, planningModel, codeModel, autoCommit);
+        return executeTask(task, planningModel, codeModel);
     }
 
     public TaskResult executeTask(
             TaskList.TaskItem task,
             StreamingChatModel planningModel,
-            StreamingChatModel codeModel,
-            boolean autoCommit)
+            StreamingChatModel codeModel)
             throws InterruptedException {
         // IMPORTANT: Use task.text() as the LLM prompt, NOT task.title().
         // The title is UI-only metadata for display/organization; the text is the actual task body.
@@ -1615,11 +1613,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-            if (autoCommit) {
-                new GitWorkflow(this).performAutoCommit(prompt);
-            }
+            new GitWorkflow(this).performAutoCommit(prompt);
             compressHistory(); // synchronous
-            // Mark the task as done and persist the updated list
             markTaskDoneAndPersist(task);
         }
 

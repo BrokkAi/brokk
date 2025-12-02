@@ -10,6 +10,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
+import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.project.MainProject;
 import com.google.common.base.Splitter;
@@ -219,7 +220,7 @@ public final class HeadlessExecutorMain {
      * Asynchronously execute a job. Called after a new job is created.
      * Delegates to JobRunner and manages currentJobId lifecycle.
      */
-    private void executeJobAsync(String jobId, ai.brokk.executor.jobs.JobSpec jobSpec) {
+    private void executeJobAsync(String jobId, JobSpec jobSpec) {
         logger.info("Starting job execution: {}, session={}", jobId, contextManager.getCurrentSessionId());
         jobRunner.runAsync(jobId, jobSpec).whenComplete((unused, throwable) -> {
             if (throwable != null) {
@@ -635,7 +636,7 @@ public final class HeadlessExecutorMain {
 
             var tags = jobSpecRequest.tags();
             Map<String, String> safeTags = tags != null ? Map.copyOf(tags) : Map.of();
-            var jobSpec = ai.brokk.executor.jobs.JobSpec.of(
+            var jobSpec = JobSpec.of(
                     jobSpecRequest.taskInput(),
                     jobSpecRequest.autoCommit(),
                     jobSpecRequest.autoCompress(),
@@ -1008,7 +1009,7 @@ public final class HeadlessExecutorMain {
             String sessionId,
             String taskInput,
             boolean autoCommit,
-            @Nullable Boolean autoCompress,
+            boolean autoCompress,
             @Nullable String plannerModel,
             @Nullable String codeModel,
             @Nullable Map<String, String> tags) {}
