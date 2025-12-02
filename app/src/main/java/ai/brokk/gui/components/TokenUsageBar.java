@@ -517,6 +517,19 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         }
     }
 
+    /**
+     * Returns the fragments corresponding to the currently hovered segment, or an empty collection
+     * if no segment is hovered. Safe to call from any thread; the returned collection is immutable.
+     */
+    public Collection<ContextFragment> getHoveredFragments() {
+        Segment seg = hoveredSegment;
+        if (seg == null || seg.fragments == null || seg.fragments.isEmpty()) {
+            return List.of();
+        }
+        // Expose a defensive copy so callers cannot mutate our internal state.
+        return List.copyOf(seg.fragments);
+    }
+
     @Nullable
     private Segment findSegmentAt(int x) {
         int width = getWidth();

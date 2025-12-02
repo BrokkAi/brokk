@@ -3253,6 +3253,7 @@ public class Chrome
 
     public void updateTerminalFontSize() {}
 
+
     /**
      * Hook to apply Advanced Mode UI visibility without restart.
      * Shows/hides tabs that are considered "advanced": Pull Requests, Issues, Log, Worktrees.
