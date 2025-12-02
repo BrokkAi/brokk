@@ -1,6 +1,7 @@
 package ai.brokk.issues;
 
 import ai.brokk.GitHubAuth;
+import ai.brokk.gui.util.StreamingPaginationHelper;
 import ai.brokk.project.IProject;
 import ai.brokk.util.MarkdownImageParser;
 import com.google.common.collect.ImmutableList;
@@ -244,7 +245,8 @@ public class GitHubIssueService implements IssueService {
         if (queryText != null && !queryText.isBlank()) {
             logger.debug("Search query present, falling back to non-paginated listIssues for query: '{}'", queryText);
             var all = listIssues(filterOptions);
-            var limited = all.size() > maxTotal ? all.subList(0, maxTotal) : all;
+            int searchLimit = Math.min(maxTotal, StreamingPaginationHelper.MAX_ISSUES);
+            var limited = all.size() > searchLimit ? all.subList(0, searchLimit) : all;
             return List.of(limited).iterator();
         }
 
