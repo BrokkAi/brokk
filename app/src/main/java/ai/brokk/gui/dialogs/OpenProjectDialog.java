@@ -6,6 +6,7 @@ import ai.brokk.GitHubAuth;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.git.GitHubErrorUtil;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.project.MainProject;
 import java.awt.*;
@@ -701,13 +702,14 @@ public class OpenProjectDialog extends JDialog {
                         GitHubAuth.invalidateInstance();
                         disableGitHubTab(
                                 "GitHub token is invalid or expired. Go to Settings → GitHub to update your token.");
-                        clearTable(tableModel);
+                    } else if (GitHubErrorUtil.isRateLimitError(cause)) {
+                        logger.warn("GitHub rate limit exceeded");
+                        disableGitHubTab("GitHub rate limit exceeded. Try again later.");
                     } else {
-                        var errorMessage = cause != null ? cause.getMessage() : e.getMessage();
                         logger.error("Failed to load GitHub repositories", cause != null ? cause : e);
-                        disableGitHubTab("Failed to load GitHub repositories: " + errorMessage);
-                        clearTable(tableModel);
+                        disableGitHubTab(GitHubErrorUtil.formatError(e, "repositories"));
                     }
+                    clearTable(tableModel);
                 }
             }
         };
@@ -763,10 +765,12 @@ public class OpenProjectDialog extends JDialog {
                         GitHubAuth.invalidateInstance();
                         disableGitHubTab(
                                 "GitHub token is invalid or expired. Go to Settings → GitHub to update your token.");
+                    } else if (GitHubErrorUtil.isRateLimitError(cause)) {
+                        logger.warn("GitHub rate limit exceeded");
+                        disableGitHubTab("GitHub rate limit exceeded. Try again later.");
                     } else {
-                        var errorMessage = cause != null ? cause.getMessage() : e.getMessage();
                         logger.error("Failed to load GitHub repositories", cause != null ? cause : e);
-                        disableGitHubTab("Failed to load GitHub repositories: " + errorMessage);
+                        disableGitHubTab(GitHubErrorUtil.formatError(e, "repositories"));
                     }
                     clearTable(tableModel);
                 }
