@@ -208,8 +208,7 @@ public final class JobRunner {
                                                             "plannerModel required for ARCHITECT jobs"),
                                                     Objects.requireNonNull(
                                                             architectCodeModel,
-                                                            "code model unavailable for ARCHITECT jobs")
-                                            );
+                                                            "code model unavailable for ARCHITECT jobs"));
                                         }
                                         case LUTZ -> {
                                             // Phase 1: Use SearchAgent to generate a task list from the initial task
@@ -272,8 +271,7 @@ public final class JobRunner {
                                                         cm.executeTask(
                                                                 generatedTask,
                                                                 architectPlannerModel,
-                                                                Objects.requireNonNull(architectCodeModel)
-                                                        );
+                                                                Objects.requireNonNull(architectCodeModel));
                                                     } catch (Exception e) {
                                                         logger.warn(
                                                                 "Generated task execution failed for job {}: {}",

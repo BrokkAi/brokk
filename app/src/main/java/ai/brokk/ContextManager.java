@@ -1584,17 +1584,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param task Task to execute (non-blank text).
      * @return TaskResult from ArchitectAgent execution.
      */
-    public TaskResult executeTask(TaskList.TaskItem task)
-            throws InterruptedException {
+    public TaskResult executeTask(TaskList.TaskItem task) throws InterruptedException {
         var planningModel = io.getInstructionsPanel().getSelectedModel();
         var codeModel = getCodeModel();
         return executeTask(task, planningModel, codeModel);
     }
 
     public TaskResult executeTask(
-            TaskList.TaskItem task,
-            StreamingChatModel planningModel,
-            StreamingChatModel codeModel)
+            TaskList.TaskItem task, StreamingChatModel planningModel, StreamingChatModel codeModel)
             throws InterruptedException {
         // IMPORTANT: Use task.text() as the LLM prompt, NOT task.title().
         // The title is UI-only metadata for display/organization; the text is the actual task body.
