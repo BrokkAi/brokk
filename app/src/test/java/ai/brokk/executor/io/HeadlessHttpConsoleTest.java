@@ -28,11 +28,13 @@ class HeadlessHttpConsoleTest {
 
     private HeadlessHttpConsole console;
     private JobStore jobStore;
-    private String jobId = "test-job-123";
+    private String jobId;
 
     @BeforeEach
     void setup(@TempDir Path tempDir) throws Exception {
         jobStore = new JobStore(tempDir);
+        // Use a unique jobId per test run to avoid cross-test interference when events are read.
+        jobId = "test-job-" + System.nanoTime();
         console = new HeadlessHttpConsole(jobStore, jobId);
     }
 
