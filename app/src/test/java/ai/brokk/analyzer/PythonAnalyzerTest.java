@@ -1015,6 +1015,31 @@ public final class PythonAnalyzerTest {
                 fields.stream().anyMatch(cu -> cu.identifier().equals("CONDITIONAL_VAR")),
                 "Variable inside 'if' should be captured");
 
+        // Verify try/except captures (common pattern for optional dependencies)
+        assertTrue(
+                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.TryClass")),
+                "Class inside 'try' should be captured");
+        assertTrue(
+                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.ExceptClass")),
+                "Class inside 'except' should be captured");
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("try_function")),
+                "Function inside 'try' should be captured");
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("except_function")),
+                "Function inside 'except' should be captured");
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("TRY_VAR")),
+                "Variable inside 'try' should be captured");
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("EXCEPT_VAR")),
+                "Variable inside 'except' should be captured");
+
+        // Verify with statement captures
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("WITH_VAR")),
+                "Variable inside 'with' should be captured");
+
         // Test subclass resolution
         ProjectFile subclassPy = new ProjectFile(testProject.getRoot(), "conditional_pkg/subclass.py");
         Set<CodeUnit> subclassDecls = testAnalyzer.getDeclarations(subclassPy);

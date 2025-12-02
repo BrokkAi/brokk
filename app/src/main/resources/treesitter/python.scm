@@ -78,6 +78,42 @@
         (function_definition
           name: (identifier) @function.name) @function.definition))))
 
+; Function definition inside module-level try_statement
+(module
+  (try_statement
+    (block
+      (function_definition
+        name: (identifier) @function.name) @function.definition)))
+
+; Function definition inside module-level try_statement except clause
+(module
+  (try_statement
+    (except_clause
+      (block
+        (function_definition
+          name: (identifier) @function.name) @function.definition))))
+
+; Function definition inside module-level with_statement
+(module
+  (with_statement
+    (block
+      (function_definition
+        name: (identifier) @function.name) @function.definition)))
+
+; Function definition inside module-level for_statement
+(module
+  (for_statement
+    (block
+      (function_definition
+        name: (identifier) @function.name) @function.definition)))
+
+; Function definition inside module-level while_statement
+(module
+  (while_statement
+    (block
+      (function_definition
+        name: (identifier) @function.name) @function.definition)))
+
 ; Method definition (function_definition directly inside a class's body block)
 ; This also captures static methods if they are structured as function_definition within class body.
 (class_definition
@@ -122,3 +158,44 @@
         (expression_statement
           (assignment
             left: (identifier) @field.name) @field.definition)))))
+
+; Variable assignment inside module-level try_statement
+(module
+  (try_statement
+    (block
+      (expression_statement
+        (assignment
+          left: (identifier) @field.name) @field.definition))))
+
+; Variable assignment inside module-level try_statement except clause
+(module
+  (try_statement
+    (except_clause
+      (block
+        (expression_statement
+          (assignment
+            left: (identifier) @field.name) @field.definition)))))
+
+; Variable assignment inside module-level with_statement
+(module
+  (with_statement
+    (block
+      (expression_statement
+        (assignment
+          left: (identifier) @field.name) @field.definition))))
+
+; Variable assignment inside module-level for_statement
+(module
+  (for_statement
+    (block
+      (expression_statement
+        (assignment
+          left: (identifier) @field.name) @field.definition))))
+
+; Variable assignment inside module-level while_statement
+(module
+  (while_statement
+    (block
+      (expression_statement
+        (assignment
+          left: (identifier) @field.name) @field.definition))))

@@ -37,3 +37,31 @@ if True:
 # Top-level variable inside conditional (should this be captured?)
 if True:
     CONDITIONAL_VAR = "value"
+
+
+# Try/except pattern (common for optional dependencies)
+try:
+    class TryClass:
+        """Class defined in try block."""
+        pass
+
+    def try_function():
+        """Function defined in try block."""
+        return "try"
+
+    TRY_VAR = "try_value"
+except ImportError:
+    class ExceptClass:
+        """Fallback class in except block."""
+        pass
+
+    def except_function():
+        """Fallback function in except block."""
+        return "except"
+
+    EXCEPT_VAR = "except_value"
+
+
+# With statement pattern (less common but valid)
+with open(__file__) if False else type("ctx", (), {"__enter__": lambda s: s, "__exit__": lambda *a: None})():
+    WITH_VAR = "with_value"
