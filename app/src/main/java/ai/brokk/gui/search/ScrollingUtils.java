@@ -41,8 +41,7 @@ public final class ScrollingUtils {
      * Scrolls a component into view, moving the viewport only as much as needed to ensure
      * the component is fully visible. If it is already fully visible, no scrolling occurs.
      *
-     * <p>The {@code positionRatio} parameter is retained for backward compatibility but is
-     * now treated as a soft preference rather than a hard alignment rule. The primary goal
+     * <p>The primary goal
      * is minimal scrolling:
      * <ul>
      *   <li>If the component is fully within the current view, do nothing.</li>
@@ -52,7 +51,7 @@ public final class ScrollingUtils {
      *       the bottom of the viewport.</li>
      * </ul>
      */
-    public static void scrollToComponent(JComponent component, double positionRatio) {
+    public static void scrollToComponent(JComponent component) {
         SwingUtilities.invokeLater(() -> {
             JScrollPane scrollPane = findParentScrollPane(component);
 

@@ -525,7 +525,7 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
             if (targetChip == null) {
                 return;
             }
-            ScrollingUtils.scrollToComponent(targetChip, 0.25);
+            ScrollingUtils.scrollToComponent(targetChip);
         });
     }
 }
