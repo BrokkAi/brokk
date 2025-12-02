@@ -63,6 +63,21 @@
   (function_definition
     name: (identifier) @function.name) @function.definition)
 
+; Function definition inside module-level if_statement (for conditional definitions)
+(module
+  (if_statement
+    (block
+      (function_definition
+        name: (identifier) @function.name) @function.definition)))
+
+; Function definition inside module-level if_statement else clause
+(module
+  (if_statement
+    (else_clause
+      (block
+        (function_definition
+          name: (identifier) @function.name) @function.definition))))
+
 ; Method definition (function_definition directly inside a class's body block)
 ; This also captures static methods if they are structured as function_definition within class body.
 (class_definition
@@ -90,3 +105,20 @@
   (expression_statement
     (assignment
       left: (identifier) @field.name) @field.definition))
+
+; Variable assignment inside module-level if_statement (for conditional definitions)
+(module
+  (if_statement
+    (block
+      (expression_statement
+        (assignment
+          left: (identifier) @field.name) @field.definition))))
+
+; Variable assignment inside module-level if_statement else clause
+(module
+  (if_statement
+    (else_clause
+      (block
+        (expression_statement
+          (assignment
+            left: (identifier) @field.name) @field.definition)))))

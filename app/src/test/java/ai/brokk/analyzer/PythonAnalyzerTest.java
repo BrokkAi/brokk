@@ -1003,6 +1003,18 @@ public final class PythonAnalyzerTest {
                 classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.FallbackBase")),
                 "FallbackBase class inside 'else' should be captured");
 
+        // Verify functions inside conditionals are captured
+        var functions = declarations.stream().filter(CodeUnit::isFunction).toList();
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("conditional_function")),
+                "Function inside 'if' should be captured");
+
+        // Verify variables inside conditionals are captured
+        var fields = declarations.stream().filter(CodeUnit::isField).toList();
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("CONDITIONAL_VAR")),
+                "Variable inside 'if' should be captured");
+
         // Test subclass resolution
         ProjectFile subclassPy = new ProjectFile(testProject.getRoot(), "conditional_pkg/subclass.py");
         Set<CodeUnit> subclassDecls = testAnalyzer.getDeclarations(subclassPy);
