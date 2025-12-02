@@ -61,6 +61,7 @@ import okhttp3.OkHttpClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.kohsuke.github.HttpException;
 
 public class GitIssuesTab extends JPanel implements SettingsChangeListener, ThemeAware {
     private static final Logger logger = LogManager.getLogger(GitIssuesTab.class);
@@ -845,6 +846,23 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         return false;
     }
 
+    /** Formats GitHub API errors, providing user-friendly messages for rate limits. */
+    private static String formatGitHubError(Exception ex) {
+        Throwable cause = ex;
+        while (cause != null) {
+            if (cause instanceof HttpException httpEx) {
+                if (httpEx.getResponseCode() == 403) {
+                    var msg = httpEx.getMessage();
+                    if (msg != null && (msg.contains("rate limit") || msg.contains("secondary rate limit"))) {
+                        return "GitHub rate limit exceeded. Try again later.";
+                    }
+                }
+            }
+            cause = cause.getCause();
+        }
+        return "Error fetching issues: " + ex.getMessage();
+    }
+
     /** Fetches GitHub issues with batch pagination and populates the issue table. */
     private void updateIssueList() {
         assert SwingUtilities.isEventDispatchThread();
@@ -939,6 +957,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                     });
                 } else {
                     logger.error("Failed to fetch issues via IssueService", ex);
+                    var errorMessage = formatGitHubError(ex);
                     SwingUtilities.invokeLater(() -> {
                         if (capturedGeneration != searchGeneration) {
                             return;
@@ -947,6 +966,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                         allIssuesFromApi.clear();
                         displayedIssues.clear();
                         issueTableModel.setRowCount(0);
+                        issueTableModel.addRow(new Object[] {"", errorMessage, "", ""});
                         disableIssueActionsAndClearDetails();
                         searchBox.setLoading(false, "");
                         loadMoreButton.setVisible(false);
