@@ -55,6 +55,14 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     @Nullable
     private volatile BiConsumer<Collection<ContextFragment>, Boolean> onHoverFragments = null;
 
+    /**
+     * Optional callback invoked when the hovered fragment set changes, to allow external components
+     * (such as the WorkspaceItemsChipPanel) to perform side effects like scrolling a chip into view.
+     * The runnable is executed on the EDT by the caller of this component.
+     */
+    @Nullable
+    private volatile Runnable onHoverScroll = null;
+
     @Nullable
     private volatile Runnable onClick = null;
 
@@ -196,6 +204,15 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                             logger.trace("onHoverFragments enter callback threw", ex);
                         }
                     }
+                    // Trigger optional scroll side-effect when the hovered segment changes
+                    Runnable scroll = onHoverScroll;
+                    if (seg != null && scroll != null) {
+                        try {
+                            scroll.run();
+                        } catch (Exception ex) {
+                            logger.trace("onHoverScroll callback threw", ex);
+                        }
+                    }
                 }
             }
         };
@@ -246,6 +263,15 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     public void setOnHoverFragments(@Nullable BiConsumer<Collection<ContextFragment>, Boolean> cb) {
         this.onHoverFragments = cb;
+    }
+
+    /**
+     * Set an optional scroll callback to run whenever the hovered segment changes and there
+     * is a current hovered segment. Typical usage is to scroll the corresponding chip into
+     * view in the workspace chip panel.
+     */
+    public void setOnHoverScroll(@Nullable Runnable onHoverScroll) {
+        this.onHoverScroll = onHoverScroll;
     }
 
     public void applyGlobalStyling(Set<ContextFragment> targets) {
@@ -489,6 +515,19 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             logger.trace("Failed to compute tooltip location for TokenUsageBar", ex);
             return null; // default placement
         }
+    }
+
+    /**
+     * Returns the fragments corresponding to the currently hovered segment, or an empty collection
+     * if no segment is hovered. Safe to call from any thread; the returned collection is immutable.
+     */
+    public Collection<ContextFragment> getHoveredFragments() {
+        Segment seg = hoveredSegment;
+        if (seg == null || seg.fragments.isEmpty()) {
+            return List.of();
+        }
+        // Expose a defensive copy so callers cannot mutate our internal state.
+        return List.copyOf(seg.fragments);
     }
 
     @Nullable
