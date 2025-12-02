@@ -194,7 +194,7 @@ class HistoryV4MigrationTest {
             assertEquals(1, ctx.allFragments().count());
             var ppf = findFragment(ctx, ContextFragment.ProjectPathFragment.class, f -> true);
             assertNotNull(ppf);
-            assertEquals("public class ProjectPath {}", ppf.snapshotNowOrEmpty().text());
+            assertEquals("public class ProjectPath {}", ppf.text().join());
         } else if ("v3-externalpath-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();
@@ -202,7 +202,7 @@ class HistoryV4MigrationTest {
             var epf = findFragment(ctx, ContextFragment.ExternalPathFragment.class, f -> true);
             assertNotNull(epf);
             assertTrue(epf.file().toString().endsWith("external_file.txt"));
-            assertEquals("External file content", epf.snapshotNowOrEmpty().text());
+            assertEquals("External file content", epf.text().join());
         } else if ("v3-usage-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();

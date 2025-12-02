@@ -448,7 +448,9 @@ public class ContextHistory {
     private void snapshotContext(Context ctx) {
         for (var fragment : ctx.allFragments().toList()) {
             try {
-                fragment.snapshot().await(SNAPSHOT_AWAIT_TIMEOUT);
+                if (fragment instanceof ContextFragment.AbstractComputedFragment cf) {
+                    cf.await(SNAPSHOT_AWAIT_TIMEOUT);
+                }
             } catch (Exception e) {
                 logger.warn("Snapshot task failed for fragment {}: {}", fragment.id(), e.toString());
             }
@@ -537,26 +539,6 @@ public class ContextHistory {
                     var pf = files.iterator().next();
 
                     try {
-                        // Prefer the unified snapshot when available for stable restoration
-                        var snapNow = fragment.snapshot().tryGet();
-                        if (snapNow.isPresent()) {
-                            desiredContents.put(pf, snapNow.get().text());
-                            return;
-                        }
-
-                        var snapAwait = fragment.snapshot().await(SNAPSHOT_AWAIT_TIMEOUT);
-                        if (snapAwait.isPresent()) {
-                            desiredContents.put(pf, snapAwait.get().text());
-                            return;
-                        }
-
-                        // Fallback to computed text only if no snapshot is available within timeout
-                        var tryNow = fragment.text().tryGet();
-                        if (tryNow.isPresent()) {
-                            desiredContents.put(pf, tryNow.get());
-                            return;
-                        }
-
                         var awaited = fragment.text().await(SNAPSHOT_AWAIT_TIMEOUT);
                         if (awaited.isPresent()) {
                             desiredContents.put(pf, awaited.get());

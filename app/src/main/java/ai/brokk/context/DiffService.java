@@ -319,16 +319,16 @@ public final class DiffService {
             ContextFragment thisFragment, ContextFragment otherFragment) {
         try {
             // Prefer frozen bytes (snapshot), fall back to computed image bytes
-            byte[] oldImageBytes = otherFragment.snapshotNowOrEmpty().imageBytes();
-            if (oldImageBytes == null) {
-                var oldCv = otherFragment.imageBytes();
-                oldImageBytes = oldCv == null ? null : oldCv.join();
+            byte[] oldImageBytes = null;
+            var oldImageBytesCv = otherFragment.imageBytes();
+            if (oldImageBytesCv != null) {
+                oldImageBytes = oldImageBytesCv.join();
             }
 
-            byte[] newImageBytes = thisFragment.snapshotNowOrEmpty().imageBytes();
-            if (newImageBytes == null) {
-                var newCv = thisFragment.imageBytes();
-                newImageBytes = newCv == null ? null : newCv.join();
+            byte[] newImageBytes = null;
+            var newImageBytesCv = thisFragment.imageBytes();
+            if (newImageBytesCv != null) {
+                newImageBytes = newImageBytesCv.join();
             }
 
             if (oldImageBytes == null || newImageBytes == null) {

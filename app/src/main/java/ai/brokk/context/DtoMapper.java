@@ -398,10 +398,7 @@ public class DtoMapper {
             case ContextFragment.ProjectPathFragment pf -> {
                 ProjectFile file = pf.file();
                 String snapshotId = null;
-                String snapshot = pf.snapshot()
-                        .tryGet()
-                        .map(ContextFragment.FragmentSnapshot::text)
-                        .orElse(null);
+                String snapshot = pf.text().tryGet().orElse(null);
                 if (snapshot != null && !snapshot.isBlank()) {
                     String fileKey = file.getRoot() + ":" + file.getRelPath();
                     snapshotId = writer.writeContent(snapshot, fileKey);
@@ -418,12 +415,9 @@ public class DtoMapper {
                         gf.id(), pf.getRoot().toString(), pf.getRelPath().toString(), gf.revision(), contentId);
             }
             case ContextFragment.ExternalPathFragment ef -> {
-                ExternalFile extFile = (ExternalFile) ef.file();
+                ExternalFile extFile = ef.file();
                 String snapshotId = null;
-                String snapshot = ef.snapshot()
-                        .tryGet()
-                        .map(ContextFragment.FragmentSnapshot::text)
-                        .orElse(null);
+                String snapshot = ef.text().tryGet().orElse(null);
                 if (snapshot != null && !snapshot.isBlank()) {
                     String fileKey = extFile.absPath().toString();
                     snapshotId = writer.writeContent(snapshot, fileKey);
@@ -479,10 +473,7 @@ public class DtoMapper {
                         sumf.getSummaryType().name());
             case ContextFragment.UsageFragment uf -> {
                 String snapshotId = null;
-                String snapshot = uf.snapshot()
-                        .tryGet()
-                        .map(ContextFragment.FragmentSnapshot::text)
-                        .orElse(null);
+                String snapshot = uf.text().tryGet().orElse(null);
                 if (snapshot != null) {
                     snapshotId = writer.writeContent(snapshot, null);
                 }
@@ -513,10 +504,7 @@ public class DtoMapper {
                 new CallGraphFragmentDto(cgf.id(), cgf.getMethodName(), cgf.getDepth(), cgf.isCalleeGraph());
             case ContextFragment.CodeFragment cf -> {
                 String snapshotId = null;
-                String snapshot = cf.snapshot()
-                        .tryGet()
-                        .map(ContextFragment.FragmentSnapshot::text)
-                        .orElse(null);
+                String snapshot = cf.text().tryGet().orElse(null);
                 if (snapshot != null) {
                     snapshotId = writer.writeContent(snapshot, null);
                 }

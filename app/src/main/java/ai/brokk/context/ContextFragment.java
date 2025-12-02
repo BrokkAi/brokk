@@ -293,19 +293,6 @@ public interface ContextFragment {
      */
     ComputedValue<String> syntaxStyle();
 
-    /**
-     * Exposes the full fragment snapshot as a ComputedValue.
-     * Static fragments are completed immediately; computed fragments complete when ready.
-     */
-    ComputedValue<FragmentSnapshot> snapshot();
-
-    /**
-     * Exposes the full fragment snapshot if ready, or returns the FragmentSnapshot.EMPTY instance.
-     */
-    default FragmentSnapshot snapshotNowOrEmpty() {
-        return snapshot().renderNowOr(ContextFragment.FragmentSnapshot.EMPTY);
-    }
-
     default List<TaskEntry> entries() {
         return List.of();
     }
@@ -398,11 +385,6 @@ public interface ContextFragment {
 
         public void await(Duration timeout) throws InterruptedException {
             snapshotCv.await(timeout);
-        }
-
-        @Override
-        public ComputedValue<FragmentSnapshot> snapshot() {
-            return snapshotCv;
         }
 
         @Override
@@ -550,11 +532,6 @@ public interface ContextFragment {
                     </fragment>
                     """
                     .formatted(s.description(), id(), s.text());
-        }
-
-        @Override
-        public ComputedValue<FragmentSnapshot> snapshot() {
-            return ComputedValue.completed("snap-" + id, snapshot);
         }
 
         @Override
@@ -769,17 +746,6 @@ public interface ContextFragment {
                             </file>
                             """
                             .formatted(file.toString(), revision, content));
-        }
-
-        @Override
-        public ComputedValue<FragmentSnapshot> snapshot() {
-            var parentDir = file.getParent();
-            var shortDesc = "%s @%s".formatted(file.getFileName(), revision);
-            var desc = parentDir.equals(Path.of("")) ? shortDesc : "%s [%s]".formatted(shortDesc, parentDir);
-            var syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
-            var snapshot =
-                    new FragmentSnapshot(desc, shortDesc, content, syntax, Set.of(), Set.of(file), (List<Byte>) null);
-            return ComputedValue.completed("gff-snap-" + id, snapshot);
         }
 
         @Override
