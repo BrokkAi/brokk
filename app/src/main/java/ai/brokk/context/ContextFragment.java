@@ -1321,11 +1321,9 @@ public interface ContextFragment {
 
             while (blockMatcher.find()) {
                 String attrs = blockMatcher.group(1);
-                String body = blockMatcher.group(2);
 
                 Map<String, String> attrMap = new HashMap<>();
-                var attrMatcher = java.util.regex.Pattern.compile("(\\w+)\\s*=\\s*\"([^\"]*)\"")
-                        .matcher(attrs);
+                var attrMatcher = Pattern.compile("(\\w+)\\s*=\\s*\"([^\"]*)\"").matcher(attrs);
                 while (attrMatcher.find()) {
                     attrMap.put(attrMatcher.group(1), attrMatcher.group(2));
                 }
@@ -1338,8 +1336,8 @@ public interface ContextFragment {
                     try {
                         pf = contextManager.toFile(fileRelPath);
                         files.add(pf);
-                    } catch (Throwable t) {
-                        logger.trace("Unable to resolve ProjectFile for '{}'", fileRelPath, t);
+                    } catch (Exception t) {
+                        logger.warn("Unable to resolve ProjectFile for '{}'", fileRelPath, t);
                     }
                 }
 
