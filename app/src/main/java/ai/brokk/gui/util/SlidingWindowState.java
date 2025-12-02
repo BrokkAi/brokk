@@ -68,9 +68,10 @@ public final class SlidingWindowState<T> {
         items.addAll(newItems);
         hasMore = moreAvailable;
 
-        while (items.size() > StreamingPaginationHelper.MAX_WINDOW_SIZE) {
-            items.remove(0);
-            totalDiscarded++;
+        int excess = items.size() - StreamingPaginationHelper.MAX_WINDOW_SIZE;
+        if (excess > 0) {
+            items.subList(0, excess).clear();
+            totalDiscarded += excess;
         }
     }
 

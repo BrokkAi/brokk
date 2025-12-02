@@ -203,7 +203,7 @@ public final class StreamingPaginationHelper {
      * control when to load more.
      *
      * @param <T> The type of items being loaded
-     * @param iterator Source of items (fetches lazily); caller should preserve this across calls
+     * @param iterator Source of items (stateful; must be reused across calls to continue pagination)
      * @param batchSize Maximum number of items to load in this batch
      * @return BatchResult containing the loaded items and whether more are available
      */
@@ -228,7 +228,7 @@ public final class StreamingPaginationHelper {
      * This method should be called from a background thread.
      *
      * @param <T> The type of items being loaded
-     * @param pageIterator Source of pages; caller should preserve this across calls
+     * @param pageIterator Source of pages (stateful; must be reused across calls to continue pagination)
      * @param batchSize Maximum number of items to load in this batch
      * @return BatchResult containing the loaded items and whether more are available
      */
