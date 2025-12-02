@@ -21,6 +21,27 @@
     $: firstBubble = bubbles[0];
     $: remainingBubbles = bubbles.slice(1);
 
+    // Optional heuristic: mark last SYSTEM bubble in a history thread with diffs as a "Run recap"
+    $: hasDiffs = (threadTotals.adds + threadTotals.dels) > 0;
+    $: isHistoryThread = taskSequence !== undefined;
+
+    function withRecapTitle(b: BubbleState, isLast: boolean): BubbleState {
+        if (
+            isHistoryThread &&
+            hasDiffs &&
+            isLast &&
+            b.type === 'SYSTEM'
+        ) {
+            return { ...b, title: b.title ?? 'Run recap' };
+        }
+        return b;
+    }
+
+    $: firstBubbleForRender = withRecapTitle(firstBubble, remainingBubbles.length === 0);
+    $: remainingBubblesForRender = remainingBubbles.map((b, index) =>
+        withRecapTitle(b, index === remainingBubbles.length - 1)
+    );
+
     $: defaults = getBubbleDisplayDefaults(firstBubble.type);
     $: bubbleDisplay = { tag: defaults.title, hlVar: defaults.hlVar };
 
@@ -110,6 +131,9 @@
                 <span>...</span>
             {/if}
         </div>
+        {#if showEdits}
+            <span class="changes-hint">with code changes</span>
+        {/if}
         <ThreadMeta
             adds={threadTotals.adds}
             dels={threadTotals.dels}
@@ -173,17 +197,17 @@
                         aria-label="Collapse thread"
                     ></div>
                 {/if}
-                {#if firstBubble.type === 'AI' && firstBubble.reasoning}
-                    <AIReasoningBubble bubble={firstBubble} />
+                {#if firstBubbleForRender.type === 'AI' && firstBubbleForRender.reasoning}
+                    <AIReasoningBubble bubble={firstBubbleForRender} />
                 {:else}
-                    <MessageBubble bubble={firstBubble} />
+                    <MessageBubble bubble={firstBubbleForRender} />
                 {/if}
             </div>
         </div>
 
         {#if remainingBubbles.length > 0}
             <div class="remaining-bubbles">
-                {#each remainingBubbles as bubble (bubble.seq)}
+                {#each remainingBubblesForRender as bubble (bubble.seq)}
                     {#if bubble.type === 'AI' && bubble.reasoning}
                         <AIReasoningBubble {bubble} />
                     {:else}
@@ -199,7 +223,7 @@
     /* --- Collapsed Header Preview --- */
     .header-preview {
         display: grid;
-        grid-template-columns: auto auto 1fr auto auto auto;
+        grid-template-columns: auto auto 1fr auto auto auto auto;
         align-items: center;
         gap: 0.8em;
         cursor: pointer;
@@ -229,6 +253,11 @@
         overflow: hidden;
         text-overflow: ellipsis;
         height: 1.5em; /* line-height */
+    }
+    .changes-hint {
+        font-size: 0.85em;
+        opacity: 0.8;
+        white-space: nowrap;
     }
     .content-preview :global(p),
     .content-preview :global(h1),

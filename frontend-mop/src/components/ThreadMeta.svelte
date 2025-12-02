@@ -49,37 +49,40 @@
 </script>
 
 <span class="thread-meta">
-  {#if showEdits}
-    <span class="adds">+{adds}</span>
-    <span class="dels">-{dels}</span>
-    <span class="sep">•</span>
-  {/if}
-    {msgLabel} • {totalLines} lines
+    <span class="meta-text">
+        {msgLabel} • {totalLines} lines
+        {#if showEdits}
+            <span class="sep">•</span>
+            <span class="adds">+{adds}</span>
+            <span class="dels">-{dels}</span>
+        {/if}
+    </span>
+
     <button
-            type="button"
-            class="delete-btn"
-            class:copied={copied}
-            on:click|stopPropagation|preventDefault={handleCopy}
-            on:keydown|stopPropagation={() => {}}
-            aria-label="Copy thread"
-            title="Copy thread"
+        type="button"
+        class="delete-btn"
+        class:copied={copied}
+        on:click|stopPropagation|preventDefault={handleCopy}
+        on:keydown|stopPropagation={() => {}}
+        aria-label="Copy thread"
+        title="Copy thread"
     >
-      <Icon icon={copied ? 'mdi:check' : 'mdi:content-copy'} style={copied ? 'color: var(--diff-add);' : ''}/>
+        <Icon icon={copied ? 'mdi:check' : 'mdi:content-copy'} style={copied ? 'color: var(--diff-add);' : ''} />
     </button>
     {#if allowDelete}
-    <button
+        <button
             type="button"
             class="delete-btn"
             on:click|stopPropagation|preventDefault={handleDelete}
             on:keydown|stopPropagation={() => {}}
             aria-label="Delete history task"
             title="Delete history task"
-    >
-      <Icon icon="mdi:delete-outline" style="color: var(--diff-del);"/>
-    </button>
-  {:else}
-    <span class="spacer"/>
-  {/if}
+        >
+            <Icon icon="mdi:delete-outline" style="color: var(--diff-del);" />
+        </button>
+    {:else}
+        <span class="spacer" />
+    {/if}
 </span>
 
 <style>
@@ -87,21 +90,30 @@
         font-size: 0.9em;
         color: var(--badge-foreground);
         white-space: nowrap;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25em;
+    }
+
+    .meta-text {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.15em;
     }
 
     .thread-meta .adds {
         color: var(--diff-add);
-        margin-right: 0.25em;
+        margin-left: 0.1em;
     }
 
     .thread-meta .dels {
         color: var(--diff-del);
-        margin-right: 0.45em;
+        margin-left: 0.35em;
     }
 
     .thread-meta .sep {
         color: var(--badge-foreground);
-        margin-right: 0.45em;
+        margin: 0 0.3em;
     }
 
     .delete-btn {
