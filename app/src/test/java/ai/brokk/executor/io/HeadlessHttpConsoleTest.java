@@ -53,8 +53,7 @@ class HeadlessHttpConsoleTest {
      * {@link HeadlessHttpConsole#getLastSeq()} as a fence, ensuring that all events known to
      * the console at the start of the wait have been flushed to the JobStore before returning.
      */
-    private List<ai.brokk.executor.jobs.JobEvent> awaitEvents(int expectedCount, long timeoutMillis)
-            throws Exception {
+    private List<ai.brokk.executor.jobs.JobEvent> awaitEvents(int expectedCount, long timeoutMillis) throws Exception {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
         long targetLastSeq = console.getLastSeq();
         List<ai.brokk.executor.jobs.JobEvent> events = List.of();
@@ -77,8 +76,7 @@ class HeadlessHttpConsoleTest {
      * Returns true if the first {@code count} events in the list have strictly increasing,
      * contiguous sequence numbers (i.e., seq[i+1] == seq[i] + 1).
      */
-    private static boolean hasContiguousIncreasingSeq(
-            List<ai.brokk.executor.jobs.JobEvent> events, int count) {
+    private static boolean hasContiguousIncreasingSeq(List<ai.brokk.executor.jobs.JobEvent> events, int count) {
         if (events.size() < count) {
             return false;
         }

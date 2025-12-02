@@ -77,10 +77,7 @@ public final class SystemScaleProviderImpl implements SystemScaleProvider {
                 }
             }
             if (proc.exitValue() != 0) {
-                logger.debug(
-                        "Command exited with non-zero status {}: {}",
-                        proc.exitValue(),
-                        String.join(" ", command));
+                logger.debug("Command exited with non-zero status {}: {}", proc.exitValue(), String.join(" ", command));
             }
             return lines;
         } catch (IOException | InterruptedException e) {
