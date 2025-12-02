@@ -616,7 +616,14 @@ public class WorkspaceChip extends JPanel {
         String newLabelText;
         if (kind == ChipKind.SUMMARY) {
             // Base WorkspaceChip is not used for summaries; SummaryChip overrides this.
-            newLabelText = fragment.shortDescription();
+            String sd;
+            try {
+                sd = fragment.shortDescription();
+            } catch (Exception e) {
+                logger.warn("Unable to obtain short description from {}!", fragment, e);
+                sd = "<Error obtaining description>";
+            }
+            newLabelText = truncateForDisplay(sd);
         } else if (kind == ChipKind.OTHER) {
             String sd;
             try {
@@ -634,7 +641,13 @@ public class WorkspaceChip extends JPanel {
                 logger.warn("Unable to obtain short description from {}!", fragment, e);
                 sd = "<Error obtaining description>";
             }
-            newLabelText = sd.isBlank() ? label.getText() : truncateForDisplay(sd);
+            if (sd.isBlank()) {
+                // Keep whatever label text we already had (e.g., "Loading...")
+                newLabelText = label.getText();
+            } else {
+                // Always truncate to keep chip width bounded so the close icon remains visible.
+                newLabelText = truncateForDisplay(sd);
+            }
         }
         label.setText(newLabelText);
 
