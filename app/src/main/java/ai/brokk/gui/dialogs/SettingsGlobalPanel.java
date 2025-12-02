@@ -499,15 +499,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         var modelsPanel = createQuickModelsPanel();
         globalSubTabbedPane.addTab(MODELS_TAB_TITLE, null, modelsPanel, "Configure models and favorites");
 
-        // GitHub Tab (conditionally added)
-        var project = chrome.getProject();
-        boolean shouldShowGitHubTab = project.isGitHubRepo();
-
-        if (shouldShowGitHubTab) {
-            gitHubSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
-            globalSubTabbedPane.addTab(
-                    SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubSettingsPanel, "GitHub integration settings");
-        }
+        // GitHub Tab
+        gitHubSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
+        globalSubTabbedPane.addTab(
+                SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubSettingsPanel, "GitHub integration settings");
 
         // MCP Servers Tab
         var mcpPanel = createMcpPanel();
