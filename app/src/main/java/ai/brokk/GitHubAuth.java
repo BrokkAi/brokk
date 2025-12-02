@@ -32,8 +32,8 @@ import org.kohsuke.github.GitHub;
 import org.kohsuke.github.GitHubAbuseLimitHandler;
 import org.kohsuke.github.GitHubBuilder;
 import org.kohsuke.github.GitHubRateLimitHandler;
-import org.kohsuke.github.PagedIterable;
 
+import org.kohsuke.github.PagedIterable;
 /**
  * Handles GitHub authentication and API calls. This class is stateful and holds a connection to a specific repository.
  */

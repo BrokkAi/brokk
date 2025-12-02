@@ -1006,7 +1006,7 @@ public class BlitzForgeDialog extends JDialog {
 
                 long totalInput = tokensFiles + workspaceAdd + relatedAdd;
                 long estOutput = Math.min(4000, totalInput / 2);
-                cost = pricing.estimateCost(totalInput, 0, estOutput);
+                cost = pricing.getCostFor(totalInput, 0, estOutput);
             } catch (Throwable t) {
                 logger.debug("Failed to compute BlitzForge cost estimate", t);
                 hadError = true;

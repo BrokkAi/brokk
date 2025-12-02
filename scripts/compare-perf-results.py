@@ -9,51 +9,8 @@ from typing import Dict, List, Optional, Tuple
 
 METRICS_TO_TRACK = [
     {"key": "analysis_time_seconds", "name": "Analysis Time", "higherIsWorse": True, "unit": "s", "threshold": 10.0},
-    {"key": "memory_per_file_kb", "name": "Memory per File", "higherIsWorse": True, "unit": " KB", "threshold": 10.0},
     {"key": "files_per_second", "name": "Files/Second", "higherIsWorse": False, "unit": " files/s", "threshold": 10.0},
 ]
-
-def find_report_file(p: str) -> Optional[str]:
-    # Resolve to an absolute path; expand ~ for safety
-    path = Path(p).expanduser().resolve()
-    if not path.exists():
-        print(f"Path does not exist: {path}", file=sys.stderr)
-        return None
-
-    if path.is_file() and path.suffix.lower() == ".json":
-        return str(path)
-
-    if not path.is_dir():
-        print(f"Not a directory or JSON file: {path}", file=sys.stderr)
-        return None
-
-    files: List[Path] = []
-    for child in path.iterdir():
-        try:
-            if child.is_file() and child.suffix.lower() == ".json":
-                files.append(child)
-        except Exception:
-            # ignore files that cannot be stat'd
-            pass
-
-    if not files:
-        print(f"Could not find any *.json report file in {path}", file=sys.stderr)
-        return None
-
-    # 1) Prefer baseline-*.json
-    baseline = next((f for f in files if f.name.startswith("baseline-") and f.suffix.lower() == ".json"), None)
-    if baseline:
-        return str(baseline.resolve())
-
-    # 2) Common names
-    preferred_names = {"results.json", "report.json", "summary.json"}
-    preferred = next((f for f in files if f.name in preferred_names), None)
-    if preferred:
-        return str(preferred.resolve())
-
-    # 3) Most recent by mtime
-    files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
-    return str(files[0].resolve())
 
 def parse_report(file_path: Optional[str]) -> Optional[dict]:
     if not file_path:
@@ -91,12 +48,31 @@ def extract_metrics(report: dict) -> Dict[str, float]:
                         metrics[metric_key] = float(val)
     return metrics
 
-def average_results(inputs: List[str]) -> Dict[str, float]:
-    report_files = [f for f in (find_report_file(p) for p in inputs) if f]
-    reports = [r for r in (parse_report(f) for f in report_files) if r]
+def _list_direct_json_files(dir_path: str) -> List[str]:
+    d = Path(dir_path).expanduser().resolve()
+    if not d.exists() or not d.is_dir():
+        return []
+    files: List[Path] = []
+    for child in d.iterdir():
+        try:
+            if child.is_file() and child.suffix.lower() == ".json":
+                files.append(child)
+        except Exception:
+            pass
+    # Sort for deterministic ordering; averaging is unaffected, but helps debugging
+    files.sort(key=lambda p: p.name)
+    return [str(p) for p in files]
 
+def average_results_dir(dir_path: str) -> Dict[str, float]:
+    """
+    Read all JSON files directly under dir_path (non-recursive), extract metrics, and average them.
+    """
+    json_files = _list_direct_json_files(dir_path)
+    if not json_files:
+        return {}
+
+    reports = [r for r in (parse_report(f) for f in json_files) if r]
     if not reports:
-        # Return empty metrics; the caller will render a friendly error
         return {}
 
     all_metrics = [extract_metrics(r) for r in reports]
@@ -117,8 +93,7 @@ def average_results(inputs: List[str]) -> Dict[str, float]:
 def format_value(value: Optional[float], metric_config: dict) -> str:
     if not isinstance(value, (int, float)):
         return "N/A"
-    decimals = 1 if metric_config["key"] in ("peak_memory_mb", "memory_per_file_kb") else 2
-    return f"{value:.{decimals}f}"
+    return f"{value:.2f}"
 
 def build_change_and_status(base_value: Optional[float], head_value: Optional[float], metric_config: dict) -> Tuple[Optional[float], str, str]:
     # Returns (change_pct numeric or None, status_text, status_emoji)
@@ -271,42 +246,38 @@ def generate_json_summary(base_avg: Dict[str, float], head_avg: Dict[str, float]
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Compare TreeSitter performance reports and output markdown, Slack Block Kit, or JSON summary."
+        description="Compare TreeSitter performance reports by averaging all JSON files directly under two directories."
     )
     parser.add_argument("--format", "-f", choices=["markdown", "blocks", "json"], default="markdown")
-    parser.add_argument("inputs", nargs="+", help="Paths to report directories or JSON files (both base and head).")
+    parser.add_argument("base_dir", help="Directory containing BASE iteration JSON files (direct children only).")
+    parser.add_argument("head_dir", help="Directory containing HEAD iteration JSON files (direct children only).")
     args = parser.parse_args()
 
-    # Separate base and head inputs based on our naming scheme
-    base_inputs = [p for p in args.inputs if "report-base-" in p]
-    head_inputs = [p for p in args.inputs if "report-head-" in p]
+    base_dir = Path(args.base_dir).expanduser().resolve()
+    head_dir = Path(args.head_dir).expanduser().resolve()
 
-    if not base_inputs or not head_inputs:
+    if not base_dir.exists() or not base_dir.is_dir() or not head_dir.exists() or not head_dir.is_dir():
+        error_msg = f"Both inputs must be directories. base_dir={base_dir} head_dir={head_dir}"
         if args.format == "json":
-            print(json.dumps({
-                "ok": False,
-                "error": "Usage: compare-perf-results.py [--format=markdown|blocks|json] <base-report-dirs...> <head-report-dirs...>"
-            }))
+            print(json.dumps({"ok": False, "error": error_msg}))
             sys.exit(0)
         else:
-            print("Usage: compare-perf-results.py [--format=markdown|blocks|json] <base-report-dirs...> <head-report-dirs...>", file=sys.stderr)
+            print(error_msg, file=sys.stderr)
             sys.exit(1)
 
     try:
-        base_avg = average_results(base_inputs)
-        head_avg = average_results(head_inputs)
+        base_avg = average_results_dir(str(base_dir))
+        head_avg = average_results_dir(str(head_dir))
 
         if args.format == "blocks":
             blocks = generate_blockkit_report(base_avg, head_avg)
             print(blocks)
         elif args.format == "json":
-            # Provide a JSON summary, never fail hard; ok=false if empty
             summary = generate_json_summary(base_avg, head_avg)
-            # If we have no data, include a friendly error to help Slack display
             if not summary.get("ok"):
-                summary["error"] = "No valid reports found for one or both sets of inputs."
-                summary["base_inputs"] = [str(Path(p).expanduser()) for p in base_inputs]
-                summary["head_inputs"] = [str(Path(p).expanduser()) for p in head_inputs]
+                summary["error"] = "No valid reports found for one or both inputs."
+                summary["base_inputs"] = _list_direct_json_files(str(base_dir))
+                summary["head_inputs"] = _list_direct_json_files(str(head_dir))
             print(json.dumps(summary, ensure_ascii=False))
         else:
             report = generate_markdown_report(base_avg, head_avg)
