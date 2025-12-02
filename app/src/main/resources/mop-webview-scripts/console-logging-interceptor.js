@@ -32,4 +32,10 @@
         if (window.javaBridge) window.javaBridge.jsLog('INFO', msg);
         originalInfo.apply(console, arguments);
     };
+
+    // console.debug = function() {
+    //     var msg = Array.from(arguments).map(toStringWithStack).join(' ');
+    //     if (window.javaBridge) window.javaBridge.jsLog('DEBUG', msg);
+    //     originalInfo.apply(console, arguments);
+    // };
 })();
