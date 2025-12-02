@@ -65,7 +65,7 @@ class HeadlessHttpConsoleTest {
                     return events;
                 }
             }
-            Thread.sleep(10L);
+            Thread.sleep(50L);
         }
         // Final read before giving up
         events = jobStore.readEvents(jobId, -1, 0);
