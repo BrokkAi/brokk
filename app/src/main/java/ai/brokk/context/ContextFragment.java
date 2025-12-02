@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -1297,7 +1298,8 @@ public interface ContextFragment {
                     contextManager,
                     snapshotText == null
                             ? null
-                            : decodeFrozen(targetIdentifier, snapshotText.getBytes(StandardCharsets.UTF_8)),
+                            : decodeFrozen(
+                                    contextManager, targetIdentifier, snapshotText.getBytes(StandardCharsets.UTF_8)),
                     snapshotText == null
                             ? () -> computeSnapshotFor(targetIdentifier, includeTestFiles, contextManager)
                             : null);
@@ -1305,10 +1307,62 @@ public interface ContextFragment {
             this.includeTestFiles = includeTestFiles;
         }
 
-        private static FragmentSnapshot decodeFrozen(String targetIdentifier, byte[] bytes) {
+        private static FragmentSnapshot decodeFrozen(
+                IContextManager contextManager, String targetIdentifier, byte[] bytes) {
+            var analyzer = contextManager.getAnalyzerUninterrupted();
             String text = new String(bytes, StandardCharsets.UTF_8);
             String desc = "Uses of " + targetIdentifier;
-            return new FragmentSnapshot(desc, desc, text, SyntaxConstants.SYNTAX_STYLE_NONE);
+
+            Set<ProjectFile> files = new LinkedHashSet<>();
+            Set<CodeUnit> units = new LinkedHashSet<>();
+
+            var blockMatcher =
+                    Pattern.compile("(?s)<methods\\s+([^>]*)>(.*?)</methods>").matcher(text);
+
+            while (blockMatcher.find()) {
+                String attrs = blockMatcher.group(1);
+                String body = blockMatcher.group(2);
+
+                Map<String, String> attrMap = new HashMap<>();
+                var attrMatcher = java.util.regex.Pattern.compile("(\\w+)\\s*=\\s*\"([^\"]*)\"")
+                        .matcher(attrs);
+                while (attrMatcher.find()) {
+                    attrMap.put(attrMatcher.group(1), attrMatcher.group(2));
+                }
+
+                String classFqn = attrMap.get("class");
+                String fileRelPath = attrMap.get("file");
+
+                ProjectFile pf;
+                if (fileRelPath != null && !fileRelPath.isBlank()) {
+                    try {
+                        pf = contextManager.toFile(fileRelPath);
+                        files.add(pf);
+                    } catch (Throwable t) {
+                        logger.trace("Unable to resolve ProjectFile for '{}'", fileRelPath, t);
+                    }
+                }
+
+                // Resolve class unit(s)
+                if (classFqn != null && !classFqn.isBlank()) {
+                    try {
+                        units.addAll(analyzer.getDefinitions(classFqn));
+                    } catch (Exception e) {
+                        logger.warn("Unable to resolve class CodeUnit for '{}'", classFqn, e);
+                    }
+                }
+            }
+
+            // Determine syntax style from first file or unit, else NONE
+            String syntax = SyntaxConstants.SYNTAX_STYLE_NONE;
+            if (!files.isEmpty()) {
+                var pf = files.iterator().next();
+                syntax = FileTypeUtil.get().guessContentType(pf.absPath().toFile());
+            } else if (!units.isEmpty()) {
+                syntax = units.iterator().next().source().getSyntaxStyle();
+            }
+
+            return new FragmentSnapshot(desc, desc, text, syntax, units, files, (List<Byte>) null);
         }
 
         @Override
