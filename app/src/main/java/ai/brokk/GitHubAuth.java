@@ -21,7 +21,9 @@ import okhttp3.Request;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.kohsuke.github.GHDirection;
 import org.kohsuke.github.GHIssue;
+import org.kohsuke.github.GHIssueQueryBuilder;
 import org.kohsuke.github.GHIssueState;
 import org.kohsuke.github.GHPullRequest;
 import org.kohsuke.github.GHPullRequestCommitDetail;
@@ -720,16 +722,29 @@ public class GitHubAuth {
         return pr.listCommits().toList();
     }
 
-    /**
-     * Returns a paginated iterable of issues for the connected repository.
-     * Use this for streaming pagination to avoid loading all issues at once.
-     *
-     * @param state The issue state filter (OPEN, CLOSED, or ALL)
-     * @param pageSize Number of issues per page
-     * @return A PagedIterable that fetches issues lazily page by page
-     */
-    public PagedIterable<GHIssue> listIssuesPaginated(GHIssueState state, int pageSize) throws IOException {
-        return getGhRepository().queryIssues().state(state).pageSize(pageSize).list();
+    /** Returns a paginated iterable of issues with server-side filtering. */
+    public PagedIterable<GHIssue> listIssuesPaginated(
+            GHIssueState state,
+            @Nullable String label,
+            @Nullable String assignee,
+            @Nullable String creator,
+            int pageSize)
+            throws IOException {
+        var query = getGhRepository().queryIssues();
+        query.state(state);
+        if (label != null && !label.isBlank()) {
+            query.label(label);
+        }
+        if (assignee != null && !assignee.isBlank()) {
+            query.assignee(assignee);
+        }
+        if (creator != null && !creator.isBlank()) {
+            query.creator(creator);
+        }
+        query.sort(GHIssueQueryBuilder.Sort.UPDATED);
+        query.direction(GHDirection.DESC);
+        query.pageSize(pageSize);
+        return query.list();
     }
 
     /**

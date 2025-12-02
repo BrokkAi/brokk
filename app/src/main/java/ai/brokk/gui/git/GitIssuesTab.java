@@ -339,7 +339,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         authorFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         authorFilter.addPropertyChangeListener("value", e -> {
             project.setUiFilterProperty("issues.author", authorFilter.getSelected());
-            triggerClientSideFilterUpdate();
+            updateIssueList();
         });
         filtersContainer.add(authorFilter);
         filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
@@ -351,7 +351,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         labelFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         labelFilter.addPropertyChangeListener("value", e -> {
             project.setUiFilterProperty("issues.label", labelFilter.getSelected());
-            triggerClientSideFilterUpdate();
+            updateIssueList();
         });
         filtersContainer.add(labelFilter);
         filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
@@ -366,7 +366,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         assigneeFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         assigneeFilter.addPropertyChangeListener("value", e -> {
             project.setUiFilterProperty("issues.assignee", assigneeFilter.getSelected());
-            triggerClientSideFilterUpdate();
+            updateIssueList();
         });
         filtersContainer.add(assigneeFilter);
 
@@ -900,11 +900,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                         return;
                     }
 
-                    var sortedItems = new ArrayList<>(result.items());
-                    sortedItems.sort(Comparator.comparing(
-                            IssueHeader::updated, Comparator.nullsLast(Comparator.reverseOrder())));
-
-                    slidingWindow.appendBatch(sortedItems, result.hasMore());
+                    slidingWindow.appendBatch(result.items(), result.hasMore());
                     allIssuesFromApi = new ArrayList<>(slidingWindow.getItems());
                     displayedIssues = new ArrayList<>(allIssuesFromApi);
                     updateTableFromDisplayedIssues();
@@ -912,7 +908,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                     loadMoreButton.setVisible(slidingWindow.hasMore());
                     loadMoreButton.setEnabled(slidingWindow.hasMore());
 
-                    if (!sortedItems.isEmpty()) {
+                    if (!result.items().isEmpty()) {
                         issueTable.scrollRectToVisible(issueTable.getCellRect(0, 0, true));
                     }
                 });
@@ -966,11 +962,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                     if (capturedGeneration != searchGeneration) {
                         return;
                     }
-                    var sortedItems = new ArrayList<>(result.items());
-                    sortedItems.sort(Comparator.comparing(
-                            IssueHeader::updated, Comparator.nullsLast(Comparator.reverseOrder())));
-
-                    slidingWindow.appendBatch(sortedItems, result.hasMore());
+                    slidingWindow.appendBatch(result.items(), result.hasMore());
                     allIssuesFromApi = new ArrayList<>(slidingWindow.getItems());
                     displayedIssues = new ArrayList<>(allIssuesFromApi);
                     updateTableFromDisplayedIssues();
@@ -1032,70 +1024,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         if (issueTable.getSelectedRow() == -1) {
             disableIssueActions();
         }
-    }
-
-    private void triggerClientSideFilterUpdate() {
-        // This method is called when author, label, or assignee filters change.
-        // It re-filters the existing 'allIssuesFromApi' list.
-        if (allIssuesFromApi.isEmpty() && issueTableModel.getRowCount() == 0) {
-            logger.debug("Skipping client-side filter update: allIssuesFromApi is not ready or an error is displayed.");
-            return;
-        }
-        searchBox.setLoading(true, "Filtering issues");
-        final List<IssueHeader> currentIssuesToFilter = new ArrayList<>(allIssuesFromApi);
-        final long capturedGeneration = searchGeneration; // Capture to detect stale results
-
-        contextManager.submitBackgroundTask("Applying Client-Side Filters", () -> {
-            logger.debug("Client-side filter update triggered. Processing {} issues.", currentIssuesToFilter.size());
-
-            // Read filter values
-            String selectedAuthorActual = getBaseFilterValue(authorFilter.getSelected());
-            String selectedLabelActual = getBaseFilterValue(labelFilter.getSelected());
-            String selectedAssigneeActual = getBaseFilterValue(assigneeFilter.getSelected());
-
-            // Apply client-side filters
-            List<IssueHeader> filteredIssues = new ArrayList<>();
-            for (var header : currentIssuesToFilter) {
-                boolean matches = true;
-                if (selectedAuthorActual != null && !selectedAuthorActual.equals(header.author())) {
-                    matches = false;
-                }
-                if (matches && selectedLabelActual != null) {
-                    if (header.labels().stream().noneMatch(l -> selectedLabelActual.equals(l))) {
-                        matches = false;
-                    }
-                }
-                if (matches && selectedAssigneeActual != null) {
-                    if (header.assignees().stream().noneMatch(a -> selectedAssigneeActual.equals(a))) {
-                        matches = false;
-                    }
-                }
-                if (matches) {
-                    filteredIssues.add(header);
-                }
-            }
-
-            // Sort by update date, newest first
-            filteredIssues.sort(
-                    Comparator.comparing(IssueHeader::updated, Comparator.nullsLast(Comparator.reverseOrder())));
-
-            final List<IssueHeader> finalFiltered = filteredIssues;
-            SwingUtilities.invokeLater(() -> {
-                // Check if a new search was started while we were filtering
-                if (capturedGeneration != searchGeneration) {
-                    return; // Stale result, discard
-                }
-
-                displayedIssues = finalFiltered;
-                updateTableFromDisplayedIssues();
-                searchBox.setLoading(false, "");
-                logger.debug(
-                        "Client-side filter complete. Showing {} of {} issues.",
-                        displayedIssues.size(),
-                        allIssuesFromApi.size());
-            });
-            return null;
-        });
     }
 
     private List<String> generateFilterOptionsFromIssues(List<IssueHeader> issueHeaders, String filterType) {

@@ -248,15 +248,12 @@ public class GitHubIssueService implements IssueService {
             return List.of(limited).iterator();
         }
 
-        // Use paginated API for non-search queries
+        // Use paginated API with server-side filtering
         GHIssueState apiState = parseIssueState(filterOptions.status());
-        var pagedIterable = getAuth().listIssuesPaginated(apiState, pageSize);
+        var pagedIterable = getAuth()
+                .listIssuesPaginated(
+                        apiState, filterOptions.label(), filterOptions.assignee(), filterOptions.author(), pageSize);
         PagedIterator<GHIssue> ghIterator = pagedIterable.iterator();
-
-        // Client-side filters to apply
-        String authorFilter = filterOptions.author();
-        String labelFilter = filterOptions.label();
-        String assigneeFilter = filterOptions.assignee();
 
         return new Iterator<>() {
             private int totalFetched = 0;
@@ -274,24 +271,11 @@ public class GitHubIssueService implements IssueService {
 
                 List<IssueHeader> page = new ArrayList<>();
                 try {
-                    // Fetch next page worth of items
                     while (ghIterator.hasNext() && page.size() < pageSize && totalFetched < maxTotal) {
                         GHIssue ghIssue = ghIterator.next();
-
-                        // Skip PRs and apply client-side filters
                         if (ghIssue.isPullRequest()) {
                             continue;
                         }
-                        if (!matchesAuthor(ghIssue, authorFilter)) {
-                            continue;
-                        }
-                        if (!matchesLabel(ghIssue, labelFilter)) {
-                            continue;
-                        }
-                        if (!matchesAssignee(ghIssue, assigneeFilter)) {
-                            continue;
-                        }
-
                         var header = mapToIssueHeader(ghIssue);
                         if (header != null) {
                             page.add(header);
@@ -299,7 +283,6 @@ public class GitHubIssueService implements IssueService {
                         }
                     }
                 } catch (RuntimeException e) {
-                    // PagedIterator wraps IOExceptions in RuntimeException
                     if (e.getCause() instanceof IOException) {
                         throw new UncheckedIOException((IOException) e.getCause());
                     }
