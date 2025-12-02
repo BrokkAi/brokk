@@ -1721,25 +1721,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         contextPushed(contextHistory.liveContext());
-
-        // Auto-compress conversation history if enabled and exceeds configured threshold of the context window.
-        // This does not run for headless tasks; protects users doing repeated manual Ask/Code.
-        // (null check here against IP is NOT redundant; this is called during Chrome init)
-        if (io instanceof Chrome
-                && io.getInstructionsPanel() != null
-                && MainProject.getHistoryAutoCompress()
-                && !newLiveContext.getTaskHistory().isEmpty()) {
-            var cf = new ContextFragments.HistoryFragment(this, newLiveContext.getTaskHistory());
-            int tokenCount = Messages.getApproximateTokens(cf.format().renderNowOr("(Unknown)"));
-
-            var svc = getService();
-            var model = io.getInstructionsPanel().getSelectedModel();
-            int maxInputTokens = svc.getMaxInputTokens(model);
-            double thresholdPct = MainProject.getHistoryAutoCompressThresholdPercent() / 100.0;
-            if (tokenCount > (int) Math.ceil(maxInputTokens * thresholdPct)) {
-                compressHistoryAsync();
-            }
-        }
         return newLiveContext;
     }
 
