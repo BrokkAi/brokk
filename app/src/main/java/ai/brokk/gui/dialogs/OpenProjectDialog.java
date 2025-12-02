@@ -35,9 +35,6 @@ import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
 import org.jetbrains.annotations.Nullable;
 import org.kohsuke.github.GHRepository;
-import org.kohsuke.github.GitHubAbuseLimitHandler;
-import org.kohsuke.github.GitHubBuilder;
-import org.kohsuke.github.GitHubRateLimitHandler;
 import org.kohsuke.github.HttpException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -674,14 +671,8 @@ public class OpenProjectDialog extends JDialog {
         var worker = new SwingWorker<List<GitHubRepoInfo>, Void>() {
             @Override
             protected List<GitHubRepoInfo> doInBackground() throws Exception {
-                // First validate the token with a simple API call
-                var token = GitHubAuth.getStoredToken();
-                var github = new GitHubBuilder()
-                        .withOAuthToken(token)
-                        .withRateLimitHandler(GitHubRateLimitHandler.FAIL)
-                        .withAbuseLimitHandler(GitHubAbuseLimitHandler.FAIL)
-                        .build();
-                github.getMyself(); // This will throw if token is invalid
+                // Validate token with a simple API call
+                GitHubAuth.createClient().getMyself();
 
                 // Token is valid, now load repositories
                 return getUserRepositories();
@@ -743,14 +734,8 @@ public class OpenProjectDialog extends JDialog {
         var worker = new SwingWorker<List<GitHubRepoInfo>, Void>() {
             @Override
             protected List<GitHubRepoInfo> doInBackground() throws Exception {
-                // Validate token first
-                var token = GitHubAuth.getStoredToken();
-                var github = new GitHubBuilder()
-                        .withOAuthToken(token)
-                        .withRateLimitHandler(GitHubRateLimitHandler.FAIL)
-                        .withAbuseLimitHandler(GitHubAbuseLimitHandler.FAIL)
-                        .build();
-                github.getMyself(); // This will throw if token is invalid
+                // Validate token with a simple API call
+                GitHubAuth.createClient().getMyself();
 
                 return getUserRepositories();
             }
@@ -892,13 +877,8 @@ public class OpenProjectDialog extends JDialog {
     }
 
     private static List<GitHubRepoInfo> getUserRepositories() throws Exception {
-        var token = GitHubAuth.getStoredToken();
-        if (token.isBlank()) {
-            throw new IllegalStateException("No GitHub token available");
-        }
-
         try {
-            var github = new GitHubBuilder().withOAuthToken(token).build();
+            var github = GitHubAuth.createClient();
             var repositories = new ArrayList<GHRepository>();
             int count = 0;
             for (var repo : github.getMyself().listRepositories()) {
