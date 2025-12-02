@@ -14,6 +14,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ViewingPolicy;
+import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.mcp.McpUtils;
 import ai.brokk.metrics.SearchMetrics;
@@ -1117,12 +1118,13 @@ public class SearchAgent {
         boolean didChange = !context.getChangedFiles(contextBefore).isEmpty();
 
         if (reason == TaskResult.StopReason.SUCCESS) {
-            // CodeAgent appended its own result; output concise success
-            io.llmOutput("# Code Agent\n\nFinished with a successful build!", ChatMessageType.AI);
-            var resultString = "CodeAgent finished with a successful build!";
+            // housekeeping
+            new GitWorkflow(cm).performAutoCommit(instructions);
+            cm.compressHistory();
+            // CodeAgent appended its own result; we don't need to llmOutput anything redundant
             logger.debug("SearchAgent.callCodeAgent finished successfully");
             codeAgentJustSucceeded = true;
-            return resultString;
+            return "CodeAgent finished with a successful build!";
         }
 
         // propagate critical failures

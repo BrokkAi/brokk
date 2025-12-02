@@ -2726,6 +2726,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
+    @Override
     public void compressHistory() throws InterruptedException {
         io.disableHistoryPanel();
         try {
