@@ -35,7 +35,9 @@ import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
 import org.jetbrains.annotations.Nullable;
 import org.kohsuke.github.GHRepository;
+import org.kohsuke.github.GitHubAbuseLimitHandler;
 import org.kohsuke.github.GitHubBuilder;
+import org.kohsuke.github.GitHubRateLimitHandler;
 import org.kohsuke.github.HttpException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -674,7 +676,11 @@ public class OpenProjectDialog extends JDialog {
             protected List<GitHubRepoInfo> doInBackground() throws Exception {
                 // First validate the token with a simple API call
                 var token = GitHubAuth.getStoredToken();
-                var github = new GitHubBuilder().withOAuthToken(token).build();
+                var github = new GitHubBuilder()
+                        .withOAuthToken(token)
+                        .withRateLimitHandler(GitHubRateLimitHandler.FAIL)
+                        .withAbuseLimitHandler(GitHubAbuseLimitHandler.FAIL)
+                        .build();
                 github.getMyself(); // This will throw if token is invalid
 
                 // Token is valid, now load repositories
@@ -739,7 +745,11 @@ public class OpenProjectDialog extends JDialog {
             protected List<GitHubRepoInfo> doInBackground() throws Exception {
                 // Validate token first
                 var token = GitHubAuth.getStoredToken();
-                var github = new GitHubBuilder().withOAuthToken(token).build();
+                var github = new GitHubBuilder()
+                        .withOAuthToken(token)
+                        .withRateLimitHandler(GitHubRateLimitHandler.FAIL)
+                        .withAbuseLimitHandler(GitHubAbuseLimitHandler.FAIL)
+                        .build();
                 github.getMyself(); // This will throw if token is invalid
 
                 return getUserRepositories();
