@@ -29,7 +29,9 @@ import org.kohsuke.github.GHPullRequest;
 import org.kohsuke.github.GHPullRequestCommitDetail;
 import org.kohsuke.github.GHRepository;
 import org.kohsuke.github.GitHub;
+import org.kohsuke.github.GitHubAbuseLimitHandler;
 import org.kohsuke.github.GitHubBuilder;
+import org.kohsuke.github.GitHubRateLimitHandler;
 import org.kohsuke.github.PagedIterable;
 
 /**
@@ -221,7 +223,11 @@ public class GitHubAuth {
         }
 
         try {
-            var github = new GitHubBuilder().withOAuthToken(token).build();
+            var github = new GitHubBuilder()
+                    .withOAuthToken(token)
+                    .withRateLimitHandler(GitHubRateLimitHandler.FAIL)
+                    .withAbuseLimitHandler(GitHubAbuseLimitHandler.FAIL)
+                    .build();
             github.getMyself();
             logger.debug("Stored GitHub token is valid");
             return true;
@@ -249,7 +255,11 @@ public class GitHubAuth {
         }
 
         try {
-            var github = new GitHubBuilder().withOAuthToken(token).build();
+            var github = new GitHubBuilder()
+                    .withOAuthToken(token)
+                    .withRateLimitHandler(GitHubRateLimitHandler.FAIL)
+                    .withAbuseLimitHandler(GitHubAbuseLimitHandler.FAIL)
+                    .build();
             return github.getMyself().getLogin();
         } catch (Exception e) {
             // Silently ignore all errors for this nice-to-have feature
@@ -574,7 +584,9 @@ public class GitHubAuth {
 
         // Try with token
         var token = getStoredToken();
-        GitHubBuilder builder = new GitHubBuilder();
+        var builder = new GitHubBuilder()
+                .withRateLimitHandler(GitHubRateLimitHandler.FAIL)
+                .withAbuseLimitHandler(GitHubAbuseLimitHandler.FAIL);
         String targetHostDisplay = (this.host == null || this.host.isBlank()) ? "api.github.com" : this.host;
 
         if (this.host != null && !this.host.isBlank()) {
