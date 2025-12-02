@@ -946,9 +946,6 @@ public class WorkspaceChip extends JPanel {
      * descriptions are very long. The full text is still available in tooltips.
      */
     private static String truncateForDisplay(String text) {
-        if (text == null) {
-            return "";
-        }
         if (text.length() <= MAX_LABEL_CHARS) {
             return text;
         }
