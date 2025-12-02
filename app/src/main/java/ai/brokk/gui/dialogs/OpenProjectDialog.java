@@ -169,17 +169,29 @@ public class OpenProjectDialog extends JDialog {
     }
 
     private JPanel createCloneProgressPanel() {
-        var panel = new JPanel(new BorderLayout(5, 0));
+        var panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
 
         cloneStatusLabel = new JLabel("Cloning repository...");
+        cloneStatusLabel.setAlignmentX(Component.RIGHT_ALIGNMENT);
+
         cloneProgressBar = new JProgressBar();
         cloneProgressBar.setIndeterminate(true);
+        cloneProgressBar.setAlignmentX(Component.RIGHT_ALIGNMENT);
+        // Fixed width at ~50% of typical dialog width
+        var progressSize = new Dimension(300, cloneProgressBar.getPreferredSize().height);
+        cloneProgressBar.setPreferredSize(progressSize);
+        cloneProgressBar.setMaximumSize(progressSize);
+
         cancelCloneButton = new MaterialButton("Cancel");
         cancelCloneButton.addActionListener(e -> cancelClone());
+        cancelCloneButton.setAlignmentX(Component.RIGHT_ALIGNMENT);
 
-        panel.add(cloneStatusLabel, BorderLayout.WEST);
-        panel.add(cloneProgressBar, BorderLayout.CENTER);
-        panel.add(cancelCloneButton, BorderLayout.EAST);
+        panel.add(cloneStatusLabel);
+        panel.add(Box.createVerticalStrut(5));
+        panel.add(cloneProgressBar);
+        panel.add(Box.createVerticalStrut(5));
+        panel.add(cancelCloneButton);
 
         panel.setVisible(false);
         return panel;
