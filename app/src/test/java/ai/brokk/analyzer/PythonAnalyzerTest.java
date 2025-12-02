@@ -1089,6 +1089,36 @@ public final class PythonAnalyzerTest {
                 fields.stream().anyMatch(cu -> cu.identifier().equals("INNER_VAR")),
                 "Local variable inside function should NOT be captured as module-level field");
 
+        // Async constructs - should be captured (grammar uses optional 'async' on same nodes)
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("async_top_level")),
+                "Async function at module level should be captured");
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("async_in_if")),
+                "Async function in if block should be captured");
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("async_in_try")),
+                "Async function in try block should be captured");
+
+        // Nested control flow (if→try→def) - should NOT be captured (only one level)
+        assertFalse(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("nested_if_try_function")),
+                "Function in if→try (nested control flow) should NOT be captured");
+        assertFalse(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("nested_if_except_function")),
+                "Function in if→except (nested control flow) should NOT be captured");
+        assertFalse(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("NESTED_IF_TRY_VAR")),
+                "Variable in if→try (nested control flow) should NOT be captured");
+
+        // Deeper loop nesting (for→for→def) - should NOT be captured
+        assertFalse(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("deeply_nested_loop_function")),
+                "Function in for→for (deeper nesting) should NOT be captured");
+        assertFalse(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("DEEPLY_NESTED_VAR")),
+                "Variable in for→for (deeper nesting) should NOT be captured");
+
         // Test subclass resolution
         ProjectFile subclassPy = new ProjectFile(testProject.getRoot(), "conditional_pkg/subclass.py");
         Set<CodeUnit> subclassDecls = testAnalyzer.getDeclarations(subclassPy);

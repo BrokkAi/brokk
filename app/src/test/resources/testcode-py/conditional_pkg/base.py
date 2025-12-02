@@ -116,3 +116,48 @@ if True:
 
         INNER_VAR = "nested"  # Local variable - should NOT be module-level
         return inner_nested_function
+
+
+# Async constructs - async uses same node types with optional 'async' prefix
+async def async_top_level():
+    """Async function at module level - SHOULD be captured."""
+    return "async"
+
+
+if True:
+    async def async_in_if():
+        """Async function in if block - SHOULD be captured."""
+        return "async_if"
+
+
+try:
+    async def async_in_try():
+        """Async function in try block - SHOULD be captured."""
+        return "async_try"
+except Exception:
+    pass
+
+
+# Nested control flow: if → try → def (only one level of control flow is captured)
+# This tests that we don't capture deeper nesting
+if True:
+    try:
+        def nested_if_try_function():
+            """Function in if→try - NOT captured (nested control flow)."""
+            pass
+
+        NESTED_IF_TRY_VAR = "nested"
+    except Exception:
+        def nested_if_except_function():
+            """Function in if→except - NOT captured (nested control flow)."""
+            pass
+
+
+# Deeper loop nesting test
+for i in range(1):
+    for j in range(1):
+        def deeply_nested_loop_function():
+            """Function in for→for - NOT captured (deeper than one level)."""
+            pass
+
+        DEEPLY_NESTED_VAR = "deep"

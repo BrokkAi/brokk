@@ -604,9 +604,10 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                                             }
                                         }
                                     } catch (Exception e) {
-                                        log.warn("Could not expand wildcard import from {}: {}",
-                                                 wildcardModule,
-                                                 e.getMessage());
+                                        log.warn(
+                                                "Could not expand wildcard import from {}: {}",
+                                                wildcardModule,
+                                                e.getMessage());
                                     }
                                 } else {
                                     log.warn("Could not find module file for wildcard import: {}", wildcardModule);
@@ -632,10 +633,11 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                                                 .findFirst()
                                                 .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
                                     } catch (Exception e) {
-                                        log.warn("Could not resolve import '{}' from module {}: {}",
-                                                 text,
-                                                 currentModule,
-                                                 e.getMessage());
+                                        log.warn(
+                                                "Could not resolve import '{}' from module {}: {}",
+                                                text,
+                                                currentModule,
+                                                e.getMessage());
                                     }
                                 } else {
                                     log.debug("Could not find module file for import: {}", currentModule);
