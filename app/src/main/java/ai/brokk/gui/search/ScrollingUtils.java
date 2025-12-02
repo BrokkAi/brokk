@@ -37,53 +37,104 @@ public final class ScrollingUtils {
         return scrollPane != null ? scrollPane.getViewport() : null;
     }
 
-    /** Scrolls a component into view with a specified position ratio. */
+    /**
+     * Scrolls a component into view, moving the viewport only as much as needed to ensure
+     * the component is fully visible. If it is already fully visible, no scrolling occurs.
+     *
+     * <p>The {@code positionRatio} parameter is retained for backward compatibility but is
+     * now treated as a soft preference rather than a hard alignment rule. The primary goal
+     * is minimal scrolling:
+     * <ul>
+     *   <li>If the component is fully within the current view, do nothing.</li>
+     *   <li>If it is above the view, scroll up just enough so its top aligns with the
+     *       top of the viewport.</li>
+     *   <li>If it is below the view, scroll down just enough so its bottom aligns with
+     *       the bottom of the viewport.</li>
+     * </ul>
+     */
     public static void scrollToComponent(JComponent component, double positionRatio) {
         SwingUtilities.invokeLater(() -> {
             JScrollPane scrollPane = findParentScrollPane(component);
 
+            // Fallback: direct viewport or component-based scrolling when no JScrollPane found
             if (scrollPane == null) {
-                // Fallback: Try to scroll in viewport directly
-                if (component.getParent() instanceof JViewport) {
+                if (component.getParent() instanceof JViewport viewport) {
                     Rectangle bounds = component.getBounds();
-                    JViewport viewport = (JViewport) component.getParent();
                     Rectangle viewRect = viewport.getViewRect();
-                    int desiredY;
-                    if (positionRatio == 0.0) {
-                        desiredY = Math.max(0, bounds.y);
-                    } else {
-                        desiredY = Math.max(0, bounds.y - (int) (viewRect.height * positionRatio));
+
+                    int currentY = viewRect.y;
+                    int compTop = bounds.y;
+                    int compBottom = bounds.y + bounds.height;
+
+                    int desiredY = currentY;
+
+                    // Component completely above current view
+                    if (compTop < viewRect.y) {
+                        desiredY = compTop;
                     }
+                    // Component completely below current view
+                    else if (compBottom > viewRect.y + viewRect.height) {
+                        desiredY = compBottom - viewRect.height;
+                    }
+
+                    desiredY = Math.max(0, desiredY);
                     viewport.setViewPosition(new Point(viewRect.x, desiredY));
                 } else {
-                    component.scrollRectToVisible(new Rectangle(0, 0, component.getWidth(), component.getHeight()));
+                    component.scrollRectToVisible(
+                            new Rectangle(0, 0, component.getWidth(), component.getHeight()));
                 }
                 return;
             }
 
-            Rectangle bounds = SwingUtilities.convertRectangle(
-                    component.getParent(),
-                    component.getBounds(),
-                    scrollPane.getViewport().getView());
             JViewport viewport = scrollPane.getViewport();
+            Component view = viewport.getView();
+            if (view == null) {
+                return;
+            }
+
+            // Translate component bounds into the coordinate system of the viewport's view
+            Rectangle compBoundsInView = SwingUtilities.convertRectangle(
+                    component.getParent(), component.getBounds(), view);
             Rectangle viewRect = viewport.getViewRect();
 
-            // Calculate desired position
-            // If positionRatio is 0, scroll to put component at top
-            // Otherwise, position it at the ratio from the top
-            int desiredY;
-            if (positionRatio == 0.0) {
-                desiredY = Math.max(0, bounds.y);
-            } else {
-                desiredY = Math.max(0, bounds.y - (int) (viewRect.height * positionRatio));
-            }
-            Component view = viewport.getView();
-            int maxY = Math.max(0, view.getHeight() - viewRect.height);
-            desiredY = Math.min(desiredY, maxY);
+            int currentY = viewRect.y;
+            int compTop = compBoundsInView.y;
+            int compBottom = compBoundsInView.y + compBoundsInView.height;
+            int viewTop = viewRect.y;
+            int viewBottom = viewRect.y + viewRect.height;
 
-            viewport.setViewPosition(new Point(viewRect.x, desiredY));
-            logger.trace(
-                    "Scrolled to component {} at y={}", component.getClass().getSimpleName(), desiredY);
+            int desiredY = currentY;
+
+            // If component is already fully visible, no scrolling is needed.
+            if (compTop >= viewTop && compBottom <= viewBottom) {
+                logger.trace(
+                        "Component {} already fully visible; no scroll needed",
+                        component.getClass().getSimpleName());
+            } else if (compTop < viewTop) {
+                // Component is above the current view: align its top with the top of the viewport.
+                desiredY = compTop;
+            } else if (compBottom > viewBottom) {
+                // Component is below the current view: align its bottom with the bottom of the viewport.
+                desiredY = compBottom - viewRect.height;
+            }
+
+            // Clamp to valid scroll range
+            int maxY = Math.max(0, view.getHeight() - viewRect.height);
+            desiredY = Math.max(0, Math.min(desiredY, maxY));
+
+            if (desiredY != currentY) {
+                viewport.setViewPosition(new Point(viewRect.x, desiredY));
+                logger.trace(
+                        "Scrolled to component {} from y={} to y={}",
+                        component.getClass().getSimpleName(),
+                        currentY,
+                        desiredY);
+            } else {
+                logger.trace(
+                        "No vertical scroll adjustment needed for component {} (y={})",
+                        component.getClass().getSimpleName(),
+                        currentY);
+            }
         });
     }
 
