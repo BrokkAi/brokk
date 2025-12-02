@@ -5,6 +5,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.gui.search.ScrollingUtils;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.MainProject;
@@ -494,5 +495,37 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
 
     Set<String> getHoveredFragmentIds() {
         return hoveredFragmentIds;
+    }
+
+    /**
+     * Scroll the chip corresponding to the given fragment into view within the parent scroll pane, if present.
+     * <p>
+     * This is intended to be called from hover handlers (e.g. TokenUsageBar) so that when a fragment segment
+     * is highlighted in the token usage bar, the associated workspace chip is made visible to the user.
+     * <p>
+     * Safe to call from any thread; the scroll operation is marshaled onto the EDT.
+     */
+    public void scrollFragmentIntoView(@Nullable ContextFragment fragment) {
+        if (fragment == null) {
+            return;
+        }
+        if (readOnly) {
+            return;
+        }
+        SwingUtilities.invokeLater(() -> {
+            WorkspaceChip targetChip = chipById.get(fragment.id());
+            if (targetChip == null && syntheticSummaryChip != null) {
+                // If this fragment is a summary that is represented by the synthetic "Summaries" chip,
+                // scroll that synthetic chip into view instead.
+                if (syntheticSummaryChip.getFragments().stream()
+                        .anyMatch(f -> fragment.id().equals(f.id()))) {
+                    targetChip = syntheticSummaryChip;
+                }
+            }
+            if (targetChip == null) {
+                return;
+            }
+            ScrollingUtils.scrollToComponent(targetChip);
+        });
     }
 }

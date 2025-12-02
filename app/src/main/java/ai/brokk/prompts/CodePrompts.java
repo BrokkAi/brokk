@@ -33,49 +33,49 @@ import org.jetbrains.annotations.Nullable;
 /** Generates prompts for the main coding agent loop, including instructions for SEARCH/REPLACE blocks. */
 public abstract class CodePrompts {
     private static final Logger logger = LogManager.getLogger(CodePrompts.class);
-    public static final CodePrompts instance = new CodePrompts() {}; // Changed instance creation
+    public static final CodePrompts instance = new CodePrompts() {};
     private static final Pattern BRK_MARKER_PATTERN =
             Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$", Pattern.MULTILINE);
 
     public static final String LAZY_REMINDER =
             """
-            You are diligent and tireless!
-            You NEVER leave comments describing code without implementing it!
-            You always COMPLETELY IMPLEMENT the needed code without pausing to ask if you should continue!
-            """;
+                    You are diligent and tireless!
+                    You NEVER leave comments describing code without implementing it!
+                    You always COMPLETELY IMPLEMENT the needed code without pausing to ask if you should continue!
+                    """;
 
     public static final String OVEREAGER_REMINDER =
             """
-            Avoid changing code or comments that are not directly related to the request.
+                    Avoid changing code or comments that are not directly related to the request.
 
-            Do not comment on your modifications, only on the resulting code in isolation.
-            You must never output any comments about the progress or type of changes of your refactoring or generation.
-            For example, you must NOT add comments like: 'Added dependency' or 'Changed to new style' or worst of all 'Keeping existing implementation'.
-            """;
+                    Do not comment on your modifications, only on the resulting code in isolation.
+                    You must never output any comments about the progress or type of changes of your refactoring or generation.
+                    For example, you must NOT add comments like: 'Added dependency' or 'Changed to new style' or worst of all 'Keeping existing implementation'.
+                    """;
 
     public static final String ARCHITECT_REMINDER =
             """
-            Pay careful attention to the scope of the user's request. Attempt to do everything required
-            to fulfil the user's direct requests, but avoid surprising him with unexpected actions.
-            For example, if the user asks you a question, you should do your best to answer his question first,
-            before immediately jumping into taking further action.
-            """;
+                    Pay careful attention to the scope of the user's request. Attempt to do everything required
+                    to fulfil the user's direct requests, but avoid surprising him with unexpected actions.
+                    For example, if the user asks you a question, you should do your best to answer his question first,
+                    before immediately jumping into taking further action.
+                    """;
 
     public static final String MARKDOWN_REMINDER =
             """
-            <persistence>
-            ## Markdown Formatting
-            When not writing SEARCH/REPLACE blocks,
-            format your response using GFM Markdown to **improve the readability** of your responses with:
-            - **bold**
-            - _italics_
-            - `inline code` (for file, directory, function, class names and other symbols)
-            - ```code fences``` for code and pseudocode
-            - list
-            - prefer GFM tables over bulleted lists
-            - header tags (start from ##).
-            </persistence>
-            """;
+                    <persistence>
+                    ## Markdown Formatting
+                    When not writing SEARCH/REPLACE blocks,
+                    format your response using GFM Markdown to **improve the readability** of your responses with:
+                    - **bold**
+                    - _italics_
+                    - `inline code` (for file, directory, function, class names and other symbols)
+                    - ```code fences``` for code and pseudocode
+                    - list
+                    - prefer GFM tables over bulleted lists
+                    - header tags (start from ##).
+                    </persistence>
+                    """;
 
     /** Formats the most recent build error for the LLM retry prompt. */
     public static String buildFeedbackPrompt(Context context) {
@@ -234,13 +234,13 @@ public abstract class CodePrompts {
 
         var systemPrompt =
                 """
-          <instructions>
-          %s
-          </instructions>
-          <style_guide>
-          %s
-          </style_guide>
-          """
+                        <instructions>
+                        %s
+                        </instructions>
+                        <style_guide>
+                        %s
+                        </style_guide>
+                        """
                         .stripIndent()
                         .formatted(systemIntro(""), cm.getProject().getStyleGuide())
                         .trim();
@@ -250,10 +250,10 @@ public abstract class CodePrompts {
 
         String fileContent =
                 """
-                          <file path="%s">
-                          %s
-                          </file>
-                          """
+                        <file path="%s">
+                        %s
+                        </file>
+                        """
                         .stripIndent()
                         .formatted(file.toString(), file.read().orElseThrow());
         messages.add(new UserMessage(fileContent));
@@ -294,19 +294,19 @@ public abstract class CodePrompts {
         if (!editableContents.isBlank()) {
             workspaceBuilder.append(
                     """
-                                    <editable-toc>
-                                    The following fragments MAY BE EDITED:
-                                    %s
-                                    </editable-toc>"""
+                            <editable-toc>
+                            The following fragments MAY BE EDITED:
+                            %s
+                            </editable-toc>"""
                             .formatted(editableContents));
         }
         if (!readOnlyContents.isBlank()) {
             workspaceBuilder.append(
                     """
-                                    <readonly-toc>
-                                    The following fragments MAY NOT BE EDITED:
-                                    %s
-                                    </readonly-toc>"""
+                            <readonly-toc>
+                            The following fragments MAY NOT BE EDITED:
+                            %s
+                            </readonly-toc>"""
                             .formatted(readOnlyContents));
         }
         return workspaceBuilder.toString();
@@ -326,16 +326,16 @@ public abstract class CodePrompts {
 
         var text =
                 """
-          <instructions>
-          %s
-          </instructions>
-          <workspace-toc>
-          %s
-          </workspace-toc>
-          <style_guide>
-          %s
-          </style_guide>
-          """
+                        <instructions>
+                        %s
+                        </instructions>
+                        <workspace-toc>
+                        %s
+                        </workspace-toc>
+                        <style_guide>
+                        %s
+                        </style_guide>
+                        """
                         .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
                         .trim();
 
@@ -357,16 +357,16 @@ public abstract class CodePrompts {
 
         var text =
                 """
-          <instructions>
-          %s
-          </instructions>
-          <workspace-toc>
-          %s
-          </workspace-toc>
-          <style_guide>
-          %s
-          </style_guide>
-          """
+                        <instructions>
+                        %s
+                        </instructions>
+                        <workspace-toc>
+                        %s
+                        </workspace-toc>
+                        <style_guide>
+                        %s
+                        </style_guide>
+                        """
                         .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
                         .trim();
 
@@ -375,42 +375,42 @@ public abstract class CodePrompts {
 
     public String systemIntro(String reminder) {
         return """
-        Act as an expert software developer.
-        Always use best practices when coding.
-        Respect and use existing conventions, libraries, etc. that are already present in the code base.
+                Act as an expert software developer.
+                Always use best practices when coding.
+                Respect and use existing conventions, libraries, etc. that are already present in the code base.
 
-        %s
-        """
+                %s
+                """
                 .formatted(reminder);
     }
 
     public UserMessage codeRequest(Context ctx, String input, String reminder) {
         var instructions =
                 """
-        <instructions>
-        Think about this request for changes to the supplied code.
-        If the request is ambiguous, %s.
+                        <instructions>
+                        Think about this request for changes to the supplied code.
+                        If the request is ambiguous, %s.
 
-        Once you understand the request you MUST:
+                        Once you understand the request you MUST:
 
-        1. Decide if you need to propose *SEARCH/REPLACE* edits for any code whose source is not available.
-           You can create new files without asking!
-           But if you need to propose changes to code you can't see,
-           you *MUST* tell the user their full filename names and ask them to *add the files to the chat*;
-           end your reply and wait for their approval.
-           But if you only need to change individual functions whose code you can see,
-           you may do so without having the entire file in the Workspace.
+                        1. Decide if you need to propose *SEARCH/REPLACE* edits for any code whose source is not available.
+                           You can create new files without asking!
+                           But if you need to propose changes to code you can't see,
+                           you *MUST* tell the user their full filename names and ask them to *add the files to the chat*;
+                           end your reply and wait for their approval.
+                           But if you only need to change individual functions whose code you can see,
+                           you may do so without having the entire file in the Workspace.
 
-        2. Explain the needed changes in a few short sentences.
+                        2. Explain the needed changes in a few short sentences.
 
-        3. Give each change as a *SEARCH/REPLACE* block.
+                        3. Give each change as a *SEARCH/REPLACE* block.
 
-        All changes to files must use this *SEARCH/REPLACE* block format.
+                        All changes to files must use this *SEARCH/REPLACE* block format.
 
-        If a file is read-only or unavailable, ask the user to add it or make it editable.
+                        If a file is read-only or unavailable, ask the user to add it or make it editable.
 
-        If you are struggling to use a dependency or API correctly, you MUST stop and ask the user for help.
-        """
+                        If you are struggling to use a dependency or API correctly, you MUST stop and ask the user for help.
+                        """
                         .formatted(
                                 GraphicsEnvironment.isHeadless()
                                         ? "decide what the most logical interpretation is"
@@ -421,28 +421,28 @@ public abstract class CodePrompts {
     public UserMessage askRequest(String input) {
         var text =
                 """
-               <instructions>
-               Answer this question about the supplied code thoroughly and accurately.
+                        <instructions>
+                        Answer this question about the supplied code thoroughly and accurately.
 
-               Provide insights, explanations, and analysis; do not implement changes.
-               While you can suggest high-level approaches and architectural improvements, remember that:
-               - You should focus on understanding and clarifying the code
-               - The user will make other requests when he wants to actually implement changes
-               - You are being asked here for conceptual understanding and problem diagnosis
+                        Provide insights, explanations, and analysis; do not implement changes.
+                        While you can suggest high-level approaches and architectural improvements, remember that:
+                        - You should focus on understanding and clarifying the code
+                        - The user will make other requests when he wants to actually implement changes
+                        - You are being asked here for conceptual understanding and problem diagnosis
 
-               Be concise but complete in your explanations. If you need more information to answer a question,
-               don't hesitate to ask for clarification. If you notice references to code in the Workspace that
-               you need to see to answer accurately, do your best to take educated guesses but clarify that
-               it IS an educated guess and ask the user to add the relevant code.
+                        Be concise but complete in your explanations. If you need more information to answer a question,
+                        don't hesitate to ask for clarification. If you notice references to code in the Workspace that
+                        you need to see to answer accurately, do your best to take educated guesses but clarify that
+                        it IS an educated guess and ask the user to add the relevant code.
 
-               Format your answer with Markdown for readability. It's particularly important to signal
-               changes in subject with appropriate headings.
-               </instructions>
+                        Format your answer with Markdown for readability. It's particularly important to signal
+                        changes in subject with appropriate headings.
+                        </instructions>
 
-               <question>
-               %s
-               </question>
-               """
+                        <question>
+                        %s
+                        </question>
+                        """
                         .formatted(input);
         return new UserMessage(text);
     }
@@ -465,17 +465,17 @@ public abstract class CodePrompts {
         // Instructions for the LLM
         String instructions =
                 """
-                      <instructions>
-                      # %d SEARCH/REPLACE block%s failed to match in %d files!
+                        <instructions>
+                        # %d SEARCH/REPLACE block%s failed to match in %d files!
 
-                      Take a look at the CURRENT state of the relevant file%s provided above in the editable Workspace.
-                      If the failed edits listed in the `<failed_blocks>` tags are still needed, please correct them based on the current content.
-                      Remember that SEARCH/REPLACE ignores leading and trailing whitespace, so look for material, non-whitespace mismatches.
-                      If the SEARCH text looks correct, double-check the filename too.
+                        Take a look at the CURRENT state of the relevant file%s provided above in the editable Workspace.
+                        If the failed edits listed in the `<failed_blocks>` tags are still needed, please correct them based on the current content.
+                        Remember that SEARCH/REPLACE ignores leading and trailing whitespace, so look for material, non-whitespace mismatches.
+                        If the SEARCH text looks correct, double-check the filename too.
 
-                      Provide corrected SEARCH/REPLACE blocks for the failed edits only.
-                      </instructions>
-                      """
+                        Provide corrected SEARCH/REPLACE blocks for the failed edits only.
+                        </instructions>
+                        """
                         .formatted(totalFailCount, pluralizeFail, failuresByFile.size(), pluralizeFail);
 
         String fileDetails = failuresByFile.entrySet().stream()
@@ -489,30 +489,30 @@ public abstract class CodePrompts {
                                 var commentaryText = enriched.isBlank()
                                         ? ""
                                         : """
-                                                       <commentary>
-                                                       %s
-                                                       </commentary>
-                                                       """
+                                        <commentary>
+                                        %s
+                                        </commentary>
+                                        """
                                                 .formatted(enriched);
                                 return """
-                                       <failed_block reason="%s">
-                                       <block>
-                                       %s
-                                       %s
-                                       </block>
-                                       </failed_block>
-                                       """
+                                        <failed_block reason="%s">
+                                        <block>
+                                        %s
+                                        %s
+                                        </block>
+                                        </failed_block>
+                                        """
                                         .formatted(f.reason(), f.block().repr(), commentaryText);
                             })
                             .collect(Collectors.joining("\n"));
 
                     return """
-                           <target_file name="%s">
-                           <failed_blocks>
-                           %s
-                           </failed_blocks>
-                           </target_file>
-                           """
+                            <target_file name="%s">
+                            <failed_blocks>
+                            %s
+                            </failed_blocks>
+                            </target_file>
+                            """
                             .formatted(filename, failedBlocksXml)
                             .stripIndent();
                 })
@@ -525,20 +525,20 @@ public abstract class CodePrompts {
             var pluralizeSuccess = singularSuccess ? "" : "s";
             successNote =
                     """
-                          <note>
-                          The other %d SEARCH/REPLACE block%s applied successfully. Do not re-send them. Just fix the failing blocks detailed above.
-                          </note>
-                          """
+                            <note>
+                            The other %d SEARCH/REPLACE block%s applied successfully. Do not re-send them. Just fix the failing blocks detailed above.
+                            </note>
+                            """
                             .formatted(succeededCount, pluralizeSuccess);
         }
 
         // Construct the full message for the LLM
         return """
-               %s
+                %s
 
-               %s
-               %s
-               """
+                %s
+                %s
+                """
                 .formatted(instructions, fileDetails, successNote);
     }
 
@@ -645,10 +645,10 @@ public abstract class CodePrompts {
             var summaryText = ContextFragment.SummaryFragment.combinedText(summaryFragments);
             var combinedBlock =
                     """
-                    <api_summaries fragmentid="api_summaries">
-                    %s
-                    </api_summaries>
-                    """
+                            <api_summaries fragmentid="api_summaries">
+                            %s
+                            </api_summaries>
+                            """
                             .formatted(summaryText);
             if (!rendered.text.isEmpty()) {
                 combinedText.append("\n\n");
@@ -664,13 +664,13 @@ public abstract class CodePrompts {
         // --- Compose final workspace_readonly message ---
         String readOnlyText =
                 """
-                              <workspace_readonly>
-                              Here are the READ ONLY files and code fragments in your Workspace.
-                              Do not edit this code! Images will be included separately if present.
+                        <workspace_readonly>
+                        Here are the READ ONLY files and code fragments in your Workspace.
+                        Do not edit this code! Images will be included separately if present.
 
-                              %s
-                              </workspace_readonly>
-                              """
+                        %s
+                        </workspace_readonly>
+                        """
                         .formatted(combinedText.toString().trim());
 
         var allContents = new ArrayList<Content>();
@@ -701,16 +701,16 @@ public abstract class CodePrompts {
 
         String editableText =
                 """
-                              <workspace_editable>
-                              Here are the EDITABLE files and code fragments in your Workspace.
-                              This is *the only context in the Workspace to which you should make changes*.
+                        <workspace_editable>
+                        Here are the EDITABLE files and code fragments in your Workspace.
+                        This is *the only context in the Workspace to which you should make changes*.
 
-                              *Trust this message as the true contents of these files!*
-                              Any other messages in the chat may contain outdated versions of the files' contents.
+                        *Trust this message as the true contents of these files!*
+                        Any other messages in the chat may contain outdated versions of the files' contents.
 
-                              %s
-                              </workspace_editable>
-                              """
+                        %s
+                        </workspace_editable>
+                        """
                         .formatted(editableTextFragments.toString().trim());
 
         var editableUserMessage = new UserMessage(editableText);
@@ -776,10 +776,10 @@ public abstract class CodePrompts {
                     var visibleText = sf.textForAgent(vp);
                     formatted =
                             """
-                            <fragment description="%s" fragmentid="%s">
-                            %s
-                            </fragment>
-                            """
+                                    <fragment description="%s" fragmentid="%s">
+                                    %s
+                                    </fragment>
+                                    """
                                     .formatted(sf.description(), sf.id(), visibleText);
                 } else {
                     formatted = fragment.format();
@@ -856,10 +856,10 @@ public abstract class CodePrompts {
         // Wrap everything in workspace tags
         var workspaceText =
                 """
-                           <workspace>
-                           %s
-                           </workspace>
-                           """
+                        <workspace>
+                        %s
+                        </workspace>
+                        """
                         .formatted(combinedText.toString().trim());
 
         // Add the workspace text as the first content
@@ -889,10 +889,10 @@ public abstract class CodePrompts {
         var allContents = new ArrayList<Content>();
         var workspaceText =
                 """
-                           <workspace>
-                           %s
-                           </workspace>
-                           """
+                        <workspace>
+                        %s
+                        </workspace>
+                        """
                         .formatted(rendered.text);
 
         allContents.add(new TextContent(workspaceText));
@@ -914,10 +914,10 @@ public abstract class CodePrompts {
 
         String summaryText =
                 """
-                             <workspace-summary>
-                             %s
-                             </workspace-summary>
-                             """
+                        <workspace-summary>
+                        %s
+                        </workspace-summary>
+                        """
                         .formatted(summaries)
                         .trim();
 
@@ -969,128 +969,199 @@ public abstract class CodePrompts {
     }
 
     protected static String instructions(String input, Set<InstructionsFlags> flags, String reminder) {
-        var searchContents =
-                """
-        4. One of the following SEARCH types:
-          - Line-based SEARCH: a contiguous chunk of the EXACT lines to search for in the existing source code,
-          - Full-file SEARCH: a single line `BRK_ENTIRE_FILE` indicating replace-the-entire-file (or create-new-file)
-        """;
-        var hints = """
-        - Use full-file SEARCH when you are changing over half of the file.
-        """;
+        boolean hasSyntaxAware = flags.contains(InstructionsFlags.SYNTAX_AWARE);
+        boolean hasMergeMarkers = flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS);
 
-        if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
+        var intro = flags.isEmpty()
+                ? """
+                Line-based SEARCH is your primary tool. Other SEARCH types exist for special cases such as whole-class replacement,
+                conflict resolution, or rewriting an entire file.
+
+                """
+                : """
+                The *SEARCH/REPLACE* engine supports multiple SEARCH types. Choose the most precise option that fits your edit.
+                Line-based SEARCH remains the default for most changes.
+
+                """;
+
+        String searchContents =
+                """
+                        4. One of the following SEARCH types:
+                          - Line-based SEARCH: a contiguous chunk of the EXACT lines to search for in the existing source code,
+                        """;
+
+        if (hasSyntaxAware) {
             searchContents +=
                     """
-            - Syntax-aware SEARCH: a single line consisting of BRK_CLASS or BRK_FUNCTION, followed by the FULLY QUALIFIED class or function name:
-              `BRK_[CLASS|FUNCTION] $fqname`. This applies to any named class-like (struct, record, interface, etc)
-              or function-like (method, static method) entity, but NOT anonymous ones. `BRK_FUNCTION` replaces an
-              EXISTING function's signature, annotations, and body, including any Javadoc; it CANNOT create new functions
-              without an existing one to replace.
-              **IMPORTANT**: The `BRK_` token is NOT part of the file content, it is an entity locator used only in SEARCH.
-              When writing the REPLACE block, do **not** repeat the `BRK_` line.
-              The REPLACE block must contain *only* the valid code (annotations, signature, body) that will overwrite the target.
-
-              For BRK_CLASS specifically: include only the class/struct/interface declaration and its members (the class
+                              - Syntax-aware SEARCH: a single line consisting of BRK_CLASS or BRK_FUNCTION, followed by the FULLY QUALIFIED class or function name:
+                                `BRK_[CLASS|FUNCTION] $fqname`. This applies to any named class-like (struct, record, interface, etc)
+                                or function-like (method, static method) entity, but NOT anonymous ones. `BRK_FUNCTION` replaces an
+                                EXISTING function's signature, annotations, and body, including any Javadoc; it CANNOT create new functions
+                                without an existing one to replace. Do not generate more than one BRK_CLASS or BRK_FUNCTION edit
+                                for the same fully qualified symbol in a single response; combine all changes for that symbol into a single block.
+                                
+                                For BRK_CLASS specifically: include only the class/struct/interface declaration and its members (the class
               header and body). Do NOT include file-level `package` declarations or `import` statements inside a
               BRK_CLASS REPLACE — package and import lines belong at the top of the file and must be edited separately.
               If you need to modify package or import statements, perform a separate line-based SEARCH/REPLACE that
               targets those lines, or use `BRK_ENTIRE_FILE` for a full-file replacement. Including `package` or `import`
               lines in a BRK_CLASS REPLACE will cause duplication and can introduce build errors.
-            """;
-            hints = "- Use syntax-aware SEARCH when you are replacing an entire class or function.\n" + hints;
+                            """;
         }
-        if (flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)) {
+        if (hasMergeMarkers) {
             searchContents +=
                     """
-            - Conflict SEARCH: a single line consisting of the conflict marker ID: `BRK_CONFLICT_$n`
-              where $n is the conflict number.""";
-            hints = "- ALWAYS use conflict SEARCH when you are fixing conflicts.\n" + hints;
+                              - Conflict SEARCH: a single line consisting of the conflict marker ID: `BRK_CONFLICT_$n`
+                                where $n is the conflict number.
+                            """;
         }
-        hints +=
+        searchContents +=
                 """
-        - Line-based SEARCH is jack of all trades, master of none. Accuracy degrades as the number of lines grows.
-          Use when none of the more specialized and more efficient options is a good fit.
-          Include just the changing lines, plus a few surrounding lines if needed for uniqueness.
-          You should not need to cite an entire large block to change a line or two.
-        """;
+                          - Full-file SEARCH: a single line `BRK_ENTIRE_FILE` indicating replace-the-entire-file, or create-new-file
+                        """;
+
+        var hintLines = new ArrayList<String>();
+
+        hintLines.add(
+                """
+                        - Line-based SEARCH is the primary option for most edits. Use it for adding, modifying, or removing localized
+                          blocks of code, including new methods or inner classes in existing files. Include the changing lines plus a
+                          few surrounding lines only when needed for uniqueness.
+                        """);
+
+        if (hasMergeMarkers) {
+            hintLines.add(
+                    """
+                            - When you are fixing conflicts wrapped in BRK_CONFLICT markers, use conflict SEARCH (`BRK_CONFLICT_n`)
+                              so that the entire conflict region is replaced in one block.
+                            """);
+        }
+
+        if (hasSyntaxAware) {
+            hintLines.add(
+                    """
+                            - Use syntax-aware SEARCH when you are replacing an entire class or function:
+                              - `BRK_FUNCTION` for a complete, non-overloaded method (signature, annotations, body, and Javadoc).
+                              - `BRK_CLASS` for the full body of a class-like declaration (without the surrounding package/imports).
+                            """);
+        }
+
+        hintLines.add(
+                """
+                        - Use `BRK_ENTIRE_FILE` when you are creating a brand new file, or when you are intentionally rewriting most
+                          of an existing file so that a whole-file replacement is clearer than multiple smaller edits.
+                        """);
+
+        String hints = String.join("\n", hintLines);
 
         var examples = buildExamples(flags);
-
-        var intro = flags.isEmpty()
-                ? ""
-                : "The *SEARCH/REPLACE* engine has been upgraded and supports more powerful features than simple line-based edits; pay close attention to the instructions. ";
-
-        var brkRestriction = flags.contains(InstructionsFlags.SYNTAX_AWARE)
-                ? "Do not generate more than one BRK_CLASS or BRK_FUNCTION edit for the same fully qualified symbol in a single response;\ncombine all changes for that symbol into a single block.\n\n"
-                : "";
+        var searchTypePriority = buildSearchTypePriority(flags);
 
         return """
-<rules>
-# EXTENDED *SEARCH/REPLACE block* Rules:
+                <rules>
+                # EXTENDED *SEARCH/REPLACE block* Rules:
 
-%sEvery *SEARCH/REPLACE block* must use this format:
-1. The opening fence: ```
-2. The *FULL* file path alone on a line, verbatim. No comment tokens, no bold asterisks, no quotes, no escaping of characters, etc.
-3. The start of search block: <<<<<<< SEARCH
-%s
-5. The dividing line: =======
-6. The lines to replace into the source code
-7. The end of the replace block: >>>>>>> REPLACE
-8. The closing fence: ```
+                %s%sEvery *SEARCH/REPLACE block* must use this format:
+                1. The opening fence: ```
+                2. The *FULL* file path alone on a line, verbatim. No comment tokens, no bold asterisks, no quotes, no escaping of characters, etc.
+                3. The start of search block: <<<<<<< SEARCH
+                %s
+                5. The dividing line: =======
+                6. The lines to replace into the source code
+                7. The end of the replace block: >>>>>>> REPLACE
+                8. The closing fence: ```
 
-Points to remember:
-- Use the *FULL* file path, as shown to you by the user. No other text should appear on the marker lines.
-%s
+                Remember to ALWAYS use the *FULL* file path, as shown to you by the user. No other text should appear on the marker lines.
 
-## Examples (format only; illustrative, not real code)
-Follow these patterns exactly when you emit edits.
-%s
+                ## Examples (format only; illustrative, not real code)
+                Follow these patterns exactly when you emit edits.
+                %s
 
-*SEARCH/REPLACE* blocks will *fail* to apply if the SEARCH payload matches multiple occurrences in the content.
-For line-based edits, this means you must include enough lines to uniquely match each set of lines that need to change,
-and avoid using syntax-aware edits for overloaded functions.
+                *SEARCH/REPLACE* blocks will *fail* to apply if the SEARCH payload matches multiple occurrences in the content.
+                For line-based edits, this means you must include enough lines to uniquely match each set of lines that need to change,
+                and avoid using syntax-aware edits for overloaded functions.
 
-Keep *SEARCH/REPLACE* blocks concise.
-Break large changes into a series of smaller blocks that each change a small portion.
+                Keep *SEARCH/REPLACE* blocks concise.
+                Break large changes into a series of smaller blocks that each change a small portion.
 
-Avoid generating overlapping *SEARCH/REPLACE* blocks, combine them into a single edit.
-%sIf you want to move code within a filename, use 2 blocks: one to delete from the old location,
-and one to insert in the new location.
+                Avoid generating overlapping *SEARCH/REPLACE* blocks, combine them into a single edit.
+                If you want to move code within a filename, use 2 blocks: one to delete from the old location,
+                and one to insert in the new location.
 
-Pay attention to which filenames the user wants you to edit, especially if they are asking
-you to create a new filename.
+                Pay attention to which filenames the user wants you to edit, especially if they are asking
+                you to create a new filename.
 
-If the user just says something like "ok" or "go ahead" or "do that", they probably want you
-to make SEARCH/REPLACE blocks for the code changes you just proposed.
-The user will say when they've applied your edits.
-If they haven't explicitly confirmed the edits have been applied, they probably want proper SEARCH/REPLACE blocks.
+                If the user just says something like "ok" or "go ahead" or "do that", they probably want you
+                to make SEARCH/REPLACE blocks for the code changes you just proposed.
+                The user will say when they've applied your edits.
+                If they haven't explicitly confirmed the edits have been applied, they probably want proper SEARCH/REPLACE blocks.
 
-NEVER use smart quotes in your *SEARCH/REPLACE* blocks, not even in comments.  ALWAYS
-use vanilla ascii single and double quotes.
+                NEVER use smart quotes in your *SEARCH/REPLACE* blocks, not even in comments.  ALWAYS
+                use vanilla ascii single and double quotes.
 
-# General
-Always write elegant, well-encapsulated code that is easy to maintain and use without mistakes.
+                When generating *SEARCH/REPLACE* blocks, choose the most precise SEARCH type that fits your change:
+                %s
+                **IMPORTANT**: The `BRK_` tokens are NEVER part of the file content, they are entity locators used only in SEARCH.
+                When writing REPLACE blocks, do **not** repeat the `BRK_` line.
+                The REPLACE block must ALWAYS contain ONLY the valid code (annotations, signature, body) that will overwrite the target.
 
-Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLACE BLOCK*!
+                # General
+                Always write elegant, well-encapsulated code that is easy to maintain and use without mistakes.
 
-%s
-</rules>
+                Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLACE BLOCK*!
 
-<goal>
-%s
-</goal>
-"""
-                .formatted(intro, searchContents, hints, examples, brkRestriction, reminder, input);
+                %s
+                </rules>
+
+                <goal>
+                %s
+                </goal>
+                """
+                .formatted(intro, searchTypePriority, searchContents, examples, hints, reminder, input);
+    }
+
+    private static String buildSearchTypePriority(Set<InstructionsFlags> flags) {
+        var rows = new ArrayList<String>();
+        int priority = 1;
+
+        if (flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)) {
+            rows.add(
+                    "| " + priority++
+                            + " | `BRK_CONFLICT_n` | Resolving regions wrapped in BRK_CONFLICT markers when fixing merge conflicts |");
+        }
+        if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
+            rows.add("| " + priority++
+                    + " | `BRK_FUNCTION` | Replacing a complete, non-overloaded method (signature + body) |");
+            rows.add("| " + priority++ + " | `BRK_CLASS` | Replacing the entire body of a class-like declaration |");
+        }
+
+        rows.add("| " + priority++
+                + " | Line-based | Default choice for localized edits and adding new code to existing files |");
+        rows.add("| " + priority
+                + " | `BRK_ENTIRE_FILE` | Creating a new file or intentionally rewriting most of an existing file |");
+
+        return """
+                ## SEARCH Type Priority
+
+                Use the first row whose description matches the change you need:
+
+                | Priority | Type | When to use |
+                |----------|------|-------------|
+                %s
+
+                """
+                .formatted(String.join("\n", rows));
     }
 
     /**
      * Builds example SEARCH/REPLACE blocks that demonstrate correct formatting.
      *
-     * <p>The examples use a single Java source file (src/main/java/com/acme/Foo.java) and show: - A "Before" workspace
-     * excerpt (when MERGE_AGENT_MARKERS is enabled, this includes an actual conflict block) - A line-based SEARCH edit
-     * - Optional syntax-aware edits (BRK_FUNCTION and BRK_CLASS) when enabled - A full-file replacement using
-     * BRK_ENTIRE_FILE - Optional conflict-range fix using BRK_CONFLICT_1 when MERGE_AGENT_MARKERS is enabled
+     * <p>The examples use a single Java source file (src/main/java/com/acme/Foo.java) and show:
+     * - A "Before" workspace excerpt (when MERGE_AGENT_MARKERS is enabled, this includes an actual conflict block)
+     * - Line-based SEARCH edits (including adding new code)
+     * - Optional syntax-aware edits (BRK_FUNCTION and BRK_CLASS) when enabled
+     * - A full-file replacement using BRK_ENTIRE_FILE
+     * - Optional conflict-range fix using BRK_CONFLICT_1 when MERGE_AGENT_MARKERS is enabled
      *
      * <p>The examples are illustrative only and intended to show the exact wire format, not working diffs against a
      * real repository.
@@ -1102,148 +1173,34 @@ Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLAC
         // If MERGE_AGENT_MARKERS is enabled, show an actual conflict block in the file.
         var before = flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)
                 ? """
-              ### Before: Current Workspace excerpt (with conflict markers present)
+                ### Before: Current Workspace excerpt (with conflict markers present)
 
-              <workspace_example>
-                <file path="src/main/java/com/acme/Foo.java" fragmentid="1">
-                package com.acme;
+                <workspace_example>
+                  <file path="src/main/java/com/acme/Foo.java" fragmentid="1">
+                  package com.acme;
 
-                import java.util.List;
-                import java.util.Objects;
+                  import java.util.List;
+                  import java.util.Objects;
 
-                public class Foo {
-                    public int compute(int a, int b) {
-                        // naive implementation
-                        return a + b;
-                    }
-
-                    /** A friendly greeting. */
-                    public String greet(String name) {
-                        return "Hello, " + name + "!";
-                    }
-
-                    // The Merge Agent has wrapped a Git-style conflict inside custom markers.
-                    BRK_CONFLICT_BEGIN_1
-                    <<<<<<< HEAD
-                    private static int fib(int n) {
-                        if (n <= 1) return n;
-                        return fib(n - 1) + fib(n - 2);
-                    }
-                    =======
-                    private static int fib(int n) {
-                        if (n < 2) return n;
-                        int a = 0, b = 1;
-                        for (int i = 2; i <= n; i++) {
-                            int tmp = a + b;
-                            a = b;
-                            b = tmp;
-                        }
-                        return b;
-                    }
-                    >>>>>>> feature/iterative-fib
-                    BRK_CONFLICT_END_1
-                }
-                </file>
-              </workspace_example>
-              """
-                : """
-              ### Before: Current Workspace excerpt
-
-              <workspace_example>
-                <file path="src/main/java/com/acme/Foo.java" fragmentid="1">
-                package com.acme;
-
-                import java.util.List;
-                import java.util.Objects;
-
-                public class Foo {
-                    public int compute(int a, int b) {
-                        // naive implementation
-                        return a + b;
-                    }
-
-                    /** A friendly greeting. */
-                    public String greet(String name) {
-                        return "Hello, " + name + "!";
-                    }
-
-                    private static int fib(int n) {
-                        if (n <= 1) return n;
-                        return fib(n - 1) + fib(n - 2);
-                    }
-                }
-                </file>
-              </workspace_example>
-              """;
-
-        parts.add(before);
-
-        int ex = 1;
-
-        // ---------- Example 1: Line-based SEARCH ----------
-        parts.add(
-                """
-              ### Example %d — Line-based SEARCH (modify a fragment outside of a method)
-
-              ```
-              src/main/java/com/acme/Foo.java
-              <<<<<<< SEARCH
-              import java.util.List;
-              import java.util.Objects;
-              =======
-              import java.util.List;
-              >>>>>>> REPLACE
-              ```
-              """
-                        .formatted(ex++));
-
-        // ---------- Syntax-aware examples (only if enabled) ----------
-        if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
-            // BRK_FUNCTION: replace a single method by fully qualified name
-            parts.add(
-                    """
-                  ### Example %d — Syntax-aware SEARCH for a function (BRK_FUNCTION)
-
-                  This replaces the method's signature and body, including the header comment block (e.g., JavaDoc).
-
-                  ```
-                  src/main/java/com/acme/Foo.java
-                  <<<<<<< SEARCH
-                  BRK_FUNCTION com.acme.Foo.greet
-                  =======
-                  /**
-                   * Returns a greeting for the given name.
-                   * @param name the name to greet.
-                   * @return the greeting string.
-                   */
-                  public String greet(String name) {
-                      return "Hi, " + name;
-                  }
-                  >>>>>>> REPLACE
-                  ```
-                  """
-                            .formatted(ex++));
-
-            // BRK_CLASS: replace the entire class body by fully qualified name
-            // Note: For BRK_CLASS, provide the class block (not package/imports) as the replacement.
-            parts.add(
-                    """
-                  ### Example %d — Syntax-aware SEARCH for an entire class (BRK_CLASS)
-
-                  ```
-                  src/main/java/com/acme/Foo.java
-                  <<<<<<< SEARCH
-                  BRK_CLASS com.acme.Foo
-                  =======
                   public class Foo {
                       public int compute(int a, int b) {
-                          return Math.addExact(a, b);
+                          // naive implementation
+                          return a + b;
                       }
 
+                      /** A friendly greeting. */
                       public String greet(String name) {
                           return "Hello, " + name + "!";
                       }
 
+                      // The Merge Agent has wrapped a Git-style conflict inside custom markers.
+                      BRK_CONFLICT_BEGIN_1
+                      <<<<<<< HEAD
+                      private static int fib(int n) {
+                          if (n <= 1) return n;
+                          return fib(n - 1) + fib(n - 2);
+                      }
+                      =======
                       private static int fib(int n) {
                           if (n < 2) return n;
                           int a = 0, b = 1;
@@ -1254,77 +1211,225 @@ Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLAC
                           }
                           return b;
                       }
+                      >>>>>>> feature/iterative-fib
+                      BRK_CONFLICT_END_1
                   }
-                  >>>>>>> REPLACE
-                  ```
-                  """
+                  </file>
+                </workspace_example>
+                """
+                : """
+                ### Before: Current Workspace excerpt
+
+                <workspace_example>
+                  <file path="src/main/java/com/acme/Foo.java" fragmentid="1">
+                  package com.acme;
+
+                  import java.util.List;
+                  import java.util.Objects;
+
+                  public class Foo {
+                      public int compute(int a, int b) {
+                          // naive implementation
+                          return a + b;
+                      }
+
+                      /** A friendly greeting. */
+                      public String greet(String name) {
+                          return "Hello, " + name + "!";
+                      }
+
+                      private static int fib(int n) {
+                          if (n <= 1) return n;
+                          return fib(n - 1) + fib(n - 2);
+                      }
+                  }
+                  </file>
+                </workspace_example>
+                """;
+
+        parts.add(before);
+
+        int ex = 1;
+
+        // ---------- Example 1: Line-based SEARCH (modify existing code) ----------
+        parts.add(
+                """
+                        ### Example %d — Line-based SEARCH (modify a fragment outside of a method)
+
+                        ```
+                        src/main/java/com/acme/Foo.java
+                        <<<<<<< SEARCH
+                        import java.util.List;
+                        import java.util.Objects;
+                        =======
+                        import java.util.List;
+                        >>>>>>> REPLACE
+                        ```
+                        """
+                        .formatted(ex++));
+
+        // ---------- Example 2: Line-based SEARCH to add new code ----------
+        parts.add(
+                """
+                        ### Example %d — Line-based SEARCH to add a new inner class
+
+                        Use this pattern when adding new classes, methods, or fields to an existing file, by
+                        targeting the location where the new code should appear.
+
+                        ```
+                        src/main/java/com/acme/Foo.java
+                        <<<<<<< SEARCH
+                                if (n <= 1) return n;
+                                return fib(n - 1) + fib(n - 2);
+                            }
+                        }
+                        =======
+                                if (n <= 1) return n;
+                                return fib(n - 1) + fib(n - 2);
+                            }
+
+                            /** A simple value holder. */
+                            public static class Result {
+                                public final int value;
+
+                                public Result(int value) {
+                                    this.value = value;
+                                }
+                            }
+                        }
+                        >>>>>>> REPLACE
+                        ```
+                        """
+                        .formatted(ex++));
+
+        // ---------- Syntax-aware examples (only if enabled) ----------
+        if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
+            // BRK_FUNCTION: replace a single method by fully qualified name
+            parts.add(
+                    """
+                            ### Example %d — Syntax-aware SEARCH for a function (BRK_FUNCTION)
+
+                            This replaces the method's signature and body, including the header comment block (e.g., JavaDoc).
+
+                            ```
+                            src/main/java/com/acme/Foo.java
+                            <<<<<<< SEARCH
+                            BRK_FUNCTION com.acme.Foo.greet
+                            =======
+                            /**
+                             * Returns a greeting for the given name.
+                             * @param name the name to greet.
+                             * @return the greeting string.
+                             */
+                            public String greet(String name) {
+                                return "Hi, " + name;
+                            }
+                            >>>>>>> REPLACE
+                            ```
+                            """
+                            .formatted(ex++));
+
+            // BRK_CLASS: replace the entire class body by fully qualified name
+            // Note: For BRK_CLASS, provide the class block (not package/imports) as the replacement.
+            parts.add(
+                    """
+                            ### Example %d — Syntax-aware SEARCH for an entire class (BRK_CLASS)
+
+                            ```
+                            src/main/java/com/acme/Foo.java
+                            <<<<<<< SEARCH
+                            BRK_CLASS com.acme.Foo
+                            =======
+                            public class Foo {
+                                public int compute(int a, int b) {
+                                    return Math.addExact(a, b);
+                                }
+
+                                public String greet(String name) {
+                                    return "Hello, " + name + "!";
+                                }
+
+                                private static int fib(int n) {
+                                    if (n < 2) return n;
+                                    int a = 0, b = 1;
+                                    for (int i = 2; i <= n; i++) {
+                                        int tmp = a + b;
+                                        a = b;
+                                        b = tmp;
+                                    }
+                                    return b;
+                                }
+                            }
+                            >>>>>>> REPLACE
+                            ```
+                            """
                             .formatted(ex++));
         }
 
         // ---------- Example: Full-file replacement using BRK_ENTIRE_FILE ----------
         parts.add(
                 """
-              ### Example %d — Full-file replacement (BRK_ENTIRE_FILE)
+                        ### Example %d — Full-file replacement (BRK_ENTIRE_FILE)
 
-              ```
-              src/main/java/com/acme/Foo.java
-              <<<<<<< SEARCH
-              BRK_ENTIRE_FILE
-              =======
-              package com.acme;
+                        ```
+                        src/main/java/com/acme/Foo.java
+                        <<<<<<< SEARCH
+                        BRK_ENTIRE_FILE
+                        =======
+                        package com.acme;
 
-              public class Foo {
-                  public int compute(int a, int b) {
-                      return Math.addExact(a, b);
-                  }
+                        public class Foo {
+                            public int compute(int a, int b) {
+                                return Math.addExact(a, b);
+                            }
 
-                  public String greet(String name) {
-                      return "Hello, " + name + "!";
-                  }
+                            public String greet(String name) {
+                                return "Hello, " + name + "!";
+                            }
 
-                  private static int fib(int n) {
-                      if (n < 2) return n;
-                      int a = 0, b = 1;
-                      for (int i = 2; i <= n; i++) {
-                          int next = Math.addExact(a, b);
-                          a = b;
-                          b = next;
-                      }
-                      return b;
-                  }
-              }
-              >>>>>>> REPLACE
-              ```
-              """
+                            private static int fib(int n) {
+                                if (n < 2) return n;
+                                int a = 0, b = 1;
+                                for (int i = 2; i <= n; i++) {
+                                    int next = Math.addExact(a, b);
+                                    a = b;
+                                    b = next;
+                                }
+                                return b;
+                            }
+                        }
+                        >>>>>>> REPLACE
+                        ```
+                        """
                         .formatted(ex++));
 
         // ---------- Conflict-range fix (only if enabled) ----------
         if (flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)) {
             parts.add(
                     """
-                  ### Example %d — Conflict range fix (BRK_CONFLICT markers)
+                            ### Example %d — Conflict range fix (BRK_CONFLICT markers)
 
-                  The SEARCH is a **single line** that targets the entire conflict region, regardless of its contents.
-                  Replace that region with the resolved implementation.
+                            The SEARCH is a **single line** that targets the entire conflict region, regardless of its contents.
+                            Replace that region with the resolved implementation.
 
-                  ```
-                  src/main/java/com/acme/Foo.java
-                  <<<<<<< SEARCH
-                  BRK_CONFLICT_1
-                  =======
-                  private static int fib(int n) {
-                      if (n < 2) return n;
-                      int a = 0, b = 1;
-                      for (int i = 2; i <= n; i++) {
-                          int tmp = Math.addExact(a, b);
-                          a = b;
-                          b = tmp;
-                      }
-                      return b;
-                  }
-                  >>>>>>> REPLACE
-                  ```
-                  """
+                            ```
+                            src/main/java/com/acme/Foo.java
+                            <<<<<<< SEARCH
+                            BRK_CONFLICT_1
+                            =======
+                            private static int fib(int n) {
+                                if (n < 2) return n;
+                                int a = 0, b = 1;
+                                for (int i = 2; i <= n; i++) {
+                                    int tmp = Math.addExact(a, b);
+                                    a = b;
+                                    b = tmp;
+                                }
+                                return b;
+                            }
+                            >>>>>>> REPLACE
+                            ```
+                            """
                             .formatted(ex++));
         }
 
