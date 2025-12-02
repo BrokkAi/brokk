@@ -243,10 +243,16 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
                     CompletableFuture.supplyAsync(GitHubAuth::getAuthenticatedUsername)
                             .thenAccept(username -> {
                                 SwingUtil.runOnEdt(() -> {
-                                    if (gitHubStatusLabel != null && username != null) {
+                                    // Check still connected (token present) to avoid race with disconnect
+                                    boolean stillConnected = !MainProject.getGitHubToken().trim().isEmpty();
+                                    if (gitHubStatusLabel != null && username != null && stillConnected) {
                                         gitHubStatusLabel.setText("✓ Step 1 complete: Connected as @" + username);
                                     }
                                 });
+                            })
+                            .exceptionally(ex -> {
+                                logger.debug("Failed to fetch GitHub username", ex);
+                                return null;
                             });
                 } else {
                     gitHubStatusLabel.setText("Status: Not connected");
