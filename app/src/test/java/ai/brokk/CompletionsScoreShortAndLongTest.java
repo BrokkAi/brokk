@@ -67,4 +67,42 @@ class CompletionsScoreShortAndLongTest {
                 results.stream().anyMatch(sc -> "LM".equals(sc.getInputText())),
                 "Expected long-worse-than-best-short candidate to be excluded");
     }
+
+    @Test
+    @DisplayName("scoreShortAndLong: honors minLength parameter by blocking patterns shorter than minLength")
+    void minLengthBlocksShortInputs() {
+        String pattern = "C"; // length 1, should be blocked for minLength=3
+        var fileCandidate = new Candidate("C.java", "C", "C.java", 0);
+
+        List<ShorthandCompletion> results = Completions.scoreShortAndLong(
+                pattern,
+                List.of(fileCandidate),
+                Candidate::shortText,
+                Candidate::longText,
+                Candidate::tie,
+                c -> new ShorthandCompletion(null, c.id(), c.longText()),
+                3);
+
+        assertTrue(results.isEmpty(), "Expected no results for pattern shorter than minLength");
+    }
+
+    @Test
+    @DisplayName("scoreShortAndLong: allows queries of length >= minLength including extension-aware inputs like 'C.j'")
+    void minLengthAllowsExtensionAwareThreeChars() {
+        String pattern = "C.j"; // length 3, meets minLength=3
+        var fileCandidate = new Candidate("C.java", "C", "C.java", 0);
+
+        List<ShorthandCompletion> results = Completions.scoreShortAndLong(
+                pattern,
+                List.of(fileCandidate),
+                Candidate::shortText,
+                Candidate::longText,
+                Candidate::tie,
+                c -> new ShorthandCompletion(null, c.id(), c.longText()),
+                3);
+
+        assertTrue(
+                results.stream().anyMatch(sc -> "C.java".equals(sc.getInputText())),
+                "Expected candidate to be included for 'C.j' with minLength=3");
+    }
 }
