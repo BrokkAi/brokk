@@ -62,7 +62,6 @@ import org.kohsuke.github.GHIssueState;
 import org.kohsuke.github.GHLabel;
 import org.kohsuke.github.GHPullRequest;
 import org.kohsuke.github.GHUser;
-import org.kohsuke.github.HttpException;
 
 public class GitPullRequestsTab extends JPanel implements SettingsChangeListener, ai.brokk.gui.theme.ThemeAware {
     private static final Logger logger = LogManager.getLogger(GitPullRequestsTab.class);
@@ -988,23 +987,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         return false;
     }
 
-    /** Formats GitHub API errors, providing user-friendly messages for rate limits. */
-    private static String formatGitHubError(Exception ex, String itemType) {
-        Throwable cause = ex;
-        while (cause != null) {
-            if (cause instanceof HttpException httpEx) {
-                if (httpEx.getResponseCode() == 403) {
-                    var msg = httpEx.getMessage();
-                    if (msg != null && (msg.contains("rate limit") || msg.contains("secondary rate limit"))) {
-                        return "GitHub rate limit exceeded. Try again later.";
-                    }
-                }
-            }
-            cause = cause.getCause();
-        }
-        return "Error fetching " + itemType + ": " + ex.getMessage();
-    }
-
     /** Fetches GitHub pull requests with streaming pagination and populates the PR table. */
     private void updatePrList() {
         assert SwingUtilities.isEventDispatchThread();
@@ -1082,7 +1064,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     });
                 } else {
                     logger.error("Failed to fetch pull requests", ex);
-                    var errorMessage = formatGitHubError(ex, "PRs");
+                    var errorMessage = GitHubErrorUtil.formatError(ex, "PRs");
                     SwingUtilities.invokeLater(() -> {
                         if (capturedGeneration != searchGeneration) {
                             return;

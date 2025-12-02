@@ -6,6 +6,7 @@ import ai.brokk.GitHubAuth;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.git.GitHubErrorUtil;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.project.MainProject;
 import java.awt.*;
@@ -696,29 +697,17 @@ public class OpenProjectDialog extends JDialog {
                     clearTable(tableModel);
                 } catch (ExecutionException e) {
                     var cause = e.getCause();
-                    if (cause instanceof HttpException httpEx) {
-                        if (httpEx.getResponseCode() == 401) {
-                            logger.warn("GitHub token is invalid, clearing stored token");
-                            GitHubAuth.invalidateInstance();
-                            disableGitHubTab(
-                                    "GitHub token is invalid or expired. Go to Settings → GitHub to update your token.");
-                        } else if (httpEx.getResponseCode() == 403) {
-                            var msg = httpEx.getMessage();
-                            if (msg != null && (msg.contains("rate limit") || msg.contains("secondary rate limit"))) {
-                                logger.warn("GitHub rate limit exceeded");
-                                disableGitHubTab("GitHub rate limit exceeded. Try again later.");
-                            } else {
-                                logger.error("GitHub API forbidden", httpEx);
-                                disableGitHubTab("GitHub API access forbidden: " + msg);
-                            }
-                        } else {
-                            logger.error("Failed to load GitHub repositories", httpEx);
-                            disableGitHubTab("Failed to load GitHub repositories: " + httpEx.getMessage());
-                        }
+                    if (cause instanceof HttpException httpEx && httpEx.getResponseCode() == 401) {
+                        logger.warn("GitHub token is invalid, clearing stored token");
+                        GitHubAuth.invalidateInstance();
+                        disableGitHubTab(
+                                "GitHub token is invalid or expired. Go to Settings → GitHub to update your token.");
+                    } else if (GitHubErrorUtil.isRateLimitError(cause)) {
+                        logger.warn("GitHub rate limit exceeded");
+                        disableGitHubTab("GitHub rate limit exceeded. Try again later.");
                     } else {
-                        var errorMessage = cause != null ? cause.getMessage() : e.getMessage();
                         logger.error("Failed to load GitHub repositories", cause != null ? cause : e);
-                        disableGitHubTab("Failed to load GitHub repositories: " + errorMessage);
+                        disableGitHubTab(GitHubErrorUtil.formatError(e, "repositories"));
                     }
                     clearTable(tableModel);
                 }
@@ -771,29 +760,17 @@ public class OpenProjectDialog extends JDialog {
                     clearTable(tableModel);
                 } catch (ExecutionException e) {
                     var cause = e.getCause();
-                    if (cause instanceof HttpException httpEx) {
-                        if (httpEx.getResponseCode() == 401) {
-                            logger.warn("GitHub token is invalid, clearing stored token");
-                            GitHubAuth.invalidateInstance();
-                            disableGitHubTab(
-                                    "GitHub token is invalid or expired. Go to Settings → GitHub to update your token.");
-                        } else if (httpEx.getResponseCode() == 403) {
-                            var msg = httpEx.getMessage();
-                            if (msg != null && (msg.contains("rate limit") || msg.contains("secondary rate limit"))) {
-                                logger.warn("GitHub rate limit exceeded");
-                                disableGitHubTab("GitHub rate limit exceeded. Try again later.");
-                            } else {
-                                logger.error("GitHub API forbidden", httpEx);
-                                disableGitHubTab("GitHub API access forbidden: " + msg);
-                            }
-                        } else {
-                            logger.error("Failed to load GitHub repositories", httpEx);
-                            disableGitHubTab("Failed to load GitHub repositories: " + httpEx.getMessage());
-                        }
+                    if (cause instanceof HttpException httpEx && httpEx.getResponseCode() == 401) {
+                        logger.warn("GitHub token is invalid, clearing stored token");
+                        GitHubAuth.invalidateInstance();
+                        disableGitHubTab(
+                                "GitHub token is invalid or expired. Go to Settings → GitHub to update your token.");
+                    } else if (GitHubErrorUtil.isRateLimitError(cause)) {
+                        logger.warn("GitHub rate limit exceeded");
+                        disableGitHubTab("GitHub rate limit exceeded. Try again later.");
                     } else {
-                        var errorMessage = cause != null ? cause.getMessage() : e.getMessage();
                         logger.error("Failed to load GitHub repositories", cause != null ? cause : e);
-                        disableGitHubTab("Failed to load GitHub repositories: " + errorMessage);
+                        disableGitHubTab(GitHubErrorUtil.formatError(e, "repositories"));
                     }
                     clearTable(tableModel);
                 }
