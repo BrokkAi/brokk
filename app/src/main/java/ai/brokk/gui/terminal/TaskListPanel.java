@@ -1277,7 +1277,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             chrome.showOutputSpinner("Executing Task command...");
             TaskResult result;
             try {
-                result = cm.executeTask(cm.getTaskList().tasks().get(idx), queueActive, queueActive);
+                result = cm.executeTask(cm.getTaskList().tasks().get(idx), queueActive);
             } catch (RuntimeException ex) {
                 logger.error("Internal error running architect", ex);
                 SwingUtilities.invokeLater(this::finishQueueOnError);

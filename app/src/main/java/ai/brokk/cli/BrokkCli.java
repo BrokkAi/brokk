@@ -700,7 +700,7 @@ public final class BrokkCli implements Callable<Integer> {
                     var task = new TaskList.TaskItem("", taskText, false);
 
                     io.showNotification(IConsoleIO.NotificationRole.INFO, "Executing task...");
-                    var taskResult = cm.executeTask(task, planModel, codeModel, true, true);
+                    var taskResult = cm.executeTask(task, planModel, codeModel, true);
                     context = scope.append(taskResult);
                     result = taskResult;
                 } else { // lutzPrompt != null
@@ -736,7 +736,7 @@ public final class BrokkCli implements Callable<Integer> {
                         for (var task : pendingTasks) {
                             io.showNotification(IConsoleIO.NotificationRole.INFO, "Running task: " + task.text());
 
-                            var taskResult = cm.executeTask(task, planModel, codeModel, true, true);
+                            var taskResult = cm.executeTask(task, planModel, codeModel, true);
                             context = scope.append(taskResult);
                             result = taskResult; // Track last result for final status check
 

@@ -209,8 +209,8 @@ public final class JobRunner {
                                                     Objects.requireNonNull(
                                                             architectCodeModel,
                                                             "code model unavailable for ARCHITECT jobs"),
-                                                    spec.autoCommit(),
-                                                    spec.autoCompress());
+                                                    spec.autoCommit()
+                                            );
                                         }
                                         case LUTZ -> {
                                             // Phase 1: Use SearchAgent to generate a task list from the initial task
@@ -274,8 +274,8 @@ public final class JobRunner {
                                                                 generatedTask,
                                                                 architectPlannerModel,
                                                                 Objects.requireNonNull(architectCodeModel),
-                                                                spec.autoCommit(),
-                                                                spec.autoCompress());
+                                                                spec.autoCommit()
+                                                        );
                                                     } catch (Exception e) {
                                                         logger.warn(
                                                                 "Generated task execution failed for job {}: {}",

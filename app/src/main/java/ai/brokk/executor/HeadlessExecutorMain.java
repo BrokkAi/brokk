@@ -1008,7 +1008,7 @@ public final class HeadlessExecutorMain {
             String sessionId,
             String taskInput,
             boolean autoCommit,
-            boolean autoCompress,
+            @Nullable Boolean autoCompress,
             @Nullable String plannerModel,
             @Nullable String codeModel,
             @Nullable Map<String, String> tags) {}
