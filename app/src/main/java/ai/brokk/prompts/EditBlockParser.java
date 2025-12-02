@@ -140,8 +140,7 @@ public class EditBlockParser {
 
                     if (containsBrkMarkerInReplace(afterJoined)) {
                         return new EditBlock.ExtendedParseResult(
-                                blocks,
-                                "BRK_* markers are only allowed in SEARCH blocks, not in REPLACE blocks.");
+                                blocks, "BRK_* markers are only allowed in SEARCH blocks, not in REPLACE blocks.");
                     }
 
                     if (!beforeJoined.isEmpty() && !beforeJoined.endsWith("\n")) beforeJoined += "\n";
@@ -186,8 +185,7 @@ public class EditBlockParser {
 
                 if (containsBrkMarkerInReplace(afterJoined)) {
                     return new EditBlock.ExtendedParseResult(
-                            blocks,
-                            "BRK_* markers are only allowed in SEARCH blocks, not in REPLACE blocks.");
+                            blocks, "BRK_* markers are only allowed in SEARCH blocks, not in REPLACE blocks.");
                 }
 
                 if (!beforeJoined.isEmpty() && !beforeJoined.endsWith("\n")) beforeJoined += "\n";
