@@ -523,7 +523,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
      */
     public Collection<ContextFragment> getHoveredFragments() {
         Segment seg = hoveredSegment;
-        if (seg == null || seg.fragments == null || seg.fragments.isEmpty()) {
+        if (seg == null || seg.fragments.isEmpty()) {
             return List.of();
         }
         // Expose a defensive copy so callers cannot mutate our internal state.
