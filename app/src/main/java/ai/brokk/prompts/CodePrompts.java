@@ -990,6 +990,13 @@ public abstract class CodePrompts {
               **IMPORTANT**: The `BRK_` token is NOT part of the file content, it is an entity locator used only in SEARCH.
               When writing the REPLACE block, do **not** repeat the `BRK_` line.
               The REPLACE block must contain *only* the valid code (annotations, signature, body) that will overwrite the target.
+
+              For BRK_CLASS specifically: include only the class/struct/interface declaration and its members (the class
+              header and body). Do NOT include file-level `package` declarations or `import` statements inside a
+              BRK_CLASS REPLACE — package and import lines belong at the top of the file and must be edited separately.
+              If you need to modify package or import statements, perform a separate line-based SEARCH/REPLACE that
+              targets those lines, or use `BRK_ENTIRE_FILE` for a full-file replacement. Including `package` or `import`
+              lines in a BRK_CLASS REPLACE will cause duplication and can introduce build errors.
             """;
             hints = "- Use syntax-aware SEARCH when you are replacing an entire class or function.\n" + hints;
         }
