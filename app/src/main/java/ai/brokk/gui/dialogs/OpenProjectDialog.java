@@ -735,6 +735,51 @@ public class OpenProjectDialog extends JDialog {
         cloneCancelled = false;
         cloneProgressMonitor = new CancellableProgressMonitor();
 
+        // Set up progress callback to update UI
+        cloneProgressMonitor.setCallback(new CancellableProgressMonitor.ProgressCallback() {
+            private String currentTask = "";
+            private int currentTotal = 0;
+            private int currentProgress = 0;
+
+            @Override
+            public void onTaskStart(String taskName, int totalWork) {
+                currentTask = taskName;
+                currentTotal = totalWork;
+                currentProgress = 0;
+                SwingUtilities.invokeLater(() -> {
+                    if (totalWork > 0) {
+                        cloneProgressBar.setIndeterminate(false);
+                        cloneProgressBar.setMaximum(totalWork);
+                        cloneProgressBar.setValue(0);
+                        cloneStatusLabel.setText(taskName + " (0%)");
+                    } else {
+                        cloneProgressBar.setIndeterminate(true);
+                        cloneStatusLabel.setText(taskName);
+                    }
+                });
+            }
+
+            @Override
+            public void onProgress(int completed) {
+                currentProgress += completed;
+                var task = currentTask;
+                var total = currentTotal;
+                var progress = currentProgress;
+                SwingUtilities.invokeLater(() -> {
+                    cloneProgressBar.setValue(progress);
+                    if (total > 0) {
+                        int pct = (int) ((progress * 100L) / total);
+                        cloneStatusLabel.setText(task + " (" + pct + "%)");
+                    }
+                });
+            }
+
+            @Override
+            public void onTaskEnd() {
+                // Progress bar value carries over to next task or resets in beginTask
+            }
+        });
+
         // Update status and show progress panel
         cloneStatusLabel.setText("Cloning " + normalizedUrl + "...");
         setCloneInProgress(true);
