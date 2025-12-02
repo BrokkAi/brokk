@@ -779,6 +779,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return userActions.submitExclusiveAction(task);
     }
 
+    /**
+     * THE PROVIDED TASK IS RESPONSIBLE FOR HANDLING InterruptedException WITHOUT PROPAGATING IT FURTHER.
+     */
     public CompletableFuture<Void> submitLlmAction(ThrowingRunnable task) {
         return userActions.submitLlmAction(task);
     }
@@ -1714,7 +1717,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // after each task; this is to protect users doing repeated manual Ask/Code.
         // (null check here against IP is NOT redundant; this is called during Chrome init)
         if (io instanceof Chrome
-                && io.getInstructionsPanel() != null
                 && MainProject.getHistoryAutoCompress()
                 && !newLiveContext.getTaskHistory().isEmpty()) {
             var cf = new ContextFragment.HistoryFragment(this, newLiveContext.getTaskHistory());
@@ -2127,28 +2129,32 @@ public class ContextManager implements IContextManager, AutoCloseable {
         io.showNotification(IConsoleIO.NotificationRole.INFO, "Review guide created at .brokk/review.md");
     }
 
+    // Reduced retry count for compression - it's non-critical and shouldn't block session navigation
+    private static final int COMPRESSION_MAX_ATTEMPTS = 2;
+
     /**
      * Compresses a single TaskEntry into a summary string using the quickest model.
      *
      * @param entry The TaskEntry to compress.
      * @return A new compressed TaskEntry, or the original entry (with updated sequence) if compression fails.
+     * @throws InterruptedException if the operation is cancelled
      */
-    public TaskEntry compressHistory(TaskEntry entry) {
+    public TaskEntry compressHistory(TaskEntry entry) throws InterruptedException {
         // If already compressed, return as is
         if (entry.isCompressed()) {
             return entry;
         }
 
-        // Compress
+        // Check for interruption before starting LLM call
+        if (Thread.currentThread().isInterrupted()) {
+            throw new InterruptedException("Compression cancelled");
+        }
+
+        // Compress with reduced retry count to avoid blocking on failures
         var historyString = entry.toString();
         var msgs = SummarizerPrompts.instance.compressHistory(historyString);
-        Llm.StreamingResult result;
-        try {
-            result = getLlm(serviceProvider.get().quickModel(), "Compress history entry")
-                    .sendRequest(msgs);
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
+        Llm.StreamingResult result = getLlm(serviceProvider.get().quickModel(), "Compress history entry")
+                .sendRequest(msgs, COMPRESSION_MAX_ATTEMPTS);
 
         if (result.error() != null) {
             logger.warn("History compression failed for entry: {}", entry, result.error());
@@ -2226,7 +2232,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
          *
          * @param result   The TaskResult to append.
          */
-        public Context append(TaskResult result) {
+        public Context append(TaskResult result) throws InterruptedException {
             assert !closed : "TaskScope already closed";
 
             // If interrupted before any LLM output, skip
@@ -2259,11 +2265,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return r;
             });
 
+            // optionally compress
+            var updated = result.context().withGroup(groupId, groupLabel);
+            TaskEntry entry = updated.createTaskEntry(result);
+            TaskEntry finalEntry = compressResults ? compressHistory(entry) : entry;
+
             // push context
             var updatedContext = pushContext(currentLiveCtx -> {
-                var updated = result.context().withGroup(groupId, groupLabel);
-                TaskEntry entry = updated.createTaskEntry(result);
-                TaskEntry finalEntry = compressResults ? compressHistory(entry) : entry;
                 return updated.addHistoryEntry(finalEntry, result.output(), actionFuture)
                         .withGroup(groupId, groupLabel);
             });
@@ -2733,16 +2741,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /**
      * Asynchronously compresses the entire conversation history of the currently selected context. Replaces the history
-     * with summarized versions of each task entry. This runs as a user action because it visibly modifies the context
-     * history.
+     * with summarized versions of each task entry. This runs as a cancellable LLM action.
      */
     public CompletableFuture<?> compressHistoryAsync() {
-        return submitExclusiveAction(() -> {
-            compressHistory();
+        return submitLlmAction(() -> {
+            try {
+                compressHistory();
+            } catch (InterruptedException ie) {
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "History compression canceled");
+            }
         });
     }
 
-    public void compressHistory() {
+    public void compressHistory() throws InterruptedException {
         io.disableHistoryPanel();
         try {
             // Operate on the task history
@@ -2770,9 +2781,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     try {
                         compressedTaskEntries.add(futures.get(i).get());
                     } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        compressedTaskEntries.add(taskHistoryToCompress.get(i));
+                        // Cancellation requested - cancel remaining futures and re-throw
+                        logger.debug("History compression interrupted");
+                        for (int j = i + 1; j < futures.size(); j++) {
+                            futures.get(j).cancel(true);
+                        }
+                        throw ie;
                     } catch (ExecutionException ee) {
+                        // Individual task failed - use original entry and continue
                         logger.warn("History compression task failed", ee);
                         compressedTaskEntries.add(taskHistoryToCompress.get(i));
                     }
