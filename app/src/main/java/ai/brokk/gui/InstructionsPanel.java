@@ -986,6 +986,26 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         hoverPanel.setBorder(BorderFactory.createEmptyBorder(V_GLUE, H_PAD, V_GLUE, H_PAD));
         hoverPanel.install();
 
+        // Wire TokenUsageBar hover events to WorkspaceItemsChipPanel for cross-highlighting and auto-scroll.
+        tokenUsageBar.setOnHoverFragments((frags, enter) -> {
+            try {
+                workspaceItemsChipPanel.highlightFragments(frags, enter);
+            } catch (Exception ex) {
+                logger.trace("TokenUsageBar onHoverFragments handler threw", ex);
+            }
+        });
+
+        tokenUsageBar.setOnHoverScroll(() -> {
+            try {
+                var hovered = tokenUsageBar.getHoveredFragments();
+                ai.brokk.context.ContextFragment fragment =
+                        hovered.stream().findFirst().orElse(null);
+                workspaceItemsChipPanel.scrollFragmentIntoView(fragment);
+            } catch (Exception ex) {
+                logger.trace("TokenUsageBar onHoverScroll handler threw", ex);
+            }
+        });
+
         // Constrain vertical growth to preferred height so it won't stretch on window resize.
         var titledContainer = new ContextAreaContainer();
         titledContainer.setOpaque(true);
@@ -1193,7 +1213,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (service.isReasoning(config)) {
             estimatedOutputTokens += 1000;
         }
-        double estimatedCost = pricing.estimateCost(inputTokens, 0, estimatedOutputTokens);
+        double estimatedCost = pricing.getCostFor(inputTokens, 0, estimatedOutputTokens);
 
         if (service.isFreeTier(config.name())) {
             return "$0.00 (Free Tier)";
