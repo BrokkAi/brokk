@@ -15,10 +15,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * Default implementation of {@link SystemScaleProvider} that uses AWT and subprocesses.
- */
-public final class SystemScaleProviderImpl implements SystemScaleProvider {
+/* package-private */ final class SystemScaleProviderImpl implements SystemScaleProvider {
     private static final Logger logger = LogManager.getLogger(SystemScaleProviderImpl.class);
 
     @Override
