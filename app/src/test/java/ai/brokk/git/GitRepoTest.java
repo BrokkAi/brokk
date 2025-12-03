@@ -1183,7 +1183,7 @@ public class GitRepoTest {
         Path defaultCloneDir = tempDir.resolve("clone-default");
         GitRepo defaultClone = null;
         try {
-            defaultClone = GitRepoFactory.cloneRepo(originUrl, defaultCloneDir, 0, null);
+            defaultClone = GitRepoFactory.cloneRepo(originUrl, defaultCloneDir, 0, (String) null);
 
             assertEquals("master", defaultClone.getCurrentBranch());
             assertTrue(Files.exists(defaultCloneDir.resolve("README.md")));
@@ -1242,7 +1242,7 @@ public class GitRepoTest {
         GitRepo threeParamClone = null;
         try {
             // Clone with 4 parameters (null branch)
-            equivalentClone = GitRepoFactory.cloneRepo(originUrl, equivalentCloneDir, 1, null);
+            equivalentClone = GitRepoFactory.cloneRepo(originUrl, equivalentCloneDir, 1, (String) null);
 
             // Clone with 3 parameters for comparison
             Path threeParamDir = tempDir.resolve("clone-three-param");

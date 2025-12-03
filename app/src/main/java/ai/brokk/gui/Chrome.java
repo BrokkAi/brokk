@@ -124,10 +124,6 @@ public class Chrome
     private long lastTabToggleTime = 0;
     private static final long TAB_TOGGLE_DEBOUNCE_MS = 150;
 
-    /**
-     * Handles tab toggle behavior - minimizes panel if tab is already selected, otherwise selects the tab and restores
-     * panel if it was minimized.
-     */
     private void handleTabToggle(int tabIndex) {
         long currentTime = System.currentTimeMillis();
         if (currentTime - lastTabToggleTime < TAB_TOGGLE_DEBOUNCE_MS) {
@@ -150,6 +146,8 @@ public class Chrome
             bottomSplitPane.setDividerSize(0);
             sidebarCollapsed = true;
             bottomSplitPane.setDividerLocation(40);
+            // Persist user's intent to have the sidebar closed
+            saveSidebarOpenSetting(false);
         } else {
             leftTabbedPanel.setSelectedIndex(tabIndex);
             // Restore panel if it was minimized
@@ -166,6 +164,8 @@ public class Chrome
                 int minPx = computeMinSidebarWidthPx();
                 leftVerticalSplitPane.setMinimumSize(new Dimension(minPx, 0));
                 leftTabbedPanel.setMinimumSize(new Dimension(minPx, 0));
+                // Persist user's intent to have the sidebar open
+                saveSidebarOpenSetting(true);
             }
 
             // Refresh Project Files tab badge if that tab was selected
@@ -2738,25 +2738,48 @@ public class Chrome
         frame.validate();
 
         // Set horizontal (sidebar) split pane divider now - it depends on frame width which is already known
-        // Global-first for horizontal split
-        int globalHorizontalPos = GlobalUiSettings.getHorizontalSplitPosition();
+        // Project-first for horizontal split; global fallback; then compute
+        int projectHorizontalPos = project.getHorizontalSplitPosition();
         int properDividerLocation;
-        if (globalHorizontalPos > 0) {
-            properDividerLocation = Math.min(globalHorizontalPos, Math.max(50, frame.getWidth() - 200));
+        if (projectHorizontalPos > 0) {
+            properDividerLocation = Math.min(projectHorizontalPos, Math.max(50, frame.getWidth() - 200));
         } else {
-            // No saved global position, calculate based on current frame size
-            int computedWidth = computeInitialSidebarWidth();
-            properDividerLocation = computedWidth + bottomSplitPane.getDividerSize();
+            int globalHorizontalPos = GlobalUiSettings.getHorizontalSplitPosition();
+            if (globalHorizontalPos > 0) {
+                properDividerLocation = Math.min(globalHorizontalPos, Math.max(50, frame.getWidth() - 200));
+            } else {
+                int computedWidth = computeInitialSidebarWidth();
+                properDividerLocation = computedWidth + bottomSplitPane.getDividerSize();
+            }
         }
 
-        bottomSplitPane.setDividerLocation(properDividerLocation);
+        // Restore open/closed state; default to CLOSED when no preference exists
+        Boolean sidebarOpenPref = getSavedSidebarOpenPreference();
+        boolean shouldOpen = (sidebarOpenPref != null) && sidebarOpenPref;
 
-        if (properDividerLocation < SIDEBAR_COLLAPSED_THRESHOLD) {
+        if (!shouldOpen) {
+            // Collapse sidebar by default or if explicitly saved as closed
+            lastExpandedSidebarLocation = Math.max(lastExpandedSidebarLocation, properDividerLocation);
+            // Relax minimum sizes to allow full collapse to compact width
+            leftVerticalSplitPane.setMinimumSize(new Dimension(0, 0));
+            leftTabbedPanel.setMinimumSize(new Dimension(0, 0));
+            leftTabbedPanel.setSelectedIndex(0); // Always show Project Files when collapsed
             bottomSplitPane.setDividerSize(0);
-            leftTabbedPanel.setSelectedIndex(0); // Show Project Files when collapsed
             sidebarCollapsed = true;
+            bottomSplitPane.setDividerLocation(40);
+            // Persist collapsed state for future runs (project + global)
+            saveSidebarOpenSetting(false);
         } else {
+            // Open sidebar using the saved or computed divider location
+            bottomSplitPane.setDividerLocation(properDividerLocation);
+            bottomSplitPane.setDividerSize(originalBottomDividerSize);
+            sidebarCollapsed = false;
             lastExpandedSidebarLocation = properDividerLocation;
+            // Restore minimum sizes so min-width clamp is enforced
+            int minPx = computeMinSidebarWidthPx();
+            leftVerticalSplitPane.setMinimumSize(new Dimension(minPx, 0));
+            leftTabbedPanel.setMinimumSize(new Dimension(minPx, 0));
+            saveSidebarOpenSetting(true);
         }
 
         // Add property change listeners for future updates (also persist globally)
@@ -2823,6 +2846,8 @@ public class Chrome
     private static final String PREFS_PROJECTS = "projects";
     private static final String PREF_KEY_WORKSPACE_COLLAPSED = "workspaceCollapsed";
     private static final String PREF_KEY_WORKSPACE_COLLAPSED_GLOBAL = "workspaceCollapsedGlobal";
+    private static final String PREF_KEY_SIDEBAR_OPEN = "sidebarOpen";
+    private static final String PREF_KEY_SIDEBAR_OPEN_GLOBAL = "sidebarOpenGlobal";
 
     private static Preferences prefsRoot() {
         return Preferences.userRoot().node(PREFS_ROOT);
@@ -2858,6 +2883,48 @@ public class Chrome
         } catch (Exception ignored) {
             // Non-fatal persistence failure
         }
+    }
+
+    private void saveSidebarOpenSetting(boolean open) {
+        try {
+            var p = projectPrefsNode();
+            p.putBoolean(PREF_KEY_SIDEBAR_OPEN, open);
+            p.flush();
+        } catch (Exception ignored) {
+            // Non-fatal persistence failure
+        }
+        try {
+            var g = prefsRoot();
+            g.putBoolean(PREF_KEY_SIDEBAR_OPEN_GLOBAL, open);
+            g.flush();
+        } catch (Exception ignored) {
+            // Non-fatal persistence failure
+        }
+    }
+
+    /**
+     * Reads the saved sidebar open preference with project-level preference taking precedence,
+     * then global fallback. Returns null if neither preference exists.
+     */
+    private @Nullable Boolean getSavedSidebarOpenPreference() {
+        try {
+            var p = projectPrefsNode();
+            // Preferences.get(key, null) returns null when not present; use that to detect explicit setting.
+            if (p.get(PREF_KEY_SIDEBAR_OPEN, null) != null) {
+                return p.getBoolean(PREF_KEY_SIDEBAR_OPEN, true);
+            }
+        } catch (Exception e) {
+            logger.error("Failed to read project sidebar open preference", e);
+        }
+        try {
+            var g = prefsRoot();
+            if (g.get(PREF_KEY_SIDEBAR_OPEN_GLOBAL, null) != null) {
+                return g.getBoolean(PREF_KEY_SIDEBAR_OPEN_GLOBAL, true);
+            }
+        } catch (Exception e) {
+            logger.error("Failed to read global sidebar open preference", e);
+        }
+        return null; // not explicitly set anywhere
     }
 
     /**
@@ -2924,9 +2991,10 @@ public class Chrome
             }
 
             // Treat the UI as "collapsed" when the divider is hidden or very close to the left edge.
-            // In that state we do NOT clamp or persist positions, so collapse via tab toggle works.
             boolean isCollapsedUi = bottomSplitPane.getDividerSize() == 0 || newPos < SIDEBAR_COLLAPSED_THRESHOLD;
             if (isCollapsedUi) {
+                // Persist collapsed intent
+                saveSidebarOpenSetting(false);
                 return;
             }
 
@@ -2956,6 +3024,8 @@ public class Chrome
             if (newPos >= SIDEBAR_COLLAPSED_THRESHOLD) {
                 lastExpandedSidebarLocation = newPos;
             }
+            // Persist open state
+            saveSidebarOpenSetting(true);
         });
 
         // Terminal drawer removed; no persistence listeners required.
@@ -3563,7 +3633,33 @@ public class Chrome
                     if (savedHorizPos > 0) {
                         verticalSplit.setDividerLocation(savedHorizPos);
                     } else {
-                        verticalSplit.setDividerLocation(0.5);
+                        // Default to a width similar to the left sidebar (Project Files/Tests)
+                        // Use the last known expanded sidebar location if available; otherwise compute an initial
+                        // width.
+                        final int desiredLeftWidth = (lastExpandedSidebarLocation > 0)
+                                ? lastExpandedSidebarLocation
+                                : computeInitialSidebarWidth();
+
+                        // Defer until after layout so we can clamp against the actual container width and right min
+                        // size
+                        SwingUtilities.invokeLater(() -> {
+                            try {
+                                int containerWidth = verticalSplit.getWidth();
+                                int dividerSize = verticalSplit.getDividerSize();
+                                int rightMin = 200; // fallback
+                                if (outputTabs != null) {
+                                    java.awt.Dimension min = outputTabs.getMinimumSize();
+                                    if (min != null) {
+                                        rightMin = Math.max(rightMin, min.width);
+                                    }
+                                }
+                                int maxAllowed = Math.max(0, containerWidth - dividerSize - rightMin);
+                                int target = Math.max(0, Math.min(desiredLeftWidth, maxAllowed));
+                                verticalSplit.setDividerLocation(target);
+                            } catch (Exception ex) {
+                                // If anything goes wrong, keep the default; users can resize manually
+                            }
+                        });
                     }
 
                     // Add listener to save position changes

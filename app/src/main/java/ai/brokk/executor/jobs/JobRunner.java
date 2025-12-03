@@ -3,26 +3,39 @@ package ai.brokk.executor.jobs;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Service;
+import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.SearchAgent;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.executor.io.HeadlessHttpConsole;
+import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.util.Json;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.base.Splitter;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.kohsuke.github.GHPullRequest;
+import org.kohsuke.github.GHPullRequestFileDetail;
+import org.kohsuke.github.GHRepository;
+import org.kohsuke.github.GitHubBuilder;
 
 /**
  * Executes long-running Brokk jobs using ContextManager, producing durable events
@@ -46,6 +59,7 @@ public final class JobRunner {
         ARCHITECT,
         CODE,
         ASK,
+        REVIEW,
         LUTZ
     }
 
@@ -123,15 +137,25 @@ public final class JobRunner {
 
         runner.execute(() -> {
             try {
-                // Parse tasks from spec.taskInput (split by newlines, trim, ignore blanks)
-                List<TaskList.TaskItem> tasks = parseTasks(spec.taskInput());
+                // Determine execution mode (default ARCHITECT)
+                Mode mode = parseMode(spec);
+
+                // To use it with set or get methods
+                AtomicReference<Object> completionResultRef = new AtomicReference<>(null);
+
+                List<TaskList.TaskItem> tasks;
+                if (mode == Mode.REVIEW) {
+                    // For REVIEW mode, create a single synthetic task
+                    tasks = List.of(new TaskList.TaskItem(null, "Review", false));
+                } else {
+                    // For other modes, parse tasks from spec.taskInput (split by newlines, trim, ignore blanks)
+                    tasks = parseTasks(spec.taskInput());
+                }
                 int total = tasks.size();
                 var completed = new java.util.concurrent.atomic.AtomicInteger(0);
 
                 logger.info("Job {} parsed {} task(s)", jobId, total);
 
-                // Determine execution mode (default ARCHITECT)
-                Mode mode = parseMode(spec);
                 var rawCodeModelName = spec.codeModel();
                 var trimmedCodeModelName = rawCodeModelName == null ? null : rawCodeModelName.trim();
                 var hasCodeModelOverride = trimmedCodeModelName != null && !trimmedCodeModelName.isEmpty();
@@ -139,6 +163,13 @@ public final class JobRunner {
                 final StreamingChatModel architectPlannerModel =
                         mode == Mode.ARCHITECT || mode == Mode.LUTZ ? resolveModelOrThrow(spec.plannerModel()) : null;
                 final StreamingChatModel architectCodeModel = (mode == Mode.ARCHITECT || mode == Mode.LUTZ)
+                        ? (hasCodeModelOverride
+                                ? resolveModelOrThrow(Objects.requireNonNull(trimmedCodeModelName))
+                                : defaultCodeModel())
+                        : null;
+                final StreamingChatModel reviewPlannerModel =
+                        mode == Mode.REVIEW ? resolveModelOrThrow(spec.plannerModel()) : null;
+                final StreamingChatModel reviewCodeModel = mode == Mode.REVIEW
                         ? (hasCodeModelOverride
                                 ? resolveModelOrThrow(Objects.requireNonNull(trimmedCodeModelName))
                                 : defaultCodeModel())
@@ -160,18 +191,21 @@ public final class JobRunner {
                                 var plannerName = spec.plannerModel();
                                 yield plannerName.isBlank() ? "(unused)" : plannerName.trim();
                             }
+                            case REVIEW -> service.nameOf(Objects.requireNonNull(reviewPlannerModel));
                         };
                 String codeModelNameForLog =
                         switch (mode) {
                             case ARCHITECT, LUTZ -> service.nameOf(Objects.requireNonNull(architectCodeModel));
                             case ASK -> "(default, ignored for ASK)";
                             case CODE -> service.nameOf(Objects.requireNonNull(codeModeModel));
+                            case REVIEW -> service.nameOf(Objects.requireNonNull(reviewCodeModel));
                         };
                 boolean usesDefaultCodeModel =
                         switch (mode) {
                             case ARCHITECT, LUTZ -> !hasCodeModelOverride;
                             case ASK -> true;
                             case CODE -> !hasCodeModelOverride;
+                            case REVIEW -> !hasCodeModelOverride;
                         };
                 if (plannerModelNameForLog == null || plannerModelNameForLog.isBlank()) {
                     plannerModelNameForLog = mode == Mode.CODE ? "(unused)" : "(unknown)";
@@ -313,6 +347,36 @@ public final class JobRunner {
                                                 scope.append(result);
                                             }
                                         }
+                                        case REVIEW -> {
+                                            var prData = Json.getMapper().readTree(spec.taskInput());
+                                            int prNumber =
+                                                    prData.get("pr_number").asInt(0);
+                                            String repoURL =
+                                                    prData.get("repo_url").asText();
+
+                                            // Create review prompt
+                                            String reviewPrompt = managePRContext(prNumber, repoURL, spec);
+
+                                            // Execute review using CodeAgent
+                                            var agent = new CodeAgent(
+                                                    cm,
+                                                    Objects.requireNonNull(
+                                                            reviewPlannerModel,
+                                                            "plannel model unavailable for REVIEW jobs"));
+
+                                            TaskResult result;
+                                            try (var scope = cm.beginTask("Review", false)) {
+                                                result = agent.runTask(reviewPrompt, Set.of());
+                                                scope.append(result);
+                                            }
+                                            String jsonString =
+                                                    result.stopDetails().explanation();
+                                            if (!jsonString.isBlank()) {
+                                                Object parsed = Json.fromJson(
+                                                        jsonString, new TypeReference<Map<String, Object>>() {});
+                                                completionResultRef.set(parsed);
+                                            }
+                                        }
                                     }
 
                                     completed.incrementAndGet();
@@ -358,7 +422,7 @@ public final class JobRunner {
                         current = current.cancelled();
                         logger.info("Job {} marked as CANCELLED", jobId);
                     } else {
-                        current = current.completed(null);
+                        current = current.completed(completionResultRef.get());
                         logger.info("Job {} completed successfully", jobId);
                     }
                     if (console != null) {
@@ -537,5 +601,103 @@ public final class JobRunner {
         }
 
         return list;
+    }
+
+    /**
+     * Manages pull request context by fetching PR data, extracting diff information,
+     * and generating a formatted review prompt with project guidelines.
+     *
+     * @param prNumber The pull request number
+     * @param repoUrl The GitHub repository URL
+     * @return Formatted review prompt string with JSON output instructions
+     * @throws IOException If GitHub API communication fails
+     * @throws IllegalArgumentException If the repository URL is invalid
+     */
+    private String managePRContext(int prNumber, String repoUrl, JobSpec spec) throws IOException {
+        var ownerRepo = GitUiUtil.parseOwnerRepoFromUrl(repoUrl);
+        if (ownerRepo == null) {
+            throw new IllegalArgumentException("Invalid GitHub URL: " + repoUrl);
+        }
+
+        String sessionIdStr = spec.tags().get("session_id");
+        if (sessionIdStr == null || sessionIdStr.isBlank()) {
+            throw new IllegalStateException("Session ID not found in job specification");
+        }
+
+        String authToken = spec.tags().get("github_token");
+        if (authToken == null || authToken.isBlank()) {
+            throw new IllegalStateException("GitHub authentication token not found in job specification");
+        }
+
+        UUID sessionId = UUID.fromString(sessionIdStr);
+        try {
+            cm.updateActiveSession(sessionId);
+            logger.info("Switched session successfully for PR review");
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to switch session for review", e);
+        }
+
+        String owner = ownerRepo.owner();
+        String repoName = ownerRepo.repo();
+
+        var github = new GitHubBuilder().withOAuthToken(authToken).build();
+        GHRepository ghRepo = github.getRepository(owner + "/" + repoName);
+        GHPullRequest pr = ghRepo.getPullRequest(prNumber);
+
+        try {
+            StringBuilder diff = new StringBuilder();
+
+            for (GHPullRequestFileDetail file : pr.listFiles()) {
+                String patch = file.getPatch();
+
+                if (patch != null) {
+                    diff.append("diff --git a/")
+                            .append(file.getFilename())
+                            .append(" b/")
+                            .append(file.getFilename())
+                            .append("\n")
+                            .append(patch)
+                            .append("\n");
+                }
+            }
+
+            String fullDiff = diff.toString();
+            String description = pr.getBody();
+
+            var fragment = new ContextFragment.StringFragment(cm, fullDiff, description, "text/x-diff");
+            cm.addVirtualFragment(fragment);
+
+            String reviewGuide = cm.getProject().getReviewGuide();
+
+            return String.format(
+                    """
+                Please review the following Pull Request:
+                PR #%d: %s
+                %s
+                Review Guidelines:
+                %s
+
+                Please provide a thorough code review based on the diff and files in context.
+                IMPORTANT: You must output ONLY valid JSON with this exact schema (no markdown fences, no extra text):
+                {
+                "action": "REQUEST_CHANGES" | "APPROVE" | "COMMENT",
+                "comments": [
+                    {
+                    "file": "relative/path/to/file",
+                    "line": 123,
+                    "comment": "Specific issue description"
+                    }
+                ],
+                "summary": "Overall review summary"
+                }
+
+                For each issue you find, create a comment entry with the exact file path from the changed_files, line number, and a concise description.
+                Use action=REQUEST_CHANGES for blocking issues, APPROVE if no issues, COMMENT for minor suggestions.
+                """,
+                    prNumber, pr.getTitle(), description, reviewGuide);
+
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to build review context for PR #" + prNumber, e);
+        }
     }
 }
