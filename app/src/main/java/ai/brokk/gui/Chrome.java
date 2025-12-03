@@ -3563,7 +3563,31 @@ public class Chrome
                     if (savedHorizPos > 0) {
                         verticalSplit.setDividerLocation(savedHorizPos);
                     } else {
-                        verticalSplit.setDividerLocation(0.5);
+                        // Default to a width similar to the left sidebar (Project Files/Tests)
+                        // Use the last known expanded sidebar location if available; otherwise compute an initial width.
+                        final int desiredLeftWidth = (lastExpandedSidebarLocation > 0)
+                                ? lastExpandedSidebarLocation
+                                : computeInitialSidebarWidth();
+
+                        // Defer until after layout so we can clamp against the actual container width and right min size
+                        SwingUtilities.invokeLater(() -> {
+                            try {
+                                int containerWidth = verticalSplit.getWidth();
+                                int dividerSize = verticalSplit.getDividerSize();
+                                int rightMin = 200; // fallback
+                                if (outputTabs != null) {
+                                    java.awt.Dimension min = outputTabs.getMinimumSize();
+                                    if (min != null) {
+                                        rightMin = Math.max(rightMin, min.width);
+                                    }
+                                }
+                                int maxAllowed = Math.max(0, containerWidth - dividerSize - rightMin);
+                                int target = Math.max(0, Math.min(desiredLeftWidth, maxAllowed));
+                                verticalSplit.setDividerLocation(target);
+                            } catch (Exception ex) {
+                                // If anything goes wrong, keep the default; users can resize manually
+                            }
+                        });
                     }
 
                     // Add listener to save position changes
