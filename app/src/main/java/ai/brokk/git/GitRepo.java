@@ -827,7 +827,10 @@ public class GitRepo implements Closeable, IGitRepo {
         String toRepo = to.replace('\\', '/');
         // Stage as delete + add; Git will detect rename heuristically
         git.rm().addFilepattern(fromRepo).call();
-        git.add().addFilepattern(toRepo).call();
+        logger.debug("Staged removal of {} in move operation", fromRepo);
+        // Force add even if file matches gitignore patterns (needed for !AGENTS.md negation to work)
+        var addResult = git.add().addFilepattern(toRepo).call();
+        logger.debug("Staged addition of {} in move operation, result entries: {}", toRepo, addResult.getEntryCount());
         invalidateCaches();
     }
 
