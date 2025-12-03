@@ -27,6 +27,34 @@ public class GitIgnoreConfigurator {
     public record SetupResult(boolean gitignoreUpdated, List<ProjectFile> stagedFiles, Optional<String> errorMessage) {}
 
     /**
+     * Returns the list of files that will be staged when setupGitIgnoreAndStageFiles is called.
+     * This is useful for showing a preview in dialogs before actually performing the setup.
+     */
+    public static List<ProjectFile> previewFilesToStage(IProject project) {
+        var files = new ArrayList<ProjectFile>();
+
+        try {
+            var gitTopLevel = project.getMasterRootPathForConfig();
+            var gitignorePf = new ProjectFile(gitTopLevel, ".gitignore");
+
+            // .gitignore will be staged if it needs Brokk patterns
+            if (!GitIgnoreUtils.isBrokkIgnored(gitignorePf)) {
+                files.add(gitignorePf);
+            }
+
+            // These files are always staged (created if missing)
+            files.add(new ProjectFile(gitTopLevel, "AGENTS.md"));
+            files.add(new ProjectFile(gitTopLevel, ".brokk/review.md"));
+            files.add(new ProjectFile(gitTopLevel, ".brokk/project.properties"));
+
+        } catch (Exception e) {
+            logger.warn("Error previewing files to stage: {}", e.getMessage());
+        }
+
+        return files;
+    }
+
+    /**
      * Sets up .gitignore with Brokk entries and stages project files to git.
      * Note: This method does NOT perform legacy style.md → AGENTS.md migration.
      * Migration is the responsibility of the orchestrator and should be done via

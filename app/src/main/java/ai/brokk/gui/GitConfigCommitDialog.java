@@ -1,6 +1,7 @@
 package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.MaterialButton;
@@ -9,13 +10,14 @@ import ai.brokk.init.onboarding.GitIgnoreConfigurator;
 import ai.brokk.project.AbstractProject;
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.List;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /**
  * Combined dialog for git configuration that shows an editable commit message
- * with "Yes and Commit" and "No" buttons.
+ * with "Commit" and "No" buttons, along with a list of files to be committed.
  * <p>
  * Replaces the previous two-dialog flow (confirmation dialog -> commit dialog).
  */
@@ -23,57 +25,82 @@ public class GitConfigCommitDialog extends JDialog {
     private static final Logger logger = LogManager.getLogger(GitConfigCommitDialog.class);
 
     private final JTextArea commitMessageArea;
-    private final MaterialButton yesCommitButton;
+    private final MaterialButton commitButton;
     private final MaterialButton noButton;
     private final transient ContextManager contextManager;
     private final transient AbstractProject project;
     private final transient Chrome chrome;
+    private final transient List<ProjectFile> filesToStage;
 
     public GitConfigCommitDialog(Frame owner, Chrome chrome, ContextManager contextManager, AbstractProject project) {
         super(owner, "Git Configuration", true);
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.project = project;
+        this.filesToStage = GitIgnoreConfigurator.previewFilesToStage(project);
 
         setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         setLayout(new BorderLayout(10, 10));
 
         // Header label
-        var headerLabel = new JLabel("<html>Update .gitignore and add .brokk project files to git?</html>");
+        var headerLabel = new JLabel("<html>Add Brokk configuration files to git?</html>");
         headerLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
+
+        // Files list
+        var filesLabel = new JLabel("Files to commit:");
+        filesLabel.setBorder(BorderFactory.createEmptyBorder(5, 0, 5, 0));
+
+        var fileListModel = new DefaultListModel<String>();
+        for (var file : filesToStage) {
+            fileListModel.addElement(file.getRelPath().toString());
+        }
+        var fileList = new JList<>(fileListModel);
+        fileList.setEnabled(false);
+        fileList.setVisibleRowCount(Math.min(filesToStage.size(), 6));
+        var fileListScrollPane = new JScrollPane(fileList);
+        fileListScrollPane.setPreferredSize(new Dimension(400, 100));
 
         // Commit message label
         var messageLabel = new JLabel("Commit message:");
-        messageLabel.setBorder(BorderFactory.createEmptyBorder(5, 0, 5, 0));
+        messageLabel.setBorder(BorderFactory.createEmptyBorder(10, 0, 5, 0));
 
         // Commit message text area
-        commitMessageArea = new JTextArea(5, 40);
+        commitMessageArea = new JTextArea(3, 40);
         commitMessageArea.setLineWrap(true);
         commitMessageArea.setWrapStyleWord(true);
         commitMessageArea.setText("Add Brokk project files");
-        var scrollPane = new JScrollPane(commitMessageArea);
+        var messageScrollPane = new JScrollPane(commitMessageArea);
 
         // Buttons
-        yesCommitButton = new MaterialButton("Yes and Commit");
-        yesCommitButton.addActionListener(e -> performSetupAndCommit());
-        SwingUtil.applyPrimaryButtonStyle(yesCommitButton);
+        commitButton = new MaterialButton("Commit");
+        commitButton.addActionListener(e -> performSetupAndCommit());
+        SwingUtil.applyPrimaryButtonStyle(commitButton);
 
         noButton = new MaterialButton("No");
         noButton.addActionListener(e -> dispose());
 
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         buttonPanel.add(noButton);
-        buttonPanel.add(yesCommitButton);
+        buttonPanel.add(commitButton);
 
-        // Layout
-        var topPanel = new JPanel(new BorderLayout());
-        topPanel.add(headerLabel, BorderLayout.NORTH);
-        topPanel.add(messageLabel, BorderLayout.SOUTH);
+        // Layout - center panel with files and message
+        var centerPanel = new JPanel();
+        centerPanel.setLayout(new BoxLayout(centerPanel, BoxLayout.Y_AXIS));
+
+        filesLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        fileListScrollPane.setAlignmentX(Component.LEFT_ALIGNMENT);
+        messageLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        messageScrollPane.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        centerPanel.add(filesLabel);
+        centerPanel.add(fileListScrollPane);
+        centerPanel.add(messageLabel);
+        centerPanel.add(messageScrollPane);
 
         var contentPanel = new JPanel(new BorderLayout(0, 5));
         contentPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        contentPanel.add(topPanel, BorderLayout.NORTH);
-        contentPanel.add(scrollPane, BorderLayout.CENTER);
+        contentPanel.add(headerLabel, BorderLayout.NORTH);
+        contentPanel.add(centerPanel, BorderLayout.CENTER);
         contentPanel.add(buttonPanel, BorderLayout.SOUTH);
 
         add(contentPanel, BorderLayout.CENTER);
@@ -82,7 +109,7 @@ public class GitConfigCommitDialog extends JDialog {
 
         pack();
         setLocationRelativeTo(owner);
-        commitMessageArea.requestFocusInWindow();
+        commitButton.requestFocusInWindow();
     }
 
     private void performSetupAndCommit() {
@@ -93,7 +120,7 @@ public class GitConfigCommitDialog extends JDialog {
         }
 
         // Disable UI during operation
-        yesCommitButton.setEnabled(false);
+        commitButton.setEnabled(false);
         noButton.setEnabled(false);
         commitMessageArea.setEnabled(false);
 
@@ -105,7 +132,7 @@ public class GitConfigCommitDialog extends JDialog {
                 SwingUtilities.invokeLater(() -> {
                     chrome.toolError("Error setting up .gitignore: " + result.errorMessage().get(), "Error");
                     // Re-enable UI for retry
-                    yesCommitButton.setEnabled(true);
+                    commitButton.setEnabled(true);
                     noButton.setEnabled(true);
                     commitMessageArea.setEnabled(true);
                 });
@@ -142,7 +169,7 @@ public class GitConfigCommitDialog extends JDialog {
                 SwingUtilities.invokeLater(() -> {
                     chrome.toolError("Error committing files: " + ex.getMessage(), "Commit Error");
                     // Re-enable UI for retry
-                    yesCommitButton.setEnabled(true);
+                    commitButton.setEnabled(true);
                     noButton.setEnabled(true);
                     commitMessageArea.setEnabled(true);
                 });
