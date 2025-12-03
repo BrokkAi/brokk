@@ -99,27 +99,13 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     @Nullable
     private LanguagesTableModel languagesTableModel;
 
-    // Pre-generated style guide content (Optional.empty() means read from disk)
-    private final Optional<String> providedStyleGuide;
-
     public SettingsProjectPanel(
             Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton) {
-        this(chrome, parentDialog, okButton, cancelButton, applyButton, Optional.empty());
-    }
-
-    public SettingsProjectPanel(
-            Chrome chrome,
-            SettingsDialog parentDialog,
-            JButton okButton,
-            JButton cancelButton,
-            JButton applyButton,
-            Optional<String> providedStyleGuide) {
         this.chrome = chrome;
         this.parentDialog = parentDialog;
         this.okButtonParent = okButton;
         this.cancelButtonParent = cancelButton;
         this.applyButtonParent = applyButton;
-        this.providedStyleGuide = providedStyleGuide;
 
         setLayout(new BorderLayout());
         initComponents();

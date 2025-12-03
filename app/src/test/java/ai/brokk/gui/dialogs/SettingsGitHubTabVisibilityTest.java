@@ -15,7 +15,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Regression test for Issue #1971: GitHub auth tab missing from settings window.
- * 
+ *
  * This test verifies that the GitHub settings tab is always visible in the global settings,
  * regardless of whether the current project is a GitHub repository.
  */
@@ -50,8 +50,8 @@ public class SettingsGitHubTabVisibilityTest {
 
             assertTrue(
                     foundGitHubTab,
-                    "Global settings should always include the GitHub tab so users can configure GitHub auth, " +
-                    "even when the project is not a GitHub repo");
+                    "Global settings should always include the GitHub tab so users can configure GitHub auth, "
+                            + "even when the project is not a GitHub repo");
         });
     }
 
@@ -81,9 +81,7 @@ public class SettingsGitHubTabVisibilityTest {
                 }
             }
 
-            assertTrue(
-                    foundGitHubTab,
-                    "Global settings should include the GitHub tab for all projects");
+            assertTrue(foundGitHubTab, "Global settings should include the GitHub tab for all projects");
         });
     }
 }

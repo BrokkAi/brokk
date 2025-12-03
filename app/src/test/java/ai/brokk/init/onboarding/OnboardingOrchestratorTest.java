@@ -2,8 +2,8 @@ package ai.brokk.init.onboarding;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.project.IProject;
 import ai.brokk.git.GitRepo;
+import ai.brokk.project.IProject;
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;

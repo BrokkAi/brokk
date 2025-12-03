@@ -3,11 +3,11 @@ package ai.brokk.init.onboarding;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IConsoleIO;
-import ai.brokk.project.IProject;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitTestCleanupUtil;
 import ai.brokk.init.onboarding.GitIgnoreConfigurator.SetupResult;
+import ai.brokk.project.IProject;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.nio.file.Files;
 import java.nio.file.Path;

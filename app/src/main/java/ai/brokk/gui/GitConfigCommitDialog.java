@@ -128,9 +128,10 @@ public class GitConfigCommitDialog extends JDialog {
             var result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, chrome);
 
             if (result.errorMessage().isPresent()) {
-                logger.error("Git setup failed: {}", result.errorMessage().get());
+                var errorMsg = result.errorMessage().get();
+                logger.error("Git setup failed: {}", errorMsg);
                 SwingUtilities.invokeLater(() -> {
-                    chrome.toolError("Error setting up .gitignore: " + result.errorMessage().get(), "Error");
+                    chrome.toolError("Error setting up .gitignore: " + errorMsg, "Error");
                     // Re-enable UI for retry
                     commitButton.setEnabled(true);
                     noButton.setEnabled(true);
@@ -159,7 +160,8 @@ public class GitConfigCommitDialog extends JDialog {
                 SwingUtilities.invokeLater(() -> {
                     chrome.showNotification(
                             Chrome.NotificationRole.INFO,
-                            "Committed " + gitRepo.shortHash(commitResult.commitId()) + ": " + commitResult.firstLine());
+                            "Committed " + gitRepo.shortHash(commitResult.commitId()) + ": "
+                                    + commitResult.firstLine());
                     chrome.updateCommitPanel();
                     chrome.updateLogTab();
                     dispose();

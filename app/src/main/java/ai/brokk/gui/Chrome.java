@@ -4,7 +4,6 @@ import static ai.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import ai.brokk.project.AbstractProject;
 import ai.brokk.Brokk;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
@@ -15,8 +14,6 @@ import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.git.GitRepo;
-import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.dependencies.DependenciesDrawerPanel;
 import ai.brokk.gui.dependencies.DependenciesPanel;
@@ -48,7 +45,6 @@ import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.init.onboarding.BuildSettingsStep;
 import ai.brokk.init.onboarding.GitConfigStep;
-import ai.brokk.init.onboarding.GitIgnoreConfigurator;
 import ai.brokk.init.onboarding.MigrationStep;
 import ai.brokk.init.onboarding.OnboardingOrchestrator;
 import ai.brokk.init.onboarding.OnboardingStep;
@@ -3497,7 +3493,7 @@ public class Chrome
                             .toList();
 
                     // Show dialogs on EDT
-                    SwingUtilities.invokeLater(() -> processOnboardingResults(results, styleFuture));
+                    SwingUtilities.invokeLater(() -> processOnboardingResults(results));
                 })
                 .exceptionally(ex -> {
                     logger.error("Error waiting for initialization", ex);
@@ -3520,10 +3516,8 @@ public class Chrome
      * 4. Post-git style regeneration offer (if applicable)
      *
      * @param results list of step results
-     * @param styleFuture future with style guide content
      */
-    private void processOnboardingResults(
-            List<OnboardingStep.StepResult> results, CompletableFuture<String> styleFuture) {
+    private void processOnboardingResults(List<OnboardingStep.StepResult> results) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
         logger.debug("Processing {} onboarding results", results.size());
@@ -3553,14 +3547,8 @@ public class Chrome
                 }
                 case BuildSettingsStep.BuildSettingsDialogData buildData -> {
                     logger.info("[{}] Showing build settings dialog", result.stepId());
-                    try {
-                        var styleContent = styleFuture.get();
-                        var dlg = SettingsDialog.showSettingsDialog(this, "Build", Optional.of(styleContent));
-                        dlg.getProjectPanel().showBuildBanner();
-                    } catch (Exception e) {
-                        logger.error("[{}] Error getting style content for build dialog", result.stepId(), e);
-                        SettingsDialog.showSettingsDialog(this, "Build", Optional.empty());
-                    }
+                    var dlg = SettingsDialog.showSettingsDialog(this, "Build");
+                    dlg.getProjectPanel().showBuildBanner();
                 }
                 case GitConfigStep.GitConfigDialogData gitConfigData -> {
                     logger.info("[{}] Showing git config dialog", result.stepId());
@@ -3582,23 +3570,10 @@ public class Chrome
                         regenerationFuture
                                 .thenAcceptAsync(styleContent -> {
                                     SwingUtilities.invokeLater(() -> {
-                                        try {
-                                            logger.info(
-                                                    "[{}] Style regeneration completed successfully", result.stepId());
-                                            showNotification(
-                                                    IConsoleIO.NotificationRole.INFO,
-                                                    "Style guide regenerated successfully");
-                                            SettingsDialog.showSettingsDialog(this, "Build", Optional.of(styleContent));
-                                        } catch (Exception ex) {
-                                            logger.error(
-                                                    "[{}] Error showing Build tab after regeneration",
-                                                    result.stepId(),
-                                                    ex);
-                                            showNotification(
-                                                    IConsoleIO.NotificationRole.ERROR,
-                                                    "Style guide regenerated but failed to open settings: "
-                                                            + ex.getMessage());
-                                        }
+                                        logger.info("[{}] Style regeneration completed successfully", result.stepId());
+                                        showNotification(IConsoleIO.NotificationRole.INFO,
+                                                         "Style guide regenerated successfully");
+                                        SettingsDialog.showSettingsDialog(this, "Build");
                                     });
                                 })
                                 .exceptionally(ex -> {

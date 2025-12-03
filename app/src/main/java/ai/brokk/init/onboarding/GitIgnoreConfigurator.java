@@ -1,10 +1,10 @@
 package ai.brokk.init.onboarding;
 
 import ai.brokk.IConsoleIO;
-import ai.brokk.project.IProject;
-import ai.brokk.project.MainProject;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
+import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
