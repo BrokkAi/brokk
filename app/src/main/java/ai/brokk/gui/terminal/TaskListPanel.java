@@ -102,7 +102,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private @Nullable UUID sessionIdAtLoad = null;
     // Track the last-seen Task List fragment id so we can detect updates within the same session
     private @Nullable String lastTaskListFragmentId = null;
-    private @Nullable IContextManager registeredContextManager = null;
+    private final ContextManager registeredContextManager;
 
     private final DefaultListModel<TaskList.TaskItem> model = new DefaultListModel<>();
     private final JList<TaskList.TaskItem> list = new JList<>(model);
@@ -586,13 +586,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         loadTasksForCurrentSession();
 
-        try {
-            IContextManager cm = chrome.getContextManager();
-            registeredContextManager = cm;
-            cm.addContextListener(this);
-        } catch (Exception e) {
-            logger.debug("Unable to register TaskListPanel as context listener", e);
-        }
+        IContextManager cm = chrome.getContextManager();
+        registeredContextManager = (ContextManager) cm;
+        cm.addContextListener(this);
     }
 
     private void addTask() {
@@ -1036,34 +1032,21 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void saveTasksForCurrentSession(String action) {
-        if (isLoadingTasks) return;
-
-        if (SwingUtilities.isEventDispatchThread() && registeredContextManager != null) {
-            // Delegate to a background task
-            registeredContextManager.submitBackgroundTask("Saving tasks for current session", () -> {
-                saveTasksForCurrentSession(action);
-                return null;
-            });
+        if (isLoadingTasks) {
             return;
         }
 
-        var dtos = new ArrayList<TaskList.TaskItem>(model.size());
-        for (int i = 0; i < model.size(); i++) {
-            var it = requireNonNull(model.get(i));
-            if (!it.text().isBlank()) {
-                // it is already the domain type, but copy defensively
-                dtos.add(new TaskList.TaskItem(it.title(), it.text(), it.done()));
-            }
+        // All interaction with the Swing model must happen on the EDT.
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> saveTasksForCurrentSession(action));
+            return;
         }
-        var data = new TaskList.TaskListData(List.copyOf(dtos));
-        try {
-            chrome.getContextManager().setTaskList(data, action);
-        } catch (Exception e) {
-            logger.error("Error saving task list", e);
-            SwingUtilities.invokeLater(() -> {
-                chrome.toolError("Failed to save tasks: " + e.getMessage(), "Save Error");
-            });
-        }
+
+        var dtos = Collections.list(model.elements()).stream()
+                .filter(it -> !it.text().isBlank())
+                .toList();
+        var data = new TaskList.TaskListData(dtos);
+        registeredContextManager.setTaskList(data, action);
     }
 
     private void runArchitectOnSelected() {
@@ -2270,19 +2253,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     @Override
     public void addNotify() {
         super.addNotify();
-        // Re-register the listener if it was previously removed.
-        if (registeredContextManager == null) {
-            try {
-                IContextManager cm = chrome.getContextManager();
-                registeredContextManager = cm;
-                cm.addContextListener(this);
-                // Refresh tasks, in case the model changed while the panel was not showing.
-                loadTasksForCurrentSession();
-            } catch (Exception e) {
-                logger.debug("Unable to re-register TaskListPanel as context listener", e);
-            }
-        }
-
         // Ensure the Tasks tab has a BadgedIcon attached (if this panel is hosted in a JTabbedPane).
         try {
             ensureTasksTabBadgeInitialized();
@@ -2378,16 +2348,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         } catch (Exception e) {
             logger.debug("Error saving tasks on removeNotify", e);
         }
-        try {
-            var cm = registeredContextManager;
-            if (cm != null) {
-                cm.removeContextListener(this);
-            }
-        } catch (Exception e) {
-            logger.debug("Error unregistering TaskListPanel as context listener", e);
-        } finally {
-            registeredContextManager = null;
-        }
+        var cm = registeredContextManager;
+        cm.removeContextListener(this);
 
         // Clear the tab badge/icon if present so we don't leave stale badge state when this panel is removed.
         try {
