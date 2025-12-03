@@ -2816,7 +2816,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 var symbols = Completions.completeSymbols(text, analyzer);
                 completions = symbols.stream()
                         .limit(50)
-                        .map(symbol -> (Completion) new ShorthandCompletion(this, symbol.shortName(), symbol.fqName()))
+                        .map(symbol -> (Completion) new ShorthandCompletion(this, symbol.shortName(), "`" + symbol.fqName() + "`"))
                         .toList();
             }
 
