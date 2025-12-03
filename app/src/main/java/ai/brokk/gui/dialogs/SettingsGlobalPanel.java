@@ -2155,8 +2155,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         // Reload service if vendor changed so new Quick/Scan models take effect immediately
-        String prev = previousVendorPref == null ? "" : previousVendorPref;
-        String now = selectedVendor == null ? "" : selectedVendor;
+        String prev = previousVendorPref;
+        String now = selectedVendor;
         if (!prev.equals(now)) {
             try {
                 chrome.getContextManager().reloadService();
