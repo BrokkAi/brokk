@@ -20,6 +20,7 @@ import org.fife.ui.autocomplete.ShorthandCompletion;
 
 public class Completions {
     private static final Logger logger = LogManager.getLogger(Completions.class);
+    private static final int SHORT_TOLERANCE = 300;
 
     public static List<CodeUnit> completeSymbols(String input, IAnalyzer analyzer) {
         String query = input.trim();
@@ -242,7 +243,7 @@ public class Completions {
                 && (s.charAt(2) == '\\' || s.charAt(2) == '/');
     }
 
-    private record ScoredItem<T>(T source, int score, int tiebreakScore, boolean isShort) {}
+    private record ScoredItem<T>(T source, int shortScore, int longScore, int tiebreakScore) {}
 
     public static <T> List<ShorthandCompletion> scoreShortAndLong(
             String pattern,
@@ -272,27 +273,27 @@ public class Completions {
                 .map(c -> {
                     int shortScore = matcher.score(extractShort.apply(c));
                     int longScore = matcher.score(extractLong.apply(c));
-                    int minScore = Math.min(shortScore, longScore);
-                    boolean isShort = shortScore <= longScore; // Prefer short match if scores are equal
                     int tiebreak = tiebreaker.apply(c);
-                    return new ScoredItem<>(c, minScore, tiebreak, isShort);
+                    return new ScoredItem<>(c, shortScore, longScore, tiebreak);
                 })
-                .filter(sc -> sc.score() != Integer.MAX_VALUE)
-                .sorted(Comparator.<ScoredItem<T>>comparingInt(ScoredItem::score)
-                        .thenComparingInt(ScoredItem::tiebreakScore)
+                .filter(sc -> sc.shortScore != Integer.MAX_VALUE || sc.longScore != Integer.MAX_VALUE)
+                .sorted(Comparator
+                        .<ScoredItem<T>>comparingInt(sc -> Math.min(sc.shortScore, sc.longScore))
+                        .thenComparingInt(sc -> sc.tiebreakScore)
                         .thenComparing(scoredItem -> extractShort.apply(scoredItem.source())))
                 .toList();
 
-        // Find the lowest (best) score among the "short" matches
         int bestShortScore = scoredCandidates.stream()
-                .filter(ScoredItem::isShort)
-                .mapToInt(ScoredItem::score)
+                .mapToInt(sc -> sc.shortScore)
                 .min()
-                .orElse(Integer.MAX_VALUE); // If no short matches, keep all long matches
+                .orElse(Integer.MAX_VALUE);
 
-        // Keep only candidates whose score is better than or equal to the best short match
+        int shortThreshold = bestShortScore == Integer.MAX_VALUE
+                ? Integer.MAX_VALUE
+                : bestShortScore + SHORT_TOLERANCE;
+
         return scoredCandidates.stream()
-                .filter(sc -> sc.score() <= bestShortScore)
+                .filter(sc -> (sc.shortScore <= shortThreshold) || (sc.longScore < bestShortScore))
                 .limit(100)
                 .map(sc -> toCompletion.apply(sc.source()))
                 .toList();
