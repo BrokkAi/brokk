@@ -31,10 +31,8 @@ public class GitConfigStep implements OnboardingStep {
 
     @Override
     public boolean isApplicable(ProjectState state) {
-        // Skip if onboarding was already completed
-        if (state.isOnboardingCompleted()) {
-            return false;
-        }
+        // Show if git config is needed (regardless of onboardingCompleted)
+        // This ensures files created by migration get offered for staging
         return state.project().hasGit() && state.needsGitConfig();
     }
 
