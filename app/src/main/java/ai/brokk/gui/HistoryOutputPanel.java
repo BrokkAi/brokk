@@ -1337,8 +1337,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         if (h > 0) barHeight = h;
                     }
                 }
-            } catch (Throwable ignored) {
-                // Keep fallback on any error
+            } catch (Throwable e) {
+                logger.warn("Failed to compute session header height for capture bar sizing", e);
             }
 
             if (enabled) {
