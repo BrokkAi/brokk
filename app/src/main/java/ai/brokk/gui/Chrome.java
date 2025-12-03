@@ -2913,14 +2913,16 @@ public class Chrome
             if (p.get(PREF_KEY_SIDEBAR_OPEN, null) != null) {
                 return p.getBoolean(PREF_KEY_SIDEBAR_OPEN, true);
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            logger.error("Failed to read project sidebar open preference", e);
         }
         try {
             var g = prefsRoot();
             if (g.get(PREF_KEY_SIDEBAR_OPEN_GLOBAL, null) != null) {
                 return g.getBoolean(PREF_KEY_SIDEBAR_OPEN_GLOBAL, true);
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            logger.error("Failed to read global sidebar open preference", e);
         }
         return null; // not explicitly set anywhere
     }
