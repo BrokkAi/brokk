@@ -105,4 +105,32 @@ class CompletionsScoreShortAndLongTest {
                 results.stream().anyMatch(sc -> "C.java".equals(sc.getInputText())),
                 "Expected candidate to be included for 'C.j' with minLength=3");
     }
+
+    @Test
+    @DisplayName("scoreShortAndLong: tolerance keeps near-best short matches and excludes long-only mid-word")
+    void toleranceKeepsNearBestShorts() {
+        String pattern = "Chr";
+
+        var chrome = new Candidate("Chrome.java", "Chrome.java", "Chrome.java", 0);
+        var chatResponse = new Candidate("ChatResponse.java", "ChatResponse.java", "ChatResponse.java", 0);
+        var longMid = new Candidate("LM", "zzzz", "xChrSomething", 0);
+
+        List<ShorthandCompletion> results = Completions.scoreShortAndLong(
+                pattern,
+                List.of(chrome, chatResponse, longMid),
+                Candidate::shortText,
+                Candidate::longText,
+                Candidate::tie,
+                c -> new ShorthandCompletion(null, c.id(), c.longText()));
+
+        assertTrue(
+                results.stream().anyMatch(sc -> "Chrome.java".equals(sc.getInputText())),
+                "Expected 'Chrome.java' to be included for 'Chr'");
+        assertTrue(
+                results.stream().anyMatch(sc -> "ChatResponse.java".equals(sc.getInputText())),
+                "Expected 'ChatResponse.java' to be included for 'Chr'");
+        assertFalse(
+                results.stream().anyMatch(sc -> "LM".equals(sc.getInputText())),
+                "Expected long-only mid-word candidate to be excluded for 'Chr'");
+    }
 }
