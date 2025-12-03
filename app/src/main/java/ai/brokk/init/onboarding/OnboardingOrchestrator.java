@@ -94,13 +94,18 @@ public class OnboardingOrchestrator {
             var gitignoreFile = new ai.brokk.analyzer.ProjectFile(configRoot, ".gitignore");
             boolean gitignoreConfigured = GitIgnoreUtils.isBrokkIgnored(gitignoreFile);
 
+            // Check workspace.properties (indicator of existing project)
+            var workspacePropsPath =
+                    configRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.WORKSPACE_PROPERTIES_FILE);
+            boolean workspacePropsExists = Files.exists(workspacePropsPath);
+
             // Check build details availability
             boolean buildDetailsAvailable = buildDetailsFuture != null
                     && buildDetailsFuture.isDone()
                     && !buildDetailsFuture.isCompletedExceptionally();
 
             logger.debug(
-                    "Project state: agentsMd={}/{}, legacy={}/{}, props={}/{}, git={}/{}, buildAvailable={}",
+                    "Project state: agentsMd={}/{}, legacy={}/{}, props={}/{}, git={}/{}, workspaceProps={}, buildAvailable={}",
                     agentsMdExists,
                     agentsMdHasContent,
                     legacyExists,
@@ -109,6 +114,7 @@ public class OnboardingOrchestrator {
                     propsHasContent,
                     gitignoreExists,
                     gitignoreConfigured,
+                    workspacePropsExists,
                     buildDetailsAvailable);
 
             return new ProjectState(
@@ -124,12 +130,13 @@ public class OnboardingOrchestrator {
                     buildDetailsAvailable,
                     gitignoreExists,
                     gitignoreConfigured,
+                    workspacePropsExists,
                     styleGuideFuture,
                     buildDetailsFuture);
 
         } catch (IOException e) {
             logger.error("Error building project state", e);
-            // Return a minimal state on error
+            // Return a minimal state on error - assume existing project to be safe
             return new ProjectState(
                     project,
                     project.getMasterRootPathForConfig(),
@@ -143,6 +150,7 @@ public class OnboardingOrchestrator {
                     false,
                     false,
                     false,
+                    true, // workspacePropsExists: assume true on error to be conservative
                     styleGuideFuture,
                     buildDetailsFuture);
         }

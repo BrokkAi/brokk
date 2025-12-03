@@ -40,6 +40,9 @@ public record ProjectState(
         boolean gitignoreExists,
         boolean gitignoreConfigured, // true if .brokk/** or .brokk/ pattern present
 
+        // Existing project detection
+        boolean workspacePropertiesExists, // true if workspace.properties exists (indicator of existing project)
+
         // Async handles (for steps that need to wait on background operations)
         @Nullable CompletableFuture<String> styleGuideFuture, // Future<String> with style content
         @Nullable CompletableFuture<?> buildDetailsFuture // Future<?> for build details
@@ -94,5 +97,16 @@ public record ProjectState(
      */
     public boolean needsPostGitStyleRegeneration() {
         return styleGenerationSkippedDueToNoGit && project.hasGit();
+    }
+
+    /**
+     * Checks if this is an existing project that has been opened in Brokk before.
+     * Uses workspace.properties existence as the indicator since:
+     * - workspace.properties is user-specific (not committed to git)
+     * - Its existence means Brokk has been used with this project before
+     * - New projects won't have this file on first open
+     */
+    public boolean isExistingProject() {
+        return workspacePropertiesExists;
     }
 }
