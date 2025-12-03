@@ -2,7 +2,7 @@ package ai.brokk.init.onboarding;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.git.GitRepo;
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
@@ -68,6 +68,7 @@ class OnboardingOrchestratorTest {
         private boolean buildDetailsAvailable = false;
         private boolean gitignoreExists = false;
         private boolean gitignoreConfigured = false;
+        private boolean workspacePropertiesExists = false;
 
         StateBuilder withProject(TestProject p) {
             this.project = p;
@@ -113,6 +114,11 @@ class OnboardingOrchestratorTest {
             return this;
         }
 
+        StateBuilder withWorkspaceProperties() {
+            workspacePropertiesExists = true;
+            return this;
+        }
+
         ProjectState build() {
             return new ProjectState(
                     project,
@@ -127,6 +133,7 @@ class OnboardingOrchestratorTest {
                     buildDetailsAvailable,
                     gitignoreExists,
                     gitignoreConfigured,
+                    workspacePropertiesExists,
                     null,
                     null);
         }

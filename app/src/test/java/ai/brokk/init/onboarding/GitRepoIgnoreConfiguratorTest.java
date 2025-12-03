@@ -3,7 +3,7 @@ package ai.brokk.init.onboarding;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IConsoleIO;
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitTestCleanupUtil;
