@@ -993,20 +993,20 @@ public abstract class CodePrompts {
         if (hasSyntaxAware) {
             searchContents +=
                     """
-                              - Syntax-aware SEARCH: a single line consisting of BRK_CLASS or BRK_FUNCTION, followed by the FULLY QUALIFIED class or function name:
-                                `BRK_[CLASS|FUNCTION] $fqname`. This applies to any named class-like (struct, record, interface, etc)
-                                or function-like (method, static method) entity, but NOT anonymous ones. `BRK_FUNCTION` replaces an
-                                EXISTING function's signature, annotations, and body, including any Javadoc; it CANNOT create new functions
-                                without an existing one to replace. Do not generate more than one BRK_CLASS or BRK_FUNCTION edit
-                                for the same fully qualified symbol in a single response; combine all changes for that symbol into a single block.
+                      - Syntax-aware SEARCH: a single line consisting of BRK_CLASS or BRK_FUNCTION, followed by the FULLY QUALIFIED class or function name:
+                        `BRK_[CLASS|FUNCTION] $fqname`. This applies to any named class-like (struct, record, interface, etc)
+                        or function-like (method, static method) entity, but NOT anonymous ones. `BRK_FUNCTION` replaces an
+                        EXISTING function's signature, annotations, and body, including any Javadoc; it CANNOT create new functions
+                        without an existing one to replace. Do not generate more than one BRK_CLASS or BRK_FUNCTION edit
+                        for the same fully qualified symbol in a single response; combine all changes for that symbol into a single block.
 
-                                For BRK_CLASS specifically: include only the class/struct/interface declaration and its members (the class
-              header and body). Do NOT include file-level `package` declarations or `import` statements inside a
-              BRK_CLASS REPLACE — package and import lines belong at the top of the file and must be edited separately.
-              If you need to modify package or import statements, perform a separate line-based SEARCH/REPLACE that
-              targets those lines, or use `BRK_ENTIRE_FILE` for a full-file replacement. Including `package` or `import`
-              lines in a BRK_CLASS REPLACE will cause duplication and can introduce build errors.
-                            """;
+                        For BRK_CLASS specifically: include only the class/struct/interface declaration and its members (the class
+                        header and body). Do NOT include file-level `package` declarations or `import` statements inside a
+                        BRK_CLASS REPLACE — package and import lines belong at the top of the file and must be edited separately.
+                        If you need to modify package or import statements, perform a separate line-based SEARCH/REPLACE that
+                        targets those lines, or use `BRK_ENTIRE_FILE` for a full-file replacement. Including `package` or `import`
+                        lines in a BRK_CLASS REPLACE will cause duplication and can introduce build errors.
+                    """;
         }
         if (hasMergeMarkers) {
             searchContents +=
