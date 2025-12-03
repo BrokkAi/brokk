@@ -2867,8 +2867,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         @Override
         public List<Completion> getCompletions(JTextComponent comp) {
-            // Sanitized text to be replaced in the editor (excludes leading punctuation like '.', '`', '(' when
-            // appropriate)
+            // Sanitized text to be replaced in the editor.
+            // Leading punctuation such as '.', '`', and '(' is excluded only if it appears before letters/digits/underscores.
+            // Note: '.' is excluded for identifiers, but not for relative paths (e.g., './foo'), so its exclusion is conditional.
             String sanitizedText = getAlreadyEnteredText(comp);
             if (sanitizedText.isEmpty()) {
                 return List.of();
