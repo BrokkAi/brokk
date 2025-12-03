@@ -933,7 +933,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         try {
             var repo = getRepo();
-            var remoteUrl = repo.getRemoteUrl();
+            var remoteUrl = repo.getOriginRemoteUrl();
             GitUiUtil.OwnerRepo ownerRepo = GitUiUtil.parseOwnerRepoFromUrl(Objects.requireNonNullElse(remoteUrl, ""));
 
             if (ownerRepo != null && repoFullName.equals(ownerRepo.owner() + "/" + ownerRepo.repo())) {
@@ -2006,7 +2006,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         logger.info("Starting checkout of PR #{} as a new local branch", prNumber);
         contextManager.submitExclusiveAction(() -> {
             try {
-                var remoteUrl = getRepo().getRemoteUrl(); // Can be null
+                var remoteUrl = getRepo().getOriginRemoteUrl(); // Can be null
                 GitUiUtil.OwnerRepo ownerRepo =
                         GitUiUtil.parseOwnerRepoFromUrl(Objects.requireNonNullElse(remoteUrl, ""));
                 if (ownerRepo == null) {
