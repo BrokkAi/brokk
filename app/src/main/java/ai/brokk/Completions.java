@@ -297,24 +297,19 @@ public class Completions {
                     int tiebreak = tiebreaker.apply(c);
                     return new ScoredItem<>(c, shortScore, longScore, tiebreak);
                 })
-                .filter(sc -> sc.shortScore != Integer.MAX_VALUE || sc.longScore != Integer.MAX_VALUE)
-                .sorted(Comparator
-                        .<ScoredItem<T>>comparingInt(sc -> Math.min(sc.shortScore, sc.longScore))
-                        .thenComparingInt(sc -> sc.tiebreakScore)
+                .filter(sc -> sc.shortScore() != Integer.MAX_VALUE || sc.longScore() != Integer.MAX_VALUE)
+                .sorted(Comparator.<ScoredItem<T>>comparingInt(sc -> Math.min(sc.shortScore(), sc.longScore()))
+                        .thenComparingInt(ScoredItem::tiebreakScore)
                         .thenComparing(scoredItem -> extractShort.apply(scoredItem.source())))
                 .toList();
 
-        int bestShortScore = scoredCandidates.stream()
-                .mapToInt(sc -> sc.shortScore)
-                .min()
-                .orElse(Integer.MAX_VALUE);
+        int bestShortScore =
+                scoredCandidates.stream().mapToInt(ScoredItem::shortScore).min().orElse(Integer.MAX_VALUE);
 
-        int shortThreshold = bestShortScore == Integer.MAX_VALUE
-                ? Integer.MAX_VALUE
-                : bestShortScore + SHORT_TOLERANCE;
+        int shortThreshold = bestShortScore == Integer.MAX_VALUE ? Integer.MAX_VALUE : bestShortScore + SHORT_TOLERANCE;
 
         return scoredCandidates.stream()
-                .filter(sc -> (sc.shortScore <= shortThreshold) || (sc.longScore < bestShortScore))
+                .filter(sc -> (sc.shortScore() <= shortThreshold) || (sc.longScore() < bestShortScore))
                 .limit(100)
                 .map(sc -> toCompletion.apply(sc.source()))
                 .toList();
