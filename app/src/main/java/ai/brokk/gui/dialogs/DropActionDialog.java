@@ -70,7 +70,7 @@ public final class DropActionDialog extends BaseThemedDialog {
 
         var scroll = new JScrollPane(mainPanel);
         scroll.setBorder(BorderFactory.createEmptyBorder());
-        
+
         JPanel root = getContentRoot();
         root.setLayout(new BorderLayout());
         root.add(scroll, BorderLayout.CENTER);

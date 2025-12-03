@@ -119,12 +119,12 @@ public class ImportDependencyDialog {
                     .resolve(AbstractProject.BROKK_DIR)
                     .resolve(AbstractProject.DEPENDENCIES_DIR);
             this.listener = listener;
+            this.dialog = new BaseThemedDialog(owner, "Import Dependency", Dialog.ModalityType.DOCUMENT_MODAL);
 
             CloneOperationTracker.cleanupOrphanedClones(dependenciesRoot);
         }
 
         void buildAndShow() {
-            dialog = new BaseThemedDialog(owner, "Import Dependency", Dialog.ModalityType.DOCUMENT_MODAL);
             dialog.setDefaultCloseOperation(BaseThemedDialog.DISPOSE_ON_CLOSE);
 
             var root = dialog.getContentRoot();

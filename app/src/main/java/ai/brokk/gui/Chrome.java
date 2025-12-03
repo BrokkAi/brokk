@@ -3946,7 +3946,8 @@ public class Chrome
      * @return A configured JDialog with the application icon
      */
     public static JDialog newDialog(Window owner, String title, boolean modal, boolean initializeTitleBar) {
-        JDialog dialog = new JDialog(owner, title, modal ? Dialog.ModalityType.APPLICATION_MODAL : Dialog.ModalityType.MODELESS);
+        JDialog dialog =
+                new JDialog(owner, title, modal ? Dialog.ModalityType.APPLICATION_MODAL : Dialog.ModalityType.MODELESS);
         applyIcon(dialog);
         // macOS full-window-content configuration (see https://www.formdev.com/flatlaf/macos/)
         if (SystemInfo.isMacOS) {
@@ -4076,8 +4077,7 @@ public class Chrome
         dialog.getRootPane().putClientProperty("apple.awt.transparentTitleBar", true);
 
         // hide window title
-        if (SystemInfo.isJava_17_orLater)
-            dialog.getRootPane().putClientProperty("apple.awt.windowTitleVisible", false);
+        if (SystemInfo.isJava_17_orLater) dialog.getRootPane().putClientProperty("apple.awt.windowTitleVisible", false);
         else dialog.setTitle(null);
 
         ThemeTitleBarManager.applyTitleBar(dialog, title);

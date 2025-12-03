@@ -49,7 +49,6 @@ import org.fife.ui.autocomplete.Completion;
 import org.fife.ui.autocomplete.DefaultCompletionProvider;
 import org.fife.ui.autocomplete.ShorthandCompletion;
 import org.jetbrains.annotations.Nullable;
-import ai.brokk.gui.dialogs.BaseThemedDialog;
 
 /**
  * AttachContextDialog (ACD) - Segmented control: Files | Folders | Classes | Methods | Usages - Single text input with

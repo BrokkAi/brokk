@@ -10,7 +10,6 @@ import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.MaterialButton;
-import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.util.ContentDiffUtils;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessageType;

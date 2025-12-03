@@ -313,7 +313,8 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
         assert project.isDataShareAllowed()
                 : "Standalone data retention dialog should not be shown if data sharing is disabled by organization";
 
-        BaseThemedDialog dialog = new BaseThemedDialog(owner, "Data Retention Policy Required", Dialog.ModalityType.APPLICATION_MODAL);
+        BaseThemedDialog dialog =
+                new BaseThemedDialog(owner, "Data Retention Policy Required", Dialog.ModalityType.APPLICATION_MODAL);
         dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
         dialog.setSize(600, 350); // Adjusted size
         dialog.setLocationRelativeTo(owner);

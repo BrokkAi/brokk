@@ -99,7 +99,7 @@ public class ThemeTitleBarManager {
      */
     private static void applyTitleBarInternal(RootPaneContainer container, String title) {
         Component windowComponent = (Component) container;
-        Window window = windowComponent instanceof Window ? (Window) windowComponent : null;
+        Window window = windowComponent instanceof Window w ? w : null;
 
         var config = loadTitleBarConfig();
         var titleBar = createTitleBar(title, config, window);

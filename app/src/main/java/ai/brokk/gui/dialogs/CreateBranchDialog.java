@@ -74,7 +74,7 @@ public class CreateBranchDialog extends BaseThemedDialog {
 
     private void layoutComponents() {
         setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-        
+
         JPanel root = getContentRoot();
         root.setLayout(new BorderLayout(10, 10));
 

@@ -4,7 +4,6 @@ import ai.brokk.Brokk;
 import ai.brokk.BuildInfo;
 import ai.brokk.GitHubAuth;
 import ai.brokk.git.GitRepoFactory;
-import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.util.GitUiUtil;

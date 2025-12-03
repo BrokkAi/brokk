@@ -3,6 +3,7 @@ package ai.brokk.gui;
 import ai.brokk.ContextManager;
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.util.MergeDialogUtil;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.WorktreeProject;
@@ -17,7 +18,6 @@ import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.util.List;
 import java.util.Locale;
-import ai.brokk.gui.dialogs.BaseThemedDialog;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
@@ -222,8 +222,7 @@ public class MergeDialogPanel extends BaseThemedDialog {
 
     private void configureCheckboxes() {
         var root = getContentRoot();
-        var contentPanel =
-                (JPanel) ((BorderLayout) root.getLayout()).getLayoutComponent(BorderLayout.CENTER);
+        var contentPanel = (JPanel) ((BorderLayout) root.getLayout()).getLayoutComponent(BorderLayout.CENTER);
         var gbc = new GridBagConstraints();
         gbc.gridwidth = GridBagConstraints.REMAINDER;
         gbc.gridx = 0;
@@ -291,8 +290,7 @@ public class MergeDialogPanel extends BaseThemedDialog {
         dirtyWorkingTreeLabel.setForeground(Color.RED);
 
         var root = getContentRoot();
-        var contentPanel =
-                (JPanel) ((BorderLayout) root.getLayout()).getLayoutComponent(BorderLayout.CENTER);
+        var contentPanel = (JPanel) ((BorderLayout) root.getLayout()).getLayoutComponent(BorderLayout.CENTER);
         var gbc = new GridBagConstraints();
         gbc.gridx = 0;
         gbc.weightx = 1.0;
