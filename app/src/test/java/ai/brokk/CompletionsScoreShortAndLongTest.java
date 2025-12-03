@@ -38,15 +38,15 @@ class CompletionsScoreShortAndLongTest {
     @DisplayName("scoreShortAndLong: filters out long matches worse than the best short match")
     void filtersLongWorseThanBestShort() {
         // Construct candidates such that:
-        // - SG has an exact short match ("foo") -> best short score (lowest).
-        // - SB has a poor short match ("f_o_o_bar") -> high (worse) score among shorts.
-        // - LM has only a long mid-word match ("xfoo") that is worse than the best short ("foo"),
-        //   but likely better than the worst short; previously included due to max(), now excluded with min().
-        String pattern = "foo";
+        // - SG has an exact short match ("Chr") -> best short score (lowest).
+        // - SB has a poor short match ("C_h_r_bar") -> high (worse) score among shorts.
+        // - LM has only a long mid-word match ("zzzChrzzz") that is worse than the best short ("Chr"),
+        //   and must be excluded even with the tolerance band.
+        String pattern = "Chr";
 
-        var shortGood = new Candidate("SG", "foo", "irrelevant", 0);
-        var shortBad = new Candidate("SB", "f_o_o_bar", "irrelevant", 0);
-        var longMidWord = new Candidate("LM", "zzzz", "xfoo", 0);
+        var shortGood = new Candidate("SG", "Chr", "irrelevant", 0);
+        var shortBad = new Candidate("SB", "C_h_r_bar", "irrelevant", 0);
+        var longMidWord = new Candidate("LM", "zzzz", "zzzChrzzz", 0);
 
         List<ShorthandCompletion> results = Completions.scoreShortAndLong(
                 pattern,
@@ -61,7 +61,7 @@ class CompletionsScoreShortAndLongTest {
                 results.stream().anyMatch(sc -> "SG".equals(sc.getInputText())),
                 "Expected best short candidate to be included");
 
-        // With the corrected policy (min short score), "LM" should be filtered out because its long match is worse
+        // With the corrected policy and hardened inputs, "LM" should be filtered out because its long match is worse
         // than the best short match.
         assertFalse(
                 results.stream().anyMatch(sc -> "LM".equals(sc.getInputText())),
