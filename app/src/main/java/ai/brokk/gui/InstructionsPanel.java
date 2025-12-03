@@ -4,16 +4,10 @@ import static ai.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import ai.brokk.AbstractService;
-import ai.brokk.Completions;
-import ai.brokk.ContextManager;
-import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
-import ai.brokk.Llm;
-import ai.brokk.Service;
-import ai.brokk.TaskResult;
+import ai.brokk.*;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.SearchAgent;
+import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.difftool.utils.ColorUtil;
@@ -55,12 +49,8 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
-import java.util.ArrayList;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -286,6 +276,47 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         double b = background.getBlue() / 255.0;
         double lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
         return lum < 0.5 ? Color.WHITE : new Color(0x1E1E1E);
+    }
+
+    /**
+     * Extracts the completion token from the provided line text (from the line start up to the caret).
+     * - Splits on the last whitespace (space or tab) and considers the trailing segment as the token.
+     * - Skips leading punctuation such as backticks or parens before the token, but allows '.', '/', '\\'.
+     * - For a leading single '.' before an identifier (e.g. ".Chrome"), drops the dot so only the word is replaced.
+     * - Preserves relative path prefixes like "./", "../" and ".\" on Windows.
+     *
+     * @param lineTextBeforeCaret text from the start of the current line up to the caret
+     * @return sanitized token text to be used for both auto-complete prefix and insertion
+     */
+    public static String extractAlreadyEnteredText(String lineTextBeforeCaret) {
+        int space = lineTextBeforeCaret.lastIndexOf(' ');
+        int tab = lineTextBeforeCaret.lastIndexOf('\t');
+        int separator = Math.max(space, tab);
+        String token = lineTextBeforeCaret.substring(separator + 1);
+
+        int i = 0;
+        while (i < token.length()) {
+            char c = token.charAt(i);
+            if (Character.isWhitespace(c)) {
+                i++;
+                continue;
+            }
+            // Allow letters/digits and common token/path punctuation; skip other leading punctuation.
+            if (Character.isLetterOrDigit(c) || c == '_' || c == '$' || c == '.' || c == '/' || c == '\\') {
+                break;
+            }
+            i++;
+        }
+        String candidate = token.substring(Math.min(i, token.length()));
+
+        if (candidate.startsWith(".") && candidate.length() >= 2) {
+            char next = candidate.charAt(1);
+            boolean looksRelativePath = next == '/' || next == '\\' || next == '.';
+            if (!looksRelativePath && (Character.isLetterOrDigit(next) || next == '_')) {
+                candidate = candidate.substring(1);
+            }
+        }
+        return candidate;
     }
 
     private final OverlayPanel commandInputOverlay; // Overlay to initially disable command input
@@ -2774,34 +2805,90 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             int lineStart = root.getElement(line).getStartOffset();
             try {
                 String lineText = doc.getText(lineStart, dot - lineStart);
-                int space = lineText.lastIndexOf(' ');
-                int tab = lineText.lastIndexOf('\t');
-                int separator = Math.max(space, tab);
-                return lineText.substring(separator + 1);
+                return InstructionsPanel.extractAlreadyEnteredText(lineText);
             } catch (BadLocationException e) {
                 logger.warn("BadLocationException in getAlreadyEnteredText", e);
                 return "";
             }
         }
 
+        private List<CodeUnit> fallbackForHierarchicalQueryIfEmpty(
+                String sanitizedText, ai.brokk.analyzer.IAnalyzer analyzer, List<CodeUnit> symbols) {
+            if (!symbols.isEmpty()) {
+                return symbols;
+            }
+            boolean hierarchical = sanitizedText.indexOf('.') >= 0 || sanitizedText.indexOf('$') >= 0;
+            if (!hierarchical) {
+                return symbols;
+            }
+
+            int dot = sanitizedText.lastIndexOf('.');
+            int dollar = sanitizedText.lastIndexOf('$');
+            int sep = Math.max(dot, dollar);
+            String lastSegment =
+                    (sep >= 0 && sep + 1 < sanitizedText.length()) ? sanitizedText.substring(sep + 1) : sanitizedText;
+
+            var fallback = Completions.completeSymbols(lastSegment, analyzer);
+            if (fallback.isEmpty()) {
+                return symbols;
+            }
+
+            var matcher = new FuzzyMatcher(sanitizedText);
+            return fallback.stream()
+                    .map(cu -> new AbstractMap.SimpleEntry<>(cu, matcher.score(cu.fqName())))
+                    .filter(e -> e.getValue() != Integer.MAX_VALUE)
+                    .sorted(Comparator.<Map.Entry<CodeUnit, Integer>>comparingInt(Map.Entry::getValue)
+                            .thenComparing(e -> e.getKey().fqName()))
+                    .map(Map.Entry::getKey)
+                    .toList();
+        }
+
+        /**
+         * Derives the raw token from the current line up to the caret position.
+         * Falls back to the provided value when the document positions cannot be resolved.
+         */
+        private String deriveRawToken(JTextComponent comp, String fallback) {
+            try {
+                Document doc = comp.getDocument();
+                int dot = comp.getCaretPosition();
+                Element root = doc.getDefaultRootElement();
+                int line = root.getElementIndex(dot);
+                int lineStart = root.getElement(line).getStartOffset();
+                String lineText = doc.getText(lineStart, dot - lineStart);
+                int space = lineText.lastIndexOf(' ');
+                int tab = lineText.lastIndexOf('\t');
+                int separator = Math.max(space, tab);
+                return lineText.substring(separator + 1);
+            } catch (BadLocationException e) {
+                logger.warn("BadLocationException while deriving raw token", e);
+                return fallback;
+            }
+        }
+
         @Override
         public List<Completion> getCompletions(JTextComponent comp) {
-            String text = getAlreadyEnteredText(comp);
-            if (text.isEmpty()) {
+            // Sanitized text to be replaced in the editor (excludes leading punctuation like '.', '`', '(' when
+            // appropriate)
+            String sanitizedText = getAlreadyEnteredText(comp);
+            if (sanitizedText.isEmpty()) {
                 return List.of();
             }
 
-            // Check cache first
-            List<Completion> cached = completionCache.get(text);
+            // Also compute the raw token (from last whitespace/tab) to use for matching/querying (keeps leading
+            // punctuation).
+            String rawText = deriveRawToken(comp, sanitizedText);
+
+            // Check cache using the raw token so entries are distinct for tokens like ".C" vs "C"
+            List<Completion> cached = completionCache.get(rawText);
             if (cached != null) {
                 return cached;
             }
 
             List<Completion> completions;
-            if (text.contains("/") || text.contains("\\")) {
+            if (rawText.contains("/") || rawText.contains("\\")) {
                 var allFiles = contextManager.getProject().getAllFiles();
                 List<ShorthandCompletion> fileCompletions = Completions.scoreShortAndLong(
-                        text,
+                        rawText,
                         allFiles,
                         ProjectFile::getFileName,
                         ProjectFile::toString,
@@ -2813,18 +2900,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 if (analyzer == null) {
                     return List.of();
                 }
-                var symbols = Completions.completeSymbols(text, analyzer);
+                // Use the sanitized token for querying so patterns like ".C" and "ai.brokk.gui.Chr" remain effective.
+                var symbols = Completions.completeSymbols(sanitizedText, analyzer);
+                symbols = fallbackForHierarchicalQueryIfEmpty(sanitizedText, analyzer, symbols);
+
                 completions = symbols.stream()
                         .limit(50)
-                        .map(symbol -> (Completion) new ShorthandCompletion(this, symbol.shortName(), "`" + symbol.fqName() + "`"))
+                        .map(symbol -> (Completion)
+                                new ShorthandCompletion(this, symbol.shortName(), "`" + symbol.fqName() + "`"))
                         .toList();
             }
 
-            // Cache the result
             if (completionCache.size() > CACHE_SIZE) {
                 completionCache.clear();
             }
-            completionCache.put(text, completions);
+            completionCache.put(rawText, completions);
 
             return completions;
         }
