@@ -822,65 +822,6 @@ public class Chrome
         return (AbstractProject) contextManager.getProject();
     }
 
-    /**
-     * Sets up .gitignore entries and adds .brokk project files to git
-     */
-    private void setupGitIgnore() {
-        // If project does not have git, nothing to do.
-        if (!getProject().hasGit()) {
-            logger.debug("setupGitIgnore called but project has no git repository; skipping.");
-            return;
-        }
-
-        contextManager.submitBackgroundTask("Updating .gitignore", () -> {
-            var project = getProject();
-            var result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, this);
-
-            if (result.errorMessage().isPresent()) {
-                logger.error("Git setup failed: {}", result.errorMessage().get());
-                toolError(
-                        "Error setting up .gitignore: " + result.errorMessage().get(), "Error");
-                return;
-            }
-
-            // Refresh the commit panel to show the new files
-            updateCommitPanel();
-
-            // Open commit dialog with staged files
-            SwingUtilities.invokeLater(() -> {
-                var filesToCommit = new ArrayList<>(result.stagedFiles());
-
-                if (filesToCommit.isEmpty()) {
-                    logger.debug("No files to commit");
-                    return;
-                }
-
-                var repo = project.getRepo();
-                if (!(repo instanceof GitRepo gitRepo)) {
-                    return;
-                }
-
-                // Open commit dialog with prebaked message
-                var dialog = new CommitDialog(
-                        frame,
-                        this,
-                        contextManager,
-                        new GitWorkflow(contextManager),
-                        filesToCommit,
-                        "Add Brokk project files", // Pre-filled message
-                        commitResult -> {
-                            showNotification(
-                                    NotificationRole.INFO,
-                                    "Committed " + gitRepo.shortHash(commitResult.commitId()) + ": "
-                                            + commitResult.firstLine());
-                            updateCommitPanel();
-                            updateLogTab();
-                        });
-                dialog.setVisible(true);
-            });
-        });
-    }
-
     private void initializeThemeManager() {
 
         logger.trace("Initializing theme manager");
@@ -3727,20 +3668,14 @@ public class Chrome
     }
 
     /**
-     * Shows the git configuration confirmation dialog and performs setup if user accepts.
+     * Shows the git configuration dialog with editable commit message.
      */
     private void showGitConfigDialog() {
         contextManager.submitBackgroundTask("Checking .gitignore", () -> {
             if (!getProject().isGitIgnoreSet()) {
                 SwingUtilities.invokeLater(() -> {
-                    int result = showConfirmDialog(
-                            "Update .gitignore and add .brokk project files to git?",
-                            "Git Configuration",
-                            JOptionPane.YES_NO_OPTION,
-                            JOptionPane.QUESTION_MESSAGE);
-                    if (result == JOptionPane.YES_OPTION) {
-                        setupGitIgnore();
-                    }
+                    var dialog = new GitConfigCommitDialog(frame, this, contextManager, getProject());
+                    dialog.setVisible(true);
                 });
             }
             return null;
