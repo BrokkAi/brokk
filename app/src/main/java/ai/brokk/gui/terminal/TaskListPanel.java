@@ -102,7 +102,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private @Nullable UUID sessionIdAtLoad = null;
     // Track the last-seen Task List fragment id so we can detect updates within the same session
     private @Nullable String lastTaskListFragmentId = null;
-    private final ContextManager registeredContextManager;
+    private final ContextManager cm;
 
     private final DefaultListModel<TaskList.TaskItem> model = new DefaultListModel<>();
     private final JList<TaskList.TaskItem> list = new JList<>(model);
@@ -587,7 +587,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         loadTasksForCurrentSession();
 
         IContextManager cm = chrome.getContextManager();
-        registeredContextManager = (ContextManager) cm;
+        this.cm = (ContextManager) cm;
         cm.addContextListener(this);
     }
 
@@ -1046,7 +1046,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 .filter(it -> !it.text().isBlank())
                 .toList();
         var data = new TaskList.TaskListData(dtos);
-        registeredContextManager.setTaskList(data, action);
+        cm.setTaskList(data, action);
     }
 
     private void runArchitectOnSelected() {
@@ -2348,7 +2348,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         } catch (Exception e) {
             logger.debug("Error saving tasks on removeNotify", e);
         }
-        var cm = registeredContextManager;
+        var cm = this.cm;
         cm.removeContextListener(this);
 
         // Clear the tab badge/icon if present so we don't leave stale badge state when this panel is removed.
