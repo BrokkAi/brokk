@@ -3499,7 +3499,6 @@ public class Chrome
 
             boolean enabled = GlobalUiSettings.isVerticalActivityLayout();
             var activityTabs = historyOutputPanel.getActivityTabs();
-            var outputTabs = historyOutputPanel.getOutputTabs();
             var activityTabsContainer = historyOutputPanel.getActivityTabsContainer();
             var outputTabsContainer = historyOutputPanel.getOutputTabsContainer();
 
