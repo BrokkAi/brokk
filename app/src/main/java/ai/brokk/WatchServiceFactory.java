@@ -27,6 +27,9 @@ public class WatchServiceFactory {
      */
     private static final String WATCH_SERVICE_IMPL_PROPERTY = "brokk.watchservice.impl";
 
+    private static final String WATCH_SERVICE_IMPL_NATIVE = "native";
+    private static final String WATCH_SERVICE_IMPL_LEGACY = "legacy";
+
     /**
      * Create a watch service using the best available implementation for the platform.
      *
@@ -61,8 +64,8 @@ public class WatchServiceFactory {
             implProp = System.getenv("BROKK_WATCHSERVICE_IMPL");
         }
         if (implProp == null) {
-            // Default to legacy if no preference is set for now.  Will change later once native is more stable.
-            implProp = "legacy";
+            // Default to native
+            implProp = WATCH_SERVICE_IMPL_NATIVE;
         }
         return implProp;
     }
@@ -94,11 +97,11 @@ public class WatchServiceFactory {
             String implProp,
             String os) {
 
-        if ("legacy".equalsIgnoreCase(implProp)) {
+        if (WATCH_SERVICE_IMPL_LEGACY.equalsIgnoreCase(implProp)) {
             logger.info("Using legacy watch service (forced by configuration)");
             return new LegacyProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
         }
-        if ("native".equalsIgnoreCase(implProp)) {
+        if (WATCH_SERVICE_IMPL_NATIVE.equalsIgnoreCase(implProp)) {
             logger.info("Using native watch service (forced by configuration)");
             return createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
         }
