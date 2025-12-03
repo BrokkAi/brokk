@@ -95,6 +95,10 @@ public class WorkspaceChip extends JPanel {
     private Color borderColor = Color.GRAY;
     private final int arc = 12;
 
+    // Maximum characters to display on a chip label before truncating.
+    // This keeps the chip (and its close button) visible even for very long descriptions.
+    private static final int MAX_LABEL_CHARS = 50;
+
     protected final JLabelWithAccessible label;
     protected final JLabelWithAccessible readOnlyIcon;
     protected final MaterialButton closeButton;
@@ -183,8 +187,15 @@ public class WorkspaceChip extends JPanel {
             safeShortDescription = "(no description)";
         }
 
-        // Initial label text (may be updated once computed values are ready)
-        label.setText("Loading...");
+        // Initial label text (may be updated once computed values are ready).
+        // Truncate to keep the chip compact so the close button remains visible.
+        if (fragment instanceof ContextFragment.AbstractComputedFragment) {
+            label.setText("Loading...");
+        } else if (kind == ChipKind.OTHER) {
+            label.setText(truncateForDisplay(capitalizeFirst(safeShortDescription)));
+        } else {
+            label.setText(truncateForDisplay(safeShortDescription));
+        }
 
         refreshLabelAndTooltip();
 
@@ -608,41 +619,62 @@ public class WorkspaceChip extends JPanel {
     }
 
     protected void updateTextAndTooltip(ContextFragment fragment) {
-        // Non-blocking reads; values refine as ComputedValues complete via ComputedSubscription.
-        String shortDescription = fragment.shortDescription().renderNowOr("");
-        if (shortDescription.isBlank()) {
-            shortDescription = "(no description)";
+        String newLabelText;
+        if (kind == ChipKind.SUMMARY) {
+            // Base WorkspaceChip is not used for summaries; SummaryChip overrides this.
+            String sd;
+            try {
+                sd = fragment.shortDescription().renderNowOr("Loading...");
+            } catch (Exception e) {
+                logger.warn("Unable to obtain short description from {}!", fragment, e);
+                sd = "<Error obtaining description>";
+            }
+            newLabelText = truncateForDisplay(sd);
+        } else if (kind == ChipKind.OTHER) {
+            String sd;
+            try {
+                sd = fragment.shortDescription().renderNowOr("Loading...");
+            } catch (Exception e) {
+                logger.warn("Unable to obtain short description from {}!", fragment, e);
+                sd = "<Error obtaining description>";
+            }
+            newLabelText = truncateForDisplay(capitalizeFirst(sd));
+        } else {
+            String sd;
+            try {
+                sd = fragment.shortDescription().renderNowOr("Loading...");
+            } catch (Exception e) {
+                logger.warn("Unable to obtain short description from {}!", fragment, e);
+                sd = "<Error obtaining description>";
+            }
+            if (sd.isBlank()) {
+                // Keep whatever label text we already had (e.g., "Loading...")
+                newLabelText = label.getText();
+            } else {
+                // Always truncate to keep chip width bounded so the close icon remains visible.
+                newLabelText = truncateForDisplay(sd);
+            }
         }
-        if (kind == ChipKind.OTHER) {
-            shortDescription = WorkspaceChip.capitalizeFirst(shortDescription);
+        // Only update label if it actually changed to avoid flicker
+        String currText = label.getText();
+        if (!Objects.equals(currText, newLabelText)) {
+            label.setText(newLabelText);
         }
 
+        String newTooltip = buildDefaultTooltip(fragment);
+        String currentTooltip = label.getToolTipText();
+        if (!Objects.equals(currentTooltip, newTooltip)) {
+            label.setToolTipText(newTooltip);
+        }
+
+        // Update accessible description only if it changed
         String description = fragment.description().renderNowOr("");
-
-        // Only update label text if it actually changed to avoid flicker
-        String currentText = label.getText();
-        if (!Objects.equals(currentText, shortDescription)) {
-            label.setText(shortDescription);
-        }
-
-        // Only update tooltip if it actually changed to avoid flicker
-        try {
-            String newTooltip = buildDefaultTooltip(fragment);
-            String currentTooltip = label.getToolTipText();
-            if (!Objects.equals(currentTooltip, newTooltip)) {
-                label.setToolTipText(newTooltip);
+        var ac = label.getAccessibleContext();
+        if (ac != null) {
+            String currentDesc = ac.getAccessibleDescription();
+            if (!Objects.equals(currentDesc, newLabelText)) {
+                ac.setAccessibleDescription(description);
             }
-
-            // Update accessible description only if it changed
-            var ac = label.getAccessibleContext();
-            if (ac != null) {
-                String currentDesc = ac.getAccessibleDescription();
-                if (!Objects.equals(currentDesc, description)) {
-                    ac.setAccessibleDescription(description);
-                }
-            }
-        } catch (Exception ex) {
-            logger.warn("Failed to refresh chip tooltip for fragment {}", fragment, ex);
         }
     }
 
@@ -916,6 +948,19 @@ public class WorkspaceChip extends JPanel {
         sb.appendCodePoint(upper);
         sb.append(s.substring(Character.charCount(first)));
         return sb.toString();
+    }
+
+    /**
+     * Truncate text for chip labels to ensure the close button remains visible when
+     * descriptions are very long. The full text is still available in tooltips.
+     */
+    private static String truncateForDisplay(String text) {
+        if (text.length() <= MAX_LABEL_CHARS) {
+            return text;
+        }
+        // Reserve 3 characters for "..."
+        int end = Math.max(0, MAX_LABEL_CHARS - 3);
+        return text.substring(0, end) + "...";
     }
 
     /**

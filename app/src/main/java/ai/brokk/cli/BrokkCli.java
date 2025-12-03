@@ -328,7 +328,7 @@ public final class BrokkCli implements Callable<Integer> {
         // Create Project + ContextManager
         var mainProject = new MainProject(projectPath);
         project = worktreePath == null ? mainProject : new WorktreeProject(worktreePath, mainProject);
-        logger.debug("Project files at {} are {}", project.getRepo().getCurrentCommitId(), project.getAllFiles());
+        logger.trace("Project files at {} are {}", project.getRepo().getCurrentCommitId(), project.getAllFiles());
         cm = new ContextManager(project);
 
         // Build BuildDetails from environment variables

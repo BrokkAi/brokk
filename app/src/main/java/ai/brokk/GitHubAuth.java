@@ -21,13 +21,16 @@ import okhttp3.Request;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.kohsuke.github.GHDirection;
 import org.kohsuke.github.GHIssue;
+import org.kohsuke.github.GHIssueQueryBuilder;
 import org.kohsuke.github.GHIssueState;
 import org.kohsuke.github.GHPullRequest;
 import org.kohsuke.github.GHPullRequestCommitDetail;
 import org.kohsuke.github.GHRepository;
 import org.kohsuke.github.GitHub;
 import org.kohsuke.github.GitHubBuilder;
+import org.kohsuke.github.PagedIterable;
 
 /**
  * Handles GitHub authentication and API calls. This class is stateful and holds a connection to a specific repository.
@@ -717,6 +720,43 @@ public class GitHubAuth {
     public List<GHPullRequestCommitDetail> listPullRequestCommits(int prNumber) throws IOException {
         var pr = getGhRepository().getPullRequest(prNumber);
         return pr.listCommits().toList();
+    }
+
+    /** Returns a paginated iterable of issues with server-side filtering. */
+    public PagedIterable<GHIssue> listIssuesPaginated(
+            GHIssueState state,
+            @Nullable String label,
+            @Nullable String assignee,
+            @Nullable String creator,
+            int pageSize)
+            throws IOException {
+        var query = getGhRepository().queryIssues();
+        query.state(state);
+        if (label != null && !label.isBlank()) {
+            query.label(label);
+        }
+        if (assignee != null && !assignee.isBlank()) {
+            query.assignee(assignee);
+        }
+        if (creator != null && !creator.isBlank()) {
+            query.creator(creator);
+        }
+        query.sort(GHIssueQueryBuilder.Sort.UPDATED);
+        query.direction(GHDirection.DESC);
+        query.pageSize(pageSize);
+        return query.list();
+    }
+
+    /**
+     * Returns a paginated iterable of pull requests for the connected repository.
+     * Use this for streaming pagination to avoid loading all PRs at once.
+     *
+     * @param state The PR state filter (OPEN, CLOSED, or ALL)
+     * @param pageSize Number of PRs per page
+     * @return A PagedIterable that fetches PRs lazily page by page
+     */
+    public PagedIterable<GHPullRequest> listPullRequestsPaginated(GHIssueState state, int pageSize) throws IOException {
+        return getGhRepository().queryPullRequests().state(state).list().withPageSize(pageSize);
     }
 
     /**
