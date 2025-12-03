@@ -31,6 +31,10 @@ public class GitConfigStep implements OnboardingStep {
 
     @Override
     public boolean isApplicable(ProjectState state) {
+        // Skip for existing projects to avoid modifying gitignore without explicit request
+        if (state.isExistingProject()) {
+            return false;
+        }
         return state.project().hasGit() && state.needsGitConfig();
     }
 
