@@ -88,7 +88,7 @@ public class PreviewImagePanel extends JPanel {
 
     public static void showFrame(ContextManager contextManager, String title, PreviewImagePanel previewPanel) {
         JFrame frame = Chrome.newFrame(title);
-        frame.setContentPane(previewPanel);
+        frame.getContentPane().add(previewPanel, BorderLayout.CENTER);
         frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE); // Dispose frame on close
 
         var project = contextManager.getProject();

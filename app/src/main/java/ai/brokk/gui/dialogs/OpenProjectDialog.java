@@ -158,8 +158,6 @@ public class OpenProjectDialog extends BaseThemedDialog {
         // Create clone progress panel (will be added to tabs, not main panel)
         cloneProgressPanel = createCloneProgressPanel();
 
-        setContentPane(mainPanel);
-
         // Handle window close during clone
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
