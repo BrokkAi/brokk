@@ -617,61 +617,61 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     }
 
     private void drawText(Graphics2D g2d, int width, int height, int fillWidth, int usedTokens) {
-            boolean hasContext = usedTokens > 0 && maxTokens > 0;
+        boolean hasContext = usedTokens > 0 && maxTokens > 0;
 
-            g2d.setFont(getFont().deriveFont(Font.BOLD, 11f));
-            FontMetrics fm = g2d.getFontMetrics();
-            int textHeight = fm.getAscent();
-            int textY = (height - textHeight) / 2 + fm.getAscent();
-            int padding = 6;
+        g2d.setFont(getFont().deriveFont(Font.BOLD, 11f));
+        FontMetrics fm = g2d.getFontMetrics();
+        int textHeight = fm.getAscent();
+        int textY = (height - textHeight) / 2 + fm.getAscent();
+        int padding = 6;
 
-            if (!hasContext) {
-                    String msg =
-                                    "No context yet - use Lutz Mode to discover and add relevant files automatically, or click the paperclip icon or drag-and-drop files from the Project Files panel.";
-                    int maxTextWidth = Math.max(0, width - 2 * padding);
-                    String shown = elide(msg, fm, maxTextWidth);
+        if (!hasContext) {
+            String msg =
+                    "No context yet - use Lutz Mode to discover and add relevant files automatically, or click the paperclip icon or drag-and-drop files from the Project Files panel.";
+            int maxTextWidth = Math.max(0, width - 2 * padding);
+            String shown = elide(msg, fm, maxTextWidth);
 
-                    Color track = getTrackColor();
-                    Color textColor = readableTextForBackground(track);
+            Color track = getTrackColor();
+            Color textColor = readableTextForBackground(track);
 
-                    g2d.setColor(textColor);
-                    int textWidth = fm.stringWidth(shown);
-                    int x = (width - textWidth) / 2;
-                    x = Math.max(0, x);
-                    g2d.drawString(shown, x, textY);
-
-                    var ac = getAccessibleContext();
-                    if (ac != null) {
-                            ac.setAccessibleDescription(msg);
-                    }
-                    return;
-            }
-
-            String currentText = formatTokens(usedTokens);
-            int textWidth = fm.stringWidth(currentText);
-
-            int x;
-            // Prefer placing text after the fill, but constrain to bar bounds
-            int preferredX = fillWidth + padding;
-            if (preferredX + textWidth <= width) {
-                    // Fits comfortably after the fill
-                    x = preferredX;
-            } else if (preferredX + textWidth - padding <= width) {
-                    // Fits if we reduce padding on the right
-                    x = preferredX;
-            } else {
-                    // Shift left to keep within bounds
-                    x = Math.max(0, width - textWidth - padding);
-            }
-
-            g2d.setColor(Color.WHITE);
-            g2d.drawString(currentText, x, textY);
+            g2d.setColor(textColor);
+            int textWidth = fm.stringWidth(shown);
+            int x = (width - textWidth) / 2;
+            x = Math.max(0, x);
+            g2d.drawString(shown, x, textY);
 
             var ac = getAccessibleContext();
             if (ac != null) {
-                    int effectiveMax = Math.max(maxTokens, usedTokens);
-                    ac.setAccessibleDescription(String.format("Tokens: %s of %d", currentText, effectiveMax));
+                ac.setAccessibleDescription(msg);
             }
+            return;
+        }
+
+        String currentText = formatTokens(usedTokens);
+        int textWidth = fm.stringWidth(currentText);
+
+        int x;
+        // Prefer placing text after the fill, but constrain to bar bounds
+        int preferredX = fillWidth + padding;
+        if (preferredX + textWidth <= width) {
+            // Fits comfortably after the fill
+            x = preferredX;
+        } else if (preferredX + textWidth - padding <= width) {
+            // Fits if we reduce padding on the right
+            x = preferredX;
+        } else {
+            // Shift left to keep within bounds
+            x = Math.max(0, width - textWidth - padding);
+        }
+
+        g2d.setColor(Color.WHITE);
+        g2d.drawString(currentText, x, textY);
+
+        var ac = getAccessibleContext();
+        if (ac != null) {
+            int effectiveMax = Math.max(maxTokens, usedTokens);
+            ac.setAccessibleDescription(String.format("Tokens: %s of %d", currentText, effectiveMax));
+        }
     }
 
     /**
@@ -715,203 +715,203 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     }
 
     private List<Segment> computeSegments(int width) {
-            // If no fragments are provided, fall back to single fill behavior using fallbackCurrentTokens
-            if (fragments.isEmpty()) {
-                    int effectiveMax = Math.max(1, Math.max(maxTokens, fallbackCurrentTokens));
-                    int fillWidth = (int) Math.floor(width * (fallbackCurrentTokens / (double) effectiveMax));
-                    boolean dark = isDarkTheme();
-                    Color fillColor = getOkColor(dark);
-                    var s = new Segment(0, Math.max(0, fillWidth), fillColor, Set.of(), false);
-                    this.segments = List.of(s);
-                    return this.segments;
-            }
-
-            // Compute token totals only for text-like and output fragments
-            var usable = fragments.stream()
-                            .filter(f -> f.isText() || f.getType().isOutput())
-                            .toList();
-
-            if (usable.isEmpty()) {
-                    this.segments = List.of();
-                    return this.segments;
-            }
-
-            // Separate summaries (SKELETON) to form a single "Summaries" segment
-            var summaries = usable.stream()
-                            .filter(f -> f.getType() == ContextFragment.FragmentType.SKELETON)
-                            .toList();
-            var nonSummaries = usable.stream()
-                            .filter(f -> f.getType() != ContextFragment.FragmentType.SKELETON)
-                            .toList();
-
-            int tokensSummaries =
-                            summaries.stream().mapToInt(this::tokensForFragment).sum();
-            int tokensNonSummaries =
-                            nonSummaries.stream().mapToInt(this::tokensForFragment).sum();
-            int totalTokens = tokensSummaries + tokensNonSummaries;
-
-            if (totalTokens <= 0) {
-                    this.segments = List.of();
-                    return this.segments;
-            }
-
-            // Compute filled width based on total tokens vs maxTokens, but allow auto-rescale when usage > maxTokens
-            int effectiveMax = Math.max(1, Math.max(maxTokens, totalTokens));
-            int fillWidth = (int) Math.floor(width * (totalTokens / (double) effectiveMax));
-            if (fillWidth <= 0) {
-                    this.segments = List.of();
-                    return this.segments;
-            }
-
-            // Mark small fragments among non-summaries (but never group HISTORY fragments)
-            double[] rawWidths = new double[nonSummaries.size()];
-            List<ContextFragment> small = new ArrayList<>();
-            for (int i = 0; i < nonSummaries.size(); i++) {
-                    int t = tokensForFragment(nonSummaries.get(i));
-                    rawWidths[i] = (t * 1.0 / totalTokens) * fillWidth;
-                    if (rawWidths[i] < MIN_SEGMENT_PX
-                                    && nonSummaries.get(i).getType() != ContextFragment.FragmentType.HISTORY) {
-                            small.add(nonSummaries.get(i));
-                    }
-            }
-            int smallCount = small.size();
-            int otherTokens = small.stream().mapToInt(this::tokensForFragment).sum();
-
-            // Build allocation items: non-small fragments + optional "Other" + optional "Summaries" group
-            record AllocItem(
-                            @Nullable ContextFragment frag,
-                            boolean isOther,
-                            boolean isSummaryGroup,
-                            int tokens,
-                            double rawWidth,
-                            int minWidth) {}
-
-            int nBaseItems = (smallCount > 1) ? (nonSummaries.size() - smallCount + 1) : nonSummaries.size();
-            int nItems = nBaseItems + (summaries.isEmpty() ? 0 : 1);
-            int totalGaps = Math.max(0, nItems - 1);
-            int effectiveFill = Math.max(0, fillWidth - totalGaps * SEGMENT_GAP);
-
-            List<AllocItem> items = new ArrayList<>();
-            if (smallCount == 1) {
-                    // Exactly one "small" fragment: place it normally with a min width and normal label
-                    ContextFragment onlySmall = small.getFirst();
-                    for (var f : nonSummaries) {
-                            int t = tokensForFragment(f);
-                            double rw = (t * 1.0 / totalTokens) * effectiveFill;
-                            int min = (f == onlySmall) ? Math.min(MIN_SEGMENT_PX, effectiveFill) : 0;
-                            items.add(new AllocItem(f, false, false, t, rw, min));
-                    }
-            } else {
-                    // Add all non-small individually
-                    for (var f : nonSummaries) {
-                            if (small.contains(f)) continue;
-                            int t = tokensForFragment(f);
-                            double rw = (t * 1.0 / totalTokens) * effectiveFill;
-                            items.add(new AllocItem(f, false, false, t, rw, 0));
-                    }
-                    // Group remaining as "Other" if there are multiple small ones
-                    if (smallCount > 1) {
-                            double rw = (otherTokens * 1.0 / totalTokens) * effectiveFill;
-                            int min = Math.min(MIN_SEGMENT_PX, effectiveFill);
-                            items.add(new AllocItem(null, true, false, otherTokens, rw, min));
-                    }
-            }
-
-            // Add a single "Summaries" item if present
-            if (!summaries.isEmpty()) {
-                    double rw = (tokensSummaries * 1.0 / totalTokens) * effectiveFill;
-                    int min = Math.min(MIN_SEGMENT_PX, effectiveFill);
-                    items.add(new AllocItem(null, false, true, tokensSummaries, rw, min));
-            }
-
-            // Largest-remainder with min width clamping
-            class Working {
-                    final AllocItem item;
-                    int width;
-                    final double remainder;
-
-                    Working(AllocItem item, int width, double remainder) {
-                            this.item = item;
-                            this.width = width;
-                            this.remainder = remainder;
-                    }
-            }
-            List<Working> work = new ArrayList<>(items.size());
-            int sum = 0;
-            for (var it : items) {
-                    int floor = (int) Math.floor(it.rawWidth);
-                    int widthAlloc = Math.max(floor, it.minWidth);
-                    Working w = new Working(it, widthAlloc, it.rawWidth - floor);
-                    work.add(w);
-                    sum += widthAlloc;
-            }
-
-            int deficit = effectiveFill - sum;
-            if (deficit > 0) {
-                    work.stream()
-                                    .sorted(Comparator.comparingDouble((Working w) -> w.remainder)
-                                                    .reversed())
-                                    .limit(deficit)
-                                    .forEach(w -> w.width++);
-            } else if (deficit < 0) {
-                    int need = -deficit;
-                    Predicate<Working> canShrink = w -> w.width > w.item.minWidth;
-                    while (need > 0) {
-                            boolean removed = false;
-                            for (var w : work.stream()
-                                            .sorted(Comparator.comparingDouble((Working x) -> x.remainder))
-                                            .toList()) {
-                                    if (need == 0) break;
-                                    if (canShrink.test(w)) {
-                                            w.width--;
-                                            need--;
-                                            removed = true;
-                                    }
-                            }
-                            if (!removed) break;
-                    }
-                    if (need > 0) {
-                            for (var w : work.stream()
-                                            .sorted(Comparator.comparingInt((Working x) -> x.width).reversed())
-                                            .toList()) {
-                                    if (need == 0) break;
-                                    if (w.width > 0) {
-                                            int d = Math.min(need, w.width);
-                                            w.width -= d;
-                                            need -= d;
-                                    }
-                            }
-                    }
-            }
-
-            // Convert to segments with tooltips and colors, inserting 1px gaps
-            boolean isDark = isDarkTheme();
-            List<Segment> out = new ArrayList<>();
-            int x = 0;
-            for (var w : work) {
-                    if (w.width <= 0) continue;
-
-                    if (w.item.isSummaryGroup) {
-                            Color bg = FragmentColorUtils.getBackgroundColor(FragmentColorUtils.FragmentKind.SUMMARY, isDark);
-                            Set<ContextFragment> segmentFrags = Set.copyOf(summaries);
-                            out.add(new Segment(x, w.width, bg, segmentFrags, true));
-                    } else if (w.item.isOther) {
-                            Color bg = FragmentColorUtils.getBackgroundColor(FragmentColorUtils.FragmentKind.OTHER, isDark);
-                            Set<ContextFragment> segmentFrags = Set.copyOf(small);
-                            out.add(new Segment(x, w.width, bg, segmentFrags, false));
-                    } else {
-                            ContextFragment frag = Objects.requireNonNull(w.item.frag);
-                            FragmentColorUtils.FragmentKind kind = FragmentColorUtils.classify(frag);
-                            Color bg = FragmentColorUtils.getBackgroundColor(kind, isDark);
-                            Set<ContextFragment> segmentFrags = Set.of(frag);
-                            out.add(new Segment(x, w.width, bg, segmentFrags, false));
-                    }
-
-                    x += w.width + SEGMENT_GAP;
-            }
-
-            this.segments = List.copyOf(out);
+        // If no fragments are provided, fall back to single fill behavior using fallbackCurrentTokens
+        if (fragments.isEmpty()) {
+            int effectiveMax = Math.max(1, Math.max(maxTokens, fallbackCurrentTokens));
+            int fillWidth = (int) Math.floor(width * (fallbackCurrentTokens / (double) effectiveMax));
+            boolean dark = isDarkTheme();
+            Color fillColor = getOkColor(dark);
+            var s = new Segment(0, Math.max(0, fillWidth), fillColor, Set.of(), false);
+            this.segments = List.of(s);
             return this.segments;
+        }
+
+        // Compute token totals only for text-like and output fragments
+        var usable = fragments.stream()
+                .filter(f -> f.isText() || f.getType().isOutput())
+                .toList();
+
+        if (usable.isEmpty()) {
+            this.segments = List.of();
+            return this.segments;
+        }
+
+        // Separate summaries (SKELETON) to form a single "Summaries" segment
+        var summaries = usable.stream()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.SKELETON)
+                .toList();
+        var nonSummaries = usable.stream()
+                .filter(f -> f.getType() != ContextFragment.FragmentType.SKELETON)
+                .toList();
+
+        int tokensSummaries =
+                summaries.stream().mapToInt(this::tokensForFragment).sum();
+        int tokensNonSummaries =
+                nonSummaries.stream().mapToInt(this::tokensForFragment).sum();
+        int totalTokens = tokensSummaries + tokensNonSummaries;
+
+        if (totalTokens <= 0) {
+            this.segments = List.of();
+            return this.segments;
+        }
+
+        // Compute filled width based on total tokens vs maxTokens, but allow auto-rescale when usage > maxTokens
+        int effectiveMax = Math.max(1, Math.max(maxTokens, totalTokens));
+        int fillWidth = (int) Math.floor(width * (totalTokens / (double) effectiveMax));
+        if (fillWidth <= 0) {
+            this.segments = List.of();
+            return this.segments;
+        }
+
+        // Mark small fragments among non-summaries (but never group HISTORY fragments)
+        double[] rawWidths = new double[nonSummaries.size()];
+        List<ContextFragment> small = new ArrayList<>();
+        for (int i = 0; i < nonSummaries.size(); i++) {
+            int t = tokensForFragment(nonSummaries.get(i));
+            rawWidths[i] = (t * 1.0 / totalTokens) * fillWidth;
+            if (rawWidths[i] < MIN_SEGMENT_PX
+                    && nonSummaries.get(i).getType() != ContextFragment.FragmentType.HISTORY) {
+                small.add(nonSummaries.get(i));
+            }
+        }
+        int smallCount = small.size();
+        int otherTokens = small.stream().mapToInt(this::tokensForFragment).sum();
+
+        // Build allocation items: non-small fragments + optional "Other" + optional "Summaries" group
+        record AllocItem(
+                @Nullable ContextFragment frag,
+                boolean isOther,
+                boolean isSummaryGroup,
+                int tokens,
+                double rawWidth,
+                int minWidth) {}
+
+        int nBaseItems = (smallCount > 1) ? (nonSummaries.size() - smallCount + 1) : nonSummaries.size();
+        int nItems = nBaseItems + (summaries.isEmpty() ? 0 : 1);
+        int totalGaps = Math.max(0, nItems - 1);
+        int effectiveFill = Math.max(0, fillWidth - totalGaps * SEGMENT_GAP);
+
+        List<AllocItem> items = new ArrayList<>();
+        if (smallCount == 1) {
+            // Exactly one "small" fragment: place it normally with a min width and normal label
+            ContextFragment onlySmall = small.getFirst();
+            for (var f : nonSummaries) {
+                int t = tokensForFragment(f);
+                double rw = (t * 1.0 / totalTokens) * effectiveFill;
+                int min = (f == onlySmall) ? Math.min(MIN_SEGMENT_PX, effectiveFill) : 0;
+                items.add(new AllocItem(f, false, false, t, rw, min));
+            }
+        } else {
+            // Add all non-small individually
+            for (var f : nonSummaries) {
+                if (small.contains(f)) continue;
+                int t = tokensForFragment(f);
+                double rw = (t * 1.0 / totalTokens) * effectiveFill;
+                items.add(new AllocItem(f, false, false, t, rw, 0));
+            }
+            // Group remaining as "Other" if there are multiple small ones
+            if (smallCount > 1) {
+                double rw = (otherTokens * 1.0 / totalTokens) * effectiveFill;
+                int min = Math.min(MIN_SEGMENT_PX, effectiveFill);
+                items.add(new AllocItem(null, true, false, otherTokens, rw, min));
+            }
+        }
+
+        // Add a single "Summaries" item if present
+        if (!summaries.isEmpty()) {
+            double rw = (tokensSummaries * 1.0 / totalTokens) * effectiveFill;
+            int min = Math.min(MIN_SEGMENT_PX, effectiveFill);
+            items.add(new AllocItem(null, false, true, tokensSummaries, rw, min));
+        }
+
+        // Largest-remainder with min width clamping
+        class Working {
+            final AllocItem item;
+            int width;
+            final double remainder;
+
+            Working(AllocItem item, int width, double remainder) {
+                this.item = item;
+                this.width = width;
+                this.remainder = remainder;
+            }
+        }
+        List<Working> work = new ArrayList<>(items.size());
+        int sum = 0;
+        for (var it : items) {
+            int floor = (int) Math.floor(it.rawWidth);
+            int widthAlloc = Math.max(floor, it.minWidth);
+            Working w = new Working(it, widthAlloc, it.rawWidth - floor);
+            work.add(w);
+            sum += widthAlloc;
+        }
+
+        int deficit = effectiveFill - sum;
+        if (deficit > 0) {
+            work.stream()
+                    .sorted(Comparator.comparingDouble((Working w) -> w.remainder)
+                            .reversed())
+                    .limit(deficit)
+                    .forEach(w -> w.width++);
+        } else if (deficit < 0) {
+            int need = -deficit;
+            Predicate<Working> canShrink = w -> w.width > w.item.minWidth;
+            while (need > 0) {
+                boolean removed = false;
+                for (var w : work.stream()
+                        .sorted(Comparator.comparingDouble((Working x) -> x.remainder))
+                        .toList()) {
+                    if (need == 0) break;
+                    if (canShrink.test(w)) {
+                        w.width--;
+                        need--;
+                        removed = true;
+                    }
+                }
+                if (!removed) break;
+            }
+            if (need > 0) {
+                for (var w : work.stream()
+                        .sorted(Comparator.comparingInt((Working x) -> x.width).reversed())
+                        .toList()) {
+                    if (need == 0) break;
+                    if (w.width > 0) {
+                        int d = Math.min(need, w.width);
+                        w.width -= d;
+                        need -= d;
+                    }
+                }
+            }
+        }
+
+        // Convert to segments with tooltips and colors, inserting 1px gaps
+        boolean isDark = isDarkTheme();
+        List<Segment> out = new ArrayList<>();
+        int x = 0;
+        for (var w : work) {
+            if (w.width <= 0) continue;
+
+            if (w.item.isSummaryGroup) {
+                Color bg = FragmentColorUtils.getBackgroundColor(FragmentColorUtils.FragmentKind.SUMMARY, isDark);
+                Set<ContextFragment> segmentFrags = Set.copyOf(summaries);
+                out.add(new Segment(x, w.width, bg, segmentFrags, true));
+            } else if (w.item.isOther) {
+                Color bg = FragmentColorUtils.getBackgroundColor(FragmentColorUtils.FragmentKind.OTHER, isDark);
+                Set<ContextFragment> segmentFrags = Set.copyOf(small);
+                out.add(new Segment(x, w.width, bg, segmentFrags, false));
+            } else {
+                ContextFragment frag = Objects.requireNonNull(w.item.frag);
+                FragmentColorUtils.FragmentKind kind = FragmentColorUtils.classify(frag);
+                Color bg = FragmentColorUtils.getBackgroundColor(kind, isDark);
+                Set<ContextFragment> segmentFrags = Set.of(frag);
+                out.add(new Segment(x, w.width, bg, segmentFrags, false));
+            }
+
+            x += w.width + SEGMENT_GAP;
+        }
+
+        this.segments = List.copyOf(out);
+        return this.segments;
     }
 
     private int computeUsedTokens() {

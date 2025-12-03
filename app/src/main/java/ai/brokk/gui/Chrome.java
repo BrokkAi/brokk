@@ -125,58 +125,58 @@ public class Chrome
     private static final long TAB_TOGGLE_DEBOUNCE_MS = 150;
 
     private void handleTabToggle(int tabIndex) {
-         long currentTime = System.currentTimeMillis();
-         if (currentTime - lastTabToggleTime < TAB_TOGGLE_DEBOUNCE_MS) {
-              return; // Ignore rapid successive clicks
-         }
-         lastTabToggleTime = currentTime;
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastTabToggleTime < TAB_TOGGLE_DEBOUNCE_MS) {
+            return; // Ignore rapid successive clicks
+        }
+        lastTabToggleTime = currentTime;
 
-         if (!sidebarCollapsed && leftTabbedPanel.getSelectedIndex() == tabIndex) {
-              // Tab already selected: capture current expanded width (if not already minimized), then minimize
-              int currentLocation = bottomSplitPane.getDividerLocation();
-              if (currentLocation >= SIDEBAR_COLLAPSED_THRESHOLD) {
-                   lastExpandedSidebarLocation = currentLocation;
-              }
+        if (!sidebarCollapsed && leftTabbedPanel.getSelectedIndex() == tabIndex) {
+            // Tab already selected: capture current expanded width (if not already minimized), then minimize
+            int currentLocation = bottomSplitPane.getDividerLocation();
+            if (currentLocation >= SIDEBAR_COLLAPSED_THRESHOLD) {
+                lastExpandedSidebarLocation = currentLocation;
+            }
 
-              // Relax minimum sizes to allow full collapse to compact width
-              leftVerticalSplitPane.setMinimumSize(new Dimension(0, 0));
-              leftTabbedPanel.setMinimumSize(new Dimension(0, 0));
+            // Relax minimum sizes to allow full collapse to compact width
+            leftVerticalSplitPane.setMinimumSize(new Dimension(0, 0));
+            leftTabbedPanel.setMinimumSize(new Dimension(0, 0));
 
-              leftTabbedPanel.setSelectedIndex(0); // Always show Project Files when collapsed
-              bottomSplitPane.setDividerSize(0);
-              sidebarCollapsed = true;
-              bottomSplitPane.setDividerLocation(40);
-              // Persist user's intent to have the sidebar closed
-              saveSidebarOpenSetting(false);
-         } else {
-              leftTabbedPanel.setSelectedIndex(tabIndex);
-              // Restore panel if it was minimized
-              if (sidebarCollapsed) {
-                   bottomSplitPane.setDividerSize(originalBottomDividerSize);
-                   int target = (lastExpandedSidebarLocation > 0)
-                             ? lastExpandedSidebarLocation
-                             : computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
-                   bottomSplitPane.setDividerLocation(target);
-                   sidebarCollapsed = false;
+            leftTabbedPanel.setSelectedIndex(0); // Always show Project Files when collapsed
+            bottomSplitPane.setDividerSize(0);
+            sidebarCollapsed = true;
+            bottomSplitPane.setDividerLocation(40);
+            // Persist user's intent to have the sidebar closed
+            saveSidebarOpenSetting(false);
+        } else {
+            leftTabbedPanel.setSelectedIndex(tabIndex);
+            // Restore panel if it was minimized
+            if (sidebarCollapsed) {
+                bottomSplitPane.setDividerSize(originalBottomDividerSize);
+                int target = (lastExpandedSidebarLocation > 0)
+                        ? lastExpandedSidebarLocation
+                        : computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
+                bottomSplitPane.setDividerLocation(target);
+                sidebarCollapsed = false;
 
-                   // Restore minimum sizes for normal operation so min-width clamp is enforced again,
-                   // using the current dynamic minimum instead of a hard constant.
-                   int minPx = computeMinSidebarWidthPx();
-                   leftVerticalSplitPane.setMinimumSize(new Dimension(minPx, 0));
-                   leftTabbedPanel.setMinimumSize(new Dimension(minPx, 0));
-                   // Persist user's intent to have the sidebar open
-                   saveSidebarOpenSetting(true);
-              }
+                // Restore minimum sizes for normal operation so min-width clamp is enforced again,
+                // using the current dynamic minimum instead of a hard constant.
+                int minPx = computeMinSidebarWidthPx();
+                leftVerticalSplitPane.setMinimumSize(new Dimension(minPx, 0));
+                leftTabbedPanel.setMinimumSize(new Dimension(minPx, 0));
+                // Persist user's intent to have the sidebar open
+                saveSidebarOpenSetting(true);
+            }
 
-              // Refresh Project Files tab badge if that tab was selected
-              if (tabIndex >= 0 && tabIndex < leftTabbedPanel.getTabCount()) {
-                   var comp = leftTabbedPanel.getComponentAt(tabIndex);
-                   if (comp == projectFilesPanel) {
-                        int liveCount = getProject().getLiveDependencies().size();
-                        updateProjectFilesTabBadge(liveCount);
-                   }
-              }
-         }
+            // Refresh Project Files tab badge if that tab was selected
+            if (tabIndex >= 0 && tabIndex < leftTabbedPanel.getTabCount()) {
+                var comp = leftTabbedPanel.getComponentAt(tabIndex);
+                if (comp == projectFilesPanel) {
+                    int liveCount = getProject().getLiveDependencies().size();
+                    updateProjectFilesTabBadge(liveCount);
+                }
+            }
+        }
     }
 
     // Store original divider size for hiding/showing divider
@@ -3632,12 +3632,14 @@ public class Chrome
                         verticalSplit.setDividerLocation(savedHorizPos);
                     } else {
                         // Default to a width similar to the left sidebar (Project Files/Tests)
-                        // Use the last known expanded sidebar location if available; otherwise compute an initial width.
+                        // Use the last known expanded sidebar location if available; otherwise compute an initial
+                        // width.
                         final int desiredLeftWidth = (lastExpandedSidebarLocation > 0)
                                 ? lastExpandedSidebarLocation
                                 : computeInitialSidebarWidth();
 
-                        // Defer until after layout so we can clamp against the actual container width and right min size
+                        // Defer until after layout so we can clamp against the actual container width and right min
+                        // size
                         SwingUtilities.invokeLater(() -> {
                             try {
                                 int containerWidth = verticalSplit.getWidth();
