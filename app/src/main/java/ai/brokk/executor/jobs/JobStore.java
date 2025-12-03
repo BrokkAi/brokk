@@ -200,10 +200,14 @@ public final class JobStore {
             var event = objectMapper.readValue(line, JobEvent.class);
             if (event.seq() > afterSeq) {
                 result.add(event);
-                if (limit > 0 && result.size() >= limit) {
-                    break;
-                }
             }
+        }
+
+        // Ensure deterministic ordering even if the underlying file ordering is not strictly monotonic
+        result.sort(java.util.Comparator.comparingLong(JobEvent::seq));
+
+        if (limit > 0 && result.size() > limit) {
+            return result.subList(0, limit);
         }
 
         return result;

@@ -112,8 +112,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     @Nullable
     private JCheckBox forceToolEmulationCheckbox; // Dev-only
 
-    @Nullable
-    private GitHubSettingsPanel gitHubSettingsPanel; // Null if GitHub tab not shown
+    private GitHubSettingsPanel gitHubSettingsPanel;
 
     private DefaultListModel<McpServer> mcpServersListModel = new DefaultListModel<>();
     private boolean plannerModelSyncListenerRegistered = false;
@@ -454,9 +453,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     private void populateGitHubTab() {
-        if (gitHubSettingsPanel != null) {
-            gitHubSettingsPanel.loadSettings();
-        }
+        gitHubSettingsPanel.loadSettings();
     }
 
     private void populateMcpServersTab() {
@@ -486,15 +483,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         var modelsPanel = createQuickModelsPanel();
         globalSubTabbedPane.addTab(MODELS_TAB_TITLE, null, modelsPanel, "Configure models and favorites");
 
-        // GitHub Tab (conditionally added)
-        var project = chrome.getProject();
-        boolean shouldShowGitHubTab = project.isGitHubRepo();
-
-        if (shouldShowGitHubTab) {
-            gitHubSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
-            globalSubTabbedPane.addTab(
-                    SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubSettingsPanel, "GitHub integration settings");
-        }
+        // GitHub Tab (always shown - global account configuration)
+        gitHubSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
+        globalSubTabbedPane.addTab(
+                SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubSettingsPanel, "GitHub integration settings");
 
         // MCP Servers Tab
         var mcpPanel = createMcpPanel();
@@ -1633,22 +1625,19 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         otherModelsVendorHolder = new JPanel(new BorderLayout(0, 0));
         otherModelsVendorHolder.add(otherModelsVendorCombo, BorderLayout.CENTER);
 
-        // Build dynamic tooltip with current Default model names
-        String quickName =
-                chrome.getProject().getMainProject().getQuickModelConfig().name();
-        String quickEditName =
-                chrome.getProject().getMainProject().getQuickEditModelConfig().name();
-        String quickestName =
-                chrome.getProject().getMainProject().getQuickestModelConfig().name();
-        String scanName =
-                chrome.getProject().getMainProject().getScanModelConfig().name();
+        String defaultQuick = MainProject.getDefaultQuickModelConfig().name();
+        String defaultQuickEdit = MainProject.getDefaultQuickEditModelConfig().name();
+        String defaultQuickest = MainProject.getDefaultQuickestModelConfig().name();
+        String defaultScan = MainProject.getDefaultScanModelConfig().name();
 
         String vendorTooltip = "<html><div style='width: 340px;'>"
                 + "Selecting a vendor sets Quick, Quick Edit, Quickest, and Scan to vendor defaults.<br/><br/>"
                 + "<b>OpenAI:</b> Quick=gpt-5-nano; Quick Edit=gpt-5-nano; Quickest=gpt-5-nano; Scan=gpt-5-mini<br/>"
                 + "<b>Anthropic:</b> Quick=claude-haiku-4-5; Quick Edit=claude-haiku-4-5; Quickest=claude-haiku-4-5; Scan=claude-haiku-4-5<br/>"
-                + "<b>Default:</b> Quick=" + quickName + "; Quick Edit=" + quickEditName + "; Quickest=" + quickestName
-                + "; Scan=" + scanName
+                + "<b>Default:</b> Quick=" + defaultQuick
+                + "; Quick Edit=" + defaultQuickEdit
+                + "; Quickest=" + defaultQuickest
+                + "; Scan=" + defaultScan
                 + "</div></html>";
 
         var vendorHelpButton = new MaterialButton();
@@ -1961,7 +1950,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         // GitHub Tab validation
-        if (gitHubSettingsPanel != null && !gitHubSettingsPanel.applySettings()) {
+        if (!gitHubSettingsPanel.applySettings()) {
             return false;
         }
 
@@ -2155,8 +2144,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             chrome.getProject().getMainProject().setQuickEditModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
             chrome.getProject().getMainProject().setQuickestModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
             chrome.getProject().getMainProject().setScanModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
+        } else if ("Default".equals(selectedVendor)) {
+            var mp = chrome.getProject().getMainProject();
+            mp.setQuickModelConfig(MainProject.getDefaultQuickModelConfig());
+            mp.setQuickEditModelConfig(MainProject.getDefaultQuickEditModelConfig());
+            mp.setQuickestModelConfig(MainProject.getDefaultQuickestModelConfig());
+            mp.setScanModelConfig(MainProject.getDefaultScanModelConfig());
         }
-        // For "Default" (or any other value), do not rewrite model configs; only the preference above is saved
 
         logger.debug("Applied all settings successfully (2 atomic writes)");
         return true;
@@ -3688,9 +3682,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     // SettingsChangeListener implementation
     @Override
     public void gitHubTokenChanged() {
-        if (gitHubSettingsPanel != null) {
-            gitHubSettingsPanel.gitHubTokenChanged();
-        }
+        gitHubSettingsPanel.gitHubTokenChanged();
     }
 
     @Override
