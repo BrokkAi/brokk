@@ -474,7 +474,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Add bottom toolbar with Open in Window button (right-aligned)
         JPanel bottomToolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
         bottomToolbar.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 5));
-        
+
         // "Open in New Window" button configuration
         SwingUtilities.invokeLater(() -> {
             openWindowButton.setIcon(Icons.OPEN_NEW_WINDOW);
@@ -497,7 +497,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             }
         });
         bottomToolbar.add(openWindowButton);
-        
+
         outputPanel.add(bottomToolbar, BorderLayout.SOUTH);
 
         // Placeholder for the Changes tab
@@ -1185,8 +1185,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         var panel = new JPanel(new BorderLayout(5, 3));
         panel.setBorder(new CompoundBorder(
                 BorderFactory.createTitledBorder(
-                        new LineBorder(UIManager.getColor("Separator.foreground"), 1),
-                        "Notifications"),
+                        new LineBorder(UIManager.getColor("Separator.foreground"), 1), "Notifications"),
                 new EmptyBorder(3, 6, 3, 6)));
         // Fixed height for capture panel
         panel.setPreferredSize(new Dimension(0, 38));
@@ -1321,52 +1320,52 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     public void applyFixedCaptureBarSizing(boolean enabled) {
-            // Enforce fixed sizing for the capture/notification bar and buttons in vertical layout.
-            // Do not change behavior for standard layout; this is only applied when Chrome enables vertical layout.
-            SwingUtilities.invokeLater(() -> {
-                    final int btnSize = 24;
+        // Enforce fixed sizing for the capture/notification bar and buttons in vertical layout.
+        // Do not change behavior for standard layout; this is only applied when Chrome enables vertical layout.
+        SwingUtilities.invokeLater(() -> {
+            final int btnSize = 24;
 
-                    // Compute bar height from the session header if available so the capture bar matches the session bar.
-                    int barHeight = 38; // fallback
-                    try {
-                            if (sessionHeaderPanel != null) {
-                                    Dimension pref = sessionHeaderPanel.getPreferredSize();
-                                    if (pref != null && pref.height > 0) {
-                                            barHeight = pref.height;
-                                    } else {
-                                            int h = sessionHeaderPanel.getHeight();
-                                            if (h > 0) barHeight = h;
-                                    }
-                            }
-                    } catch (Throwable ignored) {
-                            // Keep fallback on any error
+            // Compute bar height from the session header if available so the capture bar matches the session bar.
+            int barHeight = 38; // fallback
+            try {
+                if (sessionHeaderPanel != null) {
+                    Dimension pref = sessionHeaderPanel.getPreferredSize();
+                    if (pref != null && pref.height > 0) {
+                        barHeight = pref.height;
+                    } else {
+                        int h = sessionHeaderPanel.getHeight();
+                        if (h > 0) barHeight = h;
                     }
+                }
+            } catch (Throwable ignored) {
+                // Keep fallback on any error
+            }
 
-                    if (enabled) {
-                            if (captureOutputPanel != null) {
-                                    captureOutputPanel.setPreferredSize(new Dimension(0, barHeight));
-                                    captureOutputPanel.setMinimumSize(new Dimension(0, barHeight));
-                                    captureOutputPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, barHeight));
-                            }
-                            notificationAreaPanel.setPreferredSize(new Dimension(0, barHeight));
-                            notificationAreaPanel.setMinimumSize(new Dimension(0, barHeight));
-                            notificationAreaPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, barHeight));
-                            Dimension btnDim = new Dimension(btnSize, btnSize);
-                            openWindowButton.setPreferredSize(btnDim);
-                            openWindowButton.setMinimumSize(btnDim);
-                            openWindowButton.setMaximumSize(btnDim);
-                            notificationsButton.setPreferredSize(btnDim);
-                            notificationsButton.setMinimumSize(btnDim);
-                            notificationsButton.setMaximumSize(btnDim);
-                    }
+            if (enabled) {
+                if (captureOutputPanel != null) {
+                    captureOutputPanel.setPreferredSize(new Dimension(0, barHeight));
+                    captureOutputPanel.setMinimumSize(new Dimension(0, barHeight));
+                    captureOutputPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, barHeight));
+                }
+                notificationAreaPanel.setPreferredSize(new Dimension(0, barHeight));
+                notificationAreaPanel.setMinimumSize(new Dimension(0, barHeight));
+                notificationAreaPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, barHeight));
+                Dimension btnDim = new Dimension(btnSize, btnSize);
+                openWindowButton.setPreferredSize(btnDim);
+                openWindowButton.setMinimumSize(btnDim);
+                openWindowButton.setMaximumSize(btnDim);
+                notificationsButton.setPreferredSize(btnDim);
+                notificationsButton.setMinimumSize(btnDim);
+                notificationsButton.setMaximumSize(btnDim);
+            }
 
-                    if (captureOutputPanel != null) {
-                            captureOutputPanel.revalidate();
-                            captureOutputPanel.repaint();
-                    }
-                    notificationAreaPanel.revalidate();
-                    notificationAreaPanel.repaint();
-            });
+            if (captureOutputPanel != null) {
+                captureOutputPanel.revalidate();
+                captureOutputPanel.repaint();
+            }
+            notificationAreaPanel.revalidate();
+            notificationAreaPanel.repaint();
+        });
     }
 
     private JPanel buildNotificationAreaPanel() {
