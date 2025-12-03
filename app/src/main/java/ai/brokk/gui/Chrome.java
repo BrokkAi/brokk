@@ -3593,6 +3593,11 @@ public class Chrome
         }
 
         logger.info("Onboarding dialog sequence complete");
+
+        // Mark onboarding as completed so dialogs won't show again
+        if (getProject() instanceof ai.brokk.project.AbstractProject ap) {
+            ap.markOnboardingCompleted();
+        }
     }
 
     /**

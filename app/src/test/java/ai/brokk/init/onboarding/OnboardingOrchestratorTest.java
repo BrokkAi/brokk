@@ -68,7 +68,7 @@ class OnboardingOrchestratorTest {
         private boolean buildDetailsAvailable = false;
         private boolean gitignoreExists = false;
         private boolean gitignoreConfigured = false;
-        private boolean workspacePropertiesExists = false;
+        private boolean onboardingCompleted = false;
 
         StateBuilder withProject(TestProject p) {
             this.project = p;
@@ -114,8 +114,8 @@ class OnboardingOrchestratorTest {
             return this;
         }
 
-        StateBuilder withWorkspaceProperties() {
-            workspacePropertiesExists = true;
+        StateBuilder withOnboardingCompleted() {
+            onboardingCompleted = true;
             return this;
         }
 
@@ -133,7 +133,7 @@ class OnboardingOrchestratorTest {
                     buildDetailsAvailable,
                     gitignoreExists,
                     gitignoreConfigured,
-                    workspacePropertiesExists,
+                    onboardingCompleted,
                     null,
                     null);
         }

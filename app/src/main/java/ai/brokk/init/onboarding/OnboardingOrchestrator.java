@@ -94,10 +94,19 @@ public class OnboardingOrchestrator {
             var gitignoreFile = new ai.brokk.analyzer.ProjectFile(configRoot, ".gitignore");
             boolean gitignoreConfigured = GitIgnoreUtils.isBrokkIgnored(gitignoreFile);
 
-            // Check workspace.properties (indicator of existing project)
+            // Check if onboarding was already completed (property in workspace.properties)
             var workspacePropsPath =
                     configRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.WORKSPACE_PROPERTIES_FILE);
-            boolean workspacePropsExists = Files.exists(workspacePropsPath);
+            boolean onboardingCompleted = false;
+            if (Files.exists(workspacePropsPath)) {
+                try (var reader = Files.newBufferedReader(workspacePropsPath)) {
+                    var props = new java.util.Properties();
+                    props.load(reader);
+                    onboardingCompleted = "true".equals(props.getProperty("onboardingCompleted"));
+                } catch (IOException ignored) {
+                    // If we can't read the file, assume onboarding not completed
+                }
+            }
 
             // Check build details availability
             boolean buildDetailsAvailable = buildDetailsFuture != null
@@ -105,7 +114,7 @@ public class OnboardingOrchestrator {
                     && !buildDetailsFuture.isCompletedExceptionally();
 
             logger.debug(
-                    "Project state: agentsMd={}/{}, legacy={}/{}, props={}/{}, git={}/{}, workspaceProps={}, buildAvailable={}",
+                    "Project state: agentsMd={}/{}, legacy={}/{}, props={}/{}, git={}/{}, onboardingCompleted={}, buildAvailable={}",
                     agentsMdExists,
                     agentsMdHasContent,
                     legacyExists,
@@ -114,7 +123,7 @@ public class OnboardingOrchestrator {
                     propsHasContent,
                     gitignoreExists,
                     gitignoreConfigured,
-                    workspacePropsExists,
+                    onboardingCompleted,
                     buildDetailsAvailable);
 
             return new ProjectState(
@@ -130,13 +139,13 @@ public class OnboardingOrchestrator {
                     buildDetailsAvailable,
                     gitignoreExists,
                     gitignoreConfigured,
-                    workspacePropsExists,
+                    onboardingCompleted,
                     styleGuideFuture,
                     buildDetailsFuture);
 
         } catch (IOException e) {
             logger.error("Error building project state", e);
-            // Return a minimal state on error - assume existing project to be safe
+            // Return a minimal state on error - assume onboarding completed to be safe
             return new ProjectState(
                     project,
                     project.getMasterRootPathForConfig(),
@@ -150,7 +159,7 @@ public class OnboardingOrchestrator {
                     false,
                     false,
                     false,
-                    true, // workspacePropsExists: assume true on error to be conservative
+                    true, // onboardingCompleted: assume true on error to be conservative
                     styleGuideFuture,
                     buildDetailsFuture);
         }

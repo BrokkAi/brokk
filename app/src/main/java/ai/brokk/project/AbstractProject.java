@@ -508,6 +508,12 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         saveWorkspaceProperties();
     }
 
+    /** Marks onboarding as completed so dialogs won't show again. */
+    public final void markOnboardingCompleted() {
+        workspaceProps.setProperty("onboardingCompleted", "true");
+        saveWorkspaceProperties();
+    }
+
     private static double clampProportion(double p) {
         if (Double.isNaN(p) || Double.isInfinite(p)) return -1.0;
         if (p <= 0.0 || p >= 1.0) return -1.0;

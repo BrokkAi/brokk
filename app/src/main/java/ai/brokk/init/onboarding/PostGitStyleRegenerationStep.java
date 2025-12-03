@@ -34,8 +34,8 @@ public class PostGitStyleRegenerationStep implements OnboardingStep {
 
     @Override
     public boolean isApplicable(ProjectState state) {
-        // Skip for existing projects to avoid unexpected dialogs
-        if (state.isExistingProject()) {
+        // Skip if onboarding was already completed
+        if (state.isOnboardingCompleted()) {
             return false;
         }
         return state.needsPostGitStyleRegeneration();
