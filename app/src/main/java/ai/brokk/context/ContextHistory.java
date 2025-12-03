@@ -365,7 +365,7 @@ public class ContextHistory {
         history.addLast(popped);
         truncateHistory();
         selected = liveContext();
-        applySnapshotToWorkspace(history.peekLast(), io);
+        applySnapshotToWorkspace(castNonNull(history.peekLast()), io);
         // Start computing diffs for the live context post-redo
         diffService.diff(selected);
         redoFileDeletions(io, project, popped);
@@ -507,13 +507,8 @@ public class ContextHistory {
      * longer than SNAPSHOT_AWAIT_TIMEOUT.
      */
     @Blocking
-    private void applySnapshotToWorkspace(@Nullable Context snapshot, IConsoleIO io) {
-        if (snapshot == null) {
-            logger.warn("Attempted to apply null context to workspace");
-            return;
-        }
-
-        // Phase 0: best-effort pre-warm; runs off-EDT in undo/redo flows
+    private void applySnapshotToWorkspace(Context snapshot, IConsoleIO io) {
+        // Phase 0: wait once up front
         try {
             snapshot.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
         } catch (InterruptedException e) {
@@ -527,8 +522,7 @@ public class ContextHistory {
         snapshot.getEditableFragments()
                 .filter(fragment -> fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH)
                 .forEach(fragment -> {
-                    var filesOpt = fragment.files().await(SNAPSHOT_AWAIT_TIMEOUT);
-
+                    var filesOpt = fragment.files().tryGet();
                     if (filesOpt.isEmpty()) {
                         materializationWarnings.add(fragment.toString());
                         return;
@@ -538,15 +532,10 @@ public class ContextHistory {
                     assert files.size() == 1 : fragment.files();
                     var pf = files.iterator().next();
 
-                    try {
-                        var awaited = fragment.text().await(SNAPSHOT_AWAIT_TIMEOUT);
-                        if (awaited.isPresent()) {
-                            desiredContents.put(pf, awaited.get());
-                        } else {
-                            materializationWarnings.add(fragment.toString());
-                        }
-                    } catch (Exception e) {
-                        logger.warn("Failed to materialize snapshot content for {}: {}", pf, e.getMessage());
+                    var awaited = fragment.text().tryGet();
+                    if (awaited.isPresent()) {
+                        desiredContents.put(pf, awaited.get());
+                    } else {
                         materializationWarnings.add(fragment.toString());
                     }
                 });

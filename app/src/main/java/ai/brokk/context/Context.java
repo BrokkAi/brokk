@@ -1261,12 +1261,19 @@ public class Context {
 
     /**
      * Best-effort snapshot seeding to ensure context contents are materialized.
+     * Blocks for a total duration of the timeout parameter across all fragments,
+     * not timeout-per-fragment.
      */
     @Blocking
     public void awaitContextsAreComputed(Duration timeout) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + timeout.toMillis();
         for (var fragment : this.allFragments().toList()) {
             if (fragment instanceof ContextFragment.AbstractComputedFragment cf) {
-                cf.await(timeout);
+                long remainingMillis = deadline - System.currentTimeMillis();
+                if (remainingMillis <= 0) {
+                    break; // Timeout exhausted
+                }
+                cf.await(Duration.ofMillis(remainingMillis));
             }
         }
     }
