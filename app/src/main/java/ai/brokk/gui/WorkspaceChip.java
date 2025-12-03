@@ -95,6 +95,10 @@ public class WorkspaceChip extends JPanel {
     private Color borderColor = Color.GRAY;
     private final int arc = 12;
 
+    // Maximum characters to display on a chip label before truncating.
+    // This keeps the chip (and its close button) visible even for very long descriptions.
+    private static final int MAX_LABEL_CHARS = 50;
+
     protected final JLabelWithAccessible label;
     protected final JLabelWithAccessible readOnlyIcon;
     protected final MaterialButton closeButton;
@@ -182,13 +186,14 @@ public class WorkspaceChip extends JPanel {
             safeShortDescription = "(no description)";
         }
 
-        // Initial label text (may be updated once computed values are ready)
+        // Initial label text (may be updated once computed values are ready).
+        // Truncate to keep the chip compact so the close button remains visible.
         if (fragment instanceof ContextFragment.ComputedFragment) {
             label.setText("Loading...");
         } else if (kind == ChipKind.OTHER) {
-            label.setText(capitalizeFirst(safeShortDescription));
+            label.setText(truncateForDisplay(capitalizeFirst(safeShortDescription)));
         } else {
-            label.setText(safeShortDescription);
+            label.setText(truncateForDisplay(safeShortDescription));
         }
 
         refreshLabelAndTooltip();
@@ -611,7 +616,14 @@ public class WorkspaceChip extends JPanel {
         String newLabelText;
         if (kind == ChipKind.SUMMARY) {
             // Base WorkspaceChip is not used for summaries; SummaryChip overrides this.
-            newLabelText = fragment.shortDescription();
+            String sd;
+            try {
+                sd = fragment.shortDescription();
+            } catch (Exception e) {
+                logger.warn("Unable to obtain short description from {}!", fragment, e);
+                sd = "<Error obtaining description>";
+            }
+            newLabelText = truncateForDisplay(sd);
         } else if (kind == ChipKind.OTHER) {
             String sd;
             try {
@@ -620,7 +632,7 @@ public class WorkspaceChip extends JPanel {
                 logger.warn("Unable to obtain short description from {}!", fragment, e);
                 sd = "<Error obtaining description>";
             }
-            newLabelText = capitalizeFirst(sd);
+            newLabelText = truncateForDisplay(capitalizeFirst(sd));
         } else {
             String sd;
             try {
@@ -629,7 +641,13 @@ public class WorkspaceChip extends JPanel {
                 logger.warn("Unable to obtain short description from {}!", fragment, e);
                 sd = "<Error obtaining description>";
             }
-            newLabelText = sd.isBlank() ? label.getText() : sd;
+            if (sd.isBlank()) {
+                // Keep whatever label text we already had (e.g., "Loading...")
+                newLabelText = label.getText();
+            } else {
+                // Always truncate to keep chip width bounded so the close icon remains visible.
+                newLabelText = truncateForDisplay(sd);
+            }
         }
         label.setText(newLabelText);
 
@@ -921,6 +939,19 @@ public class WorkspaceChip extends JPanel {
         sb.appendCodePoint(upper);
         sb.append(s.substring(Character.charCount(first)));
         return sb.toString();
+    }
+
+    /**
+     * Truncate text for chip labels to ensure the close button remains visible when
+     * descriptions are very long. The full text is still available in tooltips.
+     */
+    private static String truncateForDisplay(String text) {
+        if (text.length() <= MAX_LABEL_CHARS) {
+            return text;
+        }
+        // Reserve 3 characters for "..."
+        int end = Math.max(0, MAX_LABEL_CHARS - 3);
+        return text.substring(0, end) + "...";
     }
 
     /**

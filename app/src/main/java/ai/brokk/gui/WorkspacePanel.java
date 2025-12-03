@@ -2192,7 +2192,7 @@ public class WorkspacePanel extends JPanel {
         if (service.isReasoning(config)) {
             estimatedOutputTokens += 1000;
         }
-        double estimatedCost = pricing.estimateCost(inputTokens, 0, estimatedOutputTokens);
+        double estimatedCost = pricing.getCostFor(inputTokens, 0, estimatedOutputTokens);
 
         if (service.isFreeTier(config.name())) {
             return "$0.00 (Free Tier)";

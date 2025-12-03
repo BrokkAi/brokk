@@ -223,14 +223,12 @@ public final class FilterBox extends JPanel implements ThemeAware {
         };
         addMouseListener(textLabelMouseAdapter);
 
-        // Initial selection and icon state
+        // Initial selection and icon state - trust the saved value even if not in current choices
+        // (choices may be populated lazily after data loads)
         if (initialSelection != null) {
-            List<String> actualChoices = choices.get();
-            if (actualChoices.contains(initialSelection)) {
-                this.selected = initialSelection;
-                textLabel.setText(this.selected);
-                iconLabel.setIcon(CLEAR_BASE);
-            }
+            this.selected = initialSelection;
+            textLabel.setText(this.selected);
+            iconLabel.setIcon(CLEAR_BASE);
         }
         // Apply initial theme
         applyTheme(chrome.themeManager);

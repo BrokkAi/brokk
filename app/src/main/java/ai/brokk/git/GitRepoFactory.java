@@ -13,6 +13,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.lib.ProgressMonitor;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.jetbrains.annotations.Nullable;
@@ -91,54 +92,19 @@ public class GitRepoFactory {
      * Clones a remote repository into {@code directory}. If {@code depth} &gt; 0 a shallow clone of that depth is
      * performed, otherwise a full clone is made.
      *
-     * <p>If the URL looks like a plain GitHub HTTPS repo without “.git” (e.g. https://github.com/Owner/Repo) we
-     * automatically append “.git”.
+     * <p>If the URL looks like a plain GitHub HTTPS repo without ".git" (e.g. https://github.com/Owner/Repo) we
+     * automatically append ".git".
      */
     public static GitRepo cloneRepo(String remoteUrl, Path directory, int depth) throws GitAPIException {
-        return cloneRepo(() -> MainProject.getGitHubToken(), remoteUrl, directory, depth);
+        return cloneRepoInternal(MainProject::getGitHubToken, remoteUrl, directory, depth, null, null);
     }
 
-    static GitRepo cloneRepo(Supplier<String> tokenSupplier, String remoteUrl, Path directory, int depth)
+    /**
+     * Clones a remote repository with cancellation support via ProgressMonitor.
+     */
+    public static GitRepo cloneRepo(String remoteUrl, Path directory, int depth, ProgressMonitor monitor)
             throws GitAPIException {
-        String effectiveUrl = normalizeRemoteUrl(remoteUrl);
-
-        // Ensure the target directory is empty (or doesn't yet exist)
-        if (Files.exists(directory)
-                && directory.toFile().list() != null
-                && directory.toFile().list().length > 0) {
-            throw new IllegalArgumentException("Target directory " + directory + " must be empty or not yet exist");
-        }
-
-        try {
-            var cloneCmd = Git.cloneRepository()
-                    .setURI(effectiveUrl)
-                    .setDirectory(directory.toFile())
-                    .setCloneAllBranches(depth <= 0);
-
-            // Apply GitHub authentication if needed
-            if (effectiveUrl.startsWith("https://") && effectiveUrl.contains("github.com")) {
-                var token = tokenSupplier.get();
-                if (!token.trim().isEmpty()) {
-                    cloneCmd.setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", token));
-                } else {
-                    throw new GitHubAuthenticationException("GitHub token required for HTTPS authentication. "
-                            + "Configure in Settings -> Global -> GitHub, or use SSH URL instead.");
-                }
-            }
-
-            if (depth > 0) {
-                cloneCmd.setDepth(depth);
-                cloneCmd.setNoTags();
-            }
-            // Perform clone and immediately close the returned Git handle
-            try (var ignored = cloneCmd.call()) {
-                // nothing – resources closed via try-with-resources
-            }
-            return new GitRepo(directory, tokenSupplier);
-        } catch (GitAPIException e) {
-            logger.error("Failed to clone {} into {}: {}", effectiveUrl, directory, e.getMessage(), e);
-            throw e;
-        }
+        return cloneRepoInternal(MainProject::getGitHubToken, remoteUrl, directory, depth, null, monitor);
     }
 
     /**
@@ -153,11 +119,28 @@ public class GitRepoFactory {
      */
     public static GitRepo cloneRepo(String remoteUrl, Path directory, int depth, @Nullable String branchOrTag)
             throws GitAPIException {
-        return cloneRepo(MainProject::getGitHubToken, remoteUrl, directory, depth, branchOrTag);
+        return cloneRepoInternal(MainProject::getGitHubToken, remoteUrl, directory, depth, branchOrTag, null);
+    }
+
+    // Package-private for testing
+    static GitRepo cloneRepo(Supplier<String> tokenSupplier, String remoteUrl, Path directory, int depth)
+            throws GitAPIException {
+        return cloneRepoInternal(tokenSupplier, remoteUrl, directory, depth, null, null);
     }
 
     static GitRepo cloneRepo(
             Supplier<String> tokenSupplier, String remoteUrl, Path directory, int depth, @Nullable String branchOrTag)
+            throws GitAPIException {
+        return cloneRepoInternal(tokenSupplier, remoteUrl, directory, depth, branchOrTag, null);
+    }
+
+    private static GitRepo cloneRepoInternal(
+            Supplier<String> tokenSupplier,
+            String remoteUrl,
+            Path directory,
+            int depth,
+            @Nullable String branchOrTag,
+            @Nullable ProgressMonitor monitor)
             throws GitAPIException {
         String effectiveUrl = normalizeRemoteUrl(remoteUrl);
 
@@ -173,6 +156,11 @@ public class GitRepoFactory {
                     .setURI(effectiveUrl)
                     .setDirectory(directory.toFile())
                     .setCloneAllBranches(depth <= 0);
+
+            // Set progress monitor for cancellation support
+            if (monitor != null) {
+                cloneCmd.setProgressMonitor(monitor);
+            }
 
             // Apply GitHub authentication if needed
             if (effectiveUrl.startsWith("https://") && effectiveUrl.contains("github.com")) {

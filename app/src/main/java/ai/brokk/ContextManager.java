@@ -157,7 +157,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private ContextHistory contextHistory;
     private final List<ContextListener> contextListeners = new CopyOnWriteArrayList<>();
     private final List<AnalyzerCallback> analyzerCallbacks = new CopyOnWriteArrayList<>();
-    private final List<FileSystemEventListener> fileSystemEventListeners = new CopyOnWriteArrayList<>();
+    private final List<TrackedFileChangeListener> trackedFileSystemEventListeners = new CopyOnWriteArrayList<>();
+    private final List<FileChangeListener> fileChangeListeners = new CopyOnWriteArrayList<>();
     // Listeners that want to be notified when the Service (models/stt) is reinitialized.
     private final List<Runnable> serviceReloadListeners = new CopyOnWriteArrayList<>();
     private final LowMemoryWatcherManager lowMemoryWatcherManager;
@@ -220,12 +221,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
         serviceReloadListeners.remove(listener);
     }
 
-    public void addFileSystemEventListener(FileSystemEventListener listener) {
-        fileSystemEventListeners.add(listener);
+    public void addTrackedFileChangeListener(TrackedFileChangeListener listener) {
+        trackedFileSystemEventListeners.add(listener);
     }
 
-    public void removeFileSystemEventListener(FileSystemEventListener listener) {
-        fileSystemEventListeners.remove(listener);
+    public void addFileChangeListener(FileChangeListener listener) {
+        fileChangeListeners.add(listener);
+    }
+
+    public void removeTrackedFileChangeListener(TrackedFileChangeListener listener) {
+        trackedFileSystemEventListeners.remove(listener);
+    }
+
+    public void removeFileChangeListener(FileChangeListener listener) {
+        fileChangeListeners.remove(listener);
     }
 
     public ContextManager(IProject project) {
@@ -385,13 +394,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (project instanceof AbstractProject abstractProject) {
             globalGitignorePath = abstractProject.getGlobalGitignorePath().orElse(null);
         }
-        // Create watch service first
-        var watchService = new ProjectWatchService(
+        // Create watch service using factory (selects best implementation for platform)
+        var watchService = WatchServiceFactory.create(
                 project.getRoot(),
                 project.hasGit() ? project.getRepo().getGitTopLevel() : null,
                 globalGitignorePath,
                 List.of() // Start with empty listeners
                 );
+
+        watchService.start(CompletableFuture.completedFuture(null));
 
         // Create AnalyzerWrapper with injected watch service
         this.analyzerWrapper = new AnalyzerWrapper(project, analyzerListener, watchService);
@@ -525,7 +536,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Creates a file watch listener that receives raw file system events directly from ProjectWatchService.
+     * Creates a file watch listener that receives raw file system events directly from IWatchService.
      * This listener handles git metadata changes, tracked file changes, and preview window refreshes.
      * <p>
      * This replaces the temporary uiListener created in AnalyzerWrapper (Phase 2), moving file watching
@@ -556,6 +567,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
                             "Tracked file changes detected by ContextManager ({} files)",
                             classification.changedTrackedFiles.size());
                     handleTrackedFileChange(classification.changedTrackedFiles);
+                }
+
+                // 3) Handle all file changes for file change listeners
+                if (!batch.files.isEmpty()) {
+                    logger.debug("File changes detected by ContextManager ({} files)", batch.files.size());
+                    handleFileChange(batch.files);
                 }
             }
 
@@ -604,6 +621,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .collect(Collectors.toSet());
     }
 
+    void handleFileChange(Set<ProjectFile> changedFiles) {
+        submitBackgroundTask("Handle file changes", () -> {
+            // Notify file change listeners
+            for (var listener : fileChangeListeners) {
+                listener.onFilesChanged(changedFiles);
+            }
+        });
+    }
+
     /**
      * Handles tracked file changes (modifications to files tracked by git).
      * This refreshes UI components that display file contents.
@@ -641,7 +667,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             // Notify ProjectTree to refresh
-            for (var fsListener : fileSystemEventListeners) {
+            for (var fsListener : trackedFileSystemEventListeners) {
                 fsListener.onTrackedFilesChanged();
             }
         });
@@ -2695,7 +2721,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // no AnalyzerListener, instead we will block for it to be ready
         // Headless mode doesn't need file watching, so pass null for both analyzerListener and watchService
-        this.analyzerWrapper = new AnalyzerWrapper(project, null, (IWatchService) null);
+        this.analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new IWatchService() {});
         try {
             analyzerWrapper.get();
         } catch (InterruptedException e) {

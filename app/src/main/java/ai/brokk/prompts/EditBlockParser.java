@@ -66,6 +66,14 @@ public class EditBlockParser {
         return false;
     }
 
+    // Detect forbidden BRK markers in REPLACE blocks.
+    private static final java.util.regex.Pattern BRK_MARKER_IN_REPLACE_PATTERN =
+            java.util.regex.Pattern.compile("(?m)^BRK_(CLASS|FUNCTION|ENTIRE_FILE|CONFLICT)");
+
+    private static boolean containsBrkMarkerInReplace(String text) {
+        return BRK_MARKER_IN_REPLACE_PATTERN.matcher(text).find();
+    }
+
     /**
      * Parses the given content into a sequence of OutputBlock records (plain text or edit blocks). Malformed blocks
      * report a parseError and stop parsing at the first error (unchanged behavior), but previously parsed content is
@@ -130,6 +138,11 @@ public class EditBlockParser {
                     var afterJoined =
                             stripQuotedWrapping(String.join("\n", scan.after), Objects.toString(blockFilename, ""));
 
+                    if (containsBrkMarkerInReplace(afterJoined)) {
+                        return new EditBlock.ExtendedParseResult(
+                                blocks, "BRK_* markers are only allowed in SEARCH blocks, not in REPLACE blocks.");
+                    }
+
                     if (!beforeJoined.isEmpty() && !beforeJoined.endsWith("\n")) beforeJoined += "\n";
                     if (!afterJoined.isEmpty() && !afterJoined.endsWith("\n")) afterJoined += "\n";
 
@@ -169,6 +182,11 @@ public class EditBlockParser {
                         stripQuotedWrapping(String.join("\n", scan.before), Objects.toString(currentFilename, ""));
                 var afterJoined =
                         stripQuotedWrapping(String.join("\n", scan.after), Objects.toString(currentFilename, ""));
+
+                if (containsBrkMarkerInReplace(afterJoined)) {
+                    return new EditBlock.ExtendedParseResult(
+                            blocks, "BRK_* markers are only allowed in SEARCH blocks, not in REPLACE blocks.");
+                }
 
                 if (!beforeJoined.isEmpty() && !beforeJoined.endsWith("\n")) beforeJoined += "\n";
                 if (!afterJoined.isEmpty() && !afterJoined.endsWith("\n")) afterJoined += "\n";
