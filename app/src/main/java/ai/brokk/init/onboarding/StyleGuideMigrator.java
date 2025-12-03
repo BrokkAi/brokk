@@ -3,7 +3,6 @@ package ai.brokk.init.onboarding;
 import ai.brokk.git.GitRepo;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -13,9 +12,8 @@ import org.jetbrains.annotations.Nullable;
  * This is a standalone utility that can be called by orchestrators before
  * setting up git ignore configuration.
  * <p>
- * Migration copies content from .brokk/style.md to AGENTS.md but does NOT delete
- * the legacy file. The legacy file will be ignored by .gitignore (.brokk/**) and
- * AGENTS.md takes precedence when loading the style guide.
+ * Migration copies content from .brokk/style.md to AGENTS.md and then deletes
+ * the legacy file.
  */
 public class StyleGuideMigrator {
     private static final Logger logger = LogManager.getLogger(StyleGuideMigrator.class);
@@ -27,9 +25,7 @@ public class StyleGuideMigrator {
      * Migrates legacy .brokk/style.md to AGENTS.md at project root if appropriate.
      * Migration is performed only if legacy file exists with content and target doesn't exist or is blank.
      * <p>
-     * The migration copies content to AGENTS.md but leaves .brokk/style.md in place.
-     * The legacy file will be ignored by .gitignore and AGENTS.md takes precedence.
-     * This avoids git staging issues when .gitignore is updated in the same session.
+     * The migration copies content to AGENTS.md and then deletes the legacy file.
      */
     public static MigrationResult migrate(
             ai.brokk.analyzer.ProjectFile legacyStyle,
@@ -77,19 +73,31 @@ public class StyleGuideMigrator {
             Files.writeString(agentsFile.absPath(), legacyContent);
             logger.debug("Copied legacy content to AGENTS.md");
 
-            // Stage AGENTS.md if git repo is available
-            // Note: We don't delete/unstage .brokk/style.md - it will be ignored by .gitignore
+            // Use git move for proper rename semantics (aligns with master behavior)
             if (gitRepo != null) {
                 try {
-                    gitRepo.add(List.of(agentsFile));
-                    logger.debug("Staged AGENTS.md at {}", agentsFile.getRelPath());
-                } catch (Exception addEx) {
-                    logger.warn("Failed to stage AGENTS.md: {}", addEx.getMessage());
-                    // Continue anyway - file is on disk
+                    gitRepo.move(
+                            legacyStyle.getRelPath().toString(),
+                            agentsFile.getRelPath().toString());
+                    logger.info("Staged style.md -> AGENTS.md rename in Git");
+                } catch (Exception gitEx) {
+                    logger.warn("Git rename failed, deleting manually: {}", gitEx.getMessage());
+                    try {
+                        Files.deleteIfExists(legacyStyle.absPath());
+                    } catch (IOException deleteEx) {
+                        logger.debug("Failed to delete legacy file: {}", deleteEx.getMessage());
+                    }
+                }
+            } else {
+                // No git - just delete legacy file
+                try {
+                    Files.deleteIfExists(legacyStyle.absPath());
+                } catch (IOException deleteEx) {
+                    logger.debug("Failed to delete legacy file: {}", deleteEx.getMessage());
                 }
             }
 
-            logger.info("Migrated style guide from .brokk/style.md to AGENTS.md (legacy file kept, will be ignored)");
+            logger.info("Migrated style guide from .brokk/style.md to AGENTS.md");
             return new MigrationResult(true, "Migrated style.md to AGENTS.md");
 
         } catch (Exception ex) {

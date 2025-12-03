@@ -3571,8 +3571,9 @@ public class Chrome
                                 .thenAcceptAsync(styleContent -> {
                                     SwingUtilities.invokeLater(() -> {
                                         logger.info("[{}] Style regeneration completed successfully", result.stepId());
-                                        showNotification(IConsoleIO.NotificationRole.INFO,
-                                                         "Style guide regenerated successfully");
+                                        showNotification(
+                                                IConsoleIO.NotificationRole.INFO,
+                                                "Style guide regenerated successfully");
                                         SettingsDialog.showSettingsDialog(this, "Build");
                                     });
                                 })
@@ -3595,9 +3596,7 @@ public class Chrome
         logger.info("Onboarding dialog sequence complete");
 
         // Mark onboarding as completed so dialogs won't show again
-        if (getProject() instanceof ai.brokk.project.AbstractProject ap) {
-            ap.markOnboardingCompleted();
-        }
+        getProject().markOnboardingCompleted();
     }
 
     /**
