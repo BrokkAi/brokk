@@ -2807,9 +2807,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private class InstructionsCompletionProvider extends DefaultCompletionProvider {
-        private final Map<String, List<Completion>> completionCache = new ConcurrentHashMap<>();
-        private static final int CACHE_SIZE = 100;
-
         @Override
         public String getAlreadyEnteredText(JTextComponent comp) {
             Document doc = comp.getDocument();
@@ -2899,12 +2896,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             // punctuation).
             String rawText = deriveRawToken(comp, sanitizedText);
 
-            // Check cache using the raw token so entries are distinct for tokens like ".C" vs "C"
-            List<Completion> cached = completionCache.get(rawText);
-            if (cached != null) {
-                return cached;
-            }
-
             List<Completion> completions;
             if (rawText.contains("/") || rawText.contains("\\")) {
                 var allFiles = contextManager.getProject().getAllFiles();
@@ -2931,11 +2922,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                 this, symbol.shortName(), formatCompletionText(symbol.shortName())))
                         .toList();
             }
-
-            if (completionCache.size() > CACHE_SIZE) {
-                completionCache.clear();
-            }
-            completionCache.put(rawText, completions);
 
             return completions;
         }
