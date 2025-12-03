@@ -245,6 +245,10 @@ public class Completions {
 
     private record ScoredItem<T>(T source, int shortScore, int longScore, int tiebreakScore) {}
 
+    /**
+     * Scores candidates using a short and long text for each item. See the overload with {@code minLength}
+     * for details on the scoring and filtering policy.
+     */
     public static <T> List<ShorthandCompletion> scoreShortAndLong(
             String pattern,
             Collection<T> candidates,
@@ -255,6 +259,23 @@ public class Completions {
         return scoreShortAndLong(pattern, candidates, extractShort, extractLong, tiebreaker, toCompletion, 1);
     }
 
+    /**
+     * Rank-and-filter helper that scores each candidate twice: once against a short label and once against a long label.
+     *
+     * Policy:
+     * - Compute the best short score among all candidates.
+     * - Keep candidates whose short score is within a tolerance window of the best short score
+     *   (bestShort + SHORT_TOLERANCE). This preserves near-best short matches (e.g., "Chrome.java" for "Chr").
+     * - Also keep candidates whose long score is strictly better than the best short score. This allows a long
+     *   form that is an exact or clearly superior match to surface even if its short form is weak.
+     * - Do not include long-only matches that are worse than the best short score. This avoids noisy mid-word
+     *   matches crowding out good short matches.
+     *
+     * The fuzzy matcher returns lower scores for better matches; Integer.MAX_VALUE denotes no match.
+     * Results are sorted by the better of the two scores, then by the provided tiebreaker and short label.
+     *
+     * @param minLength minimum trimmed pattern length required to run matching; shorter inputs return no results.
+     */
     public static <T> List<ShorthandCompletion> scoreShortAndLong(
             String pattern,
             Collection<T> candidates,
