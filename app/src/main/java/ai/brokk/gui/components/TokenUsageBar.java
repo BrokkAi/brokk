@@ -669,7 +669,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
         var ac = getAccessibleContext();
         if (ac != null) {
-            ac.setAccessibleDescription(String.format("Tokens: %s of %d", currentText, maxTokens));
+            int effectiveMax = Math.max(maxTokens, usedTokens);
+            ac.setAccessibleDescription(String.format("Tokens: %s of %d", currentText, effectiveMax));
         }
     }
 
@@ -716,8 +717,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     private List<Segment> computeSegments(int width) {
         // If no fragments are provided, fall back to single fill behavior using fallbackCurrentTokens
         if (fragments.isEmpty()) {
-            int fillWidth =
-                    (int) Math.floor(width * Math.min(1.0, (double) fallbackCurrentTokens / Math.max(1, maxTokens)));
+            int effectiveMax = Math.max(1, Math.max(maxTokens, fallbackCurrentTokens));
+            int fillWidth = (int) Math.floor(width * (fallbackCurrentTokens / (double) effectiveMax));
             boolean dark = isDarkTheme();
             Color fillColor = getOkColor(dark);
             var s = new Segment(0, Math.max(0, fillWidth), fillColor, Set.of(), false);
@@ -754,8 +755,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             return this.segments;
         }
 
-        // Compute filled width based on total tokens vs maxTokens
-        int fillWidth = (int) Math.floor(width * Math.min(1.0, (double) totalTokens / Math.max(1, maxTokens)));
+        // Compute filled width based on total tokens vs maxTokens, but allow auto-rescale when usage > maxTokens
+        int effectiveMax = Math.max(1, Math.max(maxTokens, totalTokens));
+        int fillWidth = (int) Math.floor(width * (totalTokens / (double) effectiveMax));
         if (fillWidth <= 0) {
             this.segments = List.of();
             return this.segments;
