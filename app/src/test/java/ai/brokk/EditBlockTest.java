@@ -7,6 +7,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.update.UpdateTestUtil;
 import ai.brokk.prompts.EditBlockParser;
+import ai.brokk.testutil.AssertionHelperUtil;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.io.File;
@@ -956,6 +957,165 @@ class EditBlockTest {
         assertTrue(
                 fb.commentary().contains("No method source found for 'A.missingMethod'"),
                 "Commentary should include helpful context from analyzer");
+    }
+
+    @Test
+    void testComputeInsertionPointForNewMethod_JavaAnalyzer() throws Exception {
+        var rootDir = UpdateTestUtil.newTempDir();
+        UpdateTestUtil.writeFile(
+                rootDir,
+                "A.java",
+                """
+                public class A {
+                  public int method1() { return 1; }
+                }
+                """);
+
+        var project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
+        var analyzer = new JavaAnalyzer(project);
+
+        var editable = Set.of(new ProjectFile(rootDir, "A.java"));
+        var ctx = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);
+
+        var ipOpt = EditBlock.computeInsertionPointForNewMethod(ctx.liveContext(), "A");
+        assertTrue(ipOpt.isPresent(), "Expected insertion point to be present for class A");
+
+        var ip = ipOpt.get();
+        assertEquals("A.java", ip.file().getFileName(), "Insertion point must resolve to A.java");
+
+        // Derive the expected insertion byte offset from the actual file contents:
+        // insert right after the method's closing brace (the first occurrence of "}\n" inside the class).
+        var content = Files.readString(ip.file().absPath());
+        int expectedOffset = content.indexOf("}\n") + 1; // endByte is just after the '}' character
+        assertTrue(expectedOffset > 0, "Expected to find method closer in content");
+        assertEquals(
+                expectedOffset, ip.byteOffset(), "Insertion byte offset should align just after the method closer");
+
+        // Tree-sitter rows are 0-based; the new method should be inserted on the second line (line index 1).
+        assertEquals(1, ip.line(), "Expected 0-based line index 1 (second line)");
+
+        // Column is implementation-dependent; just assert it is non-negative.
+        assertTrue(ip.column() >= 0, "Insertion column should be non-negative");
+
+        // For Java (brace language) expect indent to be one indent unit inside the class
+        assertEquals("  ", ip.indent(), "Expected 2-space indent for Java analyzer");
+    }
+
+    @Test
+    void testInsertNewMethodUsingInsertionPoint_JavaAnalyzer() throws Exception {
+        var rootDir = UpdateTestUtil.newTempDir();
+        UpdateTestUtil.writeFile(
+                rootDir,
+                "A.java",
+                """
+                public class A {
+                  public int method1() { return 1; }
+                }
+                """);
+
+        var project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
+        var analyzer = new JavaAnalyzer(project);
+
+        var editable = Set.of(new ProjectFile(rootDir, "A.java"));
+        var cm = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);
+
+        var ipOpt = EditBlock.computeInsertionPointForNewMethod(cm.liveContext(), "A");
+        assertTrue(ipOpt.isPresent(), "Expected insertion point to be present");
+
+        var ip = ipOpt.get();
+        var file = ip.file();
+        var original = Files.readString(file.absPath());
+
+        // Build a safe splice at the byte offset: SEARCH is the tail from offset to end,
+        // REPLACE is new method + that tail (exact match; avoids ambiguity).
+        // Use the computed indent.
+        var beforeTail = original.substring(Math.min(Math.max(0, ip.byteOffset()), original.length()));
+        String trailingNl = beforeTail.startsWith("\n") ? "" : "\n";
+        var newMethod = "\n" + ip.indent() + "public int newMethod() { return 99; }" + trailingNl;
+
+        var block = new EditBlock.SearchReplaceBlock("A.java", beforeTail, newMethod + beforeTail);
+        var result = EditBlock.apply(cm, new TestConsoleIO(), List.of(block));
+
+        assertTrue(result.failedBlocks().isEmpty(), "Insertion should succeed without failures");
+
+        var updated = Files.readString(file.absPath());
+        assertTrue(
+                updated.contains("public int newMethod() { return 99; }"),
+                "Updated source should contain the newly inserted method");
+        assertTrue(
+                updated.contains("\n" + ip.indent() + "public int newMethod() { return 99; }"),
+                "New method should start on its own indented line");
+        // Class closing brace should remain and method1 should still be present
+        assertTrue(updated.contains("public int method1() { return 1; }"), "Original method should remain");
+        assertTrue(updated.trim().endsWith("}"), "Class closing brace should still be present");
+        AssertionHelperUtil.assertCodeContains(
+                """
+                public class A {
+                  public int method1() { return 1; }
+                  public int newMethod() { return 99; }
+                }
+                """,
+                updated);
+    }
+
+    @Test
+    void testInsertNewMethodInNestedClass_JavaAnalyzer() throws Exception {
+        var rootDir = UpdateTestUtil.newTempDir();
+        UpdateTestUtil.writeFile(
+                rootDir,
+                "A.java",
+                """
+                public class A {
+                  public class Inner {
+                    public int x() { return 1; }
+                  }
+                }
+                """);
+
+        var project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
+        var analyzer = new JavaAnalyzer(project);
+
+        var editable = Set.of(new ProjectFile(rootDir, "A.java"));
+        var cm = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);
+
+        var ipOpt = EditBlock.computeInsertionPointForNewMethod(cm.liveContext(), "A.Inner");
+        assertTrue(ipOpt.isPresent(), "Expected insertion point to be present for nested class A.Inner");
+
+        var ip = ipOpt.get();
+        assertEquals("A.java", ip.file().getFileName(), "Insertion must resolve to A.java");
+        assertEquals("    ", ip.indent(), "Expected indent 4 spaces inside inner class");
+
+        var file = ip.file();
+        var original = Files.readString(file.absPath());
+
+        var beforeTail = original.substring(Math.min(Math.max(0, ip.byteOffset()), original.length()));
+        String trailingNl = beforeTail.startsWith("\n") ? "" : "\n";
+        var newMethod = "\n" + ip.indent() + "public int y() { return 2; }" + trailingNl;
+
+        var block = new EditBlock.SearchReplaceBlock("A.java", beforeTail, newMethod + beforeTail);
+        var result = EditBlock.apply(cm, new TestConsoleIO(), List.of(block));
+
+        assertTrue(result.failedBlocks().isEmpty(), "Insertion should succeed");
+
+        var updated = Files.readString(file.absPath());
+        assertTrue(updated.contains("public int x() { return 1; }"), "Original inner method should remain");
+        assertTrue(
+                updated.contains("\n" + ip.indent() + "public int y() { return 2; }"),
+                "New method should be indented and on its own line");
+        assertTrue(
+                updated.contains("return 1; }\n" + ip.indent() + "public int y() {"),
+                "No extra blank line before new method");
+        assertTrue(updated.contains("}\n}"), "Closing braces should be present");
+        AssertionHelperUtil.assertCodeContains(
+                """
+                public class A {
+                  public class Inner {
+                    public int x() { return 1; }
+                    public int y() { return 2; }
+                  }
+                }
+                """,
+                updated);
     }
 
     // ----------------------------------------------------

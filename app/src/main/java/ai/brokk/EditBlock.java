@@ -142,7 +142,13 @@ public class EditBlock {
 
             // Pre-resolve BRK_CLASS/BRK_FUNCTION so analyzer offsets are from the original file content
             String effectiveBefore = block.beforeText();
-            var analyzer = ctx.getContextManager().getAnalyzer();
+            IAnalyzer analyzer;
+            try {
+                analyzer = ctx.getContextManager().getAnalyzer();
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw ie;
+            }
             try {
                 var maybeResolved = resolveBrkSnippet(effectiveBefore, file, analyzer);
                 if (maybeResolved != null) {
@@ -646,10 +652,22 @@ public class EditBlock {
             int replaceIndentStep = IndentUtil.findFirstIndentStep(truncatedReplace, baseReplaceIndent);
             double scale = IndentUtil.computeIndentScale(targetIndentStep, replaceIndentStep);
 
+            // Preserve replacement indentation when anchoring at a structural closer like "}" or
+            // when the target's base indent is shallower than the replacement's base indent.
+            boolean isClosingBraceAnchor =
+                    !originalLines[matchStart].stripLeading().isEmpty()
+                            && originalLines[matchStart].stripLeading().charAt(0) == '}';
+            boolean preserveReplacementIndent =
+                    baseIndent.isEmpty() || isClosingBraceAnchor || baseIndent.length() < baseReplaceIndent;
+
             for (String replLine : truncatedReplace) {
                 if (replLine.trim().isEmpty()) {
                     // Preserve blank line (no trailing spaces)
                     resultLines.add("");
+                    continue;
+                }
+                if (preserveReplacementIndent) {
+                    resultLines.add(replLine);
                     continue;
                 }
                 int replaceRelativeIndent = IndentUtil.countLeadingWhitespace(replLine) - baseReplaceIndent;
@@ -897,5 +915,26 @@ public class EditBlock {
         // 4. Not found anywhere
         throw new SymbolNotFoundException(
                 "Filename '%s' could not be resolved to an existing file.".formatted(filename));
+    }
+
+    /**
+     * Computes a best-effort insertion point (file, byte offset, line/column, indent) to add a new method
+     * inside the specified class FQN. Only returns a value when the underlying analyzer supports
+     * TreeSitter-backed insertion computation.
+     *
+     * @param ctx the live context
+     * @param classFqName fully qualified class/type name
+     * @return Optional insertion point describing where and how to insert a new method
+     */
+    public static Optional<IAnalyzer.InsertionPoint> computeInsertionPointForNewMethod(Context ctx, String classFqName)
+            throws InterruptedException {
+        var analyzer = ctx.getContextManager().getAnalyzer();
+        var classCuOpt = analyzer.getDefinitions(classFqName).stream()
+                .filter(CodeUnit::isClass)
+                .findFirst();
+        if (classCuOpt.isEmpty()) {
+            return Optional.empty();
+        }
+        return analyzer.computeInsertionPointForNewMember(classCuOpt.get());
     }
 }

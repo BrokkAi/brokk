@@ -155,6 +155,13 @@ public interface IAnalyzer {
     }
 
     /**
+     * Describes where to insert a new member (method/field/class) within a class-like declaration.
+     * line/column are 0-based and refer to the original file content; byteOffset is an absolute UTF-8 byte offset.
+     * indent is the recommended indentation for the inserted member's first line.
+     */
+    record InsertionPoint(ProjectFile file, int byteOffset, int line, int column, String indent) {}
+
+    /**
      * Returns the direct supertypes/basetypes (non-transitive) for the given CodeUnit.
      * Implementations should return only the immediate ancestors.
      */
@@ -419,5 +426,16 @@ public interface IAnalyzer {
         } else {
             return Optional.empty();
         }
+    }
+
+    /**
+     * Computes the best-effort insertion point for a new member inside the given class CodeUnit.
+     * Default implementation returns empty; TreeSitter-based analyzers should override.
+     *
+     * @param classUnit a CodeUnit representing a class-like declaration
+     * @return Optional insertion point with file, byte offset, line/column, and recommended indentation
+     */
+    default Optional<InsertionPoint> computeInsertionPointForNewMember(CodeUnit classUnit) {
+        return Optional.empty();
     }
 }
