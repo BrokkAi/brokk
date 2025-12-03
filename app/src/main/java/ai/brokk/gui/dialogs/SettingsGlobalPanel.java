@@ -2130,6 +2130,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             chrome.getInstructionsPanel().selectPlannerModelConfig(new Service.ModelConfig(selectedPrimaryModelName));
         }
 
+        String previousVendorPref = MainProject.getOtherModelsVendorPreference();
+
         // Persist selected vendor preference for "other models" regardless of choice
         MainProject.setOtherModelsVendorPreference(selectedVendor != null ? selectedVendor : "");
 
@@ -2150,6 +2152,17 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             mp.setQuickEditModelConfig(MainProject.getDefaultQuickEditModelConfig());
             mp.setQuickestModelConfig(MainProject.getDefaultQuickestModelConfig());
             mp.setScanModelConfig(MainProject.getDefaultScanModelConfig());
+        }
+
+        // Reload service if vendor changed so new Quick/Scan models take effect immediately
+        String prev = previousVendorPref == null ? "" : previousVendorPref;
+        String now = selectedVendor == null ? "" : selectedVendor;
+        if (!prev.equals(now)) {
+            try {
+                chrome.getContextManager().reloadService();
+            } catch (Exception ex) {
+                logger.debug("Service reload after vendor change failed (non-fatal)", ex);
+            }
         }
 
         logger.debug("Applied all settings successfully (2 atomic writes)");
