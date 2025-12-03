@@ -4,7 +4,15 @@ import static ai.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import ai.brokk.*;
+import ai.brokk.AbstractService;
+import ai.brokk.Completions;
+import ai.brokk.ContextManager;
+import ai.brokk.FuzzyMatcher;
+import ai.brokk.IConsoleIO;
+import ai.brokk.IContextManager;
+import ai.brokk.Llm;
+import ai.brokk.Service;
+import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.CodeUnit;
@@ -49,8 +57,14 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
-import java.util.*;
+import java.util.AbstractMap;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -2865,11 +2879,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         }
 
+        private static String formatCompletionText(String inputText) {
+            return "`" + inputText + "`";
+        }
+
         @Override
         public List<Completion> getCompletions(JTextComponent comp) {
             // Sanitized text to be replaced in the editor.
-            // Leading punctuation such as '.', '`', and '(' is excluded only if it appears before letters/digits/underscores.
-            // Note: '.' is excluded for identifiers, but not for relative paths (e.g., './foo'), so its exclusion is conditional.
+            // Leading punctuation such as '.', '`', and '(' is excluded only if it appears before
+            // letters/digits/underscores.
+            // Note: '.' is excluded for identifiers, but not for relative paths (e.g., './foo'), so its exclusion is
+            // conditional.
             String sanitizedText = getAlreadyEnteredText(comp);
             if (sanitizedText.isEmpty()) {
                 return List.of();
@@ -2907,8 +2927,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
                 completions = symbols.stream()
                         .limit(50)
-                        .map(symbol -> (Completion)
-                                new ShorthandCompletion(this, symbol.shortName(), "`" + symbol.fqName() + "`"))
+                        .map(symbol -> (Completion) new ShorthandCompletion(
+                                this, symbol.shortName(), formatCompletionText(symbol.fqName())))
                         .toList();
             }
 
