@@ -112,8 +112,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     @Nullable
     private JCheckBox forceToolEmulationCheckbox; // Dev-only
 
-    @Nullable
-    private GitHubSettingsPanel gitHubSettingsPanel; // Null if GitHub tab not shown
+    private GitHubSettingsPanel gitHubSettingsPanel;
 
     private DefaultListModel<McpServer> mcpServersListModel = new DefaultListModel<>();
     private boolean plannerModelSyncListenerRegistered = false;
@@ -454,9 +453,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     private void populateGitHubTab() {
-        if (gitHubSettingsPanel != null) {
-            gitHubSettingsPanel.loadSettings();
-        }
+        gitHubSettingsPanel.loadSettings();
     }
 
     private void populateMcpServersTab() {
@@ -486,15 +483,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         var modelsPanel = createQuickModelsPanel();
         globalSubTabbedPane.addTab(MODELS_TAB_TITLE, null, modelsPanel, "Configure models and favorites");
 
-        // GitHub Tab (conditionally added)
-        var project = chrome.getProject();
-        boolean shouldShowGitHubTab = project.isGitHubRepo();
-
-        if (shouldShowGitHubTab) {
-            gitHubSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
-            globalSubTabbedPane.addTab(
-                    SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubSettingsPanel, "GitHub integration settings");
-        }
+        // GitHub Tab (always shown - global account configuration)
+        gitHubSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
+        globalSubTabbedPane.addTab(
+                SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubSettingsPanel, "GitHub integration settings");
 
         // MCP Servers Tab
         var mcpPanel = createMcpPanel();
@@ -1958,7 +1950,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         // GitHub Tab validation
-        if (gitHubSettingsPanel != null && !gitHubSettingsPanel.applySettings()) {
+        if (!gitHubSettingsPanel.applySettings()) {
             return false;
         }
 
@@ -3690,9 +3682,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     // SettingsChangeListener implementation
     @Override
     public void gitHubTokenChanged() {
-        if (gitHubSettingsPanel != null) {
-            gitHubSettingsPanel.gitHubTokenChanged();
-        }
+        gitHubSettingsPanel.gitHubTokenChanged();
     }
 
     @Override
