@@ -736,7 +736,7 @@ class EditBlockTest {
                 ```
                 A.java
                 <<<<<<< SEARCH
-                BRK_FUNCTION A.method1
+                BRK_REPLACE_FUNCTION A.method1
                 =======
                 public int method1() { return 2; }
                 >>>>>>> REPLACE
@@ -777,7 +777,7 @@ class EditBlockTest {
                 ```
                 B.java
                 <<<<<<< SEARCH
-                BRK_FUNCTION B.foo
+                BRK_REPLACE_FUNCTION B.foo
                 =======
                 public int foo(int x) { return x + 1; }
                 >>>>>>> REPLACE
@@ -939,7 +939,7 @@ class EditBlockTest {
                 ```
                 A.java
                 <<<<<<< SEARCH
-                BRK_FUNCTION A.missingMethod
+                BRK_REPLACE_FUNCTION A.missingMethod
                 =======
                 public int missingMethod() { return -1; }
                 >>>>>>> REPLACE
