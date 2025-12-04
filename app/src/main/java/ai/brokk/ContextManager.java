@@ -1640,7 +1640,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         TaskResult result;
-        try (var scope = beginTask(prompt, false, "Task")) {
+        var title = task.title() == null ? task.text() : task.title();
+        try (var scope = beginTask(prompt, false, "Task: " + title)) {
             var agent = new ArchitectAgent(this, planningModel, codeModel, prompt, scope);
             result = agent.executeWithScan();
         } finally {
@@ -2207,7 +2208,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional grouping label. */
     public TaskScope beginTask(String input, boolean compressAtCommit, @Nullable String groupLabel) {
-        TaskScope scope = new TaskScope(compressAtCommit, groupLabel != null ? groupLabel + ": " + input : null);
+        TaskScope scope = new TaskScope(compressAtCommit, groupLabel);
 
         // prepare MOP
         var history = liveContext().getTaskHistory();
