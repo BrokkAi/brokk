@@ -657,7 +657,7 @@ public final class JobRunner {
             String description = pr.getBody();
 
             var fragment = new ContextFragment.StringFragment(cm, fullDiff, description, "text/x-diff");
-            cm.addVirtualFragment(fragment);
+            cm.addFragments(fragment);
 
             String reviewGuide = cm.getProject().getReviewGuide();
 
