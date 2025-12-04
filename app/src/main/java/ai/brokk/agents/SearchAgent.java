@@ -430,6 +430,8 @@ public class SearchAgent {
                 .map(Language::name)
                 .collect(Collectors.joining(", "));
 
+        var nonDroppableSection = buildNonDroppableSection();
+
         var sys = new SystemMessage(
                 """
                 <instructions>
@@ -470,9 +472,10 @@ public class SearchAgent {
                   - If you already know what to add, use Workspace tools directly; do not search redundantly.
 
                 %s
+                %s
                 </instructions>
                 """
-                        .formatted(supportedTypes, reminder));
+                        .formatted(supportedTypes, reminder, nonDroppableSection));
         messages.add(sys);
 
         // Describe available MCP tools
@@ -483,12 +486,6 @@ public class SearchAgent {
 
         // Current Workspace contents (apply viewing policy for visibility filtering)
         messages.addAll(precomputedWorkspaceMessages);
-
-        // Dynamically inform the model about non-droppable fragments to avoid futile pruning attempts
-        var nonDroppableMsg = buildNonDroppableSystemMessage();
-        if (nonDroppableMsg != null) {
-            messages.add(nonDroppableMsg);
-        }
 
         // Related identifiers from nearby files
         var related = context.buildRelatedIdentifiers(10);
@@ -827,6 +824,8 @@ public class SearchAgent {
     private List<ChatMessage> buildInitialPruningPrompt() {
         var messages = new ArrayList<ChatMessage>();
 
+        var nonDroppableSection = buildNonDroppableSection();
+
         var sys = new SystemMessage(
                 """
                 You are the Janitor Agent cleaning the Workspace. It is critically important to remove irrelevant
@@ -836,18 +835,15 @@ public class SearchAgent {
                   - Evaluate the current workspace contents.
                   - Call dropWorkspaceFragments to remove irrelevant fragments.
                   - ONLY if all fragments are relevant, do nothing (skip the tool call).
-                """);
+
+                %s
+                """
+                        .formatted(nonDroppableSection));
         messages.add(sys);
 
         // Current Workspace contents (use default viewing policy)
         messages.addAll(
                 CodePrompts.instance.getWorkspaceContentsMessages(context, new ViewingPolicy(TaskResult.Type.CONTEXT)));
-
-        // Dynamically inform the janitor about non-droppable fragments
-        var nonDroppableMsg = buildNonDroppableSystemMessage();
-        if (nonDroppableMsg != null) {
-            messages.add(nonDroppableMsg);
-        }
 
         // Goal and project context
         messages.add(new UserMessage(
@@ -1264,10 +1260,10 @@ public class SearchAgent {
     // =======================
 
     /**
-     * Returns a SystemMessage listing non-droppable fragments present in the current workspace,
-     * or null when no such fragments exist. This educates the LLM to avoid futile pruning loops.
+     * Returns a formatted section listing non-droppable fragments present in the current workspace,
+     * or an empty string when no such fragments exist. This educates the LLM to avoid futile pruning loops.
      */
-    private @Nullable SystemMessage buildNonDroppableSystemMessage() {
+    private String buildNonDroppableSection() {
         var items = context.allFragments()
                 .filter(f -> f instanceof ContextFragment.StringFragment)
                 .map(f -> (ContextFragment.StringFragment) f)
@@ -1278,18 +1274,16 @@ public class SearchAgent {
                 .toList();
 
         if (items.isEmpty()) {
-            return null;
+            return "";
         }
 
-        String body =
-                """
+        return """
                 <non_droppable>
                 The following fragments cannot be dropped by policy. Do NOT attempt to drop them:
                 %s
                 </non_droppable>
                 """
-                        .formatted(String.join("\n", items));
-        return new SystemMessage(body);
+                .formatted(String.join("\n", items));
     }
 
     /**
