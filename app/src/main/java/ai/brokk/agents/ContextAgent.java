@@ -7,6 +7,7 @@ import ai.brokk.AnalyzerUtil;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
@@ -251,7 +252,7 @@ public class ContextAgent {
 
         // Create Llm instances - only analyzed group streams to UI
         var filesOpts = new Llm.Options(
-                        cm.getService().quickestModel(), "ContextAgent Files (Analyzed): %s".formatted(goal))
+                Objects.requireNonNull(cm.getService().getModel(Service.GEMINI_2_5_FLASH)), "ContextAgent Files (Analyzed): %s".formatted(goal))
                 .withForceReasoningEcho()
                 .withEcho();
         var filesLlmAnalyzed = cm.getLlm(filesOpts);
