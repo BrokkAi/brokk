@@ -193,8 +193,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             updateExcludedDirectories(List.of());
         }
 
-        // NOTE: loadSettings() is now called explicitly after dialog construction
-        // to avoid race condition with background file writes
     }
 
     private void initComponents() {
