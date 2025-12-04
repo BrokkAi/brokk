@@ -251,7 +251,7 @@ public class ContextAgent {
 
         // Create Llm instances - only analyzed group streams to UI
         var filesOpts = new Llm.Options(
-                        cm.getService().quickestModel(), "ContextAgent Files (Analyzed): %s".formatted(goal))
+                        cm.getService().quickModel(), "ContextAgent Files (Analyzed): %s".formatted(goal))
                 .withForceReasoningEcho()
                 .withEcho();
         var filesLlmAnalyzed = cm.getLlm(filesOpts);
