@@ -21,6 +21,12 @@
   <a href="https://github.com/BrokkAi/brokk/blob/master/LICENSE"><img alt="License" src="https://img.shields.io/github/license/BrokkAi/brokk"></a>
 </p>
 
+<p align="center">
+  <a href="https://brokk.ai/power-ranking">
+    <img alt="Brokk Power Ranking" src="https://img.shields.io/badge/Brokk%20Power%20Ranking-open-7b61ff">
+  </a>
+</p>
+
 # Brokk — AI-native code platform for million-line repos
 
 Brokk keeps LLMs on-task in large codebases by curating fragment-level context and, with agentic Lutz Mode, gathering, pruning, and explaining decisions for fast, transparent coding.
@@ -39,6 +45,23 @@ Brokk keeps LLMs on-task in large codebases by curating fragment-level context a
 
 - **Built for enterprise scale**
   - Dependency decompilation to source, incremental Java compiler for a tight edit-compile-test loop, BlitzForge mass refactors, and MergeAgent for conflict resolution.
+
+## Brokk Power Ranking (BPR)
+
+The Brokk Power Ranking is an open benchmark of 93 real-world coding tasks drawn from large Java repositories.
+
+- Public results and methodology: https://brokk.ai/power-ranking
+- Measures how different models handle long, messy, real tasks with full edit-and-test loops.
+
+In the Brokk app, a BPR meter appears above the Instructions panel (for example, "BPR: 93%") and adapts to:
+- the model you selected
+- the current context size for the task
+
+This gives a quick "fitness for this task" indicator so you can choose the best cost/performance model before you start the coding loop.
+
+<p align="center">
+  <img src="docs/media/screenshot-bpr-meter.png" alt="In-app BPR meter above the Instructions panel" width="800">
+</p>
 
 # Contributing
 
