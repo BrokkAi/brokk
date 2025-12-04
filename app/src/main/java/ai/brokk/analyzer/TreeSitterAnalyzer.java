@@ -1114,6 +1114,30 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
+     * Indicates whether a scope segment represents a class-like or function-like scope.
+     * Used by analyzers that need to distinguish between class nesting and function-local definitions.
+     */
+    public enum ScopeType {
+        CLASS,
+        FUNCTION,
+        UNKNOWN
+    }
+
+    /**
+     * A segment in the enclosing scope chain with its name and type.
+     * Built during AST traversal and passed to createCodeUnit for type-safe scope handling.
+     */
+    public record ScopeSegment(String name, ScopeType scopeType) {
+        public boolean isFunctionScope() {
+            return scopeType == ScopeType.FUNCTION;
+        }
+
+        public boolean isClassScope() {
+            return scopeType == ScopeType.CLASS;
+        }
+    }
+
+    /**
      * Determines the {@link SkeletonType} for a given capture name. This allows subclasses to map their specific query
      * capture names (e.g., "class.definition", "method.declaration") to a general category for skeleton building.
      *
@@ -1140,6 +1164,26 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     protected SkeletonType refineSkeletonType(
             String captureName, TSNode definitionNode, LanguageSyntaxProfile profile) {
         return getSkeletonTypeForCapture(captureName);
+    }
+
+    /**
+     * Creates a CodeUnit with access to the typed scope chain.
+     * This overload provides analyzers with type-safe access to enclosing scope information,
+     * eliminating the need to encode/decode type markers in the classChain string.
+     *
+     * @param scopeChain typed list of enclosing scopes (outermost first), never null but may be empty
+     */
+    protected @Nullable CodeUnit createCodeUnit(
+            ProjectFile file,
+            String captureName,
+            String simpleName,
+            String packageName,
+            String classChain,
+            List<ScopeSegment> scopeChain,
+            @Nullable TSNode definitionNode,
+            SkeletonType skeletonType) {
+        // Default: delegate to 7-param overload, ignoring scopeChain
+        return createCodeUnit(file, captureName, simpleName, packageName, classChain, definitionNode, skeletonType);
     }
 
     /**
@@ -1219,6 +1263,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             return false;
         }
         return getLanguageSyntaxProfile().classLikeNodeTypes().contains(node.getType());
+    }
+
+    /**
+     * Builds the parent FQName from scope chain for parent-child relationship lookup.
+     * This overload provides type-safe access to enclosing scope information.
+     *
+     * @param scopeChain typed list of enclosing scopes (outermost first)
+     */
+    protected String buildParentFqName(CodeUnit cu, String classChain, List<ScopeSegment> scopeChain) {
+        // Default: delegate to string-based version
+        return buildParentFqName(cu, classChain);
     }
 
     /**
@@ -1831,10 +1886,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     node.getType());
 
             var langProfile = getLanguageSyntaxProfile();
+            final var langProfileForLambda = langProfile;
             SkeletonType skeletonType = refineSkeletonType(primaryCaptureName, node, langProfile);
 
             String packageName = determinePackageName(file, node, currentRootNode, src);
             List<String> enclosingClassNames = new ArrayList<>();
+            List<ScopeSegment> enclosingScopes = new ArrayList<>();
             // Use cached parent from defInfo to avoid repeated getParent() calls
             TSNode tempParent = defInfo.cachedParent();
             while (tempParent != null && !tempParent.isNull() && !tempParent.equals(currentRootNode)) {
@@ -1848,12 +1905,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                                     ? determineClassChainSegmentName(parent.getType(), parentName)
                                                     : parentName;
                                             enclosingClassNames.addFirst(name);
+
+                                            // Build typed scope chain - determine scope type from node type
+                                            var nodeType = parent.getType();
+                                            var scopeType = langProfileForLambda.functionLikeNodeTypes().contains(nodeType)
+                                                    ? ScopeType.FUNCTION
+                                                    : langProfileForLambda.classLikeNodeTypes().contains(nodeType)
+                                                            ? ScopeType.CLASS
+                                                            : ScopeType.UNKNOWN;
+                                            enclosingScopes.addFirst(new ScopeSegment(parentName, scopeType));
                                         }
                                     });
                 }
                 tempParent = tempParent.getParent();
             }
             String classChain = String.join(".", enclosingClassNames);
+            List<ScopeSegment> scopeChain = enclosingScopes; // May be replaced for receiver types
             log.trace("Computed classChain for simpleName='{}': '{}'", simpleName, classChain);
 
             // Adjust simpleName and classChain for methods with receivers (e.g., Go methods)
@@ -1862,6 +1929,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 String receiverTypeText = receiverType.get();
                 simpleName = receiverTypeText + "." + simpleName;
                 classChain = receiverTypeText; // For methods with receivers, classChain is the receiver type
+                // For receiver types, create a single-element scope chain with CLASS type
+                scopeChain = List.of(new ScopeSegment(receiverTypeText, ScopeType.CLASS));
                 log.trace("Adjusted method with receiver: simpleName='{}', classChain='{}'", simpleName, classChain);
             }
 
@@ -1875,8 +1944,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 continue;
             }
 
-            CodeUnit cu =
-                    createCodeUnit(file, primaryCaptureName, simpleName, packageName, classChain, node, skeletonType);
+            CodeUnit cu = createCodeUnit(file, primaryCaptureName, simpleName, packageName,
+                                         classChain, scopeChain, node, skeletonType);
             log.trace("createCodeUnit returned: {}", cu);
 
             if (cu == null) {
@@ -2106,7 +2175,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                             file);
                 } else {
                     // Parent's shortName is the classChain string itself.
-                    String parentFqName = buildParentFqName(cu, classChain);
+                    String parentFqName = buildParentFqName(cu, classChain, scopeChain);
                     CodeUnit parentCu = localCuByFqName.get(parentFqName);
                     if (parentCu != null) {
                         List<CodeUnit> kids = localChildren.computeIfAbsent(parentCu, k -> new ArrayList<>());
