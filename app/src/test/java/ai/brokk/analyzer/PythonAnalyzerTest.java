@@ -887,6 +887,58 @@ public final class PythonAnalyzerTest {
     }
 
     @Test
+    void testFunctionRedefinitionWithImports() {
+        // Regression guard: ensure function redefinition "last wins" semantics
+        // don't interfere with imports and vice versa
+        TestProject project = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer analyzer = new PythonAnalyzer(project);
+
+        ProjectFile file = new ProjectFile(project.getRoot(), "function_redefinition_with_imports.py");
+        Set<CodeUnit> declarations = analyzer.getDeclarations(file);
+
+        // Verify only ONE function named my_function exists (last definition wins, import doesn't count as definition)
+        var myFunctions = declarations.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> cu.shortName().equals("my_function"))
+                .toList();
+        assertEquals(1, myFunctions.size(), "Should only have ONE my_function (last definition wins)");
+
+        CodeUnit myFunction = myFunctions.getFirst();
+
+        // Verify SecondLocal exists as child of the final my_function
+        var classes = declarations.stream().filter(CodeUnit::isClass).toList();
+        var secondLocal = classes.stream()
+                .filter(cu -> cu.fqName().equals("function_redefinition_with_imports.my_function$SecondLocal"))
+                .findFirst()
+                .orElseThrow(
+                        () -> new AssertionError("SecondLocal should exist from second function definition, found: "
+                                + classes.stream().map(CodeUnit::fqName).collect(Collectors.joining(", "))));
+
+        // Verify FirstLocal does NOT exist
+        assertFalse(
+                classes.stream().anyMatch(cu -> cu.fqName().contains("FirstLocal")),
+                "FirstLocal should NOT exist - first function definition was replaced");
+
+        // Verify parent-child relationship preserved despite intervening imports
+        var functionChildren = analyzer.getDirectChildren(myFunction);
+        assertEquals(1, functionChildren.size(), "my_function should have exactly 1 child (SecondLocal)");
+        assertTrue(functionChildren.contains(secondLocal), "my_function should have SecondLocal as child");
+
+        // Verify other_function exists independently (imports don't affect unrelated functions)
+        var otherFunction = declarations.stream()
+                .filter(CodeUnit::isFunction)
+                .filter(cu -> cu.shortName().equals("other_function"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("other_function should exist"));
+        assertEquals("function_redefinition_with_imports.other_function", otherFunction.fqName());
+
+        // Verify MyClass exists (not affected by any import/definition interplay)
+        assertTrue(
+                classes.stream().anyMatch(cu -> cu.fqName().equals("function_redefinition_with_imports.MyClass")),
+                "MyClass should exist");
+    }
+
+    @Test
     void testPythonDuplicateChildren() {
         // Test Python's "last wins" semantics for duplicate children
         // (methods, class attributes, nested classes)
