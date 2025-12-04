@@ -1570,6 +1570,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             if (!e.getValueIsAdjusting()) updateRemoveButtonEnabled.run();
         });
         quickModelsTableModel.addTableModelListener(e -> updateRemoveButtonEnabled.run());
+        quickModelsTableModel.addTableModelListener(e -> SwingUtilities.invokeLater(() -> refreshFavoriteModelCombosPreservingSelection()));
         // Initialize enabled state
         updateRemoveButtonEnabled.run();
 
@@ -1771,6 +1772,71 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         container.add(modelsTabbed, BorderLayout.CENTER);
 
         return container;
+    }
+
+    private void refreshFavoriteModelCombosPreservingSelection() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::refreshFavoriteModelCombosPreservingSelection);
+            return;
+        }
+        try {
+            Service.ModelConfig prevCodeCfg = null;
+            Service.ModelConfig prevPrimaryCfg = null;
+            Object selCode = preferredCodeModelCombo.getSelectedItem();
+            if (selCode instanceof Service.FavoriteModel fmCode) {
+                prevCodeCfg = fmCode.config();
+            }
+            Object selPrimary = primaryModelCombo.getSelectedItem();
+            if (selPrimary instanceof Service.FavoriteModel fmPrimary) {
+                prevPrimaryCfg = fmPrimary.config();
+            }
+
+            var favorites = quickModelsTableModel.getFavorites();
+
+            preferredCodeModelCombo.removeAllItems();
+            for (Service.FavoriteModel fav : favorites) {
+                preferredCodeModelCombo.addItem(fav);
+            }
+            boolean codeSelected = false;
+            if (prevCodeCfg != null) {
+                for (int i = 0; i < preferredCodeModelCombo.getItemCount(); i++) {
+                    Service.FavoriteModel fav = preferredCodeModelCombo.getItemAt(i);
+                    if (fav != null && prevCodeCfg.equals(fav.config())) {
+                        preferredCodeModelCombo.setSelectedIndex(i);
+                        codeSelected = true;
+                        break;
+                    }
+                }
+            }
+            if (!codeSelected && preferredCodeModelCombo.getItemCount() > 0) {
+                preferredCodeModelCombo.setSelectedIndex(0);
+            }
+
+            primaryModelCombo.removeAllItems();
+            for (Service.FavoriteModel fav : favorites) {
+                primaryModelCombo.addItem(fav);
+            }
+            boolean primarySelected = false;
+            if (prevPrimaryCfg != null) {
+                for (int i = 0; i < primaryModelCombo.getItemCount(); i++) {
+                    Service.FavoriteModel fav = primaryModelCombo.getItemAt(i);
+                    if (fav != null && prevPrimaryCfg.equals(fav.config())) {
+                        primaryModelCombo.setSelectedIndex(i);
+                        primarySelected = true;
+                        break;
+                    }
+                }
+            }
+            if (!primarySelected && primaryModelCombo.getItemCount() > 0) {
+                primaryModelCombo.setSelectedIndex(0);
+            }
+
+            preferredCodeModelCombo.revalidate();
+            preferredCodeModelCombo.repaint();
+            primaryModelCombo.revalidate();
+            primaryModelCombo.repaint();
+        } catch (Exception ignore) {
+        }
     }
 
     private void refreshBalanceDisplay() {
