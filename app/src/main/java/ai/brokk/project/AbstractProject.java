@@ -737,29 +737,6 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     /**
-     * Checks if projectRoot is a subdirectory of workTreeRoot (i.e., not at the worktree root itself).
-     *
-     * <p>Uses toRealPath() for robust symlink resolution, with fallback to normalize() if
-     * toRealPath() fails (e.g., on non-existent paths or permission issues).
-     *
-     * @param projectRoot The project root path to check
-     * @param workTreeRoot The git working tree root path
-     * @return true if projectRoot differs from workTreeRoot (indicating a subdirectory),
-     *         false if they point to the same location
-     */
-    static boolean isSubdirectoryProject(Path projectRoot, Path workTreeRoot) {
-        try {
-            return !projectRoot.toRealPath().equals(workTreeRoot.toRealPath());
-        } catch (IOException e) {
-            logger.debug("toRealPath() failed, using normalize() for path comparison: {}", e.getMessage());
-            return !projectRoot
-                    .toAbsolutePath()
-                    .normalize()
-                    .equals(workTreeRoot.toAbsolutePath().normalize());
-        }
-    }
-
-    /**
      * Determines the master root path for configuration based on project root.
      * This is the canonical location for .brokk config, sessions, and llm-history.
      *
