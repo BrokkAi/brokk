@@ -3971,26 +3971,8 @@ public class Chrome
     }
 
     /**
-     * Creates a new themed JDialog with the Brokk icon set properly and optional title bar styling.
-     * This is a lower-level helper that configures icons and (optionally) attaches a themed title bar,
-     * but does not provide the {@code contentRoot} abstraction offered by {@link BaseThemedDialog}.
-     *
-     * <p><b>Prefer {@link BaseThemedDialog} / {@link #newThemedDialog(Window, String, boolean)} for new dialogs.</b>
-     * Use this method only for:
-     * <ul>
-     *   <li>Legacy or third-party dialogs that cannot extend BaseThemedDialog</li>
-     *   <li>Special layout cases requiring direct content pane manipulation</li>
-     *   <li>Dialogs where you explicitly do not want a themed title bar</li>
-     * </ul>
-     *
-     * <p>On macOS, configures full-window content and transparent title bar to match frame behavior.
-     * On other platforms, creates a standard dialog.
-     *
-     * @param owner The parent window for this dialog (may be null for unowned dialogs)
-     * @param title The title for the new dialog
-     * @param modal Whether this dialog should be modal
-     * @param initializeTitleBar Whether to apply custom title bar styling (macOS only)
-     * @return A configured JDialog with the application icon
+     * Creates a JDialog with Brokk icon. Prefer {@link #newThemedDialog} for new dialogs.
+     * Use this for legacy dialogs or when you need direct content pane control.
      */
     public static JDialog newDialog(Window owner, String title, boolean modal, boolean initializeTitleBar) {
         JDialog dialog =
@@ -4012,77 +3994,14 @@ public class Chrome
         return dialog;
     }
 
-    /**
-     * Creates a new themed JDialog with default settings (modal, title bar styling enabled).
-     *
-     * @param owner The parent window for this dialog
-     * @param title The title for the new dialog
-     * @return A configured JDialog with the application icon
-     */
+    /** Creates a modal JDialog with Brokk icon and title bar styling. */
     public static JDialog newDialog(Window owner, String title) {
         return newDialog(owner, title, true, true);
     }
 
     /**
-     * Creates a new {@link BaseThemedDialog} with the Brokk icon and optional title bar styling.
-     * This factory method returns a {@code BaseThemedDialog} instance that automatically handles
-     * macOS full-window-content configuration and title bar theming through its constructor.
-     * On non-macOS platforms, this behaves identically to a standard {@link JDialog}.
-     *
-     * <p><b>Usage:</b> {@link BaseThemedDialog} provides a content root panel via
-     * {@link BaseThemedDialog#getContentRoot() getContentRoot()} where callers can add their UI.
-     * The custom title bar (on macOS) is automatically managed and occupies the
-     * {@code BorderLayout.NORTH} region of the dialog's content pane, while the content root
-     * occupies {@code BorderLayout.CENTER}. All dialog UI should be added to the content root,
-     * not directly to {@code getContentPane()}.</p>
-     *
-     * <p><b>When to use:</b></p>
-     * <ul>
-     *   <li><b>Use this factory</b> when you need a one-off or simple dialog and do not want
-     *       to declare a dedicated subclass. Build the UI directly into
-     *       {@code dialog.getContentRoot()}.</li>
-     *   <li><b>Prefer a dedicated subclass</b> of {@code BaseThemedDialog} for complex or
-     *       reusable dialogs (for example, Settings or About dialogs). In that case call the
-     *       {@code BaseThemedDialog} constructor from your subclass and build the layout in
-     *       {@code getContentRoot()} instead of using this factory.</li>
-     *   <li>The older {@link #newDialog(Window, String, boolean, boolean)} factory returns a
-     *       plain {@link JDialog}. It is appropriate for legacy or third-party dialogs that
-     *       cannot extend {@code BaseThemedDialog}, or when you explicitly do not want a
-     *       themed title bar.</li>
-     * </ul>
-     *
-     * <p><b>Example (factory usage):</b></p>
-     * <pre>
-     * BaseThemedDialog dialog = Chrome.newThemedDialog(parentWindow, "My Dialog", true);
-     * JPanel contentRoot = dialog.getContentRoot();
-     * contentRoot.setLayout(new BorderLayout());
-     * contentRoot.add(myHeaderPanel, BorderLayout.NORTH);
-     * contentRoot.add(myContentPanel, BorderLayout.CENTER);
-     * contentRoot.add(myButtonPanel, BorderLayout.SOUTH);
-     * dialog.setSize(800, 600);
-     * dialog.setLocationRelativeTo(parentWindow);
-     * dialog.setVisible(true);
-     * </pre>
-     *
-     * <p><b>Manual verification (optional):</b> To sanity-check a dialog created by this
-     * factory at runtime you can inspect its layout structure:</p>
-     * <pre>
-     * BaseThemedDialog d = Chrome.newThemedDialog(owner, "Test Dialog", true);
-     * Container cp = d.getContentPane();
-     * System.out.println(cp.getLayout()); // should print "BorderLayout"
-     *
-     * if (cp.getLayout() instanceof BorderLayout bl) {
-     *     System.out.println("NORTH = " + bl.getLayoutComponent(BorderLayout.NORTH));
-     *     System.out.println("CENTER = " + bl.getLayoutComponent(BorderLayout.CENTER));
-     * }
-     * </pre>
-     *
-     * @param owner the parent window for this dialog (may be {@code null} for unowned dialogs)
-     * @param title the title for the new dialog (displayed in the custom title bar on macOS,
-     *              or native title bar on other platforms)
-     * @param modal whether this dialog should be modal (APPLICATION_MODAL if {@code true},
-     *              MODELESS if {@code false})
-     * @return a {@code BaseThemedDialog} with icon applied and macOS title bar pre-configured
+     * Creates a {@link BaseThemedDialog} with Brokk icon and macOS title bar theming.
+     * Add UI to {@code dialog.getContentRoot()}, not directly to contentPane.
      */
     public static BaseThemedDialog newThemedDialog(@Nullable Window owner, String title, boolean modal) {
         Dialog.ModalityType modality = modal ? Dialog.ModalityType.APPLICATION_MODAL : Dialog.ModalityType.MODELESS;
@@ -4091,31 +4010,12 @@ public class Chrome
         return dialog;
     }
 
-    /**
-     * Creates a new modal {@link BaseThemedDialog} with the Brokk icon.
-     *
-     * <p>This is a convenience overload for the common case of modal dialogs and is
-     * equivalent to calling
-     * {@link #newThemedDialog(Window, String, boolean) newThemedDialog(owner, title, true)}.
-     * See that method for detailed behavior, usage guidelines, and manual verification
-     * hints.</p>
-     *
-     * @param owner the parent window for this dialog
-     * @param title the title for the new dialog
-     * @return a modal {@code BaseThemedDialog} with icon applied and macOS title bar
-     *         pre-configured
-     */
+    /** Creates a modal {@link BaseThemedDialog} with Brokk icon. */
     public static BaseThemedDialog newThemedDialog(@Nullable Window owner, String title) {
         return newThemedDialog(owner, title, true);
     }
 
-    /**
-     * Applies macOS full-window-content configuration and title bar styling to an existing dialog.
-     * On non-macOS platforms, this is a no-op.
-     *
-     * @param dialog The dialog to style
-     * @param title The title for the dialog
-     */
+    /** Applies macOS title bar styling to an existing dialog. No-op on other platforms. */
     public static void applyDialogTitleBar(JDialog dialog, String title) {
         if (!SystemInfo.isMacOS || !SystemInfo.isMacFullWindowContentSupported) {
             return;
