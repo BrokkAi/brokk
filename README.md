@@ -81,6 +81,7 @@ This gives a quick "fitness for this task" indicator so you can choose the best 
 
 - **Context Engineering**
   - Fragment-level context: summaries, classes, methods, functions, images, markdown, URLs, stack traces, notes, and discard-context fragments.
+  - URL fragments load pages as Markdown and are persisted in history with a link to the source.
   - Search Agent: symbol-, type-, and structure-aware search that understands usage patterns across the project and dependencies.
   - Exception and stack-trace fragments are enriched with metadata and linked code locations for faster root-cause navigation.
   - Structured tasks with Lutz Mode: define goals and constraints; Brokk collects, prunes, and readies the workspace with explicit Keep/Forget/Note decisions.
@@ -114,6 +115,7 @@ This gives a quick "fitness for this task" indicator so you can choose the best 
 
 - **Session & History**
   - Sessions persist fragments, instructions, edits, and failures with undo/redo; branch from any past step to create a new session and copy workspaces as needed.
+  - You can prune or compress history at any time (Keep/Forget/Note), including dropping fragments entirely, to reduce noise, improve privacy, and speed up loops.
 
 ## Demos
 
@@ -137,31 +139,29 @@ This gives a quick "fitness for this task" indicator so you can choose the best 
 
 </details>
 
-# Contributing
+## Getting Started
 
-Brokk uses Gradle with Scala support. To build Brokk,
-1. Ensure you have JDK 21 or newer. Note the JetBrains Runtime is the preferred JDK.
-2. Run Gradle commands directly: `./gradlew <command>`
-3. Available commands: `run`, `test`, `build`, `shadowJar`, `tidy`, etc.
+1. Register and get an API key
+   - Sign up at https://brokk.ai and create an API key. New accounts include a $5 trial credit to try Brokk.
+   - You will be prompted for this key on first launch. You can change it later in Settings.
 
-The frontend uses **pnpm** for package management. Gradle automatically handles pnpm installation and dependency management during builds.
+2. Install Brokk
+   - Recommended: download an installer for your OS from GitHub Releases: https://github.com/BrokkAi/brokk/releases
+   - Alternative: jDeploy installers
+     - macOS/Linux quick install:
+       ```bash
+       /bin/bash -c "$(curl -fsSL https://www.jdeploy.com/gh/BrokkAi/brokk/install.sh)"
+       ```
+     - All platforms and installers: https://www.jdeploy.com/gh/BrokkAi/brokk
+     - Requires Java 21+. On Windows, use the Releases installers or the jDeploy page.
 
-## Increasing JVM heap when running via Gradle
+3. Launch and sign in
+   - Start Brokk and paste your API key when prompted.
 
-When running Brokk from source with Gradle, increase the application JVM heap using standard `-Xmx` flags. The recommended approach is to set `JAVA_TOOL_OPTIONS` so the setting is inherited by the forked application JVM.
+4. Requirements
+   - For building from source: JDK 21 or newer (JetBrains Runtime recommended).
+   - Supported platforms: recent macOS, Windows, and Linux distributions.
 
-Examples:
-- macOS/Linux:
-  - `JAVA_TOOL_OPTIONS="-Xmx8G" ./gradlew run`
-  - Or:
-    - `export JAVA_TOOL_OPTIONS="-Xmx8G"`
-    - `./gradlew run`
-- Windows (PowerShell):
-  - `$env:JAVA_TOOL_OPTIONS="-Xmx8G"; ./gradlew run`
-- Windows (cmd.exe):
-  - `set JAVA_TOOL_OPTIONS=-Xmx8G && gradlew run`
+## Development and contributing
 
-Notes:
-- Do not use `-Dorg.gradle.jvmargs` or `GRADLE_OPTS` for application memory. These configure Gradle's own JVM and do not affect the forked application JVM.
-
-There are documents on specific aspects of the code in [development.md](https://github.com/BrokkAi/brokk/tree/master/app/src/main/development.md).
+For building from source, JVM heap tuning, headless executor CLI usage, contributor setup, coding standards, and the full developer workflow, see [CONTRIBUTING.md](CONTRIBUTING.md).
