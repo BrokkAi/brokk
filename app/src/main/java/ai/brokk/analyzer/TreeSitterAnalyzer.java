@@ -69,6 +69,40 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     private static final Semaphore IO_FD_SEMAPHORE = new Semaphore(Math.max(8, IO_VT_CAP), true);
     private static final int MAX_IO_READ_RETRIES = 6; // exponential backoff attempts for EMFILE
 
+    // Global shared thread pools to prevent oversubscription when multiple projects/worktrees analyze simultaneously
+    private static final java.util.concurrent.ExecutorService GLOBAL_PARSE_EXECUTOR =
+            ExecutorServiceUtil.newFixedThreadExecutor(Runtime.getRuntime().availableProcessors(), "ts-parse-");
+    private static final java.util.concurrent.ExecutorService GLOBAL_INGEST_EXECUTOR =
+            ExecutorServiceUtil.newFixedThreadExecutor(Runtime.getRuntime().availableProcessors(), "ts-ingest-");
+
+    // Shutdown hook to gracefully terminate global executors on JVM exit
+    static {
+        Runtime.getRuntime()
+                .addShutdownHook(new Thread(
+                        () -> {
+                            log.debug("Shutting down global TreeSitter executors...");
+                            GLOBAL_PARSE_EXECUTOR.shutdown();
+                            GLOBAL_INGEST_EXECUTOR.shutdown();
+                            try {
+                                if (!GLOBAL_PARSE_EXECUTOR.awaitTermination(5, TimeUnit.SECONDS)) {
+                                    log.warn("Parse executor did not terminate in time, forcing shutdown");
+                                    GLOBAL_PARSE_EXECUTOR.shutdownNow();
+                                }
+                                if (!GLOBAL_INGEST_EXECUTOR.awaitTermination(5, TimeUnit.SECONDS)) {
+                                    log.warn("Ingest executor did not terminate in time, forcing shutdown");
+                                    GLOBAL_INGEST_EXECUTOR.shutdownNow();
+                                }
+                                log.debug("Global TreeSitter executors shut down successfully");
+                            } catch (InterruptedException e) {
+                                log.warn("Shutdown interrupted, forcing immediate termination");
+                                GLOBAL_PARSE_EXECUTOR.shutdownNow();
+                                GLOBAL_INGEST_EXECUTOR.shutdownNow();
+                                Thread.currentThread().interrupt();
+                            }
+                        },
+                        "TreeSitterAnalyzer-shutdown"));
+    }
+
     // Common separators across languages to denote hierarchy or member access.
     // Includes: '.' (Java/others), '$' (Java nested classes), '::' (C++/C#/Ruby), '->' (PHP), etc.
     private static final Set<String> COMMON_HIERARCHY_SEPARATORS = Set.of(".", "$", "::", "->");
@@ -316,12 +350,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         var localCodeUnitState = new ConcurrentHashMap<CodeUnit, CodeUnitProperties>();
         var localFileState = new ConcurrentHashMap<ProjectFile, FileProperties>();
         List<CompletableFuture<?>> futures = new ArrayList<>();
-        // Executors: virtual threads for I/O/parsing, single-thread for ingestion
-        try (var ioExecutor = ExecutorServiceUtil.newVirtualThreadExecutor("ts-io-", IO_VT_CAP);
-                var parseExecutor = ExecutorServiceUtil.newFixedThreadExecutor(
-                        Runtime.getRuntime().availableProcessors(), "ts-parse-");
-                var ingestExecutor = ExecutorServiceUtil.newFixedThreadExecutor(
-                        Runtime.getRuntime().availableProcessors(), "ts-ingest-")) {
+        // Executors: virtual threads for I/O (per-instance), global shared pools for parsing/ingestion
+        // Using global pools prevents CPU oversubscription when multiple projects/worktrees analyze simultaneously
+        try (var ioExecutor = ExecutorServiceUtil.newVirtualThreadExecutor("ts-io-", IO_VT_CAP)) {
             for (var pf : filesToProcess) {
                 CompletableFuture<Void> future = CompletableFuture.supplyAsync(
                                 () -> {
@@ -329,7 +360,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                     return readFileBytes(pf, timing);
                                 },
                                 ioExecutor)
-                        .thenApplyAsync(fileBytes -> analyzeFile(pf, fileBytes, timing), parseExecutor)
+                        .thenApplyAsync(fileBytes -> analyzeFile(pf, fileBytes, timing), GLOBAL_PARSE_EXECUTOR)
                         .thenAcceptAsync(
                                 analysisResult -> mergeAnalysisResultIntoMaps(
                                         pf,
@@ -338,7 +369,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                         localSymbolIndex,
                                         localCodeUnitState,
                                         localFileState),
-                                ingestExecutor)
+                                GLOBAL_INGEST_EXECUTOR)
                         .whenComplete((ignored, ex) -> {
                             if (ex == null) {
                                 successfullyProcessed.incrementAndGet();
@@ -3364,72 +3395,69 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         var newCodeUnitState = new ConcurrentHashMap<>(base.codeUnitState());
         var newFileState = new ConcurrentHashMap<>(base.fileState());
 
-        int parallelism = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(), total));
         List<CompletableFuture<Void>> futures = new ArrayList<>();
 
-        try (var executor = ExecutorServiceUtil.newFixedThreadExecutor(parallelism, "ts-update-")) {
-            for (var file : relevantFiles) {
-                futures.add(CompletableFuture.runAsync(
-                        () -> {
-                            long cleanupStart = System.nanoTime();
+        // Use global shared executor to prevent oversubscription when multiple projects update simultaneously
+        for (var file : relevantFiles) {
+            futures.add(CompletableFuture.runAsync(
+                    () -> {
+                        long cleanupStart = System.nanoTime();
 
-                            // Remove old entries for this file
-                            Predicate<CodeUnit> fromFile = cu -> cu.source().equals(file);
-                            newFileState.remove(file);
-                            // Purge CodeUnitState entries for this file and prune children lists
-                            newCodeUnitState.keySet().removeIf(fromFile);
-                            newCodeUnitState.replaceAll((parent, state) -> {
-                                var filteredKids = state.children().stream()
-                                        .filter(fromFile.negate())
-                                        .toList();
-                                return filteredKids.equals(state.children())
-                                        ? state
-                                        : new CodeUnitProperties(
-                                                List.copyOf(filteredKids),
-                                                state.signatures(),
-                                                state.ranges(),
-                                                state.rawSupertypes(),
-                                                state.supertypes(),
-                                                state.hasBody());
-                            });
-                            // Purge from symbol index
-                            var symbolsToRemove = new ArrayList<String>();
-                            newSymbolIndex.replaceAll((symbol, cus) -> {
-                                var remaining =
-                                        cus.stream().filter(fromFile.negate()).collect(Collectors.toSet());
-                                if (remaining.isEmpty()) symbolsToRemove.add(symbol);
-                                return remaining;
-                            });
-                            for (var s : symbolsToRemove) newSymbolIndex.remove(s);
+                        // Remove old entries for this file
+                        Predicate<CodeUnit> fromFile = cu -> cu.source().equals(file);
+                        newFileState.remove(file);
+                        // Purge CodeUnitState entries for this file and prune children lists
+                        newCodeUnitState.keySet().removeIf(fromFile);
+                        newCodeUnitState.replaceAll((parent, state) -> {
+                            var filteredKids = state.children().stream()
+                                    .filter(fromFile.negate())
+                                    .toList();
+                            return filteredKids.equals(state.children())
+                                    ? state
+                                    : new CodeUnitProperties(
+                                            List.copyOf(filteredKids),
+                                            state.signatures(),
+                                            state.ranges(),
+                                            state.rawSupertypes(),
+                                            state.supertypes(),
+                                            state.hasBody());
+                        });
+                        // Purge from symbol index
+                        var symbolsToRemove = new ArrayList<String>();
+                        newSymbolIndex.replaceAll((symbol, cus) -> {
+                            var remaining =
+                                    cus.stream().filter(fromFile.negate()).collect(Collectors.toSet());
+                            if (remaining.isEmpty()) symbolsToRemove.add(symbol);
+                            return remaining;
+                        });
+                        for (var s : symbolsToRemove) newSymbolIndex.remove(s);
 
-                            cleanupNanos.addAndGet(System.nanoTime() - cleanupStart);
+                        cleanupNanos.addAndGet(System.nanoTime() - cleanupStart);
 
-                            // Re-analyze if file still exists
-                            if (Files.exists(file.absPath())) {
-                                long reanStart = System.nanoTime();
-                                try {
-                                    var parser = getTSParser();
-                                    byte[] bytes = readFileBytes(file, null);
-                                    var analysisResult = analyzeFileContent(file, bytes, parser, null);
-                                    mergeAnalysisResultIntoMaps(
-                                            file, analysisResult, null, newSymbolIndex, newCodeUnitState, newFileState);
-                                    reanalyzedCount.incrementAndGet();
-                                } catch (UncheckedIOException e) {
-                                    log.warn("IO error re-analysing {}: {}", file, e.getMessage());
-                                } finally {
-                                    reanalyzeNanos.addAndGet(System.nanoTime() - reanStart);
-                                }
-                            } else {
-                                deletedCount.incrementAndGet();
-                                log.debug("File {} deleted; state cleaned.", file);
+                        // Re-analyze if file still exists
+                        if (Files.exists(file.absPath())) {
+                            long reanStart = System.nanoTime();
+                            try {
+                                var parser = getTSParser();
+                                byte[] bytes = readFileBytes(file, null);
+                                var analysisResult = analyzeFileContent(file, bytes, parser, null);
+                                mergeAnalysisResultIntoMaps(
+                                        file, analysisResult, null, newSymbolIndex, newCodeUnitState, newFileState);
+                                reanalyzedCount.incrementAndGet();
+                            } catch (UncheckedIOException e) {
+                                log.warn("IO error re-analysing {}: {}", file, e.getMessage());
+                            } finally {
+                                reanalyzeNanos.addAndGet(System.nanoTime() - reanStart);
                             }
-                        },
-                        executor));
-            }
-            if (!futures.isEmpty())
-                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                        .join();
+                        } else {
+                            deletedCount.incrementAndGet();
+                            log.debug("File {} deleted; state cleaned.", file);
+                        }
+                    },
+                    GLOBAL_PARSE_EXECUTOR));
         }
+        if (!futures.isEmpty())
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
 
         // Build new immutable snapshot and return a new analyzer instance
         var snapshotInstant = Instant.now();
