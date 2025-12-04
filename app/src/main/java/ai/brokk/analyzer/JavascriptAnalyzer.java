@@ -54,7 +54,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    public Optional<String> extractClassName(String reference) {
+    public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForJsTs(reference);
     }
 
@@ -70,7 +70,14 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected @Nullable CodeUnit createCodeUnit(
-            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
+            ProjectFile file,
+            String captureName,
+            String simpleName,
+            String packageName,
+            String classChain,
+            List<ScopeSegment> scopeChain,
+            @Nullable TSNode definitionNode,
+            SkeletonType skeletonType) {
         return switch (captureName) {
             case CaptureNames.CLASS_DEFINITION -> {
                 String finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;

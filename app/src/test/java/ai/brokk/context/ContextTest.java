@@ -137,7 +137,7 @@ class ContextTest {
         var editable2 = ctx2.getEditableFragments().toList();
         assertEquals(3, editable2.size(), "Read-only fragments should be filtered out");
         assertFalse(editable2.stream().anyMatch(f -> f instanceof ContextFragment.CodeFragment));
-        assertTrue(ctx2.isReadOnly(codeFrag), "Read-only state should be tracked");
+        assertTrue(ctx2.isMarkedReadonly(codeFrag), "Read-only state should be tracked");
     }
 
     @Test
@@ -149,7 +149,7 @@ class ContextTest {
 
         var ctx = new Context(contextManager, "init").addPathFragments(List.of(ppf));
         ctx = ctx.setReadonly(ppf, true);
-        assertTrue(ctx.isReadOnly(ppf));
+        assertTrue(ctx.isMarkedReadonly(ppf));
 
         // Remove fragment
         var ctxRemoved = ctx.removeFragments(List.of(ppf));
@@ -158,7 +158,7 @@ class ContextTest {
         // Re-add the same instance; read-only should not persist
         var ctxReadded = ctxRemoved.addPathFragments(List.of(ppf));
         assertEquals(1, ctxReadded.fileFragments().count());
-        assertFalse(ctxReadded.isReadOnly(ppf), "Read-only should be cleared after removal");
+        assertFalse(ctxReadded.isMarkedReadonly(ppf), "Read-only should be cleared after removal");
     }
 
     @Test
@@ -245,7 +245,7 @@ class ContextTest {
         var ctx = new Context(contextManager, "init").addPathFragments(List.of(ppf));
         // Mark the fragment read-only
         ctx = ctx.setReadonly(ppf, true);
-        assertTrue(ctx.isReadOnly(ppf), "Precondition: fragment should be read-only");
+        assertTrue(ctx.isMarkedReadonly(ppf), "Precondition: fragment should be read-only");
 
         // Trigger refresh
         var refreshed = ctx.copyAndRefresh(Set.of(pf));
@@ -255,7 +255,7 @@ class ContextTest {
         assertNotSame(ppf, newFrag, "Project fragment should be refreshed to a new instance");
 
         // Verify read-only state is preserved on the refreshed fragment
-        assertTrue(refreshed.isReadOnly(newFrag), "Read-only state must persist across refresh");
+        assertTrue(refreshed.isMarkedReadonly(newFrag), "Read-only state must persist across refresh");
     }
 
     @Test

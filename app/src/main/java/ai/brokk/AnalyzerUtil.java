@@ -200,18 +200,15 @@ public class AnalyzerUtil {
      * Get the file containing the definition of a symbol by fully qualified name.
      */
     public static Optional<ProjectFile> getFileFor(IAnalyzer analyzer, String fqName) {
-        return analyzer.getDefinitions(fqName).stream()
-                .findFirst()
-                .map(analyzer::getFileFor)
-                .flatMap(f -> f);
+        return analyzer.getDefinitions(fqName).stream().findFirst().map(CodeUnit::source);
     }
 
     /**
      * Extract the class/module/type name from a method/member reference.
      * This is a heuristic method that uses language-specific parsing.
      */
-    public static Optional<String> extractClassName(IAnalyzer analyzer, String reference) {
-        return analyzer.extractClassName(reference);
+    public static Optional<String> extractCallReceiver(IAnalyzer analyzer, String reference) {
+        return analyzer.extractCallReceiver(reference);
     }
 
     public record CodeWithSource(String code, CodeUnit source) {

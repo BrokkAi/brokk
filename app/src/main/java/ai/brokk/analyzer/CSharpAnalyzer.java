@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -74,7 +75,14 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected @Nullable CodeUnit createCodeUnit(
-            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
+            ProjectFile file,
+            String captureName,
+            String simpleName,
+            String packageName,
+            String classChain,
+            List<ScopeSegment> scopeChain,
+            @Nullable TSNode definitionNode,
+            SkeletonType skeletonType) {
         CodeUnit result =
                 switch (captureName) {
                     case CaptureNames.CLASS_DEFINITION -> {
@@ -214,5 +222,10 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         }
 
         return baseIndent + fullSignature;
+    }
+
+    @Override
+    public Optional<String> extractCallReceiver(String reference) {
+        return ClassNameExtractor.extractForCSharp(reference);
     }
 }

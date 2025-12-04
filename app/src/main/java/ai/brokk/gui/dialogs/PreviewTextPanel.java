@@ -771,6 +771,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                     /* no action on record start */
                 },
                 symbolsFuture,
+                null,
+                null,
                 error -> {
                     /* no special error handling */
                 });

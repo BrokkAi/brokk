@@ -42,7 +42,10 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
 
     @Override
     public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
-        throw new UnsupportedOperationException();
+        return allClasses.stream()
+                .filter(cu -> cu.source().equals(file))
+                .filter(cu -> cu.isClass() || cu.isModule())
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -141,5 +144,20 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
     @Override
     public LintResult lintFiles(List<ProjectFile> files) {
         return lintBehavior.apply(files);
+    }
+
+    @Override
+    public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
+        return List.of();
+    }
+
+    @Override
+    public List<CodeUnit> getDirectChildren(CodeUnit cu) {
+        return List.of();
+    }
+
+    @Override
+    public Optional<String> extractCallReceiver(String reference) {
+        return Optional.empty();
     }
 }

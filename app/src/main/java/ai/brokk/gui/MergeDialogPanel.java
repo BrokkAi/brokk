@@ -2,6 +2,7 @@ package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
 import ai.brokk.git.GitRepo;
+import ai.brokk.gui.components.FuzzyComboBox;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.util.MergeDialogUtil;
 import ai.brokk.project.MainProject;
@@ -51,7 +52,7 @@ public class MergeDialogPanel extends JDialog {
     private final boolean isWorktreeFlow;
     private final MainProject mainProject;
 
-    private final JComboBox<String> targetBranchComboBox = new JComboBox<>();
+    private @Nullable FuzzyComboBox<String> targetBranchComboBox;
     private final JComboBox<GitRepo.MergeMode> mergeModeComboBox = new JComboBox<>(GitRepo.MergeMode.values());
 
     private final JLabel conflictStatusLabel = new JLabel(" ");
@@ -87,8 +88,8 @@ public class MergeDialogPanel extends JDialog {
             this.mainProject = project.getMainProject();
         }
 
-        initializeDialog();
         populateTargetBranches();
+        initializeDialog();
         initializeMergeMode();
         configureCheckboxes();
 
@@ -99,7 +100,9 @@ public class MergeDialogPanel extends JDialog {
 
         // Initial conflict check and listeners
         Runnable conflictChecker = this::checkConflictsAsync;
-        targetBranchComboBox.addActionListener(e -> conflictChecker.run());
+        if (targetBranchComboBox != null) {
+            targetBranchComboBox.setSelectionChangeListener(b -> conflictChecker.run());
+        }
         mergeModeComboBox.addActionListener(e -> conflictChecker.run());
         conflictChecker.run();
 
@@ -187,19 +190,17 @@ public class MergeDialogPanel extends JDialog {
                     repoObj.getClass().getSimpleName());
             conflictStatusLabel.setText("Repository type not supported for merge operations");
             conflictStatusLabel.setForeground(Color.RED);
-            targetBranchComboBox.setEnabled(false);
             return;
         }
         try {
             List<String> localBranches = repo.listLocalBranches();
-            localBranches.forEach(targetBranchComboBox::addItem);
+            targetBranchComboBox = FuzzyComboBox.forStrings(localBranches);
             String currentParentBranch = repo.getCurrentBranch();
             targetBranchComboBox.setSelectedItem(currentParentBranch);
         } catch (GitAPIException e) {
             logger.error("Failed to get branches for merge dialog", e);
             conflictStatusLabel.setText("Error loading branches: " + e.getMessage());
             conflictStatusLabel.setForeground(Color.RED);
-            targetBranchComboBox.setEnabled(false);
         }
     }
 
@@ -313,7 +314,12 @@ public class MergeDialogPanel extends JDialog {
 
     private void checkConflictsAsync() {
         okButton.setEnabled(false);
-        var selectedTargetBranch = (String) targetBranchComboBox.getSelectedItem();
+        if (targetBranchComboBox == null) {
+            conflictStatusLabel.setText("Branch selector not initialized.");
+            conflictStatusLabel.setForeground(Color.RED);
+            return;
+        }
+        var selectedTargetBranch = targetBranchComboBox.getSelectedItem();
         var selectedMergeMode = (GitRepo.MergeMode) mergeModeComboBox.getSelectedItem();
 
         if (selectedTargetBranch == null) {
@@ -384,11 +390,11 @@ public class MergeDialogPanel extends JDialog {
     public Result showDialog() {
         setVisible(true);
 
-        var target = (String) targetBranchComboBox.getSelectedItem();
+        var target = targetBranchComboBox != null ? targetBranchComboBox.getSelectedItem() : null;
         var mode = (GitRepo.MergeMode) mergeModeComboBox.getSelectedItem();
         boolean deleteWorktree = deleteWorktreeCb.isSelected();
         boolean deleteBranch = deleteBranchCb.isSelected();
 
-        return new Result(confirmed, sourceBranch, target == null ? "" : target, mode, deleteWorktree, deleteBranch);
+        return new Result(confirmed, sourceBranch, target != null ? target : "", mode, deleteWorktree, deleteBranch);
     }
 }

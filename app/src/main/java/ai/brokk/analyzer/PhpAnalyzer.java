@@ -93,7 +93,14 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected @Nullable CodeUnit createCodeUnit(
-            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
+            ProjectFile file,
+            String captureName,
+            String simpleName,
+            String packageName,
+            String classChain,
+            List<ScopeSegment> scopeChain,
+            @Nullable TSNode definitionNode,
+            SkeletonType skeletonType) {
         return switch (captureName) {
             case CaptureNames.CLASS_DEFINITION, CaptureNames.INTERFACE_DEFINITION, CaptureNames.TRAIT_DEFINITION -> {
                 String finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
@@ -325,5 +332,10 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         // as namespace processing is now handled by computeFilePackageName.
         // attribute.definition is handled by decorator logic in base class.
         return Set.of(CaptureNames.NAMESPACE_DEFINITION, "namespace.name", CaptureNames.ATTRIBUTE_DEFINITION);
+    }
+
+    @Override
+    public Optional<String> extractCallReceiver(String reference) {
+        return ClassNameExtractor.extractForPhp(reference);
     }
 }

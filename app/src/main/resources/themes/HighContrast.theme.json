@@ -430,6 +430,7 @@
     "StatusBar.borderColor": "#b3b3b3",
 
     "TabbedPane": {
+      "background": "#000000",
       "underlineColor": "#1AEBFF",
       "tabSelectionHeight": 5,
       "disabledUnderlineColor": "#AA6E28",

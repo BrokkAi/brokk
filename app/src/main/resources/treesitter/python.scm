@@ -1,9 +1,62 @@
 ; We capture the whole definition node now (@*.definition) for top-level items.
 ; The name is still useful (@*.name).
 
+; Import statements - capture whole statement for backward compatibility
+(import_statement) @import.declaration
+(import_from_statement) @import.declaration
+
+; Import statement components for structured parsing
+; Captures: from <module_name> import <name1>, <name2> as <alias>
+(import_from_statement
+  module_name: (dotted_name) @import.module
+  name: (dotted_name) @import.name)
+
+(import_from_statement
+  module_name: (dotted_name) @import.module
+  name: (aliased_import
+    name: (dotted_name) @import.name
+    alias: (identifier) @import.alias))
+
+; Relative imports: from . import X, from ..parent import Y
+(import_from_statement
+  module_name: (relative_import) @import.relative
+  name: (dotted_name) @import.name)
+
+(import_from_statement
+  module_name: (relative_import) @import.relative
+  name: (aliased_import
+    name: (dotted_name) @import.name
+    alias: (identifier) @import.alias))
+
+; Wildcard imports: from X import *
+(import_from_statement
+  module_name: (dotted_name) @import.module.wildcard
+  (wildcard_import) @import.wildcard)
+
+; Wildcard imports with relative paths: from . import *
+(import_from_statement
+  module_name: (relative_import) @import.relative.wildcard
+  (wildcard_import) @import.wildcard)
+
+; Captures: import <module>
+(import_statement
+  name: (dotted_name) @import.name)
+
+(import_statement
+  name: (aliased_import
+    name: (dotted_name) @import.name
+    alias: (identifier) @import.alias))
+
 ; Class definition (captures at any nesting level initially, Java logic sorts out hierarchy)
 (class_definition
   name: (identifier) @class.name) @class.definition
+
+; Type hierarchy: capture superclasses for inheritance resolution
+(class_definition
+  name: (identifier) @type.name
+  superclasses: (argument_list
+    (identifier) @type.super)?
+) @type.decl
 
 ; Function definition at module level (direct child of module)
 (module

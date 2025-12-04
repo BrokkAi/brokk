@@ -4,6 +4,7 @@ import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -144,7 +145,14 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected @Nullable CodeUnit createCodeUnit(
-            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
+            ProjectFile file,
+            String captureName,
+            String simpleName,
+            String packageName,
+            String classChain,
+            List<ScopeSegment> scopeChain,
+            @Nullable TSNode definitionNode,
+            SkeletonType skeletonType) {
         log.trace(
                 "GoAnalyzer.createCodeUnit: File='{}', Capture='{}', SimpleName='{}', Package='{}', ClassChain='{}'",
                 file.getFileName(),
@@ -401,5 +409,10 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected boolean requiresSemicolons() {
         return false;
+    }
+
+    @Override
+    public Optional<String> extractCallReceiver(String reference) {
+        return ClassNameExtractor.extractForGo(reference);
     }
 }

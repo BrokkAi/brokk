@@ -226,6 +226,14 @@ public interface IGitRepo {
         throw new UnsupportedOperationException();
     }
 
+    /*
+     * Get the URL of the origin remote with fallback to target remote.
+     * Preferred for GitHub PR operations.
+     */
+    default @Nullable String getOriginRemoteUrl() {
+        throw new UnsupportedOperationException();
+    }
+
     /**
      * For worktrees, computes the corresponding path in the main repository.
      * If this repo is opened at a subdirectory of the worktree, returns the same

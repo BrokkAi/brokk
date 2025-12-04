@@ -40,8 +40,6 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public static final long DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS = 2L * 60L; // 2 minutes
     public static final long NEXT_TOKEN_TIMEOUT_SECONDS = DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS;
 
-    public static final boolean GLOBAL_FORCE_TOOL_EMULATION = true;
-
     public static final String UNAVAILABLE = "AI is unavailable";
 
     // Model name constants
@@ -148,7 +146,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
                     .orElse(bands.getLast()); // fallback to last band if no match
         }
 
-        public double estimateCost(long uncachedInputTokens, long cachedTokens, long outputTokens) {
+        public double getCostFor(long uncachedInputTokens, long cachedTokens, long outputTokens) {
             var promptTokens = uncachedInputTokens + cachedTokens;
             var band = bandFor(promptTokens);
             return uncachedInputTokens * band.inputCostPerToken()
@@ -504,7 +502,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     public boolean isLazy(StreamingChatModel model) {
         String modelName = nameOf(model);
-        return !(modelName.contains("sonnet") || modelName.contains("gemini-2.5-pro"));
+        return !modelName.contains("gpt-5");
     }
 
     public boolean requiresEmulatedTools(StreamingChatModel model) {
@@ -519,10 +517,6 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         var info = getModelInfo(location);
         if (info == null) {
             logger.warn("Model info not found for location {}, assuming tool emulation required.", location);
-            return true;
-        }
-
-        if (GLOBAL_FORCE_TOOL_EMULATION) {
             return true;
         }
 

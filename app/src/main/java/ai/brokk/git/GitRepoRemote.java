@@ -18,6 +18,26 @@ import org.jetbrains.annotations.VisibleForTesting;
 
 /** Encapsulates remote-related operations for a GitRepo. Stores a reference to the owning GitRepo as `repo`. */
 public class GitRepoRemote {
+
+    /**
+     * Represents a parsed remote branch reference (e.g., "origin/feature-branch").
+     */
+    public record RemoteBranchRef(String remoteName, String branchName) {
+        /**
+         * Parses a remote branch reference like "origin/feature-branch".
+         * @param ref The full ref (must contain "/")
+         * @return RemoteBranchRef with remote and branch parts, or null if no "/" found
+         */
+        @Nullable
+        public static RemoteBranchRef parse(String ref) {
+            int slash = ref.indexOf('/');
+            if (slash <= 0) {
+                return null;
+            }
+            return new RemoteBranchRef(ref.substring(0, slash), ref.substring(slash + 1));
+        }
+    }
+
     private static final Logger logger = LogManager.getLogger(GitRepoRemote.class);
 
     private final GitRepo repo;
@@ -179,6 +199,85 @@ public class GitRepoRemote {
         repo.invalidateCaches(); // Invalidate caches & ref-db
     }
 
+    /**
+     * Fetches a specific branch from a remote.
+     *
+     * @param remoteName The name of the remote (e.g., "origin").
+     * @param branchName The name of the branch to fetch.
+     * @throws GitAPIException if a Git error occurs.
+     */
+    public void fetchBranch(String remoteName, String branchName) throws GitAPIException {
+        var refSpec = new RefSpec("+refs/heads/" + branchName + ":refs/remotes/" + remoteName + "/" + branchName);
+        var fetchCommand = git.fetch().setRemote(remoteName).setRefSpecs(refSpec);
+        repo.applyGitHubAuthentication(fetchCommand, getUrl(remoteName));
+        fetchCommand.call();
+    }
+
+    /**
+     * Checks if a branch needs to be fetched by comparing local and remote SHAs.
+     * Uses ls-remote to query the remote without downloading objects.
+     *
+     * @param remoteName The name of the remote (e.g., "origin").
+     * @param branchName The name of the branch to check.
+     * @return true if the branch has updates on remote, false if up-to-date.
+     * @throws GitAPIException if a Git error occurs.
+     */
+    public boolean branchNeedsFetch(String remoteName, String branchName) throws GitAPIException {
+        String remoteUrl = getUrl(remoteName);
+
+        // Query remote for current SHA of this branch
+        var lsRemote = Git.lsRemoteRepository().setRemote(remoteUrl).setHeads(true);
+        repo.applyGitHubAuthentication(lsRemote, remoteUrl);
+
+        var refs = lsRemote.call();
+        String remoteSha = null;
+        for (var ref : refs) {
+            if (ref.getName().equals("refs/heads/" + branchName)) {
+                var objectId = ref.getObjectId();
+                if (objectId != null) {
+                    remoteSha = objectId.getName();
+                }
+                break;
+            }
+        }
+
+        if (remoteSha == null) {
+            // Branch doesn't exist on remote - check if we have a stale local ref
+            try {
+                var localRef = repository.findRef("refs/remotes/" + remoteName + "/" + branchName);
+                if (localRef != null) {
+                    logger.warn(
+                            "Branch '{}' no longer exists on remote '{}' but local tracking ref exists (may be stale)",
+                            branchName,
+                            remoteName);
+                }
+            } catch (IOException e) {
+                logger.debug("Error checking for stale local ref {}/{}: {}", remoteName, branchName, e.getMessage());
+            }
+            return false;
+        }
+
+        // Get local tracking ref SHA
+        try {
+            var localRef = repository.findRef("refs/remotes/" + remoteName + "/" + branchName);
+            if (localRef == null) {
+                // No local ref, needs fetch
+                return true;
+            }
+            var localObjectId = localRef.getObjectId();
+            if (localObjectId == null) {
+                // No object ID, needs fetch
+                return true;
+            }
+            String localSha = localObjectId.getName();
+            return !remoteSha.equals(localSha);
+        } catch (IOException e) {
+            // Error reading local ref, assume needs fetch
+            logger.warn("Error reading local ref for {}/{}: {}", remoteName, branchName, e.getMessage());
+            return true;
+        }
+    }
+
     /** Pull changes from the remote repo.getRepository() for the current branch */
     public void pull() throws GitAPIException {
         var pullCommand = git.pull().setTimeout((int) Environment.GIT_NETWORK_TIMEOUT.toSeconds());
@@ -315,6 +414,27 @@ public class GitRepoRemote {
     public @Nullable String getUrl() {
         var targetRemote = getTargetRemoteName();
         return targetRemote != null ? getUrl(targetRemote) : null;
+    }
+
+    /**
+     * Get the remote name for GitHub PR operations, preferring "origin".
+     * Falls back to standard remote resolution if "origin" doesn't exist.
+     */
+    public @Nullable String getOriginRemoteNameWithFallback() {
+        var remoteNames = repository.getRemoteNames();
+        if (remoteNames.contains("origin")) {
+            return "origin";
+        }
+        return getTargetRemoteName();
+    }
+
+    /**
+     * Get the URL of the origin remote with fallback to target remote.
+     * Preferred for GitHub PR operations.
+     */
+    public @Nullable String getOriginUrlWithFallback() {
+        var remoteName = getOriginRemoteNameWithFallback();
+        return remoteName != null ? getUrl(remoteName) : null;
     }
 
     /**

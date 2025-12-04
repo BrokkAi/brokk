@@ -45,9 +45,15 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected @Nullable CodeUnit createCodeUnit(
-            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
+            ProjectFile file,
+            String captureName,
+            String simpleName,
+            String packageName,
+            String classChain,
+            List<ScopeSegment> scopeChain,
+            @Nullable TSNode definitionNode,
+            SkeletonType skeletonType) {
         var effectiveSimpleName = simpleName;
-        var skeletonType = getSkeletonTypeForCapture(captureName);
 
         if (CaptureNames.CONSTRUCTOR_DEFINITION.equals(captureName)) {
             // This is a primary constructor, which is matched against the class name. This constructor is "implicit"
@@ -163,4 +169,9 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
             "", // async keyword node type
             Set.of("modifiers") // modifier node types
             );
+
+    @Override
+    public Optional<String> extractCallReceiver(String reference) {
+        return ClassNameExtractor.extractForScala(reference);
+    }
 }

@@ -51,6 +51,135 @@ curl -sS -X PUT "${BASE}/v1/sessions" \
   --data-binary @"${SESSION_ZIP}"
 ```
 
+## Context Injection (Optional)
+
+Before running ASK (or any mode), you can optionally inject specific files, classes, and methods into the context.
+This is useful for precise, caller-driven context control. Note that ASK mode already uses SearchAgent for
+automatic codebase discovery, so these endpoints are optional but provide finer-grained control.
+
+### Add Files to Context
+
+```bash
+curl -sS -X POST "${BASE}/v1/context/files" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data @- <<'JSON'
+{
+  "relativePaths": [
+    "src/main/java/com/example/api/UserController.java",
+    "src/main/java/com/example/service/UserService.java",
+    "src/main/resources/application.properties"
+  ]
+}
+JSON
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "added": [
+    { "id": "1", "relativePath": "src/main/java/com/example/api/UserController.java" },
+    { "id": "2", "relativePath": "src/main/java/com/example/service/UserService.java" },
+    { "id": "3", "relativePath": "src/main/resources/application.properties" }
+  ]
+}
+```
+
+### Add Class Summaries to Context
+
+```bash
+curl -sS -X POST "${BASE}/v1/context/classes" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data @- <<'JSON'
+{
+  "classNames": [
+    "com.example.api.UserController",
+    "com.example.service.UserService",
+    "com.example.repository.UserRepository"
+  ]
+}
+JSON
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "added": [
+    { "id": "4", "className": "com.example.api.UserController" },
+    { "id": "5", "className": "com.example.service.UserService" },
+    { "id": "6", "className": "com.example.repository.UserRepository" }
+  ]
+}
+```
+
+### Add Method Sources to Context
+
+```bash
+curl -sS -X POST "${BASE}/v1/context/methods" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data @- <<'JSON'
+{
+  "methodNames": [
+    "com.example.service.UserService.findUserById",
+    "com.example.service.UserService.updateUser",
+    "com.example.api.UserController.getUser"
+  ]
+}
+JSON
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "added": [
+    { "id": "7", "methodName": "com.example.service.UserService.findUserById" },
+    { "id": "8", "methodName": "com.example.service.UserService.updateUser" },
+    { "id": "9", "methodName": "com.example.api.UserController.getUser" }
+  ]
+}
+```
+
+### Workflow: Pre-seed Context, Then Ask
+
+```bash
+# 1. Add specific files to context
+curl -sS -X POST "${BASE}/v1/context/files" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data '{"relativePaths": ["src/main/java/com/example/service/UserService.java"]}'
+
+# 2. Add class summaries
+curl -sS -X POST "${BASE}/v1/context/classes" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data '{"classNames": ["com.example.repository.UserRepository"]}'
+
+# 3. Now run ASK with pre-seeded context
+curl -sS -X POST "${BASE}/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "sessionId": "replace-with-session-id",
+  "taskInput": "Based on the code I just added, explain the UserService class structure and its key responsibilities.",
+  "autoCommit": false,
+  "autoCompress": false,
+  "plannerModel": "gpt-5",
+  "tags": {
+    "mode": "ASK"
+  }
+}
+JSON
+```
+
+---
+
 ## Create Job
 
 All job payloads must include `plannerModel`. The examples below use inline JSON via stdin; swap in real identifiers.
@@ -96,7 +225,134 @@ JSON
 
 To override the code model in ARCHITECT mode, add `"codeModel": "gpt-5-mini"` (or any supported model) to the payload.
 
-### ASK Mode (read-only)
+### LUTZ Mode
+
+LUTZ mode automatically decomposes a complex objective into tasks using SearchAgent planning,
+then executes each task sequentially with the Architect agent. Ideal for multi-step goals that
+benefit from structured decomposition and reasoning before implementation.
+
+#### Example: Complex refactoring with planning
+
+```bash
+curl -sS -X POST "${BASE}/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "sessionId": "replace-with-session-id",
+  "taskInput": "Refactor the authentication module: improve error handling, add logging, and create unit tests.",
+  "autoCommit": true,
+  "autoCompress": true,
+  "plannerModel": "gpt-5",
+  "codeModel": "gpt-5-mini",
+  "tags": {
+    "mode": "LUTZ"
+  }
+}
+JSON
+```
+
+**Response (201 Created):**
+
+```json
+{
+  "jobId": "550e8400-e29b-41d4-a716-446655440000",
+  "state": "RUNNING"
+}
+```
+
+**Event stream (demonstrates two-phase behavior):**
+
+```bash
+curl -sS "http://localhost:8080/v1/jobs/550e8400-e29b-41d4-a716-446655440000/events?after=0" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
+```
+
+**Sample events:**
+
+```json
+[
+  {
+    "seq": 1,
+    "type": "NOTIFICATION",
+    "data": "Job started: 550e8400-e29b-41d4-a716-446655440000"
+  },
+  {
+    "seq": 2,
+    "type": "LLM_TOKEN",
+    "data": "Planning phase: Analyzing refactoring objectives..."
+  },
+  {
+    "seq": 3,
+    "type": "NOTIFICATION",
+    "data": "Task list generated with 3 subtasks"
+  },
+  {
+    "seq": 4,
+    "type": "LLM_TOKEN",
+    "data": "Executing task 1/3: Improve error handling..."
+  },
+  {
+    "seq": 5,
+    "type": "LLM_TOKEN",
+    "data": "[code changes shown here]"
+  },
+  {
+    "seq": 6,
+    "type": "NOTIFICATION",
+    "data": "Task 1 completed, progress: 33%"
+  },
+  {
+    "seq": 7,
+    "type": "LLM_TOKEN",
+    "data": "Executing task 2/3: Add logging..."
+  },
+  {
+    "seq": 8,
+    "type": "LLM_TOKEN",
+    "data": "[code changes shown here]"
+  },
+  {
+    "seq": 9,
+    "type": "NOTIFICATION",
+    "data": "Task 2 completed, progress: 66%"
+  },
+  {
+    "seq": 10,
+    "type": "LLM_TOKEN",
+    "data": "Executing task 3/3: Create unit tests..."
+  },
+  {
+    "seq": 11,
+    "type": "LLM_TOKEN",
+    "data": "[code changes shown here]"
+  },
+  {
+    "seq": 12,
+    "type": "NOTIFICATION",
+    "data": "Task 3 completed, progress: 100%"
+  }
+]
+```
+
+**Key characteristics of LUTZ mode:**
+
+- **Two-phase execution**: Planning phase generates tasks, execution phase runs them sequentially
+- **Intelligent decomposition**: SearchAgent breaks down complex objectives into manageable subtasks
+- **Progress tracking**: Progress updates after each subtask completes (not per-subtask granularity)
+- **Full implementation**: Uses both `plannerModel` (for reasoning) and `codeModel` (for code generation)
+- **Atomic commits**: Can auto-commit and auto-compress per task based on settings
+- **Event streaming**: All phases emit events to `/v1/jobs/{jobId}/events` in real-time
+
+### ASK Mode
+
+ASK mode enables read-only exploration of your codebase using natural language queries.
+Under the hood, ASK uses the SearchAgent to discover and inspect code symbols, classes, methods, and file contents without making any modifications or commits.
+
+You can run ASK with no pre-seeded context and let SearchAgent automatically discover relevant code, or optionally pre-seed specific context using the `/v1/context/*` endpoints (see Context Injection above) for precise control.
+
+#### Example: Ask about code structure
 
 ```bash
 curl -sS -X POST "${BASE}/v1/jobs" \
@@ -116,6 +372,61 @@ curl -sS -X POST "${BASE}/v1/jobs" \
 }
 JSON
 ```
+
+#### Example: Search for symbols
+
+```bash
+curl -sS -X POST "${BASE}/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "sessionId": "replace-with-session-id",
+  "taskInput": "Find all classes and methods related to authentication. Show me where AuthenticationManager and LoginController are defined.",
+  "autoCommit": false,
+  "autoCompress": true,
+  "plannerModel": "gpt-5",
+  "tags": {
+    "mode": "ASK"
+  }
+}
+JSON
+```
+
+ASK will search for these symbols and return their locations and signatures without modifying any code.
+
+#### Example: Inspect file summaries
+
+```bash
+curl -sS -X POST "${BASE}/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "sessionId": "replace-with-session-id",
+  "taskInput": "Show me the structure of all classes in the 'src/main/java/com/example/service' directory. List their fields and method signatures.",
+  "autoCommit": false,
+  "autoCompress": true,
+  "plannerModel": "gpt-5",
+  "tags": {
+    "mode": "ASK"
+  }
+}
+JSON
+```
+
+ASK will retrieve class skeletons with method signatures and fields, providing a high-level overview without retrieving full source code.
+
+#### Key characteristics of ASK mode
+
+- Read-only: No code modifications, commits, or builds
+- Intelligent search: Uses SearchAgent to find relevant code based on natural language queries
+- Multiple inspection tools: Searches symbols, classes, methods, usages, file contents, and git history
+- Responsive: Streams results back via `/v1/jobs/{jobId}/events` as they are discovered
+- Requires `plannerModel`: Specify which LLM to use for understanding your query and navigating the codebase
+- Ignores `codeModel`: Code model is not used in ASK mode
 
 ### CODE Mode
 
@@ -140,7 +451,7 @@ JSON
 ```
 
 **Note:** `plannerModel` is still required here for validation, but CODE execution uses `codeModel`. Omit `codeModel`
-to fall back to the project’s default code model.
+to fall back to the project's default code model.
 
 ## Job Status
 

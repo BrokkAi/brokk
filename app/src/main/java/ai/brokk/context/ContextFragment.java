@@ -2403,9 +2403,96 @@ public interface ContextFragment {
         // Use identity-based equals (inherited from VirtualFragment)
     }
 
+    // Stateless formatter that renders skeletons grouped by package and optionally emits a
+    // "// Direct ancestors of ..." section. Output depends only on input.
+    class SkeletonFragmentFormatter {
+        public record Request(
+                @Nullable CodeUnit primaryTarget,
+                List<CodeUnit> ancestors,
+                Map<CodeUnit, String> skeletons,
+                SummaryType summaryType) {}
+
+        public String format(Request request) {
+            if (request.summaryType() == SummaryType.CODEUNIT_SKELETON
+                    && request.primaryTarget() != null
+                    && request.primaryTarget().isClass()) {
+                return formatSummaryWithAncestors(request.primaryTarget(), request.ancestors(), request.skeletons());
+            } else {
+                return formatSkeletonsByPackage(request.skeletons());
+            }
+        }
+
+        private String formatSummaryWithAncestors(
+                CodeUnit cu, List<CodeUnit> ancestorList, Map<CodeUnit, String> skeletons) {
+            Map<CodeUnit, String> primary = new LinkedHashMap<>();
+            skeletons.forEach((k, v) -> {
+                if (k.fqName().equals(cu.fqName())) {
+                    primary.put(k, v);
+                }
+            });
+
+            var sb = new StringBuilder();
+
+            String primaryFormatted = formatSkeletonsByPackage(primary);
+            if (!primaryFormatted.isEmpty()) {
+                sb.append(primaryFormatted).append("\n\n");
+            }
+
+            if (!ancestorList.isEmpty()) {
+                String ancestorNames =
+                        ancestorList.stream().map(CodeUnit::shortName).collect(Collectors.joining(", "));
+                sb.append("// Direct ancestors of ")
+                        .append(cu.shortName())
+                        .append(": ")
+                        .append(ancestorNames)
+                        .append("\n\n");
+
+                Map<CodeUnit, String> ancestorsMap = new LinkedHashMap<>();
+                ancestorList.forEach(anc -> {
+                    String sk = skeletons.get(anc);
+                    if (sk != null) {
+                        ancestorsMap.put(anc, sk);
+                    }
+                });
+
+                String ancestorsFormatted = formatSkeletonsByPackage(ancestorsMap);
+                if (!ancestorsFormatted.isEmpty()) {
+                    sb.append(ancestorsFormatted).append("\n\n");
+                }
+            }
+
+            return sb.toString().trim();
+        }
+
+        private String formatSkeletonsByPackage(Map<CodeUnit, String> skeletons) {
+            if (skeletons.isEmpty()) {
+                return "";
+            }
+
+            var skeletonsByPackage = skeletons.entrySet().stream()
+                    .collect(Collectors.groupingBy(
+                            e -> e.getKey().packageName().isEmpty()
+                                    ? "(default package)"
+                                    : e.getKey().packageName(),
+                            Collectors.toMap(
+                                    Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new)));
+
+            return skeletonsByPackage.entrySet().stream()
+                    .sorted(Map.Entry.comparingByKey())
+                    .map(pkgEntry -> {
+                        String packageHeader = "package " + pkgEntry.getKey() + ";";
+                        String pkgCode;
+                        pkgCode = String.join("\n\n", pkgEntry.getValue().values());
+                        return packageHeader + "\n\n" + pkgCode;
+                    })
+                    .collect(Collectors.joining("\n\n"));
+        }
+    }
+
     class SummaryFragment extends ComputedVirtualFragment { // Dynamic, single-target, uses nextId
         private final String targetIdentifier;
         private final SummaryType summaryType;
+        private transient @Nullable Map<CodeUnit, String> cachedSkeletonsWithAncestors;
 
         public SummaryFragment(IContextManager contextManager, String targetIdentifier, SummaryType summaryType) {
             super(contextManager);
@@ -2429,49 +2516,97 @@ public interface ContextFragment {
             return FragmentType.SKELETON;
         }
 
-        private Map<CodeUnit, String> fetchSkeletons() {
+        private Map<CodeUnit, String> getSkeletonsWithAncestors() {
+            if (cachedSkeletonsWithAncestors != null) {
+                return cachedSkeletonsWithAncestors;
+            }
             IAnalyzer analyzer = getAnalyzer();
-            Map<CodeUnit, String> skeletonsMap = new HashMap<>();
-            analyzer.as(SkeletonProvider.class).ifPresent(skeletonProvider -> {
-                switch (summaryType) {
-                    case CODEUNIT_SKELETON -> {
-                        analyzer.getDefinitions(targetIdentifier).forEach(cu -> {
-                            skeletonProvider.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
-                        });
-                    }
-                    case FILE_SKELETONS -> {
-                        IContextManager cm = getContextManager();
-                        ProjectFile projectFile = cm.toFile(targetIdentifier);
-                        skeletonsMap.putAll(skeletonProvider.getSkeletons(projectFile));
-                    }
+            Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
+            var skeletonProviderOpt = analyzer.as(SkeletonProvider.class);
+            if (skeletonProviderOpt.isEmpty()) {
+                cachedSkeletonsWithAncestors = Collections.unmodifiableMap(skeletonsMap);
+                return cachedSkeletonsWithAncestors;
+            }
+            var skeletonProvider = skeletonProviderOpt.get();
+
+            // Resolve primary targets in stable, source-declaration order
+            Set<CodeUnit> primaryTargets = resolvePrimaryTargets(analyzer);
+
+            // 1) Add primary target skeletons first (preserving declaration order)
+            for (CodeUnit cu : primaryTargets) {
+                skeletonProvider.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
+            }
+
+            // 2) Then collect and append unique direct ancestors (preserving discovery order)
+            var seenAncestors = new HashSet<String>();
+            primaryTargets.stream()
+                    .filter(CodeUnit::isClass)
+                    .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
+                    .filter(anc -> seenAncestors.add(anc.fqName()))
+                    .forEach(anc -> skeletonProvider.getSkeleton(anc).ifPresent(s -> skeletonsMap.put(anc, s)));
+
+            cachedSkeletonsWithAncestors = Collections.unmodifiableMap(skeletonsMap);
+            return cachedSkeletonsWithAncestors;
+        }
+
+        private Set<CodeUnit> resolvePrimaryTargets(IAnalyzer analyzer) {
+            switch (summaryType) {
+                case CODEUNIT_SKELETON -> {
+                    return analyzer.getDefinitions(targetIdentifier);
                 }
-            });
-            return skeletonsMap;
+                case FILE_SKELETONS -> {
+                    IContextManager cm = getContextManager();
+                    ProjectFile projectFile = cm.toFile(targetIdentifier);
+                    return new LinkedHashSet<>(analyzer.getTopLevelDeclarations(projectFile));
+                }
+                default -> {
+                    return Set.of();
+                }
+            }
         }
 
         @Override
         @Blocking
         public String text() {
-            Map<CodeUnit, String> skeletons = fetchSkeletons();
+            Map<CodeUnit, String> skeletons = getSkeletonsWithAncestors();
             if (skeletons.isEmpty()) {
                 return "No summary found for: " + targetIdentifier;
             }
-            return combinedText(List.of(this));
+
+            var analyzer = getAnalyzer();
+            var formatter = new SkeletonFragmentFormatter();
+
+            CodeUnit primaryTarget = null;
+            List<CodeUnit> ancestors = List.of();
+
+            if (summaryType == SummaryType.CODEUNIT_SKELETON) {
+                var maybeClassUnit = resolvePrimaryTargets(analyzer).stream()
+                        .filter(CodeUnit::isClass)
+                        .findFirst();
+                if (maybeClassUnit.isPresent()) {
+                    primaryTarget = maybeClassUnit.get();
+                    ancestors = analyzer.getDirectAncestors(primaryTarget);
+                }
+            }
+
+            var request = new SkeletonFragmentFormatter.Request(primaryTarget, ancestors, skeletons, summaryType);
+            String formatted = formatter.format(request);
+
+            return formatted.isEmpty() ? "No summary found for: " + targetIdentifier : formatted;
         }
 
         @Override
         @Blocking
         public Set<CodeUnit> sources() {
-            return fetchSkeletons().keySet();
+            return getSkeletonsWithAncestors().keySet();
         }
 
         @Override
         @Blocking
         public Set<ProjectFile> files() {
             return switch (summaryType) {
-                case CODEUNIT_SKELETON ->
+                case CODEUNIT_SKELETON, FILE_SKELETONS ->
                     sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
-                case FILE_SKELETONS -> Set.of(contextManager.toFile(targetIdentifier));
             };
         }
 
@@ -2522,7 +2657,6 @@ public interface ContextFragment {
         }
 
         // Use identity-based equals (inherited from VirtualFragment)
-
         public static String combinedText(Collection<SummaryFragment> fragments) {
             if (fragments.isEmpty()) {
                 return "No summaries available";
@@ -2530,7 +2664,7 @@ public interface ContextFragment {
 
             // Collect all skeletons from all fragments
             Map<CodeUnit, String> allSkeletons = fragments.stream()
-                    .flatMap(f -> f.fetchSkeletons().entrySet().stream())
+                    .flatMap(f -> f.getSkeletonsWithAncestors().entrySet().stream())
                     .collect(Collectors.toMap(
                             Map.Entry::getKey,
                             Map.Entry::getValue,
@@ -2541,23 +2675,12 @@ public interface ContextFragment {
                 return "No summaries available";
             }
 
-            // Group by package, then format
-            var skeletonsByPackage = allSkeletons.entrySet().stream()
-                    .collect(Collectors.groupingBy(
-                            e -> e.getKey().packageName().isEmpty()
-                                    ? "(default package)"
-                                    : e.getKey().packageName(),
-                            Collectors.toMap(
-                                    Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new)));
-
-            return skeletonsByPackage.entrySet().stream()
-                    .sorted(Map.Entry.comparingByKey())
-                    .map(pkgEntry -> {
-                        String packageHeader = "package " + pkgEntry.getKey() + ";";
-                        String pkgCode = String.join("\n\n", pkgEntry.getValue().values());
-                        return packageHeader + "\n\n" + pkgCode;
-                    })
-                    .collect(Collectors.joining("\n\n"));
+            // Format by package preserving insertion order (source declaration order)
+            var formatter = new SkeletonFragmentFormatter();
+            var request =
+                    new SkeletonFragmentFormatter.Request(null, List.of(), allSkeletons, SummaryType.FILE_SKELETONS);
+            String formatted = formatter.format(request);
+            return formatted.isEmpty() ? "No summaries available" : formatted;
         }
 
         @Override

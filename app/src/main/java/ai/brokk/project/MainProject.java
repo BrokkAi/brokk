@@ -15,6 +15,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
@@ -405,6 +406,46 @@ public final class MainProject extends AbstractProject {
     private ModelConfig getModelConfigInternal(ModelType modelType) {
         var props = loadGlobalProperties();
         return ModelProperties.getModelConfig(props, modelType);
+    }
+
+    /**
+     * Returns the code-defined default ModelConfig for the Quick role.
+     *
+     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
+     * persisted user settings or overrides.
+     */
+    public static ModelConfig getDefaultQuickModelConfig() {
+        return ModelProperties.ModelType.QUICK.preferredConfig();
+    }
+
+    /**
+     * Returns the code-defined default ModelConfig for the Quick Edit role.
+     *
+     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
+     * persisted user settings or overrides.
+     */
+    public static ModelConfig getDefaultQuickEditModelConfig() {
+        return ModelProperties.ModelType.QUICK_EDIT.preferredConfig();
+    }
+
+    /**
+     * Returns the code-defined default ModelConfig for the Quickest role.
+     *
+     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
+     * persisted user settings or overrides.
+     */
+    public static ModelConfig getDefaultQuickestModelConfig() {
+        return ModelProperties.ModelType.QUICKEST.preferredConfig();
+    }
+
+    /**
+     * Returns the code-defined default ModelConfig for the Scan role.
+     *
+     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
+     * persisted user settings or overrides.
+     */
+    public static ModelConfig getDefaultScanModelConfig() {
+        return ModelProperties.ModelType.SCAN.preferredConfig();
     }
 
     private void setModelConfigInternal(ModelType modelType, ModelConfig config) {
@@ -1283,7 +1324,7 @@ public final class MainProject extends AbstractProject {
 
     public static String getTheme() {
         var props = loadGlobalProperties();
-        return props.getProperty("theme", "dark");
+        return props.getProperty("theme", GuiTheme.THEME_DARK_PLUS);
     }
 
     public static void setTheme(String theme) {
@@ -1338,6 +1379,7 @@ public final class MainProject extends AbstractProject {
     private static final String TERMINAL_FONT_SIZE_KEY = "terminalFontSize";
     private static final String STARTUP_OPEN_MODE_KEY = "startupOpenMode";
     private static final String FORCE_TOOL_EMULATION_KEY = "forceToolEmulation";
+    private static final String OTHER_MODELS_VENDOR_KEY = "otherModelsVendor";
     private static final String HISTORY_AUTO_COMPRESS_KEY = "historyAutoCompress";
     private static final String HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY = "historyAutoCompressThresholdPercent";
     private static final String HISTORY_COMPRESSION_CONCURRENCY_KEY = "historyCompressionConcurrency";
@@ -1418,6 +1460,21 @@ public final class MainProject extends AbstractProject {
             props.setProperty(FORCE_TOOL_EMULATION_KEY, "true");
         } else {
             props.remove(FORCE_TOOL_EMULATION_KEY);
+        }
+        saveGlobalProperties(props);
+    }
+
+    public static String getOtherModelsVendorPreference() {
+        var props = loadGlobalProperties();
+        return props.getProperty(OTHER_MODELS_VENDOR_KEY, "");
+    }
+
+    public static void setOtherModelsVendorPreference(String vendor) {
+        var props = loadGlobalProperties();
+        if (vendor.isBlank()) {
+            props.remove(OTHER_MODELS_VENDOR_KEY);
+        } else {
+            props.setProperty(OTHER_MODELS_VENDOR_KEY, vendor.trim());
         }
         saveGlobalProperties(props);
     }

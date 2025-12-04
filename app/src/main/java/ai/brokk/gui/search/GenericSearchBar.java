@@ -109,10 +109,14 @@ public class GenericSearchBar extends JPanel {
 
         // Create a panel for navigation controls that can wrap
         controlsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        controlsPanel.setBackground(UIManager.getColor("Panel.background"));
         controlsPanel.add(caseSensitiveButton);
         controlsPanel.add(previousButton);
         controlsPanel.add(nextButton);
         controlsPanel.add(matchCountLabel);
+
+        // Set background on main panel for theme consistency
+        setBackground(UIManager.getColor("Panel.background"));
 
         // Build UI with GridBagLayout for better responsive behavior
         GridBagConstraints gbc = new GridBagConstraints();
@@ -160,6 +164,13 @@ public class GenericSearchBar extends JPanel {
 
         // Setup async search callback
         targetComponent.setSearchCompleteCallback(this::onSearchComplete);
+    }
+
+    /** Updates background colors when theme changes. Called from parent panel's applyTheme(). */
+    public void updateThemeColors() {
+        var bg = UIManager.getColor("Panel.background");
+        setBackground(bg);
+        controlsPanel.setBackground(bg);
     }
 
     @Override

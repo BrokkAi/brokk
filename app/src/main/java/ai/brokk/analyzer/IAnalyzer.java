@@ -12,7 +12,7 @@ import org.jetbrains.annotations.Nullable;
  *
  * <p><b>API Pattern:</b> Capability providers ({@link SkeletonProvider}, {@link SourceCodeProvider},
  * {@link CallGraphProvider}) accept {@link CodeUnit} parameters. When you have a CodeUnit, call
- * provider methods directly. When you only have a String FQN, use {@link io.github.jbellis.brokk.AnalyzerUtil}
+ * provider methods directly. When you only have a String FQN, use {@link ai.brokk.AnalyzerUtil}
  * convenience methods to convert and delegate.
  */
 public interface IAnalyzer {
@@ -28,14 +28,6 @@ public interface IAnalyzer {
     }
 
     // Basics
-    default boolean isEmpty() {
-        return getAllDeclarations().isEmpty();
-    }
-
-    default <T extends CapabilityProvider> Optional<T> as(Class<T> capability) {
-        return capability.isInstance(this) ? Optional.of(capability.cast(this)) : Optional.empty();
-    }
-
     List<CodeUnit> getTopLevelDeclarations(ProjectFile file);
 
     /**
@@ -87,10 +79,6 @@ public interface IAnalyzer {
      */
     Set<CodeUnit> getDeclarations(ProjectFile file);
 
-    default Optional<ProjectFile> getFileFor(CodeUnit cu) {
-        return Optional.of(cu.source());
-    }
-
     /**
      * Finds ALL CodeUnits matching the given fqName, returned in priority order.
      * For overloaded functions, returns all overloads ordered by language-specific prioritization.
@@ -107,6 +95,80 @@ public interface IAnalyzer {
      * @return SequencedSet of all matching CodeUnits in priority order (may be empty)
      */
     SequencedSet<CodeUnit> getDefinitions(String fqName);
+
+    /**
+     * Returns the immediate children of the given CodeUnit for language-specific hierarchy traversal.
+     *
+     * <p>This method is used by the default getSymbols(java.util.Set) implementation to traverse the code unit
+     * hierarchy and collect symbols from nested declarations. The specific parent-child relationships depend on the
+     * target language:
+     *
+     * <ul>
+     *   <li><strong>Classes:</strong> Return methods, fields, and nested classes
+     *   <li><strong>Modules/Files:</strong> Return top-level declarations in the same file
+     *   <li><strong>Functions/Methods:</strong> Typically return empty list (no children)
+     *   <li><strong>Fields/Variables:</strong> Typically return empty list (no children)
+     * </ul>
+     *
+     * <p><strong>Implementation Notes:</strong>
+     *
+     * <ul>
+     *   <li>This method should be efficient as it may be called frequently during symbol resolution
+     *   <li>Return an empty list rather than null for CodeUnits with no children
+     *   <li>The returned list should contain only immediate children, not recursive descendants
+     *   <li>Implementations should handle null input gracefully by returning an empty list
+     * </ul>
+     * <p>
+     * See getSymbols(java.util.Set) for how this method is used in symbol collection.
+     */
+    List<CodeUnit> getDirectChildren(CodeUnit cu);
+
+    /**
+     * Extracts the class/module/type name from a method/member reference like "MyClass.myMethod". This is a heuristic
+     * method that may produce false positives/negatives.
+     * Package-private: external callers should use {@link ai.brokk.AnalyzerUtil#extractCallReceiver}.
+     *
+     * @param reference The reference string to analyze (e.g., "MyClass.myMethod", "package::Class::method")
+     * @return Optional containing the extracted class/module name, empty if none found
+     */
+    Optional<String> extractCallReceiver(String reference);
+
+    /**
+     * @return the import snippets for the given file where other code units may be referred to by.
+     */
+    List<String> importStatementsOf(ProjectFile file);
+
+    /**
+     * @return the nearest enclosing code unit of the range within the file. Returns null if none exists or range is
+     * invalid.
+     */
+    Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range);
+
+    record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
+        public boolean isEmpty() {
+            return startLine == endLine && startByte == endByte;
+        }
+
+        public boolean isContainedWithin(Range other) {
+            return startByte >= other.startByte && endByte <= other.endByte;
+        }
+    }
+
+    /**
+     * Returns the direct supertypes/basetypes (non-transitive) for the given CodeUnit.
+     * Implementations should return only the immediate ancestors.
+     */
+    List<CodeUnit> getDirectAncestors(CodeUnit cu);
+
+    // Things most implementations won't have to override
+
+    default boolean isEmpty() {
+        return getAllDeclarations().isEmpty();
+    }
+
+    default <T extends CapabilityProvider> Optional<T> as(Class<T> capability) {
+        return capability.isInstance(this) ? Optional.of(capability.cast(this)) : Optional.empty();
+    }
 
     /**
      * Returns a comparator for prioritizing among multiple definitions with the same FQN.
@@ -249,35 +311,6 @@ public interface IAnalyzer {
     }
 
     /**
-     * Returns the immediate children of the given CodeUnit for language-specific hierarchy traversal.
-     *
-     * <p>This method is used by the default getSymbols(java.util.Set) implementation to traverse the code unit
-     * hierarchy and collect symbols from nested declarations. The specific parent-child relationships depend on the
-     * target language:
-     *
-     * <ul>
-     *   <li><strong>Classes:</strong> Return methods, fields, and nested classes
-     *   <li><strong>Modules/Files:</strong> Return top-level declarations in the same file
-     *   <li><strong>Functions/Methods:</strong> Typically return empty list (no children)
-     *   <li><strong>Fields/Variables:</strong> Typically return empty list (no children)
-     * </ul>
-     *
-     * <p><strong>Implementation Notes:</strong>
-     *
-     * <ul>
-     *   <li>This method should be efficient as it may be called frequently during symbol resolution
-     *   <li>Return an empty list rather than null for CodeUnits with no children
-     *   <li>The returned list should contain only immediate children, not recursive descendants
-     *   <li>Implementations should handle null input gracefully by returning an empty list
-     * </ul>
-     * <p>
-     * See getSymbols(java.util.Set) for how this method is used in symbol collection.
-     */
-    default List<CodeUnit> getDirectChildren(CodeUnit cu) {
-        return List.of();
-    }
-
-    /**
      * Extracts the unqualified symbol name from a fully-qualified name and adds it to the output set.
      */
     private static void addShort(String full, Set<String> out) {
@@ -324,48 +357,6 @@ public interface IAnalyzer {
             work.addAll(getDirectChildren(cu));
         }
         return symbols;
-    }
-
-    /**
-     * Extracts the class/module/type name from a method/member reference like "MyClass.myMethod". This is a heuristic
-     * method that may produce false positives/negatives.
-     * Package-private: external callers should use {@link ai.brokk.AnalyzerUtil#extractClassName}.
-     *
-     * @param reference The reference string to analyze (e.g., "MyClass.myMethod", "package::Class::method")
-     * @return Optional containing the extracted class/module name, empty if none found
-     */
-    default Optional<String> extractClassName(String reference) {
-        return Optional.empty();
-    }
-
-    /**
-     * @return the import snippets for the given file where other code units may be referred to by.
-     */
-    List<String> importStatementsOf(ProjectFile file);
-
-    /**
-     * @return the nearest enclosing code unit of the range within the file. Returns null if none exists or range is
-     * invalid.
-     */
-    Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range);
-
-    record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
-        public boolean isEmpty() {
-            return startLine == endLine && startByte == endByte;
-        }
-
-        public boolean isContainedWithin(Range other) {
-            return startByte >= other.startByte && endByte <= other.endByte;
-        }
-    }
-
-    /**
-     * Returns the direct supertypes/basetypes (non-transitive) for the given CodeUnit.
-     * Implementations should return only the immediate ancestors.
-     */
-    default List<CodeUnit> getDirectAncestors(CodeUnit cu) {
-        // should always be supported; UOE here is for convenience in mocking
-        throw new UnsupportedOperationException();
     }
 
     /**
