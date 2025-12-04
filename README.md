@@ -2,32 +2,28 @@
   <img src="docs/brokk.png" alt="Brokk – the forge god" width="600">
 </p>
 
-## Table of Contents
-- [Overview](#overview)
-- [Running Brokk](#running-brokk)
-- [Documentation](#documentation)
-- [Contributing](#contributing)
-- [Increasing JVM heap when running via Gradle](#increasing-jvm-heap-when-running-via-gradle)
+<p align="center">
+  <a href="https://brokk.ai">Website</a> •
+  <a href="https://brokk.ai/documentation/introduction">Docs</a> •
+  <a href="https://discord.com/invite/qYQ2Zg2PX7">Discord</a> •
+  <a href="https://blog.brokk.ai">Blog</a> •
+  <a href="https://www.youtube.com/@Brokk_AI">YouTube</a> •
+  <a href="#getting-started">Getting Started</a>
+</p>
 
-# Overview
+<p align="center">
+  <a href="https://brokk.ai/documentation/introduction"><img alt="Docs" src="https://img.shields.io/badge/Docs-brokk.ai-0b72ff?logo=readthedocs&logoColor=white"></a>
+  <a href="https://discord.com/invite/qYQ2Zg2PX7"><img alt="Discord" src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white"></a>
+  <a href="https://blog.brokk.ai"><img alt="Blog" src="https://img.shields.io/badge/Blog-latest-ff6a00?logo=ghost&logoColor=white"></a>
+  <a href="https://www.youtube.com/@Brokk_AI"><img alt="YouTube" src="https://img.shields.io/badge/YouTube-subscribe-ff0000?logo=youtube&logoColor=white"></a>
+  <a href="https://brokk.ai/power-ranking"><img alt="Power Ranking" src="https://img.shields.io/badge/Power%20Ranking-live-7b61ff"></a>
+  <a href="https://github.com/BrokkAi/brokk/stargazers"><img alt="GitHub Stars" src="https://img.shields.io/github/stars/BrokkAi/brokk?style=social"></a>
+  <a href="https://github.com/BrokkAi/brokk/blob/master/LICENSE"><img alt="License" src="https://img.shields.io/github/license/BrokkAi/brokk"></a>
+</p>
 
-Brokk (the [Norse god of the forge](https://en.wikipedia.org/wiki/Brokkr))
-is the first code assistant that understands code semantically, not just
-as chunks of text.  Brokk is designed to allow LLMs to work effectively
-on large codebases that cannot be jammed entirely into working context.
+# Brokk — AI-native code platform for million-line repos
 
-There is a [Brokk Discord](https://discord.gg/QjhQDK8kAj) for questions and suggestions.
-
-# Running Brokk
-
-1. Sign up at [Brokk.ai](https://brokk.ai/)
-1. Follow the instructions to download and run Brokk
-
-# Documentation
-
-Brokk documentation is at https://brokk.ai/documentation/.
-
-- [Headless Executor CLI](docs/headless-exec-cli.md) — Command-line tool to start a local executor, create a session, submit a job, and stream results. Includes examples for ASK, CODE, ARCHITECT, and LUTZ.
+Brokk keeps LLMs on-task in large codebases by curating fragment-level context and, with agentic Lutz Mode, gathering, pruning, and explaining decisions for fast, transparent coding.
 
 # Contributing
 
