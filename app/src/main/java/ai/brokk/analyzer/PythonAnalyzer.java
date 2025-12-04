@@ -241,13 +241,13 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected boolean shouldSkipNode(TSNode node, String captureName, byte[] srcBytes) {
         // Skip property setters to avoid duplicates with property getters
-        if (CaptureNames.FUNCTION_DEFINITION.equals(captureName) && "decorated_definition".equals(node.getType())) {
+        if (CaptureNames.FUNCTION_DEFINITION.equals(captureName) && DECORATED_DEFINITION.equals(node.getType())) {
             // Check if this is a property setter by looking at decorators
             for (int i = 0; i < node.getNamedChildCount(); i++) {
                 TSNode child = node.getNamedChild(i);
-                if ("decorator".equals(child.getType())) {
+                if (DECORATOR.equals(child.getType())) {
                     TSNode decoratorChild = child.getNamedChild(0);
-                    if (decoratorChild != null && "attribute".equals(decoratorChild.getType())) {
+                    if (decoratorChild != null && ATTRIBUTE.equals(decoratorChild.getType())) {
                         // Get the decorator text using the inherited textSlice method
                         String decoratorText =
                                 textSlice(decoratorChild, srcBytes).trim();
@@ -320,8 +320,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                 && !bodyNode.isNull()
                 && (bodyNode.getNamedChildCount() > 1
                         || (bodyNode.getNamedChildCount() == 1
-                                && !"pass_statement"
-                                        .equals(bodyNode.getNamedChild(0).getType())));
+                                && !PASS_STATEMENT.equals(
+                                        bodyNode.getNamedChild(0).getType())));
 
         if (hasMeaningfulBody) {
             return signature + " " + bodyPlaceholder(); // Do not prepend indent here
@@ -468,7 +468,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
      */
     @Override
     protected boolean isClassLike(TSNode node) {
-        return super.isClassLike(node) || "function_definition".equals(node.getType());
+        return super.isClassLike(node) || FUNCTION_DEFINITION.equals(node.getType());
     }
 
     @Override
