@@ -360,8 +360,8 @@ public class MonorepoSubdirectoryTest {
     }
 
     /**
-     * Tests that worktrees correctly use the main repository's config location. This is existing functionality that
-     * should continue to work.
+     * Tests that worktrees use their own projectRoot for config.
+     * Each project (including worktrees) has independent config storage.
      */
     @Test
     void testWorktreeProject_ConfigLocation() throws Exception {
@@ -378,12 +378,12 @@ public class MonorepoSubdirectoryTest {
 
             Path masterConfigPath = worktreeProject.getMasterRootPathForConfig();
 
-            // Worktree should use main repo's config location
+            // Worktree should use its own root for config (not main repo)
             // Normalize both paths to handle macOS /private/var vs /var symlinks
             assertEquals(
-                    repoRoot.toRealPath(),
+                    worktreePath.toRealPath(),
                     masterConfigPath.toRealPath(),
-                    "Worktree should use main repository's config location");
+                    "Worktree should use its own root for config");
         } finally {
             if (worktreeProject != null) {
                 worktreeProject.close();
@@ -430,8 +430,8 @@ public class MonorepoSubdirectoryTest {
     }
 
     /**
-     * Compares the behavior of subdirectory projects vs worktree projects. They have different config storage behavior:
-     * subdirectories store config at the subdirectory, worktrees store config at git root.
+     * Compares the behavior of subdirectory projects vs worktree projects.
+     * Both now use their own projectRoot for config (independent storage).
      */
     @Test
     void testSubdirectoryVsWorktree_Comparison() throws Exception {
@@ -451,7 +451,7 @@ public class MonorepoSubdirectoryTest {
             Path subdirConfig = subdirProj.getMasterRootPathForConfig();
             Path worktreeConfig = worktreeProj.getMasterRootPathForConfig();
 
-            // Subdirectory and worktree have DIFFERENT config storage behavior
+            // Both subdirectory and worktree use their own projectRoot for config
             // Normalize paths to handle macOS /private/var vs /var symlinks
             assertNotEquals(
                     worktreeConfig.toRealPath(),
@@ -462,9 +462,9 @@ public class MonorepoSubdirectoryTest {
                     subdirConfig.toRealPath(),
                     "Subdirectory should use subdirectory for config");
             assertEquals(
-                    repoRoot.toRealPath(),
+                    worktreePath.toRealPath(),
                     worktreeConfig.toRealPath(),
-                    "Worktree should use git repository root for config");
+                    "Worktree should use its own root for config");
         } finally {
             subdirProj.close();
             worktreeProj.close();
