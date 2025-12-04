@@ -5,10 +5,14 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.util.ContentDiffUtils;
 import java.io.UncheckedIOException;
+import java.time.Duration;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
@@ -27,6 +31,8 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class DiffService {
     private static final Logger logger = LogManager.getLogger(DiffService.class);
+
+    private static final Duration TEXT_FALLBACK_TIMEOUT = Duration.ofSeconds(2);
 
     private final ContextHistory history;
     private final IContextManager cm;
@@ -132,12 +138,21 @@ public final class DiffService {
     @Blocking
     public static List<Context.DiffEntry> computeDiff(Context curr, Context other) {
         try {
-            var diffFutures = curr.getEditableFragments()
-                    .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
+            // Candidates:
+            // - Project text files that are editable (preserves read-only exclusion).
+            // - Git file fragments.
+            // - Image fragments (non-text), including pasted images and image files.
+            var projectPathEditable = curr.getEditableFragments()
+                    .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH);
+            var gitFileFragments = curr.allFragments()
+                    .filter(f -> f.getType() == ContextFragment.FragmentType.GIT_FILE);
+            var imageFragments = curr.allFragments()
+                    .filter(f -> !f.isText());
+
+            var diffFutures = Stream.concat(Stream.concat(projectPathEditable, gitFileFragments), imageFragments)
                     .map(cf -> computeDiffForFragment(curr, cf, other))
                     .toList();
 
-            //noinspection ConstantValue (Objects::nonNull) is highlighted as unnecessary, but this is necessary
             return diffFutures.stream()
                     .map(CompletableFuture::join)
                     .filter(Objects::nonNull)
@@ -184,11 +199,9 @@ public final class DiffService {
             // Text fragment newly added: diff against empty, preferring snapshot text
             return extractFragmentContentAsync(thisFragment, true)
                     .thenApply(newContent -> {
-                        var result = ContentDiffUtils.computeDiffResult(
-                                "",
-                                newContent,
-                                "old/" + thisFragment.shortDescription().join(),
-                                "new/" + thisFragment.shortDescription().join());
+                        var oldName = "old/" + thisFragment.shortDescription().renderNowOr("");
+                        var newName = "new/" + thisFragment.shortDescription().renderNowOr("");
+                        var result = ContentDiffUtils.computeDiffResult("", newContent, oldName, newName);
                         if (result.diff().isEmpty()) {
                             return null;
                         }
@@ -198,7 +211,7 @@ public final class DiffService {
                     .exceptionally(ex -> {
                         logger.warn(
                                 "Error computing diff for new fragment '{}': {}",
-                                thisFragment.shortDescription(),
+                                thisFragment.shortDescription().renderNowOr(thisFragment.toString()),
                                 ex.getMessage(),
                                 ex);
                         return new Context.DiffEntry(
@@ -229,26 +242,22 @@ public final class DiffService {
         // Text fragments: compute textual diff
         return oldContentFuture
                 .thenCombine(newContentFuture, (oldContent, newContent) -> {
-                    int oldLineCount =
-                            oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
-                    int newLineCount =
-                            newContent.isEmpty() ? 0 : (int) newContent.lines().count();
+                    int oldLineCount = oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
+                    int newLineCount = newContent.isEmpty() ? 0 : (int) newContent.lines().count();
                     logger.trace(
                             "computeDiff: fragment='{}' ctxId={} oldLines={} newLines={}",
-                            thisFragment.shortDescription().join(),
+                            thisFragment.shortDescription().renderNowOr(""),
                             curr.id(),
                             oldLineCount,
                             newLineCount);
 
-                    var result = ContentDiffUtils.computeDiffResult(
-                            oldContent,
-                            newContent,
-                            "old/" + thisFragment.shortDescription().join(),
-                            "new/" + thisFragment.shortDescription().join());
+                    var oldName = "old/" + thisFragment.shortDescription().renderNowOr("");
+                    var newName = "new/" + thisFragment.shortDescription().renderNowOr("");
+                    var result = ContentDiffUtils.computeDiffResult(oldContent, newContent, oldName, newName);
 
                     logger.trace(
                             "computeDiff: fragment='{}' added={} deleted={} diffEmpty={}",
-                            thisFragment.shortDescription().join(),
+                            thisFragment.shortDescription().renderNowOr(""),
                             result.added(),
                             result.deleted(),
                             result.diff().isEmpty());
@@ -263,7 +272,7 @@ public final class DiffService {
                 .exceptionally(ex -> {
                     logger.warn(
                             "Error computing diff for fragment '{}': {}",
-                            thisFragment.shortDescription().join(),
+                            thisFragment.shortDescription().renderNowOr(thisFragment.toString()),
                             ex.getMessage(),
                             ex);
                     return new Context.DiffEntry(
@@ -277,20 +286,22 @@ public final class DiffService {
     private static CompletableFuture<String> extractFragmentContentAsync(ContextFragment fragment, boolean isNew) {
         try {
             var computedTextFuture = fragment.text().future();
-            return computedTextFuture.exceptionally(ex -> {
-                logger.warn(
-                        "Error computing text for {} fragment '{}': {}",
-                        fragment.getClass().getSimpleName(),
-                        fragment.shortDescription(),
-                        ex.getMessage(),
-                        ex);
-                return "";
-            });
+            return computedTextFuture
+                    .completeOnTimeout("", TEXT_FALLBACK_TIMEOUT.getSeconds(), TimeUnit.SECONDS)
+                    .exceptionally(ex -> {
+                        logger.warn(
+                                "Error computing text for {} fragment '{}': {}",
+                                fragment.getClass().getSimpleName(),
+                                fragment.shortDescription().renderNowOr(fragment.toString()),
+                                ex.getMessage(),
+                                ex);
+                        return "";
+                    });
         } catch (UncheckedIOException e) {
             logger.warn(
                     "IO error reading content for {} fragment '{}' ({}): {}",
                     fragment.getClass().getSimpleName(),
-                    fragment.shortDescription(),
+                    fragment.shortDescription().renderNowOr(fragment.toString()),
                     isNew ? "new" : "old",
                     e.getMessage());
             return CompletableFuture.completedFuture("");
@@ -298,14 +309,14 @@ public final class DiffService {
             logger.warn(
                     "Computation cancelled for {} fragment '{}': {}",
                     fragment.getClass().getSimpleName(),
-                    fragment.shortDescription(),
+                    fragment.shortDescription().renderNowOr(fragment.toString()),
                     e.getMessage());
             return CompletableFuture.completedFuture("");
         } catch (Exception e) {
             logger.error(
                     "Unexpected error extracting content for {} fragment '{}': {}",
                     fragment.getClass().getSimpleName(),
-                    fragment.shortDescription(),
+                    fragment.shortDescription().renderNowOr(fragment.toString()),
                     e.getMessage(),
                     e);
             return CompletableFuture.completedFuture("");
