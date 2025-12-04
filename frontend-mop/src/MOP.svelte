@@ -53,8 +53,11 @@
   });
 
   // Derived UI helpers for rendering
-  $: hasHistory = $historyStore.some(t => t.entries.length > 0 || t.summary);
-  $: historyTaskCount = $historyStore.filter(t => t.entries.length > 0 || t.summary).length;
+  $: historyThreads = $historyStore.filter(t => t.entries.length > 0 || t.summary);
+  $: compressedHistoryCount = historyThreads.filter(t => Boolean(t.compressed)).length;
+  $: fullHistoryCount = historyThreads.length - compressedHistoryCount;
+  $: hasHistory = historyThreads.length > 0;
+  $: historyTaskCount = historyThreads.length;
 
   // Live view: check for bubbles and/or live summary via summaryParseStore
   $: hasLiveBubbles = $bubblesStore.length > 0;
@@ -228,7 +231,13 @@
         >
           <Icon icon="mdi:chevron-right" style="color: var(--chat-text);" />
           <span class="tag">Conversation</span>
-          <div class="content-preview"> ({historyTaskCount} threads)</div>
+          <div class="content-preview">
+            {#if compressedHistoryCount > 0}
+              ({fullHistoryCount} full thread{fullHistoryCount === 1 ? '' : 's'}, {compressedHistoryCount} compressed thread{compressedHistoryCount === 1 ? '' : 's'})
+            {:else}
+              ({historyTaskCount} thread{historyTaskCount === 1 ? '' : 's'})
+            {/if}
+          </div>
         </header>
       {/if}
     {/if}
