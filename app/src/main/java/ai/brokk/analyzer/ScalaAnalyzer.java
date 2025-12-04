@@ -170,9 +170,8 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
             Set.of("modifiers") // modifier node types
             );
 
-    // TODO
     @Override
-    public Optional<String> extractClassName(String reference) {
-        return Optional.empty();
+    public Optional<String> extractCallReceiver(String reference) {
+        return ClassNameExtractor.extractForScala(reference);
     }
 }

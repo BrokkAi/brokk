@@ -100,7 +100,7 @@ public class DisabledAnalyzer implements IAnalyzer {
     }
 
     @Override
-    public Optional<String> extractClassName(String reference) {
+    public Optional<String> extractCallReceiver(String reference) {
         return Optional.empty();
     }
 }
