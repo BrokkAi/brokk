@@ -32,7 +32,6 @@ import org.jetbrains.annotations.Nullable;
 public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper {
     private final Logger logger = LogManager.getLogger(AnalyzerWrapper.class);
 
-    @Nullable
     private final AnalyzerListener listener; // can be null if no one is listening
 
     private final Path root;
@@ -65,8 +64,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
      * @param analyzerListener Listener for analyzer lifecycle events (can be null for headless mode)
      * @param watchService The watch service to use (can be null for headless mode or testing)
      */
-    public AnalyzerWrapper(
-            IProject project, @NotNull AnalyzerListener analyzerListener, @NotNull IWatchService watchService) {
+    public AnalyzerWrapper(IProject project, AnalyzerListener analyzerListener, @NotNull IWatchService watchService) {
         this.project = project;
         this.root = project.getRoot();
         this.gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
@@ -176,10 +174,8 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
                     batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir));
             if (batch.isOverflowed || gitMetaTouched) {
                 logger.debug("Changes in git metadata directory ({}) detected", gitRepoRoot.resolve(".git"));
-                if (listener != null) {
-                    listener.onRepoChange();
-                    listener.onTrackedFileChange(); // Tracked files can also change as a result, e.g. git add <files>
-                }
+                listener.onRepoChange();
+                listener.onTrackedFileChange(); // Tracked files can also change as a result, e.g. git add <files>
             }
         }
 
@@ -245,7 +241,8 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         if (externalRebuildRequested) {
             long count = idlePollTriggeredRebuilds.incrementAndGet();
             logger.debug("Idle-poll triggered external rebuild #{}", count);
-            refresh(prev -> getLanguageHandle().createAnalyzer(project));
+            IAnalyzer.ProgressListener progressListener = listener::onProgress;
+            refresh(prev -> getLanguageHandle().createAnalyzer(project, progressListener));
             externalRebuildRequested = false;
         }
     }
@@ -280,9 +277,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         }
 
         /* ── 1.  Pre‑flight notifications & build details ───────────────────────────── */
-        if (listener != null) {
-            listener.beforeEachBuild();
-        }
+        listener.beforeEachBuild();
 
         logger.debug("Waiting for build details");
         BuildAgent.BuildDetails buildDetails = project.awaitBuildDetails();
@@ -305,10 +300,13 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         }
 
         /* ── 3.  Load or build the analyzer via the Language handle ─────────────────── */
+        // Create progress listener to pass through construction
+        IAnalyzer.ProgressListener progressListener = listener::onProgress;
+
         IAnalyzer analyzer;
         try {
             logger.debug("Attempting to load existing analyzer");
-            analyzer = langHandle.loadAnalyzer(project);
+            analyzer = langHandle.loadAnalyzer(project, progressListener);
             logger.info(
                     "Loaded existing analyzer: {} for directory: {}",
                     analyzer.getClass().getSimpleName(),
@@ -316,7 +314,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         } catch (Throwable th) {
             // cache missing or corrupt, rebuild
             logger.warn(th);
-            analyzer = langHandle.createAnalyzer(project);
+            analyzer = langHandle.createAnalyzer(project, progressListener);
             logger.info(
                     "Created new analyzer: {} for directory: {}",
                     analyzer.getClass().getSimpleName(),
@@ -332,22 +330,18 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         }
 
         /* ── 4.  Notify listeners ───────────────────────────────────────────────────── */
-        if (listener != null) {
-            logger.debug("AnalyzerWrapper has listener, submitting workspace refresh task");
+        logger.debug("AnalyzerWrapper has listener, submitting workspace refresh task");
 
-            // always refresh workspace in case there was a race and we shut down
-            // after saving a new analyzer but before refreshing the workspace
-            if (wasReady) {
-                logger.debug("No analyzer ready transition detected");
-            } else {
-                logger.debug("Analyzer became ready during loadOrCreateAnalyzer, notifying listeners");
-                listener.onAnalyzerReady();
-            }
-            listener.afterEachBuild(false);
-            wasReady = true;
+        // always refresh workspace in case there was a race and we shut down
+        // after saving a new analyzer but before refreshing the workspace
+        if (wasReady) {
+            logger.debug("No analyzer ready transition detected");
         } else {
-            logger.debug("AnalyzerWrapper has no listener - skipping notification");
+            logger.debug("Analyzer became ready during loadOrCreateAnalyzer, notifying listeners");
+            listener.onAnalyzerReady();
         }
+        listener.afterEachBuild(false);
+        wasReady = true;
 
         /* ── 5.  If we used stale caches, schedule a background rebuild ─────────────── */
         if (needsRebuild && !externalRebuildRequested) {
@@ -445,9 +439,8 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         logger.trace("Scheduling analyzer refresh task");
         return analyzerExecutor.submit(() -> {
             requireNonNull(currentAnalyzer);
-            if (listener != null) {
-                listener.beforeEachBuild();
-            }
+            listener.beforeEachBuild();
+
             // The function is supplied the current analyzer (may be null).
             currentAnalyzer = fn.apply(currentAnalyzer);
 
@@ -459,19 +452,18 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
             }
 
             logger.debug("Analyzer refresh completed.");
-            if (listener != null) {
-                boolean isNowReady = (currentAnalyzer != null);
-                logger.debug(
-                        "Checking analyzer ready transition after refresh: wasReady={}, isNowReady={}",
-                        wasReady,
-                        isNowReady);
-                if (!wasReady && isNowReady) {
-                    logger.debug("Analyzer became ready, notifying listeners");
-                    listener.onAnalyzerReady();
-                }
-                listener.afterEachBuild(externalRebuildRequested);
-                wasReady = isNowReady;
+
+            boolean isNowReady = (currentAnalyzer != null);
+            logger.debug(
+                    "Checking analyzer ready transition after refresh: wasReady={}, isNowReady={}",
+                    wasReady,
+                    isNowReady);
+            if (!wasReady && isNowReady) {
+                logger.debug("Analyzer became ready, notifying listeners");
+                listener.onAnalyzerReady();
             }
+            listener.afterEachBuild(externalRebuildRequested);
+            wasReady = isNowReady;
             return currentAnalyzer;
         });
     }
@@ -500,9 +492,8 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         }
 
         // Otherwise, this must be the very first build (or a failed one); we'll have to wait for it to be ready.
-        if (listener != null) {
-            listener.onBlocked();
-        }
+        listener.onBlocked();
+
         while (currentAnalyzer == null) {
             //noinspection BusyWait
             Thread.sleep(100);
