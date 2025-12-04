@@ -94,6 +94,7 @@ public class UserActionManager {
     /**
      * Runs the given task on userExecutor and returns a CompletableFuture<Void>.
      * Exceptions complete the future exceptionally.
+     * THE PROVIDED TASK IS RESPONSIBLE FOR HANDLING InterruptedException WITHOUT PROPAGATING IT FURTHER.
      */
     public CompletableFuture<Void> submitLlmAction(ThrowingRunnable task) {
         return userExecutor.submit(() -> {

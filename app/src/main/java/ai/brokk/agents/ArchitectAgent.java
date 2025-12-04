@@ -283,7 +283,7 @@ public class ArchitectAgent {
         };
     }
 
-    private void addPlanningToHistory() {
+    private void addPlanningToHistory() throws InterruptedException {
         var messages = io.getLlmRawMessages();
         if (messages.isEmpty()) {
             return;
