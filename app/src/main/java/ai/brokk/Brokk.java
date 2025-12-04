@@ -346,18 +346,7 @@ public class Brokk {
             MainProject parentProject = null;
             if (GitRepoFactory.hasGitRepo(worktreePath)) { // Redundant check, but safe
                 try (GitRepo wtRepo = new GitRepo(worktreePath)) { // isWorktree already confirmed by partitioning
-                    // Compute the corresponding path in the main repo
-                    // If worktree is opened at a subdirectory, look for main project at the same subdirectory
-                    Path workTreeRoot = wtRepo.getWorkTreeRoot();
-                    Path correspondingMainPath;
-                    if (worktreePath.equals(workTreeRoot)) {
-                        // Worktree opened at root -> look for main project at gitTopLevel
-                        correspondingMainPath = wtRepo.getGitTopLevel();
-                    } else {
-                        // Worktree opened at subdirectory -> look for main project at corresponding subdir
-                        Path relativeSubdir = workTreeRoot.relativize(worktreePath);
-                        correspondingMainPath = wtRepo.getGitTopLevel().resolve(relativeSubdir);
-                    }
+                    Path correspondingMainPath = wtRepo.getCorrespondingMainRepoPath(worktreePath);
                     parentProject = (MainProject) findOpenProjectByPath(correspondingMainPath);
                     if (parentProject == null) {
                         logger.warn(
