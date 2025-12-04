@@ -10,7 +10,7 @@ import org.apache.logging.log4j.Logger;
 /**
  * Central configuration for syntax-aware BRK_* markers.
  *
- * <p>Extensions for which we will advertise and allow syntax-aware SEARCH (BRK_CLASS / BRK_FUNCTION)
+ * <p>Extensions for which we will advertise and allow syntax-aware SEARCH (BRK_CLASS / BRK_[REPLACE|NEW]_FUNCTION)
  * are controlled by the {@code BRK_SYNTAX_EXTENSIONS} environment variable.
  *
  * <ul>

@@ -35,7 +35,7 @@ public abstract class CodePrompts {
     private static final Logger logger = LogManager.getLogger(CodePrompts.class);
     public static final CodePrompts instance = new CodePrompts() {};
     private static final Pattern BRK_MARKER_PATTERN =
-            Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$", Pattern.MULTILINE);
+            Pattern.compile("^BRK_(CLASS|REPLACE_FUNCTION|NEW_FUNCTION)\\s+(.+)$", Pattern.MULTILINE);
 
     public static final String LAZY_REMINDER =
             """
@@ -558,7 +558,7 @@ public abstract class CodePrompts {
             return base;
         }
 
-        var kind = m.group(1); // "CLASS" or "FUNCTION"
+        var kind = m.group(1); // CLASS, REPLACE_FUNCTION, NEW_FUNCTION
 
         var hints = new ArrayList<String>();
 
@@ -570,15 +570,19 @@ public abstract class CodePrompts {
                     hints.add("- If in doubt, open the file and copy the exact class declaration's package and name.");
                     hints.add(
                             "- As a fallback, use a line-based SEARCH for the specific class body you want to replace.");
-                } else { // FUNCTION
+                } else if ("REPLACE_FUNCTION".equals(kind)) {
                     hints.add("- Verify the fully qualified method name (package.ClassName.method).");
                     hints.add("- Ensure the owning class exists and is spelled correctly.");
                     hints.add("- Consider copying the exact method you want to change and using a line-based SEARCH.");
+                } else if ("NEW_FUNCTION".equals(kind)) {
+                    hints.add("- Verify the fully qualified class or module name (package.ClassName) for insertion.");
+                    hints.add("- Ensure the class or module exists in the workspace and the file path is correct.");
                 }
             }
             case AMBIGUOUS_MATCH -> {
-                if ("FUNCTION".equals(kind)) {
-                    hints.add("- The function appears to be overloaded; BRK_FUNCTION cannot disambiguate overloads.");
+                if ("REPLACE_FUNCTION".equals(kind)) {
+                    hints.add(
+                            "- The function appears to be overloaded; BRK_REPLACE_FUNCTION cannot disambiguate overloads.");
                     hints.add(
                             "- Use a line-based SEARCH that includes enough unique lines from the target method body.");
                     hints.add(
@@ -993,12 +997,12 @@ public abstract class CodePrompts {
         if (hasSyntaxAware) {
             searchContents +=
                     """
-                      - Syntax-aware SEARCH: a single line consisting of BRK_CLASS or BRK_FUNCTION, followed by the FULLY QUALIFIED class or function name:
-                        `BRK_[CLASS|FUNCTION] $fqname`. This applies to any named class-like (struct, record, interface, etc)
-                        or function-like (method, static method) entity, but NOT anonymous ones. `BRK_FUNCTION` replaces an
-                        EXISTING function's signature, annotations, and body, including any Javadoc; it CANNOT create new functions
-                        without an existing one to replace. Do not generate more than one BRK_CLASS or BRK_FUNCTION edit
-                        for the same fully qualified symbol in a single response; combine all changes for that symbol into a single block.
+                      - Syntax-aware SEARCH: a single line consisting of BRK_CLASS, BRK_REPLACE_FUNCTION, or BRK_NEW_FUNCTION, followed by the FULLY QUALIFIED class or function name:
+                        `BRK_[CLASS|REPLACE_FUNCTION|NEW_FUNCTION] $fqname`. This applies to any named class-like (struct, record, interface, etc)
+                        or function-like (method, static method) entity, but NOT anonymous ones.
+                        - `BRK_REPLACE_FUNCTION` replaces an EXISTING function's signature, annotations, and body, including any Javadoc; it CANNOT create new functions.
+                        - `BRK_NEW_FUNCTION $fully.qualified.ClassName` inserts a new method inside the specified class; include any intended leading documentation comments (e.g., Javadoc) and annotations together with the method signature and body.
+                        Do not generate more than one BRK_CLASS, BRK_REPLACE_FUNCTION, or BRK_NEW_FUNCTION edit for the same fully qualified symbol in a single response; combine all changes for that symbol into a single block.
 
                         For BRK_CLASS specifically: include only the class/struct/interface declaration and its members (the class
                         header and body). Do NOT include file-level `package` declarations or `import` statements inside a
@@ -1041,7 +1045,8 @@ public abstract class CodePrompts {
             hintLines.add(
                     """
                             - Use syntax-aware SEARCH when you are replacing an entire class or function:
-                              - `BRK_FUNCTION` for a complete, non-overloaded method (signature, annotations, body, and Javadoc).
+                              - `BRK_REPLACE_FUNCTION` for a complete, non-overloaded method (signature, annotations, body, and leading documentation comments).
+                              - `BRK_NEW_FUNCTION` to insert a brand-new method into an existing class (provide the fully qualified class name).
                               - `BRK_CLASS` for the full body of a class-like declaration (without the surrounding package/imports).
                             """);
         }
@@ -1103,7 +1108,7 @@ public abstract class CodePrompts {
                 %s
                 **IMPORTANT**: The `BRK_` tokens are NEVER part of the file content, they are entity locators used only in SEARCH.
                 When writing REPLACE blocks, do **not** repeat the `BRK_` line.
-                The REPLACE block must ALWAYS contain ONLY the valid code (annotations, signature, body) that will overwrite the target.
+                The INSERT or REPLACE block must ALWAYS contain ONLY the valid code (leading documentation comments, annotations, signature, body) that will overwrite the target.
 
                 # General
                 Always write elegant, well-encapsulated code that is easy to maintain and use without mistakes.
@@ -1131,7 +1136,8 @@ public abstract class CodePrompts {
         }
         if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
             rows.add("| " + priority++
-                    + " | `BRK_FUNCTION` | Replacing a complete, non-overloaded method (signature + body) |");
+                    + " | `BRK_REPLACE_FUNCTION` | Replacing a complete, non-overloaded method (signature + body) |");
+            rows.add("| " + priority++ + " | `BRK_NEW_FUNCTION` | Inserting a new method into an existing class |");
             rows.add("| " + priority++ + " | `BRK_CLASS` | Replacing the entire body of a class-like declaration |");
         }
 
@@ -1304,17 +1310,17 @@ public abstract class CodePrompts {
 
         // ---------- Syntax-aware examples (only if enabled) ----------
         if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
-            // BRK_FUNCTION: replace a single method by fully qualified name
+            // BRK_REPLACE_FUNCTION: replace a single method by fully qualified name
             parts.add(
                     """
-                            ### Example %d — Syntax-aware SEARCH for a function (BRK_FUNCTION)
+                            ### Example %d — Syntax-aware SEARCH to replace a function (BRK_REPLACE_FUNCTION)
 
                             This replaces the method's signature and body, including the header comment block (e.g., JavaDoc).
 
                             ```
                             src/main/java/com/acme/Foo.java
                             <<<<<<< SEARCH
-                            BRK_FUNCTION com.acme.Foo.greet
+                            BRK_REPLACE_FUNCTION com.acme.Foo.greet
                             =======
                             /**
                              * Returns a greeting for the given name.
@@ -1323,6 +1329,29 @@ public abstract class CodePrompts {
                              */
                             public String greet(String name) {
                                 return "Hi, " + name;
+                            }
+                            >>>>>>> REPLACE
+                            ```
+                            """
+                            .formatted(ex++));
+            // BRK_NEW_FUNCTION: insert a new method into an existing class (include docs/annotations if needed)
+            parts.add(
+                    """
+                            ### Example %d — Syntax-aware SEARCH to add a new method (BRK_NEW_FUNCTION)
+
+                            Provide the fully qualified class name after BRK_NEW_FUNCTION and include any intended documentation
+                            comments and annotations together with the method signature and body in the REPLACE section.
+
+                            ```
+                            src/main/java/com/acme/Foo.java
+                            <<<<<<< SEARCH
+                            BRK_NEW_FUNCTION com.acme.Foo
+                            =======
+                            /**
+                             * Returns the current size.
+                             */
+                            public int size() {
+                                return 0;
                             }
                             >>>>>>> REPLACE
                             ```
