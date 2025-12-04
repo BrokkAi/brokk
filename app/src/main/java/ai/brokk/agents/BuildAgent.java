@@ -305,13 +305,14 @@ public class BuildAgent {
                 IMPORTANT: Only provide literal directory paths for excludedDirectories. DO NOT use glob patterns there.
 
                 Additionally, identify file patterns that should be excluded from code intelligence analysis.
-                Use the `excludedFilePatterns` parameter to specify glob patterns for files that are:
-                - Lock files: pnpm-lock.yaml, package-lock.json, yarn.lock, Cargo.lock, poetry.lock, go.sum
-                - Binary/media files: *.svg, *.png, *.jpg, *.gif, *.ico, *.woff, *.woff2, *.ttf
-                - Minified files: *.min.js, *.min.css, *.map
-                - Generated files: *.generated.*, *.d.ts (if not primary TypeScript project)
-                - Test resources: **/src/test/resources/**, **/test/fixtures/**
-                - CI/config files: **/LICENSE*, **/CHANGELOG*, model-metadata.json
+                Use the `excludedFilePatterns` parameter to specify glob patterns for files that add cost without value.
+                Look for patterns specific to this project. Examples of common exclusions include:
+                - Lock files (e.g., package-lock.json, yarn.lock, Cargo.lock, poetry.lock, go.sum)
+                - Binary/media files (e.g., *.svg, *.png, *.woff, *.ttf)
+                - Minified files (e.g., *.min.js, *.min.css)
+                - Generated or vendored code
+                - Test fixtures and resources (e.g., **/test/fixtures/**)
+                - Large data files, logs, or documentation assets
 
                 Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
                 The reportBuildDetails tool expects exactly five parameters: buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, and excludedFilePatterns.

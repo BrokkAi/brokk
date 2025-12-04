@@ -2020,4 +2020,141 @@ class ProjectFilteringGitRepoTest {
             }
         }
     }
+
+    // -------------------------
+    // File Pattern Exclusion Tests
+    // -------------------------
+
+    @Test
+    void getAllFiles_excludes_files_by_exact_filename_pattern(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        createFile(tempDir, "src/Main.java", "class Main {}");
+        createFile(tempDir, "package-lock.json", "{}");
+        createFile(tempDir, "src/package-lock.json", "{}"); // nested should also match
+
+        trackFiles(tempDir);
+
+        var project = new MainProject(tempDir);
+
+        // Set file pattern exclusion for exact filename
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("package-lock.json"), Map.of());
+        project.saveBuildDetails(buildDetails);
+
+        var allFiles = project.getAllFiles();
+
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/Main.java")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("package-lock.json")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/package-lock.json")));
+
+        project.close();
+    }
+
+    @Test
+    void getAllFiles_excludes_files_by_extension_pattern(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        createFile(tempDir, "src/Main.java", "class Main {}");
+        createFile(tempDir, "assets/logo.svg", "<svg/>");
+        createFile(tempDir, "icons/icon.svg", "<svg/>");
+        createFile(tempDir, "app.min.js", "minified");
+
+        trackFiles(tempDir);
+
+        var project = new MainProject(tempDir);
+
+        // Set file pattern exclusions for extension patterns
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("*.svg", "*.min.js"), Map.of());
+        project.saveBuildDetails(buildDetails);
+
+        var allFiles = project.getAllFiles();
+
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/Main.java")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith(".svg")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("app.min.js")));
+
+        project.close();
+    }
+
+    @Test
+    void getAllFiles_excludes_files_by_glob_path_pattern(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        createFile(tempDir, "src/Main.java", "class Main {}");
+        createFile(tempDir, "src/test/resources/data.json", "{}");
+        createFile(tempDir, "src/test/resources/nested/config.yaml", "key: value");
+        createFile(tempDir, "src/main/resources/app.json", "{}"); // should NOT be excluded
+
+        trackFiles(tempDir);
+
+        var project = new MainProject(tempDir);
+
+        // Set file pattern exclusion for path glob
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("**/test/resources/**"), Map.of());
+        project.saveBuildDetails(buildDetails);
+
+        var allFiles = project.getAllFiles();
+
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/Main.java")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/main/resources/app.json")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).contains("test/resources/")));
+
+        project.close();
+    }
+
+    @Test
+    void getAllFiles_combines_directory_and_file_pattern_exclusions(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        createFile(tempDir, "src/Main.java", "class Main {}");
+        createFile(tempDir, "vendor/lib.java", "class Lib {}"); // directory exclusion
+        createFile(tempDir, "package-lock.json", "{}"); // file pattern exclusion
+        createFile(tempDir, "assets/logo.svg", "<svg/>"); // extension pattern exclusion
+
+        trackFiles(tempDir);
+
+        var project = new MainProject(tempDir);
+
+        // Set both directory and file pattern exclusions
+        var buildDetails =
+                new BuildAgent.BuildDetails("", "", "", Set.of("vendor"), Set.of("package-lock.json", "*.svg"), Map.of());
+        project.saveBuildDetails(buildDetails);
+
+        var allFiles = project.getAllFiles();
+
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/Main.java")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).startsWith("vendor/")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("package-lock.json")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).endsWith(".svg")));
+
+        project.close();
+    }
+
+    @Test
+    void getAllFiles_file_patterns_preserved_across_save_load(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        createFile(tempDir, "src/Main.java", "class Main {}");
+        createFile(tempDir, "yarn.lock", "lockfile");
+
+        trackFiles(tempDir);
+
+        var project = new MainProject(tempDir);
+
+        // Save build details with file patterns
+        var buildDetails =
+                new BuildAgent.BuildDetails("build", "test", "test {{files}}", Set.of(), Set.of("yarn.lock", "*.svg"), Map.of());
+        project.saveBuildDetails(buildDetails);
+
+        // Reload and verify patterns are preserved
+        var loaded = project.loadBuildDetails();
+        assertTrue(loaded.excludedFilePatterns().contains("yarn.lock"));
+        assertTrue(loaded.excludedFilePatterns().contains("*.svg"));
+
+        // Verify filtering still works
+        var allFiles = project.getAllFiles();
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("yarn.lock")));
+
+        project.close();
+    }
 }

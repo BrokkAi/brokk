@@ -94,6 +94,22 @@ public class BuildDetailsPathNormalizationTest {
     }
 
     @Test
+    void testLegacyJson_withoutFilePatterns_loadsWithEmptySet() throws Exception {
+        // Old JSON format without excludedFilePatterns field - should deserialize with empty set
+        String oldJson = """
+            {"buildLintCommand":"mvn compile","testAllCommand":"mvn test","testSomeCommand":"",\
+            "excludedDirectories":["target"],"environmentVariables":{}}
+            """;
+
+        var details = MAPPER.readValue(oldJson, BuildAgent.BuildDetails.class);
+
+        assertNotNull(details.excludedFilePatterns(), "excludedFilePatterns should not be null");
+        assertTrue(details.excludedFilePatterns().isEmpty(), "excludedFilePatterns should be empty for legacy JSON");
+        assertEquals("mvn compile", details.buildLintCommand());
+        assertEquals(Set.of("target"), details.excludedDirectories());
+    }
+
+    @Test
     void testLegacyJson_loadsAndRewrites(@TempDir Path root) throws Exception {
         // Arrange: pre-write legacy JSON with backslashes, leading "/", and absolute-under-project paths
         Path fooAbs = root.resolve("foo");
