@@ -5,14 +5,10 @@ import {parse} from '../worker/worker-bridge';
 import {register, unregister, isRegistered} from '../worker/parseRouter';
 import { getNextThreadId, threadStore } from './threadStore';
 import { setSummaryEntry, updateSummaryTree, deleteSummaryEntry, clearAllSummaryEntries, getSummaryEntry } from './summaryStore';
+import { allocSummarySeq, allocHistoryMsgSeq } from '../shared/seq';
 
 export const historyStore = writable<HistoryTask[]>([]);
 
-// Start history bubble sequences at a high number to avoid any collision with the main bubblesStore
-let nextHistoryBubbleSeq = 1_000_000;
-
-// Start summary parse sequences at an even higher number to avoid collisions
-let nextSummaryParseSeq = 2_000_000;
 
 function handleParseResult(msg: ResultMsg, threadId: number): void {
     historyStore.update(currentTasks => {
@@ -59,7 +55,7 @@ export function onHistoryEvent(evt: BrokkEvent): void {
                 (evt.messages ?? []).forEach(msg => {
                     const isReasoning = !!msg.reasoning;
                     entries.push({
-                        seq: nextHistoryBubbleSeq++,
+                        seq: allocHistoryMsgSeq(),
                         threadId: threadId,
                         type: msg.msgType,
                         markdown: msg.text,
@@ -96,7 +92,7 @@ export function onHistoryEvent(evt: BrokkEvent): void {
 
                 // Parse summary if present and compressed
                 if (evt.compressed && evt.summary) {
-                    const summarySeq = nextSummaryParseSeq++;
+                    const summarySeq = allocSummarySeq();
                     setSummaryEntry(threadId, {
                         seq: summarySeq,
                         text: evt.summary,
@@ -152,8 +148,4 @@ export function reparseAll(): void {
         }
         return tasks;
     });
-}
-
-export function reparseAllOnLangsReady(): void {
-    reparseAll();
 }

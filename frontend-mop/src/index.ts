@@ -17,6 +17,7 @@ import { envStore } from './stores/envStore';
 import { setSummaryEntry, deleteSummaryEntry, getSummaryEntry, updateSummaryTree, summaryStore } from './stores/summaryStore';
 import { register, unregister, isRegistered } from './worker/parseRouter';
 import { parse } from './worker/worker-bridge';
+import { allocSummarySeq } from './shared/seq';
 
 const mainLog = createLogger('main');
 
@@ -128,10 +129,8 @@ async function handleEvent(payload: any): Promise<void> {
     });
 }
 
-let nextSummaryParseSeq = 2_000_000;
-
 function onLiveSummary(payload: any): void {
-    const { compressed, summary, taskSequence } = payload;
+    const { compressed, summary } = payload;
 
     // Get the current live thread's threadId directly (doesn't depend on bubbles existing)
     const threadId = getCurrentLiveThreadId();
@@ -144,7 +143,7 @@ function onLiveSummary(payload: any): void {
     deleteSummaryEntry(threadId);
 
     // Create a new sequence number for this summary parse
-    const summarySeq = nextSummaryParseSeq++;
+    const summarySeq = allocSummarySeq();
 
     // Store the summary entry in summaryParseStore (merged metadata)
     setSummaryEntry(threadId, {
