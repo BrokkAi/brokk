@@ -41,20 +41,24 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             Set.of(VISIBILITY_MODIFIER));
 
     public RustAnalyzer(IProject project) {
-        super(project, Languages.RUST);
+        this(project, ProgressListener.NOOP);
     }
 
-    private RustAnalyzer(IProject project, AnalyzerState state) {
-        super(project, Languages.RUST, state);
+    public RustAnalyzer(IProject project, ProgressListener listener) {
+        super(project, Languages.RUST, listener);
     }
 
-    public static RustAnalyzer fromState(IProject project, AnalyzerState state) {
-        return new RustAnalyzer(project, state);
+    private RustAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
+        super(project, Languages.RUST, state, listener);
+    }
+
+    public static RustAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+        return new RustAnalyzer(project, state, listener);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state) {
-        return new RustAnalyzer(getProject(), state);
+    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+        return new RustAnalyzer(getProject(), state, listener);
     }
 
     @Override

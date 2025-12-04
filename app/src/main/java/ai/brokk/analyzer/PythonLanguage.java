@@ -47,30 +47,16 @@ public class PythonLanguage implements Language {
     }
 
     @Override
-    public IAnalyzer createAnalyzer(IProject project) {
-        return new PythonAnalyzer(project);
-    }
-
-    @Override
-    public IAnalyzer createAnalyzer(IProject project, @Nullable IAnalyzer.ProgressListener listener) {
+    public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
         return new PythonAnalyzer(project, listener);
     }
 
     @Override
-    public IAnalyzer loadAnalyzer(IProject project) {
-        var storage = getStoragePath(project);
-        return TreeSitterStateIO.load(storage)
-                .map(state -> (IAnalyzer) PythonAnalyzer.fromState(project, state))
-                .orElseGet(() -> createAnalyzer(project));
-    }
-
-    @Override
-    public IAnalyzer loadAnalyzer(IProject project, @Nullable IAnalyzer.ProgressListener listener) {
+    public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
         var storage = getStoragePath(project);
         return TreeSitterStateIO.load(storage)
                 .map(state -> {
-                    var analyzer = PythonAnalyzer.fromState(project, state);
-                    if (listener != null) analyzer.addProgressListener(listener);
+                    var analyzer = PythonAnalyzer.fromState(project, state, listener);
                     return (IAnalyzer) analyzer;
                 })
                 .orElseGet(() -> createAnalyzer(project, listener));

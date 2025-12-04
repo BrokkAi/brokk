@@ -37,30 +37,16 @@ public class Languages {
         } // For compatibility
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project) {
-            return new CSharpAnalyzer(project);
-        }
-
-        @Override
-        public IAnalyzer createAnalyzer(IProject project, @Nullable IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
             return new CSharpAnalyzer(project, listener);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project) {
-            var storage = getStoragePath(project);
-            return TreeSitterStateIO.load(storage)
-                    .map(state -> (IAnalyzer) CSharpAnalyzer.fromState(project, state))
-                    .orElseGet(() -> createAnalyzer(project));
-        }
-
-        @Override
-        public IAnalyzer loadAnalyzer(IProject project, @Nullable IAnalyzer.ProgressListener listener) {
+        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
             var storage = getStoragePath(project);
             return TreeSitterStateIO.load(storage)
                     .map(state -> {
-                        var analyzer = CSharpAnalyzer.fromState(project, state);
-                        if (listener != null) analyzer.addProgressListener(listener);
+                        var analyzer = CSharpAnalyzer.fromState(project, state, listener);
                         return (IAnalyzer) analyzer;
                     })
                     .orElseGet(() -> createAnalyzer(project, listener));
@@ -91,30 +77,16 @@ public class Languages {
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project) {
-            return new JavascriptAnalyzer(project);
-        }
-
-        @Override
-        public IAnalyzer createAnalyzer(IProject project, @Nullable IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
             return new JavascriptAnalyzer(project, listener);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project) {
-            var storage = getStoragePath(project);
-            return TreeSitterStateIO.load(storage)
-                    .map(state -> (IAnalyzer) JavascriptAnalyzer.fromState(project, state))
-                    .orElseGet(() -> createAnalyzer(project));
-        }
-
-        @Override
-        public IAnalyzer loadAnalyzer(IProject project, @Nullable IAnalyzer.ProgressListener listener) {
+        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
             var storage = getStoragePath(project);
             return TreeSitterStateIO.load(storage)
                     .map(state -> {
-                        var analyzer = JavascriptAnalyzer.fromState(project, state);
-                        if (listener != null) analyzer.addProgressListener(listener);
+                        var analyzer = JavascriptAnalyzer.fromState(project, state, listener);
                         return (IAnalyzer) analyzer;
                     })
                     .orElseGet(() -> createAnalyzer(project, listener));
@@ -173,33 +145,16 @@ public class Languages {
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project) {
-            return new CppAnalyzer(project);
-        }
-
-        @Override
-        public IAnalyzer createAnalyzer(IProject project, @Nullable IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
             return new CppAnalyzer(project, listener);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project) {
+        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
             var storage = getStoragePath(project);
             return TreeSitterStateIO.load(storage)
-                    .map(state -> (IAnalyzer) CppAnalyzer.fromState(project, state))
-                    .orElseGet(() -> createAnalyzer(project));
-        }
-
-        @Override
-        public IAnalyzer loadAnalyzer(IProject project, @Nullable IAnalyzer.ProgressListener listener) {
-            var storage = getStoragePath(project);
-            return TreeSitterStateIO.load(storage)
-                    .map(state -> {
-                        var analyzer = CppAnalyzer.fromState(project, state);
-                        if (listener != null) analyzer.addProgressListener(listener);
-                        return (IAnalyzer) analyzer;
-                    })
-                    .orElseGet(() -> createAnalyzer(project, listener));
+                    .map(state -> CppAnalyzer.fromState(project, state, listener))
+                    .orElseGet(() -> (CppAnalyzer) createAnalyzer(project, listener));
         }
     };
     public static final Language GO = new Language() {
@@ -226,30 +181,16 @@ public class Languages {
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project) {
-            return new GoAnalyzer(project);
-        }
-
-        @Override
-        public IAnalyzer createAnalyzer(IProject project, @Nullable IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
             return new GoAnalyzer(project, listener);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project) {
-            var storage = getStoragePath(project);
-            return TreeSitterStateIO.load(storage)
-                    .map(state -> (IAnalyzer) GoAnalyzer.fromState(project, state))
-                    .orElseGet(() -> createAnalyzer(project));
-        }
-
-        @Override
-        public IAnalyzer loadAnalyzer(IProject project, @Nullable IAnalyzer.ProgressListener listener) {
+        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
             var storage = getStoragePath(project);
             return TreeSitterStateIO.load(storage)
                     .map(state -> {
-                        var analyzer = GoAnalyzer.fromState(project, state);
-                        if (listener != null) analyzer.addProgressListener(listener);
+                        var analyzer = GoAnalyzer.fromState(project, state, listener);
                         return (IAnalyzer) analyzer;
                     })
                     .orElseGet(() -> createAnalyzer(project, listener));
@@ -279,30 +220,16 @@ public class Languages {
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project) {
-            return new CppAnalyzer(project);
-        }
-
-        @Override
-        public IAnalyzer createAnalyzer(IProject project, @Nullable IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
             return new CppAnalyzer(project, listener);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project) {
-            var storage = getStoragePath(project);
-            return TreeSitterStateIO.load(storage)
-                    .map(state -> (IAnalyzer) CppAnalyzer.fromState(project, state))
-                    .orElseGet(() -> createAnalyzer(project));
-        }
-
-        @Override
-        public IAnalyzer loadAnalyzer(IProject project, @Nullable IAnalyzer.ProgressListener listener) {
+        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
             var storage = getStoragePath(project);
             return TreeSitterStateIO.load(storage)
                     .map(state -> {
-                        var analyzer = CppAnalyzer.fromState(project, state);
-                        if (listener != null) analyzer.addProgressListener(listener);
+                        var analyzer = CppAnalyzer.fromState(project, state, listener);
                         return (IAnalyzer) analyzer;
                     })
                     .orElseGet(() -> createAnalyzer(project, listener));
@@ -333,13 +260,13 @@ public class Languages {
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project) {
+        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
             return new DisabledAnalyzer(project);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project) {
-            return createAnalyzer(project);
+        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+            return createAnalyzer(project, listener);
         }
     };
     public static final Language PHP = new Language() {
@@ -366,30 +293,16 @@ public class Languages {
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project) {
-            return new PhpAnalyzer(project);
-        }
-
-        @Override
-        public IAnalyzer createAnalyzer(IProject project, @Nullable IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
             return new PhpAnalyzer(project, listener);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project) {
-            var storage = getStoragePath(project);
-            return TreeSitterStateIO.load(storage)
-                    .map(state -> (IAnalyzer) PhpAnalyzer.fromState(project, state))
-                    .orElseGet(() -> createAnalyzer(project));
-        }
-
-        @Override
-        public IAnalyzer loadAnalyzer(IProject project, @Nullable IAnalyzer.ProgressListener listener) {
+        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
             var storage = getStoragePath(project);
             return TreeSitterStateIO.load(storage)
                     .map(state -> {
-                        var analyzer = PhpAnalyzer.fromState(project, state);
-                        if (listener != null) analyzer.addProgressListener(listener);
+                        var analyzer = PhpAnalyzer.fromState(project, state, listener);
                         return (IAnalyzer) analyzer;
                     })
                     .orElseGet(() -> createAnalyzer(project, listener));
@@ -435,16 +348,16 @@ public class Languages {
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project) {
+        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
             var excludedDirStrings = project.getExcludedDirectories();
             var excludedPaths = excludedDirStrings.stream().map(Path::of).collect(Collectors.toSet());
             return new SqlAnalyzer(project, excludedPaths);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project) {
+        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
             // SQLAnalyzer does not save/load state from disk beyond re-parsing
-            return createAnalyzer(project);
+            return createAnalyzer(project, listener);
         }
     };
     public static final Language TYPESCRIPT = new Language() {
@@ -467,30 +380,16 @@ public class Languages {
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project) {
-            return new TypescriptAnalyzer(project);
-        }
-
-        @Override
-        public IAnalyzer createAnalyzer(IProject project, @Nullable IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
             return new TypescriptAnalyzer(project, listener);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project) {
-            var storage = getStoragePath(project);
-            return TreeSitterStateIO.load(storage)
-                    .map(state -> (IAnalyzer) TypescriptAnalyzer.fromState(project, state))
-                    .orElseGet(() -> createAnalyzer(project));
-        }
-
-        @Override
-        public IAnalyzer loadAnalyzer(IProject project, @Nullable IAnalyzer.ProgressListener listener) {
+        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
             var storage = getStoragePath(project);
             return TreeSitterStateIO.load(storage)
                     .map(state -> {
-                        var analyzer = TypescriptAnalyzer.fromState(project, state);
-                        if (listener != null) analyzer.addProgressListener(listener);
+                        var analyzer = TypescriptAnalyzer.fromState(project, state, listener);
                         return (IAnalyzer) analyzer;
                     })
                     .orElseGet(() -> createAnalyzer(project, listener));

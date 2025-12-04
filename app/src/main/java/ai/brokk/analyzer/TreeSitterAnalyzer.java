@@ -74,7 +74,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     private static final Set<String> COMMON_HIERARCHY_SEPARATORS = Set.of(".", "$", "::", "->");
 
     // Progress listeners for reporting parsing progress to UI
-    private final Set<ProgressListener> progressListeners = ConcurrentHashMap.newKeySet();
+    private final ProgressListener progressListener;
 
     // Comparator for sorting CodeUnit definitions by priority
     private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
@@ -274,16 +274,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
     }
 
-    @Override
-    public void addProgressListener(ProgressListener listener) {
-        progressListeners.add(listener);
-    }
-
-    @Override
-    public void removeProgressListener(ProgressListener listener) {
-        progressListeners.remove(listener);
-    }
-
     /**
      * Helper class for push-based progress reporting with debouncing.
      * Notifies listeners when progress changes, but not more often than the debounce interval.
@@ -307,37 +297,33 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             // Report if debounce time elapsed or if we're done
             if (now - lastReportTimeMs >= debounceMs || current == total) {
                 lastReportTimeMs = now;
-                notifyListeners(current, total, phase);
+                notifyProgressListener(current, total, phase);
             }
         }
 
         void reportFinal() {
-            notifyListeners(total, total, phase);
+            notifyProgressListener(total, total, phase);
         }
     }
 
-    private void notifyListeners(int completed, int total, String phase) {
-        for (var listener : progressListeners) {
-            try {
-                listener.onProgress(completed, total, phase);
-            } catch (Exception e) {
-                log.warn("Progress listener threw exception", e);
-            }
+    private void notifyProgressListener(int completed, int total, String phase) {
+        try {
+            progressListener.onProgress(completed, total, phase);
+        } catch (Exception e) {
+            log.warn("Progress listener threw exception", e);
         }
     }
 
     /* ---------- constructor ---------- */
     protected TreeSitterAnalyzer(IProject project, Language language) {
-        this(project, language, (ProgressListener) null);
+        this(project, language, ProgressListener.NOOP);
     }
 
-    protected TreeSitterAnalyzer(IProject project, Language language, @Nullable ProgressListener listener) {
+    protected TreeSitterAnalyzer(IProject project, Language language, ProgressListener listener) {
         this.project = project;
         this.language = language;
         // Register listener early so it receives progress during construction
-        if (listener != null) {
-            progressListeners.add(listener);
-        }
+        progressListener = listener;
         this.normalizedExcludedPaths = project.getExcludedDirectories().stream()
                 .map(Path::of)
                 .map(p -> p.isAbsolute()
@@ -539,6 +525,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         lastUpdateEpochNanos.set(initNowNanos);
     }
 
+    protected TreeSitterAnalyzer(IProject project, Language language, AnalyzerState prebuiltState) {
+        this(project, language, prebuiltState, ProgressListener.NOOP);
+    }
+
+    protected final ProgressListener getProgressListener() {
+        return this.progressListener;
+    }
+
     /**
      * Secondary constructor for snapshot instances: does not perform initial project-wide analysis,
      * but installs the provided prebuilt AnalyzerState as-is.
@@ -547,9 +541,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * references will be null (parsed trees are not persisted). This is safe; logic must not rely
      * on parsedTree being non-null after load.
      */
-    protected TreeSitterAnalyzer(IProject project, Language language, AnalyzerState prebuiltState) {
+    protected TreeSitterAnalyzer(
+            IProject project, Language language, AnalyzerState prebuiltState, ProgressListener listener) {
         this.project = project;
         this.language = language;
+        this.progressListener = listener;
 
         this.normalizedExcludedPaths = project.getExcludedDirectories().stream()
                 .map(Path::of)
@@ -3352,7 +3348,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * @param state the new state to construct with.
      * @return a new analyzer.
      */
-    protected abstract IAnalyzer newSnapshot(AnalyzerState state);
+    protected final IAnalyzer newSnapshot(AnalyzerState state) {
+        return newSnapshot(state, getProgressListener());
+    }
+
+    protected abstract IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener);
 
     @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {

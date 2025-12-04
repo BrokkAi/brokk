@@ -33,6 +33,7 @@ public interface IAnalyzer {
      */
     @FunctionalInterface
     interface ProgressListener {
+        ProgressListener NOOP = new NoopProgressListener();
         /**
          * Called to report progress during analyzer operations.
          *
@@ -43,23 +44,11 @@ public interface IAnalyzer {
         void onProgress(int completed, int total, String phase);
     }
 
-    /**
-     * Registers a progress listener to receive updates during analyzer operations.
-     * Listeners are notified during construction and update operations.
-     *
-     * @param listener the listener to add
-     */
-    default void addProgressListener(ProgressListener listener) {
-        // Default no-op for analyzers that don't support progress reporting
-    }
-
-    /**
-     * Removes a previously registered progress listener.
-     *
-     * @param listener the listener to remove
-     */
-    default void removeProgressListener(ProgressListener listener) {
-        // Default no-op for analyzers that don't support progress reporting
+    class NoopProgressListener implements ProgressListener {
+        @Override
+        public void onProgress(int completed, int total, String phase) {
+            // No-op
+        }
     }
 
     // Basics

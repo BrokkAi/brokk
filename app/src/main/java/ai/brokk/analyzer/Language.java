@@ -20,7 +20,9 @@ public interface Language {
 
     String internalName(); // Filesystem-safe
 
-    IAnalyzer createAnalyzer(IProject project);
+    default IAnalyzer createAnalyzer(IProject project) {
+        return createAnalyzer(project, IAnalyzer.ProgressListener.NOOP);
+    }
 
     /**
      * Creates an analyzer with a progress listener that will receive updates during construction.
@@ -28,32 +30,22 @@ public interface Language {
      * initial construction progress won't be reported). Implementations should override to
      * pass the listener through construction if progress reporting during build is desired.
      */
-    default IAnalyzer createAnalyzer(IProject project, @Nullable IAnalyzer.ProgressListener listener) {
-        var analyzer = createAnalyzer(project);
-        if (listener != null) {
-            analyzer.addProgressListener(listener);
-        }
-        return analyzer;
-    }
+    IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener);
 
     /**
      * ACHTUNG! LoadAnalyzer can throw if the file on disk is corrupt or simply an obsolete format, so never call it
      * outside of try/catch with recovery!
      */
-    IAnalyzer loadAnalyzer(IProject project);
+    default IAnalyzer loadAnalyzer(IProject project) {
+        return loadAnalyzer(project, IAnalyzer.ProgressListener.NOOP);
+    }
 
     /**
      * Loads an analyzer with a progress listener that will receive updates during loading/rebuilding.
      * Default implementation loads the analyzer and adds the listener afterward.
      * Implementations should override to pass the listener through if progress reporting is desired.
      */
-    default IAnalyzer loadAnalyzer(IProject project, @Nullable IAnalyzer.ProgressListener listener) {
-        var analyzer = loadAnalyzer(project);
-        if (listener != null) {
-            analyzer.addProgressListener(listener);
-        }
-        return analyzer;
-    }
+    IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener);
 
     /**
      * Get the path where the storage for this analyzer in the given project should be stored.
@@ -219,12 +211,7 @@ public interface Language {
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project) {
-            return createAnalyzer(project, null);
-        }
-
-        @Override
-        public IAnalyzer createAnalyzer(IProject project, @Nullable IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
             var delegates = new HashMap<Language, IAnalyzer>();
             for (var lang : languages) {
                 var analyzer = lang.createAnalyzer(project, listener);
@@ -234,12 +221,7 @@ public interface Language {
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project) {
-            return loadAnalyzer(project, null);
-        }
-
-        @Override
-        public IAnalyzer loadAnalyzer(IProject project, @Nullable IAnalyzer.ProgressListener listener) {
+        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
             var delegates = new HashMap<Language, IAnalyzer>();
             for (var lang : languages) {
                 var analyzer = lang.loadAnalyzer(project, listener);

@@ -54,24 +54,24 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             );
 
     public PythonAnalyzer(IProject project) {
-        super(project, Languages.PYTHON);
+        this(project, ProgressListener.NOOP);
     }
 
-    public PythonAnalyzer(IProject project, @Nullable ProgressListener listener) {
+    public PythonAnalyzer(IProject project, ProgressListener listener) {
         super(project, Languages.PYTHON, listener);
     }
 
-    private PythonAnalyzer(IProject project, AnalyzerState state) {
-        super(project, Languages.PYTHON, state);
+    private PythonAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
+        super(project, Languages.PYTHON, state, listener);
     }
 
-    public static PythonAnalyzer fromState(IProject project, AnalyzerState state) {
-        return new PythonAnalyzer(project, state);
+    public static PythonAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+        return new PythonAnalyzer(project, state, listener);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state) {
-        return new PythonAnalyzer(getProject(), state);
+    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+        return new PythonAnalyzer(getProject(), state, listener);
     }
 
     @Override
