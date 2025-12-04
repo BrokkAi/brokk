@@ -8,6 +8,7 @@
   <a href="https://discord.com/invite/qYQ2Zg2PX7">Discord</a> •
   <a href="https://blog.brokk.ai">Blog</a> •
   <a href="https://www.youtube.com/@Brokk_AI">YouTube</a> •
+  <a href="https://github.com/BrokkAi/brokk/releases">Download</a> •
   <a href="#getting-started">Getting Started</a>
 </p>
 
@@ -21,11 +22,6 @@
   <a href="https://github.com/BrokkAi/brokk/blob/master/LICENSE"><img alt="License" src="https://img.shields.io/github/license/BrokkAi/brokk"></a>
 </p>
 
-<p align="center">
-  <a href="https://brokk.ai/power-ranking">
-    <img alt="Brokk Power Ranking" src="https://img.shields.io/badge/Brokk%20Power%20Ranking-open-7b61ff">
-  </a>
-</p>
 
 # Brokk — AI-native code platform for million-line repos
 
@@ -132,6 +128,13 @@ This gives a quick "fitness for this task" indicator so you can choose the best 
   - Blender - Autonomous precision bug fix in a 21k-file C++ codebase. Watch on YouTube: https://www.youtube.com/watch?v=t2E6AOasb-0&t=4s
 
 
+## Who is it for?
+
+- Enterprise staff and principal engineers working on decade-old or multi-repo services.
+- Platform and developer productivity teams aiming for 5x+ effectiveness across large codebases.
+- Architects and tech leads driving major modernization or migration projects.
+- Power users who have hit the scaling limits of traditional AI code editors on million-line repos.
+
 ## Getting Started
 
 1. Register and get an API key
@@ -155,6 +158,18 @@ This gives a quick "fitness for this task" indicator so you can choose the best 
    - For building from source: JDK 21 or newer (JetBrains Runtime recommended).
    - Supported platforms: recent macOS, Windows, and Linux distributions.
 
-## Development and contributing
+## Community & Social
+
+- Discord: https://discord.com/invite/qYQ2Zg2PX7
+- YouTube: https://www.youtube.com/@Brokk_AI
+- Blog: https://blog.brokk.ai
+- LinkedIn: https://www.linkedin.com/company/buildwithbrokk
+- X (Twitter): https://x.com/BuildWithBrokk
+
+## Contributing
 
 For building from source, JVM heap tuning, headless executor CLI usage, contributor setup, coding standards, and the full developer workflow, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+Brokk is open source under the terms of the [LICENSE](LICENSE.txt) file in this repository.
