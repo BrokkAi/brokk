@@ -166,7 +166,8 @@ public class ImageUtil {
      * @return PNG bytes, or null if image is null
      * @throws IOException If conversion fails
      */
-    public static byte @Nullable [] imageToBytes(@Nullable Image image) throws IOException {
+    @Nullable
+    public static byte[] imageToBytes(@Nullable Image image) throws IOException {
         if (image == null) {
             return null;
         }

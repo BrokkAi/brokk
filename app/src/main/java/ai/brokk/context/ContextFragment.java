@@ -911,7 +911,7 @@ public interface ContextFragment {
                             Image img = ImageIO.read(imageFile);
                             if (img != null) {
                                 bytes = ImageUtil.imageToBytes(img);
-                                if (bytes != null && bytes.length == 0) {
+                                if (bytes.length == 0) {
                                     bytes = null;
                                 }
                             }
