@@ -123,7 +123,14 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected @Nullable CodeUnit createCodeUnit(
-            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
+            ProjectFile file,
+            String captureName,
+            String simpleName,
+            String packageName,
+            String classChain,
+            List<ScopeSegment> scopeChain,
+            @Nullable TSNode definitionNode,
+            SkeletonType skeletonType) {
         final char delimiter =
                 Optional.ofNullable(CPP_SYNTAX_PROFILE.captureConfiguration().get(captureName)).stream()
                                 .anyMatch(x -> x.equals(SkeletonType.CLASS_LIKE))
@@ -140,8 +147,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         }
 
         String fqName = correctedClassChain.isEmpty() ? simpleName : correctedClassChain + delimiter + simpleName;
-
-        var skeletonType = getSkeletonTypeForCapture(captureName);
 
         var type =
                 switch (skeletonType) {

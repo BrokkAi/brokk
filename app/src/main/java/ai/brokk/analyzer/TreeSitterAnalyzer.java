@@ -1167,13 +1167,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Creates a CodeUnit with access to the typed scope chain.
-     * This overload provides analyzers with type-safe access to enclosing scope information,
-     * eliminating the need to encode/decode type markers in the classChain string.
+     * Translate a capture produced by the query into a {@link CodeUnit}. Return {@code null} to ignore this capture.
      *
+     * @param file the source file
+     * @param captureName the query capture name identifying the kind of definition
+     * @param simpleName the simple name of the symbol
+     * @param packageName the package/module name
+     * @param classChain dot-separated chain of enclosing class names
      * @param scopeChain typed list of enclosing scopes (outermost first), never null but may be empty
+     * @param definitionNode the AST node for the definition, may be null
+     * @param skeletonType the refined skeleton type for this capture
      */
-    protected @Nullable CodeUnit createCodeUnit(
+    @Nullable
+    protected abstract CodeUnit createCodeUnit(
             ProjectFile file,
             String captureName,
             String simpleName,
@@ -1181,33 +1187,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             String classChain,
             List<ScopeSegment> scopeChain,
             @Nullable TSNode definitionNode,
-            SkeletonType skeletonType) {
-        // Default: delegate to 7-param overload, ignoring scopeChain
-        return createCodeUnit(file, captureName, simpleName, packageName, classChain, definitionNode, skeletonType);
-    }
-
-    /**
-     * Creates a CodeUnit from capture and node information, with access to the refined skeleton type.
-     * This overload provides subclasses with both the raw AST node and the refined SkeletonType
-     * when constructing CodeUnit instances.
-     */
-    protected @Nullable CodeUnit createCodeUnit(
-            ProjectFile file,
-            String captureName,
-            String simpleName,
-            String packageName,
-            String classChain,
-            @Nullable TSNode definitionNode,
-            SkeletonType skeletonType) {
-        return createCodeUnit(file, captureName, simpleName, packageName, classChain);
-    }
-
-    /**
-     * Translate a capture produced by the query into a {@link CodeUnit}. Return {@code null} to ignore this capture.
-     */
-    @Nullable
-    protected abstract CodeUnit createCodeUnit(
-            ProjectFile file, String captureName, String simpleName, String packageName, String classChain);
+            SkeletonType skeletonType);
 
     /* ---------- Signature Building Logic ---------- */
 
@@ -1908,9 +1888,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
                                             // Build typed scope chain - determine scope type from node type
                                             var nodeType = parent.getType();
-                                            var scopeType = langProfileForLambda.functionLikeNodeTypes().contains(nodeType)
+                                            var scopeType = langProfileForLambda
+                                                            .functionLikeNodeTypes()
+                                                            .contains(nodeType)
                                                     ? ScopeType.FUNCTION
-                                                    : langProfileForLambda.classLikeNodeTypes().contains(nodeType)
+                                                    : langProfileForLambda
+                                                                    .classLikeNodeTypes()
+                                                                    .contains(nodeType)
                                                             ? ScopeType.CLASS
                                                             : ScopeType.UNKNOWN;
                                             enclosingScopes.addFirst(new ScopeSegment(parentName, scopeType));
@@ -1944,8 +1928,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 continue;
             }
 
-            CodeUnit cu = createCodeUnit(file, primaryCaptureName, simpleName, packageName,
-                                         classChain, scopeChain, node, skeletonType);
+            CodeUnit cu = createCodeUnit(
+                    file, primaryCaptureName, simpleName, packageName, classChain, scopeChain, node, skeletonType);
             log.trace("createCodeUnit returned: {}", cu);
 
             if (cu == null) {

@@ -121,16 +121,6 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected @Nullable CodeUnit createCodeUnit(
-            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
-        // This overload exists for backward compatibility but should not be called
-        // in normal operation since we override the 8-param version.
-        // Fall back to parsing classChain if called directly.
-        throw new UnsupportedOperationException(
-                "PythonAnalyzer requires typed scopeChain; use 8-param createCodeUnit");
-    }
-
-    @Override
-    protected @Nullable CodeUnit createCodeUnit(
             ProjectFile file,
             String captureName,
             String simpleName,

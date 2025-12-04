@@ -164,6 +164,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             String simpleName,
             String packageName,
             String classChain,
+            List<ScopeSegment> scopeChain,
             @Nullable TSNode definitionNode,
             SkeletonType skeletonType) {
         // In TypeScript, namespaces appear in BOTH packageName and classChain.
@@ -240,13 +241,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 throw new UnsupportedOperationException("Unsupported skeleton type: " + skeletonType);
             }
         }
-    }
-
-    @Override
-    protected @Nullable CodeUnit createCodeUnit(
-            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
-        SkeletonType skeletonType = getSkeletonTypeForCapture(captureName);
-        return createCodeUnit(file, captureName, simpleName, packageName, classChain, null, skeletonType);
     }
 
     @Override
