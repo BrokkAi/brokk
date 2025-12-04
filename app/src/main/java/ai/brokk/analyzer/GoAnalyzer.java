@@ -412,7 +412,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    public Optional<String> extractClassName(String reference) {
+    public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForGo(reference);
     }
 }

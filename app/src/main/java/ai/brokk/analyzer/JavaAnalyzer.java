@@ -40,7 +40,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    public Optional<String> extractClassName(String reference) {
+    public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForJava(reference);
     }
 

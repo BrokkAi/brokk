@@ -126,12 +126,12 @@ public interface IAnalyzer {
     /**
      * Extracts the class/module/type name from a method/member reference like "MyClass.myMethod". This is a heuristic
      * method that may produce false positives/negatives.
-     * Package-private: external callers should use {@link ai.brokk.AnalyzerUtil#extractClassName}.
+     * Package-private: external callers should use {@link ai.brokk.AnalyzerUtil#extractCallReceiver}.
      *
      * @param reference The reference string to analyze (e.g., "MyClass.myMethod", "package::Class::method")
      * @return Optional containing the extracted class/module name, empty if none found
      */
-    Optional<String> extractClassName(String reference);
+    Optional<String> extractCallReceiver(String reference);
 
     /**
      * @return the import snippets for the given file where other code units may be referred to by.

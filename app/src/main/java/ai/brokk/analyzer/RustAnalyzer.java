@@ -17,7 +17,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     private static final Logger log = LoggerFactory.getLogger(RustAnalyzer.class);
 
     @Override
-    public Optional<String> extractClassName(String reference) {
+    public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForRust(reference);
     }
 

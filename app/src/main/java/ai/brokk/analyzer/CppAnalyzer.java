@@ -22,7 +22,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     private static final Logger log = LoggerFactory.getLogger(CppAnalyzer.class);
 
     @Override
-    public Optional<String> extractClassName(String reference) {
+    public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForCpp(reference);
     }
 
