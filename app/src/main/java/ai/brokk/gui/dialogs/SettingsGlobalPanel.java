@@ -1714,7 +1714,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             boolean foundPrimary = false;
             for (int i = 0; i < primaryModelCombo.getItemCount(); i++) {
                 Service.FavoriteModel fm = primaryModelCombo.getItemAt(i);
-                if (fm != null && fm.config() != null && Service.GPT_5.equals(fm.config().name())) {
+                if (fm != null
+                        && fm.config() != null
+                        && Service.GPT_5.equals(fm.config().name())) {
                     primaryModelCombo.setSelectedIndex(i);
                     foundPrimary = true;
                     break;
@@ -1728,7 +1730,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             boolean foundCode = false;
             for (int i = 0; i < preferredCodeModelCombo.getItemCount(); i++) {
                 Service.FavoriteModel fm = preferredCodeModelCombo.getItemAt(i);
-                if (fm != null && fm.config() != null && Service.HAIKU_4_5.equals(fm.config().name())) {
+                if (fm != null
+                        && fm.config() != null
+                        && Service.HAIKU_4_5.equals(fm.config().name())) {
                     preferredCodeModelCombo.setSelectedIndex(i);
                     foundCode = true;
                     break;
