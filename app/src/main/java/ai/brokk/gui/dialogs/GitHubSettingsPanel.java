@@ -244,8 +244,7 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
                             .thenAccept(username -> {
                                 SwingUtil.runOnEdt(() -> {
                                     // Check still connected (token present) to avoid race with disconnect
-                                    boolean stillConnected =
-                                            !MainProject.getGitHubToken().trim().isEmpty();
+                                    var stillConnected = GitHubAuth.tokenPresent();
                                     if (gitHubStatusLabel != null && username != null && stillConnected) {
                                         gitHubStatusLabel.setText("✓ Step 1 complete: Connected as @" + username);
                                     }
