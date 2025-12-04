@@ -502,10 +502,6 @@ public class ContextHistory {
         return Map.copyOf(entryInfos);
     }
 
-    /**
-     * Applies the state from a context to the workspace by restoring files. The blocking applied in this function is no
-     * longer than SNAPSHOT_AWAIT_TIMEOUT.
-     */
     @Blocking
     private void applySnapshotToWorkspace(Context snapshot, IConsoleIO io) {
         // Phase 0: wait once up front
@@ -517,8 +513,10 @@ public class ContextHistory {
 
         // Phase 1: materialize all desired contents from the snapshot with bounded waits
         var desiredContents = new LinkedHashMap<ProjectFile, String>();
+        var desiredImageBytes = new LinkedHashMap<ProjectFile, byte[]>();
         var materializationWarnings = new ArrayList<String>();
 
+        // Restore editable project text files
         snapshot.getEditableFragments()
                 .filter(fragment -> fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH)
                 .forEach(fragment -> {
@@ -540,8 +538,39 @@ public class ContextHistory {
                     }
                 });
 
+        // Restore project-backed image files (IMAGE_FILE)
+        snapshot.allFragments()
+                .filter(fragment -> fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE)
+                .forEach(fragment -> {
+                    var filesOpt = fragment.files().tryGet();
+                    if (filesOpt.isEmpty()) {
+                        materializationWarnings.add(fragment.toString());
+                        return;
+                    }
+                    var files = filesOpt.get();
+                    if (files.size() != 1) {
+                        materializationWarnings.add(fragment.toString());
+                        return;
+                    }
+                    var pf = files.iterator().next();
+                    // Only restore images that are within the project (ProjectFile)
+                    var imageBytesCv = fragment.imageBytes();
+                    if (imageBytesCv == null) {
+                        materializationWarnings.add(fragment.toString());
+                        return;
+                    }
+                    var bytesOpt = imageBytesCv.tryGet();
+                    if (bytesOpt.isPresent()) {
+                        desiredImageBytes.put(pf, bytesOpt.get());
+                    } else {
+                        materializationWarnings.add(fragment.toString());
+                    }
+                });
+
         // Phase 2: write all differing files and notify once
         var restoredFiles = new ArrayList<String>();
+
+        // Write text files
         for (var entry : desiredContents.entrySet()) {
             var pf = entry.getKey();
             var newContent = entry.getValue();
@@ -554,6 +583,23 @@ public class ContextHistory {
             } catch (IOException e) {
                 logger.error("Failed to restore file {} from snapshot", pf, e);
                 io.toolError("Failed to restore file " + pf + ": " + e.getMessage(), "Undo/Redo Error");
+            }
+        }
+
+        // Write image files
+        for (var entry : desiredImageBytes.entrySet()) {
+            var pf = entry.getKey();
+            var bytes = entry.getValue();
+            if (bytes == null) continue;
+            try {
+                byte[] currentBytes = Files.exists(pf.absPath()) ? Files.readAllBytes(pf.absPath()) : null;
+                if (currentBytes == null || !java.util.Arrays.equals(currentBytes, bytes)) {
+                    Files.write(pf.absPath(), bytes);
+                    restoredFiles.add(pf.toString());
+                }
+            } catch (IOException e) {
+                logger.error("Failed to restore image file {} from snapshot", pf, e);
+                io.toolError("Failed to restore image file " + pf + ": " + e.getMessage(), "Undo/Redo Error");
             }
         }
 
