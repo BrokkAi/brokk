@@ -29,8 +29,9 @@ public final class PythonTreeSitterNodeTypes {
     // Statements
     public static final String PASS_STATEMENT = "pass_statement";
 
-    // Other common Python node types that might be used
+    // Other common Python node types
     public static final String DECORATED_DEFINITION = "decorated_definition";
+    public static final String ATTRIBUTE = "attribute";
 
     // Import-related captures
     public static final String IMPORT_DECLARATION = "import.declaration";
