@@ -6,7 +6,6 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.util.ContentDiffUtils;
 import java.io.UncheckedIOException;
 import java.time.Duration;
-import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -142,12 +141,11 @@ public final class DiffService {
             // - Project text files that are editable (preserves read-only exclusion).
             // - Git file fragments.
             // - Image fragments (non-text), including pasted images and image files.
-            var projectPathEditable = curr.getEditableFragments()
-                    .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH);
-            var gitFileFragments = curr.allFragments()
-                    .filter(f -> f.getType() == ContextFragment.FragmentType.GIT_FILE);
-            var imageFragments = curr.allFragments()
-                    .filter(f -> !f.isText());
+            var projectPathEditable =
+                    curr.getEditableFragments().filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH);
+            var gitFileFragments =
+                    curr.allFragments().filter(f -> f.getType() == ContextFragment.FragmentType.GIT_FILE);
+            var imageFragments = curr.allFragments().filter(f -> !f.isText());
 
             var diffFutures = Stream.concat(Stream.concat(projectPathEditable, gitFileFragments), imageFragments)
                     .map(cf -> computeDiffForFragment(curr, cf, other))
@@ -242,8 +240,10 @@ public final class DiffService {
         // Text fragments: compute textual diff
         return oldContentFuture
                 .thenCombine(newContentFuture, (oldContent, newContent) -> {
-                    int oldLineCount = oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
-                    int newLineCount = newContent.isEmpty() ? 0 : (int) newContent.lines().count();
+                    int oldLineCount =
+                            oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
+                    int newLineCount =
+                            newContent.isEmpty() ? 0 : (int) newContent.lines().count();
                     logger.trace(
                             "computeDiff: fragment='{}' ctxId={} oldLines={} newLines={}",
                             thisFragment.shortDescription().renderNowOr(""),
@@ -287,7 +287,7 @@ public final class DiffService {
         try {
             var computedTextFuture = fragment.text().future();
             return computedTextFuture
-                    .completeOnTimeout("", TEXT_FALLBACK_TIMEOUT.getSeconds(), TimeUnit.SECONDS)
+                    .completeOnTimeout("", TEXT_FALLBACK_TIMEOUT.toSeconds(), TimeUnit.SECONDS)
                     .exceptionally(ex -> {
                         logger.warn(
                                 "Error computing text for {} fragment '{}': {}",
@@ -342,8 +342,15 @@ public final class DiffService {
                 newImageBytes = newImageBytesCv.join();
             }
 
-            if (oldImageBytes == null || newImageBytes == null) {
+            // If both sides are missing bytes, we cannot compare — omit diff.
+            if (oldImageBytes == null && newImageBytes == null) {
                 return null;
+            }
+
+            // If one side has bytes and the other does not, treat as changed.
+            if ((oldImageBytes == null) != (newImageBytes == null)) {
+                String diff = "[Image changed]";
+                return new Context.DiffEntry(thisFragment, diff, 1, 1, "[image]", "[image]");
             }
 
             boolean imagesEqual = Arrays.equals(oldImageBytes, newImageBytes);

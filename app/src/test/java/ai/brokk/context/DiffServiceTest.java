@@ -9,12 +9,12 @@ import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
-import java.util.concurrent.Callable;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import javax.imageio.ImageIO;
@@ -139,11 +139,13 @@ class DiffServiceTest {
         writeImage(imgFile, Color.RED);
 
         var oldImgFrag = new ContextFragment.ImageFileFragment(imgFile, contextManager);
-        var oldCtx = new Context(contextManager, List.of(oldImgFrag), List.of(), null, CompletableFuture.completedFuture("old"));
+        var oldCtx = new Context(
+                contextManager, List.of(oldImgFrag), List.of(), null, CompletableFuture.completedFuture("old"));
 
         // No change to image
         var newImgFrag = new ContextFragment.ImageFileFragment(imgFile, contextManager);
-        var newCtx = new Context(contextManager, List.of(newImgFrag), List.of(), null, CompletableFuture.completedFuture("new"));
+        var newCtx = new Context(
+                contextManager, List.of(newImgFrag), List.of(), null, CompletableFuture.completedFuture("new"));
 
         var diffs = DiffService.computeDiff(newCtx, oldCtx);
         assertEquals(0, diffs.size(), "Equal images must not produce a diff entry");
@@ -156,13 +158,15 @@ class DiffServiceTest {
         writeImage(imgFile, Color.RED);
 
         var oldImgFrag = new ContextFragment.ImageFileFragment(imgFile, contextManager);
-        var oldCtx = new Context(contextManager, List.of(oldImgFrag), List.of(), null, CompletableFuture.completedFuture("old"));
+        var oldCtx = new Context(
+                contextManager, List.of(oldImgFrag), List.of(), null, CompletableFuture.completedFuture("old"));
 
         // Change image bytes
         writeImage(imgFile, Color.GREEN);
 
         var newImgFrag = new ContextFragment.ImageFileFragment(imgFile, contextManager);
-        var newCtx = new Context(contextManager, List.of(newImgFrag), List.of(), null, CompletableFuture.completedFuture("new"));
+        var newCtx = new Context(
+                contextManager, List.of(newImgFrag), List.of(), null, CompletableFuture.completedFuture("new"));
 
         var diffs = DiffService.computeDiff(newCtx, oldCtx);
         assertEquals(1, diffs.size(), "Byte-different images should produce a placeholder diff");
@@ -177,28 +181,61 @@ class DiffServiceTest {
         class SlowFragment extends ContextFragment.AbstractComputedFragment implements ContextFragment.DynamicIdentity {
             private final ContextFragment.FragmentType type;
 
-            SlowFragment(String id, IContextManager cm, @Nullable ContextFragment.FragmentSnapshot snapshot, @Nullable Callable<ContextFragment.FragmentSnapshot> task, ContextFragment.FragmentType type) {
+            SlowFragment(
+                    String id,
+                    IContextManager cm,
+                    @Nullable ContextFragment.FragmentSnapshot snapshot,
+                    @Nullable Callable<ContextFragment.FragmentSnapshot> task,
+                    ContextFragment.FragmentType type) {
                 super(id, cm, snapshot, task);
                 this.type = type;
             }
-            @Override public String id() { return super.id(); }
-            @Override public ContextFragment.FragmentType getType() { return type; }
-            @Override public boolean isEligibleForAutoContext() { return true; }
-            @Override public String repr() { return "SlowFragment"; }
-            @Override public ContextFragment refreshCopy() { return this; }
+
+            @Override
+            public String id() {
+                return super.id();
+            }
+
+            @Override
+            public ContextFragment.FragmentType getType() {
+                return type;
+            }
+
+            @Override
+            public boolean isEligibleForAutoContext() {
+                return true;
+            }
+
+            @Override
+            public String repr() {
+                return "SlowFragment";
+            }
+
+            @Override
+            public ContextFragment refreshCopy() {
+                return this;
+            }
         }
 
-        var oldSnap = new ContextFragment.FragmentSnapshot("d","d","old-line", SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), Set.of(), (List<Byte>) null);
+        var oldSnap = new ContextFragment.FragmentSnapshot(
+                "d", "d", "old-line", SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), Set.of(), (List<Byte>) null);
         var oldFrag = new SlowFragment("99", contextManager, oldSnap, null, ContextFragment.FragmentType.PROJECT_PATH);
 
         var latch = new CountDownLatch(1);
-        var newFrag = new SlowFragment("99", contextManager, null, () -> {
-            latch.await(); // never released in test; simulates long computation
-            return oldSnap;
-        }, ContextFragment.FragmentType.PROJECT_PATH);
+        var newFrag = new SlowFragment(
+                "99",
+                contextManager,
+                null,
+                () -> {
+                    latch.await(); // never released in test; simulates long computation
+                    return oldSnap;
+                },
+                ContextFragment.FragmentType.PROJECT_PATH);
 
-        var oldCtx = new Context(contextManager, List.of(oldFrag), List.of(), null, CompletableFuture.completedFuture("old"));
-        var newCtx = new Context(contextManager, List.of(newFrag), List.of(), null, CompletableFuture.completedFuture("new"));
+        var oldCtx = new Context(
+                contextManager, List.of(oldFrag), List.of(), null, CompletableFuture.completedFuture("old"));
+        var newCtx = new Context(
+                contextManager, List.of(newFrag), List.of(), null, CompletableFuture.completedFuture("new"));
 
         var diffs = DiffService.computeDiff(newCtx, oldCtx);
         assertEquals(1, diffs.size(), "Should produce a fallback diff even if new text is unresolved");
