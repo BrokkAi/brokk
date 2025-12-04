@@ -129,17 +129,14 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             List<ScopeSegment> scopeChain,
             @Nullable TSNode definitionNode,
             SkeletonType skeletonType) {
-        // Resolve package and module info (handles __init__.py semantics)
-        var moduleInfo = resolveModuleInfo(file);
-        String moduleQualifiedPackage = moduleInfo.moduleQualifiedPackage();
-
+        // packageName is already module-qualified (from determinePackageName via resolveModuleInfo)
         return switch (captureName) {
             case CaptureNames.CLASS_DEFINITION -> {
                 log.trace(
-                        "Creating class: simpleName='{}', scopeChain='{}', moduleQualifiedPackage='{}'",
+                        "Creating class: simpleName='{}', scopeChain='{}', packageName='{}'",
                         simpleName,
                         scopeChain,
-                        moduleQualifiedPackage);
+                        packageName);
 
                 // Design: shortName = class hierarchy only (no module prefix)
                 // Module is included in packageName for proper fqName construction
@@ -165,7 +162,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                     finalShortName = normalized(scopeChain) + "$" + simpleName;
                 }
 
-                yield CodeUnit.cls(file, moduleQualifiedPackage, finalShortName);
+                yield CodeUnit.cls(file, packageName, finalShortName);
             }
             case CaptureNames.FUNCTION_DEFINITION -> {
                 // Functions use . for member access
@@ -189,7 +186,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                     finalShortName = normalized(scopeChain) + "." + simpleName;
                 }
 
-                yield CodeUnit.fn(file, moduleQualifiedPackage, finalShortName);
+                yield CodeUnit.fn(file, packageName, finalShortName);
             }
             case CaptureNames.FIELD_DEFINITION -> {
                 // Fields use . for member access
@@ -212,7 +209,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                     finalShortName = normalized(scopeChain) + "." + simpleName;
                 }
 
-                yield CodeUnit.field(file, moduleQualifiedPackage, finalShortName);
+                yield CodeUnit.field(file, packageName, finalShortName);
             }
             default -> {
                 log.debug("Ignoring capture: {} with name: {} and scopeChain: {}", captureName, simpleName, scopeChain);
@@ -398,7 +395,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     protected String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src) {
         // Python's package naming is directory-based, relative to project root or __init__.py markers.
         // The definitionNode, rootNode, and src parameters are not used for Python package determination.
-        return getPackageNameForFile(file);
+        // Returns module-qualified package (e.g., "mypkg.mod" not just "mypkg") for proper FQN construction.
+        return resolveModuleInfo(file).moduleQualifiedPackage();
     }
 
     @Override
