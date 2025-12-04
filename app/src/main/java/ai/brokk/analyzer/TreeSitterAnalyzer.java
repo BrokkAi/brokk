@@ -3816,7 +3816,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     @Override
     public Optional<IAnalyzer.InsertionPoint> computeInsertionPointForNewMember(CodeUnit classUnit) {
-        if (classUnit == null || !classUnit.isClass()) {
+        if (!classUnit.isClass()) {
             return Optional.empty();
         }
         var file = classUnit.source();
@@ -3883,8 +3883,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 // Indentation: header indent + one language indent unit.
                 String headerIndent = leadingWhitespaceOfLine(bytes, lineStartOf(bytes, classRange.startByte()));
                 indent = headerIndent + getLanguageSpecificIndent();
-            } else {
-                // No body field; fall through to fallback logic below.
             }
         }
 
@@ -3896,7 +3894,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 Range lastRange = kids.stream()
                         .map(this::rangesOf)
                         .filter(r -> !r.isEmpty())
-                        .map(r -> r.getFirst())
+                        .map(List::getFirst)
                         .max(Comparator.comparingInt(Range::endByte))
                         .orElse(null);
                 if (lastRange != null) {
@@ -3941,7 +3939,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     private @Nullable TSNode findClassNodeByRange(TSNode node, Range target, Set<String> classTypes) {
-        if (node == null || node.isNull()) return null;
+        if (node.isNull()) return null;
 
         if (node.getStartByte() == target.startByte()
                 && node.getEndByte() == target.endByte()
