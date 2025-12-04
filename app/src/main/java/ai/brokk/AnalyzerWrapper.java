@@ -78,7 +78,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
             @Nullable IWatchService.Listener fileWatchListener) {
         this.project = project;
         this.root = project.getRoot();
-        gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
+        gitRepoRoot = project.hasGit() ? project.getRepo().getWorkTreeRoot() : null;
         this.listener = analyzerListener;
 
         if (analyzerListener == null) {
@@ -120,7 +120,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
             IProject project, @Nullable AnalyzerListener analyzerListener, @Nullable IWatchService watchService) {
         this.project = project;
         this.root = project.getRoot();
-        this.gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
+        this.gitRepoRoot = project.hasGit() ? project.getRepo().getWorkTreeRoot() : null;
         this.listener = analyzerListener;
 
         // Use provided watch service or create stub for headless mode
