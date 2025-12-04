@@ -263,6 +263,51 @@ public class GitRepo implements Closeable, IGitRepo {
         return repository.getWorkTree().toPath().normalize();
     }
 
+    @Override
+    public Path getCorrespondingMainRepoPath(Path projectPath) {
+        Path workTreeRoot = getWorkTreeRoot();
+        if (projectPath.equals(workTreeRoot)) {
+            return gitTopLevel;
+        }
+        Path relativeSubdir = workTreeRoot.relativize(projectPath);
+        return gitTopLevel.resolve(relativeSubdir);
+    }
+
+    @Override
+    public @Nullable Path getRelativeSubdir(Path projectPath) {
+        Path workTreeRoot = getWorkTreeRoot();
+        if (projectPath.equals(workTreeRoot)) {
+            return null;
+        }
+        return workTreeRoot.relativize(projectPath);
+    }
+
+    @Override
+    public Path resolveFromWorkTreeRoot(Path relativePath) {
+        return getWorkTreeRoot().resolve(relativePath).normalize();
+    }
+
+    @Override
+    public String getRepositoryName() {
+        var url = getRemoteUrl();
+        if (url == null || url.isBlank()) {
+            return gitTopLevel.getFileName().toString();
+        }
+        if (url.endsWith(".git")) {
+            url = url.substring(0, url.length() - 4);
+        }
+        int idx = Math.max(url.lastIndexOf('/'), url.lastIndexOf(':'));
+        if (idx >= 0 && idx < url.length() - 1) {
+            return url.substring(idx + 1);
+        }
+        return gitTopLevel.getFileName().toString();
+    }
+
+    @Override
+    public Path getMainRepoRoot() {
+        return gitTopLevel;
+    }
+
     /**
      * Converts a ProjectFile (which is relative to projectRoot) into a path string relative to the git repository root,
      * suitable for JGit commands.
