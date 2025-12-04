@@ -258,7 +258,7 @@ class ProjectFilteringGitRepoTest {
         var project = new MainProject(tempDir);
 
         // Set baseline exclusions
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("generated", "vendor"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("generated", "vendor"));
         project.saveBuildDetails(buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -287,7 +287,7 @@ class ProjectFilteringGitRepoTest {
         var project = new MainProject(tempDir);
 
         // Set baseline exclusions
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("vendor"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("vendor"));
         project.saveBuildDetails(buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -454,7 +454,7 @@ class ProjectFilteringGitRepoTest {
         var project = new MainProject(tempDir);
 
         // Set baseline exclusions
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("generated"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("generated"));
         project.saveBuildDetails(buildDetails);
 
         var javaFiles = project.getAnalyzableFiles(Languages.JAVA);
@@ -484,7 +484,7 @@ class ProjectFilteringGitRepoTest {
         var project = new MainProject(tempDir);
 
         // Set baseline exclusions
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("vendor"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("vendor"));
         project.saveBuildDetails(buildDetails);
 
         var javaFiles = project.getAnalyzableFiles(Languages.JAVA);

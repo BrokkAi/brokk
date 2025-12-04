@@ -345,7 +345,7 @@ public class BuildAgent {
                 .collect(Collectors.toSet());
 
         this.reportedDetails = new BuildDetails(
-                buildLintCommand, testAllCommand, testSomeCommand, finalExcludes, defaultEnvForProject());
+                buildLintCommand, testAllCommand, testSomeCommand, finalExcludes, Set.of(), defaultEnvForProject());
         logger.debug(
                 "reportBuildDetails tool executed, details captured. Final excluded directories: {}", finalExcludes);
         return "Build details report received and processed.";
@@ -370,19 +370,21 @@ public class BuildAgent {
             String testAllCommand,
             String testSomeCommand,
             @JsonDeserialize(as = java.util.LinkedHashSet.class) Set<String> excludedDirectories,
+            @JsonDeserialize(as = java.util.LinkedHashSet.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
+                    Set<String> excludedFilePatterns,
             @JsonDeserialize(as = java.util.LinkedHashMap.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
                     Map<String, String> environmentVariables) {
 
         @VisibleForTesting
-        BuildDetails(
+        public BuildDetails(
                 String buildLintCommand,
                 String testAllCommand,
                 String testSomeCommand,
                 Set<String> excludedDirectories) {
-            this(buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, Map.of());
+            this(buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, Set.of(), Map.of());
         }
 
-        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), Map.of());
+        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), Set.of(), Map.of());
     }
 
     /** Determine the best verification command using the provided Context (no reliance on CM.topContext()). */

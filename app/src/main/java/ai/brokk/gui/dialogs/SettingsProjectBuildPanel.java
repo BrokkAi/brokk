@@ -786,7 +786,8 @@ public class SettingsProjectBuildPanel extends JPanel {
         }
 
         var newDetails = new BuildAgent.BuildDetails(
-                newBuildLint, newTestAll, newTestSome, currentDetails.excludedDirectories(), envVars);
+                newBuildLint, newTestAll, newTestSome, currentDetails.excludedDirectories(),
+                currentDetails.excludedFilePatterns(), envVars);
         if (!newDetails.equals(currentDetails)) {
             project.saveBuildDetails(newDetails);
             logger.debug("Applied Build Details changes.");

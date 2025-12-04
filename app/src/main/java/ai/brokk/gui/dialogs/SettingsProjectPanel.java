@@ -1128,6 +1128,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                     currentDetails.testAllCommand(),
                     currentDetails.testSomeCommand(),
                     excludesSet,
+                    currentDetails.excludedFilePatterns(),
                     currentDetails.environmentVariables());
 
             if (!newDetails.equals(currentDetails)) {
