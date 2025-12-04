@@ -26,6 +26,7 @@ import java.awt.*;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.*;
@@ -888,10 +889,26 @@ public interface ContextFragment {
 
             byte[] bytes = null;
             try {
-                var imageFile = file.absPath().toFile();
+                var path = file.absPath();
+                var imageFile = path.toFile();
                 if (imageFile.exists() && imageFile.canRead()) {
-                    Image img = ImageIO.read(imageFile);
-                    if (img != null) bytes = ImageUtil.imageToBytes(img);
+                    // Prefer raw bytes for stability; fallback to ImageIO encoding if raw read fails
+                    try {
+                        bytes = Files.readAllBytes(path);
+                        if (bytes.length == 0) {
+                            bytes = null;
+                        }
+                    } catch (IOException ignore) {
+                        logger.warn(
+                                "Exception when reading file %s. Falling back to ImageIO encoding.",
+                                file.getFileName());
+                    }
+                    if (bytes == null) {
+                        Image img = ImageIO.read(imageFile);
+                        if (img != null) {
+                            bytes = ImageUtil.imageToBytes(img);
+                        }
+                    }
                 }
             } catch (IOException e) {
                 // ignore
@@ -1328,8 +1345,12 @@ public interface ContextFragment {
                     attrMap.put(attrMatcher.group(1), attrMatcher.group(2));
                 }
 
-                String classFqn = attrMap.get("class");
-                String fileRelPath = attrMap.get("file");
+                String classFqn = java.util.Optional.ofNullable(attrMap.get("class"))
+                        .map(String::trim)
+                        .orElse(null);
+                String fileRelPath = java.util.Optional.ofNullable(attrMap.get("file"))
+                        .map(String::trim)
+                        .orElse(null);
 
                 ProjectFile pf;
                 if (fileRelPath != null && !fileRelPath.isBlank()) {
