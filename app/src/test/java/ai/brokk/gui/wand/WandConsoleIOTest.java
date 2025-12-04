@@ -83,14 +83,23 @@ class WandConsoleIOTest {
     }
 
     @Test
-    void testIllegalTransitionBackToReasoning_throws() throws Exception {
-        // Enter content mode
-        emit("Content begins.", false, true);
+    void testInterleavedReasoningAndContent_handlesGracefully() throws Exception {
+        // Start with reasoning
+        emit("Initial reasoning...", true, true);
+        assertEquals("Improving your prompt...\n\nInitial reasoning...", instructionsArea.getText());
 
-        // Attempt to go back to reasoning should throw
-        assertThrows(
-                IllegalStateException.class,
-                () -> wandConsoleIO.llmOutput("Back to chain-of-thought", ChatMessageType.AI, false, true));
+        // Transition to content (should clear)
+        emit("Some content.", false, true);
+        assertEquals("Some content.", instructionsArea.getText());
+
+        // Go back to reasoning - should now work without throwing
+        assertDoesNotThrow(() -> emit("More reasoning...", true, false));
+        assertEquals("Some content.More reasoning...", instructionsArea.getText());
+
+        // Continue with more content
+        emit(" And more content.", false, false);
+        assertEquals("Some content.More reasoning... And more content.", instructionsArea.getText());
+        assertEquals(instructionsArea.getText().length(), instructionsArea.getCaretPosition());
     }
 
     @Test
