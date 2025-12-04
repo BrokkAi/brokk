@@ -357,8 +357,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                     JList<?> list, @Nullable Object value, int index, boolean isSelected, boolean cellHasFocus) {
                 JLabel lbl = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                 if (value instanceof Service.FavoriteModel fm) {
-                    String name = fm.config() != null ? fm.config().name() : "";
-                    String alias = fm.alias() != null ? fm.alias() : "";
+                    String name = fm.config().name();
+                    String alias = fm.alias();
                     lbl.setText(alias.isBlank() ? name : alias + " (" + name + ")");
                 }
                 return lbl;
@@ -1714,9 +1714,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             boolean foundPrimary = false;
             for (int i = 0; i < primaryModelCombo.getItemCount(); i++) {
                 Service.FavoriteModel fm = primaryModelCombo.getItemAt(i);
-                if (fm != null
-                        && fm.config() != null
-                        && Service.GPT_5.equals(fm.config().name())) {
+                if (fm != null && Service.GPT_5.equals(fm.config().name())) {
                     primaryModelCombo.setSelectedIndex(i);
                     foundPrimary = true;
                     break;
@@ -1730,9 +1728,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             boolean foundCode = false;
             for (int i = 0; i < preferredCodeModelCombo.getItemCount(); i++) {
                 Service.FavoriteModel fm = preferredCodeModelCombo.getItemAt(i);
-                if (fm != null
-                        && fm.config() != null
-                        && Service.HAIKU_4_5.equals(fm.config().name())) {
+                if (fm != null && Service.HAIKU_4_5.equals(fm.config().name())) {
                     preferredCodeModelCombo.setSelectedIndex(i);
                     foundCode = true;
                     break;
@@ -2142,12 +2138,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         chrome.updateTerminalFontSize();
 
         // Save Lutz Code Model (from favorite config)
-        if (selectedCodeFavorite != null && selectedCodeFavorite.config() != null) {
+        if (selectedCodeFavorite != null) {
             chrome.getProject().getMainProject().setCodeModelConfig(selectedCodeFavorite.config());
         }
 
         // Save Primary Model (from favorite config)
-        if (selectedPrimaryFavorite != null && selectedPrimaryFavorite.config() != null) {
+        if (selectedPrimaryFavorite != null) {
             chrome.getProject().getMainProject().setArchitectModelConfig(selectedPrimaryFavorite.config());
             chrome.getInstructionsPanel().selectPlannerModelConfig(selectedPrimaryFavorite.config());
         }
