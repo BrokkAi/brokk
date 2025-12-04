@@ -63,6 +63,47 @@ This gives a quick "fitness for this task" indicator so you can choose the best 
   <img src="docs/media/screenshot-bpr-meter.png" alt="In-app BPR meter above the Instructions panel" width="800">
 </p>
 
+## How it works (20 seconds)
+
+1. Describe your goal or question in natural language.
+2. ContextAgent pulls in the minimal set of relevant fragments: classes, methods, summaries, tests, stack traces, URLs, and images.
+3. SearchAgent expands and prunes the Workspace, discarding irrelevant fragments and promoting key details into Notes.
+4. Brokk edits code and runs builds/tests in a tight loop, feeding failures and diffs back to the model.
+5. You review, commit, branch, and reuse sessions with full visibility into what the AI saw and changed.
+
+## Highlights
+
+- **Context Engineering**
+  - Fragment-level context: summaries, classes, methods, functions, images, markdown, URLs, stack traces, notes, and discard-context fragments.
+  - Search Agent: symbol-, type-, and structure-aware search that understands usage patterns across the project and dependencies.
+
+- **Workspace & Preview**
+  - Workspace as working memory: Keep/Forget/Note operations with explicit, inspectable history.
+  - Preview windows with search, quick edits, and promotion of selections into first-class fragments.
+
+- **Git Integration**
+  - Capture diffs, commits, and PRs as context; generate on-the-fly diffs for regressions.
+  - First-class Git worktrees for parallel task branches and fast context switching.
+
+- **Edit Loop**
+  - Automatic compile/lint after code changes via an incremental Java compiler.
+  - Run tests from the Workspace; failures are streamed directly back to the LLM.
+
+- **BlitzForge**
+  - Apply instructions across dozens or hundreds of files in parallel, with per-file context and a final holistic pass.
+
+- **MergeAgent**
+  - Resolve conflicts using blame-aware strategies that preserve intent from both sides with minimal manual editing.
+
+- **Issue Tracker Integration**
+  - Pull GitHub/Jira issues, comments, and images into structured context fragments inside Brokk.
+
+- **Dependency Intelligence**
+  - Decompile libraries to Java source so the model sees the exact APIs and versions used in your project.
+
+- **Session & History**
+  - Sessions with full action history, undo/redo, branching, and copying of workspaces so nothing is a black box.
+
 # Contributing
 
 Brokk uses Gradle with Scala support. To build Brokk,
