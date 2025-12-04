@@ -327,7 +327,7 @@ public class EditBlock {
                 adjusted.add("");
             } else {
                 String stripped = ln.substring(Math.min(minIndent, ln.length()));
-                adjusted.add(insertionIndent + stripped.stripLeading());
+                adjusted.add(insertionIndent + stripped);
             }
         }
         return String.join("\n", adjusted);
