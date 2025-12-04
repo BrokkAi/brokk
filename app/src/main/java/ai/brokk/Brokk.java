@@ -346,14 +346,25 @@ public class Brokk {
             MainProject parentProject = null;
             if (GitRepoFactory.hasGitRepo(worktreePath)) { // Redundant check, but safe
                 try (GitRepo wtRepo = new GitRepo(worktreePath)) { // isWorktree already confirmed by partitioning
-                    Path gitTopLevel = wtRepo.getGitTopLevel();
-                    parentProject = (MainProject) findOpenProjectByPath(gitTopLevel);
+                    // Compute the corresponding path in the main repo
+                    // If worktree is opened at a subdirectory, look for main project at the same subdirectory
+                    Path workTreeRoot = wtRepo.getWorkTreeRoot();
+                    Path correspondingMainPath;
+                    if (worktreePath.equals(workTreeRoot)) {
+                        // Worktree opened at root -> look for main project at gitTopLevel
+                        correspondingMainPath = wtRepo.getGitTopLevel();
+                    } else {
+                        // Worktree opened at subdirectory -> look for main project at corresponding subdir
+                        Path relativeSubdir = workTreeRoot.relativize(worktreePath);
+                        correspondingMainPath = wtRepo.getGitTopLevel().resolve(relativeSubdir);
+                    }
+                    parentProject = (MainProject) findOpenProjectByPath(correspondingMainPath);
                     if (parentProject == null) {
                         logger.warn(
                                 "During startup, could not find an already open parent project for worktree {} (expected at {}). "
                                         + "Worktree will attempt to find/open its parent or open standalone if necessary.",
                                 worktreePath.getFileName(),
-                                gitTopLevel.getFileName());
+                                correspondingMainPath.getFileName());
                     }
                 } catch (Exception e) {
                     logger.warn(
