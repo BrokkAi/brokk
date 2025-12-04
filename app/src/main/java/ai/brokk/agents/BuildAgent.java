@@ -302,11 +302,19 @@ public class BuildAgent {
                 A baseline set of excluded directories has been established from build conventions and .gitignore.
                 When you use `reportBuildDetails`, the `excludedDirectories` parameter should contain *additional* directories
                 you identify that should be excluded from code intelligence, beyond this baseline.
-                IMPORTANT: Only provide literal directory paths. DO NOT use glob patterns (e.g., "**/target", "**/.idea"),
-                these are already handled by .gitignore processing.
+                IMPORTANT: Only provide literal directory paths for excludedDirectories. DO NOT use glob patterns there.
+
+                Additionally, identify file patterns that should be excluded from code intelligence analysis.
+                Use the `excludedFilePatterns` parameter to specify glob patterns for files that are:
+                - Lock files: pnpm-lock.yaml, package-lock.json, yarn.lock, Cargo.lock, poetry.lock, go.sum
+                - Binary/media files: *.svg, *.png, *.jpg, *.gif, *.ico, *.woff, *.woff2, *.ttf
+                - Minified files: *.min.js, *.min.css, *.map
+                - Generated files: *.generated.*, *.d.ts (if not primary TypeScript project)
+                - Test resources: **/src/test/resources/**, **/test/fixtures/**
+                - CI/config files: **/LICENSE*, **/CHANGELOG*, model-metadata.json
 
                 Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
-                The reportBuildDetails tool expects exactly four parameters: buildLintCommand, testAllCommand, testSomeCommand, and excludedDirectories.
+                The reportBuildDetails tool expects exactly five parameters: buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, and excludedFilePatterns.
                 """
                         .formatted(wrapperScriptInstruction)));
 
@@ -332,11 +340,14 @@ public class BuildAgent {
             @P(
                             "Command template to run specific tests using Mustache templating. Should use either a {{classes}}, {{fqclasses}}, or a {{files}} variable. Again, if no class- or file- based framework is in use, leave it blank.")
                     String testSomeCommand,
-            @P("List of directories to exclude from code intelligence (e.g., generated code, build artifacts)")
-                    List<String> excludedDirectories) {
+            @P("List of directories to exclude from code intelligence (e.g., generated code, build artifacts). Use literal paths, not glob patterns.")
+                    List<String> excludedDirectories,
+            @P("List of file patterns to exclude from code intelligence (e.g., '*.svg', 'package-lock.json', '**/test/resources/**'). Glob patterns are allowed here.")
+                    List<String> excludedFilePatterns)
+    {
         // Combine baseline excluded directories with those suggested by the LLM
-        // Filter out glob patterns defensively even though the prompt instructs against them
-        var finalExcludes = Stream.concat(this.currentExcludedDirectories.stream(), excludedDirectories.stream())
+        // Filter out glob patterns defensively for directory exclusions
+        var finalDirExcludes = Stream.concat(this.currentExcludedDirectories.stream(), excludedDirectories.stream())
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .filter(s -> !containsGlobPattern(s))
@@ -344,10 +355,17 @@ public class BuildAgent {
                 .map(Path::toString)
                 .collect(Collectors.toSet());
 
+        // Process file patterns (glob patterns are allowed here)
+        var finalFilePatterns = excludedFilePatterns.stream()
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
+
         this.reportedDetails = new BuildDetails(
-                buildLintCommand, testAllCommand, testSomeCommand, finalExcludes, Set.of(), defaultEnvForProject());
+                buildLintCommand, testAllCommand, testSomeCommand, finalDirExcludes, finalFilePatterns, defaultEnvForProject());
         logger.debug(
-                "reportBuildDetails tool executed, details captured. Final excluded directories: {}", finalExcludes);
+                "reportBuildDetails tool executed. Excluded directories: {}, File patterns: {}",
+                finalDirExcludes, finalFilePatterns);
         return "Build details report received and processed.";
     }
 
