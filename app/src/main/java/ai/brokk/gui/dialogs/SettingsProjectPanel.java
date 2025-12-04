@@ -192,7 +192,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         } else {
             updateExcludedDirectories(List.of());
         }
-
     }
 
     private void initComponents() {
