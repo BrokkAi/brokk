@@ -892,26 +892,51 @@ public interface ContextFragment {
                 var path = file.absPath();
                 var imageFile = path.toFile();
                 if (imageFile.exists() && imageFile.canRead()) {
-                    // Prefer raw bytes for stability; fallback to ImageIO encoding if raw read fails
+                    // Always try raw bytes first for stability
                     try {
                         bytes = Files.readAllBytes(path);
                         if (bytes.length == 0) {
                             bytes = null;
                         }
-                    } catch (IOException ignore) {
+                    } catch (IOException e) {
                         logger.warn(
-                                "Exception when reading file %s. Falling back to ImageIO encoding.",
-                                file.getFileName());
+                                "Exception when reading raw bytes from {}. Falling back to ImageIO.",
+                                file.getFileName(),
+                                e);
                     }
+
+                    // Fallback to ImageIO if raw read failed or returned empty
                     if (bytes == null) {
-                        Image img = ImageIO.read(imageFile);
-                        if (img != null) {
-                            bytes = ImageUtil.imageToBytes(img);
+                        try {
+                            Image img = ImageIO.read(imageFile);
+                            if (img != null) {
+                                bytes = ImageUtil.imageToBytes(img);
+                                if (bytes.length == 0) {
+                                    bytes = null;
+                                }
+                            }
+                        } catch (Exception e) {
+                            logger.warn("ImageIO failed to read {}: {}", file.getFileName(), e.getMessage());
+                        }
+                    }
+
+                    // Last resort: try with BufferedInputStream for better reliability
+                    if (bytes == null) {
+                        try (var bis = new java.io.BufferedInputStream(Files.newInputStream(path))) {
+                            Image img = ImageIO.read(bis);
+                            if (img != null) {
+                                bytes = ImageUtil.imageToBytes(img);
+                            }
+                        } catch (Exception e) {
+                            logger.warn(
+                                    "BufferedInputStream + ImageIO failed for {}: {}",
+                                    file.getFileName(),
+                                    e.getMessage());
                         }
                     }
                 }
-            } catch (IOException e) {
-                // ignore
+            } catch (Exception e) {
+                logger.error("Unexpected error reading image file {}: {}", file.getFileName(), e.getMessage(), e);
             }
 
             return new FragmentSnapshot(

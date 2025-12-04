@@ -9,6 +9,7 @@ import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -253,6 +254,22 @@ class DiffServiceTest {
             }
         }
         Files.createDirectories(file.absPath().getParent());
-        ImageIO.write(img, "png", file.absPath().toFile());
+
+        // Write to a temp file first, then move atomically to ensure complete write
+        var tempFile = Files.createTempFile(file.absPath().getParent(), "temp", ".png");
+        try {
+            boolean written = ImageIO.write(img, "png", tempFile.toFile());
+            if (!written) {
+                throw new IOException("ImageIO.write returned false for " + file.getFileName());
+            }
+            Files.move(tempFile, file.absPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+
+            // Ensure file is readable and has content
+            if (!Files.isReadable(file.absPath()) || Files.size(file.absPath()) == 0) {
+                throw new IOException("Written image file is not readable or empty: " + file.absPath());
+            }
+        } finally {
+            Files.deleteIfExists(tempFile);
+        }
     }
 }
