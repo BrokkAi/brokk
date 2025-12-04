@@ -857,7 +857,7 @@ public class EditBlock {
             throws NoMatchException, AmbiguousMatchException, InterruptedException {
         identifier = identifier.strip();
         // Resolve BRK_CLASS / BRK_[REPLACE|NEW]_FUNCTION markers to source snippets (NEW_FUNCTION handled upstream)
-        var markerMatcher = Pattern.compile("^BRK_(CLASS|FUNCTION|REPLACE_FUNCTION|NEW_FUNCTION)\\s+(.+)$")
+        var markerMatcher = Pattern.compile("^BRK_(CLASS|REPLACE_FUNCTION|NEW_FUNCTION)\\s+(.+)$")
                 .matcher(identifier);
         if (!markerMatcher.matches()) {
             return null;
