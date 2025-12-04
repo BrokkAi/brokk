@@ -27,6 +27,30 @@ public interface IAnalyzer {
         }
     }
 
+    /**
+     * Listener for progress updates during analyzer construction or update operations.
+     * Implementations should be thread-safe as callbacks may come from worker threads.
+     */
+    @FunctionalInterface
+    interface ProgressListener {
+        ProgressListener NOOP = new NoopProgressListener();
+        /**
+         * Called to report progress during analyzer operations.
+         *
+         * @param completed Number of items completed
+         * @param total     Total number of items to process
+         * @param phase     Description of the current phase (e.g., "Parsing Java files")
+         */
+        void onProgress(int completed, int total, String phase);
+    }
+
+    class NoopProgressListener implements ProgressListener {
+        @Override
+        public void onProgress(int completed, int total, String phase) {
+            // No-op
+        }
+    }
+
     // Basics
     List<CodeUnit> getTopLevelDeclarations(ProjectFile file);
 

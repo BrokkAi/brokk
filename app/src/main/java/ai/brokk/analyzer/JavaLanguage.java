@@ -47,16 +47,19 @@ public class JavaLanguage implements Language {
     }
 
     @Override
-    public IAnalyzer createAnalyzer(IProject project) {
-        return new JavaAnalyzer(project);
+    public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        return new JavaAnalyzer(project, listener);
     }
 
     @Override
-    public IAnalyzer loadAnalyzer(IProject project) {
+    public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
         var storage = getStoragePath(project);
         return TreeSitterStateIO.load(storage)
-                .map(state -> (IAnalyzer) JavaAnalyzer.fromState(project, state))
-                .orElseGet(() -> createAnalyzer(project));
+                .map(state -> {
+                    var analyzer = JavaAnalyzer.fromState(project, state, listener);
+                    return (IAnalyzer) analyzer;
+                })
+                .orElseGet(() -> createAnalyzer(project, listener));
     }
 
     @Override

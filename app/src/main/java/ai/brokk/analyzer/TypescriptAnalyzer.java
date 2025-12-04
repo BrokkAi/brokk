@@ -113,23 +113,27 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     ));
 
     public TypescriptAnalyzer(IProject project) {
-        super(project, Languages.TYPESCRIPT);
+        this(project, ProgressListener.NOOP);
     }
 
-    private TypescriptAnalyzer(IProject project, AnalyzerState state) {
-        super(project, Languages.TYPESCRIPT, state);
+    public TypescriptAnalyzer(IProject project, ProgressListener listener) {
+        super(project, Languages.TYPESCRIPT, listener);
+    }
+
+    private TypescriptAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
+        super(project, Languages.TYPESCRIPT, state, listener);
     }
 
     /**
      * Factory to create a snapshot-based analyzer from a prebuilt AnalyzerState.
      */
-    public static TypescriptAnalyzer fromState(IProject project, AnalyzerState state) {
-        return new TypescriptAnalyzer(project, state);
+    public static TypescriptAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+        return new TypescriptAnalyzer(project, state, listener);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state) {
-        return new TypescriptAnalyzer(getProject(), state);
+    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+        return new TypescriptAnalyzer(getProject(), state, listener);
     }
 
     private String cachedTextSliceStripped(TSNode node, String src) {
