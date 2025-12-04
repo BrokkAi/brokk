@@ -253,8 +253,12 @@ public class GitRepo implements Closeable, IGitRepo {
         return gpgPassPhrase != null;
     }
 
-    @Override
-    public Path getGitTopLevel() {
+    /**
+     * Returns the main repository's root path (git top level).
+     * Package-private: external code should use getWorkTreeRoot(), getMainRepoRoot(),
+     * or other encapsulated methods instead.
+     */
+    Path getGitTopLevel() {
         return gitTopLevel;
     }
 

@@ -577,7 +577,8 @@ public class MonorepoSubdirectoryTest {
 
             // Step 3: Open the corresponding subdirectory in the worktree
             // This mimics the logic in GitWorktreeTab where it calculates relativeSubdir
-            Path relativeSubdir = gitRepo.getGitTopLevel().relativize(subdirPath);
+            Path relativeSubdir = gitRepo.getRelativeSubdir(subdirPath);
+            assert relativeSubdir != null : "subdirPath should be a subdirectory";
             Path worktreeSubdir = worktreeRoot.resolve(relativeSubdir);
 
             // Verify the subdirectory exists in the worktree

@@ -35,13 +35,9 @@ public interface IGitRepo {
         return proposedName;
     }
 
-    default Path getGitTopLevel() {
-        throw new UnsupportedOperationException();
-    }
-
     /**
      * Returns the working tree root for this repository.
-     * For regular repos, this is the same as getGitTopLevel().
+     * For regular repos, this is the git repository root.
      * For worktrees, this is the worktree's directory (not the main repo's directory).
      *
      * @return the working tree root path
