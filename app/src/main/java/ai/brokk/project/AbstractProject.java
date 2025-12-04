@@ -658,9 +658,11 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
     @VisibleForTesting
     public Set<ProjectFile> applyFiltering(Set<ProjectFile> files) {
-        // Always apply baseline exclusions, regardless of Git presence
-        Set<String> rawExclusions = loadBuildDetails().excludedDirectories();
-        return fileFilteringService.filterFiles(files, rawExclusions);
+        // Always apply baseline exclusions and file patterns, regardless of Git presence
+        var buildDetails = loadBuildDetails();
+        Set<String> rawExclusions = buildDetails.excludedDirectories();
+        Set<String> filePatterns = buildDetails.excludedFilePatterns();
+        return fileFilteringService.filterFiles(files, rawExclusions, filePatterns);
     }
 
     @Override
