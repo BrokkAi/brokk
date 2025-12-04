@@ -1268,12 +1268,10 @@ public class GitWorktreeTab extends JPanel {
      */
     @Nullable
     private Path computeRelativeSubdir(MainProject project, GitRepo gitRepo) {
-        Path gitTop = gitRepo.getGitTopLevel();
-        if (gitTop.equals(project.getRoot())) {
-            return null;
+        var relativeSubdir = gitRepo.getRelativeSubdir(project.getRoot());
+        if (relativeSubdir != null) {
+            logger.debug("Project is in subdirectory: {}", relativeSubdir);
         }
-        Path relativeSubdir = gitTop.relativize(project.getRoot());
-        logger.debug("Project is in subdirectory: {}", relativeSubdir);
         return relativeSubdir;
     }
 
