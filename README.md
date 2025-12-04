@@ -74,8 +74,13 @@ This gives a quick "fitness for this task" indicator so you can choose the best 
 1. Describe your goal or question in natural language.
 2. ContextAgent pulls in the minimal set of relevant fragments: classes, methods, summaries, tests, stack traces, URLs, and images.
 3. SearchAgent expands and prunes the Workspace, discarding irrelevant fragments and promoting key details into Notes.
-4. Brokk edits code and runs builds/tests in a tight loop, feeding failures and diffs back to the model.
-5. You review, commit, branch, and reuse sessions with full visibility into what the AI saw and changed.
+4. Lutz Mode synthesizes an outcome: an answer, a direct code edit, or a task list for complex changes that you can execute one-by-one and tweak as needed.
+5. Brokk applies edits and runs builds/tests in a tight loop, feeding failures and diffs back to the model.
+6. You review, commit, branch, and reuse sessions with full visibility into what the AI saw and changed.
+
+<p align="center">
+  <img src="docs/media/screenshot-task-list.png" alt="Lutz Mode task list ready to execute step-by-step" width="800">
+</p>
 
 ## Highlights
 
@@ -119,25 +124,13 @@ This gives a quick "fitness for this task" indicator so you can choose the best 
 
 ## Demos
 
-<details>
-  <summary>Show quick demos</summary>
+  Show quick demos:
 
-  - BlitzForge: parallel mass refactor  
-    <p align="center">
-      <img src="docs/media/feature-blitzforge.gif" alt="BlitzForge mass refactor across a large codebase" width="800">
-    </p>
+  - BlitzForge - Parallel mass refactor across a repo. Watch on YouTube: https://www.youtube.com/watch?v=i98Zzf8EN1M
+  - MergeAgent - Resolve conflicts with blame-aware strategies. Watch on YouTube: https://www.youtube.com/watch?v=SVmcS00urNw
+  - JBang - Real-world bug fix using agentic search and static analysis. Watch on YouTube: https://www.youtube.com/watch?v=t_7MqowT638
+  - Blender - Autonomous precision bug fix in a 21k-file C++ codebase. Watch on YouTube: https://www.youtube.com/watch?v=t2E6AOasb-0&t=4s
 
-  - MergeAgent: resolve conflicts with rationale  
-    <p align="center">
-      <img src="docs/media/feature-mergeagent.gif" alt="MergeAgent resolving merge conflicts using blame-aware strategies" width="800">
-    </p>
-
-  - Issue capture: turn issues into structured context  
-    <p align="center">
-      <img src="docs/media/feature-issue-capture.gif" alt="Capturing a GitHub or Jira issue as structured context fragments" width="800">
-    </p>
-
-</details>
 
 ## Getting Started
 
