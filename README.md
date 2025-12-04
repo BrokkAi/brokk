@@ -29,7 +29,7 @@
 
 # Brokk — AI-native code platform for million-line repos
 
-Brokk keeps LLMs on-task in large codebases by curating fragment-level context and, with agentic Lutz Mode, gathering, pruning, and explaining decisions for fast, transparent coding.
+Brokk keeps LLMs on-task in large codebases with fragment-level context, code intelligence, and agentic Lutz Mode for fast, explainable edits.
 
 <p align="center">
   <img src="docs/media/brokk-hero.gif" alt="Brokk Lutz Mode: collect relevant fragments -> prune -> note/discard -> workspace ready" width="1080">
@@ -38,7 +38,13 @@ Brokk keeps LLMs on-task in large codebases by curating fragment-level context a
 ## Why Brokk is different
 
 - **Fragment-level context, not file blobs**
-  - Classes, methods, summaries, stack traces, URLs, images, notes, and discard records are first-class fragments.
+  - Classes, methods, functions, summaries, exception traces, URLs, images, pasted text, issues, PRs, notes, and discard records are first-class fragments.
+
+- **No black boxes: persistent, branchable history**
+  - You never lose context. Every fragment and edit is persisted with undo/redo and you can branch from any past step.
+
+- **Modes for speed or control**
+  - EZ Mode (Lutz with auto task list execution) for hands-free flow; Advanced Mode when you want granular control.
 
 - **Agentic Lutz Mode**
   - ContextAgent collects; SearchAgent expands and prunes; the Workspace becomes working memory. Keep/Forget/Note decisions are explicit and traceable.
@@ -76,6 +82,8 @@ This gives a quick "fitness for this task" indicator so you can choose the best 
 - **Context Engineering**
   - Fragment-level context: summaries, classes, methods, functions, images, markdown, URLs, stack traces, notes, and discard-context fragments.
   - Search Agent: symbol-, type-, and structure-aware search that understands usage patterns across the project and dependencies.
+  - Exception and stack-trace fragments are enriched with metadata and linked code locations for faster root-cause navigation.
+  - Structured tasks with Lutz Mode: define goals and constraints; Brokk collects, prunes, and readies the workspace with explicit Keep/Forget/Note decisions.
 
 - **Workspace & Preview**
   - Workspace as working memory: Keep/Forget/Note operations with explicit, inspectable history.
@@ -84,6 +92,8 @@ This gives a quick "fitness for this task" indicator so you can choose the best 
 - **Git Integration**
   - Capture diffs, commits, and PRs as context; generate on-the-fly diffs for regressions.
   - First-class Git worktrees for parallel task branches and fast context switching.
+  - PR review workflow: load PR diffs/comments as context, propose fixes, and push follow-up commits.
+  - Automate the boring bits: optional auto-commit and auto-PR creation with change summaries; you stay in control.
 
 - **Edit Loop**
   - Automatic compile/lint after code changes via an incremental Java compiler.
@@ -100,9 +110,32 @@ This gives a quick "fitness for this task" indicator so you can choose the best 
 
 - **Dependency Intelligence**
   - Decompile libraries to Java source so the model sees the exact APIs and versions used in your project.
+  - Include relevant dependency types and members into the Workspace as needed so the model operates with precise API knowledge.
 
 - **Session & History**
-  - Sessions with full action history, undo/redo, branching, and copying of workspaces so nothing is a black box.
+  - Sessions persist fragments, instructions, edits, and failures with undo/redo; branch from any past step to create a new session and copy workspaces as needed.
+
+## Demos
+
+<details>
+  <summary>Show quick demos</summary>
+
+  - BlitzForge: parallel mass refactor  
+    <p align="center">
+      <img src="docs/media/feature-blitzforge.gif" alt="BlitzForge mass refactor across a large codebase" width="800">
+    </p>
+
+  - MergeAgent: resolve conflicts with rationale  
+    <p align="center">
+      <img src="docs/media/feature-mergeagent.gif" alt="MergeAgent resolving merge conflicts using blame-aware strategies" width="800">
+    </p>
+
+  - Issue capture: turn issues into structured context  
+    <p align="center">
+      <img src="docs/media/feature-issue-capture.gif" alt="Capturing a GitHub or Jira issue as structured context fragments" width="800">
+    </p>
+
+</details>
 
 # Contributing
 
