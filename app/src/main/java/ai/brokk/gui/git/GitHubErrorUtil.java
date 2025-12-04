@@ -1,5 +1,6 @@
 package ai.brokk.gui.git;
 
+import java.util.Locale;
 import org.jetbrains.annotations.Nullable;
 import org.kohsuke.github.HttpException;
 
@@ -21,7 +22,7 @@ public final class GitHubErrorUtil {
                 if (code == 403) {
                     var msg = httpEx.getMessage();
                     if (msg != null) {
-                        var msgLower = msg.toLowerCase();
+                        var msgLower = msg.toLowerCase(Locale.ROOT);
                         if (msgLower.contains("rate limit") || msgLower.contains("secondary rate limit")) {
                             return true;
                         }

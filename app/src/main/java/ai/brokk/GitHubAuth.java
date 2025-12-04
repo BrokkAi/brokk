@@ -32,6 +32,7 @@ import org.kohsuke.github.GitHub;
 import org.kohsuke.github.GitHubAbuseLimitHandler;
 import org.kohsuke.github.GitHubBuilder;
 import org.kohsuke.github.GitHubRateLimitHandler;
+import org.kohsuke.github.HttpException;
 import org.kohsuke.github.PagedIterable;
 
 /**
@@ -225,10 +226,19 @@ public class GitHubAuth {
             createClient().getMyself();
             logger.debug("Stored GitHub token is valid");
             return true;
+        } catch (HttpException e) {
+            if (e.getResponseCode() == 401) {
+                logger.warn("Stored GitHub token is invalid: {}", e.getMessage());
+                MainProject.setGitHubToken("");
+                invalidateInstance();
+            } else {
+                // Rate limit or other HTTP errors - don't clear token
+                logger.warn("GitHub API error during token validation: {}", e.getMessage());
+            }
+            return false;
         } catch (Exception e) {
-            logger.warn("Stored GitHub token is invalid: {}", e.getMessage());
-            MainProject.setGitHubToken("");
-            invalidateInstance();
+            // Network errors, timeouts, etc. - don't clear token
+            logger.warn("Error validating GitHub token: {}", e.getMessage());
             return false;
         }
     }
@@ -255,11 +265,13 @@ public class GitHubAuth {
         if (token.isEmpty()) {
             throw new IllegalStateException("No GitHub token configured");
         }
+        return createBaseBuilder().withOAuthToken(token).build();
+    }
+
+    private static GitHubBuilder createBaseBuilder() {
         return new GitHubBuilder()
-                .withOAuthToken(token)
                 .withRateLimitHandler(GitHubRateLimitHandler.FAIL)
-                .withAbuseLimitHandler(GitHubAbuseLimitHandler.FAIL)
-                .build();
+                .withAbuseLimitHandler(GitHubAbuseLimitHandler.FAIL);
     }
 
     public static @Nullable String getAuthenticatedUsername() {
@@ -592,9 +604,7 @@ public class GitHubAuth {
 
         // Try with token
         var token = getStoredToken();
-        var builder = new GitHubBuilder()
-                .withRateLimitHandler(GitHubRateLimitHandler.FAIL)
-                .withAbuseLimitHandler(GitHubAbuseLimitHandler.FAIL);
+        var builder = createBaseBuilder();
         String targetHostDisplay = (this.host == null || this.host.isBlank()) ? "api.github.com" : this.host;
 
         if (this.host != null && !this.host.isBlank()) {
