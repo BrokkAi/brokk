@@ -36,7 +36,15 @@ import org.kohsuke.github.HttpException;
 import org.kohsuke.github.PagedIterable;
 
 /**
- * Handles GitHub authentication and API calls. This class is stateful and holds a connection to a specific repository.
+ * Handles GitHub authentication and API calls.
+ *
+ * <p>This class has two distinct modes:
+ * <ul>
+ *   <li><b>Static methods</b>: User-level operations (token validation, app installation)
+ *       that always target github.com where the Brokk OAuth app is registered.</li>
+ *   <li><b>Instance methods</b>: Repo-scoped operations that honor the configured host
+ *       for GitHub Enterprise Server support.</li>
+ * </ul>
  */
 public class GitHubAuth {
     private static final Logger logger = LogManager.getLogger(GitHubAuth.class);
@@ -228,8 +236,7 @@ public class GitHubAuth {
             return true;
         } catch (HttpException e) {
             if (e.getResponseCode() == 401) {
-                logger.warn("Stored GitHub token is invalid: {}", e.getMessage());
-                MainProject.setGitHubToken("");
+                logger.warn("Stored GitHub token is invalid");
                 invalidateInstance();
             } else {
                 // Rate limit or other HTTP errors - don't clear token
