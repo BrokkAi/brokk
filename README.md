@@ -25,6 +25,21 @@
 
 Brokk keeps LLMs on-task in large codebases by curating fragment-level context and, with agentic Lutz Mode, gathering, pruning, and explaining decisions for fast, transparent coding.
 
+<p align="center">
+  <img src="docs/media/brokk-hero.gif" alt="Brokk Lutz Mode: collect relevant fragments -> prune -> note/discard -> workspace ready" width="1080">
+</p>
+
+## Why Brokk is different
+
+- **Fragment-level context, not file blobs**
+  - Classes, methods, summaries, stack traces, URLs, images, notes, and discard records are first-class fragments.
+
+- **Agentic Lutz Mode**
+  - ContextAgent collects; SearchAgent expands and prunes; the Workspace becomes working memory. Keep/Forget/Note decisions are explicit and traceable.
+
+- **Built for enterprise scale**
+  - Dependency decompilation to source, incremental Java compiler for a tight edit-compile-test loop, BlitzForge mass refactors, and MergeAgent for conflict resolution.
+
 # Contributing
 
 Brokk uses Gradle with Scala support. To build Brokk,
