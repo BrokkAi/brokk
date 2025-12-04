@@ -69,7 +69,8 @@ public class ExtractCallReceiverTest {
         // Edge cases consistent with heuristic
         assertEquals(Optional.empty(), analyzer.extractCallReceiver("myclass.myMethod")); // lowercase class
         assertEquals(
-                Optional.empty(), analyzer.extractCallReceiver("MyClass.MyMethod")); // uppercase method (not typical Java)
+                Optional.empty(),
+                analyzer.extractCallReceiver("MyClass.MyMethod")); // uppercase method (not typical Java)
 
         // Inner-class style using $ is not recognized by this heuristic (tests ensure no exception)
         assertEquals(Optional.empty(), analyzer.extractCallReceiver("com.example.Outer$Inner.method"));
@@ -127,7 +128,8 @@ public class ExtractCallReceiverTest {
 
         // Module paths
         assertEquals(
-                Optional.of("crate::utils::Helper"), analyzer.extractCallReceiver("crate::utils::Helper::do_something"));
+                Optional.of("crate::utils::Helper"),
+                analyzer.extractCallReceiver("crate::utils::Helper::do_something"));
 
         // Invalid cases - should return empty
         assertEquals(Optional.empty(), analyzer.extractCallReceiver("MyStruct"));
@@ -316,7 +318,8 @@ public class ExtractCallReceiverTest {
         assertEquals(
                 Optional.of("scala.concurrent.Future"),
                 analyzer.extractCallReceiver("scala.concurrent.Future.successful"));
-        assertEquals(Optional.of("akka.actor.ActorSystem"), analyzer.extractCallReceiver("akka.actor.ActorSystem.create"));
+        assertEquals(
+                Optional.of("akka.actor.ActorSystem"), analyzer.extractCallReceiver("akka.actor.ActorSystem.create"));
 
         // Invalid cases - should return empty
         assertEquals(Optional.empty(), analyzer.extractCallReceiver("MyClass"));
@@ -328,7 +331,8 @@ public class ExtractCallReceiverTest {
 
         // Edge cases consistent with heuristic
         assertEquals(Optional.empty(), analyzer.extractCallReceiver("myclass.myMethod")); // lowercase class
-        assertEquals(Optional.empty(), analyzer.extractCallReceiver("MyClass.MyMethod")); // uppercase method (not typical)
+        assertEquals(
+                Optional.empty(), analyzer.extractCallReceiver("MyClass.MyMethod")); // uppercase method (not typical)
 
         // Whitespace handling
         assertEquals(Optional.of("MyClass"), analyzer.extractCallReceiver("  MyClass.myMethod  "));
@@ -400,7 +404,8 @@ public class ExtractCallReceiverTest {
         assertEquals(Optional.empty(), analyzer.extractCallReceiver("   "));
 
         // C# specific: lowercase method names are INVALID (unlike Java)
-        assertEquals(Optional.empty(), analyzer.extractCallReceiver("MyClass.myMethod")); // lowercase method - invalid C#
+        assertEquals(
+                Optional.empty(), analyzer.extractCallReceiver("MyClass.myMethod")); // lowercase method - invalid C#
         assertEquals(Optional.empty(), analyzer.extractCallReceiver("myClass.MyMethod")); // lowercase class
 
         // Whitespace handling
@@ -522,7 +527,8 @@ public class ExtractCallReceiverTest {
 
         // Namespaced class references
         assertEquals(
-                Optional.of("Illuminate\\Support\\Str"), analyzer.extractCallReceiver("Illuminate\\Support\\Str::random"));
+                Optional.of("Illuminate\\Support\\Str"),
+                analyzer.extractCallReceiver("Illuminate\\Support\\Str::random"));
         assertEquals(Optional.of("App\\Models\\User"), analyzer.extractCallReceiver("App\\Models\\User::find"));
         assertEquals(
                 Optional.of("Symfony\\Component\\HttpFoundation\\Request"),
@@ -586,6 +592,13 @@ public class ExtractCallReceiverTest {
         assertEquals(Optional.of("self"), ClassNameExtractor.extractForPhp("self::getInstance"));
         assertEquals(Optional.of("static"), ClassNameExtractor.extractForPhp("static::create"));
         assertEquals(Optional.of("parent"), ClassNameExtractor.extractForPhp("parent::__construct"));
+
+        // Chained instance calls are not supported (conservative extraction)
+        assertEquals(Optional.empty(), ClassNameExtractor.extractForPhp("$this->service->doWork"));
+        assertEquals(Optional.empty(), ClassNameExtractor.extractForPhp("$user->profile->getName"));
+
+        // Leading backslash for fully-qualified namespace
+        assertEquals(Optional.of("\\App\\Models\\User"), ClassNameExtractor.extractForPhp("\\App\\Models\\User::find"));
     }
 
     @Test
@@ -601,7 +614,8 @@ public class ExtractCallReceiverTest {
         // Multiple separators
         assertEquals(Optional.of("ns1::ns2::Class"), cppAnalyzer.extractCallReceiver("ns1::ns2::Class::method"));
         assertEquals(
-                Optional.of("com.example.deep.Class"), javaAnalyzer.extractCallReceiver("com.example.deep.Class.method"));
+                Optional.of("com.example.deep.Class"),
+                javaAnalyzer.extractCallReceiver("com.example.deep.Class.method"));
 
         // Empty parts
         assertEquals(Optional.empty(), javaAnalyzer.extractCallReceiver("..method"));
