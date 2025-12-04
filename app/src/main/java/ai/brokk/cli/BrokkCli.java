@@ -525,7 +525,7 @@ public final class BrokkCli implements Callable<Integer> {
                 io.showNotification(
                         IConsoleIO.NotificationRole.INFO, "Deep Scan token usage: " + recommendations.metadata());
                 // Persist successful results to cache; failures are not cached.
-                if (recommendations.success() && getCacheMode() == CacheMode.WRITE || getCacheMode() == CacheMode.RW) {
+                if (recommendations.success() && getCacheMode().canWrite()) {
                     writeRecommendationToCache(cacheKey, recommendations);
                 }
             }
@@ -959,10 +959,27 @@ public final class BrokkCli implements Callable<Integer> {
      *  - "OFF": neither read from nor write to the cache.
      */
     private enum CacheMode {
-        RW,
-        READ,
-        WRITE,
-        OFF
+        OFF(0),
+        READ(1),
+        WRITE(2),
+        RW(1 | 2);
+
+        private static final int READ_BIT = 1;
+        private static final int WRITE_BIT = 2;
+
+        private final int mask;
+
+        CacheMode(int mask) {
+            this.mask = mask;
+        }
+
+        boolean canRead() {
+            return (mask & READ_BIT) != 0;
+        }
+
+        boolean canWrite() {
+            return (mask & WRITE_BIT) != 0;
+        }
     }
 
     private static CacheMode getCacheMode() {
@@ -981,7 +998,7 @@ public final class BrokkCli implements Callable<Integer> {
 
     static Optional<ContextAgent.RecommendationResult> readRecommendationFromCache(String key, IContextManager mgr) {
         CacheMode mode = getCacheMode();
-        if (mode == CacheMode.WRITE || mode == CacheMode.OFF) {
+        if (!mode.canRead()) {
             logger.debug(
                     "Context cache mode {}: skipping read for key {} (BRK_CONTEXT_CACHE={})",
                     mode,
@@ -1087,7 +1104,7 @@ public final class BrokkCli implements Callable<Integer> {
 
     static void writeRecommendationToCache(String key, ContextAgent.RecommendationResult rec) throws IOException {
         CacheMode mode = getCacheMode();
-        if (mode == CacheMode.READ || mode == CacheMode.OFF) {
+        if (!mode.canWrite()) {
             logger.debug(
                     "Context cache mode {}: skipping write for key {} (BRK_CONTEXT_CACHE={})",
                     mode,
