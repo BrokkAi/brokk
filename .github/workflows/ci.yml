@@ -38,14 +38,10 @@ jobs:
     - name: Run tests with full static analysis (Windows)
       if: matrix.os == 'windows-latest'
       run: ./gradlew check -PexcludeGitRepoTest
-      env:
-        BROKK_WATCHSERVICE_IMPL: native
 
     - name: Run tests with full static analysis (Unix)
       if: matrix.os != 'windows-latest'
       run: ./gradlew check shadowJar
-      env:
-        BROKK_WATCHSERVICE_IMPL: native
 
   formatting:
     runs-on: ubuntu-latest
