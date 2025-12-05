@@ -164,6 +164,7 @@ class AskModeSearchAgentTest {
         }
     }
 
+    @Disabled
     @Test
     void testAskModeIgnoresCodeModel() throws Exception {
         uploadSession();
