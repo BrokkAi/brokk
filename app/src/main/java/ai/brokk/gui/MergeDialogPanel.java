@@ -4,6 +4,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.components.FuzzyComboBox;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.util.MergeDialogUtil;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.WorktreeProject;
@@ -20,7 +21,6 @@ import java.util.List;
 import java.util.Locale;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
-import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
@@ -40,7 +40,7 @@ import org.jetbrains.annotations.Nullable;
  * - Conflict checking in background, gating OK on success
  * - Material buttons, primary style, default button, named components
  */
-public class MergeDialogPanel extends JDialog {
+public class MergeDialogPanel extends BaseThemedDialog {
     private static final Logger logger = LogManager.getLogger(MergeDialogPanel.class);
 
     private final ContextManager contextManager;
@@ -73,7 +73,7 @@ public class MergeDialogPanel extends JDialog {
             boolean deleteBranch) {}
 
     public MergeDialogPanel(@Nullable Frame parent, MergeDialogUtil.MergeDialogOptions options) {
-        super(parent, options.dialogTitle(), true);
+        super(parent, options.dialogTitle());
         this.contextManager = options.contextManager();
         this.sourceBranch = options.sourceBranch();
         this.showDeleteWorktree = options.showDeleteWorktree();
@@ -111,7 +111,8 @@ public class MergeDialogPanel extends JDialog {
     }
 
     private void initializeDialog() {
-        setLayout(new BorderLayout());
+        JPanel root = getContentRoot();
+        root.setLayout(new BorderLayout());
 
         var contentPanel = new JPanel(new GridBagLayout());
         var gbc = new GridBagConstraints();
@@ -161,14 +162,14 @@ public class MergeDialogPanel extends JDialog {
         conflictStatusLabel.setForeground(UIManager.getColor("Label.foreground"));
         contentPanel.add(conflictStatusLabel, gbc);
 
-        add(contentPanel, BorderLayout.CENTER);
+        root.add(contentPanel, BorderLayout.CENTER);
 
         // Button panel
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         SwingUtil.applyPrimaryButtonStyle(okButton);
         buttonPanel.add(okButton);
         buttonPanel.add(cancelButton);
-        add(buttonPanel, BorderLayout.SOUTH);
+        root.add(buttonPanel, BorderLayout.SOUTH);
 
         getRootPane().setDefaultButton(okButton);
 
@@ -221,8 +222,8 @@ public class MergeDialogPanel extends JDialog {
     }
 
     private void configureCheckboxes() {
-        var contentPanel =
-                (JPanel) ((BorderLayout) getContentPane().getLayout()).getLayoutComponent(BorderLayout.CENTER);
+        var root = getContentRoot();
+        var contentPanel = (JPanel) ((BorderLayout) root.getLayout()).getLayoutComponent(BorderLayout.CENTER);
         var gbc = new GridBagConstraints();
         gbc.gridwidth = GridBagConstraints.REMAINDER;
         gbc.gridx = 0;
@@ -289,8 +290,8 @@ public class MergeDialogPanel extends JDialog {
         dirtyWorkingTreeLabel.setText(message);
         dirtyWorkingTreeLabel.setForeground(Color.RED);
 
-        var contentPanel =
-                (JPanel) ((BorderLayout) getContentPane().getLayout()).getLayoutComponent(BorderLayout.CENTER);
+        var root = getContentRoot();
+        var contentPanel = (JPanel) ((BorderLayout) root.getLayout()).getLayoutComponent(BorderLayout.CENTER);
         var gbc = new GridBagConstraints();
         gbc.gridx = 0;
         gbc.weightx = 1.0;

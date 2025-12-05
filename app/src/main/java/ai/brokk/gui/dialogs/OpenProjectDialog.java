@@ -46,7 +46,7 @@ import org.kohsuke.github.HttpException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class OpenProjectDialog extends JDialog {
+public class OpenProjectDialog extends BaseThemedDialog {
     private static final Logger logger = LoggerFactory.getLogger(OpenProjectDialog.class);
 
     private static record GitHubRepoInfo(
@@ -94,15 +94,17 @@ public class OpenProjectDialog extends JDialog {
     private volatile boolean cloneCancelled;
 
     public OpenProjectDialog(@Nullable Frame parent) {
-        super(parent, "Open Project", true);
+        super(parent, "Open Project", Dialog.ModalityType.APPLICATION_MODAL);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+
         initComponents();
         pack();
         setLocationRelativeTo(parent);
     }
 
     private void initComponents() {
-        var mainPanel = new JPanel(new BorderLayout());
+        var mainPanel = getContentRoot();
+        mainPanel.setLayout(new BorderLayout());
 
         var leftPanel = new JPanel();
         leftPanel.setLayout(new BoxLayout(leftPanel, BoxLayout.Y_AXIS));
@@ -155,8 +157,6 @@ public class OpenProjectDialog extends JDialog {
 
         // Create clone progress panel (will be added to tabs, not main panel)
         cloneProgressPanel = createCloneProgressPanel();
-
-        setContentPane(mainPanel);
 
         // Handle window close during clone
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);

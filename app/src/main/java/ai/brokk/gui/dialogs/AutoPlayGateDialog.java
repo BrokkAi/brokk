@@ -9,7 +9,6 @@ import java.awt.FlowLayout;
 import java.awt.Window;
 import java.util.Set;
 import javax.swing.BorderFactory;
-import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
@@ -21,7 +20,7 @@ import org.jetbrains.annotations.Nullable;
  * Modal dialog for EZ-mode auto-play task gating.
  * Prompts user to execute all tasks, clean existing and run, or cancel.
  */
-public final class AutoPlayGateDialog extends JDialog {
+public final class AutoPlayGateDialog extends BaseThemedDialog {
     private final Set<String> incompleteTasks;
     private UserChoice choice = UserChoice.CANCEL;
 
@@ -38,13 +37,15 @@ public final class AutoPlayGateDialog extends JDialog {
     private AutoPlayGateDialog(@Nullable Window owner, Set<String> incompleteTasks) {
         super(owner, "Incomplete Tasks", Dialog.ModalityType.APPLICATION_MODAL);
         this.incompleteTasks = incompleteTasks;
+
         buildUI();
         pack();
         setLocationRelativeTo(owner);
     }
 
     private void buildUI() {
-        var root = new JPanel(new BorderLayout(8, 8));
+        var root = getContentRoot();
+        root.setLayout(new BorderLayout(8, 8));
         root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         var intro = new JTextArea("There are incomplete tasks in this session. What would you like to do?");
@@ -96,7 +97,6 @@ public final class AutoPlayGateDialog extends JDialog {
             dispose();
         });
 
-        setContentPane(root);
         getRootPane().setDefaultButton(executeBtn);
     }
 

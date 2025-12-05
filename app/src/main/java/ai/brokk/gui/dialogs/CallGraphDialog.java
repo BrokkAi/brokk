@@ -14,7 +14,7 @@ import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
 /** Dialog for configuring call graph analysis with method selection and depth control */
-public class CallGraphDialog extends JDialog {
+public class CallGraphDialog extends BaseThemedDialog {
 
     private final SymbolSelectionPanel selectionPanel;
     private final MaterialButton okButton;
@@ -37,13 +37,10 @@ public class CallGraphDialog extends JDialog {
     private boolean isCallerGraph;
 
     public CallGraphDialog(Frame parent, IAnalyzer analyzer, String title, boolean isCallerGraph) {
-        super(parent, title, true); // modal dialog
+        super(parent, title);
 
         this.analyzer = analyzer;
         this.isCallerGraph = isCallerGraph;
-
-        var mainPanel = new JPanel(new BorderLayout(8, 8));
-        mainPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
         // Create the symbol selection panel - limited to methods only
         selectionPanel = new SymbolSelectionPanel(analyzer, Set.of(CodeUnitType.FUNCTION));
@@ -94,12 +91,7 @@ public class CallGraphDialog extends JDialog {
         gbc.gridwidth = 2;
         depthPanel.add(callSitesLabel, gbc);
 
-        // Add components directly to the main panel
-        mainPanel.add(selectionPanel, BorderLayout.NORTH);
-        mainPanel.add(depthPanel, BorderLayout.WEST);
-
         // Buttons at the bottom
-        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         okButton = new MaterialButton("OK");
         okButton.addActionListener(e -> doOk());
         cancelButton = new MaterialButton("Cancel");
@@ -107,9 +99,19 @@ public class CallGraphDialog extends JDialog {
             confirmed = false;
             dispose();
         });
+
+        // Build layout in the content root
+        JPanel root = getContentRoot();
+        root.setLayout(new BorderLayout(8, 8));
+        root.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+        root.add(selectionPanel, BorderLayout.NORTH);
+        root.add(depthPanel, BorderLayout.WEST);
+
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         buttonPanel.add(okButton);
         buttonPanel.add(cancelButton);
-        mainPanel.add(buttonPanel, BorderLayout.SOUTH);
+        root.add(buttonPanel, BorderLayout.SOUTH);
 
         // Handle escape key to close dialog
         KeyStroke escapeKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
@@ -135,7 +137,6 @@ public class CallGraphDialog extends JDialog {
             updateCallGraph();
         });
 
-        setContentPane(mainPanel);
         pack();
         setLocationRelativeTo(parent);
     }

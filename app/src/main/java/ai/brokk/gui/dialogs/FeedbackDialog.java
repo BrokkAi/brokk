@@ -15,7 +15,7 @@ import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
 /** Modal dialog that gathers feedback details from the user and sends them through Service.sendFeedback(). */
-public class FeedbackDialog extends JDialog {
+public class FeedbackDialog extends BaseThemedDialog {
     private final Chrome chrome;
     private final JComboBox<CategoryItem> categoryCombo;
     private final JTextArea feedbackArea;
@@ -36,7 +36,7 @@ public class FeedbackDialog extends JDialog {
     }
 
     public FeedbackDialog(Frame owner, Chrome chrome) {
-        super(owner, "Send Feedback", true);
+        super(owner, "Send Feedback");
         this.chrome = chrome;
 
         categoryCombo = new JComboBox<>(new CategoryItem[] {
@@ -144,9 +144,10 @@ public class FeedbackDialog extends JDialog {
         buttons.add(cancelButton);
         buttons.add(sendButton);
 
-        getContentPane().setLayout(new BorderLayout());
-        getContentPane().add(form, BorderLayout.CENTER);
-        getContentPane().add(buttons, BorderLayout.SOUTH);
+        JPanel root = getContentRoot();
+        root.setLayout(new BorderLayout());
+        root.add(form, BorderLayout.CENTER);
+        root.add(buttons, BorderLayout.SOUTH);
     }
 
     private void send() {
@@ -228,7 +229,7 @@ public class FeedbackDialog extends JDialog {
         if (screenshotImage == null) {
             return;
         }
-        var dialog = new JDialog(this, "Screenshot Preview", true);
+        var dialog = new BaseThemedDialog(this, "Screenshot Preview");
         var scaled = screenshotImage.getScaledInstance(
                 screenshotImage.getWidth() / 2, screenshotImage.getHeight() / 2, Image.SCALE_SMOOTH);
         var imgLabel = new JLabel(new ImageIcon(scaled));
@@ -243,7 +244,7 @@ public class FeedbackDialog extends JDialog {
             focusColor = new Color(0x8ab4f8);
         }
         imgLabel.setBorder(BorderFactory.createLineBorder(focusColor));
-        dialog.getContentPane().add(new JScrollPane(imgLabel));
+        dialog.getContentRoot().add(new JScrollPane(imgLabel));
         dialog.pack();
         dialog.setLocationRelativeTo(this);
         dialog.setVisible(true);

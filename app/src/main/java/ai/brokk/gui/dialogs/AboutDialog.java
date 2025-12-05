@@ -11,17 +11,19 @@ import javax.swing.border.EmptyBorder;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Native-style “About Brokk” dialog.
+ * Native-style "About Brokk" dialog.
  *
  * <p>• Modeless so the macOS Application menu stays enabled. • Can be invoked from any thread; creation is marshalled
  * to the EDT.
  */
-public final class AboutDialog extends JDialog {
+public final class AboutDialog extends BaseThemedDialog {
     private AboutDialog(@Nullable Window owner) {
-        super(owner, "About Brokk", ModalityType.MODELESS);
+        super(owner, "About Brokk", Dialog.ModalityType.MODELESS);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setName("aboutDialog");
+
         buildUi();
+
         pack();
         setResizable(false);
         setLocationRelativeTo(owner);
@@ -51,7 +53,10 @@ public final class AboutDialog extends JDialog {
                         .formatted(BuildInfo.version);
         content.add(new JLabel(text), BorderLayout.CENTER);
 
-        add(content);
+        // Add content to the contentRoot managed by BaseThemedDialog
+        var root = getContentRoot();
+        root.setLayout(new BorderLayout());
+        root.add(content, BorderLayout.CENTER);
         Chrome.applyIcon(this); // sets Dock/task-bar icon where applicable
 
         // Allow closing with ESC key

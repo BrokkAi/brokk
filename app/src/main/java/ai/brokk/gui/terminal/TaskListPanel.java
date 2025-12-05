@@ -15,6 +15,7 @@ import ai.brokk.gui.CommitDialog;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.AutoPlayGateDialog;
+import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -67,7 +68,6 @@ import javax.swing.DropMode;
 import javax.swing.Icon;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
-import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JMenuItem;
@@ -755,9 +755,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         TaskList.TaskItem current = requireNonNull(model.get(index));
 
         Window owner = SwingUtilities.getWindowAncestor(this);
-        JDialog dialog = (owner != null)
-                ? new JDialog(owner, "Edit Task", Dialog.ModalityType.APPLICATION_MODAL)
-                : new JDialog((Window) null, "Edit Task", Dialog.ModalityType.APPLICATION_MODAL);
+        var dialog = new BaseThemedDialog(owner, "Edit Task", Dialog.ModalityType.APPLICATION_MODAL);
 
         JPanel content = new JPanel(new BorderLayout(6, 6));
         content.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -833,7 +831,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         buttons.add(cancelBtn);
         content.add(buttons, BorderLayout.SOUTH);
 
-        dialog.setContentPane(content);
+        dialog.getContentRoot().add(content);
         dialog.setResizable(true);
         dialog.getRootPane().setDefaultButton(saveBtn);
         dialog.pack();
@@ -1196,7 +1194,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         var owner = SwingUtilities.getWindowAncestor(this);
-        var dialog = new JDialog(owner, "Uncommitted Changes", Dialog.ModalityType.APPLICATION_MODAL);
+        var dialog = new BaseThemedDialog(owner, "Uncommitted Changes", Dialog.ModalityType.APPLICATION_MODAL);
 
         var content = new JPanel(new BorderLayout(8, 8));
         content.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -1235,7 +1233,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             dialog.dispose();
         });
 
-        dialog.setContentPane(content);
+        dialog.getContentRoot().add(content);
         dialog.getRootPane().setDefaultButton(commitFirstBtn);
         dialog.pack();
         dialog.setLocationRelativeTo(owner);
