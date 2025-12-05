@@ -75,7 +75,7 @@ public class WatchServiceFactory {
         // 3) Persisted global preference (MainProject). Treat "default" as no explicit preference.
         try {
             String projectPref = MainProject.getWatchServiceImplPreference();
-            if (projectPref != null && !projectPref.isBlank() && !"default".equalsIgnoreCase(projectPref)) {
+            if (!projectPref.isBlank() && !"default".equalsIgnoreCase(projectPref)) {
                 return projectPref.trim();
             }
         } catch (Throwable t) {
