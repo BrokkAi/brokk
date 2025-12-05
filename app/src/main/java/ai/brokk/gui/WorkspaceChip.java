@@ -983,7 +983,7 @@ public class WorkspaceChip extends JPanel {
         @Override
         protected void setFragmentsInternal(Set<ContextFragment> fragments) {
             super.setFragmentsInternal(fragments);
-            this.summaryFragments = new ArrayList<>(fragments);
+            this.summaryFragments = List.copyOf(fragments);
         }
 
         @Override
