@@ -164,4 +164,25 @@ class WatchServiceFactoryTest {
             // No-op for testing
         }
     }
+
+    @Test
+    void testSystemPropertyPrecedence() {
+        final String propName = "brokk.watchservice.impl";
+        String previous = System.getProperty(propName);
+        try {
+            System.setProperty(propName, "legacy");
+            String pref = WatchServiceFactory.getImplementationPreference();
+            assertNotNull(pref, "Preference should not be null when system property is set");
+            assertTrue(
+                    pref.equalsIgnoreCase("legacy"),
+                    "System property should take precedence and return 'legacy'");
+        } finally {
+            // Restore previous value to avoid influencing other tests
+            if (previous == null) {
+                System.clearProperty(propName);
+            } else {
+                System.setProperty(propName, previous);
+            }
+        }
+    }
 }
