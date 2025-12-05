@@ -1022,13 +1022,6 @@ public abstract class CodePrompts {
                         If you need to modify package or import statements, perform a separate line-based SEARCH/REPLACE that
                         targets those lines, or use `BRK_ENTIRE_FILE` for a full-file replacement. Including `package` or `import`
                         lines in a BRK_CLASS REPLACE will cause duplication and can introduce build errors.
-
-                        CRITICAL: BRK_* markers are meta-instructions used only as SEARCH locators, not source code.
-                        - They must NEVER appear as literal text in the code you generate.
-                        - When using BRK_* (e.g., BRK_REPLACE_FUNCTION, BRK_NEW_FUNCTION, BRK_CLASS, BRK_CONFLICT_n),
-                          the SEARCH section must contain exactly one BRK_* line. The REPLACE section must contain only valid code.
-                        - Do not repeat BRK_* markers in the REPLACE section, comments, or strings.
-                        - Choose exactly one SEARCH type per edit block; do not mix types inside a single block.
                     """;
         }
         if (hasMergeMarkers) {
@@ -1097,14 +1090,6 @@ public abstract class CodePrompts {
 
                 Remember to ALWAYS use the *FULL* file path, as shown to you by the user. No other text should appear on the marker lines.
 
-                ## CRITICAL rules for BRK_* markers
-                - BRK_* markers (BRK_REPLACE_FUNCTION, BRK_NEW_FUNCTION, BRK_CLASS, BRK_CONFLICT_n) are meta-instructions,
-                  not code. They must NEVER appear as literal text in the source files you generate.
-                - When you choose a BRK_* operation for an edit block, the SEARCH section must be exactly the single BRK_* line.
-                - The REPLACE section must contain only valid code, with no BRK_* tokens anywhere (including comments or strings).
-                - Do not mix multiple SEARCH types inside one block (e.g., do not combine BRK_* with line-based SEARCH in the same block).
-                  Choose exactly one SEARCH type per block. You may emit multiple blocks if multiple edits are needed.
-
                 ## Examples (format only; illustrative, not real code)
                 Follow these patterns exactly when you emit edits.
                 %s
@@ -1133,9 +1118,9 @@ public abstract class CodePrompts {
 
                 When generating *SEARCH/REPLACE* blocks, choose the most precise SEARCH type that fits your change:
                 %s
-                **IMPORTANT**: The `BRK_` tokens are NEVER part of the file content; they are entity locators used only in SEARCH.
-                The SEARCH section for a BRK_* edit must be exactly the single BRK_* line. The REPLACE section must NEVER contain `BRK_` tokens.
-                The INSERT or REPLACE payload must ALWAYS contain ONLY valid code (leading documentation comments, annotations, signature, body) that will overwrite or insert at the target.
+                **IMPORTANT**: The `BRK_` tokens are NEVER part of the file content, they are entity locators used only in SEARCH.
+                When writing REPLACE blocks, do **not** repeat the `BRK_` line.
+                The INSERT or REPLACE block must ALWAYS contain ONLY the valid code (leading documentation comments, annotations, signature, body) that will overwrite the target.
 
                 # General
                 Always write elegant, well-encapsulated code that is easy to maintain and use without mistakes.
@@ -1343,7 +1328,6 @@ public abstract class CodePrompts {
                             ### Example %d — Syntax-aware SEARCH to replace a function (BRK_REPLACE_FUNCTION)
 
                             This replaces the method's signature and body, including the header comment block (e.g., JavaDoc).
-                            The SEARCH section is exactly one `BRK_REPLACE_FUNCTION` line. The REPLACE section contains only code (no BRK_* tokens).
 
                             ```
                             src/main/java/com/acme/Foo.java
@@ -1369,7 +1353,6 @@ public abstract class CodePrompts {
 
                             Provide the fully qualified class name after BRK_NEW_FUNCTION and include any intended documentation
                             comments and annotations together with the method signature and body in the REPLACE section.
-                            The SEARCH section is exactly one `BRK_NEW_FUNCTION` line. Do not include any BRK_* tokens in REPLACE.
 
                             ```
                             src/main/java/com/acme/Foo.java
@@ -1392,8 +1375,6 @@ public abstract class CodePrompts {
             parts.add(
                     """
                             ### Example %d — Syntax-aware SEARCH for an entire class (BRK_CLASS)
-
-                            The SEARCH section is exactly one `BRK_CLASS` line. The REPLACE section contains the class body only (no BRK_* tokens).
 
                             ```
                             src/main/java/com/acme/Foo.java
@@ -1470,7 +1451,7 @@ public abstract class CodePrompts {
                             ### Example %d — Conflict range fix (BRK_CONFLICT markers)
 
                             The SEARCH is a **single line** that targets the entire conflict region, regardless of its contents.
-                            Replace that region with the resolved implementation. Do not include any BRK_* tokens in REPLACE.
+                            Replace that region with the resolved implementation.
 
                             ```
                             src/main/java/com/acme/Foo.java
