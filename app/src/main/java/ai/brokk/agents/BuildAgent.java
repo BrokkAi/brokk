@@ -319,14 +319,23 @@ public class BuildAgent {
                 - Lock files (e.g., package-lock.json, yarn.lock, Cargo.lock, poetry.lock, go.sum)
                 - Binary/media files (e.g., *.svg, *.png, *.woff, *.ttf)
                 - Minified files (e.g., *.min.js, *.min.css)
-                - Generated or vendored code
-                - Test fixtures and resources (e.g., **/test/fixtures/**)
-                - Large data files, logs, or documentation assets
+                - Generated code from build tools (e.g., protobuf outputs, code generator outputs in generated/ or gen/ directories)
+                - Vendored dependencies (e.g., **/vendor/**, **/node_modules/** if not gitignored)
+                - Large test data files (e.g., **/testdata/*.json, **/fixtures/*.xml) - but NOT test code itself
+                - Large data files or logs
+
+                Use `**/` prefix for directory patterns that should match at any depth (e.g., `**/build/**`, `**/node_modules/**`, `**/target/**` match both `build/` and `subproject/build/`).
+
+                Do NOT exclude: configuration files, type definitions (*.d.ts, ddl files, etc), schema files (OpenAPI, GraphQL, Protobuf sources, etc), or test code.
+
+                This project's primary language is %s. Consider language-specific exclusions that are appropriate.
 
                 Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
                 The reportBuildDetails tool expects exactly five parameters: buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, and excludedFilePatterns.
                 """
-                        .formatted(wrapperScriptInstruction)));
+                        .formatted(
+                                wrapperScriptInstruction,
+                                project.getBuildLanguage().name())));
 
         // Add existing history
         messages.addAll(chatHistory);
