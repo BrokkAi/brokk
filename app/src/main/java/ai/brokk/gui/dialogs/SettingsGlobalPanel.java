@@ -1570,7 +1570,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             if (!e.getValueIsAdjusting()) updateRemoveButtonEnabled.run();
         });
         quickModelsTableModel.addTableModelListener(e -> updateRemoveButtonEnabled.run());
-        quickModelsTableModel.addTableModelListener(e -> SwingUtilities.invokeLater(() -> refreshFavoriteModelCombosPreservingSelection()));
+        quickModelsTableModel.addTableModelListener(
+                e -> SwingUtilities.invokeLater(() -> refreshFavoriteModelCombosPreservingSelection()));
         // Initialize enabled state
         updateRemoveButtonEnabled.run();
 
