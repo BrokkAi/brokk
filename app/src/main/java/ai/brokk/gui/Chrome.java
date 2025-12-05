@@ -10,18 +10,15 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.agents.BlitzForge;
-import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.SpinnerIconUtil;
-import ai.brokk.gui.dependencies.DependenciesDrawerPanel;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
 import ai.brokk.gui.dialogs.PreviewImagePanel;
-import ai.brokk.gui.dialogs.PreviewTextFrame;
 import ai.brokk.gui.dialogs.PreviewTextPanel;
 import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.git.GitHistoryTab;
@@ -31,9 +28,6 @@ import ai.brokk.gui.git.GitPullRequestsTab;
 import ai.brokk.gui.git.GitWorktreeTab;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.MarkdownOutputPool;
-import ai.brokk.gui.mop.ThemeColors;
-import ai.brokk.gui.search.GenericSearchBar;
-import ai.brokk.gui.search.MarkdownSearchableComponent;
 import ai.brokk.gui.terminal.TaskListPanel;
 import ai.brokk.gui.terminal.TerminalDrawerPanel;
 import ai.brokk.gui.terminal.TerminalPanel;
@@ -72,7 +66,6 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 public class Chrome
@@ -1825,51 +1818,6 @@ public class Chrome
             logger.debug("computeAlternatePreviewKey failed", ex);
         }
         return null;
-    }
-
-    /**
-     * Update the window title for an existing preview in a safe EDT manner and repaint.
-     */
-    private void updatePreviewWindowTitle(String initialTitle, JComponent contentComponent, String newTitle) {
-        SwingUtilities.invokeLater(() -> {
-            try {
-                // Check if it's a PreviewTextPanel in the tabbed frame
-                if (contentComponent instanceof PreviewTextPanel textPanel && previewTextFrame != null && previewTextFrame.isDisplayable()) {
-                    previewTextFrame.updateTabTitle(textPanel, newTitle);
-                    return;
-                }
-                
-                // Handle regular preview windows
-                String key = generatePreviewWindowKey(initialTitle, contentComponent);
-                JFrame previewFrame = activePreviewWindows.get(key);
-                if (previewFrame == null) {
-                    String altKey = computeAlternatePreviewKey(initialTitle, contentComponent, key);
-                    if (altKey != null) {
-                        previewFrame = activePreviewWindows.get(altKey);
-                    }
-                }
-                if (previewFrame != null) {
-                    previewFrame.setTitle(newTitle);
-                    if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
-                        var contentPane = previewFrame.getContentPane();
-                        if (contentPane.getLayout() instanceof BorderLayout bl) {
-                            Component northComponent = bl.getLayoutComponent(BorderLayout.NORTH);
-                            if (northComponent instanceof JPanel titleBar
-                                    && titleBar.getLayout() instanceof BorderLayout tbl) {
-                                Component centerInTitleBar = tbl.getLayoutComponent(BorderLayout.CENTER);
-                                if (centerInTitleBar instanceof JLabel label) {
-                                    label.setText(newTitle);
-                                }
-                            }
-                        }
-                    }
-                    previewFrame.revalidate();
-                    previewFrame.repaint();
-                }
-            } catch (Exception ex) {
-                logger.debug("Unable to update preview window title", ex);
-            }
-        });
     }
 
     /**

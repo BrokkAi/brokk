@@ -8,6 +8,7 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.KeyEvent;
+import java.awt.event.WindowEvent;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import javax.imageio.ImageIO;
@@ -153,17 +154,15 @@ public class PreviewImagePanel extends JPanel {
 
     /** Registers ESC key to close the preview panel */
     private void registerEscapeKey() {
-        // Register ESC key to close the dialog
+        // Register ESC key to close the current tab or window via a WINDOW_CLOSING event
         KeyStroke escapeKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
-
-        // Add ESC handler to panel to close window
         getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(escapeKeyStroke, "closePreview");
         getActionMap().put("closePreview", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 Window window = SwingUtilities.getWindowAncestor(PreviewImagePanel.this);
                 if (window != null) {
-                    window.dispose();
+                    window.dispatchEvent(new WindowEvent(window, WindowEvent.WINDOW_CLOSING));
                 }
             }
         });

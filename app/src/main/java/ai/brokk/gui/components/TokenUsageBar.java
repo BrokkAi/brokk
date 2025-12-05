@@ -9,7 +9,7 @@ import ai.brokk.gui.FragmentColorUtils;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.util.ComputedSubscription;
+import ai.brokk.context.ComputedSubscription;
 import ai.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.MouseAdapter;

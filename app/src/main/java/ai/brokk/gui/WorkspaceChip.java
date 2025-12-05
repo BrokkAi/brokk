@@ -10,7 +10,7 @@ import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.MainProject;
-import ai.brokk.util.ComputedSubscription;
+import ai.brokk.context.ComputedSubscription;
 import ai.brokk.util.Messages;
 import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
