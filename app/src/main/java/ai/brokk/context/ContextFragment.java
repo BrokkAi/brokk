@@ -1366,7 +1366,8 @@ public interface ContextFragment {
             // - standard quotes: key="value"
             // - single quotes: key='value'
             // - backslash-escaped quotes: key=\"value\"
-            var attrPattern = Pattern.compile("(\\w+)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|\\\\\"([^\\\\\"]*)\\\\\")");
+            var attrPattern = Pattern.compile(
+                    "(\\w+)\\s*=\\s*(?:\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"|'([^'\\\\]*(?:\\\\.[^'\\\\]*)*)'|([^\\s>]+))");
 
             while (blockMatcher.find()) {
                 String attrs = blockMatcher.group(1);
@@ -1375,21 +1376,27 @@ public interface ContextFragment {
                 var attrMatcher = attrPattern.matcher(attrs);
                 while (attrMatcher.find()) {
                     String key = attrMatcher.group(1);
-                    String value = attrMatcher.group(2);
-                    if (value == null) value = attrMatcher.group(3);
-                    if (value == null) value = attrMatcher.group(4);
+                    String value = Stream.of(attrMatcher.group(2), attrMatcher.group(3), attrMatcher.group(4))
+                            .filter(Objects::nonNull)
+                            .findFirst()
+                            .orElse(null);
                     if (value != null) {
+                        value = value.replace("\\\"", "\"").replace("\\'", "'");
+                        if ((value.startsWith("\"") && value.endsWith("\""))
+                                || (value.startsWith("'") && value.endsWith("'"))) {
+                            value = value.substring(1, value.length() - 1);
+                        }
                         attrMap.put(key, value);
                     }
                 }
 
-                String classFqn = java.util.Optional.ofNullable(attrMap.get("class"))
+                String classFqn = Optional.ofNullable(attrMap.get("class"))
                         .map(String::trim)
-                        .filter(s -> !s.isEmpty())
+                        .filter(String::isBlank)
                         .orElse(null);
-                String fileRelPathRaw = java.util.Optional.ofNullable(attrMap.get("file"))
+                String fileRelPathRaw = Optional.ofNullable(attrMap.get("file"))
                         .map(String::trim)
-                        .filter(s -> !s.isEmpty())
+                        .filter(String::isBlank)
                         .orElse(null);
 
                 // Resolve file attribute if present, normalizing separators for cross-OS compatibility
