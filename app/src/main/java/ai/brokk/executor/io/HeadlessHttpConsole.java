@@ -45,7 +45,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
      * @param type The event type
      * @param data The event data (arbitrary JSON-serializable object)
      */
-    private void enqueueEvent(String type, @Nullable Object data) {
+    private void appendEvent(String type, @Nullable Object data) {
         try {
             long seq = jobStore.appendEvent(jobId, JobEvent.of(type, data));
             logger.debug("Appended event type={} seq={}", type, seq);
@@ -65,7 +65,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
                 "messageType", type.name(),
                 "isNewMessage", isNewMessage,
                 "isReasoning", isReasoning);
-        enqueueEvent("LLM_TOKEN", data);
+        appendEvent("LLM_TOKEN", data);
     }
 
     @Override
@@ -80,7 +80,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
     @Override
     public void showNotification(NotificationRole role, String message) {
         var data = Map.of("level", role.name(), "message", message);
-        enqueueEvent("NOTIFICATION", data);
+        appendEvent("NOTIFICATION", data);
     }
 
     @Override
@@ -97,7 +97,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
                 "level", mapMessageTypeToLevel(messageType),
                 "message", message,
                 "title", title);
-        enqueueEvent("NOTIFICATION", data);
+        appendEvent("NOTIFICATION", data);
     }
 
     /**
@@ -126,7 +126,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
         var data = Map.of(
                 "message", msg,
                 "title", title);
-        enqueueEvent("ERROR", data);
+        appendEvent("ERROR", data);
     }
 
     /**
@@ -139,7 +139,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
         var data = Map.of(
                 "count", history.size(),
                 "snippet", formatHistorySnippet(history));
-        enqueueEvent("CONTEXT_BASELINE", data);
+        appendEvent("CONTEXT_BASELINE", data);
     }
 
     /**
@@ -149,7 +149,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
     public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry taskEntry) {
         resetTranscript(); // Reset transcript before staging baseline + pending entry, mirroring GUI behavior.
         var data = Map.of("count", history.size() + 1, "snippet", formatHistorySnippet(history));
-        enqueueEvent("CONTEXT_BASELINE", data);
+        appendEvent("CONTEXT_BASELINE", data);
     }
 
     /**
@@ -158,7 +158,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
     @Override
     public void backgroundOutput(String taskDescription) {
         var data = Map.of("name", "backgroundTask", "value", taskDescription);
-        enqueueEvent("STATE_HINT", data);
+        appendEvent("STATE_HINT", data);
     }
 
     /**
@@ -170,7 +170,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
                 "name", "backgroundTask",
                 "value", summary,
                 "details", details);
-        enqueueEvent("STATE_HINT", data);
+        appendEvent("STATE_HINT", data);
     }
 
     /**
@@ -179,31 +179,31 @@ public class HeadlessHttpConsole extends MemoryConsole {
     @Override
     public void setTaskInProgress(boolean progress) {
         var data = Map.of("name", "taskInProgress", "value", progress);
-        enqueueEvent("STATE_HINT", data);
+        appendEvent("STATE_HINT", data);
     }
 
     @Override
     public void showOutputSpinner(String message) {
         var data = Map.of("name", "outputSpinner", "value", true);
-        enqueueEvent("STATE_HINT", data);
+        appendEvent("STATE_HINT", data);
     }
 
     @Override
     public void hideOutputSpinner() {
         var data = Map.of("name", "outputSpinner", "value", false);
-        enqueueEvent("STATE_HINT", data);
+        appendEvent("STATE_HINT", data);
     }
 
     @Override
     public void showSessionSwitchSpinner() {
         var data = Map.of("name", "sessionSwitchSpinner", "value", true);
-        enqueueEvent("STATE_HINT", data);
+        appendEvent("STATE_HINT", data);
     }
 
     @Override
     public void hideSessionSwitchSpinner() {
         var data = Map.of("name", "sessionSwitchSpinner", "value", false);
-        enqueueEvent("STATE_HINT", data);
+        appendEvent("STATE_HINT", data);
     }
 
     /**
@@ -212,37 +212,37 @@ public class HeadlessHttpConsole extends MemoryConsole {
     @Override
     public void disableActionButtons() {
         var data = Map.of("name", "actionButtonsEnabled", "value", false);
-        enqueueEvent("STATE_HINT", data);
+        appendEvent("STATE_HINT", data);
     }
 
     @Override
     public void enableActionButtons() {
         var data = Map.of("name", "actionButtonsEnabled", "value", true);
-        enqueueEvent("STATE_HINT", data);
+        appendEvent("STATE_HINT", data);
     }
 
     @Override
     public void updateWorkspace() {
         var data = Map.of("name", "workspaceUpdated", "value", true);
-        enqueueEvent("STATE_HINT", data);
+        appendEvent("STATE_HINT", data);
     }
 
     @Override
     public void updateGitRepo() {
         var data = Map.of("name", "gitRepoUpdated", "value", true);
-        enqueueEvent("STATE_HINT", data);
+        appendEvent("STATE_HINT", data);
     }
 
     @Override
     public void updateContextHistoryTable() {
         var data = Map.of("name", "contextHistoryUpdated", "value", true);
-        enqueueEvent("STATE_HINT", data);
+        appendEvent("STATE_HINT", data);
     }
 
     @Override
     public void updateContextHistoryTable(Context context) {
         var data = Map.of("name", "contextHistoryUpdated", "value", true, "count", 1);
-        enqueueEvent("STATE_HINT", data);
+        appendEvent("STATE_HINT", data);
     }
 
     /**
@@ -297,7 +297,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
                 "optionType", optionType,
                 "messageType", messageType,
                 "defaultDecision", defaultDecision);
-        enqueueEvent("CONFIRM_REQUEST", data);
+        appendEvent("CONFIRM_REQUEST", data);
     }
 
     /**
