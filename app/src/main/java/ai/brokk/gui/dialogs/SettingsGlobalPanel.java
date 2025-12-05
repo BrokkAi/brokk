@@ -1836,7 +1836,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             preferredCodeModelCombo.repaint();
             primaryModelCombo.revalidate();
             primaryModelCombo.repaint();
-        } catch (Exception ignore) {
+        } catch (Exception e) {
+            logger.warn("Failed to refresh favorite model combos", e);
         }
     }
 
