@@ -2292,9 +2292,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             // push context
             var updatedContext = pushContext(currentLiveCtx -> {
-                // Rebase task result on latest live context to ensure any prior "Load external changes" are retained.
-                var rebased = currentLiveCtx.union(result.context());
-                var updated = rebased.withGroup(groupId, groupLabel);
+                var updated = result.context().withGroup(groupId, groupLabel);
                 TaskEntry entry = updated.createTaskEntry(result);
                 TaskEntry finalEntry = compressResults ? compressHistory(entry) : entry;
                 return updated.addHistoryEntry(finalEntry, result.output(), actionFuture)
@@ -2326,13 +2324,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     public ContextHistory getContextHistory() {
         return contextHistory;
-    }
-
-    /**
-     * @return true if the currently selected context is live/top context.
-     */
-    public boolean isLive() {
-        return Objects.equals(liveContext(), selectedContext());
     }
 
     public UUID getCurrentSessionId() {
