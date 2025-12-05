@@ -944,7 +944,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 notifyContextListeners(liveContext());
                 project.getSessionManager()
                         .saveHistory(contextHistory, currentSessionId); // Save history of frozen contexts
-                analyzerWrapper.requestRebuild();
+                if (!result.changedFiles().isEmpty()) {
+                    analyzerWrapper.updateFiles(result.changedFiles());
+                }
                 return true;
             }
             return false;
@@ -961,7 +963,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
                 String message = "Undid " + result.steps() + " step" + (result.steps() > 1 ? "s" : "") + "!";
                 io.showNotification(IConsoleIO.NotificationRole.INFO, message);
-                analyzerWrapper.requestRebuild();
+                if (!result.changedFiles().isEmpty()) {
+                    analyzerWrapper.updateFiles(result.changedFiles());
+                }
             } else {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Context not found or already at that point");
             }
@@ -971,12 +975,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** redo last undone context */
     public Future<?> redoContextAsync() {
         return submitExclusiveAction(() -> {
-            boolean wasRedone = withFileChangeNotificationsPaused(() -> contextHistory.redo(io, project));
-            if (wasRedone) {
+            ContextHistory.RedoResult redoResult =
+                    withFileChangeNotificationsPaused(() -> contextHistory.redo(io, project));
+            if (redoResult.wasRedone()) {
                 notifyContextListeners(liveContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Redo!");
-                analyzerWrapper.requestRebuild();
+                if (!redoResult.changedFiles().isEmpty()) {
+                    analyzerWrapper.updateFiles(redoResult.changedFiles());
+                }
             } else {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "no redo state available");
             }
