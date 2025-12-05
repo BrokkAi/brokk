@@ -40,6 +40,7 @@ import java.util.EventObject;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -2132,36 +2133,50 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         String previousVendorPref = MainProject.getOtherModelsVendorPreference();
 
-        // Persist selected vendor preference for "other models" regardless of choice
+        var mainProject = chrome.getProject().getMainProject();
+        var prevQuickModelConfig = mainProject.getQuickModelConfig();
+        var prevQuickEditModelConfig = mainProject.getQuickEditModelConfig();
+        var prevQuickestModelConfig = mainProject.getQuickestModelConfig();
+        var prevScanModelConfig = mainProject.getScanModelConfig();
+
         MainProject.setOtherModelsVendorPreference(selectedVendor != null ? selectedVendor : "");
 
-        // Apply vendor mappings for Quick, Quick Edit, Quickest, Scan
         if ("OpenAI".equals(selectedVendor)) {
-            chrome.getProject().getMainProject().setQuickModelConfig(new Service.ModelConfig(Service.GPT_5_NANO));
-            chrome.getProject().getMainProject().setQuickEditModelConfig(new Service.ModelConfig(Service.GPT_5_NANO));
-            chrome.getProject().getMainProject().setQuickestModelConfig(new Service.ModelConfig(Service.GPT_5_NANO));
-            chrome.getProject().getMainProject().setScanModelConfig(new Service.ModelConfig(Service.GPT_5_MINI));
+            mainProject.setQuickModelConfig(new Service.ModelConfig(Service.GPT_5_NANO));
+            mainProject.setQuickEditModelConfig(new Service.ModelConfig(Service.GPT_5_NANO));
+            mainProject.setQuickestModelConfig(new Service.ModelConfig(Service.GPT_5_NANO));
+            mainProject.setScanModelConfig(new Service.ModelConfig(Service.GPT_5_MINI));
         } else if ("Anthropic".equals(selectedVendor)) {
-            chrome.getProject().getMainProject().setQuickModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
-            chrome.getProject().getMainProject().setQuickEditModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
-            chrome.getProject().getMainProject().setQuickestModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
-            chrome.getProject().getMainProject().setScanModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
+            mainProject.setQuickModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
+            mainProject.setQuickEditModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
+            mainProject.setQuickestModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
+            mainProject.setScanModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
         } else if ("Default".equals(selectedVendor)) {
-            var mp = chrome.getProject().getMainProject();
-            mp.setQuickModelConfig(MainProject.getDefaultQuickModelConfig());
-            mp.setQuickEditModelConfig(MainProject.getDefaultQuickEditModelConfig());
-            mp.setQuickestModelConfig(MainProject.getDefaultQuickestModelConfig());
-            mp.setScanModelConfig(MainProject.getDefaultScanModelConfig());
+            mainProject.setQuickModelConfig(MainProject.getDefaultQuickModelConfig());
+            mainProject.setQuickEditModelConfig(MainProject.getDefaultQuickEditModelConfig());
+            mainProject.setQuickestModelConfig(MainProject.getDefaultQuickestModelConfig());
+            mainProject.setScanModelConfig(MainProject.getDefaultScanModelConfig());
         }
 
-        // Reload service if vendor changed so new Quick/Scan models take effect immediately
-        String prev = previousVendorPref;
-        String now = selectedVendor;
-        if (!prev.equals(now)) {
+        var newQuickModelConfig = mainProject.getQuickModelConfig();
+        var newQuickEditModelConfig = mainProject.getQuickEditModelConfig();
+        var newQuickestModelConfig = mainProject.getQuickestModelConfig();
+        var newScanModelConfig = mainProject.getScanModelConfig();
+
+        boolean modelsChanged =
+                !modelConfigsEqual(prevQuickModelConfig, newQuickModelConfig)
+                        || !modelConfigsEqual(prevQuickEditModelConfig, newQuickEditModelConfig)
+                        || !modelConfigsEqual(prevQuickestModelConfig, newQuickestModelConfig)
+                        || !modelConfigsEqual(prevScanModelConfig, newScanModelConfig);
+
+        // Reload service if vendor preference or model mapping changed so new Quick/Scan models take effect immediately
+        String prev = previousVendorPref != null ? previousVendorPref : "";
+        String now = selectedVendor != null ? selectedVendor : "";
+        if (!prev.equals(now) || modelsChanged) {
             try {
                 chrome.getContextManager().reloadService();
             } catch (Exception ex) {
-                logger.debug("Service reload after vendor change failed (non-fatal)", ex);
+                logger.debug("Service reload after vendor/model change failed (non-fatal)", ex);
             }
         }
 
@@ -3174,6 +3189,18 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 }
             }
         }.execute();
+    }
+
+    private static boolean modelConfigsEqual(@Nullable Service.ModelConfig a, @Nullable Service.ModelConfig b) {
+        if (a == b) {
+            return true;
+        }
+        if (a == null || b == null) {
+            return false;
+        }
+        return Objects.equals(a.name(), b.name())
+                && Objects.equals(a.reasoning(), b.reasoning())
+                && Objects.equals(a.tier(), b.tier());
     }
 
     private static class ArgsTableModel extends AbstractTableModel {
