@@ -289,6 +289,9 @@ public class CodeAgent {
                 context = context.addFragments(newFrags);
             }
 
+            // Refresh context fragments for any files that were modified (so LLM sees current contents)
+            context = context.copyAndRefresh(es.changedFiles());
+
             if (applyOutcome instanceof Step.Retry retryApply) {
                 cs = retryApply.cs();
                 es = retryApply.es();
