@@ -277,8 +277,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         // Scroll to the beginning of the document
         textArea.setCaretPosition(0);
 
-        // Register ESC key to close the dialog
-        registerEscapeKey();
         // Register Ctrl/Cmd+S to save
         registerSaveKey();
         // Setup custom window close handler
@@ -1105,16 +1103,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             }
         });
         return new QuickEditResult(snippet, null);
-    }
-
-    /** Registers ESC key to close the preview panel */
-    private void registerEscapeKey() {
-        KeyboardShortcutUtil.registerCloseEscapeShortcut(this, () -> {
-            var window = SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
-            if (window != null) {
-                window.dispatchEvent(new WindowEvent(window, WindowEvent.WINDOW_CLOSING));
-            }
-        });
     }
 
     /** Sets up a handler for the window's close button ("X") to ensure `confirmClose` is called. */

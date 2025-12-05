@@ -58,8 +58,6 @@ public class PreviewFrame extends JFrame implements ThemeAware {
             }
         });
 
-        // Register ESC key to close current tab
-        registerEscapeKey();
     }
 
     /**
@@ -321,10 +319,6 @@ public class PreviewFrame extends JFrame implements ThemeAware {
 
         // Dispose the frame
         dispose();
-    }
-
-    private void registerEscapeKey() {
-        KeyboardShortcutUtil.registerCloseEscapeShortcut(getRootPane(), this::handleWindowClose);
     }
 
     private void updateWindowTitle() {

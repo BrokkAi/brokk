@@ -23,7 +23,6 @@ public class PreviewImagePanel extends JPanel {
         this.file = file;
         loadImage();
         setupUI();
-        registerEscapeKey();
     }
 
     private void loadImage() {
@@ -103,19 +102,4 @@ public class PreviewImagePanel extends JPanel {
         }
     }
 
-    /** Registers ESC key to close the preview panel */
-    private void registerEscapeKey() {
-        // Register ESC key to close the current tab or window via a WINDOW_CLOSING event
-        KeyStroke escapeKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
-        getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(escapeKeyStroke, "closePreview");
-        getActionMap().put("closePreview", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                Window window = SwingUtilities.getWindowAncestor(PreviewImagePanel.this);
-                if (window != null) {
-                    window.dispatchEvent(new WindowEvent(window, WindowEvent.WINDOW_CLOSING));
-                }
-            }
-        });
-    }
 }
