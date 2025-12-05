@@ -6,7 +6,6 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.gui.util.KeyboardShortcutUtil;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.HashMap;
@@ -57,7 +56,6 @@ public class PreviewFrame extends JFrame implements ThemeAware {
                 handleFrameClose();
             }
         });
-
     }
 
     /**

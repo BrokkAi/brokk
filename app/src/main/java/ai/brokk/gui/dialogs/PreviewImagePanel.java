@@ -2,9 +2,6 @@ package ai.brokk.gui.dialogs;
 
 import ai.brokk.analyzer.BrokkFile;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.KeyEvent;
-import java.awt.event.WindowEvent;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import javax.imageio.ImageIO;
@@ -101,5 +98,4 @@ public class PreviewImagePanel extends JPanel {
             // Silently fail - keep existing image displayed
         }
     }
-
 }

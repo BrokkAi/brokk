@@ -393,66 +393,180 @@ public class PreviewManager {
      */
     public void openFragmentPreview(ContextFragment fragment) {
         try {
-            // Resolve initial title - use placeholder if not yet computed
-            String descNow = fragment.description().renderNowOrNull();
-            final String initialTitle =
-                    (descNow != null && !descNow.isBlank()) ? "Preview: " + descNow : "Preview: Loading...";
+            String initialTitle = computeInitialTitle(fragment);
 
-            // Output fragments: content is synchronous (entries() returns immediately)
-            if (fragment.getType().isOutput() && fragment instanceof ContextFragment.OutputFragment of) {
-                previewOutputFragment(of, initialTitle);
-                return;
+            if (fragment instanceof ContextFragment.OutputFragment of) {
+                showOutputPreview(of, initialTitle);
+            } else if (!fragment.isText()) {
+                showImagePreview(fragment, initialTitle);
+            } else if (fragment instanceof ContextFragment.StringFragment sf) {
+                showStringPreview(sf, initialTitle);
+            } else {
+                showAsyncTextPreview(fragment, initialTitle);
             }
-
-            // Image fragments
-            if (!fragment.isText()) {
-                if (fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE
-                        && fragment instanceof ContextFragment.AnonymousImageFragment pif) {
-                    previewAnonymousImage(pif, initialTitle);
-                    return;
-                }
-                if (fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE
-                        && fragment instanceof ContextFragment.ImageFileFragment iff) {
-                    var imagePanel = new PreviewImagePanel(iff.file());
-                    showPreviewFrame(initialTitle, imagePanel, iff);
-                    bindTitleUpdate(iff, imagePanel, initialTitle);
-                    return;
-                }
-            }
-
-            // Path fragments (file-backed)
-            if (fragment instanceof ContextFragment.PathFragment pf) {
-                previewPathFragment(pf, initialTitle);
-                return;
-            }
-
-            // String-backed fragments (virtual text with sync content)
-            if (fragment instanceof ContextFragment.StringFragment sf) {
-                previewStringFragment(sf, initialTitle);
-                return;
-            }
-
-            // Other computed fragments
-            previewVirtualFragment(fragment, initialTitle);
-
         } catch (Exception ex) {
             chrome.toolError("Error opening preview: " + ex.getMessage());
         }
     }
 
-    /**
-     * Updates the title of a preview window if the initial title was a placeholder.
-     */
-    private void updateTitleIfNeeded(String initialTitle, JComponent contentPanel, @Nullable String newTitle) {
-        if (initialTitle.endsWith("Loading...") && newTitle != null && !newTitle.isBlank()) {
-            updatePreviewWindowTitle(contentPanel, "Preview: " + newTitle);
+    private String computeInitialTitle(ContextFragment fragment) {
+        String descNow = fragment.description().renderNowOrNull();
+        return (descNow != null && !descNow.isBlank()) ? "Preview: " + descNow : "Preview: Loading...";
+    }
+
+    private void showOutputPreview(ContextFragment.OutputFragment of, String initialTitle) {
+        var combinedMessages = new ArrayList<ChatMessage>();
+        for (ai.brokk.TaskEntry entry : of.entries()) {
+            if (entry.isCompressed()) {
+                combinedMessages.add(Messages.customSystem(Objects.toString(entry.summary(), "Summary not available")));
+            } else {
+                combinedMessages.addAll(castNonNull(entry.log()).messages());
+            }
+        }
+
+        var markdownPanel = MarkdownOutputPool.instance().borrow();
+        markdownPanel.withContextForLookups(cm, chrome);
+        markdownPanel.setText(combinedMessages);
+
+        JPanel contentPanel = createSearchableContentPanel(List.of(markdownPanel), null, false);
+        ContextFragment fragment = (of instanceof ContextFragment cf) ? cf : null;
+        showPreviewFrame(initialTitle, contentPanel, fragment);
+
+        if (fragment != null) {
+            bindTitleUpdate(fragment, contentPanel, initialTitle);
         }
     }
 
+    private void showImagePreview(ContextFragment fragment, String initialTitle) {
+        if (fragment instanceof ContextFragment.AnonymousImageFragment pif) {
+            var imagePanel = new PreviewImagePanel(null);
+            showPreviewFrame(initialTitle, imagePanel, pif);
+
+            ComputedSubscription.bind(
+                    pif,
+                    imagePanel,
+                    () -> SwingUtilities.invokeLater(() -> {
+                        updateImagePanel(pif, imagePanel);
+                        updateTitleIfNeeded(
+                                initialTitle, imagePanel, pif.description().renderNowOrNull());
+                    }));
+        } else if (fragment instanceof ContextFragment.ImageFileFragment iff) {
+            var imagePanel = new PreviewImagePanel(iff.file());
+            showPreviewFrame(initialTitle, imagePanel, iff);
+            bindTitleUpdate(iff, imagePanel, initialTitle);
+        }
+    }
+
+    private void updateImagePanel(ContextFragment.AnonymousImageFragment pif, PreviewImagePanel imagePanel) {
+        var futureBytes = pif.imageBytes();
+        if (futureBytes == null) {
+            return;
+        }
+        byte[] bytes = futureBytes.renderNowOrNull();
+        if (bytes == null) {
+            return;
+        }
+        try {
+            imagePanel.setImage(ImageUtil.bytesToImage(bytes));
+            imagePanel.revalidate();
+            imagePanel.repaint();
+        } catch (IOException e) {
+            logger.error("Unable to convert bytes to image for fragment {}", pif.id(), e);
+        }
+    }
+
+    private void showStringPreview(ContextFragment.StringFragment sf, String initialTitle) {
+        String text = sf.previewText();
+        String style = sf.previewSyntaxStyle();
+
+        JComponent panel;
+        if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(style)) {
+            var markdownPanel = MarkdownOutputPool.instance().borrow();
+            markdownPanel.updateTheme(MainProject.getTheme());
+            markdownPanel.setText(List.of(Messages.customSystem(text)));
+            panel = createSearchableContentPanel(List.of(markdownPanel), null, false);
+        } else {
+            panel = new PreviewTextPanel(cm, null, text, style, chrome.getTheme(), sf);
+        }
+
+        showPreviewFrame(initialTitle, panel, sf);
+        bindTitleUpdate(sf, panel, initialTitle);
+    }
+
     /**
-     * Binds a fragment to a panel for title-only updates.
-     * Used when content is already loaded but title may still be computing.
+     * Unified preview for PathFragment and other computed fragments.
+     * Uses bind() to update content, style, and title as they become available.
      */
+    private void showAsyncTextPreview(ContextFragment fragment, String initialTitle) {
+        String textNow = fragment.text().renderNowOrNull();
+        String styleNow = fragment.syntaxStyle().renderNowOrNull();
+
+        // If markdown content is already available, render it directly
+        if (textNow != null && SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(styleNow)) {
+            JPanel contentPanel = renderMarkdownContent(textNow);
+            showPreviewFrame(initialTitle, contentPanel, fragment);
+            bindTitleUpdate(fragment, contentPanel, initialTitle);
+            return;
+        }
+
+        // Determine initial values - use file-based style detection for path fragments
+        String initialText = (textNow != null) ? textNow : "Loading...";
+        String initialStyle = (styleNow != null) ? styleNow : guessInitialStyle(fragment);
+        ProjectFile projectFile = extractProjectFile(fragment);
+
+        var panel = new PreviewTextPanel(cm, projectFile, initialText, initialStyle, chrome.getTheme(), fragment);
+        showPreviewFrame(initialTitle, panel, fragment);
+
+        final String fallbackStyle = initialStyle;
+        ComputedSubscription.bind(
+                fragment,
+                panel,
+                () -> SwingUtilities.invokeLater(() -> {
+                    String text = fragment.text().renderNowOrNull();
+                    String style = fragment.syntaxStyle().renderNowOrNull();
+                    String desc = fragment.description().renderNowOrNull();
+
+                    if (text != null) {
+                        String effectiveStyle = (style != null) ? style : fallbackStyle;
+
+                        if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(effectiveStyle)) {
+                            JPanel markdownPanel = renderMarkdownContent(text);
+                            String title = (desc != null && !desc.isBlank()) ? "Preview: " + desc : initialTitle;
+                            replaceTabContent(panel, markdownPanel, title);
+                        } else {
+                            panel.setContentAndStyle(text, effectiveStyle);
+                        }
+                    }
+
+                    updateTitleIfNeeded(initialTitle, panel, desc);
+                }));
+    }
+
+    private String guessInitialStyle(ContextFragment fragment) {
+        if (fragment instanceof ContextFragment.PathFragment pf) {
+            var brokkFile = pf.file();
+            if (brokkFile instanceof ProjectFile p) {
+                return p.getSyntaxStyle();
+            } else if (brokkFile instanceof ExternalFile ef) {
+                return ef.getSyntaxStyle();
+            }
+        }
+        return SyntaxConstants.SYNTAX_STYLE_NONE;
+    }
+
+    private @Nullable ProjectFile extractProjectFile(ContextFragment fragment) {
+        if (fragment instanceof ContextFragment.PathFragment pf && pf.file() instanceof ProjectFile p) {
+            return p;
+        }
+        return null;
+    }
+
+    private void updateTitleIfNeeded(String initialTitle, JComponent panel, @Nullable String newTitle) {
+        if (initialTitle.endsWith("Loading...") && newTitle != null && !newTitle.isBlank()) {
+            updatePreviewWindowTitle(panel, "Preview: " + newTitle);
+        }
+    }
+
     private void bindTitleUpdate(ContextFragment fragment, JComponent panel, String initialTitle) {
         if (initialTitle.endsWith("Loading...")) {
             ComputedSubscription.bind(fragment, panel, () -> {
@@ -462,171 +576,6 @@ public class PreviewManager {
                 }
             });
         }
-    }
-
-    /**
-     * Preview for output fragments (content is synchronous, only title may need async update).
-     */
-    private void previewOutputFragment(ContextFragment.OutputFragment of, String initialTitle) {
-        var combinedMessages = new ArrayList<ChatMessage>();
-        for (ai.brokk.TaskEntry entry : of.entries()) {
-            if (entry.isCompressed()) {
-                combinedMessages.add(Messages.customSystem(Objects.toString(entry.summary(), "Summary not available")));
-            } else {
-                combinedMessages.addAll(castNonNull(entry.log()).messages());
-            }
-        }
-        var markdownPanel = MarkdownOutputPool.instance().borrow();
-        markdownPanel.withContextForLookups(cm, chrome);
-        markdownPanel.setText(combinedMessages);
-        JPanel previewContentPanel = createSearchableContentPanel(List.of(markdownPanel), null, false);
-
-        // Pass fragment for deduplication
-        ContextFragment fragment = (of instanceof ContextFragment cf) ? cf : null;
-        showPreviewFrame(initialTitle, previewContentPanel, fragment);
-
-        // Bind for title updates if needed
-        if (fragment != null) {
-            bindTitleUpdate(fragment, previewContentPanel, initialTitle);
-        }
-    }
-
-    /**
-     * Preview for anonymous pasted images. Uses bind() for async image and title updates.
-     */
-    private void previewAnonymousImage(ContextFragment.AnonymousImageFragment pif, String initialTitle) {
-        var imagePanel = new PreviewImagePanel(null);
-        showPreviewFrame(initialTitle, imagePanel, pif);
-
-        ComputedSubscription.bind(pif, imagePanel, () -> {
-            SwingUtilities.invokeLater(() -> {
-                // Update image if available
-                var futureBytes = pif.imageBytes();
-                if (futureBytes != null) {
-                    byte[] bytes = futureBytes.renderNowOrNull();
-                    if (bytes != null) {
-                        try {
-                            var img = ImageUtil.bytesToImage(bytes);
-                            imagePanel.setImage(img);
-                            imagePanel.revalidate();
-                            imagePanel.repaint();
-                        } catch (IOException e) {
-                            logger.error("Unable to convert bytes to image for fragment {}", pif.id(), e);
-                        }
-                    }
-                }
-                // Update title
-                String desc = pif.description().renderNowOrNull();
-                if (desc != null && !desc.isBlank()) {
-                    updateTitleIfNeeded(initialTitle, imagePanel, desc);
-                }
-            });
-        });
-    }
-
-    /**
-     * Preview for path fragments (ProjectFile or ExternalFile). Uses bind() for async content and title.
-     */
-    private void previewPathFragment(ContextFragment.PathFragment pf, String initialTitle) {
-        var brokkFile = pf.file();
-
-        ProjectFile projectFile = (brokkFile instanceof ProjectFile p) ? p : null;
-
-        // Get initial style for syntax highlighting
-        String initialStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
-        if (projectFile != null) {
-            initialStyle = projectFile.getSyntaxStyle();
-        } else if (brokkFile instanceof ExternalFile ef) {
-            initialStyle = ef.getSyntaxStyle();
-        }
-
-        var panel = new PreviewTextPanel(cm, projectFile, "Loading...", initialStyle, chrome.getTheme(), pf);
-        showPreviewFrame(initialTitle, panel, pf);
-
-        final String fallbackStyle = initialStyle;
-        ComputedSubscription.bind(pf, panel, () -> {
-            SwingUtilities.invokeLater(() -> {
-                String text = pf.text().renderNowOrNull();
-                String style = pf.syntaxStyle().renderNowOrNull();
-                String desc = pf.description().renderNowOrNull();
-
-                if (text != null) {
-                    panel.setContentAndStyle(text, style != null ? style : fallbackStyle);
-                }
-                if (desc != null && !desc.isBlank()) {
-                    updateTitleIfNeeded(initialTitle, panel, desc);
-                }
-            });
-        });
-    }
-
-    /**
-     * Preview for StringFragment (has synchronous content via previewText/previewSyntaxStyle).
-     */
-    private void previewStringFragment(ContextFragment.StringFragment sf, String initialTitle) {
-        String previewText = sf.previewText();
-        String previewStyle = sf.previewSyntaxStyle();
-
-        if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(previewStyle)) {
-            var markdownPanel = MarkdownOutputPool.instance().borrow();
-            markdownPanel.updateTheme(MainProject.getTheme());
-            markdownPanel.setText(List.of(Messages.customSystem(previewText)));
-
-            JPanel previewContentPanel = createSearchableContentPanel(List.of(markdownPanel), null, false);
-            showPreviewFrame(initialTitle, previewContentPanel, sf);
-            bindTitleUpdate(sf, previewContentPanel, initialTitle);
-        } else {
-            var previewPanel = new PreviewTextPanel(cm, null, previewText, previewStyle, chrome.getTheme(), sf);
-            showPreviewFrame(initialTitle, previewPanel, sf);
-            bindTitleUpdate(sf, previewPanel, initialTitle);
-        }
-    }
-
-    /**
-     * Preview for computed fragments. Uses bind() to update content, style, and title as they become available.
-     */
-    private void previewVirtualFragment(ContextFragment cf, String initialTitle) {
-        String styleNow = cf.syntaxStyle().renderNowOrNull();
-        String textNow = cf.text().renderNowOrNull();
-
-        String initialStyle = (styleNow != null) ? styleNow : SyntaxConstants.SYNTAX_STYLE_NONE;
-        String initialText = (textNow != null) ? textNow : "Loading...";
-
-        // If content is already available and is markdown, show markdown panel directly
-        if (textNow != null && SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(styleNow)) {
-            JPanel contentPanel = renderMarkdownContent(textNow);
-            showPreviewFrame(initialTitle, contentPanel, cf);
-            bindTitleUpdate(cf, contentPanel, initialTitle);
-            return;
-        }
-
-        // Create text panel (may need style/content updates via bind)
-        var panel = new PreviewTextPanel(cm, null, initialText, initialStyle, chrome.getTheme(), cf);
-        showPreviewFrame(initialTitle, panel, cf);
-
-        ComputedSubscription.bind(cf, panel, () -> {
-            SwingUtilities.invokeLater(() -> {
-                String text = cf.text().renderNowOrNull();
-                String style = cf.syntaxStyle().renderNowOrNull();
-                String desc = cf.description().renderNowOrNull();
-
-                if (text != null) {
-                    String effectiveStyle = (style != null) ? style : SyntaxConstants.SYNTAX_STYLE_NONE;
-
-                    // Check if we need to switch to markdown rendering
-                    if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(effectiveStyle)) {
-                        JPanel markdownPanel = renderMarkdownContent(text);
-                        String title = (desc != null && !desc.isBlank()) ? "Preview: " + desc : initialTitle;
-                        replaceTabContent(panel, markdownPanel, title);
-                    } else {
-                        panel.setContentAndStyle(text, effectiveStyle);
-                    }
-                }
-                if (desc != null && !desc.isBlank()) {
-                    updateTitleIfNeeded(initialTitle, panel, desc);
-                }
-            });
-        });
     }
 
     /**
