@@ -246,9 +246,10 @@ public interface IAnalyzer {
         }
 
         Pattern compiledPattern = Pattern.compile(pattern);
-        // Default implementation using getAllDeclarations
+        // Reuse a single Matcher across all declarations to avoid allocation overhead
+        var matcher = compiledPattern.matcher("");
         return getAllDeclarations().stream()
-                .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
+                .filter(cu -> matcher.reset(cu.fqName()).find())
                 .collect(Collectors.toSet());
     }
 
