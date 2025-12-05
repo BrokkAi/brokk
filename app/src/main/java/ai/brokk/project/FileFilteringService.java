@@ -184,8 +184,12 @@ public final class FileFilteringService {
         String filePath = file.getRelPath().toString().replace('\\', '/');
         String fileName = file.getFileName();
 
-        for (String pattern : patterns) {
-            if (pattern == null || pattern.isEmpty()) {
+        for (String rawPattern : patterns) {
+            if (rawPattern == null) {
+                continue;
+            }
+            String pattern = rawPattern.trim();
+            if (pattern.isEmpty()) {
                 continue;
             }
 
@@ -214,9 +218,11 @@ public final class FileFilteringService {
 
             // Path glob pattern (e.g., "**/test/resources/**", "src/test/resources/**")
             // For patterns without "/", match against just the filename (e.g., "*.*" matches any file with extension)
+            // Normalize to lowercase for case-insensitive matching across all platforms
             try {
-                PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pattern);
-                String pathToMatch = pattern.contains("/") ? filePath : fileName;
+                String lowerPattern = pattern.toLowerCase(Locale.ROOT);
+                PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + lowerPattern);
+                String pathToMatch = (pattern.contains("/") ? filePath : fileName).toLowerCase(Locale.ROOT);
                 if (matcher.matches(Path.of(pathToMatch))) {
                     logger.trace("File {} excluded by glob pattern: {}", filePath, pattern);
                     return true;

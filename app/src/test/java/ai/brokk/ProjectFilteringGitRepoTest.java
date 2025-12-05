@@ -2174,8 +2174,7 @@ class ProjectFilteringGitRepoTest {
         var project = new MainProject(tempDir);
 
         // Save build details with *.* pattern - should match any file with an extension
-        var buildDetails = new BuildAgent.BuildDetails(
-                "", "", "", Set.of(), Set.of("*.*"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("*.*"), Map.of());
         project.saveBuildDetails(buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2208,8 +2207,8 @@ class ProjectFilteringGitRepoTest {
 
         // Save build details with uppercase extension pattern and exact filename
         // These should match case-insensitively
-        var buildDetails = new BuildAgent.BuildDetails(
-                "", "", "", Set.of(), Set.of("*.SVG", "package-lock.json"), Map.of());
+        var buildDetails =
+                new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("*.SVG", "package-lock.json"), Map.of());
         project.saveBuildDetails(buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2241,8 +2240,7 @@ class ProjectFilteringGitRepoTest {
 
         // Include an invalid glob pattern alongside valid ones
         // Invalid pattern should be skipped, valid patterns should still work
-        var buildDetails = new BuildAgent.BuildDetails(
-                "", "", "", Set.of(), Set.of("[invalid", "*.xml"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("[invalid", "*.xml"), Map.of());
         project.saveBuildDetails(buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2252,6 +2250,184 @@ class ProjectFilteringGitRepoTest {
         assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("config.json")));
 
         // data.xml should be excluded by the valid *.xml pattern
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("data.xml")));
+
+        project.close();
+    }
+
+    @Test
+    void getAllFiles_star_dot_star_excludes_dotfiles(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        // Create dotfiles and regular files
+        createFile(tempDir, ".gitignore", "# ignore");
+        createFile(tempDir, ".env", "SECRET=value");
+        createFile(tempDir, "Makefile", "all:");
+        createFile(tempDir, "README", "no extension");
+
+        trackFiles(tempDir);
+
+        var project = new MainProject(tempDir);
+
+        // Pattern *.* should exclude dotfiles (they have "extensions")
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("*.*"), Map.of());
+        project.saveBuildDetails(buildDetails);
+
+        var allFiles = project.getAllFiles();
+
+        // Files without dots should remain
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("Makefile")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("README")));
+
+        // Dotfiles should be excluded by *.* (they have "extensions" after the dot)
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals(".gitignore")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals(".env")));
+
+        project.close();
+    }
+
+    @Test
+    void getAllFiles_extension_pattern_matches_dotfiles(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        createFile(tempDir, ".eslintrc.js", "module.exports = {}");
+        createFile(tempDir, "src/app.js", "// app");
+        createFile(tempDir, "Makefile", "all:");
+
+        trackFiles(tempDir);
+
+        var project = new MainProject(tempDir);
+
+        // *.js should exclude both dotfile and regular file with .js extension
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("*.js"), Map.of());
+        project.saveBuildDetails(buildDetails);
+
+        var allFiles = project.getAllFiles();
+
+        // Makefile should remain (no .js extension)
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("Makefile")));
+
+        // Both .eslintrc.js and src/app.js should be excluded
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals(".eslintrc.js")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/app.js")));
+
+        project.close();
+    }
+
+    @Test
+    void getAllFiles_glob_patterns_are_case_insensitive(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        createFile(tempDir, "src/test/resources/data.json", "{}");
+        createFile(tempDir, "docs/README.md", "# Docs");
+        createFile(tempDir, "src/Main.java", "class Main {}");
+
+        trackFiles(tempDir);
+
+        var project = new MainProject(tempDir);
+
+        // Uppercase extension patterns should match lowercase files
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("**/*.JSON", "**/*.MD"), Map.of());
+        project.saveBuildDetails(buildDetails);
+
+        var allFiles = project.getAllFiles();
+
+        // Main.java should remain (not matching any pattern)
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/Main.java")));
+
+        // **/*.JSON should match data.json (case-insensitive)
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/test/resources/data.json")));
+
+        // **/*.MD should match README.md (case-insensitive)
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("docs/README.md")));
+
+        project.close();
+    }
+
+    @Test
+    void getAllFiles_path_pattern_without_wildcard_matches_exact_file_only(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        // Create a file named "resources" (not a directory)
+        createFile(tempDir, "src/test/resources", "direct file content");
+        createFile(tempDir, "src/test/other/data.json", "{}");
+
+        trackFiles(tempDir);
+
+        var project = new MainProject(tempDir);
+
+        // Pattern "src/test/resources" should only match exact path, not as prefix
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("src/test/resources"), Map.of());
+        project.saveBuildDetails(buildDetails);
+
+        var allFiles = project.getAllFiles();
+
+        // The exact file match should be excluded
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/test/resources")));
+
+        // Other files should remain
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/test/other/data.json")));
+
+        project.close();
+    }
+
+    @Test
+    void getAllFiles_file_patterns_exclude_tracked_non_gitignored_files(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        createFile(tempDir, "src/Main.java", "class Main {}");
+        createFile(tempDir, "src/Helper.java", "class Helper {}");
+        createFile(tempDir, "README", "no extension");
+
+        // Commit files to Git (tracked) - NO .gitignore
+        try (var git = Git.open(tempDir.toFile())) {
+            git.add().addFilepattern("src/Main.java").call();
+            git.add().addFilepattern("src/Helper.java").call();
+            git.add().addFilepattern("README").call();
+            git.commit().setSign(false).setMessage("Add tracked files").call();
+        }
+
+        var project = new MainProject(tempDir);
+
+        // Add file pattern "*.java" - should exclude tracked files solely due to pattern
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("*.java"), Map.of());
+        project.saveBuildDetails(buildDetails);
+
+        var allFiles = project.getAllFiles();
+
+        // README should remain (no extension, not matching pattern)
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("README")));
+
+        // Both .java files should be excluded solely due to file pattern
+        // (they are tracked, not gitignored)
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/Main.java")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/Helper.java")));
+
+        project.close();
+    }
+
+    @Test
+    void getAllFiles_whitespace_patterns_are_ignored(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        createFile(tempDir, "src/Main.java", "class Main {}");
+        createFile(tempDir, "data.xml", "<data/>");
+
+        trackFiles(tempDir);
+
+        var project = new MainProject(tempDir);
+
+        // Empty/whitespace patterns should be ignored, trimmed pattern should work
+        var buildDetails =
+                new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("  ", "\t", "", "  *.xml  "), Map.of());
+        project.saveBuildDetails(buildDetails);
+
+        var allFiles = project.getAllFiles();
+
+        // Main.java should remain (not matching any valid pattern)
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/Main.java")));
+
+        // data.xml should be excluded by the trimmed "*.xml" pattern
         assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("data.xml")));
 
         project.close();
