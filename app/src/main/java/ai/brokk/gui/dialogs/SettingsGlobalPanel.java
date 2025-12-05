@@ -89,7 +89,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JComboBox<Service.FavoriteModel> preferredCodeModelCombo = new JComboBox<>();
     private JComboBox<Service.FavoriteModel> primaryModelCombo = new JComboBox<>();
     private JComboBox<String> otherModelsVendorCombo = new JComboBox<>();
-    private JComboBox<String> watchServiceImplCombo = new JComboBox<>(new String[] {"Default (auto)", "Legacy", "Native"});
+    private JComboBox<String> watchServiceImplCombo =
+            new JComboBox<>(new String[] {"Default (auto)", "Legacy", "Native"});
 
     @Nullable
     private JLabel otherModelsVendorLabel;
@@ -1088,7 +1089,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         watchPanel.add(watchServiceImplCombo);
         panel.add(watchPanel, gbc);
 
-        var watchNote = new JLabel("<html><i>Changing this may require restarting Brokk to fully take effect.</i></html>");
+        var watchNote =
+                new JLabel("<html><i>Changing this may require restarting Brokk to fully take effect.</i></html>");
         gbc.gridy = row++;
         gbc.insets = new Insets(0, 25, 2, 5);
         gbc.gridx = 1;
@@ -2127,7 +2129,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // File watcher preference from UI
         String watchPrefSelected = "default";
         try {
-            String raw = watchServiceImplCombo != null ? String.valueOf(watchServiceImplCombo.getSelectedItem()) : "Default (auto)";
+            String raw = watchServiceImplCombo != null
+                    ? String.valueOf(watchServiceImplCombo.getSelectedItem())
+                    : "Default (auto)";
             if ("Legacy".equalsIgnoreCase(raw)) {
                 watchPrefSelected = "legacy";
             } else if ("Native".equalsIgnoreCase(raw)) {

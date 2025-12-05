@@ -173,9 +173,7 @@ class WatchServiceFactoryTest {
             System.setProperty(propName, "legacy");
             String pref = WatchServiceFactory.getImplementationPreference();
             assertNotNull(pref, "Preference should not be null when system property is set");
-            assertTrue(
-                    pref.equalsIgnoreCase("legacy"),
-                    "System property should take precedence and return 'legacy'");
+            assertTrue(pref.equalsIgnoreCase("legacy"), "System property should take precedence and return 'legacy'");
         } finally {
             // Restore previous value to avoid influencing other tests
             if (previous == null) {

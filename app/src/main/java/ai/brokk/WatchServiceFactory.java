@@ -1,7 +1,7 @@
 package ai.brokk;
 
-import ai.brokk.util.Environment;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.Environment;
 import java.nio.file.Path;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
