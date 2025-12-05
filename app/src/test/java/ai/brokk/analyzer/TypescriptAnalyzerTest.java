@@ -918,7 +918,7 @@ public class TypescriptAnalyzerTest {
                     "Individual dependency directories should not be considered analyzed");
 
             // Files outside project should not be analyzed
-            Path outsideFile = Path.of("/tmp/outside.ts").toAbsolutePath();
+            Path outsideFile = Path.of(System.getProperty("java.io.tmpdir"), "outside.ts");
             assertFalse(
                     Languages.TYPESCRIPT.isAnalyzed(tsProject, outsideFile),
                     "Files outside project should not be considered analyzed");
