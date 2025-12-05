@@ -192,7 +192,7 @@ public class PreviewManager {
         SwingUtilities.invokeLater(() -> {
             // Create frame if it doesn't exist or was disposed
             if (previewFrame == null || !previewFrame.isDisplayable()) {
-                previewFrame = new PreviewFrame(chrome, cm, chrome.getTheme());
+                previewFrame = new PreviewFrame(chrome, chrome.getTheme());
 
                 // Set bounds using same logic as regular preview windows
                 var project = cm.getProject();

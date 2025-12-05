@@ -1,6 +1,7 @@
 package ai.brokk.gui.dialogs;
 
-import ai.brokk.ContextManager;
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.Chrome;
@@ -21,7 +22,6 @@ public class PreviewFrame extends JFrame implements ThemeAware {
 
     private final JTabbedPane tabbedPane;
     private final Chrome chrome;
-    private final ContextManager contextManager;
     private GuiTheme guiTheme;
 
     // Track tabs by ProjectFile for deduplication (fast path for file-based previews)
@@ -29,10 +29,9 @@ public class PreviewFrame extends JFrame implements ThemeAware {
     // Track tabs by their associated fragment for fragment-based deduplication
     private final Map<Component, ContextFragment> tabToFragmentMap = new HashMap<>();
 
-    public PreviewFrame(Chrome chrome, ContextManager contextManager, GuiTheme guiTheme) {
+    public PreviewFrame(Chrome chrome, GuiTheme guiTheme) {
         super("Preview");
         this.chrome = chrome;
-        this.contextManager = contextManager;
         this.guiTheme = guiTheme;
 
         // Apply icon and title bar
@@ -105,7 +104,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
             int tabIndex = tabbedPane.getTabCount() - 1;
 
             // Create custom tab component with close button
-            JPanel tabComponent = createTabComponent(tabTitle, panel, fileKey, fragmentKey);
+            JPanel tabComponent = createTabComponent(tabTitle, panel, fileKey);
             tabbedPane.setTabComponentAt(tabIndex, tabComponent);
 
             // Track the tab
@@ -166,7 +165,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
         tabbedPane.setComponentAt(index, panel);
 
         // Rebuild the tab header so close button targets the new panel
-        JPanel tabComponent = createTabComponent(tabTitle, panel, fileKey, fragmentKey);
+        JPanel tabComponent = createTabComponent(tabTitle, panel, fileKey);
         tabbedPane.setTabComponentAt(index, tabComponent);
 
         // Track the new component
@@ -178,7 +177,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
         }
 
         // Apply theme to the new panel if applicable (keeps UI consistent)
-        if (panel instanceof ThemeAware themeAware && guiTheme != null) {
+        if (panel instanceof ThemeAware themeAware) {
             try {
                 themeAware.applyTheme(guiTheme);
             } catch (Exception ex) {
@@ -201,11 +200,11 @@ public class PreviewFrame extends JFrame implements ThemeAware {
             if (index >= 0) {
                 String tabTitle = newTitle.startsWith("Preview: ") ? newTitle.substring(9) : newTitle;
                 Component tabComponent = tabbedPane.getTabComponentAt(index);
-                if (tabComponent instanceof JPanel) {
+                if (tabComponent instanceof JPanel tabPanel) {
                     // Find the label in the tab component
-                    for (Component c : ((JPanel) tabComponent).getComponents()) {
-                        if (c instanceof JLabel) {
-                            ((JLabel) c).setText(tabTitle);
+                    for (Component c : tabPanel.getComponents()) {
+                        if (c instanceof JLabel label) {
+                            label.setText(tabTitle);
                             break;
                         }
                     }
@@ -215,8 +214,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
         });
     }
 
-    private JPanel createTabComponent(
-            String title, JComponent panel, @Nullable ProjectFile fileKey, @Nullable ContextFragment fragmentKey) {
+    private JPanel createTabComponent(String title, JComponent panel, @Nullable ProjectFile fileKey) {
         JPanel tabPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         tabPanel.setOpaque(false);
 
@@ -266,28 +264,6 @@ public class PreviewFrame extends JFrame implements ThemeAware {
     }
 
     /**
-     * Handles ESC key - closes the current tab only.
-     */
-    private void handleWindowClose() {
-        // Try to close the current tab
-        Component selected = tabbedPane.getSelectedComponent();
-        if (selected != null) {
-            // Find the file key if any
-            ProjectFile fileKey = null;
-            for (Map.Entry<ProjectFile, Component> entry : fileToTabMap.entrySet()) {
-                if (entry.getValue() == selected) {
-                    fileKey = entry.getKey();
-                    break;
-                }
-            }
-            ContextFragment fragmentKey = tabToFragmentMap.get(selected);
-            closeTab(selected, fileKey);
-        } else if (tabbedPane.getTabCount() == 0) {
-            disposeFrame();
-        }
-    }
-
-    /**
      * Handles window close button (X) - closes entire frame after confirming all tabs.
      */
     private void handleFrameClose() {
@@ -327,10 +303,10 @@ public class PreviewFrame extends JFrame implements ThemeAware {
                 Component selected = tabbedPane.getSelectedComponent();
                 if (selected != null) {
                     Component tabComponent = tabbedPane.getTabComponentAt(tabbedPane.getSelectedIndex());
-                    if (tabComponent instanceof JPanel) {
-                        for (Component c : ((JPanel) tabComponent).getComponents()) {
-                            if (c instanceof JLabel) {
-                                setTitle("Preview: " + ((JLabel) c).getText());
+                    if (tabComponent instanceof JPanel tabPanel) {
+                        for (Component c : tabPanel.getComponents()) {
+                            if (c instanceof JLabel label) {
+                                setTitle("Preview: " + label.getText());
                                 break;
                             }
                         }
@@ -373,7 +349,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
                 String tabTitle = title.startsWith("Preview: ") ? title.substring(9) : title;
 
                 // Rebuild tab header
-                JPanel tabComponent = createTabComponent(tabTitle, newComponent, fileKey, fragmentKey);
+                JPanel tabComponent = createTabComponent(tabTitle, newComponent, fileKey);
                 tabbedPane.setTabComponentAt(index, tabComponent);
 
                 // Track the new component
@@ -408,7 +384,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
             for (int i = 0; i < tabbedPane.getTabCount(); i++) {
                 Component comp = tabbedPane.getComponentAt(i);
                 if (comp instanceof PreviewTextPanel panel) {
-                    ProjectFile panelFile = panel.getFile();
+                    ProjectFile panelFile = castNonNull(panel.getFile());
                     if (file.equals(panelFile)) {
                         panel.refreshFromDisk();
                     }
