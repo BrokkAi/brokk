@@ -1361,6 +1361,89 @@ public final class PythonAnalyzerTest {
     }
 
     @Test
+    void testAnnotatedAndTupleAssignments() {
+        // Test capture of various Python assignment patterns:
+        // - Annotated assignments (VAR: Type = value)
+        // - Type-only annotations (VAR: Type)
+        // - Tuple unpacking (A, B = 1, 2)
+        // - Multi-target assignments (FOO = BAR = 42)
+        TestProject testProject = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer testAnalyzer = new PythonAnalyzer(testProject);
+
+        ProjectFile file = new ProjectFile(testProject.getRoot(), "assignment_types.py");
+        Set<CodeUnit> declarations = testAnalyzer.getDeclarations(file);
+
+        var fields = declarations.stream().filter(CodeUnit::isField).toList();
+
+        // Simple assignment (already working)
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("SIMPLE")),
+                "Simple assignment SIMPLE should be captured");
+
+        // Annotated assignment with value: ANNOTATED: int = 2
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("ANNOTATED")),
+                "Annotated assignment ANNOTATED: int = 2 should be captured");
+
+        // Type-only annotation: TYPED_ONLY: str
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("TYPED_ONLY")),
+                "Type-only annotation TYPED_ONLY: str should be captured");
+
+        // Tuple unpacking: TUPLE_A, TUPLE_B = 1, 2
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("TUPLE_A")),
+                "Tuple unpacking TUPLE_A should be captured");
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("TUPLE_B")),
+                "Tuple unpacking TUPLE_B should be captured");
+
+        // Multi-target: MULTI_1 = MULTI_2 = 42
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("MULTI_1")),
+                "Multi-target MULTI_1 should be captured");
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("MULTI_2")),
+                "Multi-target MULTI_2 should be captured");
+
+        // Chained: CHAIN_A = CHAIN_B = CHAIN_C = "chained"
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("CHAIN_A")),
+                "Chained assignment CHAIN_A should be captured");
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("CHAIN_B")),
+                "Chained assignment CHAIN_B should be captured");
+        // Note: CHAIN_C is captured as the inner-most nested assignment
+
+        // Inside conditional
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("COND_SIMPLE")),
+                "Conditional COND_SIMPLE should be captured");
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("COND_ANNOTATED")),
+                "Conditional annotated COND_ANNOTATED should be captured");
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("COND_TUPLE_A")),
+                "Conditional tuple COND_TUPLE_A should be captured");
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("COND_TUPLE_B")),
+                "Conditional tuple COND_TUPLE_B should be captured");
+
+        // Negative tests: class and function local assignments should NOT be captured
+        assertFalse(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("class_attr")),
+                "Class attribute class_attr should NOT be captured as module-level field");
+        assertFalse(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("instance_attr")),
+                "Instance attribute instance_attr should NOT be captured as module-level field");
+        assertFalse(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("local_var")),
+                "Function local local_var should NOT be captured as module-level field");
+
+        testProject.close();
+    }
+
+    @Test
     void testRelativeImportInheritance() throws Exception {
         // Test that classes using relative imports show proper inheritance
         var builder = InlineTestProjectCreator.code("# Package marker\n", "zoo/__init__.py")

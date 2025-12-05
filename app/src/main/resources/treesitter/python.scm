@@ -98,21 +98,27 @@
   )
 )
 
-; Top-level variable assignment
+; Top-level variable assignments:
+; - Simple: VAR = x
+; - Annotated: VAR: Type = x or VAR: Type
+; - Tuple unpacking: A, B = values
+; - Multi-target: FOO = BAR = 42 (captures nested assignment targets)
 (module
   (expression_statement
-    (assignment
-      left: (identifier) @field.name) @field.definition))
+    [(assignment left: (identifier) @field.name)
+     (assignment left: (pattern_list (identifier) @field.name))
+     (assignment right: (assignment left: (identifier) @field.name))] @field.definition))
 
 ; Variable assignments inside module-level control flow (conditionals, exception handling, context managers, loops)
+; Covers simple, tuple unpacking, and multi-target assignments in one consolidated pattern
 (module
-  [(if_statement (block (expression_statement (assignment left: (identifier) @field.name) @field.definition)))
-   (if_statement (else_clause (block (expression_statement (assignment left: (identifier) @field.name) @field.definition))))
-   (if_statement (elif_clause (block (expression_statement (assignment left: (identifier) @field.name) @field.definition))))
-   (try_statement (block (expression_statement (assignment left: (identifier) @field.name) @field.definition)))
-   (try_statement (except_clause (block (expression_statement (assignment left: (identifier) @field.name) @field.definition))))
-   (try_statement (else_clause (block (expression_statement (assignment left: (identifier) @field.name) @field.definition))))
-   (try_statement (finally_clause (block (expression_statement (assignment left: (identifier) @field.name) @field.definition))))
-   (with_statement (block (expression_statement (assignment left: (identifier) @field.name) @field.definition)))
-   (for_statement (block (expression_statement (assignment left: (identifier) @field.name) @field.definition)))
-   (while_statement (block (expression_statement (assignment left: (identifier) @field.name) @field.definition)))])
+  [(if_statement (block (expression_statement [(assignment left: (identifier) @field.name) (assignment left: (pattern_list (identifier) @field.name)) (assignment right: (assignment left: (identifier) @field.name))] @field.definition)))
+   (if_statement (else_clause (block (expression_statement [(assignment left: (identifier) @field.name) (assignment left: (pattern_list (identifier) @field.name)) (assignment right: (assignment left: (identifier) @field.name))] @field.definition))))
+   (if_statement (elif_clause (block (expression_statement [(assignment left: (identifier) @field.name) (assignment left: (pattern_list (identifier) @field.name)) (assignment right: (assignment left: (identifier) @field.name))] @field.definition))))
+   (try_statement (block (expression_statement [(assignment left: (identifier) @field.name) (assignment left: (pattern_list (identifier) @field.name)) (assignment right: (assignment left: (identifier) @field.name))] @field.definition)))
+   (try_statement (except_clause (block (expression_statement [(assignment left: (identifier) @field.name) (assignment left: (pattern_list (identifier) @field.name)) (assignment right: (assignment left: (identifier) @field.name))] @field.definition))))
+   (try_statement (else_clause (block (expression_statement [(assignment left: (identifier) @field.name) (assignment left: (pattern_list (identifier) @field.name)) (assignment right: (assignment left: (identifier) @field.name))] @field.definition))))
+   (try_statement (finally_clause (block (expression_statement [(assignment left: (identifier) @field.name) (assignment left: (pattern_list (identifier) @field.name)) (assignment right: (assignment left: (identifier) @field.name))] @field.definition))))
+   (with_statement (block (expression_statement [(assignment left: (identifier) @field.name) (assignment left: (pattern_list (identifier) @field.name)) (assignment right: (assignment left: (identifier) @field.name))] @field.definition)))
+   (for_statement (block (expression_statement [(assignment left: (identifier) @field.name) (assignment left: (pattern_list (identifier) @field.name)) (assignment right: (assignment left: (identifier) @field.name))] @field.definition)))
+   (while_statement (block (expression_statement [(assignment left: (identifier) @field.name) (assignment left: (pattern_list (identifier) @field.name)) (assignment right: (assignment left: (identifier) @field.name))] @field.definition)))])
