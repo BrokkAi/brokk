@@ -277,8 +277,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         // Scroll to the beginning of the document
         textArea.setCaretPosition(0);
 
-        // Register ESC key to close the dialog
-        registerEscapeKey();
         // Register Ctrl/Cmd+S to save
         registerSaveKey();
         // Setup custom window close handler
@@ -1107,18 +1105,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         return new QuickEditResult(snippet, null);
     }
 
-    /** Registers ESC key to close the preview panel */
-    private void registerEscapeKey() {
-        KeyboardShortcutUtil.registerCloseEscapeShortcut(this, () -> {
-            if (confirmClose()) {
-                var window = SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
-                if (window != null) {
-                    window.dispose();
-                }
-            }
-        });
-    }
-
     /** Sets up a handler for the window's close button ("X") to ensure `confirmClose` is called. */
     private void setupWindowCloseHandler() {
         var listener = new HierarchyListener() {
@@ -1127,6 +1113,12 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) {
                     var ancestor = SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
                     if (ancestor != null) {
+                        // If embedded in a shared PreviewFrame, let the frame own close behavior.
+                        if (ancestor instanceof ai.brokk.gui.dialogs.PreviewFrame) {
+                            SwingUtilities.invokeLater(() -> removeHierarchyListener(this));
+                            return;
+                        }
+
                         logger.debug(
                                 "Setting up window close handler for {}",
                                 ancestor.getClass().getSimpleName());
