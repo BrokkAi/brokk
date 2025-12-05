@@ -249,19 +249,10 @@ public class HeadlessHttpConsole extends MemoryConsole {
      * Get the last sequence number of appended events by querying the JobStore.
      * This makes the JobStore the authoritative source of truth.
      *
-     * @return The last sequence number, or -1 if no events have been appended or on error
+     * @return The last sequence number, or -1 if no events have been appended
      */
     public long getLastSeq() {
-        try {
-            var events = jobStore.readEvents(jobId, -1, 0);
-            if (events.isEmpty()) {
-                return -1;
-            }
-            return events.get(events.size() - 1).seq();
-        } catch (IOException e) {
-            logger.warn("Failed to read lastSeq from JobStore for job {}: returning -1", jobId, e);
-            return -1;
-        }
+        return jobStore.getLastSeq(jobId);
     }
 
     // ============================================================================
