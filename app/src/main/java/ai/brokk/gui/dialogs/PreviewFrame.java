@@ -178,9 +178,9 @@ public class PreviewFrame extends JFrame implements ThemeAware {
         }
 
         // Apply theme to the new panel if applicable (keeps UI consistent)
-        if (panel instanceof ThemeAware && guiTheme != null) {
+        if (panel instanceof ThemeAware themeAware && guiTheme != null) {
             try {
-                ((ThemeAware) panel).applyTheme(guiTheme);
+                themeAware.applyTheme(guiTheme);
             } catch (Exception ex) {
                 logger.debug("Failed to apply theme to replaced preview component", ex);
             }
@@ -230,13 +230,13 @@ public class PreviewFrame extends JFrame implements ThemeAware {
         closeButton.setContentAreaFilled(false);
         closeButton.setBorderPainted(false);
         closeButton.setFocusPainted(false);
-        closeButton.addActionListener(e -> closeTab(panel, fileKey, fragmentKey));
+        closeButton.addActionListener(e -> closeTab(panel, fileKey));
         tabPanel.add(closeButton);
 
         return tabPanel;
     }
 
-    private void closeTab(Component panel, @Nullable ProjectFile fileKey, @Nullable ContextFragment fragmentKey) {
+    private void closeTab(Component panel, @Nullable ProjectFile fileKey) {
         // Check if panel can close (handles unsaved changes for text previews)
         if (panel instanceof PreviewTextPanel textPanel) {
             if (!textPanel.confirmClose()) {
@@ -281,7 +281,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
                 }
             }
             ContextFragment fragmentKey = tabToFragmentMap.get(selected);
-            closeTab(selected, fileKey, fragmentKey);
+            closeTab(selected, fileKey);
         } else if (tabbedPane.getTabCount() == 0) {
             disposeFrame();
         }
@@ -385,9 +385,9 @@ public class PreviewFrame extends JFrame implements ThemeAware {
                 }
 
                 // Apply theme if applicable
-                if (newComponent instanceof ThemeAware && guiTheme != null) {
+                if (newComponent instanceof ThemeAware themeAware) {
                     try {
-                        ((ThemeAware) newComponent).applyTheme(guiTheme);
+                        themeAware.applyTheme(guiTheme);
                     } catch (Exception ex) {
                         logger.debug("Failed to apply theme to replaced preview component", ex);
                     }
@@ -428,8 +428,8 @@ public class PreviewFrame extends JFrame implements ThemeAware {
         // Apply theme to all tabs
         for (int i = 0; i < tabbedPane.getTabCount(); i++) {
             Component comp = tabbedPane.getComponentAt(i);
-            if (comp instanceof ThemeAware) {
-                ((ThemeAware) comp).applyTheme(guiTheme);
+            if (comp instanceof ThemeAware themeAware) {
+                themeAware.applyTheme(guiTheme);
             }
         }
         // Update UI components

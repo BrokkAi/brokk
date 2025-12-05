@@ -756,10 +756,6 @@ public class WorkspaceChip extends JPanel {
 
     protected @Nullable JPopupMenu createContextMenu() {
         ContextFragment fragment = getPrimaryFragment();
-        if (fragment == null) {
-            return null;
-        }
-
         JPopupMenu menu = new JPopupMenu();
 
         // Read-only toggle for editable fragments

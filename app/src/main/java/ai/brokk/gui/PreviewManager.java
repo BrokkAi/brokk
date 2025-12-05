@@ -214,12 +214,12 @@ public class PreviewManager {
                 previewFrame.addComponentListener(new ComponentAdapter() {
                     @Override
                     public void componentMoved(ComponentEvent e) {
-                        cm.getProject().savePreviewWindowBounds(previewFrame);
+                        cm.getProject().savePreviewWindowBounds(castNonNull(previewFrame));
                     }
 
                     @Override
                     public void componentResized(ComponentEvent e) {
-                        cm.getProject().savePreviewWindowBounds(previewFrame);
+                        cm.getProject().savePreviewWindowBounds(castNonNull(previewFrame));
                     }
                 });
 
