@@ -8,89 +8,45 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
-import java.util.function.Supplier;
+import java.util.function.Function;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * One-shot, self-materializing computed value.
- *
- * Characteristics:
- * - Lazy by default when no Executor is provided; computation starts on first call to future()/start()/await()
- *   (never on tryGet()).
- * - If constructed with a non-null Executor, the computation autostarts exactly once on that executor.
- * - Predictable thread names when using the dedicated thread: cv-<name>-<sequence>.
- * - Non-blocking probe via {@link #tryGet()}.
- * - Best-effort bounded wait via {@link #await(Duration)}. If invoked on the Swing EDT, returns Optional.empty()
- *   immediately (never blocks the EDT).
- *
- * Notes:
- * - Exceptions thrown by the supplier complete the future exceptionally.
- * - {@code tryGet()} returns empty if not completed normally (including exceptional completion).
+ * Wrapper around CompletableFuture that supports Subscription activities.
+ * This is useful when displaying ContextFragments in the Swing GUI, since we can cancel the Subscription
+ * if the Fragment is removed before its computation completes.
  */
 public final class ComputedValue<T> {
     private static final Logger logger = LogManager.getLogger(ComputedValue.class);
-    private static final AtomicLong SEQ = new AtomicLong(0);
 
     private final String name;
-    private final Supplier<T> supplier;
-
-    // Exposed for same-package tests; use future() in production call sites.
-    final CompletableFuture<T> futureRef;
-
-    private final @Nullable Executor executor;
-    private final AtomicBoolean started = new AtomicBoolean(false);
+    private final CompletableFuture<T> futureRef;
 
     // listeners registered via onComplete; guarded by 'this'
     private final List<BiConsumer<? super T, ? super Throwable>> listeners = new ArrayList<>();
 
     /**
-     * Create the computation with a predictable name for the thread.
-     * Lazy by default (does not start until future()/start()/await() is called).
-     *
-     * @param name       used in the worker thread name; not null/blank
-     * @param supplier   computation to run
+     * @param name   used for identification/logging; not null/blank
+     * @param future the underlying future (may already be running or completed)
      */
-    ComputedValue(String name, Supplier<T> supplier) {
-        this(name, supplier, null, new CompletableFuture<>());
-    }
-
-    /**
-     * Create the computation with a predictable name for the thread.
-     * If executor is non-null, the computation autostarts exactly once on that executor.
-     *
-     * @param name       used in the worker thread name; not null/blank
-     * @param supplier   computation to run
-     * @param executor   optional executor on which to run the supplier; if null, a dedicated daemon thread is used on start()
-     */
-    public ComputedValue(String name, Supplier<T> supplier, @Nullable Executor executor) {
-        this(name, supplier, executor, new CompletableFuture<>());
-        // Autostart when an executor is provided to preserve existing eager semantics for fragment computations.
-        if (executor != null) {
-            startInternal();
-        }
-    }
-
-    private ComputedValue(String name, Supplier<T> supplier, @Nullable Executor executor, CompletableFuture<T> future) {
+    public ComputedValue(String name, CompletableFuture<T> future) {
         this.name = name.isBlank() ? "value" : name;
-        this.supplier = supplier;
-        this.executor = executor;
         this.futureRef = future;
+        future.whenComplete(this::notifyComplete);
     }
 
     /**
      * Create an already-completed ComputedValue with a custom name. No worker thread is started.
      */
     public static <T> ComputedValue<T> completed(String name, @Nullable T value) {
-        return new ComputedValue<>(name, () -> value, null, CompletableFuture.completedFuture(value));
+        return new ComputedValue<>(name, CompletableFuture.completedFuture(value));
     }
 
     /**
@@ -101,11 +57,51 @@ public final class ComputedValue<T> {
     }
 
     /**
-     * Returns the underlying future, starting the computation if necessary.
+     * Project this ComputedValue by applying a synchronous transformation function.
+     * The resulting CV completes when this CV completes, with the mapper applied to the result.
+     * No additional threads are spawned.
+     */
+    public <U> ComputedValue<U> map(Function<? super T, ? extends U> mapper) {
+        return new ComputedValue<>(name + "-map", futureRef.thenApply(mapper));
+    }
+
+    /**
+     * Project this ComputedValue by applying an async transformation function.
+     * The resulting CV completes when the nested CV completes.
+     * No additional threads are spawned.
+     */
+    public <U> ComputedValue<U> flatMap(Function<? super T, ComputedValue<U>> mapper) {
+        return new ComputedValue<>(
+                name + "-flatMap", futureRef.thenCompose(v -> mapper.apply(v).future()));
+    }
+
+    /**
+     * Returns the underlying future.
      */
     public CompletableFuture<T> future() {
-        startInternal();
         return futureRef;
+    }
+
+    /**
+     * Blocks until the computation is determined.
+     */
+    @Blocking
+    public T join() throws CancellationException, CompletionException {
+        try {
+            assert !SwingUtilities.isEventDispatchThread();
+        } catch (AssertionError e) {
+            // Using exception to get the stacktrace
+            logger.error("May not block on the EDT thread!", e);
+        }
+
+        try {
+            return futureRef.get(5, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            logger.warn("Taking longer than 5 seconds to compute value! Waiting now indefinitely....", e);
+            return futureRef.join();
+        } catch (ExecutionException | InterruptedException e) {
+            throw new CompletionException(e);
+        }
     }
 
     /**
@@ -123,49 +119,15 @@ public final class ComputedValue<T> {
     }
 
     /**
-     * Explicitly start the computation (no-op if already started).
-     */
-    public void start() {
-        startInternal();
-    }
-
-    private void startInternal() {
-        if (!started.compareAndSet(false, true)) {
-            return;
-        }
-        var f = futureRef;
-        String threadName = "cv-" + this.name + "-" + SEQ.incrementAndGet();
-        Runnable task = () -> {
-            try {
-                var value = this.supplier.get();
-                f.complete(value);
-                notifyComplete(value, null);
-            } catch (Throwable ex) {
-                f.completeExceptionally(ex);
-                notifyComplete(null, ex);
-                logger.debug("ComputedValue supplier for {} failed", this.name, ex);
-            }
-        };
-        if (executor == null) {
-            var t = new Thread(task, threadName);
-            t.setDaemon(true);
-            t.start();
-        } else {
-            executor.execute(task);
-        }
-    }
-
-    /**
      * Non-blocking probe. Empty if not completed, or if completed exceptionally.
      */
     public Optional<T> tryGet() {
-        var f = futureRef;
-        if (!f.isDone()) {
+        if (!futureRef.isDone()) {
             return Optional.empty();
         }
         try {
             //noinspection OptionalOfNullableMisuse (this may in fact be null)
-            return Optional.ofNullable(f.join());
+            return Optional.ofNullable(futureRef.join());
         } catch (CancellationException | CompletionException ex) {
             return Optional.empty();
         }
@@ -173,14 +135,13 @@ public final class ComputedValue<T> {
 
     /**
      * Await the value with a bounded timeout. If called on the Swing EDT, returns Optional.empty() immediately.
-     * Never blocks the EDT.
+     * May block the calling thread.
      */
     public Optional<T> await(Duration timeout) {
         if (SwingUtilities.isEventDispatchThread()) {
             logger.warn("ComputedValue.await() called on Swing EDT for {}", name);
             return Optional.empty();
         }
-        startInternal();
         try {
             var v = futureRef.get(Math.max(0, timeout.toMillis()), TimeUnit.MILLISECONDS);
             //noinspection OptionalOfNullableMisuse (this may in fact be null)
@@ -196,7 +157,7 @@ public final class ComputedValue<T> {
      * Register a completion callback. The handler is invoked exactly once, with either the computed value
      * (and null throwable) or with a throwable (and null value) if the computation failed.
      * If the value is already available at registration time, the handler is invoked immediately.
-     *
+     * <p>
      * Returns a Subscription that can be disposed to remove the handler before completion.
      */
     public Subscription onComplete(BiConsumer<? super T, ? super Throwable> handler) {

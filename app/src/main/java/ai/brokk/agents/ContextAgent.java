@@ -41,6 +41,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -156,11 +157,12 @@ public class ContextAgent {
     }
 
     /** Calculates the approximate token count for a list of ContextFragments. */
+    @Blocking
     public int calculateFragmentTokens(List<ContextFragment> fragments) {
         int totalTokens = 0;
         for (var fragment : fragments) {
             if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
-                Optional<ProjectFile> fileOpt = fragment.files().stream().findFirst();
+                Optional<ProjectFile> fileOpt = fragment.files().join().stream().findFirst();
                 if (fileOpt.isPresent()) {
                     var file = fileOpt.get();
                     String content = file.read().orElse("");
@@ -171,7 +173,7 @@ public class ContextAgent {
                             fragment.description());
                 }
             } else if (fragment.getType() == ContextFragment.FragmentType.SKELETON) {
-                totalTokens += Messages.getApproximateTokens(fragment.text());
+                totalTokens += Messages.getApproximateTokens(fragment.text().join());
             } else {
                 logger.warn("Unhandled ContextFragment type for token calculation: {}", fragment.getClass());
             }
@@ -185,6 +187,7 @@ public class ContextAgent {
      *
      * @return A RecommendationResult containing success status, fragments, and reasoning.
      */
+    @Blocking
     public RecommendationResult getRecommendations(Context context) throws InterruptedException {
         var workspaceRepresentation =
                 CodePrompts.instance.getWorkspaceContentsMessages(context, new ViewingPolicy(TaskResult.Type.CONTEXT));
@@ -206,7 +209,7 @@ public class ContextAgent {
         var existingFiles = context.allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH
                         || f.getType() == ContextFragment.FragmentType.SKELETON)
-                .flatMap(f -> f.files().stream())
+                .flatMap(f -> f.files().join().stream())
                 .collect(Collectors.toSet());
         List<ProjectFile> candidates;
         if (existingFiles.isEmpty()) {

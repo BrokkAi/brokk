@@ -41,7 +41,7 @@ class HistoryIoV3CompatibilityTest {
     }
 
     @Test
-    void testBasicSessionCompatibility() throws IOException, URISyntaxException {
+    void testBasicSessionCompatibility() throws IOException, URISyntaxException, InterruptedException {
         Path zipPath = stageBasicSessionZip();
 
         ContextHistory history = HistoryIo.readZip(zipPath, mockContextManager);
@@ -54,16 +54,19 @@ class HistoryIoV3CompatibilityTest {
         top.awaitContextsAreComputed(Duration.ofSeconds(10));
 
         var projectPathFragment = findFragment(top, ContextFragment.ProjectPathFragment.class, f -> f.description()
+                .join()
                 .contains("GitHubAuth.java"));
         assertNotNull(projectPathFragment, "ProjectPathFragment for GitHubAuth.java should be present");
 
         var buildFragment = findFragment(
                 top,
                 ContextFragment.StringFragment.class,
-                f -> "Source code for io.github.jbellis.brokk.Completions.expandPath".equals(f.description()));
+                f -> "Source code for io.github.jbellis.brokk.Completions.expandPath"
+                        .equals(f.description().join()));
         assertNotNull(buildFragment, "Migrated BuildFragment (as StringFragment) should be present");
 
         var imageFileFragment = findFragment(top, ContextFragment.ImageFileFragment.class, f -> f.description()
+                .join()
                 .contains("ai-robot.png"));
         assertNotNull(imageFileFragment, "ImageFileFragment for ai-robot.png should be present");
         assertTrue(
@@ -128,7 +131,7 @@ class HistoryIoV3CompatibilityTest {
     }
 
     @Test
-    void testPathFragmentWithoutType_Compatibility() throws IOException, URISyntaxException {
+    void testPathFragmentWithoutType_Compatibility() throws IOException, URISyntaxException, InterruptedException {
         // Stage the minimal path-fragment V3 session that omits "type" on files within FrozenFragmentDto
         var resourceUri = requireNonNull(
                         HistoryIoV3CompatibilityTest.class.getResource("/context-fragments/v3-path-frag-without-type"))
@@ -160,7 +163,7 @@ class HistoryIoV3CompatibilityTest {
 
         var ppf = findFragment(live, ContextFragment.ProjectPathFragment.class, f -> true);
         assertNotNull(ppf, "ProjectPathFragment should be present");
-        var description = ppf.computedDescription().renderNowOrNull();
+        var description = ppf.description().join();
         var path = String.join(File.separator, List.of("app", "src", "main", "java", "ai", "brokk"));
         assertEquals("EditBlock.java [%s]".formatted(path), description);
     }

@@ -28,6 +28,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /** Generates prompts for the main coding agent loop, including instructions for SEARCH/REPLACE blocks. */
@@ -78,6 +79,7 @@ public abstract class CodePrompts {
                     """;
 
     /** Formats the most recent build error for the LLM retry prompt. */
+    @Blocking
     public static String buildFeedbackPrompt(Context context) {
         var cf = context.getBuildFragment().orElseThrow();
         return """
@@ -90,12 +92,14 @@ public abstract class CodePrompts {
                 do your best to explain the problem but DO NOT provide any edits.
                 Otherwise, provide the edits as usual.
                 """
-                .formatted(cf.id(), cf.description());
+                .formatted(cf.id(), cf.description().join());
     }
 
+    @Blocking
     public static Set<InstructionsFlags> instructionsFlags(Context ctx) {
-        return instructionsFlags(
-                ctx.getEditableFragments().flatMap(f -> f.files().stream()).collect(Collectors.toSet()));
+        return instructionsFlags(ctx.getEditableFragments()
+                .flatMap(f -> f.files().join().stream())
+                .collect(Collectors.toSet()));
     }
 
     public static Set<InstructionsFlags> instructionsFlags(Set<ProjectFile> editableFiles) {
@@ -312,12 +316,13 @@ public abstract class CodePrompts {
         return workspaceBuilder.toString();
     }
 
+    @Blocking
     protected SystemMessage systemMessage(IContextManager cm, Context ctx, String reminder) {
         var workspaceSummary = formatWorkspaceToc(ctx);
 
         // Collect project-backed files from current context (nearest-first resolution uses parent dirs).
         var projectFiles =
-                ctx.fileFragments().flatMap(cf -> cf.files().stream()).toList();
+                ctx.fileFragments().flatMap(cf -> cf.files().join().stream()).toList();
 
         // Resolve composite style guide from AGENTS.md files nearest to current context files; fall back to project
         // root guide.
@@ -342,6 +347,7 @@ public abstract class CodePrompts {
         return new SystemMessage(text);
     }
 
+    @Blocking
     protected SystemMessage systemMessage(IContextManager cm, String reminder) {
         var workspaceSummary = formatWorkspaceToc(cm.liveContext());
 
@@ -349,7 +355,7 @@ public abstract class CodePrompts {
         // fall back to the project root style guide if none found.
         var projectFiles = cm.liveContext()
                 .fileFragments()
-                .flatMap(cf -> cf.files().stream())
+                .flatMap(cf -> cf.files().join().stream())
                 .collect(Collectors.toList());
 
         var resolvedGuide = StyleGuideResolver.resolve(projectFiles);
@@ -612,6 +618,7 @@ public abstract class CodePrompts {
      * @param vp The viewing policy to apply for content visibility; defaults to NONE if not specified.
      * @return A collection of ChatMessages (empty if no content).
      */
+    @Blocking
     public final Collection<ChatMessage> getWorkspaceReadOnlyMessages(
             Context ctx, boolean combineSummaries, ViewingPolicy vp) {
         return getWorkspaceReadOnlyMessagesInternal(ctx, combineSummaries, vp);
@@ -685,11 +692,12 @@ public abstract class CodePrompts {
      * Returns messages containing only the editable workspace content. Does not include read-only content or related
      * classes.
      */
+    @Blocking
     public final Collection<ChatMessage> getWorkspaceEditableMessages(Context ctx) {
         // --- Process Editable Fragments ---
         var editableTextFragments = new StringBuilder();
         ctx.getEditableFragments().forEach(fragment -> {
-            String formatted = fragment.format(); // format() on live fragment
+            String formatted = fragment.format().join(); // format() on live fragment
             if (!formatted.isBlank()) {
                 editableTextFragments.append(formatted).append("\n\n");
             }
@@ -765,6 +773,7 @@ public abstract class CodePrompts {
      * Formats fragments according to a viewing policy, rendering text and collecting images.
      * Applies ViewingPolicy to StringFragments when provided (vp != null).
      */
+    @Blocking
     private RenderedContent formatWithPolicy(List<ContextFragment> fragments, @Nullable ViewingPolicy vp) {
         var textBuilder = new StringBuilder();
         var imageList = new ArrayList<ImageContent>();
@@ -780,9 +789,9 @@ public abstract class CodePrompts {
                                     %s
                                     </fragment>
                                     """
-                                    .formatted(sf.description(), sf.id(), visibleText);
+                                    .formatted(sf.description().join(), sf.id(), visibleText);
                 } else {
-                    formatted = fragment.format();
+                    formatted = fragment.format().join();
                 }
                 if (!formatted.isBlank()) {
                     textBuilder.append(formatted).append("\n\n");
@@ -790,16 +799,18 @@ public abstract class CodePrompts {
             } else if (fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE
                     || fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
                 try {
-                    var l4jImage = ImageUtil.toL4JImage(fragment.image());
+                    var imageBytesCv = Objects.requireNonNull(fragment.imageBytes(), "Image bytes were null");
+                    var l4jImage = ImageUtil.toL4JImage(ImageUtil.bytesToImage(imageBytesCv.join()));
                     imageList.add(ImageContent.from(l4jImage));
-                    textBuilder.append(fragment.format()).append("\n\n");
+                    textBuilder.append(fragment.format().join()).append("\n\n");
                 } catch (IOException | UncheckedIOException e) {
-                    logger.error("Failed to process image fragment {} for LLM message", fragment.description(), e);
-                    textBuilder.append(String.format(
-                            "[Error processing image: %s - %s]\n\n", fragment.description(), e.getMessage()));
+                    var description = fragment.description().join();
+                    logger.error("Failed to process image fragment {} for LLM message", description, e);
+                    textBuilder.append(
+                            String.format("[Error processing image: %s - %s]\n\n", description, e.getMessage()));
                 }
             } else {
-                String formatted = fragment.format();
+                String formatted = fragment.format().join();
                 if (!formatted.isBlank()) {
                     textBuilder.append(formatted).append("\n\n");
                 }
@@ -875,6 +886,7 @@ public abstract class CodePrompts {
      * - Redacts special StringFragments (e.g., Task List) when policy denies visibility.
      * - Preserves insertion order and multimodal content.
      */
+    @Blocking
     public final Collection<ChatMessage> getWorkspaceMessagesInAddedOrder(Context ctx, ViewingPolicy vp) {
         var allFragments = ctx.allFragments().toList();
         if (allFragments.isEmpty()) {

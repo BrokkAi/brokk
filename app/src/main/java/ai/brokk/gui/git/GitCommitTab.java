@@ -677,7 +677,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                         .filter(pf -> contextManager
                                 .liveContext()
                                 .allFragments()
-                                .noneMatch(f -> f.files().contains(pf)))
+                                .noneMatch(f -> f.files().join().contains(pf)))
                         .collect(Collectors.toSet());
 
                 // 2. Add all selected files to the workspace to snapshot their current state.
@@ -703,8 +703,9 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                         .map(f -> {
                             var ppf = (ContextFragment.ProjectPathFragment) f;
                             try {
-                                ProjectFile pf = (ProjectFile) ppf.file();
-                                return new ContextHistory.DeletedFile(pf, ppf.text(), true);
+                                ProjectFile pf = ppf.file();
+                                return new ContextHistory.DeletedFile(
+                                        pf, ppf.text().join(), true);
                             } catch (UncheckedIOException e) {
                                 logger.error("Could not read content for new file being rolled back: " + ppf.file(), e);
                                 return null;
