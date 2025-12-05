@@ -26,7 +26,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     // Python's "last wins" behavior is handled by TreeSitterAnalyzer's addTopLevelCodeUnit().
 
     @Override
-    public Optional<String> extractClassName(String reference) {
+    public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForPython(reference);
     }
 
@@ -51,20 +51,24 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             );
 
     public PythonAnalyzer(IProject project) {
-        super(project, Languages.PYTHON);
+        this(project, ProgressListener.NOOP);
     }
 
-    private PythonAnalyzer(IProject project, AnalyzerState state) {
-        super(project, Languages.PYTHON, state);
+    public PythonAnalyzer(IProject project, ProgressListener listener) {
+        super(project, Languages.PYTHON, listener);
     }
 
-    public static PythonAnalyzer fromState(IProject project, AnalyzerState state) {
-        return new PythonAnalyzer(project, state);
+    private PythonAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
+        super(project, Languages.PYTHON, state, listener);
+    }
+
+    public static PythonAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+        return new PythonAnalyzer(project, state, listener);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state) {
-        return new PythonAnalyzer(getProject(), state);
+    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+        return new PythonAnalyzer(getProject(), state, listener);
     }
 
     @Override

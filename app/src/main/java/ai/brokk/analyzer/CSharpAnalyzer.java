@@ -44,21 +44,25 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             Set.of());
 
     public CSharpAnalyzer(IProject project) {
-        super(project, Languages.C_SHARP);
+        this(project, ProgressListener.NOOP);
+    }
+
+    public CSharpAnalyzer(IProject project, ProgressListener listener) {
+        super(project, Languages.C_SHARP, listener);
         log.debug("CSharpAnalyzer: Constructor called for project: {}", project);
     }
 
-    private CSharpAnalyzer(IProject project, AnalyzerState prebuiltState) {
-        super(project, Languages.C_SHARP, prebuiltState);
+    private CSharpAnalyzer(IProject project, AnalyzerState prebuiltState, ProgressListener listener) {
+        super(project, Languages.C_SHARP, prebuiltState, listener);
     }
 
-    public static CSharpAnalyzer fromState(IProject project, AnalyzerState state) {
-        return new CSharpAnalyzer(project, state);
+    public static CSharpAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+        return new CSharpAnalyzer(project, state, listener);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state) {
-        return new CSharpAnalyzer(getProject(), state);
+    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+        return new CSharpAnalyzer(getProject(), state, listener);
     }
 
     @Override
@@ -224,9 +228,8 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         return baseIndent + fullSignature;
     }
 
-    // TODO
     @Override
-    public Optional<String> extractClassName(String reference) {
-        return Optional.empty();
+    public Optional<String> extractCallReceiver(String reference) {
+        return ClassNameExtractor.extractForCSharp(reference);
     }
 }

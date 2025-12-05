@@ -1276,9 +1276,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Submit an LLM action that will perform optional search + architect work off the EDT.
         cm.submitLlmAction(() -> {
             chrome.showOutputSpinner("Executing Task command...");
-            TaskResult result;
+            final TaskResult result;
             try {
                 result = cm.executeTask(cm.getTaskList().tasks().get(idx), queueActive, queueActive);
+            } catch (InterruptedException e) {
+                // User clicked Stop - this is expected, not an error
+                logger.debug("Task execution interrupted by user");
+                SwingUtilities.invokeLater(this::finishQueueOnError);
+                return;
             } catch (RuntimeException ex) {
                 logger.error("Internal error running architect", ex);
                 SwingUtilities.invokeLater(this::finishQueueOnError);

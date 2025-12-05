@@ -66,22 +66,26 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
     }
 
     public GoAnalyzer(IProject project) {
-        super(project, Languages.GO);
+        this(project, ProgressListener.NOOP);
+    }
+
+    public GoAnalyzer(IProject project, ProgressListener listener) {
+        super(project, Languages.GO, listener);
         this.packageQuery = createGoNamespaceQuery();
     }
 
-    private GoAnalyzer(IProject project, AnalyzerState state) {
-        super(project, Languages.GO, state);
+    private GoAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
+        super(project, Languages.GO, state, listener);
         this.packageQuery = createGoNamespaceQuery();
     }
 
-    public static GoAnalyzer fromState(IProject project, AnalyzerState state) {
-        return new GoAnalyzer(project, state);
+    public static GoAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+        return new GoAnalyzer(project, state, listener);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state) {
-        return new GoAnalyzer(getProject(), state);
+    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+        return new GoAnalyzer(getProject(), state, listener);
     }
 
     @Override
@@ -411,9 +415,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
         return false;
     }
 
-    // TODO
     @Override
-    public Optional<String> extractClassName(String reference) {
-        return Optional.empty();
+    public Optional<String> extractCallReceiver(String reference) {
+        return ClassNameExtractor.extractForGo(reference);
     }
 }

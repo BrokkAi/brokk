@@ -1637,17 +1637,18 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                                     + (filteredFiles.size() > 5 ? "..." : ""));
                 }
 
-                // Exclude deleted files from being added to context
-                var filesNotDeleted = modifiedFiles.stream()
-                        .filter(mf -> mf.status() != ModificationType.DELETED)
-                        .flatMap(mf -> textFiles.stream().filter(tf -> tf.equals(mf.file())))
+                // Only include modified text files in the editable context (exclude new/deleted files)
+                var modifiedTextFiles = modifiedFiles.stream()
+                        .filter(mf -> mf.status() == ModificationType.MODIFIED)
+                        .map(GitRepo.ModifiedFile::file)
+                        .filter(textFiles::contains)
                         .collect(Collectors.toSet());
 
-                if (!filesNotDeleted.isEmpty()) {
-                    contextManager.addFiles(filesNotDeleted);
+                if (!modifiedTextFiles.isEmpty()) {
+                    contextManager.addFiles(modifiedTextFiles);
                     logger.info(
-                            "Added {} changed file(s) from PR #{} to editable context",
-                            filesNotDeleted.size(),
+                            "Added {} modified file(s) from PR #{} to editable context",
+                            modifiedTextFiles.size(),
                             prNumber);
                 }
 

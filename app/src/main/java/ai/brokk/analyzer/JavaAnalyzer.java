@@ -23,24 +23,28 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     private static final String LAMBDA_EXPRESSION = "lambda_expression";
 
     public JavaAnalyzer(IProject project) {
-        super(project, Languages.JAVA);
+        this(project, ProgressListener.NOOP);
     }
 
-    private JavaAnalyzer(IProject project, AnalyzerState state) {
-        super(project, Languages.JAVA, state);
+    public JavaAnalyzer(IProject project, ProgressListener listener) {
+        super(project, Languages.JAVA, listener);
     }
 
-    public static JavaAnalyzer fromState(IProject project, AnalyzerState state) {
-        return new JavaAnalyzer(project, state);
+    private JavaAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
+        super(project, Languages.JAVA, state, listener);
+    }
+
+    public static JavaAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+        return new JavaAnalyzer(project, state, listener);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state) {
-        return new JavaAnalyzer(getProject(), state);
+    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+        return new JavaAnalyzer(getProject(), state, listener);
     }
 
     @Override
-    public Optional<String> extractClassName(String reference) {
+    public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForJava(reference);
     }
 
