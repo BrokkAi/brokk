@@ -8,6 +8,7 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.git.TestRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.tasks.TaskList;
@@ -36,7 +37,7 @@ public final class TestContextManager implements IContextManager {
     private final Set<ProjectFile> editableFiles;
     private final IConsoleIO consoleIO;
     private final TestService stubService;
-    private final Context liveContext;
+    private Context liveContext;
 
     // Test-friendly AnalyzerWrapper that uses a "quick runner" to return the mockAnalyzer immediately.
     private final IAnalyzerWrapper analyzerWrapper;
@@ -103,13 +104,8 @@ public final class TestContextManager implements IContextManager {
         return repo;
     }
 
-    @Override
-    public Set<ProjectFile> getFilesInContext() {
-        return new HashSet<>(editableFiles);
-    }
-
     public void addEditableFile(ProjectFile file) {
-        this.editableFiles.add(file);
+        liveContext = liveContext.addFragments(new ContextFragment.ProjectPathFragment(file, this));
     }
 
     @Override

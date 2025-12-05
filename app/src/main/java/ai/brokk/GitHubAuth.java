@@ -29,11 +29,22 @@ import org.kohsuke.github.GHPullRequest;
 import org.kohsuke.github.GHPullRequestCommitDetail;
 import org.kohsuke.github.GHRepository;
 import org.kohsuke.github.GitHub;
+import org.kohsuke.github.GitHubAbuseLimitHandler;
 import org.kohsuke.github.GitHubBuilder;
+import org.kohsuke.github.GitHubRateLimitHandler;
+import org.kohsuke.github.HttpException;
 import org.kohsuke.github.PagedIterable;
 
 /**
- * Handles GitHub authentication and API calls. This class is stateful and holds a connection to a specific repository.
+ * Handles GitHub authentication and API calls.
+ *
+ * <p>This class has two distinct modes:
+ * <ul>
+ *   <li><b>Static methods</b>: User-level operations (token validation, app installation)
+ *       that always target github.com where the Brokk OAuth app is registered.</li>
+ *   <li><b>Instance methods</b>: Repo-scoped operations that honor the configured host
+ *       for GitHub Enterprise Server support.</li>
+ * </ul>
  */
 public class GitHubAuth {
     private static final Logger logger = LogManager.getLogger(GitHubAuth.class);
@@ -215,20 +226,26 @@ public class GitHubAuth {
     }
 
     public static boolean validateStoredToken() {
-        String token = getStoredToken();
-        if (token.isEmpty()) {
+        if (getStoredToken().isEmpty()) {
             return false;
         }
 
         try {
-            var github = new GitHubBuilder().withOAuthToken(token).build();
-            github.getMyself();
+            createClient().getMyself();
             logger.debug("Stored GitHub token is valid");
             return true;
-        } catch (IOException e) {
-            logger.warn("Stored GitHub token is invalid: {}", e.getMessage());
-            MainProject.setGitHubToken("");
-            invalidateInstance();
+        } catch (HttpException e) {
+            if (e.getResponseCode() == 401) {
+                logger.warn("Stored GitHub token is invalid");
+                invalidateInstance();
+            } else {
+                // Rate limit or other HTTP errors - don't clear token
+                logger.warn("GitHub API error during token validation: {}", e.getMessage());
+            }
+            return false;
+        } catch (Exception e) {
+            // Network errors, timeouts, etc. - don't clear token
+            logger.warn("Error validating GitHub token: {}", e.getMessage());
             return false;
         }
     }
@@ -242,15 +259,35 @@ public class GitHubAuth {
         return MainProject.getGitHubToken();
     }
 
-    public static @Nullable String getAuthenticatedUsername() {
-        String token = getStoredToken();
+    /**
+     * Creates a GitHub client configured with the stored token and fail-fast rate limit handlers.
+     * This is the preferred way to create GitHub clients to ensure consistent behavior.
+     *
+     * @return a configured GitHub client
+     * @throws IOException if the client cannot be created or the token is invalid
+     * @throws IllegalStateException if no GitHub token is configured
+     */
+    public static GitHub createClient() throws IOException {
+        var token = getStoredToken();
         if (token.isEmpty()) {
+            throw new IllegalStateException("No GitHub token configured");
+        }
+        return createBaseBuilder().withOAuthToken(token).build();
+    }
+
+    private static GitHubBuilder createBaseBuilder() {
+        return new GitHubBuilder()
+                .withRateLimitHandler(GitHubRateLimitHandler.FAIL)
+                .withAbuseLimitHandler(GitHubAbuseLimitHandler.FAIL);
+    }
+
+    public static @Nullable String getAuthenticatedUsername() {
+        if (getStoredToken().isEmpty()) {
             return null;
         }
 
         try {
-            var github = new GitHubBuilder().withOAuthToken(token).build();
-            return github.getMyself().getLogin();
+            return createClient().getMyself().getLogin();
         } catch (Exception e) {
             // Silently ignore all errors for this nice-to-have feature
             return null;
@@ -574,7 +611,7 @@ public class GitHubAuth {
 
         // Try with token
         var token = getStoredToken();
-        GitHubBuilder builder = new GitHubBuilder();
+        var builder = createBaseBuilder();
         String targetHostDisplay = (this.host == null || this.host.isBlank()) ? "api.github.com" : this.host;
 
         if (this.host != null && !this.host.isBlank()) {
