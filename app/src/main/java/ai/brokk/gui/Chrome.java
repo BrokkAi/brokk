@@ -2412,8 +2412,13 @@ public class Chrome
             ContextFragment.PathFragment pf, String initialTitle, @Nullable String computedDescNow) {
         var brokkFile = pf.file();
 
-        // Use the same ProjectFile for the placeholder panel to ensure the same reuse key
-        ProjectFile placeholderFile = (brokkFile instanceof ProjectFile p) ? p : null;
+        // Bind to file only when viewing the latest (live) context
+        boolean isLive =
+                Objects.equals(contextManager.getContextHistory().liveContext(), contextManager.selectedContext());
+
+        // Use the same ProjectFile for the placeholder panel only when live (prevents auto-refresh for history
+        // snapshots)
+        ProjectFile placeholderFile = (brokkFile instanceof ProjectFile p && isLive) ? p : null;
 
         // Use the best-available syntax style even for the placeholder (helps early highlight)
         String placeholderStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
@@ -2428,7 +2433,8 @@ public class Chrome
         showPreviewFrame(contextManager, initialTitle, placeholder);
 
         if (brokkFile instanceof ProjectFile projectFile) {
-            loadAndPreviewFile(projectFile, projectFile.getSyntaxStyle(), initialTitle, pf);
+            // Pass file only when live; otherwise null to avoid disk auto-refresh for snapshots
+            loadAndPreviewFile(isLive ? projectFile : null, projectFile.getSyntaxStyle(), initialTitle, pf);
         } else if (brokkFile instanceof ExternalFile externalFile) {
             loadAndPreviewFile(null, externalFile.getSyntaxStyle(), initialTitle, pf);
         }
@@ -2441,12 +2447,8 @@ public class Chrome
         contextManager.submitBackgroundTask("Load file preview", () -> {
             String txt;
             try {
-                if (projectFile != null) {
-                    txt = projectFile.read().orElse("");
-                } else {
-                    // Fragment must be a PathFragment; get text from fragment itself
-                    txt = fragment.text().join();
-                }
+                // Always use the fragment snapshot to honor history selection
+                txt = fragment.text().join();
             } catch (Exception e) {
                 txt = "Error loading preview: " + e.getMessage();
             }
@@ -2457,8 +2459,7 @@ public class Chrome
                 var panel =
                         new PreviewTextPanel(contextManager, projectFile, fTxt, initialStyle, themeManager, fragment);
                 showPreviewFrame(contextManager, initialTitle, panel);
-                // Ensure title updates are also bound to the actual content panel,
-                // so when the description resolves, the window title updates appropriately.
+                // Ensure title updates are also bound to the actual content panel
                 updateDescriptionAsync(initialTitle, panel, null, fragment);
             });
 

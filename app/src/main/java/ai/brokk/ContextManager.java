@@ -2292,7 +2292,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             // push context
             var updatedContext = pushContext(currentLiveCtx -> {
-                var updated = result.context().withGroup(groupId, groupLabel);
+                // Rebase task result on latest live context to ensure any prior "Load external changes" are retained.
+                var rebased = currentLiveCtx.union(result.context());
+                var updated = rebased.withGroup(groupId, groupLabel);
                 TaskEntry entry = updated.createTaskEntry(result);
                 TaskEntry finalEntry = compressResults ? compressHistory(entry) : entry;
                 return updated.addHistoryEntry(finalEntry, result.output(), actionFuture)
