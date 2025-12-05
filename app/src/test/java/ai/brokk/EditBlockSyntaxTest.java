@@ -70,7 +70,7 @@ public class EditBlockSyntaxTest {
                 ```
                 A.java
                 <<<<<<< SEARCH
-                BRK_FUNCTION A.method1
+                BRK_REPLACE_FUNCTION A.method1
                 =======
                 void method1() {
                     System.out.println("modified");
@@ -108,7 +108,7 @@ public class EditBlockSyntaxTest {
                 ```
                 A.java
                 <<<<<<< SEARCH
-                BRK_FUNCTION A.method2
+                BRK_REPLACE_FUNCTION A.method2
                 =======
                 public String method2(String input) {
                     return "new_" + input;
@@ -156,7 +156,7 @@ public class EditBlockSyntaxTest {
                 ```
                 A.java
                 <<<<<<< SEARCH
-                BRK_FUNCTION A.method1
+                BRK_REPLACE_FUNCTION A.method1
                 =======
                 void method1() {
                     System.out.println("modified indent simple");
@@ -209,7 +209,7 @@ public class EditBlockSyntaxTest {
                 ```
                 A.java
                 <<<<<<< SEARCH
-                BRK_FUNCTION A.AInner.AInnerInner.method7
+                BRK_REPLACE_FUNCTION A.AInner.AInnerInner.method7
                 =======
                 public void method7() {
                     if (true) {
@@ -265,7 +265,7 @@ public class EditBlockSyntaxTest {
                 ```
                 A.java
                 <<<<<<< SEARCH
-                BRK_FUNCTION A.method4
+                BRK_REPLACE_FUNCTION A.method4
                 =======
                 public static int method4(double foo, Integer bar) {
                     return 42;
@@ -294,7 +294,7 @@ public class EditBlockSyntaxTest {
                 ```
                 A.java
                 <<<<<<< SEARCH
-                BRK_FUNCTION A.AInner.AInnerInner.method7
+                BRK_REPLACE_FUNCTION A.AInner.AInnerInner.method7
                 =======
                 public void method7() {
                     System.out.println("nested modified");
@@ -323,7 +323,7 @@ public class EditBlockSyntaxTest {
                 ```
                 B.java
                 <<<<<<< SEARCH
-                BRK_FUNCTION B.B
+                BRK_REPLACE_FUNCTION B.B
                 =======
                 public B() {
                     System.out.println("modified constructor");
@@ -352,7 +352,7 @@ public class EditBlockSyntaxTest {
                 ```
                 A.java
                 <<<<<<< SEARCH
-                BRK_FUNCTION A.nonExistentMethod
+                BRK_REPLACE_FUNCTION A.nonExistentMethod
                 =======
                 public void nonExistentMethod() {}
                 >>>>>>> REPLACE
@@ -379,7 +379,7 @@ public class EditBlockSyntaxTest {
                 ```
                 A.java
                 <<<<<<< SEARCH
-                BRK_FUNCTION B.method1
+                BRK_REPLACE_FUNCTION B.method1
                 =======
                 void method1() {}
                 >>>>>>> REPLACE
@@ -406,7 +406,7 @@ public class EditBlockSyntaxTest {
                 ```
                 Packaged.java
                 <<<<<<< SEARCH
-                BRK_FUNCTION io.github.jbellis.brokk.Foo.bar
+                BRK_REPLACE_FUNCTION io.github.jbellis.brokk.Foo.bar
                 =======
                 public void bar() {
                     System.out.println("modified bar");
@@ -868,7 +868,7 @@ public class EditBlockSyntaxTest {
                 ```
                 E.java
                 <<<<<<< SEARCH
-                BRK_FUNCTION E.sMethod
+                BRK_REPLACE_FUNCTION E.sMethod
                 =======
                 public static void sMethod() {
                     System.out.println("Modified static method");
@@ -879,7 +879,7 @@ public class EditBlockSyntaxTest {
                 ```
                 E.java
                 <<<<<<< SEARCH
-                BRK_FUNCTION E.iMethod
+                BRK_REPLACE_FUNCTION E.iMethod
                 =======
                 public void iMethod() {
                     System.out.println("Modified instance method");
