@@ -170,15 +170,25 @@ public class PreviewManager {
      * @param contentComponent The JComponent to display within the tab.
      */
     public void showPreviewFrame(String title, JComponent contentComponent) {
-        // Delegate to tabbed frame - it handles file tracking internally
-        showPreviewTextPanelInTabbedFrame(title, contentComponent);
+        showPreviewFrame(title, contentComponent, null);
+    }
+
+    /**
+     * Creates and shows a preview in the shared tabbed PreviewFrame with fragment-based deduplication.
+     *
+     * @param title            The title for the tab.
+     * @param contentComponent The JComponent to display within the tab.
+     * @param fragment         Optional fragment for deduplication via hasSameSource.
+     */
+    public void showPreviewFrame(String title, JComponent contentComponent, @Nullable ContextFragment fragment) {
+        showPreviewInTabbedFrame(title, contentComponent, fragment);
     }
 
     /**
      * Shows a component in the shared tabbed preview frame. Lazily creates the frame and
-     * ensures bounds, min size, and theme are applied. Selects existing tab by file when possible.
+     * ensures bounds, min size, and theme are applied. Selects existing tab by file or fragment when possible.
      */
-    public void showPreviewTextPanelInTabbedFrame(String title, JComponent panel) {
+    public void showPreviewInTabbedFrame(String title, JComponent panel, @Nullable ContextFragment fragment) {
         SwingUtilities.invokeLater(() -> {
             // Create frame if it doesn't exist or was disposed
             if (previewFrame == null || !previewFrame.isDisplayable()) {
@@ -217,19 +227,11 @@ public class PreviewManager {
                 previewFrame.applyTheme(chrome.getTheme());
             }
 
-            // Compute file mapping if applicable
-            ProjectFile file = null;
-            if (panel instanceof PreviewTextPanel ptp) {
-                file = ptp.getFile();
-            } else if (panel instanceof PreviewImagePanel pip) {
-                var bf = pip.getFile();
-                if (bf instanceof ProjectFile pf) {
-                    file = pf;
-                }
-            }
+            // Compute file key from panel or fragment
+            ProjectFile file = extractFileKey(panel, fragment);
 
-            // Add or select tab
-            previewFrame.addOrSelectTab(title, panel, file);
+            // Add or select tab with both file and fragment keys for deduplication
+            previewFrame.addOrSelectTab(title, panel, file, fragment);
 
             // Track file mapping if applicable
             if (file != null) {
@@ -247,6 +249,30 @@ public class PreviewManager {
                 previewFrame.setAlwaysOnTop(false);
             }
         });
+    }
+
+    /**
+     * Extracts the ProjectFile key from a panel or fragment for file-based deduplication.
+     */
+    private @Nullable ProjectFile extractFileKey(JComponent panel, @Nullable ContextFragment fragment) {
+        // Try panel first
+        if (panel instanceof PreviewTextPanel ptp) {
+            return ptp.getFile();
+        }
+        if (panel instanceof PreviewImagePanel pip) {
+            var bf = pip.getFile();
+            if (bf instanceof ProjectFile pf) {
+                return pf;
+            }
+        }
+        // Try fragment
+        if (fragment instanceof ContextFragment.PathFragment pathFragment) {
+            var bf = pathFragment.file();
+            if (bf instanceof ProjectFile pf) {
+                return pf;
+            }
+        }
+        return null;
     }
 
     /**
@@ -388,7 +414,7 @@ public class PreviewManager {
                 if (fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE
                         && fragment instanceof ContextFragment.ImageFileFragment iff) {
                     var imagePanel = new PreviewImagePanel(iff.file());
-                    showPreviewFrame(initialTitle, imagePanel);
+                    showPreviewFrame(initialTitle, imagePanel, iff);
                     bindTitleUpdate(iff, imagePanel, initialTitle);
                     return;
                 }
@@ -454,11 +480,14 @@ public class PreviewManager {
         markdownPanel.withContextForLookups(cm, chrome);
         markdownPanel.setText(combinedMessages);
         JPanel previewContentPanel = createSearchableContentPanel(List.of(markdownPanel), null, false);
-        showPreviewFrame(initialTitle, previewContentPanel);
+
+        // Pass fragment for deduplication
+        ContextFragment fragment = (of instanceof ContextFragment cf) ? cf : null;
+        showPreviewFrame(initialTitle, previewContentPanel, fragment);
 
         // Bind for title updates if needed
-        if (of instanceof ContextFragment cf) {
-            bindTitleUpdate(cf, previewContentPanel, initialTitle);
+        if (fragment != null) {
+            bindTitleUpdate(fragment, previewContentPanel, initialTitle);
         }
     }
 
@@ -467,7 +496,7 @@ public class PreviewManager {
      */
     private void previewAnonymousImage(ContextFragment.AnonymousImageFragment pif, String initialTitle) {
         var imagePanel = new PreviewImagePanel(null);
-        showPreviewFrame(initialTitle, imagePanel);
+        showPreviewFrame(initialTitle, imagePanel, pif);
 
         ComputedSubscription.bind(pif, imagePanel, () -> {
             SwingUtilities.invokeLater(() -> {
@@ -512,7 +541,7 @@ public class PreviewManager {
         }
 
         var panel = new PreviewTextPanel(cm, projectFile, "Loading...", initialStyle, chrome.getTheme(), pf);
-        showPreviewFrame(initialTitle, panel);
+        showPreviewFrame(initialTitle, panel, pf);
 
         final String fallbackStyle = initialStyle;
         ComputedSubscription.bind(pf, panel, () -> {
@@ -544,11 +573,11 @@ public class PreviewManager {
             markdownPanel.setText(List.of(Messages.customSystem(previewText)));
 
             JPanel previewContentPanel = createSearchableContentPanel(List.of(markdownPanel), null, false);
-            showPreviewFrame(initialTitle, previewContentPanel);
+            showPreviewFrame(initialTitle, previewContentPanel, sf);
             bindTitleUpdate(sf, previewContentPanel, initialTitle);
         } else {
             var previewPanel = new PreviewTextPanel(cm, null, previewText, previewStyle, chrome.getTheme(), sf);
-            showPreviewFrame(initialTitle, previewPanel);
+            showPreviewFrame(initialTitle, previewPanel, sf);
             bindTitleUpdate(sf, previewPanel, initialTitle);
         }
     }
@@ -566,14 +595,14 @@ public class PreviewManager {
         // If content is already available and is markdown, show markdown panel directly
         if (textNow != null && SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(styleNow)) {
             JPanel contentPanel = renderMarkdownContent(textNow);
-            showPreviewFrame(initialTitle, contentPanel);
+            showPreviewFrame(initialTitle, contentPanel, cf);
             bindTitleUpdate(cf, contentPanel, initialTitle);
             return;
         }
 
         // Create text panel (may need style/content updates via bind)
         var panel = new PreviewTextPanel(cm, null, initialText, initialStyle, chrome.getTheme(), cf);
-        showPreviewFrame(initialTitle, panel);
+        showPreviewFrame(initialTitle, panel, cf);
 
         ComputedSubscription.bind(cf, panel, () -> {
             SwingUtilities.invokeLater(() -> {

@@ -2,6 +2,7 @@ package ai.brokk.gui.dialogs;
 
 import ai.brokk.ContextManager;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -10,6 +11,7 @@ import java.awt.*;
 import java.awt.event.*;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -23,10 +25,10 @@ public class PreviewFrame extends JFrame implements ThemeAware {
     private final ContextManager contextManager;
     private GuiTheme guiTheme;
 
-    // Track tabs by ProjectFile for deduplication
+    // Track tabs by ProjectFile for deduplication (fast path for file-based previews)
     private final Map<ProjectFile, Component> fileToTabMap = new HashMap<>();
-    // Track tabs by unique ID for non-file panels
-    private final Map<String, Component> idToTabMap = new HashMap<>();
+    // Track tabs by their associated fragment for fragment-based deduplication
+    private final Map<Component, ContextFragment> tabToFragmentMap = new HashMap<>();
 
     public PreviewFrame(Chrome chrome, ContextManager contextManager, GuiTheme guiTheme) {
         super("Preview");
@@ -66,78 +68,56 @@ public class PreviewFrame extends JFrame implements ThemeAware {
      * @param title The title for the tab (without "Preview:" prefix)
      * @param panel The preview component to add
      * @param fileKey Optional ProjectFile for deduplication
+     * @param fragmentKey Optional ContextFragment for deduplication via hasSameSource
      */
-    public void addOrSelectTab(String title, JComponent panel, @Nullable ProjectFile fileKey) {
+    public void addOrSelectTab(
+            String title, JComponent panel, @Nullable ProjectFile fileKey, @Nullable ContextFragment fragmentKey) {
         SwingUtilities.invokeLater(() -> {
             // Strip "Preview: " prefix if present
             String tabTitle = title.startsWith("Preview: ") ? title.substring(9) : title;
 
-            // If we have a file key and an existing tab, replace it (placeholder -> real content) or select it.
+            // Try file-based deduplication first (fast path)
             if (fileKey != null) {
                 Component existingTab = fileToTabMap.get(fileKey);
                 if (existingTab != null) {
                     int index = tabbedPane.indexOfComponent(existingTab);
                     if (index >= 0) {
-                        // If existing is a PreviewTextPanel, confirm close (unsaved changes)
-                        if (existingTab instanceof PreviewTextPanel existingPanel) {
-                            if (!existingPanel.confirmClose()) {
-                                // User cancelled replacement; just select existing tab
-                                tabbedPane.setSelectedIndex(index);
+                        if (tryReplaceOrSelectTab(index, existingTab, panel, tabTitle, fileKey, fragmentKey)) {
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // Try fragment-based deduplication using hasSameSource / content equality
+            if (fragmentKey != null) {
+                for (var entry : tabToFragmentMap.entrySet()) {
+                    if (fragmentsMatch(entry.getValue(), fragmentKey)) {
+                        Component existingTab = entry.getKey();
+                        int index = tabbedPane.indexOfComponent(existingTab);
+                        if (index >= 0) {
+                            if (tryReplaceOrSelectTab(index, existingTab, panel, tabTitle, fileKey, fragmentKey)) {
                                 return;
                             }
                         }
-                        // Replace the component with the new panel
-                        tabbedPane.setComponentAt(index, panel);
-
-                        // Rebuild the tab header so close button targets the new panel
-                        JPanel tabComponent = createTabComponent(tabTitle, panel, fileKey);
-                        tabbedPane.setTabComponentAt(index, tabComponent);
-
-                        // Track the new component for this file
-                        fileToTabMap.put(fileKey, panel);
-
-                        // Apply theme to the new panel if applicable (keeps UI consistent)
-                        if (panel instanceof ThemeAware && guiTheme != null) {
-                            try {
-                                ((ThemeAware) panel).applyTheme(guiTheme);
-                            } catch (Exception ex) {
-                                logger.debug("Failed to apply theme to replaced preview component", ex);
-                            }
-                        }
-
-                        // Select and update window title
-                        tabbedPane.setSelectedIndex(index);
-                        updateWindowTitle();
-                        return;
                     }
-                    // If the existing component isn't found in the tabbed pane (index < 0), fall through to add new tab
                 }
             }
 
-            // Check by unique ID for non-file panels
-            String uniqueId = generateUniqueId(panel);
-            Component existingIdTab = idToTabMap.get(uniqueId);
-            if (existingIdTab != null) {
-                int index = tabbedPane.indexOfComponent(existingIdTab);
-                if (index >= 0) {
-                    tabbedPane.setSelectedIndex(index);
-                    return;
-                }
-            }
-
-            // Add new tab
+            // No existing tab found - add new tab
             tabbedPane.addTab(tabTitle, panel);
             int tabIndex = tabbedPane.getTabCount() - 1;
 
             // Create custom tab component with close button
-            JPanel tabComponent = createTabComponent(tabTitle, panel, fileKey);
+            JPanel tabComponent = createTabComponent(tabTitle, panel, fileKey, fragmentKey);
             tabbedPane.setTabComponentAt(tabIndex, tabComponent);
 
             // Track the tab
             if (fileKey != null) {
                 fileToTabMap.put(fileKey, panel);
-            } else {
-                idToTabMap.put(uniqueId, panel);
+            }
+            if (fragmentKey != null) {
+                tabToFragmentMap.put(panel, fragmentKey);
             }
 
             // Select the new tab
@@ -146,6 +126,74 @@ public class PreviewFrame extends JFrame implements ThemeAware {
             // Update window title
             updateWindowTitle();
         });
+    }
+
+    /**
+     * Checks if two fragments match for deduplication purposes.
+     * Uses content equality for StringFragments, hasSameSource for others.
+     */
+    private boolean fragmentsMatch(ContextFragment existing, ContextFragment candidate) {
+        // Content equality for string fragments
+        if (existing instanceof ContextFragment.StringFragment sfExisting
+                && candidate instanceof ContextFragment.StringFragment sfCandidate) {
+            String textA = sfExisting.text().renderNowOrNull();
+            String textB = sfCandidate.text().renderNowOrNull();
+            return Objects.equals(textA, textB);
+        }
+        // hasSameSource for all other fragment types
+        return existing.hasSameSource(candidate);
+    }
+
+    /**
+     * Attempts to replace or select an existing tab. Returns true if handled, false to continue searching.
+     */
+    private boolean tryReplaceOrSelectTab(
+            int index,
+            Component existingTab,
+            JComponent panel,
+            String tabTitle,
+            @Nullable ProjectFile fileKey,
+            @Nullable ContextFragment fragmentKey) {
+        // If existing is a PreviewTextPanel, confirm close (unsaved changes)
+        if (existingTab instanceof PreviewTextPanel existingPanel) {
+            if (!existingPanel.confirmClose()) {
+                // User cancelled replacement; just select existing tab
+                tabbedPane.setSelectedIndex(index);
+                return true;
+            }
+        }
+
+        // Remove old fragment tracking
+        tabToFragmentMap.remove(existingTab);
+
+        // Replace the component with the new panel
+        tabbedPane.setComponentAt(index, panel);
+
+        // Rebuild the tab header so close button targets the new panel
+        JPanel tabComponent = createTabComponent(tabTitle, panel, fileKey, fragmentKey);
+        tabbedPane.setTabComponentAt(index, tabComponent);
+
+        // Track the new component
+        if (fileKey != null) {
+            fileToTabMap.put(fileKey, panel);
+        }
+        if (fragmentKey != null) {
+            tabToFragmentMap.put(panel, fragmentKey);
+        }
+
+        // Apply theme to the new panel if applicable (keeps UI consistent)
+        if (panel instanceof ThemeAware && guiTheme != null) {
+            try {
+                ((ThemeAware) panel).applyTheme(guiTheme);
+            } catch (Exception ex) {
+                logger.debug("Failed to apply theme to replaced preview component", ex);
+            }
+        }
+
+        // Select and update window title
+        tabbedPane.setSelectedIndex(index);
+        updateWindowTitle();
+        return true;
     }
 
     /**
@@ -171,7 +219,8 @@ public class PreviewFrame extends JFrame implements ThemeAware {
         });
     }
 
-    private JPanel createTabComponent(String title, JComponent panel, @Nullable ProjectFile fileKey) {
+    private JPanel createTabComponent(
+            String title, JComponent panel, @Nullable ProjectFile fileKey, @Nullable ContextFragment fragmentKey) {
         JPanel tabPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         tabPanel.setOpaque(false);
 
@@ -185,13 +234,13 @@ public class PreviewFrame extends JFrame implements ThemeAware {
         closeButton.setContentAreaFilled(false);
         closeButton.setBorderPainted(false);
         closeButton.setFocusPainted(false);
-        closeButton.addActionListener(e -> closeTab(panel, fileKey));
+        closeButton.addActionListener(e -> closeTab(panel, fileKey, fragmentKey));
         tabPanel.add(closeButton);
 
         return tabPanel;
     }
 
-    private void closeTab(Component panel, @Nullable ProjectFile fileKey) {
+    private void closeTab(Component panel, @Nullable ProjectFile fileKey, @Nullable ContextFragment fragmentKey) {
         // Check if panel can close (handles unsaved changes for text previews)
         if (panel instanceof PreviewTextPanel textPanel) {
             if (!textPanel.confirmClose()) {
@@ -203,10 +252,8 @@ public class PreviewFrame extends JFrame implements ThemeAware {
         if (fileKey != null) {
             fileToTabMap.remove(fileKey);
             chrome.projectFileToPreviewWindow.remove(fileKey);
-        } else {
-            String uniqueId = generateUniqueId((JComponent) panel);
-            idToTabMap.remove(uniqueId);
         }
+        tabToFragmentMap.remove(panel);
 
         // Remove the tab
         int index = tabbedPane.indexOfComponent(panel);
@@ -237,7 +284,8 @@ public class PreviewFrame extends JFrame implements ThemeAware {
                     break;
                 }
             }
-            closeTab(selected, fileKey);
+            ContextFragment fragmentKey = tabToFragmentMap.get(selected);
+            closeTab(selected, fileKey, fragmentKey);
         } else if (tabbedPane.getTabCount() == 0) {
             disposeFrame();
         }
@@ -266,7 +314,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
             chrome.projectFileToPreviewWindow.remove(file);
         }
         fileToTabMap.clear();
-        idToTabMap.clear();
+        tabToFragmentMap.clear();
 
         // Notify Chrome to clear reference
         chrome.clearPreviewTextFrame();
@@ -301,11 +349,6 @@ public class PreviewFrame extends JFrame implements ThemeAware {
         });
     }
 
-    private String generateUniqueId(JComponent panel) {
-        // Generate a unique ID based on panel's identity
-        return Integer.toHexString(System.identityHashCode(panel));
-    }
-
     /**
      * Replaces an existing tab's component with a new one.
      * Used when placeholder content needs to be replaced with a different component type.
@@ -323,12 +366,12 @@ public class PreviewFrame extends JFrame implements ThemeAware {
                     }
                 }
 
-                // Remove old tracking
+                // Get fragment key from old component
+                ContextFragment fragmentKey = tabToFragmentMap.remove(oldComponent);
+
+                // Remove old file tracking
                 if (fileKey != null) {
                     fileToTabMap.remove(fileKey);
-                } else {
-                    String oldId = generateUniqueId(oldComponent);
-                    idToTabMap.remove(oldId);
                 }
 
                 // Replace the component
@@ -338,14 +381,15 @@ public class PreviewFrame extends JFrame implements ThemeAware {
                 String tabTitle = title.startsWith("Preview: ") ? title.substring(9) : title;
 
                 // Rebuild tab header
-                JPanel tabComponent = createTabComponent(tabTitle, newComponent, fileKey);
+                JPanel tabComponent = createTabComponent(tabTitle, newComponent, fileKey, fragmentKey);
                 tabbedPane.setTabComponentAt(index, tabComponent);
 
                 // Track the new component
                 if (fileKey != null) {
                     fileToTabMap.put(fileKey, newComponent);
-                } else {
-                    idToTabMap.put(generateUniqueId(newComponent), newComponent);
+                }
+                if (fragmentKey != null) {
+                    tabToFragmentMap.put(newComponent, fragmentKey);
                 }
 
                 // Apply theme if applicable
