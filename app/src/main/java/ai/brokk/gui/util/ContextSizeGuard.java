@@ -23,6 +23,10 @@ import org.apache.logging.log4j.Logger;
 public final class ContextSizeGuard {
     private static final Logger logger = LogManager.getLogger(ContextSizeGuard.class);
 
+    // Uses file size heuristic (~4 bytes/token) instead of actual tokenizer for speed.
+    // Reading file contents to tokenize would defeat the purpose of a fast pre-flight check.
+    // Code is slightly more token-dense (~3 bytes/token), so this may underestimate,
+    // which is the safe direction - we warn earlier rather than later.
     private static final int BYTES_PER_TOKEN_ESTIMATE = 4;
     private static final int MAX_FILES_TO_ENUMERATE = 10_000;
     private static final double HARD_LIMIT_MULTIPLIER = 2.0;
@@ -99,9 +103,7 @@ public final class ContextSizeGuard {
                     // Hard limit - reject without asking
                     if (estimate.estimatedTokens() > hardLimit) {
                         SwingUtilities.invokeLater(() -> {
-                            chrome.toolError(String.format(
-                                    "Context too large to add: estimated %,d tokens exceeds maximum allowed (%,d tokens).",
-                                    estimate.estimatedTokens(), hardLimit));
+                            chrome.toolError(formatHardLimitMessage(estimate, maxInputTokens, hardLimit));
                         });
                         onConfirmed.accept(false);
                         return;
@@ -151,6 +153,30 @@ public final class ContextSizeGuard {
         sb.append(" tokens).\n");
         sb.append("Large context sizes may cause performance issues.\n\n");
         sb.append("Do you want to continue?");
+
+        return sb.toString();
+    }
+
+    private static String formatHardLimitMessage(SizeEstimate estimate, int maxInputTokens, long hardLimit) {
+        var sb = new StringBuilder();
+        sb.append("Cannot add ");
+        sb.append(String.format("%,d", estimate.fileCount()));
+        sb.append(" file(s) with an estimated ~");
+        sb.append(String.format("%,d", estimate.estimatedTokens()));
+        sb.append(" tokens.\n\n");
+
+        if (estimate.isTruncated()) {
+            sb.append("(File enumeration was truncated at ");
+            sb.append(String.format("%,d", MAX_FILES_TO_ENUMERATE));
+            sb.append(" files)\n\n");
+        }
+
+        sb.append("This exceeds the maximum allowed context size (");
+        sb.append(String.format("%,d", hardLimit));
+        sb.append(" tokens).\n");
+        sb.append("The current model's context window is ");
+        sb.append(String.format("%,d", maxInputTokens));
+        sb.append(" tokens.");
 
         return sb.toString();
     }
