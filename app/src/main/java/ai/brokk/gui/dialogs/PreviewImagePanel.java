@@ -68,51 +68,6 @@ public class PreviewImagePanel extends JPanel {
     }
 
     /**
-     * Displays a non-modal preview dialog for the given image file.
-     *
-     * @param parentFrame The parent frame.
-     * @param contextManager The context manager.
-     * @param file The BrokkFile to preview.
-     */
-    public static void showInFrame(JFrame parentFrame, ContextManager contextManager, BrokkFile file) {
-        try {
-            PreviewImagePanel previewPanel = new PreviewImagePanel(file);
-            showFrame(contextManager, file.toString(), previewPanel);
-        } catch (Exception ex) {
-            JOptionPane.showMessageDialog(
-                    parentFrame,
-                    "Error displaying image: " + ex.getMessage(),
-                    "Display Error",
-                    JOptionPane.ERROR_MESSAGE);
-        }
-    }
-
-    public static void showFrame(ContextManager contextManager, String title, PreviewImagePanel previewPanel) {
-        JFrame frame = Chrome.newFrame(title);
-        frame.setContentPane(previewPanel);
-        frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE); // Dispose frame on close
-
-        var project = contextManager.getProject();
-        var storedBounds = project.getPreviewWindowBounds();
-        frame.setBounds(storedBounds);
-
-        // Add listener to save bounds
-        frame.addComponentListener(new ComponentAdapter() {
-            @Override
-            public void componentMoved(ComponentEvent e) {
-                project.savePreviewWindowBounds(frame); // Save JFrame bounds
-            }
-
-            @Override
-            public void componentResized(ComponentEvent e) {
-                project.savePreviewWindowBounds(frame); // Save JFrame bounds
-            }
-        });
-
-        frame.setVisible(true);
-    }
-
-    /**
      * Gets the BrokkFile associated with this preview panel.
      *
      * @return The BrokkFile, or null if this preview is not associated with a file

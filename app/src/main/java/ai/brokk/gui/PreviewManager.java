@@ -61,9 +61,6 @@ public class PreviewManager {
 
     private final Chrome chrome;
 
-    // Track open preview windows for reuse
-    private final Map<String, JFrame> activePreviewWindows = new ConcurrentHashMap<>();
-
     // Track preview windows by ProjectFile for refresh on file changes
     private final Map<ProjectFile, JFrame> projectFileToPreviewWindow = new ConcurrentHashMap<>();
 
@@ -72,9 +69,9 @@ public class PreviewManager {
     private PreviewFrame previewFrame;
 
     @Nullable
-    private Rectangle dependenciesDialogBounds = null;
+    private final Rectangle dependenciesDialogBounds = null;
 
-    private ContextManager cm;
+    private final ContextManager cm;
 
     public PreviewManager(Chrome chrome) {
         this.chrome = chrome;
@@ -273,12 +270,6 @@ public class PreviewManager {
         }
         previewFrame = null;
 
-        for (JFrame frame : activePreviewWindows.values()) {
-            if (frame.isDisplayable()) {
-                frame.dispose();
-            }
-        }
-        activePreviewWindows.clear();
         projectFileToPreviewWindow.clear();
     }
 
@@ -659,63 +650,6 @@ public class PreviewManager {
     }
 
     /**
-     * Generates a window key for reuse based on content type and title.
-     */
-    private String generatePreviewWindowKey(String title, JComponent contentComponent) {
-        // When showing a loading placeholder, always use a stable preview-based key so that
-        // subsequent async content replacement targets the same window regardless of file association.
-        if (title.endsWith("Loading...")) {
-            return "preview:" + title;
-        }
-
-        if (contentComponent instanceof PreviewTextPanel textPanel && textPanel.getFile() != null) {
-            return "file:" + textPanel.getFile().toString();
-        }
-        if (contentComponent instanceof PreviewImagePanel imagePanel) {
-            var bf = imagePanel.getFile();
-            if (bf instanceof ProjectFile pf) {
-                return "file:" + pf.toString();
-            }
-        }
-        // Fallback: title-based key for non-file content
-        return "preview:" + title;
-    }
-
-    /**
-     * Computes the alternate preview window key for cases where a placeholder (preview-based key)
-     * is followed by a final content panel (file-based key), or vice versa. This allows reusing
-     * the same window even if the content component switches between file/non-file variants.
-     */
-    private @Nullable String computeAlternatePreviewKey(String title, JComponent contentComponent, String primaryKey) {
-        try {
-            String strippedTitle = title.startsWith("Preview: ") ? title.substring(9) : title;
-
-            if (primaryKey.startsWith("file:")) {
-                // Attempt preview-based variant
-                return "preview:" + title;
-            }
-
-            if (primaryKey.startsWith("preview:")) {
-                // Attempt file-based variant only if we actually have a file-associated component
-                if (contentComponent instanceof PreviewTextPanel ptp) {
-                    var file = ptp.getFile();
-                    if (file != null) {
-                        return "file:" + strippedTitle;
-                    }
-                } else if (contentComponent instanceof PreviewImagePanel img) {
-                    var f = img.getFile();
-                    if (f instanceof ProjectFile) {
-                        return "file:" + strippedTitle;
-                    }
-                }
-            }
-        } catch (Exception ex) {
-            logger.debug("computeAlternatePreviewKey failed", ex);
-        }
-        return null;
-    }
-
-    /**
      * Update the window title for an existing preview in a safe EDT manner and repaint.
      */
     private void updatePreviewWindowTitle(String initialTitle, JComponent contentComponent, String newTitle) {
@@ -723,35 +657,6 @@ public class PreviewManager {
             try {
                 if (previewFrame != null && previewFrame.isDisplayable()) {
                     previewFrame.updateTabTitle(contentComponent, newTitle);
-                    return;
-                }
-
-                // Fallback: legacy standalone windows (kept for compatibility)
-                String key = generatePreviewWindowKey(initialTitle, contentComponent);
-                JFrame wnd = activePreviewWindows.get(key);
-                if (wnd == null) {
-                    String altKey = computeAlternatePreviewKey(initialTitle, contentComponent, key);
-                    if (altKey != null) {
-                        wnd = activePreviewWindows.get(altKey);
-                    }
-                }
-                if (wnd != null) {
-                    wnd.setTitle(newTitle);
-                    if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
-                        var contentPane = wnd.getContentPane();
-                        if (contentPane.getLayout() instanceof BorderLayout bl) {
-                            Component northComponent = bl.getLayoutComponent(BorderLayout.NORTH);
-                            if (northComponent instanceof JPanel titleBar
-                                    && titleBar.getLayout() instanceof BorderLayout tbl) {
-                                Component centerInTitleBar = tbl.getLayoutComponent(BorderLayout.CENTER);
-                                if (centerInTitleBar instanceof JLabel label) {
-                                    label.setText(newTitle);
-                                }
-                            }
-                        }
-                    }
-                    wnd.revalidate();
-                    wnd.repaint();
                 }
             } catch (Exception ex) {
                 logger.debug("Unable to update preview window title", ex);
