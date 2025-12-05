@@ -26,6 +26,7 @@ public final class ContextSizeGuard {
 
     private static final int BYTES_PER_TOKEN_ESTIMATE = 4;
     private static final int MAX_FILES_TO_ENUMERATE = 10_000;
+    private static final double HARD_LIMIT_MULTIPLIER = 2.0;
 
     private ContextSizeGuard() {}
 
@@ -101,14 +102,27 @@ public final class ContextSizeGuard {
                     maxInputTokens = 65536; // fallback default
                 }
 
-                long threshold = (long) (maxInputTokens * ArchitectPrompts.WORKSPACE_WARNING_THRESHOLD);
+                long hardLimit = (long) (maxInputTokens * HARD_LIMIT_MULTIPLIER);
+                long warningThreshold = (long) (maxInputTokens * ArchitectPrompts.WORKSPACE_WARNING_THRESHOLD);
 
-                if (estimate.estimatedTokens() <= threshold) {
+                // Hard limit - reject without asking
+                if (estimate.estimatedTokens() > hardLimit) {
+                    SwingUtilities.invokeLater(() -> {
+                        chrome.toolError(String.format(
+                                "Context too large to add: estimated %,d tokens exceeds maximum allowed (%,d tokens).",
+                                estimate.estimatedTokens(), hardLimit));
+                    });
+                    onConfirmed.accept(false);
+                    return;
+                }
+
+                // Under warning threshold - allow without asking
+                if (estimate.estimatedTokens() <= warningThreshold) {
                     onConfirmed.accept(true);
                     return;
                 }
 
-                // Need confirmation - show dialog on EDT
+                // Between warning and hard limit - ask for confirmation
                 SwingUtilities.invokeLater(() -> {
                     var message = formatConfirmationMessage(estimate, maxInputTokens);
                     int result = chrome.showConfirmDialog(
