@@ -1,5 +1,6 @@
 package ai.brokk.agents;
 
+import static ai.brokk.project.FileFilteringService.toUnixPath;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.AnalyzerUtil;
@@ -136,13 +137,14 @@ public class BuildAgent {
                 // with direct path checking instead.
                 try (var dirStream = Files.walk(project.getRoot())) {
                     // Collect all ignored directories, sorted by depth (shortest paths first)
+                    // Use toUnixPath for cross-platform consistency
                     var ignoredDirs = dirStream
                             .filter(Files::isDirectory)
                             .filter(path -> !path.equals(project.getRoot())) // Skip root
                             .map(path -> project.getRoot().relativize(path))
-                            .filter(relPath -> !relPath.toString().startsWith(".")) // Skip hidden dirs like .git
+                            .filter(relPath -> !toUnixPath(relPath).startsWith(".")) // Skip hidden dirs like .git
                             .filter(relPath -> project.isDirectoryIgnored(relPath))
-                            .map(Path::toString)
+                            .map(path -> toUnixPath(path))
                             .sorted(Comparator.comparingInt(s -> s.split("/").length))
                             .toList();
 
