@@ -2413,11 +2413,11 @@ public class Chrome
         var brokkFile = pf.file();
 
         // Bind to file only when viewing the latest (live) context
-        boolean isLive =
-                Objects.equals(contextManager.getContextHistory().liveContext(), contextManager.selectedContext());
+        boolean isLive = contextManager.isLive();
 
-        // Use the same ProjectFile for the placeholder panel only when live (prevents auto-refresh for history
-        // snapshots)
+        // Use the same ProjectFile for the placeholder panel only when viewing the live context.
+        // This enables auto-refresh and live editing in the preview panel for the current file.
+        // For history snapshots, pass null to prevent auto-refresh and editing, ensuring the preview remains static.
         ProjectFile placeholderFile = (brokkFile instanceof ProjectFile p && isLive) ? p : null;
 
         // Use the best-available syntax style even for the placeholder (helps early highlight)
