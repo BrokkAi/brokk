@@ -180,8 +180,7 @@ public class WorkspaceChip extends JPanel {
         readOnlyIcon.setIcon(null);
 
         ContextFragment fragment = getPrimaryFragment();
-        String safeShortDescription =
-                fragment != null ? fragment.shortDescription().renderNowOr("") : "(no description)";
+        String safeShortDescription = fragment.shortDescription().renderNowOr("");
         if (safeShortDescription.isBlank()) {
             safeShortDescription = "(no description)";
         }
@@ -320,12 +319,8 @@ public class WorkspaceChip extends JPanel {
     }
 
     protected void onPrimaryClick() {
-        ContextFragment fragment = getPrimaryFragment();
-        if (fragment == null) {
-            return;
-        }
         // Open unified preview via Chrome for consistent behavior across all entry points
-        chrome.openFragmentPreview(fragment);
+        chrome.openFragmentPreview(getPrimaryFragment());
     }
 
     protected void onCloseClick() {
@@ -336,10 +331,7 @@ public class WorkspaceChip extends JPanel {
         if (!ensureMutatingAllowed()) {
             return;
         }
-        ContextFragment fragment = getPrimaryFragment();
-        if (fragment != null) {
-            dropSingleFragment(fragment);
-        }
+        dropSingleFragment(getPrimaryFragment());
     }
 
     protected void installHoverListeners() {
@@ -352,12 +344,10 @@ public class WorkspaceChip extends JPanel {
             public void mouseEntered(MouseEvent e) {
                 if (hoverCounter[0]++ == 0) {
                     ContextFragment fragment = getPrimaryFragment();
-                    if (fragment != null) {
-                        try {
-                            hoverCallback.accept(fragment, true);
-                        } catch (Exception ex) {
-                            logger.trace("onHover callback threw", ex);
-                        }
+                    try {
+                        hoverCallback.accept(fragment, true);
+                    } catch (Exception ex) {
+                        logger.trace("onHover callback threw", ex);
                     }
                 }
             }
@@ -366,12 +356,10 @@ public class WorkspaceChip extends JPanel {
             public void mouseExited(MouseEvent e) {
                 if (hoverCounter[0] > 0 && --hoverCounter[0] == 0) {
                     ContextFragment fragment = getPrimaryFragment();
-                    if (fragment != null) {
-                        try {
-                            hoverCallback.accept(fragment, false);
-                        } catch (Exception ex) {
-                            logger.trace("onHover callback threw", ex);
-                        }
+                    try {
+                        hoverCallback.accept(fragment, false);
+                    } catch (Exception ex) {
+                        logger.trace("onHover callback threw", ex);
                     }
                 }
             }
@@ -525,11 +513,10 @@ public class WorkspaceChip extends JPanel {
 
     public void updateReadOnlyIcon() {
         ContextFragment fragment = getPrimaryFragment();
-        boolean show = fragment != null && fragment.getType().isEditable() && isFragmentReadOnly(fragment);
+        boolean show = fragment.getType().isEditable() && isFragmentReadOnly(fragment);
 
         if (show) {
-            JComponent ref = label;
-            Icon icon = fitIconToChip(Icons.EDIT_OFF, ref);
+            Icon icon = fitIconToChip(Icons.EDIT_OFF, label);
             readOnlyIcon.setIcon(icon);
             readOnlyIcon.setVisible(true);
         } else {
@@ -543,13 +530,11 @@ public class WorkspaceChip extends JPanel {
     // Internal helpers
 
     protected void setFragmentsInternal(Set<ContextFragment> fragments) {
-        this.fragments = Set.copyOf(fragments);
+        assert !fragments.isEmpty();
+        this.fragments = fragments;
     }
 
-    protected @Nullable ContextFragment getPrimaryFragment() {
-        if (fragments.isEmpty()) {
-            return null;
-        }
+    protected ContextFragment getPrimaryFragment() {
         return fragments.iterator().next();
     }
 
@@ -595,17 +580,11 @@ public class WorkspaceChip extends JPanel {
     }
 
     protected void bindComputed() {
-        ContextFragment fragment = getPrimaryFragment();
-        if (fragment != null) {
-            ComputedSubscription.bind(fragment, this, this::refreshLabelAndTooltip);
-        }
+        ComputedSubscription.bind(getPrimaryFragment(), this, this::refreshLabelAndTooltip);
     }
 
     protected void refreshLabelAndTooltip() {
         ContextFragment fragment = getPrimaryFragment();
-        if (fragment == null) {
-            return;
-        }
         // Ensure UI updates occur on the EDT and avoid scheduling background tasks.
         SwingUtilities.invokeLater(() -> {
             try {
@@ -976,6 +955,7 @@ public class WorkspaceChip extends JPanel {
      */
     public static final class SummaryChip extends WorkspaceChip {
 
+        @SuppressWarnings("NullAway.Init") // Initialized in constructor
         private List<ContextFragment> summaryFragments;
 
         public SummaryChip(
@@ -993,7 +973,6 @@ public class WorkspaceChip extends JPanel {
                     onRemoveFragment,
                     new LinkedHashSet<>(summaries),
                     ChipKind.SUMMARY);
-            this.summaryFragments = new ArrayList<>(summaries);
 
             // Rebind for all summaries instead of a single primary fragment
             ComputedSubscription.disposeAll(this);
@@ -1008,8 +987,7 @@ public class WorkspaceChip extends JPanel {
         }
 
         @Override
-        protected @Nullable ContextFragment getPrimaryFragment() {
-            if (summaryFragments.isEmpty()) return null;
+        protected ContextFragment getPrimaryFragment() {
             return summaryFragments.getFirst();
         }
 
