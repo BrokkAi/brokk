@@ -2129,9 +2129,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // File watcher preference from UI
         String watchPrefSelected = "default";
         try {
-            String raw = watchServiceImplCombo != null
-                    ? String.valueOf(watchServiceImplCombo.getSelectedItem())
-                    : "Default (auto)";
+            String raw = String.valueOf(watchServiceImplCombo.getSelectedItem());
             if ("Legacy".equalsIgnoreCase(raw)) {
                 watchPrefSelected = "legacy";
             } else if ("Native".equalsIgnoreCase(raw)) {
