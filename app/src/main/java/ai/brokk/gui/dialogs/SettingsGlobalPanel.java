@@ -89,6 +89,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JComboBox<Service.FavoriteModel> preferredCodeModelCombo = new JComboBox<>();
     private JComboBox<Service.FavoriteModel> primaryModelCombo = new JComboBox<>();
     private JComboBox<String> otherModelsVendorCombo = new JComboBox<>();
+    private JComboBox<String> watchServiceImplCombo = new JComboBox<>(new String[] {"Default (auto)", "Legacy", "Native"});
 
     @Nullable
     private JLabel otherModelsVendorLabel;
@@ -242,6 +243,23 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // EZ-mode skip commit gate
         skipCommitGateEzCheckbox.setSelected(GlobalUiSettings.isSkipCommitGateInEzMode());
         skipCommitGateEzCheckbox.setVisible(!GlobalUiSettings.isAdvancedMode());
+
+        // File watcher implementation preference
+        try {
+            String pref = MainProject.getWatchServiceImplPreference();
+            String selection;
+            if ("legacy".equalsIgnoreCase(pref)) {
+                selection = "Legacy";
+            } else if ("native".equalsIgnoreCase(pref)) {
+                selection = "Native";
+            } else {
+                selection = "Default (auto)";
+            }
+            watchServiceImplCombo.setSelectedItem(selection);
+        } catch (Exception ex) {
+            // Non-fatal: default to auto
+            watchServiceImplCombo.setSelectedItem("Default (auto)");
+        }
     }
 
     private void populateServiceTab(SettingsData data) {
@@ -1053,6 +1071,29 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             panel.revalidate();
             panel.repaint();
         });
+
+        // File watcher implementation selector
+        gbc.insets = new Insets(10, 5, 2, 5);
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        panel.add(new JLabel("File watcher implementation:"), gbc);
+
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        var watchPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        watchPanel.add(watchServiceImplCombo);
+        panel.add(watchPanel, gbc);
+
+        var watchNote = new JLabel("<html><i>Changing this may require restarting Brokk to fully take effect.</i></html>");
+        gbc.gridy = row++;
+        gbc.insets = new Insets(0, 25, 2, 5);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(watchNote, gbc);
 
         gbc.insets = new Insets(2, 5, 2, 5);
 
@@ -2083,6 +2124,21 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         boolean jvmAutomatic = memoryAutoRadio.isSelected();
         int jvmMb = ((Number) memorySpinner.getValue()).intValue();
 
+        // File watcher preference from UI
+        String watchPrefSelected = "default";
+        try {
+            String raw = watchServiceImplCombo != null ? String.valueOf(watchServiceImplCombo.getSelectedItem()) : "Default (auto)";
+            if ("Legacy".equalsIgnoreCase(raw)) {
+                watchPrefSelected = "legacy";
+            } else if ("Native".equalsIgnoreCase(raw)) {
+                watchPrefSelected = "native";
+            } else {
+                watchPrefSelected = "default";
+            }
+        } catch (Exception ex) {
+            watchPrefSelected = "default";
+        }
+
         // Model settings
         if (quickModelsTable.isEditing()) {
             quickModelsTable.getCellEditor().stopCellEditing();
@@ -2148,6 +2204,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 startupSettings,
                 generalSettings,
                 modelSettings);
+
+        // Persist watch service implementation preference (separate global property)
+        try {
+            MainProject.setWatchServiceImplPreference(watchPrefSelected);
+        } catch (Exception ex) {
+            logger.debug("Failed to persist watch service implementation preference (non-fatal)", ex);
+        }
+
         GlobalUiSettings.saveAllUiSettings(notificationSettings, uiPreferences);
         GlobalUiSettings.saveSkipCommitGateInEzMode(skipCommitGateEzCheckbox.isSelected());
 
