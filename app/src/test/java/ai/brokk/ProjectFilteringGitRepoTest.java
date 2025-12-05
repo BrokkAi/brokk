@@ -2226,4 +2226,34 @@ class ProjectFilteringGitRepoTest {
 
         project.close();
     }
+
+    @Test
+    void getAllFiles_invalid_pattern_does_not_break_filtering(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        createFile(tempDir, "src/Main.java", "class Main {}");
+        createFile(tempDir, "config.json", "{}");
+        createFile(tempDir, "data.xml", "<data/>");
+
+        trackFiles(tempDir);
+
+        var project = new MainProject(tempDir);
+
+        // Include an invalid glob pattern alongside valid ones
+        // Invalid pattern should be skipped, valid patterns should still work
+        var buildDetails = new BuildAgent.BuildDetails(
+                "", "", "", Set.of(), Set.of("[invalid", "*.xml"), Map.of());
+        project.saveBuildDetails(buildDetails);
+
+        var allFiles = project.getAllFiles();
+
+        // Main.java and config.json should remain (not matching valid patterns)
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/Main.java")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("config.json")));
+
+        // data.xml should be excluded by the valid *.xml pattern
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("data.xml")));
+
+        project.close();
+    }
 }
