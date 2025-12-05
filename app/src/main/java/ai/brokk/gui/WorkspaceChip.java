@@ -6,7 +6,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.gui.components.MaterialButton;
-import ai.brokk.gui.dialogs.PreviewTextPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.util.Icons;
@@ -1284,14 +1283,12 @@ public class WorkspaceChip extends JPanel {
                 combinedText.append(txt).append("\n\n");
             }
 
-            var previewPanel = new PreviewTextPanel(
+            var syntheticFragment = new ContextFragment.StringFragment(
                     chrome.getContextManager(),
-                    null,
                     combinedText.toString(),
-                    SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                    chrome.getTheme(),
-                    null);
-            chrome.showPreviewFrame(chrome.getContextManager(), title, previewPanel);
+                    title,
+                    SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+            chrome.openFragmentPreview(syntheticFragment);
         }
 
         private void executeSyntheticChipDrop() {

@@ -66,62 +66,91 @@ public class PreviewTextFrame extends JFrame implements ThemeAware {
     }
     
     /**
-     * Adds a new tab or selects an existing one for the given panel.
-     * 
-     * @param title The title for the tab (without "Preview:" prefix)
-     * @param panel The PreviewTextPanel to add
-     * @param fileKey Optional ProjectFile for deduplication
-     */
+         * Adds a new tab or selects an existing one for the given panel.
+         *
+         * @param title The title for the tab (without "Preview:" prefix)
+         * @param panel The PreviewTextPanel to add
+         * @param fileKey Optional ProjectFile for deduplication
+         */
     public void addOrSelectTab(String title, PreviewTextPanel panel, @Nullable ProjectFile fileKey) {
-        SwingUtilities.invokeLater(() -> {
-            // Strip "Preview: " prefix if present
-            String tabTitle = title.startsWith("Preview: ") ? title.substring(9) : title;
-            
-            // Check for existing tab
-            if (fileKey != null) {
-                Component existingTab = fileToTabMap.get(fileKey);
-                if (existingTab != null) {
-                    // Select existing tab instead of creating duplicate
-                    int index = tabbedPane.indexOfComponent(existingTab);
-                    if (index >= 0) {
-                        tabbedPane.setSelectedIndex(index);
-                        return;
-                    }
-                }
-            }
-            
-            // Check by unique ID for non-file panels
-            String uniqueId = generateUniqueId(panel);
-            Component existingIdTab = idToTabMap.get(uniqueId);
-            if (existingIdTab != null) {
-                int index = tabbedPane.indexOfComponent(existingIdTab);
-                if (index >= 0) {
-                    tabbedPane.setSelectedIndex(index);
-                    return;
-                }
-            }
-            
-            // Add new tab
-            tabbedPane.addTab(tabTitle, panel);
-            int tabIndex = tabbedPane.getTabCount() - 1;
-            
-            // Create custom tab component with close button
-            JPanel tabComponent = createTabComponent(tabTitle, panel, fileKey);
-            tabbedPane.setTabComponentAt(tabIndex, tabComponent);
-            
-            // Track the tab
-            if (fileKey != null) {
-                fileToTabMap.put(fileKey, panel);
-            } else {
-                idToTabMap.put(uniqueId, panel);
-            }
-            
-            // Select the new tab
-            tabbedPane.setSelectedIndex(tabIndex);
-            
-            // Update window title
-            updateWindowTitle();
-        });
+                        SwingUtilities.invokeLater(() -> {
+                                            // Strip "Preview: " prefix if present
+                                            String tabTitle = title.startsWith("Preview: ") ? title.substring(9) : title;
+
+                                            // If we have a file key and an existing tab, replace it (placeholder -> real content) or select it.
+                                            if (fileKey != null) {
+                                                                Component existingTab = fileToTabMap.get(fileKey);
+                                                                if (existingTab != null) {
+                                                                                    int index = tabbedPane.indexOfComponent(existingTab);
+                                                                                    if (index >= 0) {
+                                                                                                        // If existing is a PreviewTextPanel, confirm close (unsaved changes)
+                                                                                                        if (existingTab instanceof PreviewTextPanel existingPanel) {
+                                                                                                                            if (!existingPanel.confirmClose()) {
+                                                                                                                                                // User cancelled replacement; just select existing tab
+                                                                                                                                                tabbedPane.setSelectedIndex(index);
+                                                                                                                                                return;
+                                                                                                                            }
+                                                                                                        }
+                                                                                                        // Replace the component with the new panel
+                                                                                                        tabbedPane.setComponentAt(index, panel);
+
+                                                                                                        // Rebuild the tab header so close button targets the new panel
+                                                                                                        JPanel tabComponent = createTabComponent(tabTitle, panel, fileKey);
+                                                                                                        tabbedPane.setTabComponentAt(index, tabComponent);
+
+                                                                                                        // Track the new component for this file
+                                                                                                        fileToTabMap.put(fileKey, panel);
+
+                                                                                                        // Apply theme to the new panel if applicable (keeps UI consistent)
+                                                                                                        if (panel instanceof ThemeAware && guiTheme != null) {
+                                                                                                                            try {
+                                                                                                                                                ((ThemeAware) panel).applyTheme(guiTheme);
+                                                                                                                            } catch (Exception ex) {
+                                                                                                                                                logger.debug("Failed to apply theme to replaced PreviewTextPanel", ex);
+                                                                                                                            }
+                                                                                                        }
+
+                                                                                                        // Select and update window title
+                                                                                                        tabbedPane.setSelectedIndex(index);
+                                                                                                        updateWindowTitle();
+                                                                                                        return;
+                                                                                    }
+                                                                                    // If the existing component isn't found in the tabbed pane (index < 0), fall through to add new tab
+                                                                }
+                                            }
+
+                                            // Check by unique ID for non-file panels
+                                            String uniqueId = generateUniqueId(panel);
+                                            Component existingIdTab = idToTabMap.get(uniqueId);
+                                            if (existingIdTab != null) {
+                                                                int index = tabbedPane.indexOfComponent(existingIdTab);
+                                                                if (index >= 0) {
+                                                                                    tabbedPane.setSelectedIndex(index);
+                                                                                    return;
+                                                                }
+                                            }
+
+                                            // Add new tab
+                                            tabbedPane.addTab(tabTitle, panel);
+                                            int tabIndex = tabbedPane.getTabCount() - 1;
+
+                                            // Create custom tab component with close button
+                                            JPanel tabComponent = createTabComponent(tabTitle, panel, fileKey);
+                                            tabbedPane.setTabComponentAt(tabIndex, tabComponent);
+
+                                            // Track the tab
+                                            if (fileKey != null) {
+                                                                fileToTabMap.put(fileKey, panel);
+                                            } else {
+                                                                idToTabMap.put(uniqueId, panel);
+                                            }
+
+                                            // Select the new tab
+                                            tabbedPane.setSelectedIndex(tabIndex);
+
+                                            // Update window title
+                                            updateWindowTitle();
+                        });
     }
     
     /**
