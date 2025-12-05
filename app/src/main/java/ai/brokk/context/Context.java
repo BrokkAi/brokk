@@ -1171,13 +1171,8 @@ public class Context {
         }
 
         // Non-empty case: serialize and update normally
-        try {
-            String json = Json.toJson(data);
-            return withTaskList(json, action);
-        } catch (Exception e) {
-            logger.warn("Failed to serialize Task List to JSON", e);
-            return withTaskList("{\"tasks\":[]}", action);
-        }
+        String json = Json.toJson(data);
+        return withTaskList(json, action);
     }
 
     @Blocking
