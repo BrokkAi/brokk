@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -188,9 +189,9 @@ public final class FileFilteringService {
                 continue;
             }
 
-            // Exact filename match (e.g., "package-lock.json")
+            // Exact filename match (e.g., "package-lock.json") - case-insensitive for consistency with UI
             if (!pattern.contains("*") && !pattern.contains("?") && !pattern.contains("/")) {
-                if (fileName.equals(pattern)) {
+                if (fileName.equalsIgnoreCase(pattern)) {
                     logger.trace("File {} excluded by exact pattern: {}", filePath, pattern);
                     return true;
                 }
@@ -198,11 +199,12 @@ public final class FileFilteringService {
             }
 
             // Simple extension match (e.g., "*.svg", "*.min.js") - suffix must not contain wildcards
+            // Case-insensitive for consistency with UI
             if (pattern.startsWith("*.") && !pattern.contains("/")) {
                 String suffix = pattern.substring(1); // ".svg" or ".min.js"
                 // Only use fast path if suffix has no wildcards; otherwise fall through to glob
                 if (!suffix.contains("*") && !suffix.contains("?")) {
-                    if (fileName.endsWith(suffix)) {
+                    if (fileName.toLowerCase(Locale.ROOT).endsWith(suffix.toLowerCase(Locale.ROOT))) {
                         logger.trace("File {} excluded by extension pattern: {}", filePath, pattern);
                         return true;
                     }

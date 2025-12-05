@@ -2191,4 +2191,39 @@ class ProjectFilteringGitRepoTest {
 
         project.close();
     }
+
+    @Test
+    void getAllFiles_file_patterns_case_insensitive(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        // Create files with different case extensions
+        createFile(tempDir, "logo.svg", "lowercase svg");
+        createFile(tempDir, "icon.SVG", "uppercase SVG");
+        createFile(tempDir, "Package-Lock.JSON", "mixed case");
+        createFile(tempDir, "src/Main.java", "class Main {}");
+
+        trackFiles(tempDir);
+
+        var project = new MainProject(tempDir);
+
+        // Save build details with uppercase extension pattern and exact filename
+        // These should match case-insensitively
+        var buildDetails = new BuildAgent.BuildDetails(
+                "", "", "", Set.of(), Set.of("*.SVG", "package-lock.json"), Map.of());
+        project.saveBuildDetails(buildDetails);
+
+        var allFiles = project.getAllFiles();
+
+        // Main.java should remain (not matching any pattern)
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/Main.java")));
+
+        // *.SVG should match both logo.svg and icon.SVG (case-insensitive)
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("logo.svg")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("icon.SVG")));
+
+        // package-lock.json should match Package-Lock.JSON (case-insensitive)
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("Package-Lock.JSON")));
+
+        project.close();
+    }
 }
