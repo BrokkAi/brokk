@@ -1358,43 +1358,64 @@ public interface ContextFragment {
             Set<ProjectFile> files = new LinkedHashSet<>();
             Set<CodeUnit> units = new LinkedHashSet<>();
 
+            // Match each <methods ...>...</methods> block
             var blockMatcher =
-                    Pattern.compile("(?s)<methods\\s+([^>]*)>(.*?)</methods>").matcher(text);
+                    Pattern.compile("(?is)<methods\\s+([^>]*)>(.*?)</methods>").matcher(text);
+
+            // Support attributes with:
+            // - standard quotes: key="value"
+            // - single quotes: key='value'
+            // - backslash-escaped quotes: key=\"value\"
+            var attrPattern = Pattern.compile("(\\w+)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|\\\\\"([^\\\\\"]*)\\\\\")");
 
             while (blockMatcher.find()) {
                 String attrs = blockMatcher.group(1);
 
                 Map<String, String> attrMap = new HashMap<>();
-                var attrMatcher = Pattern.compile("(\\w+)\\s*=\\s*\"([^\"]*)\"").matcher(attrs);
+                var attrMatcher = attrPattern.matcher(attrs);
                 while (attrMatcher.find()) {
-                    attrMap.put(attrMatcher.group(1), attrMatcher.group(2));
+                    String key = attrMatcher.group(1);
+                    String value = attrMatcher.group(2);
+                    if (value == null) value = attrMatcher.group(3);
+                    if (value == null) value = attrMatcher.group(4);
+                    if (value != null) {
+                        attrMap.put(key, value);
+                    }
                 }
 
                 String classFqn = java.util.Optional.ofNullable(attrMap.get("class"))
                         .map(String::trim)
+                        .filter(s -> !s.isEmpty())
                         .orElse(null);
-                String fileRelPath = java.util.Optional.ofNullable(attrMap.get("file"))
+                String fileRelPathRaw = java.util.Optional.ofNullable(attrMap.get("file"))
                         .map(String::trim)
+                        .filter(s -> !s.isEmpty())
                         .orElse(null);
 
-                ProjectFile pf;
-                if (fileRelPath != null && !fileRelPath.isBlank()) {
+                // Resolve file attribute if present, normalizing separators for cross-OS compatibility
+                if (fileRelPathRaw != null) {
+                    String fileRelPath = fileRelPathRaw.replace('\\', '/');
                     try {
-                        pf = contextManager.toFile(fileRelPath);
+                        ProjectFile pf = contextManager.toFile(fileRelPath);
                         files.add(pf);
                     } catch (Exception t) {
-                        logger.warn("Unable to resolve ProjectFile for '{}'", fileRelPath, t);
+                        logger.warn("Unable to resolve ProjectFile for '{}'", fileRelPathRaw, t);
                     }
                 }
 
                 // Resolve class unit(s)
-                if (classFqn != null && !classFqn.isBlank()) {
+                if (classFqn != null) {
                     try {
                         units.addAll(analyzer.getDefinitions(classFqn));
                     } catch (Exception e) {
                         logger.warn("Unable to resolve class CodeUnit for '{}'", classFqn, e);
                     }
                 }
+            }
+
+            // If no files were decoded explicitly, derive from resolved units
+            if (files.isEmpty() && !units.isEmpty()) {
+                files.addAll(units.stream().map(CodeUnit::source).collect(Collectors.toCollection(LinkedHashSet::new)));
             }
 
             // Determine syntax style from first file or unit, else NONE
