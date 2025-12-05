@@ -246,15 +246,6 @@ public class HeadlessHttpConsole extends MemoryConsole {
     }
 
     /**
-     * Graceful shutdown is a no-op because writes are synchronous.
-     *
-     * @param timeoutSeconds Ignored in this implementation
-     */
-    public void shutdown(int timeoutSeconds) {
-        // No-op: events are written synchronously, so nothing to await.
-    }
-
-    /**
      * Get the last sequence number of appended events by querying the JobStore.
      * This makes the JobStore the authoritative source of truth.
      *
