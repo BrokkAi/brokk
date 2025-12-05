@@ -73,7 +73,7 @@ public class CodeAgent {
     private final IConsoleIO io;
 
     // A "global" for current task Context. Updated mid-task with new files and build status.
-    private Context context;
+    Context context;
 
     public CodeAgent(IContextManager contextManager, StreamingChatModel model) {
         this(contextManager, model, contextManager.getIo());
