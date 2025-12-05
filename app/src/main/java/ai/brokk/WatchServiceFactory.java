@@ -1,6 +1,7 @@
 package ai.brokk;
 
 import ai.brokk.util.Environment;
+import ai.brokk.project.MainProject;
 import java.nio.file.Path;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
@@ -59,15 +60,31 @@ public class WatchServiceFactory {
      * Package-private for testing.
      */
     static String getImplementationPreference() {
+        // 1) System property override
         String implProp = System.getProperty(WATCH_SERVICE_IMPL_PROPERTY);
-        if (implProp == null) {
-            implProp = System.getenv("BROKK_WATCHSERVICE_IMPL");
+        if (implProp != null && !implProp.isBlank()) {
+            return implProp.trim();
         }
-        if (implProp == null) {
-            // Default to native
-            implProp = WATCH_SERVICE_IMPL_NATIVE;
+
+        // 2) Environment variable override
+        implProp = System.getenv("BROKK_WATCHSERVICE_IMPL");
+        if (implProp != null && !implProp.isBlank()) {
+            return implProp.trim();
         }
-        return implProp;
+
+        // 3) Persisted global preference (MainProject). Treat "default" as no explicit preference.
+        try {
+            String projectPref = MainProject.getWatchServiceImplPreference();
+            if (projectPref != null && !projectPref.isBlank() && !"default".equalsIgnoreCase(projectPref)) {
+                return projectPref.trim();
+            }
+        } catch (Throwable t) {
+            // Don't fail creation if MainProject isn't available for some reason; fall through to default.
+            logger.debug("Unable to read MainProject watch service preference: {}", t.getMessage());
+        }
+
+        // 4) Default to native to preserve previous behavior
+        return WATCH_SERVICE_IMPL_NATIVE;
     }
 
     /**
