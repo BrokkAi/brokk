@@ -2157,4 +2157,38 @@ class ProjectFilteringGitRepoTest {
 
         project.close();
     }
+
+    @Test
+    void getAllFiles_star_dot_star_pattern_matches_files_with_extension(@TempDir Path tempDir) throws Exception {
+        initGitRepo(tempDir);
+
+        // Create files with and without extensions
+        createFile(tempDir, "README", "no extension");
+        createFile(tempDir, "Makefile", "no extension");
+        createFile(tempDir, "src/Main.java", "class Main {}");
+        createFile(tempDir, "icon.svg", "svg file");
+        createFile(tempDir, "config.json", "{}");
+
+        trackFiles(tempDir);
+
+        var project = new MainProject(tempDir);
+
+        // Save build details with *.* pattern - should match any file with an extension
+        var buildDetails = new BuildAgent.BuildDetails(
+                "", "", "", Set.of(), Set.of("*.*"), Map.of());
+        project.saveBuildDetails(buildDetails);
+
+        var allFiles = project.getAllFiles();
+
+        // Files without extensions should remain
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("README")));
+        assertTrue(allFiles.stream().anyMatch(pf -> normalize(pf).equals("Makefile")));
+
+        // Files with extensions should be excluded by *.*
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("src/Main.java")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("icon.svg")));
+        assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("config.json")));
+
+        project.close();
+    }
 }

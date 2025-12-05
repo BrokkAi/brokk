@@ -197,20 +197,25 @@ public final class FileFilteringService {
                 continue;
             }
 
-            // Simple extension match (e.g., "*.svg", "*.min.js")
+            // Simple extension match (e.g., "*.svg", "*.min.js") - suffix must not contain wildcards
             if (pattern.startsWith("*.") && !pattern.contains("/")) {
                 String suffix = pattern.substring(1); // ".svg" or ".min.js"
-                if (fileName.endsWith(suffix)) {
-                    logger.trace("File {} excluded by extension pattern: {}", filePath, pattern);
-                    return true;
+                // Only use fast path if suffix has no wildcards; otherwise fall through to glob
+                if (!suffix.contains("*") && !suffix.contains("?")) {
+                    if (fileName.endsWith(suffix)) {
+                        logger.trace("File {} excluded by extension pattern: {}", filePath, pattern);
+                        return true;
+                    }
+                    continue;
                 }
-                continue;
             }
 
             // Path glob pattern (e.g., "**/test/resources/**", "src/test/resources/**")
+            // For patterns without "/", match against just the filename (e.g., "*.*" matches any file with extension)
             try {
                 PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pattern);
-                if (matcher.matches(Path.of(filePath))) {
+                String pathToMatch = pattern.contains("/") ? filePath : fileName;
+                if (matcher.matches(Path.of(pathToMatch))) {
                     logger.trace("File {} excluded by glob pattern: {}", filePath, pattern);
                     return true;
                 }

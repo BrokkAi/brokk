@@ -348,11 +348,12 @@ public class BuildAgent {
             @P(
                             "Command template to run specific tests using Mustache templating. Should use either a {{classes}}, {{fqclasses}}, or a {{files}} variable. Again, if no class- or file- based framework is in use, leave it blank.")
                     String testSomeCommand,
-            @P("List of directories to exclude from code intelligence (e.g., generated code, build artifacts). Use literal paths, not glob patterns.")
+            @P(
+                            "List of directories to exclude from code intelligence (e.g., generated code, build artifacts). Use literal paths, not glob patterns.")
                     List<String> excludedDirectories,
-            @P("List of file patterns to exclude from code intelligence (e.g., '*.svg', 'package-lock.json', '**/test/resources/**'). Glob patterns are allowed here.")
-                    List<String> excludedFilePatterns)
-    {
+            @P(
+                            "List of file patterns to exclude from code intelligence (e.g., '*.svg', 'package-lock.json', '**/test/resources/**'). Glob patterns are allowed here.")
+                    List<String> excludedFilePatterns) {
         // Combine baseline excluded directories with those suggested by the LLM
         // Filter out glob patterns defensively for directory exclusions
         var finalDirExcludes = Stream.concat(this.currentExcludedDirectories.stream(), excludedDirectories.stream())
