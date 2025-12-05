@@ -28,7 +28,6 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
-import java.awt.Rectangle;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.io.IOException;
@@ -66,9 +65,6 @@ public class PreviewManager {
     // Shared frame for all PreviewTextPanel tabs
     @Nullable
     private PreviewFrame previewFrame;
-
-    @Nullable
-    private final Rectangle dependenciesDialogBounds = null;
 
     private final ContextManager cm;
 
@@ -128,7 +124,7 @@ public class PreviewManager {
         }
 
         // Create main content panel to hold search bar and content
-        var contentPanel = new SearchableContentPanel(componentsWithChatBackground, markdownPanels);
+        var contentPanel = new SearchableContentPanel(componentsWithChatBackground);
         componentsWithChatBackground.add(contentPanel);
 
         // Create searchable component adapter and generic search bar
@@ -261,18 +257,6 @@ public class PreviewManager {
     }
 
     /**
-     * Closes all active preview windows and clears the tracking maps. Useful for cleanup or when switching projects.
-     */
-    public void closeAllPreviewWindows() {
-        if (previewFrame != null && previewFrame.isDisplayable()) {
-            previewFrame.dispose();
-        }
-        previewFrame = null;
-
-        projectFileToPreviewWindow.clear();
-    }
-
-    /**
      * Refreshes preview windows that display the given files. Called when files change on disk (external edits or
      * internal saves).
      *
@@ -295,7 +279,7 @@ public class PreviewManager {
                 JFrame previewFrame = projectFileToPreviewWindow.get(file);
                 if (previewFrame != null && previewFrame.isDisplayable() && previewFrame != excludeFrame) {
                     // Check if it's the shared PreviewTextFrame
-                    if (previewFrame == this.previewFrame && this.previewFrame != null) {
+                    if (previewFrame == this.previewFrame) {
                         // Refresh all tabs for this file in the tabbed frame
                         this.previewFrame.refreshTabsForFile(file);
                     } else {
@@ -313,16 +297,6 @@ public class PreviewManager {
                 }
             }
         });
-    }
-
-    /**
-     * Centralized method to open a preview for a specific ProjectFile. Reads the file, determines syntax, creates
-     * PreviewTextPanel, and shows the frame.
-     *
-     * @param pf The ProjectFile to preview.
-     */
-    public void previewFile(ProjectFile pf) {
-        previewFile(pf, -1);
     }
 
     /**
@@ -445,7 +419,7 @@ public class PreviewManager {
      */
     private void updateTitleIfNeeded(String initialTitle, JComponent contentPanel, @Nullable String newTitle) {
         if (initialTitle.endsWith("Loading...") && newTitle != null && !newTitle.isBlank()) {
-            updatePreviewWindowTitle(initialTitle, contentPanel, "Preview: " + newTitle);
+            updatePreviewWindowTitle(contentPanel, "Preview: " + newTitle);
         }
     }
 
@@ -651,7 +625,7 @@ public class PreviewManager {
     /**
      * Update the window title for an existing preview in a safe EDT manner and repaint.
      */
-    private void updatePreviewWindowTitle(String initialTitle, JComponent contentComponent, String newTitle) {
+    private void updatePreviewWindowTitle(JComponent contentComponent, String newTitle) {
         SwingUtilities.invokeLater(() -> {
             try {
                 if (previewFrame != null && previewFrame.isDisplayable()) {
@@ -668,17 +642,10 @@ public class PreviewManager {
      */
     private static class SearchableContentPanel extends JPanel implements ThemeAware {
         private final List<JComponent> componentsWithChatBackground;
-        private final List<MarkdownOutputPanel> markdownPanels;
 
-        SearchableContentPanel(
-                List<JComponent> componentsWithChatBackground, List<MarkdownOutputPanel> markdownPanels) {
+        SearchableContentPanel(List<JComponent> componentsWithChatBackground) {
             super(new BorderLayout());
             this.componentsWithChatBackground = componentsWithChatBackground;
-            this.markdownPanels = markdownPanels;
-        }
-
-        List<MarkdownOutputPanel> getMarkdownPanels() {
-            return markdownPanels;
         }
 
         @Override

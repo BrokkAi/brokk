@@ -17,8 +17,6 @@ import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
-import ai.brokk.gui.dialogs.PreviewImagePanel;
-import ai.brokk.gui.dialogs.PreviewTextPanel;
 import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.git.GitHistoryTab;
 import ai.brokk.gui.git.GitIssuesTab;
@@ -1731,112 +1729,11 @@ public class Chrome
         return PreviewManager.createSearchableContentPanel(markdownPanels, toolbarPanel, true);
     }
 
-    public static JPanel createSearchableContentPanel(
-            List<MarkdownOutputPanel> markdownPanels, @Nullable JPanel toolbarPanel, boolean wrapInScrollPane) {
-        return PreviewManager.createSearchableContentPanel(markdownPanels, toolbarPanel, wrapInScrollPane);
-    }
-
-    /**
-     * Creates and shows a standard preview JFrame for a given component. Handles title, default close operation,
-     * loading/saving bounds using the "preview" key, and visibility. Reuses existing preview windows when possible to
-     * avoid cluttering the desktop.
-     *
-     * For PreviewTextPanel instances, routes them to a shared tabbed frame instead of individual windows.
-     *
-     * @param contextManager   The context manager for accessing project settings.
-     * @param title            The title for the JFrame.
-     * @param contentComponent The JComponent to display within the frame.
-     */
-    public void showPreviewFrame(ContextManager contextManager, String title, JComponent contentComponent) {
-        previewManager.showPreviewFrame(title, contentComponent);
-    }
-
-    /**
-     * Shows a PreviewTextPanel in the shared tabbed preview frame.
-     */
-    private void showPreviewTextPanelInTabbedFrame(
-            ContextManager contextManager, String title, PreviewTextPanel panel) {
-        previewManager.showPreviewTextPanelInTabbedFrame(title, panel);
-    }
-
     /**
      * Called by PreviewTextFrame when it's being disposed to clear our reference.
      */
     public void clearPreviewTextFrame() {
         previewManager.clearPreviewTextFrame();
-    }
-
-    private String generatePreviewWindowKey(String title, JComponent contentComponent) {
-        // When showing a loading placeholder, always use a stable preview-based key so that
-        // subsequent async content replacement targets the same window regardless of file association.
-        if (title.endsWith("Loading...")) {
-            return "preview:" + title;
-        }
-
-        if (contentComponent instanceof PreviewTextPanel textPanel && textPanel.getFile() != null) {
-            return "file:" + textPanel.getFile().toString();
-        }
-        if (contentComponent instanceof PreviewImagePanel imagePanel) {
-            var bf = imagePanel.getFile();
-            if (bf instanceof ProjectFile pf) {
-                return "file:" + pf.toString();
-            }
-        }
-        // Fallback: title-based key for non-file content
-        return "preview:" + title;
-    }
-
-    /**
-     * Computes the alternate preview window key for cases where a placeholder (preview-based key)
-     * is followed by a final content panel (file-based key), or vice versa. This allows reusing
-     * the same window even if the content component switches between file/non-file variants.
-     */
-    private @Nullable String computeAlternatePreviewKey(String title, JComponent contentComponent, String primaryKey) {
-        try {
-            String strippedTitle = title.startsWith("Preview: ") ? title.substring(9) : title;
-
-            if (primaryKey.startsWith("file:")) {
-                // Attempt preview-based variant
-                return "preview:" + title;
-            }
-
-            if (primaryKey.startsWith("preview:")) {
-                // Attempt file-based variant only if we actually have a file-associated component
-                if (contentComponent instanceof PreviewTextPanel ptp) {
-                    var file = ptp.getFile();
-                    if (file != null) {
-                        return "file:" + strippedTitle;
-                    }
-                } else if (contentComponent instanceof PreviewImagePanel img) {
-                    var f = img.getFile();
-                    if (f instanceof ProjectFile) {
-                        return "file:" + strippedTitle;
-                    }
-                }
-            }
-        } catch (Exception ex) {
-            logger.debug("computeAlternatePreviewKey failed", ex);
-        }
-        return null;
-    }
-
-    /**
-     * Shows the dependencies tab by selecting Project Files and toggling the Dependencies panel.
-     */
-    public void showDependenciesTab() {
-        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        int projectFilesTabIndex = leftTabbedPanel.indexOfComponent(projectFilesPanel);
-        if (projectFilesTabIndex != -1) {
-            leftTabbedPanel.setSelectedIndex(projectFilesTabIndex);
-            SwingUtilities.invokeLater(projectFilesPanel::toggleDependencies);
-        }
-    }
-
-    /**
-     * Closes all active preview windows and clears the tracking maps. Useful for cleanup or when switching projects.
-     */
-    public void closeAllPreviewWindows() {
-        previewManager.closeAllPreviewWindows();
     }
 
     /**
@@ -1858,16 +1755,6 @@ public class Chrome
      */
     public void refreshPreviewsForFiles(Set<ProjectFile> changedFiles, @Nullable JFrame excludeFrame) {
         previewManager.refreshPreviewsForFiles(changedFiles, excludeFrame);
-    }
-
-    /**
-     * Centralized method to open a preview for a specific ProjectFile. Reads the file, determines syntax, creates
-     * PreviewTextPanel, and shows the frame.
-     *
-     * @param pf The ProjectFile to preview.
-     */
-    public void previewFile(ProjectFile pf) {
-        previewManager.previewFile(pf);
     }
 
     /**
