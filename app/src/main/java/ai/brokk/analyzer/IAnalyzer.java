@@ -247,6 +247,10 @@ public interface IAnalyzer {
 
         Pattern compiledPattern = Pattern.compile(pattern);
         // Reuse a single Matcher across all declarations to avoid allocation overhead
+        return searchDefinitions(compiledPattern);
+    }
+
+    default Set<CodeUnit> searchDefinitions(Pattern compiledPattern) {
         var matcher = compiledPattern.matcher("");
         return getAllDeclarations().stream()
                 .filter(cu -> matcher.reset(cu.fqName()).find())

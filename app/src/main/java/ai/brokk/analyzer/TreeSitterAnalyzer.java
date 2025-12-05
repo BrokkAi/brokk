@@ -744,12 +744,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public Set<CodeUnit> searchDefinitionsImpl(
-            String originalPattern, @Nullable String fallbackPattern, @Nullable Pattern compiledPattern) {
-        // an explicit search for everything should return everything, not just classes
-        if (originalPattern.equals(".*")) {
-            return this.state.codeUnitState.keySet();
-        }
+    public Set<CodeUnit> searchDefinitions(Pattern compiledPattern) {
         var anonPredicate = new Predicate<CodeUnit>() {
             @Override
             public boolean test(CodeUnit codeUnit) {
@@ -757,24 +752,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
         };
 
-        if (fallbackPattern != null) {
-            // Fallback to simple case-insensitive substring matching
-            return this.state.codeUnitState.keySet().stream()
-                    .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(fallbackPattern))
-                    .filter(anonPredicate)
-                    .collect(Collectors.toSet());
-        } else if (compiledPattern != null) {
-            // Primary search using compiled regex pattern
-            return this.state.codeUnitState.keySet().stream()
-                    .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
-                    .filter(anonPredicate)
-                    .collect(Collectors.toSet());
-        } else {
-            return this.state.codeUnitState.keySet().stream()
-                    .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(originalPattern))
-                    .filter(anonPredicate)
-                    .collect(Collectors.toSet());
-        }
+        return this.state.codeUnitState.keySet().stream()
+                .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
+                .filter(anonPredicate)
+                .collect(Collectors.toSet());
     }
 
     @Override
