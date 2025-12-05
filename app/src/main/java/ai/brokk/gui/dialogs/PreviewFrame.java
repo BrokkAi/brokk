@@ -17,37 +17,37 @@ import org.jetbrains.annotations.Nullable;
 
 public class PreviewFrame extends JFrame implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(PreviewFrame.class);
-    
+
     private final JTabbedPane tabbedPane;
     private final Chrome chrome;
     private final ContextManager contextManager;
     private GuiTheme guiTheme;
-    
+
     // Track tabs by ProjectFile for deduplication
     private final Map<ProjectFile, Component> fileToTabMap = new HashMap<>();
     // Track tabs by unique ID for non-file panels
     private final Map<String, Component> idToTabMap = new HashMap<>();
-    
+
     public PreviewFrame(Chrome chrome, ContextManager contextManager, GuiTheme guiTheme) {
         super("Preview");
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.guiTheme = guiTheme;
-        
+
         // Apply icon and title bar
         Chrome.applyIcon(this);
         Chrome.applyTitleBar(this, "Preview");
-        
+
         // Create tabbed pane
         tabbedPane = new JTabbedPane(JTabbedPane.TOP, JTabbedPane.SCROLL_TAB_LAYOUT);
         add(tabbedPane, BorderLayout.CENTER);
-        
+
         // Listen for tab selection changes to update window title
         tabbedPane.addChangeListener(e -> updateWindowTitle());
-        
+
         // Set default close operation to DO_NOTHING so we can handle it
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-        
+
         // Add window listener to handle close events (X button closes entire frame)
         addWindowListener(new WindowAdapter() {
             @Override
@@ -55,11 +55,11 @@ public class PreviewFrame extends JFrame implements ThemeAware {
                 handleFrameClose();
             }
         });
-        
+
         // Register ESC key to close current tab
         registerEscapeKey();
     }
-    
+
     /**
      * Adds a new tab or selects an existing one for the given panel.
      *
@@ -147,7 +147,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
             updateWindowTitle();
         });
     }
-    
+
     /**
      * Updates the tab title for asynchronously resolved descriptions.
      */
@@ -170,14 +170,14 @@ public class PreviewFrame extends JFrame implements ThemeAware {
             }
         });
     }
-    
+
     private JPanel createTabComponent(String title, JComponent panel, @Nullable ProjectFile fileKey) {
         JPanel tabPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         tabPanel.setOpaque(false);
-        
+
         JLabel titleLabel = new JLabel(title);
         tabPanel.add(titleLabel);
-        
+
         // Close button
         JButton closeButton = new JButton("×");
         closeButton.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
@@ -187,10 +187,10 @@ public class PreviewFrame extends JFrame implements ThemeAware {
         closeButton.setFocusPainted(false);
         closeButton.addActionListener(e -> closeTab(panel, fileKey));
         tabPanel.add(closeButton);
-        
+
         return tabPanel;
     }
-    
+
     private void closeTab(Component panel, @Nullable ProjectFile fileKey) {
         // Check if panel can close (handles unsaved changes for text previews)
         if (panel instanceof PreviewTextPanel textPanel) {
@@ -198,7 +198,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
                 return;
             }
         }
-        
+
         // Remove from tracking
         if (fileKey != null) {
             fileToTabMap.remove(fileKey);
@@ -207,13 +207,13 @@ public class PreviewFrame extends JFrame implements ThemeAware {
             String uniqueId = generateUniqueId((JComponent) panel);
             idToTabMap.remove(uniqueId);
         }
-        
+
         // Remove the tab
         int index = tabbedPane.indexOfComponent(panel);
         if (index >= 0) {
             tabbedPane.remove(index);
         }
-        
+
         // If no tabs remain, dispose the frame
         if (tabbedPane.getTabCount() == 0) {
             disposeFrame();
@@ -221,7 +221,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
             updateWindowTitle();
         }
     }
-    
+
     /**
      * Handles ESC key - closes the current tab only.
      */
@@ -242,7 +242,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
             disposeFrame();
         }
     }
-    
+
     /**
      * Handles window close button (X) - closes entire frame after confirming all tabs.
      */
@@ -259,7 +259,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
         }
         disposeFrame();
     }
-    
+
     private void disposeFrame() {
         // Clear all tracking
         for (ProjectFile file : fileToTabMap.keySet()) {
@@ -267,18 +267,18 @@ public class PreviewFrame extends JFrame implements ThemeAware {
         }
         fileToTabMap.clear();
         idToTabMap.clear();
-        
+
         // Notify Chrome to clear reference
         chrome.clearPreviewTextFrame();
-        
+
         // Dispose the frame
         dispose();
     }
-    
+
     private void registerEscapeKey() {
         KeyboardShortcutUtil.registerCloseEscapeShortcut(getRootPane(), this::handleWindowClose);
     }
-    
+
     private void updateWindowTitle() {
         SwingUtilities.invokeLater(() -> {
             if (tabbedPane.getTabCount() == 0) {
@@ -300,12 +300,12 @@ public class PreviewFrame extends JFrame implements ThemeAware {
             Chrome.applyTitleBar(this, getTitle());
         });
     }
-    
+
     private String generateUniqueId(JComponent panel) {
         // Generate a unique ID based on panel's identity
         return Integer.toHexString(System.identityHashCode(panel));
     }
-    
+
     /**
      * Replaces an existing tab's component with a new one.
      * Used when placeholder content needs to be replaced with a different component type.
@@ -322,7 +322,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
                         break;
                     }
                 }
-                
+
                 // Remove old tracking
                 if (fileKey != null) {
                     fileToTabMap.remove(fileKey);
@@ -330,24 +330,24 @@ public class PreviewFrame extends JFrame implements ThemeAware {
                     String oldId = generateUniqueId(oldComponent);
                     idToTabMap.remove(oldId);
                 }
-                
+
                 // Replace the component
                 tabbedPane.setComponentAt(index, newComponent);
-                
+
                 // Strip "Preview: " prefix for tab title
                 String tabTitle = title.startsWith("Preview: ") ? title.substring(9) : title;
-                
+
                 // Rebuild tab header
                 JPanel tabComponent = createTabComponent(tabTitle, newComponent, fileKey);
                 tabbedPane.setTabComponentAt(index, tabComponent);
-                
+
                 // Track the new component
                 if (fileKey != null) {
                     fileToTabMap.put(fileKey, newComponent);
                 } else {
                     idToTabMap.put(generateUniqueId(newComponent), newComponent);
                 }
-                
+
                 // Apply theme if applicable
                 if (newComponent instanceof ThemeAware && guiTheme != null) {
                     try {
@@ -356,14 +356,14 @@ public class PreviewFrame extends JFrame implements ThemeAware {
                         logger.debug("Failed to apply theme to replaced preview component", ex);
                     }
                 }
-                
+
                 // Select and update window title
                 tabbedPane.setSelectedIndex(index);
                 updateWindowTitle();
             }
         });
     }
-    
+
     /**
      * Finds and refreshes all tabs for the given file.
      */
@@ -385,7 +385,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
             }
         });
     }
-    
+
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         this.guiTheme = guiTheme;

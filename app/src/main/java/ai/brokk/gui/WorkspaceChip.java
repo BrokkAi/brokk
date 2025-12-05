@@ -3,6 +3,7 @@ package ai.brokk.gui;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.gui.components.MaterialButton;
@@ -10,7 +11,6 @@ import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.MainProject;
-import ai.brokk.context.ComputedSubscription;
 import ai.brokk.util.Messages;
 import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
@@ -1262,10 +1262,7 @@ public class WorkspaceChip extends JPanel {
             }
 
             var syntheticFragment = new ContextFragment.StringFragment(
-                    chrome.getContextManager(),
-                    combinedText.toString(),
-                    title,
-                    SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+                    chrome.getContextManager(), combinedText.toString(), title, SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
             chrome.openFragmentPreview(syntheticFragment);
         }
 

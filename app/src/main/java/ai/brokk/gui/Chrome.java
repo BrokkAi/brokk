@@ -2,7 +2,6 @@ package ai.brokk.gui;
 
 import static ai.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
-import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.Brokk;
 import ai.brokk.ContextManager;
@@ -1741,7 +1740,7 @@ public class Chrome
      * Creates and shows a standard preview JFrame for a given component. Handles title, default close operation,
      * loading/saving bounds using the "preview" key, and visibility. Reuses existing preview windows when possible to
      * avoid cluttering the desktop.
-     * 
+     *
      * For PreviewTextPanel instances, routes them to a shared tabbed frame instead of individual windows.
      *
      * @param contextManager   The context manager for accessing project settings.
@@ -1755,7 +1754,8 @@ public class Chrome
     /**
      * Shows a PreviewTextPanel in the shared tabbed preview frame.
      */
-    private void showPreviewTextPanelInTabbedFrame(ContextManager contextManager, String title, PreviewTextPanel panel) {
+    private void showPreviewTextPanelInTabbedFrame(
+            ContextManager contextManager, String title, PreviewTextPanel panel) {
         previewManager.showPreviewTextPanelInTabbedFrame(title, panel);
     }
 
@@ -1765,7 +1765,7 @@ public class Chrome
     public void clearPreviewTextFrame() {
         previewManager.clearPreviewTextFrame();
     }
-    
+
     private String generatePreviewWindowKey(String title, JComponent contentComponent) {
         // When showing a loading placeholder, always use a stable preview-based key so that
         // subsequent async content replacement targets the same window regardless of file association.
@@ -1892,7 +1892,6 @@ public class Chrome
     public void openFragmentPreview(ContextFragment fragment) {
         previewManager.openFragmentPreview(fragment);
     }
-
 
     private void loadWindowSizeAndPosition() {
         boolean persistPerProject = GlobalUiSettings.isPersistPerProjectBounds();

@@ -7,9 +7,8 @@ import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.gui.dependencies.DependenciesDrawerPanel;
-import ai.brokk.gui.dialogs.PreviewImagePanel;
 import ai.brokk.gui.dialogs.PreviewFrame;
+import ai.brokk.gui.dialogs.PreviewImagePanel;
 import ai.brokk.gui.dialogs.PreviewTextPanel;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.MarkdownOutputPool;
@@ -32,8 +31,6 @@ import java.awt.Dimension;
 import java.awt.Rectangle;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -41,16 +38,13 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.JRootPane;
 import javax.swing.JScrollPane;
-import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 import org.apache.logging.log4j.LogManager;
@@ -79,6 +73,7 @@ public class PreviewManager {
 
     @Nullable
     private Rectangle dependenciesDialogBounds = null;
+
     private ContextManager cm;
 
     public PreviewManager(Chrome chrome) {
@@ -188,78 +183,78 @@ public class PreviewManager {
     }
 
     /**
-         * Shows a component in the shared tabbed preview frame. Lazily creates the frame and
-         * ensures bounds, min size, and theme are applied. Selects existing tab by file when possible.
-         */
+     * Shows a component in the shared tabbed preview frame. Lazily creates the frame and
+     * ensures bounds, min size, and theme are applied. Selects existing tab by file when possible.
+     */
     public void showPreviewTextPanelInTabbedFrame(String title, JComponent panel) {
-                        SwingUtilities.invokeLater(() -> {
-                                            // Create frame if it doesn't exist or was disposed
-                                            if (previewFrame == null || !previewFrame.isDisplayable()) {
-                                                                previewFrame = new PreviewFrame(chrome, cm, chrome.getTheme());
+        SwingUtilities.invokeLater(() -> {
+            // Create frame if it doesn't exist or was disposed
+            if (previewFrame == null || !previewFrame.isDisplayable()) {
+                previewFrame = new PreviewFrame(chrome, cm, chrome.getTheme());
 
-                                                                // Set bounds using same logic as regular preview windows
-                                                                var project = cm.getProject();
-                                                                var storedBounds = project.getPreviewWindowBounds();
-                                                                if (storedBounds.width > 0 && storedBounds.height > 0) {
-                                                                                    previewFrame.setBounds(storedBounds);
-                                                                                    if (!chrome.isPositionOnScreen(storedBounds.x, storedBounds.y)) {
-                                                                                                        previewFrame.setLocationRelativeTo(chrome.getFrame());
-                                                                                    }
-                                                                } else {
-                                                                                    previewFrame.setSize(800, 600);
-                                                                                    previewFrame.setLocationRelativeTo(chrome.getFrame());
-                                                                }
+                // Set bounds using same logic as regular preview windows
+                var project = cm.getProject();
+                var storedBounds = project.getPreviewWindowBounds();
+                if (storedBounds.width > 0 && storedBounds.height > 0) {
+                    previewFrame.setBounds(storedBounds);
+                    if (!chrome.isPositionOnScreen(storedBounds.x, storedBounds.y)) {
+                        previewFrame.setLocationRelativeTo(chrome.getFrame());
+                    }
+                } else {
+                    previewFrame.setSize(800, 600);
+                    previewFrame.setLocationRelativeTo(chrome.getFrame());
+                }
 
-                                                                // Set minimum size
-                                                                previewFrame.setMinimumSize(new Dimension(700, 200));
+                // Set minimum size
+                previewFrame.setMinimumSize(new Dimension(700, 200));
 
-                                                                // Add listener to save bounds
-                                                                previewFrame.addComponentListener(new ComponentAdapter() {
-                                                                                    @Override
-                                                                                    public void componentMoved(ComponentEvent e) {
-                                                                                                        cm.getProject().savePreviewWindowBounds(previewFrame);
-                                                                                    }
+                // Add listener to save bounds
+                previewFrame.addComponentListener(new ComponentAdapter() {
+                    @Override
+                    public void componentMoved(ComponentEvent e) {
+                        cm.getProject().savePreviewWindowBounds(previewFrame);
+                    }
 
-                                                                                    @Override
-                                                                                    public void componentResized(ComponentEvent e) {
-                                                                                                        cm.getProject().savePreviewWindowBounds(previewFrame);
-                                                                                    }
-                                                                });
+                    @Override
+                    public void componentResized(ComponentEvent e) {
+                        cm.getProject().savePreviewWindowBounds(previewFrame);
+                    }
+                });
 
-                                                                // Apply theme
-                                                                previewFrame.applyTheme(chrome.getTheme());
-                                            }
+                // Apply theme
+                previewFrame.applyTheme(chrome.getTheme());
+            }
 
-                                            // Compute file mapping if applicable
-                                            ProjectFile file = null;
-                                            if (panel instanceof PreviewTextPanel ptp) {
-                                                                file = ptp.getFile();
-                                            } else if (panel instanceof PreviewImagePanel pip) {
-                                                                var bf = pip.getFile();
-                                                                if (bf instanceof ProjectFile pf) {
-                                                                                    file = pf;
-                                                                }
-                                            }
+            // Compute file mapping if applicable
+            ProjectFile file = null;
+            if (panel instanceof PreviewTextPanel ptp) {
+                file = ptp.getFile();
+            } else if (panel instanceof PreviewImagePanel pip) {
+                var bf = pip.getFile();
+                if (bf instanceof ProjectFile pf) {
+                    file = pf;
+                }
+            }
 
-                                            // Add or select tab
-                                            previewFrame.addOrSelectTab(title, panel, file);
+            // Add or select tab
+            previewFrame.addOrSelectTab(title, panel, file);
 
-                                            // Track file mapping if applicable
-                                            if (file != null) {
-                                                                projectFileToPreviewWindow.put(file, previewFrame);
-                                            }
+            // Track file mapping if applicable
+            if (file != null) {
+                projectFileToPreviewWindow.put(file, previewFrame);
+            }
 
-                                            // Show and focus
-                                            previewFrame.setVisible(true);
-                                            previewFrame.toFront();
-                                            previewFrame.requestFocus();
+            // Show and focus
+            previewFrame.setVisible(true);
+            previewFrame.toFront();
+            previewFrame.requestFocus();
 
-                                            // macOS focus workaround
-                                            if (SystemInfo.isMacOS) {
-                                                                previewFrame.setAlwaysOnTop(true);
-                                                                previewFrame.setAlwaysOnTop(false);
-                                            }
-                        });
+            // macOS focus workaround
+            if (SystemInfo.isMacOS) {
+                previewFrame.setAlwaysOnTop(true);
+                previewFrame.setAlwaysOnTop(false);
+            }
+        });
     }
 
     /**
@@ -410,9 +405,8 @@ public class PreviewManager {
         try {
             // Resolve initial title - use placeholder if not yet computed
             String descNow = fragment.description().renderNowOrNull();
-            final String initialTitle = (descNow != null && !descNow.isBlank())
-                    ? "Preview: " + descNow
-                    : "Preview: Loading...";
+            final String initialTitle =
+                    (descNow != null && !descNow.isBlank()) ? "Preview: " + descNow : "Preview: Loading...";
 
             // Output fragments: content is synchronous (entries() returns immediately)
             if (fragment.getType().isOutput() && fragment instanceof ContextFragment.OutputFragment of) {
@@ -652,7 +646,6 @@ public class PreviewManager {
         return createSearchableContentPanel(List.of(markdownPanel), null, false);
     }
 
-    
     /**
      * Replaces an existing tab's content with a new component.
      * Used when placeholder content needs to be replaced with a different component type (e.g., text -> markdown).
