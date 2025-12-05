@@ -954,12 +954,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** undo changes until we reach the target FROZEN context */
     public Future<?> undoContextUntilAsync(Context targetFrozenContext) {
         return submitExclusiveAction(() -> {
-            UndoResult result = contextHistory.undoUntil(targetFrozenContext, io, (AbstractProject) project);
+            UndoResult result =
+                    withFileChangeNotificationsPaused(() -> contextHistory.undoUntil(targetFrozenContext, io, project));
             if (result.wasUndone()) {
                 notifyContextListeners(liveContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
                 String message = "Undid " + result.steps() + " step" + (result.steps() > 1 ? "s" : "") + "!";
                 io.showNotification(IConsoleIO.NotificationRole.INFO, message);
+                analyzerWrapper.requestRebuild();
             } else {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Context not found or already at that point");
             }
@@ -969,11 +971,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** redo last undone context */
     public Future<?> redoContextAsync() {
         return submitExclusiveAction(() -> {
-            boolean wasRedone = contextHistory.redo(io, (AbstractProject) project);
+            boolean wasRedone = withFileChangeNotificationsPaused(() -> contextHistory.redo(io, project));
             if (wasRedone) {
                 notifyContextListeners(liveContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Redo!");
+                analyzerWrapper.requestRebuild();
             } else {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "no redo state available");
             }
