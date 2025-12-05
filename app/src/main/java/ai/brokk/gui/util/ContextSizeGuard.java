@@ -1,6 +1,5 @@
 package ai.brokk.gui.util;
 
-import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
 import ai.brokk.prompts.ArchitectPrompts;
@@ -84,61 +83,53 @@ public final class ContextSizeGuard {
      * @param onConfirmed Called with true if user confirms or no confirmation needed,
      *                    false if user cancels
      */
-    public static void checkAndConfirm(Collection<ProjectFile> files,
-                                       Chrome chrome,
-                                       Consumer<Boolean> onConfirmed) {
+    public static void checkAndConfirm(Collection<ProjectFile> files, Chrome chrome, Consumer<Boolean> onConfirmed) {
         CompletableFuture.supplyAsync(() -> estimateTokens(files))
-            .thenAccept(estimate -> {
-                var contextManager = chrome.getContextManager();
-                var service = contextManager.getService();
-                var instructionsPanel = chrome.getInstructionsPanel();
+                .thenAccept(estimate -> {
+                    var contextManager = chrome.getContextManager();
+                    var service = contextManager.getService();
 
-                // Get threshold based on current model
-                int maxInputTokens;
-                if (instructionsPanel != null) {
-                    var model = instructionsPanel.getSelectedModel();
-                    maxInputTokens = service.getMaxInputTokens(model);
-                } else {
-                    maxInputTokens = 65536; // fallback default
-                }
+                    // Get threshold based on current model
+                    var model = chrome.getInstructionsPanel().getSelectedModel();
+                    int maxInputTokens = service.getMaxInputTokens(model);
 
-                long hardLimit = (long) (maxInputTokens * HARD_LIMIT_MULTIPLIER);
-                long warningThreshold = (long) (maxInputTokens * ArchitectPrompts.WORKSPACE_WARNING_THRESHOLD);
+                    long hardLimit = (long) (maxInputTokens * HARD_LIMIT_MULTIPLIER);
+                    long warningThreshold = (long) (maxInputTokens * ArchitectPrompts.WORKSPACE_WARNING_THRESHOLD);
 
-                // Hard limit - reject without asking
-                if (estimate.estimatedTokens() > hardLimit) {
+                    // Hard limit - reject without asking
+                    if (estimate.estimatedTokens() > hardLimit) {
+                        SwingUtilities.invokeLater(() -> {
+                            chrome.toolError(String.format(
+                                    "Context too large to add: estimated %,d tokens exceeds maximum allowed (%,d tokens).",
+                                    estimate.estimatedTokens(), hardLimit));
+                        });
+                        onConfirmed.accept(false);
+                        return;
+                    }
+
+                    // Under warning threshold - allow without asking
+                    if (estimate.estimatedTokens() <= warningThreshold) {
+                        onConfirmed.accept(true);
+                        return;
+                    }
+
+                    // Between warning and hard limit - ask for confirmation
                     SwingUtilities.invokeLater(() -> {
-                        chrome.toolError(String.format(
-                                "Context too large to add: estimated %,d tokens exceeds maximum allowed (%,d tokens).",
-                                estimate.estimatedTokens(), hardLimit));
+                        var message = formatConfirmationMessage(estimate, maxInputTokens);
+                        int result = chrome.showConfirmDialog(
+                                message,
+                                "Large Context Warning",
+                                JOptionPane.YES_NO_OPTION,
+                                JOptionPane.WARNING_MESSAGE);
+                        onConfirmed.accept(result == JOptionPane.YES_OPTION);
                     });
-                    onConfirmed.accept(false);
-                    return;
-                }
-
-                // Under warning threshold - allow without asking
-                if (estimate.estimatedTokens() <= warningThreshold) {
+                })
+                .exceptionally(ex -> {
+                    logger.error("Error estimating context size", ex);
+                    // On error, allow the operation to proceed
                     onConfirmed.accept(true);
-                    return;
-                }
-
-                // Between warning and hard limit - ask for confirmation
-                SwingUtilities.invokeLater(() -> {
-                    var message = formatConfirmationMessage(estimate, maxInputTokens);
-                    int result = chrome.showConfirmDialog(
-                            message,
-                            "Large Context Warning",
-                            JOptionPane.YES_NO_OPTION,
-                            JOptionPane.WARNING_MESSAGE);
-                    onConfirmed.accept(result == JOptionPane.YES_OPTION);
+                    return null;
                 });
-            })
-            .exceptionally(ex -> {
-                logger.error("Error estimating context size", ex);
-                // On error, allow the operation to proceed
-                onConfirmed.accept(true);
-                return null;
-            });
     }
 
     private static String formatConfirmationMessage(SizeEstimate estimate, int maxInputTokens) {
