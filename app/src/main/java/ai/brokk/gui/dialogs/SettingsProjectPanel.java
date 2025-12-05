@@ -1243,8 +1243,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
             if (!newDetails.equals(currentDetails)) {
                 project.saveBuildDetails(newDetails);
-                logger.debug("Saved CI exclusions from Code Intelligence panel into BuildDetails: dirs={}, patterns={}",
-                             excludesSet, patternsSet);
+                logger.debug(
+                        "Saved CI exclusions from Code Intelligence panel into BuildDetails: dirs={}, patterns={}",
+                        excludesSet,
+                        patternsSet);
             }
 
             // Refresh the UI to reflect canonicalized values

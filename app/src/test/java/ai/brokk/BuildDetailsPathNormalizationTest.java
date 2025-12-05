@@ -14,7 +14,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import org.eclipse.jgit.api.Git;
@@ -96,7 +95,8 @@ public class BuildDetailsPathNormalizationTest {
     @Test
     void testLegacyJson_withoutFilePatterns_loadsWithEmptySet() throws Exception {
         // Old JSON format without excludedFilePatterns field - should deserialize with empty set
-        String oldJson = """
+        String oldJson =
+                """
             {"buildLintCommand":"mvn compile","testAllCommand":"mvn test","testSomeCommand":"",\
             "excludedDirectories":["target"],"environmentVariables":{}}
             """;

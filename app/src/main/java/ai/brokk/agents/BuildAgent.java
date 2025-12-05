@@ -149,8 +149,8 @@ public class BuildAgent {
                     // Only store top-level ignored directories (skip nested paths)
                     var addedPaths = new HashSet<String>();
                     for (String dirName : ignoredDirs) {
-                        boolean ancestorExcluded = addedPaths.stream()
-                                .anyMatch(existing -> dirName.startsWith(existing + "/"));
+                        boolean ancestorExcluded =
+                                addedPaths.stream().anyMatch(existing -> dirName.startsWith(existing + "/"));
                         if (!ancestorExcluded) {
                             this.currentExcludedDirectories.add(dirName);
                             addedFromGitignore.add(dirName);
@@ -370,10 +370,16 @@ public class BuildAgent {
                 .collect(Collectors.toSet());
 
         this.reportedDetails = new BuildDetails(
-                buildLintCommand, testAllCommand, testSomeCommand, finalDirExcludes, finalFilePatterns, defaultEnvForProject());
+                buildLintCommand,
+                testAllCommand,
+                testSomeCommand,
+                finalDirExcludes,
+                finalFilePatterns,
+                defaultEnvForProject());
         logger.debug(
                 "reportBuildDetails tool executed. Excluded directories: {}, File patterns: {}",
-                finalDirExcludes, finalFilePatterns);
+                finalDirExcludes,
+                finalFilePatterns);
         return "Build details report received and processed.";
     }
 

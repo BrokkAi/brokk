@@ -2116,8 +2116,8 @@ class ProjectFilteringGitRepoTest {
         var project = new MainProject(tempDir);
 
         // Set both directory and file pattern exclusions
-        var buildDetails =
-                new BuildAgent.BuildDetails("", "", "", Set.of("vendor"), Set.of("package-lock.json", "*.svg"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails(
+                "", "", "", Set.of("vendor"), Set.of("package-lock.json", "*.svg"), Map.of());
         project.saveBuildDetails(buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2142,8 +2142,8 @@ class ProjectFilteringGitRepoTest {
         var project = new MainProject(tempDir);
 
         // Save build details with file patterns
-        var buildDetails =
-                new BuildAgent.BuildDetails("build", "test", "test {{files}}", Set.of(), Set.of("yarn.lock", "*.svg"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails(
+                "build", "test", "test {{files}}", Set.of(), Set.of("yarn.lock", "*.svg"), Map.of());
         project.saveBuildDetails(buildDetails);
 
         // Reload and verify patterns are preserved

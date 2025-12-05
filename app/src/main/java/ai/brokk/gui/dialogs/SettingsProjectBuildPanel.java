@@ -793,8 +793,12 @@ public class SettingsProjectBuildPanel extends JPanel {
         }
 
         var newDetails = new BuildAgent.BuildDetails(
-                newBuildLint, newTestAll, newTestSome, baseDetails.excludedDirectories(),
-                baseDetails.excludedFilePatterns(), envVars);
+                newBuildLint,
+                newTestAll,
+                newTestSome,
+                baseDetails.excludedDirectories(),
+                baseDetails.excludedFilePatterns(),
+                envVars);
 
         // Compare against what's currently saved on disk
         var currentDetails = project.loadBuildDetails();
