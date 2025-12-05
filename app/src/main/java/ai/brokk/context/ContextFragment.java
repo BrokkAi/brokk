@@ -1392,11 +1392,11 @@ public interface ContextFragment {
 
                 String classFqn = Optional.ofNullable(attrMap.get("class"))
                         .map(String::trim)
-                        .filter(String::isBlank)
+                        .filter(s -> !s.isBlank())
                         .orElse(null);
                 String fileRelPathRaw = Optional.ofNullable(attrMap.get("file"))
                         .map(String::trim)
-                        .filter(String::isBlank)
+                        .filter(s -> !s.isBlank())
                         .orElse(null);
 
                 // Resolve file attribute if present, normalizing separators for cross-OS compatibility
