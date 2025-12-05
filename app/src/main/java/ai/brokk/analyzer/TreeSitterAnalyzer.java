@@ -738,9 +738,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     @Override
     public List<CodeUnit> getAllDeclarations() {
-        return this.state.codeUnitState.keySet().stream()
-                .filter(CodeUnit::isClass)
-                .toList();
+        return this.state.codeUnitState.keySet().stream().toList();
     }
 
     @Override
