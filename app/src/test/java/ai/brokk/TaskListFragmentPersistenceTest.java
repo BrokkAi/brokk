@@ -24,7 +24,7 @@ public class TaskListFragmentPersistenceTest {
     void setTaskList_pushesFragmentAndTracksAction() throws Exception {
         // Given: initial empty context (headless IContextManager)
         var cm = new IContextManager() {};
-        var initial = new Context(cm, (String) null);
+        var initial = new Context(cm);
 
         var data = new TaskList.TaskListData(
                 List.of(new TaskList.TaskItem("Do A", "Do A", false), new TaskList.TaskItem("Do B", "Do B", true)));
@@ -37,11 +37,11 @@ public class TaskListFragmentPersistenceTest {
         assertTrue(fragOpt.isPresent(), "Task List fragment should be present");
 
         var frag = fragOpt.get();
-        assertEquals("Task List", frag.description(), "Task List fragment description should match");
-        assertEquals(SpecialTextType.TASK_LIST.syntaxStyle(), frag.syntaxStyle(), "Syntax style should be JSON");
+        assertEquals("Task List", frag.description().join(), "Task List fragment description should match");
+        assertEquals(SpecialTextType.TASK_LIST.syntaxStyle(), frag.syntaxStyle().join(), "Syntax style should be JSON");
 
         var expectedJson = Json.getMapper().writeValueAsString(data);
-        assertEquals(expectedJson, frag.text(), "Fragment JSON should match serialized TaskListData");
+        assertEquals(expectedJson, frag.text().join(), "Fragment JSON should match serialized TaskListData");
 
         // And: the action should contain "Task list"
         String action = after.getAction();

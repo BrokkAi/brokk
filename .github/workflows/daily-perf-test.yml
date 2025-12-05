@@ -72,11 +72,11 @@ jobs:
             echo "should_skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Set up Java 21
+      - name: Set up Java 25
         if: steps.check_commits.outputs.should_skip == 'false'
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
+          java-version: '25'
           distribution: 'temurin'
           cache: gradle
 

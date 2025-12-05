@@ -6,6 +6,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.ContextFragment.AbstractComputedFragment;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import dev.langchain4j.data.message.AiMessage;
@@ -16,10 +17,13 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -46,10 +50,17 @@ class FragmentEqualityTest {
 
     private ai.brokk.IContextManager contextManager;
 
+    private final List<AbstractComputedFragment> trackedFragments = new ArrayList<>();
+
     @BeforeEach
     void setup() {
         contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
         ContextFragment.setMinimumId(1);
+    }
+
+    private <T extends AbstractComputedFragment> T track(T fragment) {
+        trackedFragments.add(fragment);
+        return fragment;
     }
 
     private BufferedImage createTestImage(Color color, int width, int height) {
@@ -428,7 +439,7 @@ class FragmentEqualityTest {
             // StringFragment vs different fragment type should not match
             var sf = new ContextFragment.StringFragment(
                     contextManager, "text", "Latest Build Results", SyntaxConstants.SYNTAX_STYLE_NONE);
-            var uf = new ContextFragment.UsageFragment(contextManager, "com.example.Class");
+            var uf = track(new ContextFragment.UsageFragment(contextManager, "com.example.Class"));
 
             assertFalse(sf.hasSameSource(uf));
         }
@@ -562,8 +573,8 @@ class FragmentEqualityTest {
     class UsageFragmentEqualityTest {
         @Test
         void testEqualsIdentity() {
-            var uf1 = new ContextFragment.UsageFragment(contextManager, "com.example.Class");
-            var uf2 = new ContextFragment.UsageFragment(contextManager, "com.example.Class");
+            var uf1 = track(new ContextFragment.UsageFragment(contextManager, "com.example.Class"));
+            var uf2 = track(new ContextFragment.UsageFragment(contextManager, "com.example.Class"));
 
             // Identity-based: different instances are NOT equal
             assertNotEquals(uf1, uf2);
@@ -571,8 +582,8 @@ class FragmentEqualityTest {
 
         @Test
         void testHasSameSourceRepr() {
-            var uf1 = new ContextFragment.UsageFragment(contextManager, "com.example.Class");
-            var uf2 = new ContextFragment.UsageFragment(contextManager, "com.example.Class");
+            var uf1 = track(new ContextFragment.UsageFragment(contextManager, "com.example.Class"));
+            var uf2 = track(new ContextFragment.UsageFragment(contextManager, "com.example.Class"));
 
             // hasSameSource compares repr()
             assertTrue(uf1.hasSameSource(uf2));
@@ -580,16 +591,16 @@ class FragmentEqualityTest {
 
         @Test
         void testHasSameSourceDifferentTargets() {
-            var uf1 = new ContextFragment.UsageFragment(contextManager, "com.example.Class1");
-            var uf2 = new ContextFragment.UsageFragment(contextManager, "com.example.Class2");
+            var uf1 = track(new ContextFragment.UsageFragment(contextManager, "com.example.Class1"));
+            var uf2 = track(new ContextFragment.UsageFragment(contextManager, "com.example.Class2"));
 
             assertFalse(uf1.hasSameSource(uf2));
         }
 
         @Test
         void testHasSameSourceDifferentIncludeTestFiles() {
-            var uf1 = new ContextFragment.UsageFragment(contextManager, "com.example.Class", true);
-            var uf2 = new ContextFragment.UsageFragment(contextManager, "com.example.Class", false);
+            var uf1 = track(new ContextFragment.UsageFragment(contextManager, "com.example.Class", true));
+            var uf2 = track(new ContextFragment.UsageFragment(contextManager, "com.example.Class", false));
 
             // Different includeTestFiles flags produce different repr()
             assertFalse(uf1.hasSameSource(uf2));
@@ -712,39 +723,6 @@ class FragmentEqualityTest {
     }
 
     @Nested
-    class SearchFragmentEqualityTest {
-        private CodeUnit createTestCodeUnit(String fqName) {
-            var file = new ProjectFile(tempDir, "Test.java");
-            String shortName = fqName.substring(fqName.lastIndexOf('.') + 1);
-            String packageName = fqName.contains(".") ? fqName.substring(0, fqName.lastIndexOf('.')) : "";
-            return new CodeUnit(file, CodeUnitType.CLASS, packageName, shortName);
-        }
-
-        @Test
-        void testEqualsIdenticalContent() {
-            var messages = List.<ChatMessage>of(UserMessage.from("query"));
-            var sources = Set.of(createTestCodeUnit("com.example.Test"));
-            var sf1 = new ContextFragment.SearchFragment(contextManager, "search", messages, sources);
-            var sf2 = new ContextFragment.SearchFragment(contextManager, "search", messages, sources);
-
-            // Identity-based: different instances are NOT equal()
-            assertNotEquals(sf1, sf2);
-            // But they represent the same search content
-            assertTrue(sf1.hasSameSource(sf2));
-        }
-
-        @Test
-        void testEqualsDifferentSessions() {
-            var messages = List.<ChatMessage>of(UserMessage.from("query"));
-            var sources = Set.of(createTestCodeUnit("com.example.Test"));
-            var sf1 = new ContextFragment.SearchFragment(contextManager, "search1", messages, sources);
-            var sf2 = new ContextFragment.SearchFragment(contextManager, "search2", messages, sources);
-
-            assertNotEquals(sf1, sf2);
-        }
-    }
-
-    @Nested
     class StacktraceFragmentEqualityTest {
         private CodeUnit createTestCodeUnit(String fqName) {
             var file = new ProjectFile(tempDir, "Test.java");
@@ -776,43 +754,6 @@ class FragmentEqualityTest {
                     new ContextFragment.StacktraceFragment(contextManager, sources, "stacktrace", "Exception2", "code");
 
             assertNotEquals(sf1, sf2);
-        }
-    }
-
-    @Nested
-    class SkeletonFragmentEqualityTest {
-        @Test
-        void testEqualsIdentity() {
-            var targets = List.of("com.example.Class1", "com.example.Class2");
-            var sf1 = new ContextFragment.SkeletonFragment(
-                    contextManager, targets, ContextFragment.SummaryType.CODEUNIT_SKELETON);
-            var sf2 = new ContextFragment.SkeletonFragment(
-                    contextManager, targets, ContextFragment.SummaryType.CODEUNIT_SKELETON);
-
-            assertNotEquals(sf1, sf2);
-        }
-
-        @Test
-        void testHasSameSourceSameTargets() {
-            var targets = List.of("com.example.Class1", "com.example.Class2");
-            var sf1 = new ContextFragment.SkeletonFragment(
-                    contextManager, targets, ContextFragment.SummaryType.CODEUNIT_SKELETON);
-            var sf2 = new ContextFragment.SkeletonFragment(
-                    contextManager, targets, ContextFragment.SummaryType.CODEUNIT_SKELETON);
-
-            assertTrue(sf1.hasSameSource(sf2));
-        }
-
-        @Test
-        void testHasSameSourceDifferentTargets() {
-            var targets1 = List.of("com.example.Class1");
-            var targets2 = List.of("com.example.Class2");
-            var sf1 = new ContextFragment.SkeletonFragment(
-                    contextManager, targets1, ContextFragment.SummaryType.CODEUNIT_SKELETON);
-            var sf2 = new ContextFragment.SkeletonFragment(
-                    contextManager, targets2, ContextFragment.SummaryType.CODEUNIT_SKELETON);
-
-            assertFalse(sf1.hasSameSource(sf2));
         }
     }
 
@@ -923,5 +864,19 @@ class FragmentEqualityTest {
 
             assertFalse(sf.hasSameSource(null));
         }
+    }
+
+    /**
+     * UsageFragment's computed value can cause Llm to write an llm-history directory even though we're
+     * passing an empty analyzer. This waits for those tasks to finish before letting JUnit try to clean up;
+     * otherwise it will throw if it loses the race and llm-history gets created after it does its "remove everything"
+     * pass but before it runs rmdir.
+     */
+    @AfterEach
+    void awaitTrackedFragments() throws InterruptedException {
+        for (AbstractComputedFragment fragment : trackedFragments) {
+            fragment.await(Duration.ofSeconds(5));
+        }
+        trackedFragments.clear();
     }
 }

@@ -608,7 +608,6 @@ public final class HeadlessExecutorMain {
             SimpleHttpServer.sendJsonResponse(exchange, 405, error);
             return;
         }
-
         try {
             var idempotencyKey = exchange.getRequestHeaders().getFirst("Idempotency-Key");
             if (idempotencyKey == null || idempotencyKey.isBlank()) {
@@ -616,6 +615,18 @@ public final class HeadlessExecutorMain {
                 SimpleHttpServer.sendJsonResponse(exchange, 400, error);
                 return;
             }
+            var sessionIdStr = exchange.getRequestHeaders().getFirst("X-Session-Id");
+            UUID sessionId = null;
+            if (sessionIdStr != null && !sessionIdStr.isBlank()) {
+                try {
+                    sessionId = UUID.fromString(sessionIdStr);
+                } catch (IllegalArgumentException e) {
+                    var error = ErrorPayload.validationError("Invalid Session-Id format: must be a valid UUID");
+                    SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                    return;
+                }
+            }
+            var githubToken = exchange.getRequestHeaders().getFirst("X-Github-Token");
 
             // Parse JobSpec payload from request body
             var jobSpecRequest = SimpleHttpServer.parseJsonRequest(exchange, JobSpecRequest.class);
@@ -634,6 +645,15 @@ public final class HeadlessExecutorMain {
             }
 
             var tags = jobSpecRequest.tags();
+            if (tags != null) {
+                if (sessionId != null) {
+                    tags.put("session_id", sessionId.toString());
+                }
+                if (githubToken != null && !githubToken.isBlank()) {
+                    tags.put("github_token", githubToken);
+                }
+            }
+
             Map<String, String> safeTags = tags != null ? Map.copyOf(tags) : Map.of();
             var jobSpec = ai.brokk.executor.jobs.JobSpec.of(
                     jobSpecRequest.taskInput(),
@@ -649,10 +669,11 @@ public final class HeadlessExecutorMain {
             var isNewJob = createResult.isNewJob();
 
             logger.info(
-                    "Job {}: isNewJob={}, jobId={}, requestedSessionId={}",
+                    "Job {}: isNewJob={}, jobId={}, sessionId={}, currentCmSession={}",
                     idempotencyKey,
                     isNewJob,
                     jobId,
+                    sessionId,
                     jobSpecRequest.sessionId());
 
             // Load job status
@@ -1145,9 +1166,9 @@ public final class HeadlessExecutorMain {
                 // Find the skeleton fragment ID in live context for this class
                 var fragId = liveContext
                         .virtualFragments()
-                        .filter(f -> f instanceof ContextFragment.SkeletonFragment)
-                        .map(f -> (ContextFragment.SkeletonFragment) f)
-                        .filter(s -> s.getTargetIdentifiers().contains(className))
+                        .filter(f -> f instanceof ContextFragment.SummaryFragment)
+                        .map(f -> (ContextFragment.SummaryFragment) f)
+                        .filter(s -> s.getTargetIdentifier().contains(className))
                         .map(ContextFragment::id)
                         .findFirst()
                         .orElse("");
@@ -1273,7 +1294,7 @@ public final class HeadlessExecutorMain {
 
             for (var methodName : validMethodNames) {
                 var fragment = new ContextFragment.CodeFragment(contextManager, methodName);
-                contextManager.addVirtualFragment(fragment);
+                contextManager.addFragments(fragment);
                 addedMethods.add(new AddedContextMethod(fragment.id(), methodName));
             }
 

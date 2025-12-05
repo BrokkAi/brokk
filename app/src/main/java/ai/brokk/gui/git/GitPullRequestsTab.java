@@ -933,7 +933,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         try {
             var repo = getRepo();
-            var remoteUrl = repo.getRemoteUrl();
+            var remoteUrl = repo.getOriginRemoteUrl();
             GitUiUtil.OwnerRepo ownerRepo = GitUiUtil.parseOwnerRepoFromUrl(Objects.requireNonNullElse(remoteUrl, ""));
 
             if (ownerRepo != null && repoFullName.equals(ownerRepo.owner() + "/" + ownerRepo.repo())) {
@@ -1637,17 +1637,18 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                                     + (filteredFiles.size() > 5 ? "..." : ""));
                 }
 
-                // Exclude deleted files from being added to context
-                var filesNotDeleted = modifiedFiles.stream()
-                        .filter(mf -> mf.status() != ModificationType.DELETED)
-                        .flatMap(mf -> textFiles.stream().filter(tf -> tf.equals(mf.file())))
+                // Only include modified text files in the editable context (exclude new/deleted files)
+                var modifiedTextFiles = modifiedFiles.stream()
+                        .filter(mf -> mf.status() == ModificationType.MODIFIED)
+                        .map(GitRepo.ModifiedFile::file)
+                        .filter(textFiles::contains)
                         .collect(Collectors.toSet());
 
-                if (!filesNotDeleted.isEmpty()) {
-                    contextManager.addFiles(filesNotDeleted);
+                if (!modifiedTextFiles.isEmpty()) {
+                    contextManager.addFiles(modifiedTextFiles);
                     logger.info(
-                            "Added {} changed file(s) from PR #{} to editable context",
-                            filesNotDeleted.size(),
+                            "Added {} modified file(s) from PR #{} to editable context",
+                            modifiedTextFiles.size(),
                             prNumber);
                 }
 
@@ -1712,7 +1713,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                                 descriptionText,
                                 PrTitleFormatter.formatDescriptionTitle(prNumber),
                                 "markdown");
-                        contextManager.addVirtualFragment(descriptionFragment);
+                        contextManager.addFragments(descriptionFragment);
                         logger.info("Added PR description fragment for PR #{}", prNumber);
                     } catch (Exception e) {
                         logger.warn("Failed to add PR description fragment for PR #{}: {}", prNumber, e.getMessage());
@@ -2006,7 +2007,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         logger.info("Starting checkout of PR #{} as a new local branch", prNumber);
         contextManager.submitExclusiveAction(() -> {
             try {
-                var remoteUrl = getRepo().getRemoteUrl(); // Can be null
+                var remoteUrl = getRepo().getOriginRemoteUrl(); // Can be null
                 GitUiUtil.OwnerRepo ownerRepo =
                         GitUiUtil.parseOwnerRepoFromUrl(Objects.requireNonNullElse(remoteUrl, ""));
                 if (ownerRepo == null) {

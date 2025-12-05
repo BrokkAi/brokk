@@ -1091,7 +1091,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return titledContainer;
     }
 
-    /** Recomputes the token usage bar to mirror the Workspace panel summary. Safe to call from any thread. */
     void updateTokenCostIndicator() {
         var ctx = chrome.getContextManager().selectedContext();
         Service.ModelConfig config = getSelectedConfig();
@@ -1104,8 +1103,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     if (model == null || model instanceof Service.UnavailableStreamingModel) {
                         return new TokenUsageBarComputation(
                                 buildTokenUsageTooltip(
-                                        "Unavailable", 128000, "0.00", TokenUsageBar.WarningLevel.NONE, 100),
-                                128000,
+                                        "Unavailable", 150_000, "0.00", TokenUsageBar.WarningLevel.NONE, 100),
+                                150_000,
                                 0,
                                 TokenUsageBar.WarningLevel.NONE,
                                 config,
@@ -1119,17 +1118,25 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         var allFragments = ctx.getAllFragmentsInDisplayOrder();
                         for (var frag : allFragments) {
                             if (frag.isText() || frag.getType().isOutput()) {
-                                fullText.append(frag.text()).append("\n");
+                                try {
+                                    frag.text().tryGet().ifPresent(text -> fullText.append(text)
+                                            .append("\n"));
+                                } catch (Exception e) {
+                                    logger.error("Unable to obtain fragment text for token cost estimation task.", e);
+                                }
                             }
                         }
                     }
 
                     int approxTokens = Messages.getApproximateTokens(fullText.toString());
-                    int maxTokens = service.getMaxInputTokens(model);
-                    if (maxTokens <= 0) {
-                        // Fallback to a generous default when service does not provide a limit
-                        maxTokens = 128_000;
+                    int modelMaxTokens = service.getMaxInputTokens(model);
+                    if (modelMaxTokens <= 0) {
+                        // If the service does not provide a limit, assume a generous default
+                        modelMaxTokens = 150_000;
                     }
+                    // Bar capacity default is 150k unless the model supports less
+                    int barScaleMax = Math.min(150_000, modelMaxTokens);
+
                     String modelName = config.name();
                     String costStr = calculateCostEstimate(config, approxTokens, service);
 
@@ -1152,46 +1159,57 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     }
 
                     String tooltipHtml =
-                            buildTokenUsageTooltip(modelName, maxTokens, costStr, warningLevel, successRate);
+                            buildTokenUsageTooltip(modelName, modelMaxTokens, costStr, warningLevel, successRate);
                     return new TokenUsageBarComputation(
-                            tooltipHtml, maxTokens, approxTokens, warningLevel, config, successRate, isTested);
+                            tooltipHtml, barScaleMax, approxTokens, warningLevel, config, successRate, isTested);
                 })
-                .thenAccept(stat -> SwingUtilities.invokeLater(() -> {
-                    try {
-                        // make metadata available to TokenUsageBar for tooltip/warning rendering
-                        tokenUsageBar.setWarningMetadata(stat.successRate, stat.isTested, stat.config);
-                        // Update max and unfilled-portion tooltip; fragment breakdown is supplied via contextChanged
-                        tokenUsageBar.setMaxTokens(stat.maxTokens);
-                        tokenUsageBar.setUnfilledTooltip(stat.toolTipHtml);
-
-                        // Compute shared tooltip for both TokenUsageBar and ModelSelector
-                        String sharedTooltip = TokenUsageBar.computeWarningTooltip(
-                                stat.isTested,
-                                stat.config,
-                                stat.warningLevel,
-                                stat.successRate,
-                                stat.approxTokens,
-                                stat.toolTipHtml);
-
-                        contextAreaContainer.setWarningLevel(stat.warningLevel);
-                        contextAreaContainer.setToolTipText(sharedTooltip);
-                        modelSelector.getComponent().setToolTipText(sharedTooltip);
-                        tokenUsageBar.setVisible(true);
-
-                        // Update Brokk Power Ranking indicator
-                        if (stat.successRate == -1) {
-                            brokkRankingLabel.setText(POWER_RANKING_TITLE + ": Unknown");
-                        } else {
-                            brokkRankingLabel.setText(POWER_RANKING_TITLE + ": " + stat.successRate + "%");
-                        }
-                        brokkRankingLabel.setToolTipText(buildBrokkRankingOnlyTooltip(stat.successRate));
-                        brokkRankingLabel.setVisible(true);
-                    } catch (Exception ex) {
-                        logger.debug("Failed to update token usage bar", ex);
-                        tokenUsageBar.setVisible(false);
-                        contextAreaContainer.setWarningLevel(TokenUsageBar.WarningLevel.NONE);
+                .handle((stat, e) -> {
+                    if (e != null) {
+                        logger.error("Unable to obtain token cost estimation task.", e);
+                        return null;
                     }
-                }));
+                    return stat;
+                })
+                .thenAccept(stat -> {
+                    if (stat == null) return;
+                    SwingUtilities.invokeLater(() -> {
+                        try {
+                            // make metadata available to TokenUsageBar for tooltip/warning rendering
+                            tokenUsageBar.setWarningMetadata(stat.successRate, stat.isTested, stat.config);
+                            // Update max and unfilled-portion tooltip; fragment breakdown is supplied via
+                            // contextChanged
+                            tokenUsageBar.setMaxTokens(stat.maxTokens);
+                            tokenUsageBar.setUnfilledTooltip(stat.toolTipHtml);
+
+                            // Compute shared tooltip for both TokenUsageBar and ModelSelector
+                            String sharedTooltip = TokenUsageBar.computeWarningTooltip(
+                                    stat.isTested,
+                                    stat.config,
+                                    stat.warningLevel,
+                                    stat.successRate,
+                                    stat.approxTokens,
+                                    stat.toolTipHtml);
+
+                            contextAreaContainer.setWarningLevel(stat.warningLevel);
+                            contextAreaContainer.setToolTipText(sharedTooltip);
+                            modelSelector.getComponent().setToolTipText(sharedTooltip);
+                            tokenUsageBar.setVisible(true);
+
+                            // Update Brokk Power Ranking indicator
+                            if (stat.successRate == -1) {
+                                brokkRankingLabel.setText(POWER_RANKING_TITLE + ": Unknown");
+                            } else {
+                                brokkRankingLabel.setText(POWER_RANKING_TITLE + ": " + stat.successRate + "%");
+                            }
+                            brokkRankingLabel.setToolTipText(buildBrokkRankingOnlyTooltip(stat.successRate));
+                            brokkRankingLabel.setVisible(true);
+                        } catch (Exception ex) {
+                            logger.debug("Failed to update token usage bar", ex);
+                            tokenUsageBar.setVisible(false);
+                            contextAreaContainer.setWarningLevel(TokenUsageBar.WarningLevel.NONE);
+                        }
+                    });
+                });
     }
 
     private record TokenUsageBarComputation(
@@ -1854,8 +1872,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return cm.submitLlmAction(() -> {
             try {
                 chrome.showOutputSpinner(spinnerText);
-
-                try (var scope = cm.beginTask(input, false, "Lutz Mode")) {
+                var title = input.length() > 50 ? input.substring(0, 47) + "..." : input;
+                try (var scope = cm.beginTask(input, false, "Lutz Mode: " + title)) {
                     var result = task.apply(scope);
                     scope.append(result);
                     if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {

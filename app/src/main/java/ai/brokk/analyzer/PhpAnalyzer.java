@@ -58,22 +58,26 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     }
 
     public PhpAnalyzer(IProject project) {
-        super(project, Languages.PHP);
+        this(project, ProgressListener.NOOP);
+    }
+
+    public PhpAnalyzer(IProject project, ProgressListener listener) {
+        super(project, Languages.PHP, listener);
         this.phpNamespaceQuery = createPhpNamespaceQuery();
     }
 
-    private PhpAnalyzer(IProject project, Language language, AnalyzerState state) {
-        super(project, language, state);
+    private PhpAnalyzer(IProject project, Language language, AnalyzerState state, ProgressListener listener) {
+        super(project, language, state, listener);
         this.phpNamespaceQuery = createPhpNamespaceQuery();
     }
 
-    public static PhpAnalyzer fromState(IProject project, AnalyzerState state) {
-        return new PhpAnalyzer(project, Languages.PHP, state);
+    public static PhpAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+        return new PhpAnalyzer(project, Languages.PHP, state, listener);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state) {
-        return new PhpAnalyzer(getProject(), Languages.PHP, state);
+    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+        return new PhpAnalyzer(getProject(), Languages.PHP, state, listener);
     }
 
     @Override
@@ -93,7 +97,14 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected @Nullable CodeUnit createCodeUnit(
-            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
+            ProjectFile file,
+            String captureName,
+            String simpleName,
+            String packageName,
+            String classChain,
+            List<ScopeSegment> scopeChain,
+            @Nullable TSNode definitionNode,
+            SkeletonType skeletonType) {
         return switch (captureName) {
             case CaptureNames.CLASS_DEFINITION, CaptureNames.INTERFACE_DEFINITION, CaptureNames.TRAIT_DEFINITION -> {
                 String finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
@@ -327,9 +338,8 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         return Set.of(CaptureNames.NAMESPACE_DEFINITION, "namespace.name", CaptureNames.ATTRIBUTE_DEFINITION);
     }
 
-    // TODO
     @Override
-    public Optional<String> extractClassName(String reference) {
-        return Optional.empty();
+    public Optional<String> extractCallReceiver(String reference) {
+        return ClassNameExtractor.extractForPhp(reference);
     }
 }

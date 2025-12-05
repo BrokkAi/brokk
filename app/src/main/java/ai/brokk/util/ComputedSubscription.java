@@ -59,11 +59,7 @@ public final class ComputedSubscription {
      * @param owner the Swing component that owns these subscriptions
      * @param uiUpdate a runnable to execute on the EDT when any computed value completes
      */
-    public static void bind(ContextFragment.ComputedFragment fragment, JComponent owner, Runnable uiUpdate) {
-        fragment.computedText().start();
-        fragment.computedDescription().start();
-        fragment.computedFiles().start();
-
+    public static void bind(ContextFragment fragment, JComponent owner, Runnable uiUpdate) {
         // Helper to run UI update, coalesced onto EDT
         final boolean[] scheduled = {false};
         Runnable scheduleUpdate = () -> {
@@ -77,15 +73,15 @@ public final class ComputedSubscription {
         };
 
         // Subscribe to text completion
-        var s1 = fragment.computedText().onComplete((v, ex) -> scheduleUpdate.run());
+        var s1 = fragment.text().onComplete((v, ex) -> scheduleUpdate.run());
         register(owner, s1);
 
         // Subscribe to description completion
-        var s2 = fragment.computedDescription().onComplete((v, ex) -> scheduleUpdate.run());
+        var s2 = fragment.description().onComplete((v, ex) -> scheduleUpdate.run());
         register(owner, s2);
 
         // Subscribe to files completion
-        var s3 = fragment.computedFiles().onComplete((v, ex) -> scheduleUpdate.run());
+        var s3 = fragment.files().onComplete((v, ex) -> scheduleUpdate.run());
         register(owner, s3);
     }
 

@@ -107,13 +107,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                         if (seg.isSummaryGroup) {
                             // Open combined preview for all summaries (mirrors synthetic chip behavior)
                             int totalFiles = (int) seg.fragments.stream()
-                                    .flatMap(f -> {
-                                        if (f instanceof ContextFragment.ComputedFragment cf) {
-                                            var files = cf.computedFiles().renderNowOr(Set.of());
-                                            return files.stream();
-                                        }
-                                        return f.files().stream();
-                                    })
+                                    .flatMap(f ->
+                                            // Fast, non-blocking
+                                            f.files().renderNowOr(Set.of()).stream())
                                     .map(ProjectFile::toString)
                                     .distinct()
                                     .count();
@@ -122,13 +118,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                             StringBuilder combinedText = new StringBuilder();
                             for (var f : seg.fragments) {
                                 try {
-                                    if (f instanceof ContextFragment.ComputedFragment cf) {
-                                        combinedText
-                                                .append(cf.computedText().renderNowOr("(Loading summary...)"))
-                                                .append("\n\n");
-                                    } else {
-                                        combinedText.append(f.text()).append("\n\n");
-                                    }
+                                    combinedText
+                                            .append(f.text().renderNowOr("(Loading summary...)"))
+                                            .append("\n\n");
                                 } catch (Exception ex) {
                                     logger.debug("Failed reading summary text for preview", ex);
                                 }
@@ -304,12 +296,10 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
         // Bind fragments to a single repaint/token-cache invalidation runnable
         for (var f : this.fragments) {
-            if (f instanceof ContextFragment.ComputedFragment cf) {
-                ComputedSubscription.bind(cf, this, () -> {
-                    tokenCache.remove(f.id());
-                    repaint();
-                });
-            }
+            ComputedSubscription.bind(f, this, () -> {
+                tokenCache.remove(f.id());
+                repaint();
+            });
         }
 
         repaint();
@@ -332,19 +322,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             @Override
             protected Void doInBackground() {
                 for (var f : frags) {
-                    try {
-                        if (f instanceof ContextFragment.ComputedFragment cf) {
-                            // Kick off computations eagerly
-                            cf.computedText().start();
-                            cf.computedDescription().start();
-                            cf.computedFiles().start();
-                        }
-                        if (f.isText() || f.getType().isOutput()) {
-                            // This will compute and cache the token count for the fragment (non-blocking text path)
-                            tokensForFragment(f);
-                        }
-                    } catch (Exception ignore) {
-                        // Best-effort pre-warm; failures are non-fatal and will be handled lazily
+                    if (f.isText() || f.getType().isOutput()) {
+                        // This will compute and cache the token count for the fragment (non-blocking text path)
+                        tokensForFragment(f);
                     }
                 }
                 return null;
@@ -669,7 +649,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
         var ac = getAccessibleContext();
         if (ac != null) {
-            ac.setAccessibleDescription(String.format("Tokens: %s of %d", currentText, maxTokens));
+            int effectiveMax = Math.max(maxTokens, usedTokens);
+            ac.setAccessibleDescription(String.format("Tokens: %s of %d", currentText, effectiveMax));
         }
     }
 
@@ -716,8 +697,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     private List<Segment> computeSegments(int width) {
         // If no fragments are provided, fall back to single fill behavior using fallbackCurrentTokens
         if (fragments.isEmpty()) {
-            int fillWidth =
-                    (int) Math.floor(width * Math.min(1.0, (double) fallbackCurrentTokens / Math.max(1, maxTokens)));
+            int effectiveMax = Math.max(1, Math.max(maxTokens, fallbackCurrentTokens));
+            int fillWidth = (int) Math.floor(width * (fallbackCurrentTokens / (double) effectiveMax));
             boolean dark = isDarkTheme();
             Color fillColor = getOkColor(dark);
             var s = new Segment(0, Math.max(0, fillWidth), fillColor, Set.of(), false);
@@ -754,8 +735,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             return this.segments;
         }
 
-        // Compute filled width based on total tokens vs maxTokens
-        int fillWidth = (int) Math.floor(width * Math.min(1.0, (double) totalTokens / Math.max(1, maxTokens)));
+        // Compute filled width based on total tokens vs maxTokens, but allow auto-rescale when usage > maxTokens
+        int effectiveMax = Math.max(1, Math.max(maxTokens, totalTokens));
+        int fillWidth = (int) Math.floor(width * (totalTokens / (double) effectiveMax));
         if (fillWidth <= 0) {
             this.segments = List.of();
             return this.segments;
@@ -946,16 +928,19 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     private int tokensForFragment(ContextFragment f) {
         try {
-            return tokenCache.computeIfAbsent(f.id(), id -> {
+            return tokenCache.compute(f.id(), (id, cachedTokenCount) -> {
+                if (cachedTokenCount != null && cachedTokenCount > 0) {
+                    return cachedTokenCount;
+                }
                 if (f.isText() || f.getType().isOutput()) {
                     try {
-                        String text;
-                        if (f instanceof ContextFragment.ComputedFragment cf) {
-                            text = cf.computedText().renderNowOr("(Loading)");
+                        String text = f.text().renderNowOr("");
+                        if (text.isBlank()) {
+                            // Not ready yet, will be replaced next time we perform a look-up
+                            return 0;
                         } else {
-                            text = f.text();
+                            return Messages.getApproximateTokens(text);
                         }
-                        return Messages.getApproximateTokens(text);
                     } catch (Exception e) {
                         logger.trace("Failed to compute token count for fragment", e);
                         return 0;
