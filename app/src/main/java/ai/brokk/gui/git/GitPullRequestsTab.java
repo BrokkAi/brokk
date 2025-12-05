@@ -1064,6 +1064,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     });
                 } else {
                     logger.error("Failed to fetch pull requests", ex);
+                    var errorMessage = GitHubErrorUtil.formatError(ex, "PRs");
                     SwingUtilities.invokeLater(() -> {
                         if (capturedGeneration != searchGeneration) {
                             return;
@@ -1074,7 +1075,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                         ciStatusCache.clear();
                         prCommitsCache.clear();
                         prTableModel.setRowCount(0);
-                        prTableModel.addRow(new Object[] {"", "Error fetching PRs: " + ex.getMessage(), "", "", ""});
+                        prTableModel.addRow(new Object[] {"", errorMessage, "", "", ""});
                         disablePrButtonsAndClearCommitsAndMenus();
                         authorChoices.clear();
                         labelChoices.clear();
