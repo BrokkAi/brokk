@@ -387,7 +387,8 @@ public class PreviewManager {
 
     /**
      * Opens an in-place preview of a context fragment without updating history.
-     * Uses ComputedSubscription.bind() to handle async loading and updates cleanly.
+     * For live context, binds the preview to the file for auto-refresh and editing.
+     * For history snapshots, displays a static preview without disk synchronization.
      *
      * <p><b>Unified Entry Point:</b> All fragment preview requests should route through this method.</p>
      */
@@ -509,10 +510,17 @@ public class PreviewManager {
             return;
         }
 
+        // Bind to file only when viewing the latest (live) context
+        boolean isLive = cm.isLive();
+
         // Determine initial values - use file-based style detection for path fragments
         String initialText = (textNow != null) ? textNow : "Loading...";
         String initialStyle = (styleNow != null) ? styleNow : guessInitialStyle(fragment);
-        ProjectFile projectFile = extractProjectFile(fragment);
+
+        // Use the same ProjectFile for the placeholder panel only when viewing the live context.
+        // This enables auto-refresh and live editing in the preview panel for the current file.
+        // For history snapshots, pass null to prevent auto-refresh and editing, ensuring the preview remains static.
+        ProjectFile projectFile = isLive ? extractProjectFile(fragment) : null;
 
         var panel = new PreviewTextPanel(cm, projectFile, initialText, initialStyle, chrome.getTheme(), fragment);
         showPreviewFrame(initialTitle, panel, fragment);

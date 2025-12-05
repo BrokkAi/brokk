@@ -2320,6 +2320,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return contextHistory;
     }
 
+    /**
+     * @return true if the currently selected context is live/top context.
+     */
+    public boolean isLive() {
+        return Objects.equals(liveContext(), selectedContext());
+    }
+
     public UUID getCurrentSessionId() {
         return currentSessionId;
     }
