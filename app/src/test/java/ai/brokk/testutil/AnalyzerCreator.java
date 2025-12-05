@@ -16,11 +16,8 @@ public class AnalyzerCreator {
     public static TreeSitterAnalyzer createTreeSitterAnalyzer(IProject project) {
         var language = project.getBuildLanguage();
         var analyzer = language.createAnalyzer(project);
-        if (analyzer instanceof TreeSitterAnalyzer treeSitterAnalyzer) {
-            return treeSitterAnalyzer;
-        } else {
-            throw new NoSupportedAnalyzerForTestProjectException(language);
-        }
+        return (TreeSitterAnalyzer) analyzer.subAnalyzer(language)
+                .orElseThrow(() -> new NoSupportedAnalyzerForTestProjectException(language));
     }
 
     static class NoSupportedAnalyzerForTestProjectException extends RuntimeException {

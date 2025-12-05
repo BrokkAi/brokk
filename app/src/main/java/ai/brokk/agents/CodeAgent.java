@@ -73,7 +73,7 @@ public class CodeAgent {
     private final IConsoleIO io;
 
     // A "global" for current task Context. Updated mid-task with new files and build status.
-    private Context context;
+    Context context;
 
     public CodeAgent(IContextManager contextManager, StreamingChatModel model) {
         this(contextManager, model, contextManager.getIo());
@@ -288,6 +288,9 @@ public class CodeAgent {
                         .collect(Collectors.toList());
                 context = context.addFragments(newFrags);
             }
+
+            // Refresh context fragments for any files that were modified (so LLM sees current contents)
+            context = context.copyAndRefresh(es.changedFiles());
 
             if (applyOutcome instanceof Step.Retry retryApply) {
                 cs = retryApply.cs();

@@ -469,7 +469,7 @@ public final class JobRunner {
                 // Clean up
                 if (console != null) {
                     try {
-                        console.shutdown(5);
+                        // No-op: events are written synchronously, so nothing to await.
                     } catch (Throwable ignore) {
                         // Non-critical: shutdown failed
                     }

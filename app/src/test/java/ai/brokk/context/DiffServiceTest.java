@@ -159,6 +159,8 @@ class DiffServiceTest {
         writeImage(imgFile, Color.RED);
 
         var oldImgFrag = new ContextFragment.ImageFileFragment(imgFile, contextManager);
+        // Ensure old fragment's async computation completes before mutating the file
+        oldImgFrag.await(Duration.ofSeconds(2));
         var oldCtx = new Context(
                 contextManager, List.of(oldImgFrag), List.of(), null, CompletableFuture.completedFuture("old"));
 

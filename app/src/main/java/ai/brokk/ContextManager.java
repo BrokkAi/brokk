@@ -1432,15 +1432,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return analyzerWrapper.getNonBlocking() != null;
     }
 
-    @Override
-    @Blocking
-    public Set<ProjectFile> getFilesInContext() {
-        return liveContext()
-                .fileFragments()
-                .flatMap(cf -> cf.files().join().stream())
-                .collect(Collectors.toSet());
-    }
-
     /** Returns the current session's domain-model task list. Always non-null. */
     public TaskList.TaskListData getTaskList() {
         return liveContext().getTaskListDataOrEmpty();
@@ -1641,31 +1632,34 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 compressHistory(); // synchronous
             }
             // Mark the task as done and persist the updated list
-            markTaskDoneAndPersist(task);
+            var ctx = markTaskDoneAndPersist(result.context(), task);
+            result = result.withContext(ctx);
         }
 
         return result;
     }
 
     /** Replace the given task with its 'done=true' variant and persist the task list for the current session. */
-    private void markTaskDoneAndPersist(TaskList.TaskItem task) {
-        var existing = new ArrayList<>(getTaskList().tasks());
-        int idx = existing.indexOf(task);
+    private Context markTaskDoneAndPersist(Context context, TaskList.TaskItem task) {
+        var tasks = getTaskList().tasks();
+
+        // Find index: prefer exact match, fall back to first incomplete task with matching text
+        int idx = tasks.indexOf(task);
         if (idx < 0) {
-            // Fallback: find first matching by text (not done) if equals() does not match
-            for (int i = 0; i < existing.size(); i++) {
-                var it = existing.get(i);
-                if (!it.done() && it.text().equals(task.text())) {
-                    idx = i;
-                    break;
-                }
-            }
+            idx = IntStream.range(0, tasks.size())
+                    .filter(i -> !tasks.get(i).done() && tasks.get(i).text().equals(task.text()))
+                    .findFirst()
+                    .orElse(-1);
         }
-        if (idx >= 0) {
-            existing.set(idx, new TaskList.TaskItem(task.title(), task.text(), true));
-            var newData = new TaskList.TaskListData(List.copyOf(existing));
-            setTaskList(newData, "Task list marked task done");
+        if (idx < 0) {
+            logger.error("Task not found !? {}", task.toString());
+            return context;
         }
+
+        var updated = new ArrayList<>(tasks);
+        updated.set(idx, new TaskList.TaskItem(task.title(), task.text(), true));
+        return setTaskList(
+                context, new TaskList.TaskListData(List.copyOf(updated)), "Task list marked task done", false);
     }
 
     private void captureGitState(Context frozenContext) {
