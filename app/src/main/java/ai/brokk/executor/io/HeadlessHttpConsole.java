@@ -11,9 +11,6 @@ import java.awt.Component;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -22,21 +19,13 @@ import org.jetbrains.annotations.Nullable;
  * Headless implementation of IConsoleIO that maps console I/O events to durable JobEvents.
  * <p>Inherits MemoryConsole so headless runs retain an in-memory transcript that mirrors GUI/CLI behavior alongside the durable token event log.
  *
- * <p>All methods are non-blocking: events are enqueued into a single-threaded executor
- * that serializes them to the JobStore's event log. This ensures:
- * <ul>
- *   <li>Sequential consistency: events are written in the order enqueued</li>
- *   <li>Non-blocking caller: LLM streaming and task execution threads are not blocked</li>
- *   <li>Durable: events persist to disk via JobStore</li>
- * </ul>
+ * <p>Writes are performed synchronously to the JobStore so the persisted sequence is always authoritative.
  */
 public class HeadlessHttpConsole extends MemoryConsole {
     private static final Logger logger = LogManager.getLogger(HeadlessHttpConsole.class);
 
     private final JobStore jobStore;
     private final String jobId;
-    private final ExecutorService eventWriter;
-    private volatile long lastSeq = -1;
 
     /**
      * Create a new HeadlessHttpConsole.
@@ -47,35 +36,22 @@ public class HeadlessHttpConsole extends MemoryConsole {
     public HeadlessHttpConsole(JobStore jobStore, String jobId) {
         this.jobStore = jobStore;
         this.jobId = jobId;
-
-        // Single-threaded executor to serialize event writes
-        this.eventWriter = Executors.newSingleThreadExecutor(r -> {
-            var t = new Thread(r, "HeadlessConsole-EventWriter");
-            t.setDaemon(true);
-            t.setUncaughtExceptionHandler((thread, throwable) -> {
-                logger.error("Uncaught exception in event writer thread", throwable);
-            });
-            return t;
-        });
     }
 
     /**
-     * Enqueue an event for asynchronous writing.
-     * This method returns immediately; the event is persisted on the event writer thread.
+     * Append an event synchronously. This blocks the caller until the event is
+     * durably appended to the JobStore and the assigned sequence is available.
      *
      * @param type The event type
      * @param data The event data (arbitrary JSON-serializable object)
      */
     private void enqueueEvent(String type, @Nullable Object data) {
-        eventWriter.execute(() -> {
-            try {
-                long seq = jobStore.appendEvent(jobId, JobEvent.of(type, data));
-                lastSeq = seq;
-                logger.debug("Appended event type={} seq={}", type, seq);
-            } catch (IOException e) {
-                logger.error("Failed to append event of type {}", type, e);
-            }
-        });
+        try {
+            long seq = jobStore.appendEvent(jobId, JobEvent.of(type, data));
+            logger.debug("Appended event type={} seq={}", type, seq);
+        } catch (IOException e) {
+            logger.error("Failed to append event of type {}", type, e);
+        }
     }
 
     /**
@@ -270,35 +246,31 @@ public class HeadlessHttpConsole extends MemoryConsole {
     }
 
     /**
-     * Gracefully shut down the event writer and await termination.
+     * Graceful shutdown is a no-op because writes are synchronous.
      *
-     * @param timeoutSeconds Maximum seconds to wait for pending events
+     * @param timeoutSeconds Ignored in this implementation
      */
     public void shutdown(int timeoutSeconds) {
-        eventWriter.shutdown();
-        try {
-            if (!eventWriter.awaitTermination(timeoutSeconds, TimeUnit.SECONDS)) {
-                logger.warn("Event writer did not terminate within {}s; forcing shutdown", timeoutSeconds);
-                var pending = eventWriter.shutdownNow();
-                if (!pending.isEmpty()) {
-                    logger.warn("Discarded {} pending events", pending.size());
-                }
-            }
-        } catch (InterruptedException e) {
-            logger.warn("Interrupted while waiting for event writer termination");
-            eventWriter.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
+        // No-op: events are written synchronously, so nothing to await.
     }
 
     /**
-     * Get the last sequence number of appended events.
-     * Useful for resuming polls after reconnection.
+     * Get the last sequence number of appended events by querying the JobStore.
+     * This makes the JobStore the authoritative source of truth.
      *
-     * @return The last sequence number, or -1 if no events have been appended
+     * @return The last sequence number, or -1 if no events have been appended or on error
      */
     public long getLastSeq() {
-        return lastSeq;
+        try {
+            var events = jobStore.readEvents(jobId, -1, 0);
+            if (events.isEmpty()) {
+                return -1;
+            }
+            return events.get(events.size() - 1).seq();
+        } catch (IOException e) {
+            logger.warn("Failed to read lastSeq from JobStore for job {}: returning -1", jobId, e);
+            return -1;
+        }
     }
 
     // ============================================================================
@@ -330,12 +302,6 @@ public class HeadlessHttpConsole extends MemoryConsole {
 
     /**
      * Chooses the default decision returned to callers when running headless.
-     * <ul>
-     *     <li>{@link javax.swing.JOptionPane#YES_NO_OPTION} and {@link javax.swing.JOptionPane#YES_NO_CANCEL_OPTION}
-     *     yield {@link javax.swing.JOptionPane#YES_OPTION}</li>
-     *     <li>{@link javax.swing.JOptionPane#OK_CANCEL_OPTION} yields {@link javax.swing.JOptionPane#OK_OPTION}</li>
-     *     <li>All other option types yield {@link javax.swing.JOptionPane#OK_OPTION}</li>
-     * </ul>
      */
     private static int defaultDecisionFor(int optionType) {
         return switch (optionType) {
