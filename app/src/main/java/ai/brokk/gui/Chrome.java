@@ -21,6 +21,7 @@ import ai.brokk.gui.dependencies.DependenciesDrawerPanel;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
 import ai.brokk.gui.dialogs.PreviewImagePanel;
+import ai.brokk.gui.dialogs.PreviewTextFrame;
 import ai.brokk.gui.dialogs.PreviewTextPanel;
 import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.git.GitHistoryTab;
@@ -99,7 +100,11 @@ public class Chrome
     private @Nullable Rectangle dependenciesDialogBounds = null;
 
     // Track preview windows by ProjectFile for refresh on file changes
-    private final Map<ProjectFile, JFrame> projectFileToPreviewWindow = new ConcurrentHashMap<>();
+    public final Map<ProjectFile, JFrame> projectFileToPreviewWindow = new ConcurrentHashMap<>();
+    
+    // Shared frame for all PreviewTextPanel tabs
+    @Nullable
+    private PreviewTextFrame previewTextFrame;
 
     // Per-Chrome instance dialog tracking to support multiple Chrome windows with independent dialogs
     private final Map<String, JDialog> openDialogs = new ConcurrentHashMap<>();
@@ -1818,12 +1823,20 @@ public class Chrome
      * Creates and shows a standard preview JFrame for a given component. Handles title, default close operation,
      * loading/saving bounds using the "preview" key, and visibility. Reuses existing preview windows when possible to
      * avoid cluttering the desktop.
+     * 
+     * For PreviewTextPanel instances, routes them to a shared tabbed frame instead of individual windows.
      *
      * @param contextManager   The context manager for accessing project settings.
      * @param title            The title for the JFrame.
      * @param contentComponent The JComponent to display within the frame.
      */
     public void showPreviewFrame(ContextManager contextManager, String title, JComponent contentComponent) {
+        // Special handling for PreviewTextPanel - route to tabbed frame
+        if (contentComponent instanceof PreviewTextPanel textPanel) {
+            showPreviewTextPanelInTabbedFrame(contextManager, title, textPanel);
+            return;
+        }
+        
         // Generate a key for window reuse based on the content type and title
         String windowKey = generatePreviewWindowKey(title, contentComponent);
 
@@ -1968,9 +1981,7 @@ public class Chrome
 
         // Track ProjectFile mapping if this is a file preview
         ProjectFile projectFile = null;
-        if (contentComponent instanceof PreviewTextPanel textPanel) {
-            projectFile = textPanel.getFile();
-        } else if (contentComponent instanceof PreviewImagePanel imagePanel) {
+        if (contentComponent instanceof PreviewImagePanel imagePanel) {
             var brokkFile = imagePanel.getFile();
             if (brokkFile instanceof ProjectFile pf) {
                 projectFile = pf;
@@ -2024,6 +2035,77 @@ public class Chrome
         }
     }
 
+    /**
+     * Shows a PreviewTextPanel in the shared tabbed preview frame.
+     */
+    private void showPreviewTextPanelInTabbedFrame(ContextManager contextManager, String title, PreviewTextPanel panel) {
+        SwingUtilities.invokeLater(() -> {
+            // Create frame if it doesn't exist or was disposed
+            if (previewTextFrame == null || !previewTextFrame.isDisplayable()) {
+                previewTextFrame = new PreviewTextFrame(this, contextManager, themeManager);
+                
+                // Set bounds using same logic as regular preview windows
+                var project = contextManager.getProject();
+                var storedBounds = project.getPreviewWindowBounds();
+                if (storedBounds.width > 0 && storedBounds.height > 0) {
+                    previewTextFrame.setBounds(storedBounds);
+                    if (!isPositionOnScreen(storedBounds.x, storedBounds.y)) {
+                        previewTextFrame.setLocationRelativeTo(frame);
+                    }
+                } else {
+                    previewTextFrame.setSize(800, 600);
+                    previewTextFrame.setLocationRelativeTo(frame);
+                }
+                
+                // Set minimum size
+                previewTextFrame.setMinimumSize(new Dimension(700, 200));
+                
+                // Add listener to save bounds
+                previewTextFrame.addComponentListener(new ComponentAdapter() {
+                    @Override
+                    public void componentMoved(ComponentEvent e) {
+                        project.savePreviewWindowBounds(previewTextFrame);
+                    }
+                    
+                    @Override
+                    public void componentResized(ComponentEvent e) {
+                        project.savePreviewWindowBounds(previewTextFrame);
+                    }
+                });
+                
+                // Apply theme
+                previewTextFrame.applyTheme(themeManager);
+            }
+            
+            // Add or select tab
+            ProjectFile file = panel.getFile();
+            previewTextFrame.addOrSelectTab(title, panel, file);
+            
+            // Track file mapping if applicable
+            if (file != null) {
+                projectFileToPreviewWindow.put(file, previewTextFrame);
+            }
+            
+            // Show and focus
+            previewTextFrame.setVisible(true);
+            previewTextFrame.toFront();
+            previewTextFrame.requestFocus();
+            
+            // macOS focus workaround
+            if (SystemInfo.isMacOS) {
+                previewTextFrame.setAlwaysOnTop(true);
+                previewTextFrame.setAlwaysOnTop(false);
+            }
+        });
+    }
+    
+    /**
+     * Called by PreviewTextFrame when it's being disposed to clear our reference.
+     */
+    public void clearPreviewTextFrame() {
+        previewTextFrame = null;
+    }
+    
     private String generatePreviewWindowKey(String title, JComponent contentComponent) {
         // When showing a loading placeholder, always use a stable preview-based key so that
         // subsequent async content replacement targets the same window regardless of file association.
@@ -2084,6 +2166,13 @@ public class Chrome
     private void updatePreviewWindowTitle(String initialTitle, JComponent contentComponent, String newTitle) {
         SwingUtilities.invokeLater(() -> {
             try {
+                // Check if it's a PreviewTextPanel in the tabbed frame
+                if (contentComponent instanceof PreviewTextPanel textPanel && previewTextFrame != null && previewTextFrame.isDisplayable()) {
+                    previewTextFrame.updateTabTitle(textPanel, newTitle);
+                    return;
+                }
+                
+                // Handle regular preview windows
                 String key = generatePreviewWindowKey(initialTitle, contentComponent);
                 JFrame previewFrame = activePreviewWindows.get(key);
                 if (previewFrame == null) {
@@ -2132,6 +2221,13 @@ public class Chrome
      * Closes all active preview windows and clears the tracking maps. Useful for cleanup or when switching projects.
      */
     public void closeAllPreviewWindows() {
+        // Close the shared PreviewTextFrame if it exists
+        if (previewTextFrame != null && previewTextFrame.isDisplayable()) {
+            previewTextFrame.dispose();
+        }
+        previewTextFrame = null;
+        
+        // Close all other preview windows
         for (JFrame frame : activePreviewWindows.values()) {
             if (frame.isDisplayable()) {
                 frame.dispose();
@@ -2163,22 +2259,24 @@ public class Chrome
             for (ProjectFile file : changedFiles) {
                 JFrame previewFrame = projectFileToPreviewWindow.get(file);
                 if (previewFrame != null && previewFrame.isDisplayable() && previewFrame != excludeFrame) {
-                    // Get the content panel from the frame
-                    Container contentPane = previewFrame.getContentPane();
-
-                    // Refresh based on panel type
-                    if (contentPane instanceof PreviewTextPanel textPanel) {
-                        textPanel.refreshFromDisk();
-                    } else if (contentPane instanceof PreviewImagePanel imagePanel) {
-                        imagePanel.refreshFromDisk();
+                    // Check if it's the shared PreviewTextFrame
+                    if (previewFrame == previewTextFrame) {
+                        // Refresh all tabs for this file in the tabbed frame
+                        previewTextFrame.refreshTabsForFile(file);
                     } else {
-                        // Content might be nested in a BorderLayout
-                        Component centerComponent =
-                                ((BorderLayout) contentPane.getLayout()).getLayoutComponent(BorderLayout.CENTER);
-                        if (centerComponent instanceof PreviewTextPanel textPanel) {
-                            textPanel.refreshFromDisk();
-                        } else if (centerComponent instanceof PreviewImagePanel imagePanel) {
+                        // Handle regular preview windows (non-PTP)
+                        Container contentPane = previewFrame.getContentPane();
+                        
+                        // Refresh based on panel type
+                        if (contentPane instanceof PreviewImagePanel imagePanel) {
                             imagePanel.refreshFromDisk();
+                        } else {
+                            // Content might be nested in a BorderLayout
+                            Component centerComponent =
+                                    ((BorderLayout) contentPane.getLayout()).getLayoutComponent(BorderLayout.CENTER);
+                            if (centerComponent instanceof PreviewImagePanel imagePanel) {
+                                imagePanel.refreshFromDisk();
+                            }
                         }
                     }
                 }
