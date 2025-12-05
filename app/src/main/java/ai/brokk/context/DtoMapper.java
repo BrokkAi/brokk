@@ -97,14 +97,20 @@ public class DtoMapper {
                                 taskRefDto.primaryModelReasoning());
                     }
 
+                    // Load log and summary independently (both can coexist)
+                    ContextFragment.TaskFragment logFragment = null;
                     if (taskRefDto.logId() != null) {
-                        var logFragment = (ContextFragment.TaskFragment) fragmentCache.get(taskRefDto.logId());
-                        if (logFragment != null) {
-                            return new TaskEntry(taskRefDto.sequence(), logFragment, null, meta);
-                        }
-                    } else if (taskRefDto.summaryContentId() != null) {
-                        String summary = contentReader.readContent(taskRefDto.summaryContentId());
-                        return new TaskEntry(taskRefDto.sequence(), null, summary, meta);
+                        logFragment = (ContextFragment.TaskFragment) fragmentCache.get(taskRefDto.logId());
+                    }
+
+                    String summary = null;
+                    if (taskRefDto.summaryContentId() != null) {
+                        summary = contentReader.readContent(taskRefDto.summaryContentId());
+                    }
+
+                    // At least one must be present
+                    if (logFragment != null || summary != null) {
+                        return new TaskEntry(taskRefDto.sequence(), logFragment, summary, meta);
                     }
                     return null;
                 })
@@ -154,8 +160,8 @@ public class DtoMapper {
                             : null;
                     return new TaskEntryRefDto(
                             te.sequence(),
-                            te.log() != null ? te.log().id() : null,
-                            te.summary() != null ? writer.writeContent(te.summary(), null) : null,
+                            te.hasLog() ? te.log().id() : null,
+                            te.isCompressed() ? writer.writeContent(te.summary(), null) : null,
                             type,
                             pmName,
                             pmReason);
@@ -541,11 +547,11 @@ public class DtoMapper {
 
     private static TaskEntryDto toTaskEntryDto(TaskEntry entry, ContentWriter writer) {
         TaskFragmentDto logDto = null;
-        if (entry.log() != null) {
+        if (entry.hasLog()) {
             logDto = toTaskFragmentDto(entry.log(), writer);
         }
         String summaryContentId = null;
-        if (entry.summary() != null) {
+        if (entry.isCompressed()) {
             summaryContentId = writer.writeContent(entry.summary(), null);
         }
         return new TaskEntryDto(entry.sequence(), logDto, summaryContentId);
@@ -623,8 +629,10 @@ public class DtoMapper {
             Map<String, TaskFragmentDto> allTaskDtos,
             @Nullable Map<String, byte[]> imageBytesMap,
             ContentReader reader) {
+        // Load the log if present
+        ContextFragment.TaskFragment taskFragment = null;
         if (dto.log() != null) {
-            var taskFragment = (ContextFragment.TaskFragment) fragmentCacheForRecursion.computeIfAbsent(
+            taskFragment = (ContextFragment.TaskFragment) fragmentCacheForRecursion.computeIfAbsent(
                     dto.log().id(),
                     id -> resolveAndBuildFragment(
                             id,
@@ -635,12 +643,16 @@ public class DtoMapper {
                             imageBytesMap,
                             fragmentCacheForRecursion,
                             reader));
-            return new TaskEntry(dto.sequence(), taskFragment, null);
-        } else if (dto.summaryContentId() != null) {
-            String summary = reader.readContent(dto.summaryContentId());
-            return TaskEntry.fromCompressed(dto.sequence(), summary);
         }
-        throw new IllegalArgumentException("TaskEntryDto has neither log nor summary");
+
+        // Load the summary if present
+        String summary = null;
+        if (dto.summaryContentId() != null) {
+            summary = reader.readContent(dto.summaryContentId());
+        }
+
+        // Both can coexist; at least one must be present
+        return new TaskEntry(dto.sequence(), taskFragment, summary);
     }
 
     private static CodeUnit fromCodeUnitDto(CodeUnitDto dto, IContextManager mgr) {
