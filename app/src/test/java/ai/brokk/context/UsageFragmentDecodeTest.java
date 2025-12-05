@@ -53,10 +53,10 @@ public class UsageFragmentDecodeTest {
 
             assertFalse(files.isEmpty(), "files should be parsed from frozen text");
             assertTrue(
-                    files.stream().anyMatch(f -> f.toString().contains("src/main/java/p1/A.java")),
+                    files.stream().anyMatch(f -> f.toString().replace('\\', '/').contains("src/main/java/p1/A.java")),
                     "expected project file for A.java");
             assertTrue(
-                    files.stream().anyMatch(f -> f.toString().contains("src/main/java/p2/B.java")),
+                    files.stream().anyMatch(f -> f.toString().replace('\\', '/').contains("src/main/java/p2/B.java")),
                     "expected project file for B.java");
 
             assertFalse(sources.isEmpty(), "sources should contain resolved code units");
@@ -137,7 +137,7 @@ public class UsageFragmentDecodeTest {
             var sources = frag.sources().join();
 
             assertTrue(
-                    files.stream().anyMatch(f -> f.toString().contains("src/main/java/p1/A.java")),
+                    files.stream().anyMatch(f -> f.toString().replace('\\', '/').contains("src/main/java/p1/A.java")),
                     "expected project file for A.java");
             assertTrue(
                     sources.stream()
