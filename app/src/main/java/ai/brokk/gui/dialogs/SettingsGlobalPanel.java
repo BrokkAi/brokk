@@ -96,6 +96,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     @Nullable
     private JPanel otherModelsVendorHolder;
 
+    private boolean suppressOtherModelsVendorEvents;
+
     private JTextField balanceField = new JTextField();
     private BrowserLabel signupLabel = new BrowserLabel("", ""); // Initialized with dummy values
     private JCheckBox showCostNotificationsCheckbox = new JCheckBox("Show LLM cost notifications");
@@ -402,17 +404,22 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         // Rebuild combo with available vendors
-        otherModelsVendorCombo.setModel(new DefaultComboBoxModel<>(vendors.toArray(new String[0])));
+        suppressOtherModelsVendorEvents = true;
+        try {
+            otherModelsVendorCombo.setModel(new DefaultComboBoxModel<>(vendors.toArray(new String[0])));
 
-        // Apply persisted preference if present and valid; otherwise fall back to Default
-        String persistedVendor = MainProject.getOtherModelsVendorPreference();
-        String vendorToSelect;
-        if (!persistedVendor.isBlank() && vendors.contains(persistedVendor)) {
-            vendorToSelect = persistedVendor;
-        } else {
-            vendorToSelect = "Default";
+            // Apply persisted preference if present and valid; otherwise fall back to Default
+            String persistedVendor = MainProject.getOtherModelsVendorPreference();
+            String vendorToSelect;
+            if (!persistedVendor.isBlank() && vendors.contains(persistedVendor)) {
+                vendorToSelect = persistedVendor;
+            } else {
+                vendorToSelect = "Default";
+            }
+            otherModelsVendorCombo.setSelectedItem(vendorToSelect);
+        } finally {
+            suppressOtherModelsVendorEvents = false;
         }
-        otherModelsVendorCombo.setSelectedItem(vendorToSelect);
 
         // Hide vendor row if only one option remains
         boolean hideVendorRow = vendors.size() <= 1;
@@ -1622,6 +1629,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         otherModelsVendorCombo = new JComboBox<>(new String[] {"Anthropic", "Default", "OpenAI"});
         otherModelsVendorCombo.setToolTipText(
                 "Selects the default models for Quick, Quick Edit, Quickest, and Scan operations.");
+        otherModelsVendorCombo.addActionListener(e -> handleOtherModelsVendorSelectionChanged());
         otherModelsVendorHolder = new JPanel(new BorderLayout(0, 0));
         otherModelsVendorHolder.add(otherModelsVendorCombo, BorderLayout.CENTER);
 
@@ -1751,6 +1759,45 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         container.add(modelsTabbed, BorderLayout.CENTER);
 
         return container;
+    }
+
+    private void handleOtherModelsVendorSelectionChanged() {
+        if (suppressOtherModelsVendorEvents) {
+            return;
+        }
+        applyOtherModelsVendorSelection((String) otherModelsVendorCombo.getSelectedItem(), true);
+    }
+
+    private void applyOtherModelsVendorSelection(@Nullable String vendor, boolean reloadWhenChanged) {
+        String normalizedVendor = vendor == null || vendor.isBlank() ? "Default" : vendor;
+        String previousVendorPref = MainProject.getOtherModelsVendorPreference();
+        MainProject.setOtherModelsVendorPreference(normalizedVendor);
+
+        var mp = chrome.getProject().getMainProject();
+        if ("OpenAI".equals(normalizedVendor)) {
+            mp.setQuickModelConfig(new Service.ModelConfig(Service.GPT_5_NANO));
+            mp.setQuickEditModelConfig(new Service.ModelConfig(Service.GPT_5_NANO));
+            mp.setQuickestModelConfig(new Service.ModelConfig(Service.GPT_5_NANO));
+            mp.setScanModelConfig(new Service.ModelConfig(Service.GPT_5_MINI));
+        } else if ("Anthropic".equals(normalizedVendor)) {
+            mp.setQuickModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
+            mp.setQuickEditModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
+            mp.setQuickestModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
+            mp.setScanModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
+        } else {
+            mp.setQuickModelConfig(MainProject.getDefaultQuickModelConfig());
+            mp.setQuickEditModelConfig(MainProject.getDefaultQuickEditModelConfig());
+            mp.setQuickestModelConfig(MainProject.getDefaultQuickestModelConfig());
+            mp.setScanModelConfig(MainProject.getDefaultScanModelConfig());
+        }
+
+        if (reloadWhenChanged && !previousVendorPref.equals(normalizedVendor)) {
+            try {
+                chrome.getContextManager().reloadService();
+            } catch (Exception ex) {
+                logger.debug("Service reload after vendor change failed (non-fatal)", ex);
+            }
+        }
     }
 
     private void refreshBalanceDisplay() {
@@ -2130,40 +2177,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             chrome.getInstructionsPanel().selectPlannerModelConfig(new Service.ModelConfig(selectedPrimaryModelName));
         }
 
-        String previousVendorPref = MainProject.getOtherModelsVendorPreference();
-
-        // Persist selected vendor preference for "other models" regardless of choice
-        MainProject.setOtherModelsVendorPreference(selectedVendor != null ? selectedVendor : "");
-
-        // Apply vendor mappings for Quick, Quick Edit, Quickest, Scan
-        if ("OpenAI".equals(selectedVendor)) {
-            chrome.getProject().getMainProject().setQuickModelConfig(new Service.ModelConfig(Service.GPT_5_NANO));
-            chrome.getProject().getMainProject().setQuickEditModelConfig(new Service.ModelConfig(Service.GPT_5_NANO));
-            chrome.getProject().getMainProject().setQuickestModelConfig(new Service.ModelConfig(Service.GPT_5_NANO));
-            chrome.getProject().getMainProject().setScanModelConfig(new Service.ModelConfig(Service.GPT_5_MINI));
-        } else if ("Anthropic".equals(selectedVendor)) {
-            chrome.getProject().getMainProject().setQuickModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
-            chrome.getProject().getMainProject().setQuickEditModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
-            chrome.getProject().getMainProject().setQuickestModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
-            chrome.getProject().getMainProject().setScanModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
-        } else if ("Default".equals(selectedVendor)) {
-            var mp = chrome.getProject().getMainProject();
-            mp.setQuickModelConfig(MainProject.getDefaultQuickModelConfig());
-            mp.setQuickEditModelConfig(MainProject.getDefaultQuickEditModelConfig());
-            mp.setQuickestModelConfig(MainProject.getDefaultQuickestModelConfig());
-            mp.setScanModelConfig(MainProject.getDefaultScanModelConfig());
-        }
-
-        // Reload service if vendor changed so new Quick/Scan models take effect immediately
-        String prev = previousVendorPref;
-        String now = selectedVendor;
-        if (!prev.equals(now)) {
-            try {
-                chrome.getContextManager().reloadService();
-            } catch (Exception ex) {
-                logger.debug("Service reload after vendor change failed (non-fatal)", ex);
-            }
-        }
+        applyOtherModelsVendorSelection(selectedVendor, true);
 
         logger.debug("Applied all settings successfully (2 atomic writes)");
         return true;
