@@ -1,12 +1,8 @@
 package ai.brokk.gui.dialogs;
 
-import ai.brokk.ContextManager;
 import ai.brokk.analyzer.BrokkFile;
-import ai.brokk.gui.Chrome;
 import java.awt.*;
 import java.awt.event.ActionEvent;
-import java.awt.event.ComponentAdapter;
-import java.awt.event.ComponentEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowEvent;
 import java.awt.image.BufferedImage;
