@@ -27,6 +27,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 
 /** Interface for context manager functionality */
 public interface IContextManager {
@@ -129,8 +130,12 @@ public interface IContextManager {
         return new ProjectFile(project.getRoot(), trimmed);
     }
 
+    @Blocking
     default Set<ProjectFile> getFilesInContext() {
-        throw new UnsupportedOperationException();
+        return liveContext()
+                .fileFragments()
+                .flatMap(cf -> cf.files().join().stream())
+                .collect(Collectors.toSet());
     }
 
     default Context appendTasksToTaskList(Context context, List<String> tasks) {

@@ -1432,15 +1432,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return analyzerWrapper.getNonBlocking() != null;
     }
 
-    @Override
-    @Blocking
-    public Set<ProjectFile> getFilesInContext() {
-        return liveContext()
-                .fileFragments()
-                .flatMap(cf -> cf.files().join().stream())
-                .collect(Collectors.toSet());
-    }
-
     /** Returns the current session's domain-model task list. Always non-null. */
     public TaskList.TaskListData getTaskList() {
         return liveContext().getTaskListDataOrEmpty();
