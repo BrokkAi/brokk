@@ -135,21 +135,28 @@ public class BuildAgent {
                 // operations (like AbstractProject.applyFiltering()), we use cached IgnoreNode
                 // with direct path checking instead.
                 try (var dirStream = Files.walk(project.getRoot())) {
-                    dirStream
+                    // Collect all ignored directories, sorted by depth (shortest paths first)
+                    var ignoredDirs = dirStream
                             .filter(Files::isDirectory)
                             .filter(path -> !path.equals(project.getRoot())) // Skip root
                             .map(path -> project.getRoot().relativize(path))
                             .filter(relPath -> !relPath.toString().startsWith(".")) // Skip hidden dirs like .git
-                            .filter(relPath -> {
-                                // Explicitly check if directory is gitignored using proper gitignore semantics
-                                // This prevents false positives from empty or non-code directories
-                                return project.isDirectoryIgnored(relPath);
-                            })
-                            .forEach(relPath -> {
-                                var dirName = relPath.toString();
-                                this.currentExcludedDirectories.add(dirName);
-                                addedFromGitignore.add(dirName);
-                            });
+                            .filter(relPath -> project.isDirectoryIgnored(relPath))
+                            .map(Path::toString)
+                            .sorted(Comparator.comparingInt(s -> s.split("/").length))
+                            .toList();
+
+                    // Only store top-level ignored directories (skip nested paths)
+                    var addedPaths = new HashSet<String>();
+                    for (String dirName : ignoredDirs) {
+                        boolean ancestorExcluded = addedPaths.stream()
+                                .anyMatch(existing -> dirName.startsWith(existing + "/"));
+                        if (!ancestorExcluded) {
+                            this.currentExcludedDirectories.add(dirName);
+                            addedFromGitignore.add(dirName);
+                            addedPaths.add(dirName);
+                        }
+                    }
                 }
 
             } catch (IOException e) {
