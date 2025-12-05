@@ -1403,7 +1403,7 @@ public final class MainProject extends AbstractProject {
      */
     public static void setWatchServiceImplPreference(String v) {
         var props = loadGlobalProperties();
-        String normalized = v == null ? "default" : v.trim().toLowerCase(Locale.ROOT);
+        String normalized = v.trim().toLowerCase(Locale.ROOT);
         if ("default".equals(normalized) || normalized.isBlank()) {
             props.remove(WATCH_SERVICE_IMPL_KEY);
         } else if ("legacy".equals(normalized) || "native".equals(normalized)) {
