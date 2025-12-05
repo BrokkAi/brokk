@@ -938,15 +938,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public boolean undoContext() {
-        UndoResult result = contextHistory.undo(1, io, (AbstractProject) project);
-        if (result.wasUndone()) {
-            notifyContextListeners(liveContext());
-            project.getSessionManager()
-                    .saveHistory(contextHistory, currentSessionId); // Save history of frozen contexts
-            return true;
-        }
-
-        return false;
+        return withFileChangeNotificationsPaused(() -> {
+            UndoResult result = contextHistory.undo(1, io, project);
+            if (result.wasUndone()) {
+                notifyContextListeners(liveContext());
+                project.getSessionManager()
+                        .saveHistory(contextHistory, currentSessionId); // Save history of frozen contexts
+                analyzerWrapper.requestRebuild();
+                return true;
+            }
+            return false;
+        });
     }
 
     /** undo changes until we reach the target FROZEN context */
