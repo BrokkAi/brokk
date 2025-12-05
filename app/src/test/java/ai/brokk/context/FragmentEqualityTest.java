@@ -6,6 +6,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.ContextFragment.AbstractComputedFragment;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import dev.langchain4j.data.message.AiMessage;
@@ -16,10 +17,13 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -46,10 +50,17 @@ class FragmentEqualityTest {
 
     private ai.brokk.IContextManager contextManager;
 
+    private final List<AbstractComputedFragment> trackedFragments = new ArrayList<>();
+
     @BeforeEach
     void setup() {
         contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
         ContextFragment.setMinimumId(1);
+    }
+
+    private <T extends AbstractComputedFragment> T track(T fragment) {
+        trackedFragments.add(fragment);
+        return fragment;
     }
 
     private BufferedImage createTestImage(Color color, int width, int height) {
@@ -438,16 +449,16 @@ class FragmentEqualityTest {
     class PasteTextFragmentEqualityTest {
         @Test
         void testEqualsIdenticalContent() {
-            var ptf1 = new ContextFragment.PasteTextFragment(
+            var ptf1 = track(new ContextFragment.PasteTextFragment(
                     contextManager,
                     "text",
                     CompletableFuture.completedFuture("desc1"),
-                    CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
-            var ptf2 = new ContextFragment.PasteTextFragment(
+                    CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE)));
+            var ptf2 = track(new ContextFragment.PasteTextFragment(
                     contextManager,
                     "text",
                     CompletableFuture.completedFuture("desc2"),
-                    CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
+                    CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE)));
 
             // Identity-based: different instances are NOT equal()
             assertNotEquals(ptf1, ptf2);
@@ -457,32 +468,32 @@ class FragmentEqualityTest {
 
         @Test
         void testEqualsDifferentText() {
-            var ptf1 = new ContextFragment.PasteTextFragment(
+            var ptf1 = track(new ContextFragment.PasteTextFragment(
                     contextManager,
                     "text1",
                     CompletableFuture.completedFuture("desc"),
-                    CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
-            var ptf2 = new ContextFragment.PasteTextFragment(
+                    CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE)));
+            var ptf2 = track(new ContextFragment.PasteTextFragment(
                     contextManager,
                     "text2",
                     CompletableFuture.completedFuture("desc"),
-                    CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
+                    CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE)));
 
             assertNotEquals(ptf1, ptf2);
         }
 
         @Test
         void testHasSameSourceIdenticalText() {
-            var ptf1 = new ContextFragment.PasteTextFragment(
+            var ptf1 = track(new ContextFragment.PasteTextFragment(
                     contextManager,
                     "text",
                     CompletableFuture.completedFuture("desc1"),
-                    CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
-            var ptf2 = new ContextFragment.PasteTextFragment(
+                    CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE)));
+            var ptf2 = track(new ContextFragment.PasteTextFragment(
                     contextManager,
                     "text",
                     CompletableFuture.completedFuture("desc2"),
-                    CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
+                    CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE)));
 
             // hasSameSource compares text content
             assertTrue(ptf1.hasSameSource(ptf2));
@@ -490,16 +501,16 @@ class FragmentEqualityTest {
 
         @Test
         void testHasSameSourceDifferentText() {
-            var ptf1 = new ContextFragment.PasteTextFragment(
+            var ptf1 = track(new ContextFragment.PasteTextFragment(
                     contextManager,
                     "text1",
                     CompletableFuture.completedFuture("desc"),
-                    CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
-            var ptf2 = new ContextFragment.PasteTextFragment(
+                    CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE)));
+            var ptf2 = track(new ContextFragment.PasteTextFragment(
                     contextManager,
                     "text2",
                     CompletableFuture.completedFuture("desc"),
-                    CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
+                    CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE)));
 
             assertFalse(ptf1.hasSameSource(ptf2));
         }
@@ -510,10 +521,10 @@ class FragmentEqualityTest {
         @Test
         void testEqualsIdenticalImage() {
             var image1 = createTestImage(Color.RED, 10, 10);
-            var aif1 = new ContextFragment.AnonymousImageFragment(
-                    contextManager, image1, CompletableFuture.completedFuture("desc1"));
-            var aif2 = new ContextFragment.AnonymousImageFragment(
-                    contextManager, image1, CompletableFuture.completedFuture("desc2"));
+            var aif1 = track(new ContextFragment.AnonymousImageFragment(
+                    contextManager, image1, CompletableFuture.completedFuture("desc1")));
+            var aif2 = track(new ContextFragment.AnonymousImageFragment(
+                    contextManager, image1, CompletableFuture.completedFuture("desc2")));
 
             // Identity-based: different instances are NOT equal()
             assertNotEquals(aif1, aif2);
@@ -525,10 +536,10 @@ class FragmentEqualityTest {
         void testEqualsDifferentImages() {
             var image1 = createTestImage(Color.RED, 10, 10);
             var image2 = createTestImage(Color.BLUE, 10, 10);
-            var aif1 = new ContextFragment.AnonymousImageFragment(
-                    contextManager, image1, CompletableFuture.completedFuture("desc"));
-            var aif2 = new ContextFragment.AnonymousImageFragment(
-                    contextManager, image2, CompletableFuture.completedFuture("desc"));
+            var aif1 = track(new ContextFragment.AnonymousImageFragment(
+                    contextManager, image1, CompletableFuture.completedFuture("desc")));
+            var aif2 = track(new ContextFragment.AnonymousImageFragment(
+                    contextManager, image2, CompletableFuture.completedFuture("desc")));
 
             assertNotEquals(aif1, aif2);
         }
@@ -536,10 +547,10 @@ class FragmentEqualityTest {
         @Test
         void testHasSameSourceIdenticalImage() {
             var image1 = createTestImage(Color.RED, 10, 10);
-            var aif1 = new ContextFragment.AnonymousImageFragment(
-                    contextManager, image1, CompletableFuture.completedFuture("desc1"));
-            var aif2 = new ContextFragment.AnonymousImageFragment(
-                    contextManager, image1, CompletableFuture.completedFuture("desc2"));
+            var aif1 = track(new ContextFragment.AnonymousImageFragment(
+                    contextManager, image1, CompletableFuture.completedFuture("desc1")));
+            var aif2 = track(new ContextFragment.AnonymousImageFragment(
+                    contextManager, image1, CompletableFuture.completedFuture("desc2")));
 
             // hasSameSource uses contentHash (ID)
             assertTrue(aif1.hasSameSource(aif2));
@@ -549,10 +560,10 @@ class FragmentEqualityTest {
         void testHasSameSourceDifferentImages() {
             var image1 = createTestImage(Color.RED, 10, 10);
             var image2 = createTestImage(Color.BLUE, 10, 10);
-            var aif1 = new ContextFragment.AnonymousImageFragment(
-                    contextManager, image1, CompletableFuture.completedFuture("desc"));
-            var aif2 = new ContextFragment.AnonymousImageFragment(
-                    contextManager, image2, CompletableFuture.completedFuture("desc"));
+            var aif1 = track(new ContextFragment.AnonymousImageFragment(
+                    contextManager, image1, CompletableFuture.completedFuture("desc")));
+            var aif2 = track(new ContextFragment.AnonymousImageFragment(
+                    contextManager, image2, CompletableFuture.completedFuture("desc")));
 
             assertFalse(aif1.hasSameSource(aif2));
         }
@@ -853,5 +864,19 @@ class FragmentEqualityTest {
 
             assertFalse(sf.hasSameSource(null));
         }
+    }
+
+    /**
+     * UsageFragment's computed value can cause Llm to write an llm-history directory even though we're
+     * passing an empty analyzer. This waits for those tasks to finish before letting JUnit try to clean up;
+     * otherwise it will throw if it loses the race and llm-history gets created after it does its "remove everything"
+     * pass but before it runs rmdir.
+     */
+    @AfterEach
+    void awaitTrackedFragments() throws InterruptedException {
+        for (AbstractComputedFragment fragment : trackedFragments) {
+            fragment.await(Duration.ofSeconds(5));
+        }
+        trackedFragments.clear();
     }
 }
