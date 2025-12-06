@@ -795,10 +795,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         final KeyboardFocusManager kfm = KeyboardFocusManager.getCurrentKeyboardFocusManager();
         KeyEventDispatcher[] ref = new KeyEventDispatcher[1];
 
-        var dialog = new JDialog((Frame) null, "Press new shortcut", true);
+        var dialog = new BaseThemedDialog((Window) null, "Press new shortcut");
         var label = new JLabel("Press the desired key combination now (ESC to cancel)...");
         label.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        dialog.add(label);
+        dialog.getContentRoot().add(label);
         dialog.setSize(420, 140);
         dialog.setLocationRelativeTo(parent);
 
