@@ -65,6 +65,7 @@ import java.util.concurrent.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.Border;
 import javax.swing.border.EmptyBorder;
@@ -1788,10 +1789,22 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
-        executeSearchInternal(input);
+        executeSearchInternal(input, SearchAgent.Objective.LUTZ, true);
     }
 
-    private void executeSearchInternal(String query) {
+    public void runPlanCommand() {
+        var input = getInstructions();
+        if (input.isBlank()) {
+            chrome.toolError("Please provide a prompt for planning");
+            return;
+        }
+
+        chrome.getProject().addToInstructionsHistory(input, 20);
+        clearCommandInput();
+        executeSearchInternal(input, SearchAgent.Objective.TASKS_ONLY, false);
+    }
+
+    private void executeSearchInternal(String query, SearchAgent.Objective objective, boolean triggerAutoPlay) {
         final var modelToUse = selectDropdownModelOrShowError("Search");
         if (modelToUse == null) {
             logger.debug("Model selection failed for Search action: contextHasImages={}", contextHasImages());
@@ -1806,7 +1819,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             var cm = chrome.getContextManager();
             var context = cm.liveContext();
-            SearchAgent agent = new SearchAgent(context, query, modelToUse, SearchAgent.Objective.LUTZ, scope);
+            SearchAgent agent = new SearchAgent(context, query, modelToUse, objective, scope);
             try {
                 agent.scanInitialContext();
             } catch (InterruptedException e) {
