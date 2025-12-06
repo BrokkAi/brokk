@@ -8,6 +8,10 @@ import dev.langchain4j.data.message.ChatMessageType;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.util.Messages;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragment.SummaryType;
+import ai.brokk.context.Context;
+import ai.brokk.agents.SearchAgent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -265,6 +269,95 @@ public class AgentsMdInferrer {
             }
         } catch (Exception ex) {
             logger.error("Failed to generate AGENTS.md using LLM for {}: {}", targetDirectory, ex.getMessage(), ex);
+            return false;
+        }
+    }
+
+    /**
+     * Tier 2: If raw contents exceed the safety budget but estimated summaries fit,
+     * create SummaryFragment instances for each shallow file and run SearchAgent (ANSWER_ONLY)
+     * against an initial Context preloaded with those summaries. The agent is instructed
+     * to produce the AGENTS.md content. Returns true on success.
+     */
+    @org.jetbrains.annotations.Blocking
+    public boolean generateAgentsMdIfTier2() {
+        List<ProjectFile> files = collectShallowFiles();
+        long totalTokens = estimateTokensForFiles(files);
+        int maxInput = getModelMaxInputTokens();
+
+        if (totalTokens <= 0) {
+            logger.warn("No readable files found for AGENTS.md generation in {}", targetDirectory);
+            return false;
+        }
+        if (maxInput <= 0) {
+            logger.warn("Invalid model max input tokens ({}). Aborting AGENTS.md generation.", maxInput);
+            return false;
+        }
+
+        int safetyBudget = (int) Math.floor(maxInput * 0.9);
+        long summariesTokens = estimateSummaryTokensHeuristic(totalTokens);
+
+        if (summariesTokens > safetyBudget) {
+            logger.debug("Estimated summaries ({}) exceed safety budget ({}). Tier 2 not applicable.", summariesTokens, safetyBudget);
+            return false;
+        }
+
+        // Build SummaryFragment list for each shallow file.
+        List<ContextFragment> summaryFragments = new ArrayList<>();
+        for (ProjectFile pf : files) {
+            try {
+                String targetIdentifier = pf.toString();
+                ContextFragment.SummaryFragment sf =
+                        new ContextFragment.SummaryFragment(contextManager, targetIdentifier, SummaryType.FILE_SKELETONS);
+                summaryFragments.add(sf);
+            } catch (Exception ex) {
+                logger.debug("Failed to create SummaryFragment for {}: {}", pf, ex.getMessage(), ex);
+            }
+        }
+
+        if (summaryFragments.isEmpty()) {
+            logger.warn("No summary fragments could be constructed for AGENTS.md Tier 2 in {}", targetDirectory);
+            return false;
+        }
+
+        // Create an initial Context containing the summary fragments
+        Context initialContext = new Context(contextManager);
+        try {
+            initialContext = initialContext.addFragments(summaryFragments);
+        } catch (Exception ex) {
+            logger.error("Failed to add summary fragments to initial Context for AGENTS.md: {}", ex.getMessage(), ex);
+            return false;
+        }
+
+        String goal = "Using the provided file summaries, produce a concise AGENTS.md in Markdown that summarizes the most important APIs and any subtle points developers should know. Include short examples where helpful. Output only the Markdown content appropriate for AGENTS.md.";
+
+        try (ContextManager.TaskScope scope = contextManager.beginTask("Generate AGENTS.md (summaries + SearchAgent)", true)) {
+            SearchAgent agent = new SearchAgent(initialContext, goal, model, SearchAgent.Objective.ANSWER_ONLY, scope, chrome);
+            var result = agent.execute();
+            if (result == null) {
+                logger.warn("SearchAgent returned null result when generating AGENTS.md for {}", targetDirectory);
+                return false;
+            }
+
+            // Attempt to derive textual output from the agent result. If TaskResult provides a dedicated
+            // accessor in your codebase (e.g., getText/getAnswer), prefer that instead of toString().
+            String output = result.toString();
+            if (output == null || output.isBlank()) {
+                logger.warn("SearchAgent produced blank output for AGENTS.md in {}", targetDirectory);
+                return false;
+            }
+
+            Path out = targetDirectory.resolve("AGENTS.md");
+            try {
+                Files.writeString(out, output, StandardCharsets.UTF_8);
+                logger.info("Wrote AGENTS.md to {}", out);
+                return true;
+            } catch (IOException ioEx) {
+                logger.error("Failed to write AGENTS.md to {}: {}", out, ioEx.getMessage(), ioEx);
+                return false;
+            }
+        } catch (Exception ex) {
+            logger.error("Failed to generate AGENTS.md using SearchAgent for {}: {}", targetDirectory, ex.getMessage(), ex);
             return false;
         }
     }
