@@ -417,6 +417,70 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         });
         contextMenu.add(runTestsItem);
 
+        // Add "Infer AGENTS.md" when the selection is a directory
+        try {
+            TreePath[] selPaths = getSelectionPaths();
+            boolean isDirectoryContext = false;
+            File selectedDirFile = null;
+            if (selPaths != null && selPaths.length > 0) {
+                DefaultMutableTreeNode firstNode = (DefaultMutableTreeNode) selPaths[0].getLastPathComponent();
+                if (firstNode.getUserObject() instanceof ProjectTreeNode ptn && ptn.getFile().isDirectory()) {
+                    isDirectoryContext = true;
+                    selectedDirFile = ptn.getFile();
+                }
+            }
+
+            if (isDirectoryContext && selectedDirFile != null) {
+                Path selectedDirPath = selectedDirFile.toPath();
+                JMenuItem inferAgentsItem = new JMenuItem("Infer AGENTS.md");
+                inferAgentsItem.setToolTipText("Infer an AGENTS.md file for this directory using the selected model");
+                inferAgentsItem.addActionListener(ev -> {
+                    // Obtain selected model
+                    dev.langchain4j.model.chat.StreamingChatModel selectedModel = null;
+                    try {
+                        selectedModel = chrome.getInstructionsPanel().getSelectedModel();
+                    } catch (Exception ex) {
+                        logger.debug("Error obtaining selected model from InstructionsPanel", ex);
+                    }
+
+                    if (selectedModel == null) {
+                        chrome.toolError("No model selected or model unavailable for inferring AGENTS.md");
+                        return;
+                    }
+
+                    // Capture into effectively-final locals for use inside the nested lambda
+                    final Path dirForTask = selectedDirPath;
+                    final dev.langchain4j.model.chat.StreamingChatModel modelForTask = selectedModel;
+
+                    // Show spinner while working and run the blocking LLM task off the EDT
+                    chrome.showOutputSpinner("Inferring AGENTS.md...");
+                    contextManager.submitLlmAction(() -> {
+                        try {
+                            AgentsMdInferrer inferrer = new AgentsMdInferrer(dirForTask, contextManager, chrome, modelForTask);
+                            boolean success = inferrer.execute();
+                            SwingUtilities.invokeLater(() -> {
+                                chrome.hideOutputSpinner();
+                                if (success) {
+                                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "AGENTS.md generated successfully");
+                                } else {
+                                    chrome.toolError("AGENTS.md generation failed");
+                                }
+                            });
+                        } catch (Exception ex) {
+                            logger.error("Error inferring AGENTS.md for {}", dirForTask, ex);
+                            SwingUtilities.invokeLater(() -> {
+                                chrome.hideOutputSpinner();
+                                chrome.toolError("Failed to infer AGENTS.md: " + ex.getMessage());
+                            });
+                        }
+                    });
+                });
+                contextMenu.add(inferAgentsItem);
+            }
+        } catch (Exception ex) {
+            logger.warn("Failed to determine directory context for Infer AGENTS.md menu item", ex);
+        }
+
         // Add Paste menu item
         contextMenu.addSeparator();
         JMenuItem pasteItem = new JMenuItem("Paste");

@@ -440,4 +440,23 @@ public class AgentsMdInferrer {
             return false;
         }
     }
+
+    /**
+     * Convenience entrypoint that chooses the appropriate tier and runs the corresponding generator.
+     * Returns true if an AGENTS.md file was written successfully, false otherwise.
+     */
+    public boolean execute() {
+        Tier tier = determineTier();
+        logger.info("AGENTS.md inference executing for {} with tier={}", targetDirectory, tier);
+        try {
+            return switch (tier) {
+                case DIRECT_SUMMARIZE -> generateAgentsMdIfTier1();
+                case SUMMARIZE_THEN_SEARCHAGENT -> generateAgentsMdIfTier2();
+                case SEARCHAGENT_WITH_FILE_LIST -> generateAgentsMdIfTier3();
+            };
+        } catch (Exception ex) {
+            logger.error("Exception while executing AGENTS.md inference for {}: {}", targetDirectory, ex.getMessage(), ex);
+            return false;
+        }
+    }
 }
