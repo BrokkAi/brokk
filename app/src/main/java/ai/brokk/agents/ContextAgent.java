@@ -749,7 +749,10 @@ public class ContextAgent {
         }
 
         List<Future<LlmRecommendation>> futures;
-        try (var executor = AdaptiveExecutor.create(cm.getService(), model, chunks.size())) {
+        // Cap parallel pruning concurrency to avoid saturating thread pools and LLM endpoints.
+        int parallelism = Math.min(chunks.size(), 6);
+        logger.debug("Deep-prune filename chunking: using {} parallel workers (chunks={})", parallelism, chunks.size());
+        try (var executor = AdaptiveExecutor.create(cm.getService(), model, parallelism)) {
             List<Callable<LlmRecommendation>> tasks = new ArrayList<>(chunks.size());
             for (int i = 0; i < chunks.size(); i++) {
                 int batchIndex = i;
