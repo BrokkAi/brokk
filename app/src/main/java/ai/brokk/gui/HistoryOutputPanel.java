@@ -3172,13 +3172,29 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             }
                         }
 
-                        // Build per-file changes
+                        // Build per-file changes (skip non-text/binary files)
                         List<PerFileChange> perFileChanges = new ArrayList<>();
                         int totalAdded = 0;
                         int totalDeleted = 0;
 
                         for (var modFile : fileSet) {
                             var file = modFile.file();
+
+                            // Skip non-text (binary) files to avoid expensive/meaningless diffing and to prevent
+                            // spurious large CPU usage. Only text files contribute to line-based counts.
+                            boolean isText;
+                            try {
+                                isText = file.isText();
+                            } catch (Throwable t) {
+                                // Defensive: if text detection fails, treat as non-text and log at DEBUG.
+                                logger.debug("Failed to determine text-ness for file {}, treating as non-text: {}", file, t.getMessage());
+                                isText = false;
+                            }
+                            if (!isText) {
+                                logger.debug("Skipping non-text file in cumulative changes: {}", file);
+                                continue;
+                            }
+
                             String displayFile = file.getRelPath().toString();
 
                             // Compute left content based on baseline
