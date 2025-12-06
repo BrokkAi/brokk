@@ -112,6 +112,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final MaterialButton goStopButton;
     private final MaterialButton clearCompletedBtn = new MaterialButton();
     private final Chrome chrome;
+    private static @Nullable TaskListPanel INSTANCE = null;
 
     // Read-only state: when viewing a historical context, editing is disabled
     private boolean taskListEditable = true;
@@ -144,6 +145,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
         this.chrome = chrome;
+        INSTANCE = this;
 
         // Center: list with custom renderer
         list.setCellRenderer(new TaskRenderer());
@@ -2279,6 +2281,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         return goStopButton;
     }
 
+    public static @Nullable TaskListPanel getInstance() {
+        return INSTANCE;
+    }
+
     /**
      * Ensure tasksTabBadgedIcon is created and applied to the enclosing JTabbedPane tab (if present).
      * Safe to call from any thread; UI work runs on the EDT. No-op if not hosted in a JTabbedPane or if theme
@@ -2622,9 +2628,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 model.getSize(),
                 preExistingIncompleteTasks.size());
 
-        if (GlobalUiSettings.isAdvancedMode()) {
-            return;
-        }
+        
 
         if (queueActive) {
             return;
