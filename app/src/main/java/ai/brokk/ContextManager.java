@@ -1474,6 +1474,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Blocking
     @Override
     public Context createOrReplaceTaskList(Context context, List<String> tasks) {
+        return createOrReplaceTaskList(context, tasks, true);
+    }
+
+    @Blocking
+    @Override
+    public Context createOrReplaceTaskList(Context context, List<String> tasks, boolean triggerAutoPlay) {
         var items = summarizeTaskList(tasks);
         if (items.isEmpty()) {
             // If no valid tasks provided, clear the task list
@@ -1482,7 +1488,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         var newData = new TaskList.TaskListData(List.copyOf(items));
-        return setTaskList(context, newData, "Task list replaced", true);
+        return setTaskList(context, newData, "Task list replaced", triggerAutoPlay);
     }
 
     @Blocking
