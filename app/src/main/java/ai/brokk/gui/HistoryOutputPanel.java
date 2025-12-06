@@ -3243,6 +3243,21 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                     // Compute right content (working tree)
                                     String rightContent = safeReadWorkingTree(file);
 
+                                    // Fallback: if the combined content is extremely large, skip expensive diffing.
+                                    // We omit such files from perFileChanges (simpler, avoids storing huge blobs).
+                                    final int COMBINED_SIZE_CAP = 2_000_000;
+                                    int combinedLen = (leftContent == null ? 0 : leftContent.length())
+                                            + (rightContent == null ? 0 : rightContent.length());
+                                    if (combinedLen > COMBINED_SIZE_CAP) {
+                                        logger.debug(
+                                                "Skipping oversized file in cumulative changes: {} (combined length {} > {})",
+                                                displayFile,
+                                                combinedLen,
+                                                COMBINED_SIZE_CAP);
+                                        // Skip adding to totals and per-file list as a simple, conservative fallback.
+                                        continue;
+                                    }
+
                                     // Compute line counts (guarded against binary/huge blobs)
                                     int[] netCounts = computeNetLineCounts(leftContent, rightContent, displayFile);
                                     totalAdded += netCounts[0];
