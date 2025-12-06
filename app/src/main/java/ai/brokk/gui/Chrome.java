@@ -19,7 +19,6 @@ import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.dependencies.DependenciesDrawerPanel;
 import ai.brokk.gui.dependencies.DependenciesPanel;
-import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
 import ai.brokk.gui.dialogs.PreviewImagePanel;
 import ai.brokk.gui.dialogs.PreviewTextPanel;
@@ -3968,51 +3967,6 @@ public class Chrome
 
     public static JFrame newFrame(String title) {
         return newFrame(title, true);
-    }
-
-    /**
-     * Creates a JDialog with Brokk icon. Prefer {@link #newThemedDialog} for new dialogs.
-     * Use this for legacy dialogs or when you need direct content pane control.
-     */
-    public static JDialog newDialog(Window owner, String title, boolean modal, boolean initializeTitleBar) {
-        JDialog dialog =
-                new JDialog(owner, title, modal ? Dialog.ModalityType.APPLICATION_MODAL : Dialog.ModalityType.MODELESS);
-        applyIcon(dialog);
-        // macOS full-window-content configuration (see https://www.formdev.com/flatlaf/macos/)
-        if (SystemInfo.isMacOS) {
-            if (SystemInfo.isMacFullWindowContentSupported) {
-                dialog.getRootPane().putClientProperty("apple.awt.fullWindowContent", true);
-                dialog.getRootPane().putClientProperty("apple.awt.transparentTitleBar", true);
-
-                // hide window title
-                if (SystemInfo.isJava_17_orLater)
-                    dialog.getRootPane().putClientProperty("apple.awt.windowTitleVisible", false);
-                else dialog.setTitle(null);
-            }
-        }
-        if (initializeTitleBar) applyDialogTitleBar(dialog, title);
-        return dialog;
-    }
-
-    /** Creates a modal JDialog with Brokk icon and title bar styling. */
-    public static JDialog newDialog(Window owner, String title) {
-        return newDialog(owner, title, true, true);
-    }
-
-    /**
-     * Creates a {@link BaseThemedDialog} with Brokk icon and macOS title bar theming.
-     * Add UI to {@code dialog.getContentRoot()}, not directly to contentPane.
-     */
-    public static BaseThemedDialog newThemedDialog(@Nullable Window owner, String title, boolean modal) {
-        Dialog.ModalityType modality = modal ? Dialog.ModalityType.APPLICATION_MODAL : Dialog.ModalityType.MODELESS;
-        BaseThemedDialog dialog = new BaseThemedDialog(owner, title, modality);
-        applyIcon(dialog);
-        return dialog;
-    }
-
-    /** Creates a modal {@link BaseThemedDialog} with Brokk icon. */
-    public static BaseThemedDialog newThemedDialog(@Nullable Window owner, String title) {
-        return newThemedDialog(owner, title, true);
     }
 
     /** Applies macOS title bar styling to an existing dialog. No-op on other platforms. */

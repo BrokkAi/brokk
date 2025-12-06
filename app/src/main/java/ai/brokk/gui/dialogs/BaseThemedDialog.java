@@ -1,6 +1,5 @@
 package ai.brokk.gui.dialogs;
 
-import ai.brokk.gui.Chrome;
 import ai.brokk.gui.theme.ThemeTitleBarManager;
 import com.formdev.flatlaf.util.SystemInfo;
 import java.awt.*;
@@ -28,7 +27,6 @@ import org.jetbrains.annotations.Nullable;
  * </pre>
  *
  * @see ThemeTitleBarManager
- * @see Chrome#newThemedDialog(Window, String, boolean)
  */
 public class BaseThemedDialog extends JDialog {
     private final JPanel contentRoot = new JPanel(new BorderLayout());
