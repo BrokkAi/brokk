@@ -687,6 +687,33 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         return model;
     }
 
+    /**
+     * Returns the model to use for inferring Git commit messages.
+     * Policy: if all available models are free-tier eligible, return quickModel();
+     * otherwise return Haiku 4.5 with reasoning disabled; if unavailable, fall back to quickModel().
+     */
+    public StreamingChatModel getCommitsModel() {
+        boolean freeOnly;
+        try {
+            freeOnly = modelInfoMap.values().stream()
+                    .filter(Objects::nonNull)
+                    .allMatch(info -> {
+                        Object v = info.get("free_tier_eligible");
+                        return v instanceof Boolean b && b;
+                    });
+        } catch (Exception e) {
+            logger.debug("Failed to evaluate free-tier-only status: {}", e.getMessage());
+            freeOnly = false;
+        }
+
+        if (freeOnly) {
+            return quickModel();
+        }
+
+        var model = getModel(new ModelConfig(HAIKU_4_5, ReasoningLevel.DISABLE));
+        return model != null ? model : quickModel();
+    }
+
     public boolean hasSttModel() {
         return !(sttModel instanceof UnavailableSTT);
     }
