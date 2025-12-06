@@ -146,6 +146,11 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
+    @Blocking
+    default Context createOrReplaceTaskList(Context context, List<String> tasks, boolean triggerAutoPlay) {
+        throw new UnsupportedOperationException();
+    }
+
     default Context pushContext(Function<Context, Context> contextGenerator) {
         throw new UnsupportedOperationException();
     }

@@ -2881,8 +2881,8 @@ public class Chrome
             if (idx != -1) rightTabbedPanel.setSelectedIndex(idx);
             taskListPanel.refreshFromManager();
 
-            // EZ-mode: auto-play tasks when idle after the list finishes refreshing
-            if (triggerAutoPlay && !GlobalUiSettings.isAdvancedMode()) {
+            // Auto-play tasks when idle after the list finishes refreshing if triggered
+            if (triggerAutoPlay) {
                 SwingUtilities.invokeLater(() -> taskListPanel.autoPlayAllIfIdle(preExistingIncompleteTasks));
             }
         });
