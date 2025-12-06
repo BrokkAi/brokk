@@ -361,4 +361,83 @@ public class AgentsMdInferrer {
             return false;
         }
     }
+
+    /**
+     * Tier 3: When even estimated summaries exceed the safety budget, provide the SearchAgent with
+     * a short string fragment that lists the shallow files. The SearchAgent is then free to use
+     * its tools to explore the files as needed and produce AGENTS.md.
+     */
+    @org.jetbrains.annotations.Blocking
+    public boolean generateAgentsMdIfTier3() {
+        List<ProjectFile> files = collectShallowFiles();
+        long totalTokens = estimateTokensForFiles(files);
+        int maxInput = getModelMaxInputTokens();
+
+        if (totalTokens <= 0) {
+            logger.warn("No readable files found for AGENTS.md generation in {}", targetDirectory);
+            return false;
+        }
+        if (maxInput <= 0) {
+            logger.warn("Invalid model max input tokens ({}). Aborting AGENTS.md generation.", maxInput);
+            return false;
+        }
+
+        int safetyBudget = (int) Math.floor(maxInput * 0.9);
+        long summariesTokens = estimateSummaryTokensHeuristic(totalTokens);
+
+        if (summariesTokens <= safetyBudget) {
+            logger.debug("Estimated summaries ({}) fit safety budget ({}). Tier 3 not applicable.", summariesTokens, safetyBudget);
+            return false;
+        }
+
+        // Build a single StringFragment that contains the list of shallow file paths.
+        StringBuilder fileList = new StringBuilder();
+        fileList.append("This is a list of shallow files in the directory to guide exploration:\n\n");
+        for (ProjectFile pf : files) {
+            fileList.append("- ").append(pf.toString()).append("\n");
+        }
+        String fragmentText = fileList.toString();
+
+        ContextFragment.StringFragment sf =
+                new ContextFragment.StringFragment(contextManager, fragmentText, "Shallow file list for AGENTS.md generation", "text");
+
+        // Create an initial Context containing the string fragment
+        Context initialContext = new Context(contextManager);
+        try {
+            initialContext = initialContext.addFragments(List.of(sf));
+        } catch (Exception ex) {
+            logger.error("Failed to add file-list fragment to initial Context for AGENTS.md: {}", ex.getMessage(), ex);
+            return false;
+        }
+
+        String goal = "Using the provided file list, explore the project and produce a concise AGENTS.md in Markdown that summarizes the most important APIs and any subtle points developers should know. Include short examples where helpful. Output only the Markdown content appropriate for AGENTS.md.";
+
+        try (ContextManager.TaskScope scope = contextManager.beginTask("Generate AGENTS.md (file list + SearchAgent)", true)) {
+            SearchAgent agent = new SearchAgent(initialContext, goal, model, SearchAgent.Objective.ANSWER_ONLY, scope, chrome);
+            var result = agent.execute();
+            if (result == null) {
+                logger.warn("SearchAgent returned null result when generating AGENTS.md for {}", targetDirectory);
+                return false;
+            }
+
+            String output = result.toString();
+            if (output == null || output.isBlank()) {
+                logger.warn("SearchAgent produced blank output for AGENTS.md in {}", targetDirectory);
+                return false;
+            }
+
+            Path out = targetDirectory.resolve("AGENTS.md");
+            try {
+                Files.writeString(out, output, StandardCharsets.UTF_8);
+                logger.info("Wrote AGENTS.md to {}", out);
+                return true;
+            } catch (IOException ioEx) {
+                logger.error("Failed to write AGENTS.md to {}: {}", out, ioEx.getMessage(), ioEx);
+                return false;
+            }
+        } catch (Exception ex) {
+            logger.error("Failed to generate AGENTS.md using SearchAgent (Tier 3) for {}: {}", targetDirectory, ex.getMessage(), ex);
+            return false;
+        }
+    }
 }
