@@ -2711,10 +2711,8 @@ public class Chrome
 
             boolean enabled = GlobalUiSettings.isVerticalActivityLayout();
             var activityTabs = historyOutputPanel.getActivityTabs();
-            var outputTabs = historyOutputPanel.getOutputTabs();
             var activityTabsContainer = historyOutputPanel.getActivityTabsContainer();
             var outputTabsContainer = historyOutputPanel.getOutputTabsContainer();
-            outputTabsContainer.setVisible(!enabled);
 
             if (enabled) {
                 if (verticalActivityCombinedPanel != null
@@ -2722,9 +2720,7 @@ public class Chrome
                     bottomSplitPane.setRightComponent(verticalActivityCombinedPanel);
                 } else {
                     detachFromParent(activityTabs);
-                    if (outputTabs != null) {
-                        detachFromParent(outputTabs);
-                    }
+                    detachFromParent(outputTabsContainer);
                     detachFromParent(rightTabbedContainer);
                     var sessionHeader = historyOutputPanel.getSessionHeaderPanel();
                     detachFromParent(sessionHeader);
@@ -2762,12 +2758,10 @@ public class Chrome
                         }
                     });
 
-                    // Create horizontal split: left split pane | output tabs
+                    // Create horizontal split: left split pane | output tabs container (with capture bar)
                     var verticalSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
                     verticalSplit.setLeftComponent(leftSplitPane);
-                    if (outputTabs != null) {
-                        verticalSplit.setRightComponent(outputTabs);
-                    }
+                    verticalSplit.setRightComponent(outputTabsContainer);
                     verticalSplit.setResizeWeight(0.5);
 
                     // Restore saved position or use default
@@ -2826,9 +2820,7 @@ public class Chrome
             } else {
                 if (verticalActivityCombinedPanel != null) {
                     detachFromParent(activityTabs);
-                    if (outputTabs != null) {
-                        detachFromParent(outputTabs);
-                    }
+                    detachFromParent(outputTabsContainer);
                     detachFromParent(rightTabbedContainer);
 
                     // Return to standard layout; the bar sizing is already correct there.
@@ -2837,8 +2829,8 @@ public class Chrome
                     if (activityTabs.getParent() != activityTabsContainer) {
                         activityTabsContainer.add(activityTabs, BorderLayout.EAST);
                     }
-                    if (outputTabs != null && outputTabs.getParent() != outputTabsContainer) {
-                        outputTabsContainer.add(outputTabs, BorderLayout.CENTER);
+                    if (outputTabsContainer.getParent() != activityTabsContainer) {
+                        activityTabsContainer.add(outputTabsContainer, BorderLayout.CENTER);
                     }
                     if (topSplitPane.getBottomComponent() != rightTabbedContainer) {
                         topSplitPane.setBottomComponent(rightTabbedContainer);

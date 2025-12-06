@@ -471,7 +471,35 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         outputPanel.setBorder(BorderFactory.createEtchedBorder());
 
         outputPanel.add(llmScrollPane, BorderLayout.CENTER);
-        outputPanel.add(capturePanel, BorderLayout.SOUTH); // Add capture panel below LLM output
+
+        // Add bottom toolbar with Open in Window button (right-aligned)
+        JPanel bottomToolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
+        bottomToolbar.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 5));
+
+        // "Open in New Window" button configuration
+        SwingUtilities.invokeLater(() -> {
+            openWindowButton.setIcon(Icons.OPEN_NEW_WINDOW);
+            openWindowButton.setPreferredSize(new Dimension(24, 24));
+            openWindowButton.setMinimumSize(new Dimension(24, 24));
+            openWindowButton.setMaximumSize(new Dimension(24, 24));
+        });
+        openWindowButton.setMnemonic(KeyEvent.VK_W);
+        openWindowButton.setToolTipText("Open the output in a new window");
+        openWindowButton.addActionListener(e -> {
+            if (llmStreamArea.taskInProgress()) {
+                openOutputWindowStreaming();
+            } else {
+                var context = contextManager.selectedContext();
+                if (context == null) {
+                    logger.warn("Cannot open output in new window: current context is null.");
+                    return;
+                }
+                openOutputWindowFromContext(context);
+            }
+        });
+        bottomToolbar.add(openWindowButton);
+
+        outputPanel.add(bottomToolbar, BorderLayout.SOUTH);
 
         // Placeholder for the Changes tab
         var placeholder = new JPanel(new BorderLayout());
@@ -512,8 +540,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             }
         });
 
-        // Container for the combined section
+        // Container for the combined section: capture/notification bar above the tabs
         var centerContainer = new JPanel(new BorderLayout());
+        centerContainer.add(capturePanel, BorderLayout.NORTH);
         centerContainer.add(tabs, BorderLayout.CENTER);
         centerContainer.setMinimumSize(new Dimension(480, 0)); // Minimum width for combined area
         outputTabsContainer = centerContainer;
@@ -1164,7 +1193,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      */
     private JPanel buildCaptureOutputPanel(MaterialButton copyButton) {
         var panel = new JPanel(new BorderLayout(5, 3));
-        panel.setBorder(BorderFactory.createEmptyBorder(5, 0, 5, 0));
+        panel.setBorder(new CompoundBorder(
+                BorderFactory.createTitledBorder(
+                        new LineBorder(UIManager.getColor("Separator.foreground"), 1), "Notifications"),
+                new EmptyBorder(3, 6, 3, 6)));
         // Fixed height for capture panel
         panel.setPreferredSize(new Dimension(0, 38));
         panel.setMinimumSize(new Dimension(0, 38));
@@ -1181,29 +1213,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         // Buttons panel on the left
         var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
-
-        // "Open in New Window" button
-        SwingUtilities.invokeLater(() -> {
-            openWindowButton.setIcon(Icons.OPEN_NEW_WINDOW);
-            openWindowButton.setPreferredSize(new Dimension(24, 24));
-            openWindowButton.setMinimumSize(new Dimension(24, 24));
-            openWindowButton.setMaximumSize(new Dimension(24, 24));
-        });
-        openWindowButton.setMnemonic(KeyEvent.VK_W);
-        openWindowButton.setToolTipText("Open the output in a new window");
-        openWindowButton.addActionListener(e -> {
-            if (llmStreamArea.taskInProgress()) {
-                openOutputWindowStreaming();
-            } else {
-                var context = contextManager.selectedContext();
-                if (context == null) {
-                    logger.warn("Cannot open output in new window: current context is null.");
-                    return;
-                }
-                openOutputWindowFromContext(context);
-            }
-        });
-        buttonsPanel.add(openWindowButton);
 
         // Notifications button
         notificationsButton.setToolTipText("Show notifications");
@@ -1324,8 +1333,21 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Enforce fixed sizing for the capture/notification bar and buttons in vertical layout.
         // Do not change behavior for standard layout; this is only applied when Chrome enables vertical layout.
         SwingUtilities.invokeLater(() -> {
-            final int barHeight = 38;
             final int btnSize = 24;
+
+            // Compute bar height from the session header if available so the capture bar matches the session bar.
+            int barHeight = 38; // fallback
+            try {
+                Dimension pref = sessionHeaderPanel.getPreferredSize();
+                if (pref != null && pref.height > 0) {
+                    barHeight = pref.height;
+                } else {
+                    int h = sessionHeaderPanel.getHeight();
+                    if (h > 0) barHeight = h;
+                }
+            } catch (Exception e) {
+                logger.warn("Failed to compute session header height for capture bar sizing", e);
+            }
 
             if (enabled) {
                 if (captureOutputPanel != null) {
