@@ -268,9 +268,13 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected boolean shouldReplaceOnDuplicate(CodeUnit cu) {
+    protected boolean shouldReplaceOnDuplicate(CodeUnit existing, CodeUnit candidate) {
         // Python "last wins" semantics: duplicate definitions replace earlier ones
-        return cu.isField() || cu.isClass() || cu.isFunction();
+        // But only replace if same kind - a field shouldn't replace a class (e.g., "Base = FallbackBase")
+        if (existing.kind() != candidate.kind()) {
+            return false;
+        }
+        return candidate.isField() || candidate.isClass() || candidate.isFunction();
     }
 
     @Override

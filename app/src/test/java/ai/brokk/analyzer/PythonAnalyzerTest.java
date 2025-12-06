@@ -463,6 +463,17 @@ public final class PythonAnalyzerTest {
                 .filter(cu -> cu.isField() && cu.fqName().contains("LOCAL_VAR"))
                 .collect(Collectors.toList());
         assertEquals(0, localVarFields.size(), "Function-local variables should not be captured as fields");
+
+        // Negative tests: ensure nested definitions are NOT captured as top-level
+        var classVarFields = declarations.stream()
+                .filter(cu -> cu.isField() && cu.identifier().equals("CLASS_VAR"))
+                .toList();
+        assertEquals(0, classVarFields.size(), "Class-level variables should not be captured as module-level fields");
+
+        var methodVarFields = declarations.stream()
+                .filter(cu -> cu.isField() && cu.identifier().equals("METHOD_VAR"))
+                .toList();
+        assertEquals(0, methodVarFields.size(), "Method-local variables should not be captured as fields");
     }
 
     @Test
@@ -1087,6 +1098,111 @@ public final class PythonAnalyzerTest {
                 classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.base.FallbackBase")),
                 "FallbackBase class inside 'else' should be captured");
 
+        // Verify functions inside conditionals are captured
+        var functions = declarations.stream().filter(CodeUnit::isFunction).toList();
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("conditional_function")),
+                "Function inside 'if' should be captured");
+
+        // Verify variables inside conditionals are captured
+        var fields = declarations.stream().filter(CodeUnit::isField).toList();
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("CONDITIONAL_VAR")),
+                "Variable inside 'if' should be captured");
+
+        // Verify try/except captures (common pattern for optional dependencies)
+        assertTrue(
+                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.base.TryClass")),
+                "Class inside 'try' should be captured");
+        assertTrue(
+                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.base.ExceptClass")),
+                "Class inside 'except' should be captured");
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("try_function")),
+                "Function inside 'try' should be captured");
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("except_function")),
+                "Function inside 'except' should be captured");
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("TRY_VAR")),
+                "Variable inside 'try' should be captured");
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("EXCEPT_VAR")),
+                "Variable inside 'except' should be captured");
+
+        // Verify with statement captures
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("WITH_VAR")),
+                "Variable inside 'with' should be captured");
+
+        // Verify elif clause captures
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("elif_function")),
+                "Function inside 'elif' should be captured");
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("ELIF_VAR")),
+                "Variable inside 'elif' should be captured");
+
+        // Verify try-else clause captures (runs when no exception)
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("try_else_function")),
+                "Function inside try-else should be captured");
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("TRY_ELSE_VAR")),
+                "Variable inside try-else should be captured");
+
+        // Verify try-finally clause captures (always runs)
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("finally_function")),
+                "Function inside 'finally' should be captured");
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("FINALLY_VAR")),
+                "Variable inside 'finally' should be captured");
+
+        // Negative tests: ensure nested definitions are NOT captured as module-level
+        // outer_conditional_function is module-level (in if block) - should be captured
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("outer_conditional_function")),
+                "Function in module-level if block should be captured");
+        // inner_nested_function is inside outer_conditional_function - should NOT be module-level
+        assertFalse(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("inner_nested_function")),
+                "Nested function inside another function should NOT be captured as module-level");
+        // INNER_VAR is local to outer_conditional_function - should NOT be module-level
+        assertFalse(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("INNER_VAR")),
+                "Local variable inside function should NOT be captured as module-level field");
+
+        // Async constructs - should be captured (grammar uses optional 'async' on same nodes)
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("async_top_level")),
+                "Async function at module level should be captured");
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("async_in_if")),
+                "Async function in if block should be captured");
+        assertTrue(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("async_in_try")),
+                "Async function in try block should be captured");
+
+        // Nested control flow (if→try→def) - should NOT be captured (only one level)
+        assertFalse(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("nested_if_try_function")),
+                "Function in if→try (nested control flow) should NOT be captured");
+        assertFalse(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("nested_if_except_function")),
+                "Function in if→except (nested control flow) should NOT be captured");
+        assertFalse(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("NESTED_IF_TRY_VAR")),
+                "Variable in if→try (nested control flow) should NOT be captured");
+
+        // Deeper loop nesting (for→for→def) - should NOT be captured
+        assertFalse(
+                functions.stream().anyMatch(cu -> cu.identifier().equals("deeply_nested_loop_function")),
+                "Function in for→for (deeper nesting) should NOT be captured");
+        assertFalse(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("DEEPLY_NESTED_VAR")),
+                "Variable in for→for (deeper nesting) should NOT be captured");
+
         // Test subclass resolution
         ProjectFile subclassPy = new ProjectFile(testProject.getRoot(), "conditional_pkg/subclass.py");
         Set<CodeUnit> subclassDecls = testAnalyzer.getDeclarations(subclassPy);
@@ -1327,6 +1443,89 @@ public final class PythonAnalyzerTest {
                     imports.stream().anyMatch(cu -> cu.fqName().equals("mypackage.top.TopClass")),
                     "Should resolve 'from ...top import TopClass' to mypackage.top.TopClass");
         }
+    }
+
+    @Test
+    void testAnnotatedAndTupleAssignments() {
+        // Test capture of various Python assignment patterns:
+        // - Annotated assignments (VAR: Type = value)
+        // - Type-only annotations (VAR: Type)
+        // - Tuple unpacking (A, B = 1, 2)
+        // - Multi-target assignments (FOO = BAR = 42)
+        TestProject testProject = createTestProject("testcode-py", Languages.PYTHON);
+        PythonAnalyzer testAnalyzer = new PythonAnalyzer(testProject);
+
+        ProjectFile file = new ProjectFile(testProject.getRoot(), "assignment_types.py");
+        Set<CodeUnit> declarations = testAnalyzer.getDeclarations(file);
+
+        var fields = declarations.stream().filter(CodeUnit::isField).toList();
+
+        // Simple assignment (already working)
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("SIMPLE")),
+                "Simple assignment SIMPLE should be captured");
+
+        // Annotated assignment with value: ANNOTATED: int = 2
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("ANNOTATED")),
+                "Annotated assignment ANNOTATED: int = 2 should be captured");
+
+        // Type-only annotation: TYPED_ONLY: str
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("TYPED_ONLY")),
+                "Type-only annotation TYPED_ONLY: str should be captured");
+
+        // Tuple unpacking: TUPLE_A, TUPLE_B = 1, 2
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("TUPLE_A")),
+                "Tuple unpacking TUPLE_A should be captured");
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("TUPLE_B")),
+                "Tuple unpacking TUPLE_B should be captured");
+
+        // Multi-target: MULTI_1 = MULTI_2 = 42
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("MULTI_1")),
+                "Multi-target MULTI_1 should be captured");
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("MULTI_2")),
+                "Multi-target MULTI_2 should be captured");
+
+        // Chained: CHAIN_A = CHAIN_B = CHAIN_C = "chained"
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("CHAIN_A")),
+                "Chained assignment CHAIN_A should be captured");
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("CHAIN_B")),
+                "Chained assignment CHAIN_B should be captured");
+        // Note: CHAIN_C is captured as the inner-most nested assignment
+
+        // Inside conditional
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("COND_SIMPLE")),
+                "Conditional COND_SIMPLE should be captured");
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("COND_ANNOTATED")),
+                "Conditional annotated COND_ANNOTATED should be captured");
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("COND_TUPLE_A")),
+                "Conditional tuple COND_TUPLE_A should be captured");
+        assertTrue(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("COND_TUPLE_B")),
+                "Conditional tuple COND_TUPLE_B should be captured");
+
+        // Negative tests: class and function local assignments should NOT be captured
+        assertFalse(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("class_attr")),
+                "Class attribute class_attr should NOT be captured as module-level field");
+        assertFalse(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("instance_attr")),
+                "Instance attribute instance_attr should NOT be captured as module-level field");
+        assertFalse(
+                fields.stream().anyMatch(cu -> cu.identifier().equals("local_var")),
+                "Function local local_var should NOT be captured as module-level field");
+
+        testProject.close();
     }
 
     @Test
