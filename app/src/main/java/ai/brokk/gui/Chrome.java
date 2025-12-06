@@ -1685,8 +1685,30 @@ public class Chrome
     public void close() {
         logger.info("Closing Chrome UI");
 
-        contextManager.close();
-        frame.dispose();
+        // Initiate asynchronous shutdown of ContextManager but do NOT block the EDT waiting for it.
+        // This prevents the UI from freezing while background executors are being shut down.
+        try {
+            var shutdownFuture = contextManager.closeAsync(1_000);
+            logger.debug("ContextManager.closeAsync(1_000) invoked (shutdown proceeding asynchronously)");
+            shutdownFuture.whenComplete((v, t) -> {
+                if (t != null) {
+                    logger.warn("Asynchronous ContextManager shutdown completed with error", t);
+                } else {
+                    logger.debug("Asynchronous ContextManager shutdown completed successfully");
+                }
+            });
+        } catch (Throwable t) {
+            // Defensive: never let shutdown initiation throw on the EDT
+            logger.warn("Failed to initiate asynchronous ContextManager shutdown", t);
+        }
+
+        // Dispose UI immediately so window close is responsive.
+        try {
+            frame.dispose();
+        } catch (Throwable t) {
+            logger.warn("Error while disposing frame", t);
+        }
+
         // Unregister this instance
         openInstances.remove(this);
     }
