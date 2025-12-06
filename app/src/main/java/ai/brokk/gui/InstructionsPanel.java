@@ -94,6 +94,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static final String ACTION_CODE = "Code";
     public static final String ACTION_ASK = "Ask";
     public static final String ACTION_SEARCH = "Lutz Mode";
+    public static final String ACTION_PLAN = "Plan";
 
     private static final String PLACEHOLDER_TEXT_ADVANCED =
             """
@@ -2033,7 +2034,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private boolean isValidMode(String mode) {
-        return ACTION_CODE.equals(mode) || ACTION_ASK.equals(mode) || ACTION_SEARCH.equals(mode);
+        return ACTION_CODE.equals(mode) || ACTION_ASK.equals(mode) || ACTION_SEARCH.equals(mode) || ACTION_PLAN.equals(mode);
     }
 
     private void notifyActionComplete(String actionName) {
