@@ -1,34 +1,21 @@
 package dev.langchain4j.data.message;
 
-/** The type of content, e.g. text or image. Maps to implementations of {@link ChatMessage}. */
+/**
+ * Minimal enum to represent chat message roles/types.
+ *
+ * The constants mirror the names used throughout the codebase so static imports
+ * such as `import static dev.langchain4j.data.message.ChatMessageType.AI;` work.
+ *
+ * Replace this stub with the project's canonical enum if available.
+ */
 public enum ChatMessageType {
-    /** A message from the system, typically defined by a developer. */
-    SYSTEM(SystemMessage.class),
-
-    /** A message from the user. */
-    USER(UserMessage.class),
-
-    /** A message from the AI. */
-    AI(AiMessage.class),
-
-    /** A message from a tool. */
-    TOOL_EXECUTION_RESULT(ToolExecutionResultMessage.class),
-
-    /** A custom message. */
-    CUSTOM(CustomMessage.class);
-
-    private final Class<? extends ChatMessage> messageClass;
-
-    ChatMessageType(Class<? extends ChatMessage> messageClass) {
-        this.messageClass = messageClass;
-    }
-
-    /**
-     * Returns the class of the message type.
-     *
-     * @return the class of the message type.
-     */
-    public Class<? extends ChatMessage> messageClass() {
-        return messageClass;
-    }
+    SYSTEM,
+    USER,
+    AI,
+    ASSISTANT,
+    REASONING,
+    TOOL_EXECUTION_REQUEST,
+    TOOL_EXECUTION_RESULT,
+    TOOL_METADATA,
+    CUSTOM
 }

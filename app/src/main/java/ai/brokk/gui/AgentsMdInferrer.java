@@ -2,6 +2,9 @@ package ai.brokk.gui;
 
 import ai.brokk.AbstractService;
 import ai.brokk.ContextManager;
+import ai.brokk.Llm;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.ChatMessageType;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.util.Messages;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -9,6 +12,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -168,5 +172,100 @@ public class AgentsMdInferrer {
             return Tier.SUMMARIZE_THEN_SEARCHAGENT;
         }
         return Tier.SEARCHAGENT_WITH_FILE_LIST;
+    }
+
+    /**
+     * If the raw token total for the shallow files in the target directory is less than half of the model's
+     * maximum input tokens, generate AGENTS.md directly using the LLM and write it to the directory as
+     * AGENTS.md. Returns true on success, false otherwise.
+     *
+     * This method performs blocking I/O and a network call to the model. Annotated as blocking. It is the
+     * caller's responsibility to avoid calling this on the EDT.
+     */
+    @org.jetbrains.annotations.Blocking
+    public boolean generateAgentsMdIfTier1() {
+        List<ProjectFile> files = collectShallowFiles();
+        long totalTokens = estimateTokensForFiles(files);
+        int maxInput = getModelMaxInputTokens();
+
+        if (totalTokens <= 0) {
+            logger.warn("No readable files found for AGENTS.md generation in {}", targetDirectory);
+            return false;
+        }
+        if (maxInput <= 0) {
+            logger.warn("Invalid model max input tokens ({}). Aborting AGENTS.md generation.", maxInput);
+            return false;
+        }
+
+        // Use half the context window as the threshold for "direct summarization" (Tier 1)
+        int threshold = Math.max(1, maxInput / 2);
+        if (totalTokens >= threshold) {
+            logger.debug("Total tokens ({}) >= half model context ({}). Skipping direct LLM summarization.", totalTokens, threshold);
+            return false;
+        }
+
+        // Build the prompt. Keep the top-level instruction short and attach raw file contents.
+        StringBuilder userBuilder = new StringBuilder();
+        userBuilder.append("Produce a well-structured AGENTS.md in Markdown that summarizes the most important APIs and any subtle points developers should know.\n");
+        userBuilder.append("Be concise but include examples or usage notes where helpful. Output only the markdown content appropriate for AGENTS.md.\n\n");
+
+        for (ProjectFile pf : files) {
+            try {
+                Optional<String> maybeText = pf.read();
+                if (maybeText.isPresent()) {
+                    String content = maybeText.get();
+                    // Include a filename marker and the raw file content
+                    userBuilder.append("Filename: ").append(pf.toString()).append("\n");
+                    userBuilder.append("```").append("\n");
+                    userBuilder.append(content).append("\n");
+                    userBuilder.append("```").append("\n\n");
+                } else {
+                    logger.debug("Skipping unreadable/empty file for prompt: {}", pf);
+                }
+            } catch (Exception ex) {
+                logger.debug("Failed to read file while building AGENTS.md prompt: {}", pf, ex);
+            }
+        }
+
+        // Prepare messages for the LLM
+        List<ChatMessage> messages = List.of(
+                Messages.create("You are a helpful assistant that generates project documentation.", ChatMessageType.SYSTEM),
+                Messages.create(userBuilder.toString(), ChatMessageType.USER)
+        );
+
+        String taskDescription = "Generate AGENTS.md for " + targetDirectory.getFileName();
+
+        Llm llm;
+        try {
+            llm = contextManager.getLlm(model, taskDescription);
+            if (llm == null) {
+                logger.warn("ContextManager did not provide an Llm instance for model; aborting AGENTS.md generation.");
+                return false;
+            }
+            // Direct LLM call
+            Llm.StreamingResult result = llm.sendRequest(messages);
+            if (result == null || result.isEmpty() || result.chatResponse() == null) {
+                logger.warn("LLM returned empty response when generating AGENTS.md for {}", targetDirectory);
+                return false;
+            }
+            String output = result.text();
+            if (output == null || output.isBlank()) {
+                logger.warn("LLM produced blank AGENTS.md content for {}", targetDirectory);
+                return false;
+            }
+
+            Path out = targetDirectory.resolve("AGENTS.md");
+            try {
+                Files.writeString(out, output, StandardCharsets.UTF_8);
+                logger.info("Wrote AGENTS.md to {}", out);
+                return true;
+            } catch (IOException ioEx) {
+                logger.error("Failed to write AGENTS.md to {}: {}", out, ioEx.getMessage(), ioEx);
+                return false;
+            }
+        } catch (Exception ex) {
+            logger.error("Failed to generate AGENTS.md using LLM for {}: {}", targetDirectory, ex.getMessage(), ex);
+            return false;
+        }
     }
 }
