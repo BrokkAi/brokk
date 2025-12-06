@@ -112,8 +112,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     @Nullable
     private JCheckBox forceToolEmulationCheckbox; // Dev-only
 
-    @Nullable
-    private GitHubSettingsPanel gitHubSettingsPanel; // Null if GitHub tab not shown
+    private GitHubSettingsPanel gitHubSettingsPanel;
 
     private DefaultListModel<McpServer> mcpServersListModel = new DefaultListModel<>();
     private boolean plannerModelSyncListenerRegistered = false;
@@ -454,9 +453,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     private void populateGitHubTab() {
-        if (gitHubSettingsPanel != null) {
-            gitHubSettingsPanel.loadSettings();
-        }
+        gitHubSettingsPanel.loadSettings();
     }
 
     private void populateMcpServersTab() {
@@ -486,15 +483,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         var modelsPanel = createQuickModelsPanel();
         globalSubTabbedPane.addTab(MODELS_TAB_TITLE, null, modelsPanel, "Configure models and favorites");
 
-        // GitHub Tab (conditionally added)
-        var project = chrome.getProject();
-        boolean shouldShowGitHubTab = project.isGitHubRepo();
-
-        if (shouldShowGitHubTab) {
-            gitHubSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
-            globalSubTabbedPane.addTab(
-                    SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubSettingsPanel, "GitHub integration settings");
-        }
+        // GitHub Tab (always shown - global account configuration)
+        gitHubSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
+        globalSubTabbedPane.addTab(
+                SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubSettingsPanel, "GitHub integration settings");
 
         // MCP Servers Tab
         var mcpPanel = createMcpPanel();
@@ -1958,7 +1950,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         // GitHub Tab validation
-        if (gitHubSettingsPanel != null && !gitHubSettingsPanel.applySettings()) {
+        if (!gitHubSettingsPanel.applySettings()) {
             return false;
         }
 
@@ -2138,6 +2130,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             chrome.getInstructionsPanel().selectPlannerModelConfig(new Service.ModelConfig(selectedPrimaryModelName));
         }
 
+        String previousVendorPref = MainProject.getOtherModelsVendorPreference();
+
         // Persist selected vendor preference for "other models" regardless of choice
         MainProject.setOtherModelsVendorPreference(selectedVendor != null ? selectedVendor : "");
 
@@ -2158,6 +2152,17 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             mp.setQuickEditModelConfig(MainProject.getDefaultQuickEditModelConfig());
             mp.setQuickestModelConfig(MainProject.getDefaultQuickestModelConfig());
             mp.setScanModelConfig(MainProject.getDefaultScanModelConfig());
+        }
+
+        // Reload service if vendor changed so new Quick/Scan models take effect immediately
+        String prev = previousVendorPref;
+        String now = selectedVendor;
+        if (!prev.equals(now)) {
+            try {
+                chrome.getContextManager().reloadService();
+            } catch (Exception ex) {
+                logger.debug("Service reload after vendor change failed (non-fatal)", ex);
+            }
         }
 
         logger.debug("Applied all settings successfully (2 atomic writes)");
@@ -3690,9 +3695,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     // SettingsChangeListener implementation
     @Override
     public void gitHubTokenChanged() {
-        if (gitHubSettingsPanel != null) {
-            gitHubSettingsPanel.gitHubTokenChanged();
-        }
+        gitHubSettingsPanel.gitHubTokenChanged();
     }
 
     @Override

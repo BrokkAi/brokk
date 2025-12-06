@@ -326,7 +326,7 @@ public final class BrokkCli implements Callable<Integer> {
         // Create Project + ContextManager
         var mainProject = new MainProject(projectPath);
         project = worktreePath == null ? mainProject : new WorktreeProject(worktreePath, mainProject);
-        logger.debug("Project files at {} are {}", project.getRepo().getCurrentCommitId(), project.getAllFiles());
+        logger.trace("Project files at {} are {}", project.getRepo().getCurrentCommitId(), project.getAllFiles());
         cm = new ContextManager(project);
 
         // Build BuildDetails from environment variables
@@ -513,35 +513,22 @@ public final class BrokkCli implements Callable<Integer> {
                             .orElseThrow();
 
             // Attempt to serve recommendation from local JSON cache keyed by commit + goal.
-            ContextAgent.RecommendationResult recommendations = null;
+            ContextAgent.RecommendationResult recommendations;
 
             String cacheKey = computeCacheKey(goalForScan, project.getRepo());
-            Optional<ContextAgent.RecommendationResult> cached = Optional.empty();
-
-            CacheMode cacheMode = getCacheMode();
-            if (cacheMode == CacheMode.WRITE) {
-                io.showNotification(
-                        IConsoleIO.NotificationRole.INFO, "Deep Scan: context cache mode WRITE; skipping cache load");
-            } else {
-                cached = readRecommendationFromCache(cacheKey, cm);
-            }
-
+            var cached = readRecommendationFromCache(cacheKey, cm);
             if (cached.isPresent()) {
                 recommendations = cached.get();
-                io.showNotification(
-                        IConsoleIO.NotificationRole.INFO,
-                        "Deep Scan: served recommendation from cache (key=" + cacheKey + ")");
             } else {
                 var agent = new ContextAgent(cm, planModel, goalForScan);
                 recommendations = agent.getRecommendations(cm.liveContext());
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "Deep Scan token usage: " + recommendations.metadata());
                 // Persist successful results to cache; failures are not cached.
-                if (recommendations.success() && cacheMode != CacheMode.READ) {
+                if (recommendations.success() && getCacheMode().canWrite()) {
                     writeRecommendationToCache(cacheKey, recommendations);
                 }
             }
-
-            io.showNotification(
-                    IConsoleIO.NotificationRole.INFO, "Deep Scan token usage: " + recommendations.metadata());
 
             if (recommendations.success()) {
                 io.showNotification(
@@ -972,10 +959,27 @@ public final class BrokkCli implements Callable<Integer> {
      *  - "OFF": neither read from nor write to the cache.
      */
     private enum CacheMode {
-        RW,
-        READ,
-        WRITE,
-        OFF
+        OFF(0),
+        READ(1),
+        WRITE(2),
+        RW(1 | 2);
+
+        private static final int READ_BIT = 1;
+        private static final int WRITE_BIT = 2;
+
+        private final int mask;
+
+        CacheMode(int mask) {
+            this.mask = mask;
+        }
+
+        boolean canRead() {
+            return (mask & READ_BIT) != 0;
+        }
+
+        boolean canWrite() {
+            return (mask & WRITE_BIT) != 0;
+        }
     }
 
     private static CacheMode getCacheMode() {
@@ -994,7 +998,7 @@ public final class BrokkCli implements Callable<Integer> {
 
     static Optional<ContextAgent.RecommendationResult> readRecommendationFromCache(String key, IContextManager mgr) {
         CacheMode mode = getCacheMode();
-        if (mode == CacheMode.WRITE || mode == CacheMode.OFF) {
+        if (!mode.canRead()) {
             logger.debug(
                     "Context cache mode {}: skipping read for key {} (BRK_CONTEXT_CACHE={})",
                     mode,
@@ -1090,6 +1094,7 @@ public final class BrokkCli implements Callable<Integer> {
                     .filter(Objects::nonNull)
                     .toList();
 
+            logger.debug("Successfully loaded recommendations from cache");
             return Optional.of(new ContextAgent.RecommendationResult(success, fragments, reasoning, metadata));
         } catch (Exception e) {
             logger.warn("Failed to parse recommendation.json in cache {}: {}", fileZip, e.getMessage());
@@ -1099,7 +1104,7 @@ public final class BrokkCli implements Callable<Integer> {
 
     static void writeRecommendationToCache(String key, ContextAgent.RecommendationResult rec) throws IOException {
         CacheMode mode = getCacheMode();
-        if (mode == CacheMode.READ || mode == CacheMode.OFF) {
+        if (!mode.canWrite()) {
             logger.debug(
                     "Context cache mode {}: skipping write for key {} (BRK_CONTEXT_CACHE={})",
                     mode,

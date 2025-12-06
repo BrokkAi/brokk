@@ -55,6 +55,14 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     @Nullable
     private volatile BiConsumer<Collection<ContextFragment>, Boolean> onHoverFragments = null;
 
+    /**
+     * Optional callback invoked when the hovered fragment set changes, to allow external components
+     * (such as the WorkspaceItemsChipPanel) to perform side effects like scrolling a chip into view.
+     * The runnable is executed on the EDT by the caller of this component.
+     */
+    @Nullable
+    private volatile Runnable onHoverScroll = null;
+
     @Nullable
     private volatile Runnable onClick = null;
 
@@ -196,6 +204,15 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                             logger.trace("onHoverFragments enter callback threw", ex);
                         }
                     }
+                    // Trigger optional scroll side-effect when the hovered segment changes
+                    Runnable scroll = onHoverScroll;
+                    if (seg != null && scroll != null) {
+                        try {
+                            scroll.run();
+                        } catch (Exception ex) {
+                            logger.trace("onHoverScroll callback threw", ex);
+                        }
+                    }
                 }
             }
         };
@@ -246,6 +263,15 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     public void setOnHoverFragments(@Nullable BiConsumer<Collection<ContextFragment>, Boolean> cb) {
         this.onHoverFragments = cb;
+    }
+
+    /**
+     * Set an optional scroll callback to run whenever the hovered segment changes and there
+     * is a current hovered segment. Typical usage is to scroll the corresponding chip into
+     * view in the workspace chip panel.
+     */
+    public void setOnHoverScroll(@Nullable Runnable onHoverScroll) {
+        this.onHoverScroll = onHoverScroll;
     }
 
     public void applyGlobalStyling(Set<ContextFragment> targets) {
@@ -491,6 +517,19 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         }
     }
 
+    /**
+     * Returns the fragments corresponding to the currently hovered segment, or an empty collection
+     * if no segment is hovered. Safe to call from any thread; the returned collection is immutable.
+     */
+    public Collection<ContextFragment> getHoveredFragments() {
+        Segment seg = hoveredSegment;
+        if (seg == null || seg.fragments.isEmpty()) {
+            return List.of();
+        }
+        // Expose a defensive copy so callers cannot mutate our internal state.
+        return List.copyOf(seg.fragments);
+    }
+
     @Nullable
     private Segment findSegmentAt(int x) {
         int width = getWidth();
@@ -630,7 +669,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
         var ac = getAccessibleContext();
         if (ac != null) {
-            ac.setAccessibleDescription(String.format("Tokens: %s of %d", currentText, maxTokens));
+            int effectiveMax = Math.max(maxTokens, usedTokens);
+            ac.setAccessibleDescription(String.format("Tokens: %s of %d", currentText, effectiveMax));
         }
     }
 
@@ -677,8 +717,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     private List<Segment> computeSegments(int width) {
         // If no fragments are provided, fall back to single fill behavior using fallbackCurrentTokens
         if (fragments.isEmpty()) {
-            int fillWidth =
-                    (int) Math.floor(width * Math.min(1.0, (double) fallbackCurrentTokens / Math.max(1, maxTokens)));
+            int effectiveMax = Math.max(1, Math.max(maxTokens, fallbackCurrentTokens));
+            int fillWidth = (int) Math.floor(width * (fallbackCurrentTokens / (double) effectiveMax));
             boolean dark = isDarkTheme();
             Color fillColor = getOkColor(dark);
             var s = new Segment(0, Math.max(0, fillWidth), fillColor, Set.of(), false);
@@ -715,8 +755,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             return this.segments;
         }
 
-        // Compute filled width based on total tokens vs maxTokens
-        int fillWidth = (int) Math.floor(width * Math.min(1.0, (double) totalTokens / Math.max(1, maxTokens)));
+        // Compute filled width based on total tokens vs maxTokens, but allow auto-rescale when usage > maxTokens
+        int effectiveMax = Math.max(1, Math.max(maxTokens, totalTokens));
+        int fillWidth = (int) Math.floor(width * (totalTokens / (double) effectiveMax));
         if (fillWidth <= 0) {
             this.segments = List.of();
             return this.segments;

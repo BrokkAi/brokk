@@ -22,6 +22,8 @@ import ai.brokk.gui.components.PullRequestHeaderCellRenderer;
 import ai.brokk.gui.components.WrapLayout;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.gui.util.Icons;
+import ai.brokk.gui.util.SlidingWindowState;
+import ai.brokk.gui.util.StreamingPaginationHelper;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
@@ -30,6 +32,7 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -98,13 +101,21 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private FilterBox authorFilter;
     private FilterBox labelFilter;
     private FilterBox assigneeFilter;
-    private FilterBox reviewFilter;
     private MaterialButton refreshPrButton;
 
     private final GitHubTokenMissingPanel gitHubTokenMissingPanel;
 
     private List<GHPullRequest> allPrsFromApi = new ArrayList<>();
     private List<GHPullRequest> displayedPrs = new ArrayList<>();
+
+    // Sliding window pagination state
+    private final SlidingWindowState<GHPullRequest> slidingWindow = new SlidingWindowState<>();
+
+    private volatile @Nullable Iterator<GHPullRequest> activePrIterator;
+    private long searchGeneration = 0;
+
+    private MaterialButton loadMoreButton;
+
     private final Map<Integer, String> ciStatusCache = new ConcurrentHashMap<>();
     private final Map<Integer, List<ICommitInfo>> prCommitsCache = new ConcurrentHashMap<>();
     private List<ICommitInfo> currentPrCommitDetailsList = new ArrayList<>();
@@ -200,14 +211,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     // Store default options for static filters to easily reset them
     private static final List<String> STATUS_FILTER_OPTIONS = List.of("Open", "Closed"); // "All" is null selection
-    private static final List<String> REVIEW_FILTER_OPTIONS = List.of(
-            "No reviews",
-            "Required",
-            "Approved",
-            "Changes requested",
-            "Reviewed by you",
-            "Not reviewed by you",
-            "Awaiting review from you"); // "All" is null selection
 
     // Lists to hold choices for dynamic filters
     private List<String> authorChoices = new ArrayList<>();
@@ -250,38 +253,48 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         filtersContainer.add(filterLabel);
         filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP)); // Space after label
 
-        statusFilter = new FilterBox(this.chrome, "Status", () -> STATUS_FILTER_OPTIONS, "Open");
+        var project = contextManager.getProject();
+
+        String savedStatus = project.getUiFilterProperty("prs.status");
+        String defaultStatus = savedStatus != null ? savedStatus : "Open";
+        statusFilter = new FilterBox(this.chrome, "Status", () -> STATUS_FILTER_OPTIONS, defaultStatus);
         statusFilter.setToolTipText("Filter by PR status");
         statusFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         statusFilter.addPropertyChangeListener("value", e -> {
-            // Status filter change triggers a new API fetch
+            project.setUiFilterProperty("prs.status", statusFilter.getSelected());
             updatePrList();
         });
         filtersContainer.add(statusFilter);
 
-        authorFilter = new FilterBox(this.chrome, "Author", this::getAuthorFilterOptions);
+        String savedAuthor = project.getUiFilterProperty("prs.author");
+        authorFilter = new FilterBox(this.chrome, "Author", this::getAuthorFilterOptions, savedAuthor);
         authorFilter.setToolTipText("Filter by author");
         authorFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        authorFilter.addPropertyChangeListener("value", e -> filterAndDisplayPrs());
+        authorFilter.addPropertyChangeListener("value", e -> {
+            project.setUiFilterProperty("prs.author", authorFilter.getSelected());
+            filterAndDisplayPrs();
+        });
         filtersContainer.add(authorFilter);
 
-        labelFilter = new FilterBox(this.chrome, "Label", this::getLabelFilterOptions);
+        String savedLabel = project.getUiFilterProperty("prs.label");
+        labelFilter = new FilterBox(this.chrome, "Label", this::getLabelFilterOptions, savedLabel);
         labelFilter.setToolTipText("Filter by label");
         labelFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        labelFilter.addPropertyChangeListener("value", e -> filterAndDisplayPrs());
+        labelFilter.addPropertyChangeListener("value", e -> {
+            project.setUiFilterProperty("prs.label", labelFilter.getSelected());
+            filterAndDisplayPrs();
+        });
         filtersContainer.add(labelFilter);
 
-        assigneeFilter = new FilterBox(this.chrome, "Assignee", this::getAssigneeFilterOptions);
+        String savedAssignee = project.getUiFilterProperty("prs.assignee");
+        assigneeFilter = new FilterBox(this.chrome, "Assignee", this::getAssigneeFilterOptions, savedAssignee);
         assigneeFilter.setToolTipText("Filter by assignee");
         assigneeFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        assigneeFilter.addPropertyChangeListener("value", e -> filterAndDisplayPrs());
+        assigneeFilter.addPropertyChangeListener("value", e -> {
+            project.setUiFilterProperty("prs.assignee", assigneeFilter.getSelected());
+            filterAndDisplayPrs();
+        });
         filtersContainer.add(assigneeFilter);
-
-        reviewFilter = new FilterBox(this.chrome, "Review", () -> REVIEW_FILTER_OPTIONS);
-        reviewFilter.setToolTipText("Filter by review status (Note: Some options may be placeholders)");
-        reviewFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        reviewFilter.addPropertyChangeListener("value", e -> filterAndDisplayPrs());
-        filtersContainer.add(reviewFilter);
 
         // Wrap filters in a scroll pane so they can overflow cleanly
         // Directly add the wrapping container – no horizontal scrollbar needed
@@ -350,7 +363,16 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         viewPrDiffButton.addActionListener(e -> viewFullPrDiff());
         prButtonPanel.add(viewPrDiffButton);
 
-        prButtonPanel.add(Box.createHorizontalGlue()); // Pushes refresh button to the right
+        prButtonPanel.add(Box.createHorizontalGlue()); // Pushes buttons to the right
+
+        loadMoreButton = new MaterialButton();
+        loadMoreButton.setText("Load more");
+        loadMoreButton.setToolTipText("Load more PRs");
+        loadMoreButton.setVisible(false);
+        loadMoreButton.addActionListener(e -> loadMorePrs());
+        prButtonPanel.add(loadMoreButton);
+
+        prButtonPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
 
         refreshPrButton = new MaterialButton();
         refreshPrButton.setIcon(Icons.REFRESH);
@@ -897,7 +919,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         authorFilter.setEnabled(enabled);
         labelFilter.setEnabled(enabled);
         assigneeFilter.setEnabled(enabled);
-        reviewFilter.setEnabled(enabled);
     }
 
     /** Determines the expected local branch name for a PR based on whether it's from the same repository or a fork. */
@@ -912,7 +933,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         try {
             var repo = getRepo();
-            var remoteUrl = repo.getRemoteUrl();
+            var remoteUrl = repo.getOriginRemoteUrl();
             GitUiUtil.OwnerRepo ownerRepo = GitUiUtil.parseOwnerRepoFromUrl(Objects.requireNonNullElse(remoteUrl, ""));
 
             if (ownerRepo != null && repoFullName.equals(ownerRepo.owner() + "/" + ownerRepo.repo())) {
@@ -955,13 +976,37 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         return (GitRepo) contextManager.getProject().getRepo();
     }
 
-    /** Fetches open GitHub pull requests and populates the PR table. Also fetches CI statuses for these PRs. */
+    private static boolean wasCancellation(Throwable t) {
+        Throwable cause = t;
+        while (cause != null) {
+            if (cause instanceof InterruptedException || cause instanceof InterruptedIOException) {
+                return true;
+            }
+            cause = cause.getCause();
+        }
+        return false;
+    }
+
+    /** Fetches GitHub pull requests with streaming pagination and populates the PR table. */
     private void updatePrList() {
         assert SwingUtilities.isEventDispatchThread();
         setReloadUiEnabled(false);
+        loadMoreButton.setVisible(false);
+        loadMoreButton.setEnabled(false);
+
+        final long capturedGeneration = ++searchGeneration;
+
+        slidingWindow.clear();
+        activePrIterator = null;
+        allPrsFromApi.clear();
+        displayedPrs.clear();
+        prCommitsCache.clear();
+        prTableModel.setRowCount(0);
+        authorChoices.clear();
+        labelChoices.clear();
+        assigneeChoices.clear();
 
         var future = contextManager.submitBackgroundTask("Fetching GitHub Pull Requests", () -> {
-            List<GHPullRequest> fetchedPrs;
             try {
                 var project = contextManager.getProject();
                 GitHubAuth auth = GitHubAuth.getOrCreateInstance(project);
@@ -972,40 +1017,121 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     apiState = GHIssueState.OPEN;
                 } else if ("Closed".equals(selectedStatusOption)) {
                     apiState = GHIssueState.CLOSED;
-                } else { // null or any other string implies ALL for safety, though options are limited
+                } else {
                     apiState = GHIssueState.ALL;
                 }
 
-                fetchedPrs = auth.listOpenPullRequests(apiState);
-                logger.debug("Fetched {} PRs", fetchedPrs.size());
-            } catch (Exception ex) {
-                logger.error("Failed to fetch pull requests", ex);
-                SwingUtilities.invokeLater(() -> {
-                    allPrsFromApi.clear();
-                    displayedPrs.clear();
-                    ciStatusCache.clear();
-                    prCommitsCache.clear();
-                    prTableModel.setRowCount(0);
-                    prTableModel.addRow(new Object[] {"", "Error fetching PRs: " + ex.getMessage(), "", "", ""});
-                    disablePrButtonsAndClearCommitsAndMenus();
-                    authorChoices.clear();
-                    labelChoices.clear();
-                    assigneeChoices.clear();
-                    setReloadUiEnabled(true);
-                });
-                return null;
-            }
+                // Create new iterator and load first batch
+                var pagedIterable =
+                        auth.listPullRequestsPaginated(apiState, StreamingPaginationHelper.DEFAULT_PAGE_SIZE);
+                var iterator = pagedIterable.iterator();
 
-            // Process fetched PRs on EDT
-            List<GHPullRequest> finalFetchedPrs = fetchedPrs;
-            SwingUtilities.invokeLater(() -> {
-                allPrsFromApi = new ArrayList<>(finalFetchedPrs);
-                prCommitsCache.clear(); // Clear commits cache for new PR list
-                // ciStatusCache is updated incrementally, not fully cleared here unless error
-                populateDynamicFilterChoices(allPrsFromApi);
-                filterAndDisplayPrs(); // Apply current filters, which will also trigger CI fetching
-                setReloadUiEnabled(true);
-            });
+                var result = StreamingPaginationHelper.loadBatch(iterator, StreamingPaginationHelper.BATCH_SIZE);
+
+                // Store iterator for "Load more"
+                activePrIterator = iterator;
+
+                SwingUtilities.invokeLater(() -> {
+                    if (capturedGeneration != searchGeneration) {
+                        return;
+                    }
+                    slidingWindow.appendBatch(result.items(), result.hasMore());
+                    allPrsFromApi = new ArrayList<>(slidingWindow.getItems());
+                    populateDynamicFilterChoices(allPrsFromApi);
+                    filterAndDisplayPrs();
+                    refreshPrButton.setToolTipText(
+                            slidingWindow.formatStatusMessage("PRs").isEmpty()
+                                    ? "Refresh"
+                                    : slidingWindow.formatStatusMessage("PRs"));
+                    loadMoreButton.setVisible(slidingWindow.hasMore());
+                    loadMoreButton.setEnabled(slidingWindow.hasMore());
+                    setReloadUiEnabled(true);
+
+                    if (!result.items().isEmpty()) {
+                        prTable.scrollRectToVisible(prTable.getCellRect(0, 0, true));
+                    }
+
+                    logger.debug("PR batch load complete. Total: {} PRs", allPrsFromApi.size());
+                });
+
+            } catch (Exception ex) {
+                activePrIterator = null;
+                if (wasCancellation(ex)) {
+                    SwingUtilities.invokeLater(() -> {
+                        if (capturedGeneration == searchGeneration) {
+                            setReloadUiEnabled(true);
+                        }
+                    });
+                } else {
+                    logger.error("Failed to fetch pull requests", ex);
+                    SwingUtilities.invokeLater(() -> {
+                        if (capturedGeneration != searchGeneration) {
+                            return;
+                        }
+                        slidingWindow.clear();
+                        allPrsFromApi.clear();
+                        displayedPrs.clear();
+                        ciStatusCache.clear();
+                        prCommitsCache.clear();
+                        prTableModel.setRowCount(0);
+                        prTableModel.addRow(new Object[] {"", "Error fetching PRs: " + ex.getMessage(), "", "", ""});
+                        disablePrButtonsAndClearCommitsAndMenus();
+                        authorChoices.clear();
+                        labelChoices.clear();
+                        assigneeChoices.clear();
+                        refreshPrButton.setToolTipText("Refresh");
+                        loadMoreButton.setVisible(false);
+                        setReloadUiEnabled(true);
+                    });
+                }
+            }
+            return null;
+        });
+        trackCancellableFuture(future);
+    }
+
+    /** Loads the next batch of PRs when user clicks "Load more". */
+    private void loadMorePrs() {
+        if (activePrIterator == null || !slidingWindow.hasMore()) {
+            return;
+        }
+
+        var iterator = activePrIterator;
+        final long capturedGeneration = searchGeneration;
+        loadMoreButton.setEnabled(false);
+        refreshPrButton.setToolTipText("Loading more PRs...");
+
+        var future = contextManager.submitBackgroundTask("Loading more PRs", () -> {
+            try {
+                var result = StreamingPaginationHelper.loadBatch(iterator, StreamingPaginationHelper.BATCH_SIZE);
+
+                SwingUtilities.invokeLater(() -> {
+                    if (capturedGeneration != searchGeneration) {
+                        return;
+                    }
+                    slidingWindow.appendBatch(result.items(), result.hasMore());
+                    allPrsFromApi = new ArrayList<>(slidingWindow.getItems());
+                    populateDynamicFilterChoices(allPrsFromApi);
+                    filterAndDisplayPrs();
+                    refreshPrButton.setToolTipText(
+                            slidingWindow.formatStatusMessage("PRs").isEmpty()
+                                    ? "Refresh"
+                                    : slidingWindow.formatStatusMessage("PRs"));
+                    loadMoreButton.setVisible(slidingWindow.hasMore());
+                    loadMoreButton.setEnabled(slidingWindow.hasMore());
+                });
+
+            } catch (Exception ex) {
+                if (!wasCancellation(ex)) {
+                    logger.error("Failed to load more PRs", ex);
+                }
+                SwingUtilities.invokeLater(() -> {
+                    if (capturedGeneration == searchGeneration) {
+                        refreshPrButton.setToolTipText("Refresh");
+                        loadMoreButton.setEnabled(slidingWindow.hasMore());
+                    }
+                });
+            }
             return null;
         });
         trackCancellableFuture(future);
@@ -1082,8 +1208,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         String selectedAuthorDisplay = authorFilter.getSelected(); // e.g., "John Doe (5)" or null
         String selectedLabelDisplay = labelFilter.getSelected(); // e.g., "bug (2)" or null
         String selectedAssigneeDisplay = assigneeFilter.getSelected(); // e.g., "Jane Roe (1)" or null
-        String selectedReviewStatusActual =
-                reviewFilter.getSelected(); // Review options are direct strings, e.g., "Approved"
 
         String selectedAuthorActual = getBaseFilterValue(selectedAuthorDisplay);
         String selectedLabelActual = getBaseFilterValue(selectedLabelDisplay);
@@ -1114,14 +1238,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     }
                     matches = assigneeMatch;
                 }
-                // Review filter
-                if (matches && selectedReviewStatusActual != null) {
-                    // Basic placeholder logic: log and don't filter out for now for unimplemented options
-                    logger.info(
-                            "Review filter selected: '{}'. Full client-side filtering for this option is not yet implemented or may be slow.",
-                            selectedReviewStatusActual);
-                }
-
             } catch (IOException e) {
                 logger.warn("Error accessing PR data during filtering for PR #{}", pr.getNumber(), e);
                 matches = false; // Skip PR if data can't be accessed
@@ -1521,17 +1637,18 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                                     + (filteredFiles.size() > 5 ? "..." : ""));
                 }
 
-                // Exclude deleted files from being added to context
-                var filesNotDeleted = modifiedFiles.stream()
-                        .filter(mf -> mf.status() != ModificationType.DELETED)
-                        .flatMap(mf -> textFiles.stream().filter(tf -> tf.equals(mf.file())))
+                // Only include modified text files in the editable context (exclude new/deleted files)
+                var modifiedTextFiles = modifiedFiles.stream()
+                        .filter(mf -> mf.status() == ModificationType.MODIFIED)
+                        .map(GitRepo.ModifiedFile::file)
+                        .filter(textFiles::contains)
                         .collect(Collectors.toSet());
 
-                if (!filesNotDeleted.isEmpty()) {
-                    contextManager.addFiles(filesNotDeleted);
+                if (!modifiedTextFiles.isEmpty()) {
+                    contextManager.addFiles(modifiedTextFiles);
                     logger.info(
-                            "Added {} changed file(s) from PR #{} to editable context",
-                            filesNotDeleted.size(),
+                            "Added {} modified file(s) from PR #{} to editable context",
+                            modifiedTextFiles.size(),
                             prNumber);
                 }
 
@@ -1890,7 +2007,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         logger.info("Starting checkout of PR #{} as a new local branch", prNumber);
         contextManager.submitExclusiveAction(() -> {
             try {
-                var remoteUrl = getRepo().getRemoteUrl(); // Can be null
+                var remoteUrl = getRepo().getOriginRemoteUrl(); // Can be null
                 GitUiUtil.OwnerRepo ownerRepo =
                         GitUiUtil.parseOwnerRepoFromUrl(Objects.requireNonNullElse(remoteUrl, ""));
                 if (ownerRepo == null) {

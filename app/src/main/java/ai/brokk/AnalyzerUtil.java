@@ -207,8 +207,8 @@ public class AnalyzerUtil {
      * Extract the class/module/type name from a method/member reference.
      * This is a heuristic method that uses language-specific parsing.
      */
-    public static Optional<String> extractClassName(IAnalyzer analyzer, String reference) {
-        return analyzer.extractClassName(reference);
+    public static Optional<String> extractCallReceiver(IAnalyzer analyzer, String reference) {
+        return analyzer.extractCallReceiver(reference);
     }
 
     public record CodeWithSource(String code, CodeUnit source) {
