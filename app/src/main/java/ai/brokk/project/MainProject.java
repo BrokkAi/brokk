@@ -1370,6 +1370,53 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
 
+    // Preference key for selecting the watch service implementation.
+    // Allowed values persisted: "legacy", "native". If unset/blank/unrecognized, treated as "default".
+    private static final String WATCH_SERVICE_IMPL_KEY = "watchServiceImpl";
+
+    /**
+     * Returns the persisted watch service implementation preference.
+     *
+     * Normalized return values:
+     *  - "legacy"  => legacy implementation
+     *  - "native"  => native implementation
+     *  - "default" => no explicit preference / use platform-default behavior
+     */
+    public static String getWatchServiceImplPreference() {
+        var props = loadGlobalProperties();
+        String raw = props.getProperty(WATCH_SERVICE_IMPL_KEY);
+        if (raw == null || raw.isBlank()) {
+            return "default";
+        }
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if ("legacy".equals(normalized) || "native".equals(normalized)) {
+            return normalized;
+        }
+        return "default";
+    }
+
+    /**
+     * Persist the watch service implementation preference.
+     *
+     * Accepts case-insensitive values: "default", "legacy", "native".
+     * If "default" (or blank/unrecognized) the property will be removed to fall back to platform default.
+     */
+    public static void setWatchServiceImplPreference(String v) {
+        var props = loadGlobalProperties();
+        String normalized = v.trim().toLowerCase(Locale.ROOT);
+        if ("default".equals(normalized) || normalized.isBlank()) {
+            props.remove(WATCH_SERVICE_IMPL_KEY);
+        } else if ("legacy".equals(normalized) || "native".equals(normalized)) {
+            props.setProperty(WATCH_SERVICE_IMPL_KEY, normalized);
+        } else {
+            // Unrecognized value: remove key to ensure default behavior.
+            props.remove(WATCH_SERVICE_IMPL_KEY);
+            normalized = "default";
+        }
+        saveGlobalProperties(props);
+        logger.debug("Set watch service implementation preference to {}", normalized);
+    }
+
     // UI Scale global preference
     // Values:
     //  - "auto" (default): detect from environment (kscreen-doctor/gsettings on Linux)

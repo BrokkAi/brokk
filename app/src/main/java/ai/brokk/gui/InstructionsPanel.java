@@ -65,7 +65,6 @@ import java.util.concurrent.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.Border;
 import javax.swing.border.EmptyBorder;
@@ -2059,7 +2058,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private boolean isValidMode(String mode) {
-        return ACTION_CODE.equals(mode) || ACTION_ASK.equals(mode) || ACTION_SEARCH.equals(mode) || ACTION_PLAN.equals(mode);
+        return ACTION_CODE.equals(mode)
+                || ACTION_ASK.equals(mode)
+                || ACTION_SEARCH.equals(mode)
+                || ACTION_PLAN.equals(mode);
     }
 
     private void notifyActionComplete(String actionName) {

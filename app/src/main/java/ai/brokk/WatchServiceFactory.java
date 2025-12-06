@@ -1,5 +1,6 @@
 package ai.brokk;
 
+import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import java.nio.file.Path;
 import java.util.List;
@@ -26,6 +27,9 @@ public class WatchServiceFactory {
      * Values: "native" or "legacy"
      */
     private static final String WATCH_SERVICE_IMPL_PROPERTY = "brokk.watchservice.impl";
+
+    private static final String WATCH_SERVICE_IMPL_NATIVE = "native";
+    private static final String WATCH_SERVICE_IMPL_LEGACY = "legacy";
 
     /**
      * Create a watch service using the best available implementation for the platform.
@@ -56,15 +60,31 @@ public class WatchServiceFactory {
      * Package-private for testing.
      */
     static String getImplementationPreference() {
+        // 1) System property override
         String implProp = System.getProperty(WATCH_SERVICE_IMPL_PROPERTY);
-        if (implProp == null) {
-            implProp = System.getenv("BROKK_WATCHSERVICE_IMPL");
+        if (implProp != null && !implProp.isBlank()) {
+            return implProp.trim();
         }
-        if (implProp == null) {
-            // Default to legacy if no preference is set for now.  Will change later once native is more stable.
-            implProp = "legacy";
+
+        // 2) Environment variable override
+        implProp = System.getenv("BROKK_WATCHSERVICE_IMPL");
+        if (implProp != null && !implProp.isBlank()) {
+            return implProp.trim();
         }
-        return implProp;
+
+        // 3) Persisted global preference (MainProject). Treat "default" as no explicit preference.
+        try {
+            String projectPref = MainProject.getWatchServiceImplPreference();
+            if (!projectPref.isBlank() && !"default".equalsIgnoreCase(projectPref)) {
+                return projectPref.trim();
+            }
+        } catch (Throwable t) {
+            // Don't fail creation if MainProject isn't available for some reason; fall through to default.
+            logger.debug("Unable to read MainProject watch service preference: {}", t.getMessage());
+        }
+
+        // 4) Default to native to preserve previous behavior
+        return WATCH_SERVICE_IMPL_NATIVE;
     }
 
     /**
@@ -94,11 +114,11 @@ public class WatchServiceFactory {
             String implProp,
             String os) {
 
-        if ("legacy".equalsIgnoreCase(implProp)) {
+        if (WATCH_SERVICE_IMPL_LEGACY.equalsIgnoreCase(implProp)) {
             logger.info("Using legacy watch service (forced by configuration)");
             return new LegacyProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
         }
-        if ("native".equalsIgnoreCase(implProp)) {
+        if (WATCH_SERVICE_IMPL_NATIVE.equalsIgnoreCase(implProp)) {
             logger.info("Using native watch service (forced by configuration)");
             return createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
         }
