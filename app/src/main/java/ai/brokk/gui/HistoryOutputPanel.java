@@ -233,6 +233,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     // Holds an in-flight computation of cumulative changes so concurrent callers can reuse it
     private final AtomicReference<CompletableFuture<CumulativeChanges>> changesComputationRef =
             new AtomicReference<>();
+    // Sequence number for background cumulative-changes jobs. Incremented each time a fresh job is started.
+    // Volatile so EDT-updates can observe the latest value; increment happens inside a synchronized block.
+    private volatile long changesJobSeq = 0L;
 
     /**
      * Constructs a new HistoryOutputPane.
@@ -3134,6 +3137,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             if (changesComputationRef.compareAndSet(existing, placeholder)) {
                 logger.debug("Starting new cumulative changes computation");
 
+                // Bump job sequence (synchronized to ensure atomic increment)
+                final long jobSeq;
+                synchronized (this) {
+                    changesJobSeq++;
+                    jobSeq = changesJobSeq;
+                }
+                logger.debug("Assigned cumulative-changes job seq {}", jobSeq);
+
                 var bgFuture = contextManager
                         .submitBackgroundTask("Compute branch-based changes", () -> {
                             var repoOpt = repo();
@@ -3268,9 +3279,19 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             }
                         });
 
+                // Capture the job sequence locally for UI-guarding
+                final long seqLocal = jobSeq;
+
                 var uiUpdated = bgFuture.thenApply(result -> {
-                    // Update UI on EDT
+                    // Update UI on EDT only if the job seq still matches; capture result locally
                     SwingUtilities.invokeLater(() -> {
+                        if (seqLocal != changesJobSeq) {
+                            logger.debug(
+                                    "Skipping stale cumulative changes UI update (seq {} != current {})",
+                                    seqLocal,
+                                    changesJobSeq);
+                            return;
+                        }
                         lastCumulativeChanges = result;
                         setChangesTabTitleAndTooltip(result);
                         updateChangesTabContent(result);
@@ -3285,7 +3306,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         logger.debug("Cumulative changes computation failed", ex);
                     } else {
                         placeholder.complete(res);
-                        logger.debug("Cumulative changes computation completed successfully");
+                        logger.debug("Cumulative changes computation completed successfully (seq {})", seqLocal);
                     }
                     changesComputationRef.compareAndSet(placeholder, null);
                 });
