@@ -3217,8 +3217,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 for (var modFile : fileSet) {
                                     var file = modFile.file();
 
-                                    // Skip non-text (binary) files to avoid expensive/meaningless diffing and to prevent
-                                    // spurious large CPU usage. Only text files contribute to line-based counts.
+                                    String displayFile = file.getRelPath().toString();
+
                                     boolean isText;
                                     try {
                                         isText = file.isText();
@@ -3231,16 +3231,19 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                                 t.getMessage());
                                         isText = false;
                                     }
+
                                     if (!isText) {
-                                        // Include both the ProjectFile (relative) and absolute path for easier debugging.
+                                        // For binary / non-text files, include a per-file entry but mark as binary and
+                                        // avoid expensive diffing or line-count computations. This allows the Review UI
+                                        // to list binary files without causing CPU spikes.
                                         logger.debug(
-                                                "Skipping non-text (binary) file in cumulative changes: {} (abs={})",
+                                                "Including binary (non-text) file in cumulative changes with zeroed counts: {} (abs={})",
                                                 file,
                                                 file.absPath());
+                                        perFileChanges.add(new PerFileChange(displayFile, "", "", true));
+                                        // Do not attempt to compute line counts for binary files.
                                         continue;
                                     }
-
-                                    String displayFile = file.getRelPath().toString();
 
                                     // Compute left content based on baseline
                                     String leftContent =
@@ -3269,7 +3272,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                     totalAdded += netCounts[0];
                                     totalDeleted += netCounts[1];
 
-                                    perFileChanges.add(new PerFileChange(displayFile, leftContent, rightContent));
+                                    perFileChanges.add(new PerFileChange(displayFile, leftContent, rightContent, false));
                                 }
 
                                 GitWorkflow.PushPullState pushPullState = null;
@@ -3546,12 +3549,21 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         for (var change : changes) {
             String path = change.displayFile();
+            boolean isBinary = change.binary();
+            String displayPath = isBinary ? path + " (binary)" : path;
             String leftContent = change.earliestOld();
             String rightContent = change.latestNew();
 
+            // For binary files we avoid presenting textual diffs; use empty placeholders and a "(binary)"
+            // suffix in the displayed filename so the user sees it in the file list.
+            if (isBinary) {
+                leftContent = "";
+                rightContent = "";
+            }
+
             // Use non-ref titles to avoid accidental git ref resolution; keep filename for syntax highlighting.
-            BufferSource left = new BufferSource.StringSource(leftContent, "", path, null);
-            BufferSource right = new BufferSource.StringSource(rightContent, "", path, null);
+            BufferSource left = new BufferSource.StringSource(leftContent, "", displayPath, null);
+            BufferSource right = new BufferSource.StringSource(rightContent, "", displayPath, null);
             builder.addComparison(left, right);
         }
 
@@ -3637,7 +3649,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private record PerFileChange(String displayFile, String earliestOld, String latestNew) {}
+    private record PerFileChange(String displayFile, String earliestOld, String latestNew, boolean binary) {}
 
     private record CumulativeChanges(
             int filesChanged,
