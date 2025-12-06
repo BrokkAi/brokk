@@ -1090,7 +1090,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         panel.add(watchPanel, gbc);
 
         var watchNote =
-                new JLabel("<html><i>Changing this may require restarting Brokk to fully take effect.</i></html>");
+                new JLabel("<html><i>Changing this will require restarting Brokk to fully take effect.</i></html>");
         gbc.gridy = row++;
         gbc.insets = new Insets(0, 25, 2, 5);
         gbc.gridx = 1;
