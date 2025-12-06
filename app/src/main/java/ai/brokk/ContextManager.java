@@ -1474,21 +1474,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Blocking
     @Override
     public Context createOrReplaceTaskList(Context context, List<String> tasks) {
-        return createOrReplaceTaskList(context, tasks, true);
-    }
-
-    @Override
-    @Blocking
-    public Context createOrReplaceTaskList(Context context, List<String> tasks, boolean triggerAutoPlay) {
         var items = summarizeTaskList(tasks);
         if (items.isEmpty()) {
             // If no valid tasks provided, clear the task list
             var newData = new TaskList.TaskListData(List.of());
-            return setTaskList(context, newData, "Task list cleared", false);
+            return setTaskList(context, newData, "Task list cleared");
         }
 
         var newData = new TaskList.TaskListData(List.copyOf(items));
-        return setTaskList(context, newData, "Task list replaced", triggerAutoPlay);
+        return setTaskList(context, newData, "Task list replaced");
     }
 
     @Blocking
@@ -1503,7 +1497,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var existing = new ArrayList<>(context.getTaskListDataOrEmpty().tasks());
         existing.addAll(newItems);
         var newData = new TaskList.TaskListData(List.copyOf(existing));
-        return setTaskList(context, newData, "Task list updated", true);
+        return setTaskList(context, newData, "Task list updated");
     }
 
     /**
@@ -1513,25 +1507,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Context setTaskList(TaskList.TaskListData data, String action) {
         // Track the change in history by pushing a new context with the Task List fragment
         var updated = pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data, action));
-        // Centralized UI refresh after persistence
+        // Centralized UI refresh after persistence (no execution logic)
         if (io instanceof Chrome chrome) {
-            SwingUtilities.invokeLater(() -> chrome.refreshTaskListUI(false, Set.of()));
+            SwingUtilities.invokeLater(chrome::refreshTaskListUI);
         }
 
         return updated;
     }
 
-    public Context setTaskList(Context context, TaskList.TaskListData data, String action, boolean triggerAutoPlay) {
-        // Capture pre-existing incomplete tasks (for potential EZ-mode guard)
-        var preExistingIncompleteTasks = context.getTaskListDataOrEmpty().tasks().stream()
-                .filter(t -> !t.done())
-                .map(TaskList.TaskItem::text)
-                .collect(Collectors.toSet());
-
+    public Context setTaskList(Context context, TaskList.TaskListData data, String action) {
         var updated = context.withTaskList(data, action);
-        // Centralized UI refresh after persistence
+        // Centralized UI refresh after persistence (no execution logic)
         if (io instanceof Chrome chrome) {
-            SwingUtilities.invokeLater(() -> chrome.refreshTaskListUI(triggerAutoPlay, preExistingIncompleteTasks));
+            SwingUtilities.invokeLater(chrome::refreshTaskListUI);
         }
 
         return updated;
@@ -1664,8 +1652,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         var updated = new ArrayList<>(tasks);
         updated.set(idx, new TaskList.TaskItem(task.title(), task.text(), true));
-        return setTaskList(
-                context, new TaskList.TaskListData(List.copyOf(updated)), "Task list marked task done", false);
+        return setTaskList(context, new TaskList.TaskListData(List.copyOf(updated)), "Task list marked task done");
     }
 
     private void captureGitState(Context frozenContext) {
@@ -1745,7 +1732,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // after each task; this is to protect users doing repeated manual Ask/Code.
         // (null check here against IP is NOT redundant; this is called during Chrome init)
         if (io instanceof Chrome
-                && io.getInstructionsPanel() != null
                 && MainProject.getHistoryAutoCompress()
                 && !newLiveContext.getTaskHistory().isEmpty()) {
             var cf = new ContextFragment.HistoryFragment(this, newLiveContext.getTaskHistory());
