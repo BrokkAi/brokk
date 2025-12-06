@@ -862,7 +862,7 @@ public class SearchAgent {
                   - Source fragments: list the fragment IDs you extracted from.
                   - Key insights: 3–7 tight bullet points (identifiers, files, methods, reasons they matter).
                   - Optional Decision: bullets (e.g., 'dropped fragments A, B after extracting summary'; 'kept C because it will be edited').
-                - Length target: about 10–18 lines. Prefer identifiers and rationale over long code. Include small snippets only when indispensable.
+                - Length target: about 10-18 lines. Prefer identifiers and rationale over long code. Include small snippets only when indispensable.
 
                 dropWorkspaceFragments usage:
                 - Provide a clear, one-sentence reason per fragment (e.g., 'large diff; extracted relevant files and rationale to Task Notes').
