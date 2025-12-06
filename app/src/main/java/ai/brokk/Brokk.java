@@ -836,6 +836,13 @@ public class Brokk {
                         JOptionPane.WARNING_MESSAGE);
                 if (choice == JOptionPane.NO_OPTION) {
                     return;
+                } else {
+                    // User confirmed close while an LLM task was active — interrupt it immediately.
+                    try {
+                        ourChromeInstance.getContextManager().interruptLlmAction();
+                    } catch (Throwable t) {
+                        logger.debug("Failed to interrupt active LLM action during window close", t);
+                    }
                 }
             }
             projectBeingClosed = ourChromeInstance.getContextManager().getProject();
