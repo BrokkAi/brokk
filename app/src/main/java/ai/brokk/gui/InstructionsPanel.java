@@ -1799,7 +1799,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
-        executeSearchInternal(input, SearchAgent.Objective.LUTZ, true);
+        executeSearchInternal(input, SearchAgent.Objective.LUTZ);
     }
 
     public void runPlanCommand() {
@@ -1811,10 +1811,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
-        executeSearchInternal(input, SearchAgent.Objective.TASKS_ONLY, false);
+        executeSearchInternal(input, SearchAgent.Objective.TASKS_ONLY);
     }
 
-    private void executeSearchInternal(String query, SearchAgent.Objective objective, boolean triggerAutoPlay) {
+    private void executeSearchInternal(String query, SearchAgent.Objective objective) {
         final var modelToUse = selectDropdownModelOrShowError("Search");
         if (modelToUse == null) {
             logger.debug("Model selection failed for Search action: contextHasImages={}", contextHasImages());

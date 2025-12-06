@@ -3187,20 +3187,32 @@ public class Chrome
     public static JFrame newFrame(String title, boolean initializeTitleBar) {
         JFrame frame = new JFrame(title);
         applyIcon(frame);
-        // macOS  (see https://www.formdev.com/flatlaf/macos/)
-        if (SystemInfo.isMacOS) {
-            if (SystemInfo.isMacFullWindowContentSupported) {
-                frame.getRootPane().putClientProperty("apple.awt.fullWindowContent", true);
-                frame.getRootPane().putClientProperty("apple.awt.transparentTitleBar", true);
-
-                // hide window title
-                if (SystemInfo.isJava_17_orLater)
-                    frame.getRootPane().putClientProperty("apple.awt.windowTitleVisible", false);
-                else frame.setTitle(null);
-            }
-        }
+        applyMacOSFullWindowContent(frame);
         if (initializeTitleBar) applyTitleBar(frame, title);
         return frame;
+    }
+
+    /**
+     * Applies macOS full-window-content styling to a window.
+     * Sets transparent title bar and hides the native window title.
+     * No-op on non-macOS platforms.
+     *
+     * @param window A JFrame or JDialog (any RootPaneContainer)
+     */
+    public static void applyMacOSFullWindowContent(RootPaneContainer window) {
+        if (!SystemInfo.isMacOS || !SystemInfo.isMacFullWindowContentSupported) {
+            return;
+        }
+        var rootPane = window.getRootPane();
+        rootPane.putClientProperty("apple.awt.fullWindowContent", true);
+        rootPane.putClientProperty("apple.awt.transparentTitleBar", true);
+        if (SystemInfo.isJava_17_orLater) {
+            rootPane.putClientProperty("apple.awt.windowTitleVisible", false);
+        } else if (window instanceof Window w) {
+            // For older Java, hide title by setting it to null
+            if (w instanceof Frame f) f.setTitle(null);
+            else if (w instanceof Dialog d) d.setTitle(null);
+        }
     }
 
     public static JFrame newFrame(String title) {

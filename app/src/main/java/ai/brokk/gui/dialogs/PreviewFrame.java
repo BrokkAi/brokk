@@ -7,7 +7,6 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import com.formdev.flatlaf.util.SystemInfo;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.HashMap;
@@ -35,17 +34,9 @@ public class PreviewFrame extends JFrame implements ThemeAware {
         this.chrome = chrome;
         this.guiTheme = guiTheme;
 
-        // Apply icon and macOS full-window-content configuration
+        // Apply icon, macOS full-window-content, and title bar
         Chrome.applyIcon(this);
-        if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
-            getRootPane().putClientProperty("apple.awt.fullWindowContent", true);
-            getRootPane().putClientProperty("apple.awt.transparentTitleBar", true);
-            if (SystemInfo.isJava_17_orLater) {
-                getRootPane().putClientProperty("apple.awt.windowTitleVisible", false);
-            } else {
-                setTitle(null);
-            }
-        }
+        Chrome.applyMacOSFullWindowContent(this);
         Chrome.applyTitleBar(this, "Preview");
 
         // Create tabbed pane

@@ -1477,6 +1477,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return createOrReplaceTaskList(context, tasks, true);
     }
 
+    @Override
     @Blocking
     public Context createOrReplaceTaskList(Context context, List<String> tasks, boolean triggerAutoPlay) {
         var items = summarizeTaskList(tasks);
