@@ -76,7 +76,7 @@ public class ThemeTitleBarManager {
      * Removes a window from management when it's disposed.
      */
     public static void removeWindow(Window window) {
-        managedWindows.removeIf(container -> (Container) container == window);
+        managedWindows.removeIf(container -> (Window) container == window);
     }
 
     /**
