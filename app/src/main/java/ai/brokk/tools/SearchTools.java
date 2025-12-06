@@ -11,6 +11,7 @@ import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
+import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
@@ -719,5 +720,61 @@ public class SearchTools {
         }
 
         return "Files in " + directoryPath + ": " + files;
+    }
+
+    @Tool(
+            """
+                    Returns a hierarchical "bag of identifiers" summary for files matching a package/path pattern.
+                    This provides a quick overview of class members and nested structures without full source code.
+                    Use this to understand the structure of a package or set of related files.
+                    """)
+    public String skimPackage(
+            @P("Java-style regex pattern to match against package names or file paths (relative to project root).")
+                    String packagePattern,
+            @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
+                    String reasoning) {
+        if (packagePattern.isBlank()) {
+            throw new IllegalArgumentException("Cannot skim package: pattern is empty");
+        }
+        if (reasoning.isBlank()) {
+            logger.warn("Missing reasoning for skimPackage call");
+        }
+
+        List<Predicate<String>> predicates = compilePatternsWithFallback(List.of(packagePattern));
+        if (predicates.isEmpty()) {
+            throw new IllegalArgumentException("No valid patterns provided");
+        }
+
+        var analyzer = getAnalyzer();
+
+        var matchingFiles = contextManager.getProject().getAllFiles().stream()
+                .filter(ProjectFile::isText)
+                .filter(file -> {
+                    String unixPath = file.toString().replace('\\', '/');
+                    for (Predicate<String> predicate : predicates) {
+                        if (predicate.test(unixPath)) {
+                            return true;
+                        }
+                    }
+                    return false;
+                })
+                .sorted()
+                .toList();
+
+        if (matchingFiles.isEmpty()) {
+            return "No project files found matching pattern: " + packagePattern;
+        }
+
+        StringBuilder result = new StringBuilder();
+        for (var file : matchingFiles) {
+            result.append("<file path=\"").append(file.toString().replace('\\', '/')).append("\">\n");
+            String identifiers = Context.buildRelatedIdentifiers(analyzer, file);
+            if (!identifiers.isEmpty()) {
+                result.append(identifiers).append("\n");
+            }
+            result.append("</file>\n");
+        }
+
+        return result.toString();
     }
 }
