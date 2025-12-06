@@ -73,6 +73,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     // Includes: '.' (Java/others), '$' (Java nested classes), '::' (C++/C#/Ruby), '->' (PHP), etc.
     private static final Set<String> COMMON_HIERARCHY_SEPARATORS = Set.of(".", "$", "::", "->");
 
+    // Progress listeners for reporting parsing progress to UI
+    private final ProgressListener progressListener;
+
     // Comparator for sorting CodeUnit definitions by priority
     private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
                     (CodeUnit cu) -> firstStartByteForSelection(cu))
@@ -271,10 +274,56 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
     }
 
+    /**
+     * Helper class for push-based progress reporting with debouncing.
+     * Notifies listeners when progress changes, but not more often than the debounce interval.
+     */
+    private class DebouncedProgressReporter {
+        private final int total;
+        private final String phase;
+        private final long debounceMs;
+        private final AtomicInteger completed = new AtomicInteger(0);
+        private volatile long lastReportTimeMs = 0;
+
+        DebouncedProgressReporter(int total, String phase, long debounceMs) {
+            this.total = total;
+            this.phase = phase;
+            this.debounceMs = debounceMs;
+        }
+
+        void increment() {
+            int current = completed.incrementAndGet();
+            long now = System.currentTimeMillis();
+            // Report if debounce time elapsed or if we're done
+            if (now - lastReportTimeMs >= debounceMs || current == total) {
+                lastReportTimeMs = now;
+                notifyProgressListener(current, total, phase);
+            }
+        }
+
+        void reportFinal() {
+            notifyProgressListener(total, total, phase);
+        }
+    }
+
+    private void notifyProgressListener(int completed, int total, String phase) {
+        try {
+            progressListener.onProgress(completed, total, phase);
+        } catch (Exception e) {
+            log.warn("Progress listener threw exception", e);
+        }
+    }
+
     /* ---------- constructor ---------- */
     protected TreeSitterAnalyzer(IProject project, Language language) {
+        this(project, language, ProgressListener.NOOP);
+    }
+
+    protected TreeSitterAnalyzer(IProject project, Language language, ProgressListener listener) {
         this.project = project;
         this.language = language;
+        // Register listener early so it receives progress during construction
+        progressListener = listener;
         this.normalizedExcludedPaths = project.getExcludedDirectories().stream()
                 .map(Path::of)
                 .map(p -> p.isAbsolute()
@@ -316,6 +365,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         var localCodeUnitState = new ConcurrentHashMap<CodeUnit, CodeUnitProperties>();
         var localFileState = new ConcurrentHashMap<ProjectFile, FileProperties>();
         List<CompletableFuture<?>> futures = new ArrayList<>();
+        int totalFiles = filesToProcess.size();
+        var progressReporter = new DebouncedProgressReporter(totalFiles, "Parsing " + language.name() + " files", 100);
+
         // Executors: virtual threads for I/O/parsing, single-thread for ingestion
         try (var ioExecutor = ExecutorServiceUtil.newVirtualThreadExecutor("ts-io-", IO_VT_CAP);
                 var parseExecutor = ExecutorServiceUtil.newFixedThreadExecutor(
@@ -340,6 +392,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                         localFileState),
                                 ingestExecutor)
                         .whenComplete((ignored, ex) -> {
+                            progressReporter.increment();
                             if (ex == null) {
                                 successfullyProcessed.incrementAndGet();
                             } else {
@@ -366,7 +419,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 futures.add(future);
             }
 
+            // Wait for all work to complete
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+            // Final progress update (ensures 100% is always reported)
+            progressReporter.reportFinal();
         }
 
         // Build immutable snapshot state from accumulated maps
@@ -468,6 +525,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         lastUpdateEpochNanos.set(initNowNanos);
     }
 
+    protected TreeSitterAnalyzer(IProject project, Language language, AnalyzerState prebuiltState) {
+        this(project, language, prebuiltState, ProgressListener.NOOP);
+    }
+
+    protected final ProgressListener getProgressListener() {
+        return this.progressListener;
+    }
+
     /**
      * Secondary constructor for snapshot instances: does not perform initial project-wide analysis,
      * but installs the provided prebuilt AnalyzerState as-is.
@@ -476,9 +541,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * references will be null (parsed trees are not persisted). This is safe; logic must not rely
      * on parsedTree being non-null after load.
      */
-    protected TreeSitterAnalyzer(IProject project, Language language, AnalyzerState prebuiltState) {
+    protected TreeSitterAnalyzer(
+            IProject project, Language language, AnalyzerState prebuiltState, ProgressListener listener) {
         this.project = project;
         this.language = language;
+        this.progressListener = listener;
 
         this.normalizedExcludedPaths = project.getExcludedDirectories().stream()
                 .map(Path::of)
@@ -671,18 +738,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     @Override
     public List<CodeUnit> getAllDeclarations() {
-        return this.state.codeUnitState.keySet().stream()
-                .filter(CodeUnit::isClass)
-                .toList();
+        return this.state.codeUnitState.keySet().stream().toList();
     }
 
     @Override
-    public Set<CodeUnit> searchDefinitionsImpl(
-            String originalPattern, @Nullable String fallbackPattern, @Nullable Pattern compiledPattern) {
-        // an explicit search for everything should return everything, not just classes
-        if (originalPattern.equals(".*")) {
-            return this.state.codeUnitState.keySet();
-        }
+    public Set<CodeUnit> searchDefinitions(Pattern compiledPattern) {
         var anonPredicate = new Predicate<CodeUnit>() {
             @Override
             public boolean test(CodeUnit codeUnit) {
@@ -690,24 +750,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
         };
 
-        if (fallbackPattern != null) {
-            // Fallback to simple case-insensitive substring matching
-            return this.state.codeUnitState.keySet().stream()
-                    .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(fallbackPattern))
-                    .filter(anonPredicate)
-                    .collect(Collectors.toSet());
-        } else if (compiledPattern != null) {
-            // Primary search using compiled regex pattern
-            return this.state.codeUnitState.keySet().stream()
-                    .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
-                    .filter(anonPredicate)
-                    .collect(Collectors.toSet());
-        } else {
-            return this.state.codeUnitState.keySet().stream()
-                    .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(originalPattern))
-                    .filter(anonPredicate)
-                    .collect(Collectors.toSet());
-        }
+        return this.state.codeUnitState.keySet().stream()
+                .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
+                .filter(anonPredicate)
+                .collect(Collectors.toSet());
     }
 
     @Override
@@ -1114,6 +1160,30 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
+     * Indicates whether a scope segment represents a class-like or function-like scope.
+     * Used by analyzers that need to distinguish between class nesting and function-local definitions.
+     */
+    public enum ScopeType {
+        CLASS,
+        FUNCTION,
+        UNKNOWN
+    }
+
+    /**
+     * A segment in the enclosing scope chain with its name and type.
+     * Built during AST traversal and passed to createCodeUnit for type-safe scope handling.
+     */
+    public record ScopeSegment(String name, ScopeType scopeType) {
+        public boolean isFunctionScope() {
+            return scopeType == ScopeType.FUNCTION;
+        }
+
+        public boolean isClassScope() {
+            return scopeType == ScopeType.CLASS;
+        }
+    }
+
+    /**
      * Determines the {@link SkeletonType} for a given capture name. This allows subclasses to map their specific query
      * capture names (e.g., "class.definition", "method.declaration") to a general category for skeleton building.
      *
@@ -1143,27 +1213,27 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Creates a CodeUnit from capture and node information, with access to the refined skeleton type.
-     * This overload provides subclasses with both the raw AST node and the refined SkeletonType
-     * when constructing CodeUnit instances.
+     * Translate a capture produced by the query into a {@link CodeUnit}. Return {@code null} to ignore this capture.
+     *
+     * @param file the source file
+     * @param captureName the query capture name identifying the kind of definition
+     * @param simpleName the simple name of the symbol
+     * @param packageName the package/module name
+     * @param classChain dot-separated chain of enclosing class names
+     * @param scopeChain typed list of enclosing scopes (outermost first), never null but may be empty
+     * @param definitionNode the AST node for the definition, may be null
+     * @param skeletonType the refined skeleton type for this capture
      */
-    protected @Nullable CodeUnit createCodeUnit(
+    @Nullable
+    protected abstract CodeUnit createCodeUnit(
             ProjectFile file,
             String captureName,
             String simpleName,
             String packageName,
             String classChain,
+            List<ScopeSegment> scopeChain,
             @Nullable TSNode definitionNode,
-            SkeletonType skeletonType) {
-        return createCodeUnit(file, captureName, simpleName, packageName, classChain);
-    }
-
-    /**
-     * Translate a capture produced by the query into a {@link CodeUnit}. Return {@code null} to ignore this capture.
-     */
-    @Nullable
-    protected abstract CodeUnit createCodeUnit(
-            ProjectFile file, String captureName, String simpleName, String packageName, String classChain);
+            SkeletonType skeletonType);
 
     /* ---------- Signature Building Logic ---------- */
 
@@ -1219,6 +1289,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             return false;
         }
         return getLanguageSyntaxProfile().classLikeNodeTypes().contains(node.getType());
+    }
+
+    /**
+     * Builds the parent FQName from scope chain for parent-child relationship lookup.
+     * This overload provides type-safe access to enclosing scope information.
+     *
+     * @param scopeChain typed list of enclosing scopes (outermost first)
+     */
+    protected String buildParentFqName(CodeUnit cu, String classChain, List<ScopeSegment> scopeChain) {
+        // Default: delegate to string-based version
+        return buildParentFqName(cu, classChain);
     }
 
     /**
@@ -1831,10 +1912,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     node.getType());
 
             var langProfile = getLanguageSyntaxProfile();
+            final var langProfileForLambda = langProfile;
             SkeletonType skeletonType = refineSkeletonType(primaryCaptureName, node, langProfile);
 
             String packageName = determinePackageName(file, node, currentRootNode, src);
             List<String> enclosingClassNames = new ArrayList<>();
+            List<ScopeSegment> enclosingScopes = new ArrayList<>();
             // Use cached parent from defInfo to avoid repeated getParent() calls
             TSNode tempParent = defInfo.cachedParent();
             while (tempParent != null && !tempParent.isNull() && !tempParent.equals(currentRootNode)) {
@@ -1845,15 +1928,29 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                     parentName -> { // extractSimpleName is now non-static
                                         if (!parentName.isBlank()) {
                                             var name = isClassLike(parent)
-                                                    ? determineClassName(parent.getType(), parentName)
+                                                    ? determineClassChainSegmentName(parent.getType(), parentName)
                                                     : parentName;
                                             enclosingClassNames.addFirst(name);
+
+                                            // Build typed scope chain - determine scope type from node type
+                                            var nodeType = parent.getType();
+                                            var scopeType = langProfileForLambda
+                                                            .functionLikeNodeTypes()
+                                                            .contains(nodeType)
+                                                    ? ScopeType.FUNCTION
+                                                    : langProfileForLambda
+                                                                    .classLikeNodeTypes()
+                                                                    .contains(nodeType)
+                                                            ? ScopeType.CLASS
+                                                            : ScopeType.UNKNOWN;
+                                            enclosingScopes.addFirst(new ScopeSegment(parentName, scopeType));
                                         }
                                     });
                 }
                 tempParent = tempParent.getParent();
             }
             String classChain = String.join(".", enclosingClassNames);
+            List<ScopeSegment> scopeChain = enclosingScopes; // May be replaced for receiver types
             log.trace("Computed classChain for simpleName='{}': '{}'", simpleName, classChain);
 
             // Adjust simpleName and classChain for methods with receivers (e.g., Go methods)
@@ -1862,6 +1959,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 String receiverTypeText = receiverType.get();
                 simpleName = receiverTypeText + "." + simpleName;
                 classChain = receiverTypeText; // For methods with receivers, classChain is the receiver type
+                // For receiver types, create a single-element scope chain with CLASS type
+                scopeChain = List.of(new ScopeSegment(receiverTypeText, ScopeType.CLASS));
                 log.trace("Adjusted method with receiver: simpleName='{}', classChain='{}'", simpleName, classChain);
             }
 
@@ -1875,8 +1974,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 continue;
             }
 
-            CodeUnit cu =
-                    createCodeUnit(file, primaryCaptureName, simpleName, packageName, classChain, node, skeletonType);
+            CodeUnit cu = createCodeUnit(
+                    file, primaryCaptureName, simpleName, packageName, classChain, scopeChain, node, skeletonType);
             log.trace("createCodeUnit returned: {}", cu);
 
             if (cu == null) {
@@ -2106,7 +2205,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                             file);
                 } else {
                     // Parent's shortName is the classChain string itself.
-                    String parentFqName = buildParentFqName(cu, classChain);
+                    String parentFqName = buildParentFqName(cu, classChain, scopeChain);
                     CodeUnit parentCu = localCuByFqName.get(parentFqName);
                     if (parentCu != null) {
                         List<CodeUnit> kids = localChildren.computeIfAbsent(parentCu, k -> new ArrayList<>());
@@ -2233,6 +2332,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      */
     protected String determineClassName(String captureName, String shortName) {
         return shortName;
+    }
+
+    /**
+     * Determines how a parent node's name should appear in the classChain.
+     * By default delegates to determineClassName, but can be overridden to add type markers
+     * (e.g., Python adds ":F" for functions to distinguish them from classes in the chain).
+     */
+    protected String determineClassChainSegmentName(String nodeType, String shortName) {
+        return determineClassName(nodeType, shortName);
     }
 
     /**
@@ -3281,7 +3389,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * @param state the new state to construct with.
      * @return a new analyzer.
      */
-    protected abstract IAnalyzer newSnapshot(AnalyzerState state);
+    protected final IAnalyzer newSnapshot(AnalyzerState state) {
+        return newSnapshot(state, getProgressListener());
+    }
+
+    protected abstract IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener);
 
     @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
@@ -3540,23 +3652,31 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         Map<ProjectFile, FileProperties> updatedFileState = new ConcurrentHashMap<>(baseState.fileState());
 
+        int totalFiles = baseState.fileState().size();
+        var progressReporter = new DebouncedProgressReporter(totalFiles, "Resolving imports", 100);
+
         int parallelism = Runtime.getRuntime().availableProcessors();
         try (var fjp = new java.util.concurrent.ForkJoinPool(parallelism)) {
-            fjp.execute(() -> {
-                baseState.fileState().entrySet().parallelStream().forEach(entry -> {
-                    ProjectFile file = entry.getKey();
-                    FileProperties fileProps = entry.getValue();
-                    Set<CodeUnit> resolvedImports =
-                            delegateForImports.resolveImports(file, fileProps.importStatements());
-                    updatedFileState.put(
-                            file,
-                            new FileProperties(
-                                    fileProps.topLevelCodeUnits(),
-                                    fileProps.parsedTree(),
-                                    fileProps.importStatements(),
-                                    Collections.unmodifiableSet(resolvedImports)));
-                });
-            });
+            fjp.submit(() -> {
+                        baseState.fileState().entrySet().parallelStream().forEach(entry -> {
+                            ProjectFile file = entry.getKey();
+                            FileProperties fileProps = entry.getValue();
+                            Set<CodeUnit> resolvedImports =
+                                    delegateForImports.resolveImports(file, fileProps.importStatements());
+                            updatedFileState.put(
+                                    file,
+                                    new FileProperties(
+                                            fileProps.topLevelCodeUnits(),
+                                            fileProps.parsedTree(),
+                                            fileProps.importStatements(),
+                                            Collections.unmodifiableSet(resolvedImports)));
+                            progressReporter.increment();
+                        });
+                    })
+                    .join();
+
+            // Final progress update
+            progressReporter.reportFinal();
         }
 
         return new AnalyzerState(
@@ -3576,28 +3696,39 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         Map<CodeUnit, CodeUnitProperties> updatedCodeUnitState = new ConcurrentHashMap<>(baseState.codeUnitState());
 
+        // Count total classes to process
+        int totalClasses = (int) baseState.codeUnitState().keySet().stream()
+                .filter(CodeUnit::isClass)
+                .count();
+        var progressReporter = new DebouncedProgressReporter(totalClasses, "Computing type hierarchies", 100);
+
         int parallelism = Runtime.getRuntime().availableProcessors();
         try (var fjp = new java.util.concurrent.ForkJoinPool(parallelism)) {
-            fjp.execute(() -> {
-                baseState.codeUnitState().entrySet().parallelStream()
-                        .filter(e -> e.getKey().isClass())
-                        .forEach(entry -> {
-                            CodeUnit cu = entry.getKey();
-                            CodeUnitProperties props = entry.getValue();
-                            List<CodeUnit> supers = delegateForTypes.computeSupertypes(cu);
-                            if (!Objects.equals(props.supertypes(), supers)) {
-                                updatedCodeUnitState.put(
-                                        cu,
-                                        new CodeUnitProperties(
-                                                props.children(),
-                                                props.signatures(),
-                                                props.ranges(),
-                                                props.rawSupertypes(),
-                                                supers,
-                                                props.hasBody()));
-                            }
-                        });
-            });
+            fjp.submit(() -> {
+                        baseState.codeUnitState().entrySet().parallelStream()
+                                .filter(e -> e.getKey().isClass())
+                                .forEach(entry -> {
+                                    CodeUnit cu = entry.getKey();
+                                    CodeUnitProperties props = entry.getValue();
+                                    List<CodeUnit> supers = delegateForTypes.computeSupertypes(cu);
+                                    if (!Objects.equals(props.supertypes(), supers)) {
+                                        updatedCodeUnitState.put(
+                                                cu,
+                                                new CodeUnitProperties(
+                                                        props.children(),
+                                                        props.signatures(),
+                                                        props.ranges(),
+                                                        props.rawSupertypes(),
+                                                        supers,
+                                                        props.hasBody()));
+                                    }
+                                    progressReporter.increment();
+                                });
+                    })
+                    .join();
+
+            // Final progress update
+            progressReporter.reportFinal();
         }
 
         return new AnalyzerState(

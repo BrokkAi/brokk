@@ -37,24 +37,28 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             );
 
     public JavascriptAnalyzer(IProject project) {
-        super(project, Languages.JAVASCRIPT);
+        this(project, ProgressListener.NOOP);
     }
 
-    private JavascriptAnalyzer(IProject project, AnalyzerState state) {
-        super(project, Languages.JAVASCRIPT, state);
+    public JavascriptAnalyzer(IProject project, ProgressListener listener) {
+        super(project, Languages.JAVASCRIPT, listener);
     }
 
-    public static JavascriptAnalyzer fromState(IProject project, AnalyzerState state) {
-        return new JavascriptAnalyzer(project, state);
+    private JavascriptAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
+        super(project, Languages.JAVASCRIPT, state, listener);
+    }
+
+    public static JavascriptAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+        return new JavascriptAnalyzer(project, state, listener);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state) {
-        return new JavascriptAnalyzer(getProject(), state);
+    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+        return new JavascriptAnalyzer(getProject(), state, listener);
     }
 
     @Override
-    public Optional<String> extractClassName(String reference) {
+    public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForJsTs(reference);
     }
 
@@ -70,7 +74,14 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected @Nullable CodeUnit createCodeUnit(
-            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
+            ProjectFile file,
+            String captureName,
+            String simpleName,
+            String packageName,
+            String classChain,
+            List<ScopeSegment> scopeChain,
+            @Nullable TSNode definitionNode,
+            SkeletonType skeletonType) {
         return switch (captureName) {
             case CaptureNames.CLASS_DEFINITION -> {
                 String finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;

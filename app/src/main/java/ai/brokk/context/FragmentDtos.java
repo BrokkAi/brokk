@@ -52,7 +52,7 @@ public class FragmentDtos {
 
     /** DTO for ProjectFile - contains root and relative path as strings. */
     @JsonTypeInfo(use = JsonTypeInfo.Id.NONE)
-    public record ProjectFileDto(String id, String repoRoot, String relPath)
+    public record ProjectFileDto(String id, String repoRoot, String relPath, @Nullable String snapshotText)
             implements PathFragmentDto { // id changed to String
         public ProjectFileDto {
             if (repoRoot.isEmpty()) {
@@ -62,15 +62,24 @@ public class FragmentDtos {
                 throw new IllegalArgumentException("relPath cannot be null or empty");
             }
         }
+
+        public ProjectFileDto(String id, String repoRoot, String relPath) {
+            this(id, repoRoot, relPath, null);
+        }
     }
 
     /** DTO for ExternalFile - contains absolute path as string. */
     @JsonTypeInfo(use = JsonTypeInfo.Id.NONE)
-    public record ExternalFileDto(String id, String absPath) implements PathFragmentDto { // id changed to String
+    public record ExternalFileDto(String id, String absPath, @Nullable String snapshotText)
+            implements PathFragmentDto { // id changed to String
         public ExternalFileDto {
             if (absPath.isEmpty()) {
                 throw new IllegalArgumentException("absPath cannot be null or empty");
             }
+        }
+
+        public ExternalFileDto(String id, String absPath) {
+            this(id, absPath, null);
         }
     }
 
@@ -166,7 +175,8 @@ public class FragmentDtos {
     public record UsageFragmentDto(
             String id,
             String targetIdentifier,
-            @JsonProperty(value = "includeTestFiles", defaultValue = "false") boolean includeTestFiles)
+            @JsonProperty(value = "includeTestFiles", defaultValue = "false") boolean includeTestFiles,
+            @Nullable String snapshotText)
             implements VirtualFragmentDto { // id changed to String
         public UsageFragmentDto {
             if (targetIdentifier.isEmpty()) {
@@ -225,7 +235,7 @@ public class FragmentDtos {
     }
 
     /** DTO for CodeFragment - contains the fully qualified name of the code unit. */
-    public record CodeFragmentDto(String id, String fullyQualifiedName)
+    public record CodeFragmentDto(String id, String fullyQualifiedName, @Nullable String snapshotText)
             implements VirtualFragmentDto { // id changed to String
     }
 

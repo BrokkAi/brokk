@@ -123,6 +123,7 @@ class AnalyzerWrapperTest {
 
         // Create AnalyzerWrapper
         analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), watchService);
+        analyzerWrapper.get(); // wait for async tasks so they don't race w/ tempdir cleanup
 
         // Verify getWatchService returns the same instance
         var returnedWatchService = analyzerWrapper.getWatchService();

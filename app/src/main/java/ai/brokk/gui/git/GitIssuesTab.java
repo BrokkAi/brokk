@@ -939,6 +939,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                     });
                 } else {
                     logger.error("Failed to fetch issues via IssueService", ex);
+                    var errorMessage = GitHubErrorUtil.formatError(ex, "issues");
                     SwingUtilities.invokeLater(() -> {
                         if (capturedGeneration != searchGeneration) {
                             return;
@@ -947,6 +948,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                         allIssuesFromApi.clear();
                         displayedIssues.clear();
                         issueTableModel.setRowCount(0);
+                        issueTableModel.addRow(new Object[] {"", errorMessage, "", ""});
                         disableIssueActionsAndClearDetails();
                         searchBox.setLoading(false, "");
                         loadMoreButton.setVisible(false);
@@ -1132,11 +1134,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 List<ChatMessage> issueTextMessages = buildIssueTextContentFromDetails(details);
                 ContextFragment.TaskFragment issueTextFragment =
                         createIssueTextFragmentFromDetails(details, issueTextMessages);
-                contextManager.addVirtualFragment(issueTextFragment);
+                contextManager.addFragments(issueTextFragment);
 
                 List<ChatMessage> commentChatMessages = buildChatMessagesFromDtoComments(details.comments());
                 if (!commentChatMessages.isEmpty()) {
-                    contextManager.addVirtualFragment(createCommentsFragmentFromDetails(details, commentChatMessages));
+                    contextManager.addFragments(createCommentsFragmentFromDetails(details, commentChatMessages));
                 }
 
                 int capturedImageCount = processAndCaptureImagesFromDetails(details);

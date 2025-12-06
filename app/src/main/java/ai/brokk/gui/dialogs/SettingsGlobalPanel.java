@@ -86,9 +86,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JRadioButton diffUnifiedRadio = new JRadioButton("Unified");
     private JTable quickModelsTable = new JTable();
     private FavoriteModelsTableModel quickModelsTableModel = new FavoriteModelsTableModel(new ArrayList<>());
-    private JComboBox<String> preferredCodeModelCombo = new JComboBox<>();
-    private JComboBox<String> primaryModelCombo = new JComboBox<>();
+    private JComboBox<Service.FavoriteModel> preferredCodeModelCombo = new JComboBox<>();
+    private JComboBox<Service.FavoriteModel> primaryModelCombo = new JComboBox<>();
     private JComboBox<String> otherModelsVendorCombo = new JComboBox<>();
+    private JComboBox<String> watchServiceImplCombo =
+            new JComboBox<>(new String[] {"Default (auto)", "Legacy", "Native"});
 
     @Nullable
     private JLabel otherModelsVendorLabel;
@@ -242,6 +244,23 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // EZ-mode skip commit gate
         skipCommitGateEzCheckbox.setSelected(GlobalUiSettings.isSkipCommitGateInEzMode());
         skipCommitGateEzCheckbox.setVisible(!GlobalUiSettings.isAdvancedMode());
+
+        // File watcher implementation preference
+        try {
+            String pref = MainProject.getWatchServiceImplPreference();
+            String selection;
+            if ("legacy".equalsIgnoreCase(pref)) {
+                selection = "Legacy";
+            } else if ("native".equalsIgnoreCase(pref)) {
+                selection = "Native";
+            } else {
+                selection = "Default (auto)";
+            }
+            watchServiceImplCombo.setSelectedItem(selection);
+        } catch (Exception ex) {
+            // Non-fatal: default to auto
+            watchServiceImplCombo.setSelectedItem("Default (auto)");
+        }
     }
 
     private void populateServiceTab(SettingsData data) {
@@ -347,22 +366,38 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private void populateQuickModelsTab(SettingsData data) {
         var service = chrome.getContextManager().getService();
-        var availableModelNames =
-                service.getAvailableModels().keySet().stream().sorted().collect(Collectors.toList());
         var loadedFavorites = data.favoriteModels();
         quickModelsTableModel.setFavorites(loadedFavorites);
 
-        // Populate Lutz Code Model combo with available model names
+        // Set up renderer for both combos to display favorite alias
+        var favoriteRenderer = new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(
+                    JList<?> list, @Nullable Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                JLabel lbl = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof Service.FavoriteModel fm) {
+                    String name = fm.config().name();
+                    String alias = fm.alias();
+                    lbl.setText(alias.isBlank() ? name : alias + " (" + name + ")");
+                }
+                return lbl;
+            }
+        };
+        preferredCodeModelCombo.setRenderer(favoriteRenderer);
+        primaryModelCombo.setRenderer(favoriteRenderer);
+
+        // Populate Lutz Code Model combo with favorites
         var currentCodeConfig = chrome.getProject().getMainProject().getCodeModelConfig();
         preferredCodeModelCombo.removeAllItems();
-        for (String modelName : availableModelNames) {
-            preferredCodeModelCombo.addItem(modelName);
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            preferredCodeModelCombo.addItem(favorite);
         }
-        // Select the current code config by name
+        // Select the item whose config matches the current code config
         boolean foundCode = false;
-        for (String name : availableModelNames) {
-            if (name.equals(currentCodeConfig.name())) {
-                preferredCodeModelCombo.setSelectedItem(name);
+        for (int i = 0; i < preferredCodeModelCombo.getItemCount(); i++) {
+            Service.FavoriteModel fm = preferredCodeModelCombo.getItemAt(i);
+            if (fm != null && fm.config().equals(currentCodeConfig)) {
+                preferredCodeModelCombo.setSelectedIndex(i);
                 foundCode = true;
                 break;
             }
@@ -371,17 +406,18 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             preferredCodeModelCombo.setSelectedIndex(0);
         }
 
-        // Populate Primary Model combo with available model names
+        // Populate Primary Model combo with favorites
         var currentPlannerConfig = chrome.getProject().getMainProject().getArchitectModelConfig();
         primaryModelCombo.removeAllItems();
-        for (String modelName : availableModelNames) {
-            primaryModelCombo.addItem(modelName);
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            primaryModelCombo.addItem(favorite);
         }
-        // Select the current planner config by name
+        // Select the item whose config matches the current planner config
         boolean foundPrimary = false;
-        for (String name : availableModelNames) {
-            if (name.equals(currentPlannerConfig.name())) {
-                primaryModelCombo.setSelectedItem(name);
+        for (int i = 0; i < primaryModelCombo.getItemCount(); i++) {
+            Service.FavoriteModel fm = primaryModelCombo.getItemAt(i);
+            if (fm != null && fm.config().equals(currentPlannerConfig)) {
+                primaryModelCombo.setSelectedIndex(i);
                 foundPrimary = true;
                 break;
             }
@@ -431,12 +467,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         if (!plannerModelSyncListenerRegistered) {
             chrome.getInstructionsPanel().addModelSelectionListener(cfg -> {
                 try {
-                    // Sync primary combo with the selected config name
-                    String configName = cfg.name();
+                    // Sync primary combo with the selected config by equality
                     boolean found = false;
                     for (int i = 0; i < primaryModelCombo.getItemCount(); i++) {
-                        if (configName.equals(primaryModelCombo.getItemAt(i))) {
-                            SwingUtilities.invokeLater(() -> primaryModelCombo.setSelectedItem(configName));
+                        Service.FavoriteModel fm = primaryModelCombo.getItemAt(i);
+                        if (fm != null && fm.config().equals(cfg)) {
+                            int finalI = i;
+                            SwingUtilities.invokeLater(() -> primaryModelCombo.setSelectedIndex(finalI));
                             found = true;
                             break;
                         }
@@ -1036,6 +1073,30 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             panel.repaint();
         });
 
+        // File watcher implementation selector
+        gbc.insets = new Insets(10, 5, 2, 5);
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        panel.add(new JLabel("File watcher implementation:"), gbc);
+
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        var watchPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        watchPanel.add(watchServiceImplCombo);
+        panel.add(watchPanel, gbc);
+
+        var watchNote =
+                new JLabel("<html><i>Changing this will require restarting Brokk to fully take effect.</i></html>");
+        gbc.gridy = row++;
+        gbc.insets = new Insets(0, 25, 2, 5);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(watchNote, gbc);
+
         gbc.insets = new Insets(2, 5, 2, 5);
 
         // Filler
@@ -1552,6 +1613,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             if (!e.getValueIsAdjusting()) updateRemoveButtonEnabled.run();
         });
         quickModelsTableModel.addTableModelListener(e -> updateRemoveButtonEnabled.run());
+        quickModelsTableModel.addTableModelListener(
+                e -> SwingUtilities.invokeLater(() -> refreshFavoriteModelCombosPreservingSelection()));
         // Initialize enabled state
         updateRemoveButtonEnabled.run();
 
@@ -1692,10 +1755,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             // Set vendor to Default
             otherModelsVendorCombo.setSelectedItem("Default");
 
-            // Set Primary to GPT_5 if available, otherwise index 0
+            // Set Primary to GPT_5 by matching config name, fallback to index 0
             boolean foundPrimary = false;
             for (int i = 0; i < primaryModelCombo.getItemCount(); i++) {
-                if (Service.GPT_5.equals(primaryModelCombo.getItemAt(i))) {
+                Service.FavoriteModel fm = primaryModelCombo.getItemAt(i);
+                if (fm != null && Service.GPT_5.equals(fm.config().name())) {
                     primaryModelCombo.setSelectedIndex(i);
                     foundPrimary = true;
                     break;
@@ -1705,10 +1769,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 primaryModelCombo.setSelectedIndex(0);
             }
 
-            // Set Lutz Code to HAIKU_4_5 if available, otherwise index 0
+            // Set Lutz Code to HAIKU_4_5 by matching config name, fallback to index 0
             boolean foundCode = false;
             for (int i = 0; i < preferredCodeModelCombo.getItemCount(); i++) {
-                if (Service.HAIKU_4_5.equals(preferredCodeModelCombo.getItemAt(i))) {
+                Service.FavoriteModel fm = preferredCodeModelCombo.getItemAt(i);
+                if (fm != null && Service.HAIKU_4_5.equals(fm.config().name())) {
                     preferredCodeModelCombo.setSelectedIndex(i);
                     foundCode = true;
                     break;
@@ -1751,6 +1816,72 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         container.add(modelsTabbed, BorderLayout.CENTER);
 
         return container;
+    }
+
+    private void refreshFavoriteModelCombosPreservingSelection() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::refreshFavoriteModelCombosPreservingSelection);
+            return;
+        }
+        try {
+            Service.ModelConfig prevCodeCfg = null;
+            Service.ModelConfig prevPrimaryCfg = null;
+            Object selCode = preferredCodeModelCombo.getSelectedItem();
+            if (selCode instanceof Service.FavoriteModel fmCode) {
+                prevCodeCfg = fmCode.config();
+            }
+            Object selPrimary = primaryModelCombo.getSelectedItem();
+            if (selPrimary instanceof Service.FavoriteModel fmPrimary) {
+                prevPrimaryCfg = fmPrimary.config();
+            }
+
+            var favorites = quickModelsTableModel.getFavorites();
+
+            preferredCodeModelCombo.removeAllItems();
+            for (Service.FavoriteModel fav : favorites) {
+                preferredCodeModelCombo.addItem(fav);
+            }
+            boolean codeSelected = false;
+            if (prevCodeCfg != null) {
+                for (int i = 0; i < preferredCodeModelCombo.getItemCount(); i++) {
+                    Service.FavoriteModel fav = preferredCodeModelCombo.getItemAt(i);
+                    if (fav != null && prevCodeCfg.equals(fav.config())) {
+                        preferredCodeModelCombo.setSelectedIndex(i);
+                        codeSelected = true;
+                        break;
+                    }
+                }
+            }
+            if (!codeSelected && preferredCodeModelCombo.getItemCount() > 0) {
+                preferredCodeModelCombo.setSelectedIndex(0);
+            }
+
+            primaryModelCombo.removeAllItems();
+            for (Service.FavoriteModel fav : favorites) {
+                primaryModelCombo.addItem(fav);
+            }
+            boolean primarySelected = false;
+            if (prevPrimaryCfg != null) {
+                for (int i = 0; i < primaryModelCombo.getItemCount(); i++) {
+                    Service.FavoriteModel fav = primaryModelCombo.getItemAt(i);
+                    if (fav != null && prevPrimaryCfg.equals(fav.config())) {
+                        primaryModelCombo.setSelectedIndex(i);
+                        primarySelected = true;
+                        break;
+                    }
+                }
+            }
+            if (!primarySelected && primaryModelCombo.getItemCount() > 0) {
+                primaryModelCombo.setSelectedIndex(0);
+            }
+
+            preferredCodeModelCombo.revalidate();
+            preferredCodeModelCombo.repaint();
+            primaryModelCombo.revalidate();
+            primaryModelCombo.repaint();
+        } catch (Exception e) {
+            logger.warn("Failed to refresh favorite model combos", e);
+        }
     }
 
     private void refreshBalanceDisplay() {
@@ -1995,6 +2126,21 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         boolean jvmAutomatic = memoryAutoRadio.isSelected();
         int jvmMb = ((Number) memorySpinner.getValue()).intValue();
 
+        // File watcher preference from UI
+        String watchPrefSelected = "default";
+        try {
+            String raw = String.valueOf(watchServiceImplCombo.getSelectedItem());
+            if ("Legacy".equalsIgnoreCase(raw)) {
+                watchPrefSelected = "legacy";
+            } else if ("Native".equalsIgnoreCase(raw)) {
+                watchPrefSelected = "native";
+            } else {
+                watchPrefSelected = "default";
+            }
+        } catch (Exception ex) {
+            watchPrefSelected = "default";
+        }
+
         // Model settings
         if (quickModelsTable.isEditing()) {
             quickModelsTable.getCellEditor().stopCellEditing();
@@ -2012,9 +2158,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
         var mcpConfig = new McpConfig(mcpServers);
 
-        // Primary & Lutz Code Model saves from new model name combos
-        var selectedCodeModelName = (String) preferredCodeModelCombo.getSelectedItem();
-        var selectedPrimaryModelName = (String) primaryModelCombo.getSelectedItem();
+        // Primary & Lutz Code Model saves from favorite model combos
+        Service.FavoriteModel selectedCodeFavorite = (Service.FavoriteModel) preferredCodeModelCombo.getSelectedItem();
+        Service.FavoriteModel selectedPrimaryFavorite = (Service.FavoriteModel) primaryModelCombo.getSelectedItem();
 
         // Vendor mapping for Other Models (Quick, Quick Edit, Quickest, Scan)
         var selectedVendor = (String) otherModelsVendorCombo.getSelectedItem();
@@ -2060,6 +2206,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 startupSettings,
                 generalSettings,
                 modelSettings);
+
+        // Persist watch service implementation preference (separate global property)
+        try {
+            MainProject.setWatchServiceImplPreference(watchPrefSelected);
+        } catch (Exception ex) {
+            logger.debug("Failed to persist watch service implementation preference (non-fatal)", ex);
+        }
+
         GlobalUiSettings.saveAllUiSettings(notificationSettings, uiPreferences);
         GlobalUiSettings.saveSkipCommitGateInEzMode(skipCommitGateEzCheckbox.isSelected());
 
@@ -2117,18 +2271,18 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // Terminal font size side effects
         chrome.updateTerminalFontSize();
 
-        // Save Lutz Code Model (by name)
-        if (selectedCodeModelName != null && !selectedCodeModelName.isEmpty()) {
-            chrome.getProject().getMainProject().setCodeModelConfig(new Service.ModelConfig(selectedCodeModelName));
+        // Save Lutz Code Model (from favorite config)
+        if (selectedCodeFavorite != null) {
+            chrome.getProject().getMainProject().setCodeModelConfig(selectedCodeFavorite.config());
         }
 
-        // Save Primary Model (by name)
-        if (selectedPrimaryModelName != null && !selectedPrimaryModelName.isEmpty()) {
-            chrome.getProject()
-                    .getMainProject()
-                    .setArchitectModelConfig(new Service.ModelConfig(selectedPrimaryModelName));
-            chrome.getInstructionsPanel().selectPlannerModelConfig(new Service.ModelConfig(selectedPrimaryModelName));
+        // Save Primary Model (from favorite config)
+        if (selectedPrimaryFavorite != null) {
+            chrome.getProject().getMainProject().setArchitectModelConfig(selectedPrimaryFavorite.config());
+            chrome.getInstructionsPanel().selectPlannerModelConfig(selectedPrimaryFavorite.config());
         }
+
+        String previousVendorPref = MainProject.getOtherModelsVendorPreference();
 
         // Persist selected vendor preference for "other models" regardless of choice
         MainProject.setOtherModelsVendorPreference(selectedVendor != null ? selectedVendor : "");
@@ -2150,6 +2304,17 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             mp.setQuickEditModelConfig(MainProject.getDefaultQuickEditModelConfig());
             mp.setQuickestModelConfig(MainProject.getDefaultQuickestModelConfig());
             mp.setScanModelConfig(MainProject.getDefaultScanModelConfig());
+        }
+
+        // Reload service if vendor changed so new Quick/Scan models take effect immediately
+        String prev = previousVendorPref;
+        String now = selectedVendor;
+        if (!prev.equals(now)) {
+            try {
+                chrome.getContextManager().reloadService();
+            } catch (Exception ex) {
+                logger.debug("Service reload after vendor change failed (non-fatal)", ex);
+            }
         }
 
         logger.debug("Applied all settings successfully (2 atomic writes)");

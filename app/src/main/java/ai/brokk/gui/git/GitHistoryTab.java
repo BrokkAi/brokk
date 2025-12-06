@@ -135,12 +135,17 @@ public class GitHistoryTab extends JPanel {
             viewDiffItem.setEnabled(single);
             viewInLogItem.setEnabled(single);
 
-            if (single) {
-                var selFile = contextManager.toFile(getFilePath());
-                editFileItem.setEnabled(!contextManager.getFilesInContext().contains(selFile));
-            } else {
-                editFileItem.setEnabled(false);
-            }
+            contextManager.submitBackgroundTask("Determining files in context", () -> {
+                var files = contextManager.getFilesInContext(); // blocking
+                SwingUtilities.invokeLater(() -> {
+                    if (single) {
+                        var selFile = contextManager.toFile(getFilePath());
+                        editFileItem.setEnabled(!files.contains(selFile));
+                    } else {
+                        editFileItem.setEnabled(false);
+                    }
+                });
+            });
         });
 
         /* double-click => show diff */

@@ -1578,6 +1578,95 @@ public class GitRepoTest {
         assertNull(targetRemote, "Should return null when no remote is configured");
     }
 
+    // --- Tests for getOriginRemoteNameWithFallback (prefers origin for GitHub PR operations) ---
+
+    @Test
+    void testGetOriginRemoteNameWithFallback_OriginExists() throws Exception {
+        configureOriginRemote();
+
+        String remoteName = repo.remote().getOriginRemoteNameWithFallback();
+
+        assertEquals("origin", remoteName, "Should return 'origin' when it exists");
+    }
+
+    @Test
+    void testGetOriginRemoteNameWithFallback_OriginExistsWithMultipleRemotes() throws Exception {
+        configureMultipleRemotes("upstream", "https://github.com/other/repo.git");
+
+        String remoteName = repo.remote().getOriginRemoteNameWithFallback();
+
+        assertEquals("origin", remoteName, "Should prefer 'origin' even with multiple remotes configured");
+    }
+
+    @Test
+    void testGetOriginRemoteNameWithFallback_OriginExistsButBranchTracksOther() throws Exception {
+        configureMultipleRemotes("fork", "https://github.com/contributor/repo.git");
+        String branchName = repo.getCurrentBranch();
+        configureUpstreamTracking(branchName, "fork", branchName);
+
+        String remoteName = repo.remote().getOriginRemoteNameWithFallback();
+
+        assertEquals("origin", remoteName, "Should prefer 'origin' even when current branch tracks a different remote");
+    }
+
+    @Test
+    void testGetOriginRemoteNameWithFallback_NoOriginFallsBackToUpstream() throws Exception {
+        configureSingleRemote("upstream", "https://github.com/test/repo.git");
+        String branchName = repo.getCurrentBranch();
+        configureUpstreamTracking(branchName, "upstream", branchName);
+
+        String remoteName = repo.remote().getOriginRemoteNameWithFallback();
+
+        assertEquals("upstream", remoteName, "Should fall back to branch upstream when 'origin' doesn't exist");
+    }
+
+    @Test
+    void testGetOriginRemoteNameWithFallback_NoOriginFallsBackToSingleRemote() throws Exception {
+        configureSingleRemote("myremote", "https://github.com/test/repo.git");
+
+        String remoteName = repo.remote().getOriginRemoteNameWithFallback();
+
+        assertEquals("myremote", remoteName, "Should fall back to single remote when 'origin' doesn't exist");
+    }
+
+    @Test
+    void testGetOriginRemoteNameWithFallback_NoRemotes() {
+        String remoteName = repo.remote().getOriginRemoteNameWithFallback();
+
+        assertNull(remoteName, "Should return null when no remotes are configured");
+    }
+
+    @Test
+    void testGetOriginUrlWithFallback_OriginExists() throws Exception {
+        configureOriginRemote();
+
+        String url = repo.remote().getOriginUrlWithFallback();
+
+        assertEquals("https://github.com/test/test.git", url, "Should return origin's URL");
+    }
+
+    @Test
+    void testGetOriginUrlWithFallback_FallsBackToOtherRemote() throws Exception {
+        configureSingleRemote("upstream", "https://github.com/other/repo.git");
+
+        String url = repo.remote().getOriginUrlWithFallback();
+
+        assertEquals("https://github.com/other/repo.git", url, "Should fall back to other remote's URL");
+    }
+
+    @Test
+    void testGetOriginRemoteUrl_MatchesOriginUrlWithFallback() throws Exception {
+        configureOriginRemote();
+
+        String fromRepo = repo.getOriginRemoteUrl();
+        String fromRemote = repo.remote().getOriginUrlWithFallback();
+
+        assertEquals(
+                fromRemote,
+                fromRepo,
+                "GitRepo.getOriginRemoteUrl() should delegate to GitRepoRemote.getOriginUrlWithFallback()");
+    }
+
     @Test
     void testGetUnpushedCommitIds_NoRemoteBranch() throws Exception {
         String branchName = "local-branch";

@@ -13,6 +13,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.gui.Chrome;
 import ai.brokk.mcp.McpUtils;
@@ -24,6 +25,7 @@ import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.ComputedValue;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -53,6 +55,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -430,6 +434,8 @@ public class SearchAgent {
                 .map(Language::name)
                 .collect(Collectors.joining(", "));
 
+        var nonDroppableSection = buildNonDroppableSection();
+
         var sys = new SystemMessage(
                 """
                 <instructions>
@@ -470,9 +476,10 @@ public class SearchAgent {
                   - If you already know what to add, use Workspace tools directly; do not search redundantly.
 
                 %s
+                %s
                 </instructions>
                 """
-                        .formatted(supportedTypes, reminder));
+                        .formatted(supportedTypes, reminder, nonDroppableSection));
         messages.add(sys);
 
         // Describe available MCP tools
@@ -483,12 +490,6 @@ public class SearchAgent {
 
         // Current Workspace contents (apply viewing policy for visibility filtering)
         messages.addAll(precomputedWorkspaceMessages);
-
-        // Dynamically inform the model about non-droppable fragments to avoid futile pruning attempts
-        var nonDroppableMsg = buildNonDroppableSystemMessage();
-        if (nonDroppableMsg != null) {
-            messages.add(nonDroppableMsg);
-        }
 
         // Related identifiers from nearby files
         var related = context.buildRelatedIdentifiers(10);
@@ -827,6 +828,8 @@ public class SearchAgent {
     private List<ChatMessage> buildInitialPruningPrompt() {
         var messages = new ArrayList<ChatMessage>();
 
+        var nonDroppableSection = buildNonDroppableSection();
+
         var sys = new SystemMessage(
                 """
                 You are the Janitor Agent cleaning the Workspace. It is critically important to remove irrelevant
@@ -836,18 +839,15 @@ public class SearchAgent {
                   - Evaluate the current workspace contents.
                   - Call dropWorkspaceFragments to remove irrelevant fragments.
                   - ONLY if all fragments are relevant, do nothing (skip the tool call).
-                """);
+
+                %s
+                """
+                        .formatted(nonDroppableSection));
         messages.add(sys);
 
         // Current Workspace contents (use default viewing policy)
         messages.addAll(
                 CodePrompts.instance.getWorkspaceContentsMessages(context, new ViewingPolicy(TaskResult.Type.CONTEXT)));
-
-        // Dynamically inform the janitor about non-droppable fragments
-        var nonDroppableMsg = buildNonDroppableSystemMessage();
-        if (nonDroppableMsg != null) {
-            messages.add(nonDroppableMsg);
-        }
 
         // Goal and project context
         messages.add(new UserMessage(
@@ -879,6 +879,7 @@ public class SearchAgent {
      * @param appendToScope if true, appends the context scan result to the scope; if false, returns context without appending to the scope's history
      * @return the resulting {@link Context} after the scan, either appended to the scope or not, depending on {@code appendToScope}
      */
+    @Blocking
     public Context scanInitialContext(StreamingChatModel model, boolean appendToScope) throws InterruptedException {
         // Prune initial workspace when not empty
         performInitialPruningTurn(model);
@@ -909,7 +910,7 @@ public class SearchAgent {
         int finalBudget = cm.getService().getMaxInputTokens(this.model) / 2 - Messages.getApproximateTokens(context);
         if (totalTokens > finalBudget) {
             var summaries = ContextFragment.describe(recommendation.fragments());
-            context = context.addVirtualFragments(List.of(new ContextFragment.StringFragment(
+            context = context.addFragments(List.of(new ContextFragment.StringFragment(
                     cm,
                     "ContextAgent analyzed the repository and marked these fragments as highly relevant. Since including all would exceed the model’s context capacity, their summarized descriptions are provided below:\n\n"
                             + summaries,
@@ -917,7 +918,8 @@ public class SearchAgent {
                     recommendation.fragments().stream()
                             .findFirst()
                             .orElseThrow()
-                            .syntaxStyle())));
+                            .syntaxStyle()
+                            .renderNowOr(SyntaxConstants.SYNTAX_STYLE_NONE))));
         } else {
             logger.debug("Recommended context fits within final budget.");
             addToWorkspace(recommendation);
@@ -946,6 +948,7 @@ public class SearchAgent {
      * Scan initial context using ContextAgent and add recommendations to the workspace.
      * Appends the result to scope by default.
      */
+    @Blocking
     public Context scanInitialContext() throws InterruptedException {
         return scanInitialContext(cm.getService().getScanModel(), true);
     }
@@ -955,10 +958,12 @@ public class SearchAgent {
      *
      * @param model the LLM model to use for context scanning
      */
+    @Blocking
     public Context scanInitialContext(StreamingChatModel model) throws InterruptedException {
         return scanInitialContext(model, true);
     }
 
+    @Blocking
     public void addToWorkspace(ContextAgent.RecommendationResult recommendationResult) {
         logger.debug("Recommended context fits within final budget.");
         List<ContextFragment> selected = recommendationResult.fragments();
@@ -973,7 +978,7 @@ public class SearchAgent {
             logger.debug(
                     "Adding selected ProjectPathFragments: {}",
                     pathFragments.stream().map(ppf -> ppf.file().toString()).collect(Collectors.joining(", ")));
-            context = context.addPathFragments(pathFragments);
+            context = context.addFragments(pathFragments);
         }
 
         // Process SkeletonFragments
@@ -981,7 +986,7 @@ public class SearchAgent {
                 .map(ContextFragment.SummaryFragment.class::cast)
                 .toList();
         if (!skeletonFragments.isEmpty()) {
-            context = context.addVirtualFragments(skeletonFragments);
+            context = context.addFragments(skeletonFragments);
         }
 
         // Emit pseudo-tool explanation for UX parity
@@ -1005,6 +1010,8 @@ public class SearchAgent {
         if (!skeletonFragments.isEmpty()) {
             var skeletonNames = skeletonFragments.stream()
                     .map(ContextFragment::description)
+                    .map(ComputedValue::renderNowOrNull)
+                    .filter(Objects::nonNull)
                     .sorted()
                     .toList();
             details.put("skeletonFragments", skeletonNames);
@@ -1235,9 +1242,15 @@ public class SearchAgent {
     }
 
     private Set<ProjectFile> getWorkspaceFileSet() {
+        // Allow time to compute
+        try {
+            context.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+        } catch (InterruptedException e) {
+            logger.warn("Interrupted while waiting for contexts to be computed", e);
+        }
         return context.allFragments()
                 .filter(SearchAgent::isWorkspaceFileFragment)
-                .flatMap(f -> f.files().stream())
+                .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
                 .collect(Collectors.toSet());
     }
 
@@ -1246,13 +1259,19 @@ public class SearchAgent {
     }
 
     private List<SearchMetrics.FragmentInfo> getWorkspaceFragments() {
+        // Allow time to compute
+        try {
+            context.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+        } catch (InterruptedException e) {
+            logger.warn("Interrupted while waiting for contexts to be computed", e);
+        }
         return context.allFragments()
                 .filter(SearchAgent::isWorkspaceFileFragment)
                 .map(f -> new SearchMetrics.FragmentInfo(
                         f.getType().toString(),
                         f.id(),
-                        f.description(),
-                        f.files().stream()
+                        f.description().renderNowOr("(empty)"),
+                        f.files().renderNowOr(Set.of()).stream()
                                 .map(pf -> pf.getRelPath().toString())
                                 .sorted()
                                 .toList()))
@@ -1264,32 +1283,30 @@ public class SearchAgent {
     // =======================
 
     /**
-     * Returns a SystemMessage listing non-droppable fragments present in the current workspace,
-     * or null when no such fragments exist. This educates the LLM to avoid futile pruning loops.
+     * Returns a formatted section listing non-droppable fragments present in the current workspace,
+     * or an empty string when no such fragments exist. This educates the LLM to avoid futile pruning loops.
      */
-    private @Nullable SystemMessage buildNonDroppableSystemMessage() {
+    private String buildNonDroppableSection() {
         var items = context.allFragments()
                 .filter(f -> f instanceof ContextFragment.StringFragment)
                 .map(f -> (ContextFragment.StringFragment) f)
                 .filter(sf ->
                         sf.specialType().isPresent() && !sf.specialType().get().droppable())
-                .map(sf -> "- " + sf.description() + " (fragmentid=" + sf.id() + "): non-droppable by policy.")
+                .map(sf -> "- " + sf.description().join() + " (fragmentid=" + sf.id() + "): non-droppable by policy.")
                 .sorted()
                 .toList();
 
         if (items.isEmpty()) {
-            return null;
+            return "";
         }
 
-        String body =
-                """
+        return """
                 <non_droppable>
                 The following fragments cannot be dropped by policy. Do NOT attempt to drop them:
                 %s
                 </non_droppable>
                 """
-                        .formatted(String.join("\n", items));
-        return new SystemMessage(body);
+                .formatted(String.join("\n", items));
     }
 
     /**

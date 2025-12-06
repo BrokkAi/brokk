@@ -7,6 +7,7 @@ import ai.brokk.git.CancellableProgressMonitor;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.git.GitHubErrorUtil;
 import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.FileUtil;
@@ -41,7 +42,6 @@ import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableRowSorter;
 import org.jetbrains.annotations.Nullable;
 import org.kohsuke.github.GHRepository;
-import org.kohsuke.github.GitHubBuilder;
 import org.kohsuke.github.HttpException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -904,10 +904,8 @@ public class OpenProjectDialog extends BaseThemedDialog {
         var worker = new SwingWorker<List<GitHubRepoInfo>, Void>() {
             @Override
             protected List<GitHubRepoInfo> doInBackground() throws Exception {
-                // First validate the token with a simple API call
-                var token = GitHubAuth.getStoredToken();
-                var github = new GitHubBuilder().withOAuthToken(token).build();
-                github.getMyself(); // This will throw if token is invalid
+                // Validate token with a simple API call
+                GitHubAuth.createClient().getMyself();
 
                 // Token is valid, now load repositories
                 return getUserRepositories();
@@ -930,19 +928,7 @@ public class OpenProjectDialog extends BaseThemedDialog {
                     disableGitHubTab("GitHub repository loading was interrupted.");
                     clearTable(tableModel);
                 } catch (ExecutionException e) {
-                    var cause = e.getCause();
-                    if (cause instanceof HttpException httpEx && httpEx.getResponseCode() == 401) {
-                        logger.warn("GitHub token is invalid, clearing stored token");
-                        GitHubAuth.invalidateInstance();
-                        disableGitHubTab(
-                                "GitHub token is invalid or expired. Go to Settings → GitHub to update your token.");
-                        clearTable(tableModel);
-                    } else {
-                        var errorMessage = cause != null ? cause.getMessage() : e.getMessage();
-                        logger.error("Failed to load GitHub repositories", cause != null ? cause : e);
-                        disableGitHubTab("Failed to load GitHub repositories: " + errorMessage);
-                        clearTable(tableModel);
-                    }
+                    handleRepoLoadFailure(tableModel, e);
                 }
             }
         };
@@ -969,10 +955,8 @@ public class OpenProjectDialog extends BaseThemedDialog {
         var worker = new SwingWorker<List<GitHubRepoInfo>, Void>() {
             @Override
             protected List<GitHubRepoInfo> doInBackground() throws Exception {
-                // Validate token first
-                var token = GitHubAuth.getStoredToken();
-                var github = new GitHubBuilder().withOAuthToken(token).build();
-                github.getMyself(); // This will throw if token is invalid
+                // Validate token with a simple API call
+                GitHubAuth.createClient().getMyself();
 
                 return getUserRepositories();
             }
@@ -994,18 +978,7 @@ public class OpenProjectDialog extends BaseThemedDialog {
                     disableGitHubTab("GitHub repository loading was interrupted.");
                     clearTable(tableModel);
                 } catch (ExecutionException e) {
-                    var cause = e.getCause();
-                    if (cause instanceof HttpException httpEx && httpEx.getResponseCode() == 401) {
-                        logger.warn("GitHub token is invalid, clearing stored token");
-                        GitHubAuth.invalidateInstance();
-                        disableGitHubTab(
-                                "GitHub token is invalid or expired. Go to Settings → GitHub to update your token.");
-                    } else {
-                        var errorMessage = cause != null ? cause.getMessage() : e.getMessage();
-                        logger.error("Failed to load GitHub repositories", cause != null ? cause : e);
-                        disableGitHubTab("Failed to load GitHub repositories: " + errorMessage);
-                    }
-                    clearTable(tableModel);
+                    handleRepoLoadFailure(tableModel, e);
                 }
             }
         };
@@ -1034,6 +1007,22 @@ public class OpenProjectDialog extends BaseThemedDialog {
 
     private void clearTable(DefaultTableModel tableModel) {
         tableModel.setRowCount(0);
+    }
+
+    private void handleRepoLoadFailure(DefaultTableModel tableModel, ExecutionException e) {
+        var cause = e.getCause();
+        if (cause instanceof HttpException httpEx && httpEx.getResponseCode() == 401) {
+            logger.warn("GitHub token is invalid");
+            GitHubAuth.invalidateInstance();
+            disableGitHubTab("GitHub token is invalid or expired. Go to Settings → GitHub to update your token.");
+        } else if (GitHubErrorUtil.isRateLimitError(cause)) {
+            logger.warn("GitHub rate limit exceeded");
+            disableGitHubTab("GitHub rate limit exceeded. Try again later.");
+        } else {
+            logger.error("Failed to load GitHub repositories", cause != null ? cause : e);
+            disableGitHubTab(GitHubErrorUtil.formatError(e, "repositories"));
+        }
+        clearTable(tableModel);
     }
 
     private String truncateDescription(String description) {
@@ -1114,13 +1103,8 @@ public class OpenProjectDialog extends BaseThemedDialog {
     }
 
     private static List<GitHubRepoInfo> getUserRepositories() throws Exception {
-        var token = GitHubAuth.getStoredToken();
-        if (token.isBlank()) {
-            throw new IllegalStateException("No GitHub token available");
-        }
-
         try {
-            var github = new GitHubBuilder().withOAuthToken(token).build();
+            var github = GitHubAuth.createClient();
             var repositories = new ArrayList<GHRepository>();
             int count = 0;
             for (var repo : github.getMyself().listRepositories()) {

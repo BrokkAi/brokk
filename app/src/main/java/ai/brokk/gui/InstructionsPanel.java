@@ -94,6 +94,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static final String ACTION_CODE = "Code";
     public static final String ACTION_ASK = "Ask";
     public static final String ACTION_SEARCH = "Lutz Mode";
+    public static final String ACTION_PLAN = "Plan";
 
     private static final String PLACEHOLDER_TEXT_ADVANCED =
             """
@@ -1091,7 +1092,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return titledContainer;
     }
 
-    /** Recomputes the token usage bar to mirror the Workspace panel summary. Safe to call from any thread. */
     void updateTokenCostIndicator() {
         var ctx = chrome.getContextManager().selectedContext();
         Service.ModelConfig config = getSelectedConfig();
@@ -1104,8 +1104,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     if (model == null || model instanceof Service.UnavailableStreamingModel) {
                         return new TokenUsageBarComputation(
                                 buildTokenUsageTooltip(
-                                        "Unavailable", 128000, "0.00", TokenUsageBar.WarningLevel.NONE, 100),
-                                128000,
+                                        "Unavailable", 150_000, "0.00", TokenUsageBar.WarningLevel.NONE, 100),
+                                150_000,
                                 0,
                                 TokenUsageBar.WarningLevel.NONE,
                                 config,
@@ -1119,17 +1119,25 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         var allFragments = ctx.getAllFragmentsInDisplayOrder();
                         for (var frag : allFragments) {
                             if (frag.isText() || frag.getType().isOutput()) {
-                                fullText.append(frag.text()).append("\n");
+                                try {
+                                    frag.text().tryGet().ifPresent(text -> fullText.append(text)
+                                            .append("\n"));
+                                } catch (Exception e) {
+                                    logger.error("Unable to obtain fragment text for token cost estimation task.", e);
+                                }
                             }
                         }
                     }
 
                     int approxTokens = Messages.getApproximateTokens(fullText.toString());
-                    int maxTokens = service.getMaxInputTokens(model);
-                    if (maxTokens <= 0) {
-                        // Fallback to a generous default when service does not provide a limit
-                        maxTokens = 128_000;
+                    int modelMaxTokens = service.getMaxInputTokens(model);
+                    if (modelMaxTokens <= 0) {
+                        // If the service does not provide a limit, assume a generous default
+                        modelMaxTokens = 150_000;
                     }
+                    // Bar capacity default is 150k unless the model supports less
+                    int barScaleMax = Math.min(150_000, modelMaxTokens);
+
                     String modelName = config.name();
                     String costStr = calculateCostEstimate(config, approxTokens, service);
 
@@ -1152,46 +1160,57 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     }
 
                     String tooltipHtml =
-                            buildTokenUsageTooltip(modelName, maxTokens, costStr, warningLevel, successRate);
+                            buildTokenUsageTooltip(modelName, modelMaxTokens, costStr, warningLevel, successRate);
                     return new TokenUsageBarComputation(
-                            tooltipHtml, maxTokens, approxTokens, warningLevel, config, successRate, isTested);
+                            tooltipHtml, barScaleMax, approxTokens, warningLevel, config, successRate, isTested);
                 })
-                .thenAccept(stat -> SwingUtilities.invokeLater(() -> {
-                    try {
-                        // make metadata available to TokenUsageBar for tooltip/warning rendering
-                        tokenUsageBar.setWarningMetadata(stat.successRate, stat.isTested, stat.config);
-                        // Update max and unfilled-portion tooltip; fragment breakdown is supplied via contextChanged
-                        tokenUsageBar.setMaxTokens(stat.maxTokens);
-                        tokenUsageBar.setUnfilledTooltip(stat.toolTipHtml);
-
-                        // Compute shared tooltip for both TokenUsageBar and ModelSelector
-                        String sharedTooltip = TokenUsageBar.computeWarningTooltip(
-                                stat.isTested,
-                                stat.config,
-                                stat.warningLevel,
-                                stat.successRate,
-                                stat.approxTokens,
-                                stat.toolTipHtml);
-
-                        contextAreaContainer.setWarningLevel(stat.warningLevel);
-                        contextAreaContainer.setToolTipText(sharedTooltip);
-                        modelSelector.getComponent().setToolTipText(sharedTooltip);
-                        tokenUsageBar.setVisible(true);
-
-                        // Update Brokk Power Ranking indicator
-                        if (stat.successRate == -1) {
-                            brokkRankingLabel.setText(POWER_RANKING_TITLE + ": Unknown");
-                        } else {
-                            brokkRankingLabel.setText(POWER_RANKING_TITLE + ": " + stat.successRate + "%");
-                        }
-                        brokkRankingLabel.setToolTipText(buildBrokkRankingOnlyTooltip(stat.successRate));
-                        brokkRankingLabel.setVisible(true);
-                    } catch (Exception ex) {
-                        logger.debug("Failed to update token usage bar", ex);
-                        tokenUsageBar.setVisible(false);
-                        contextAreaContainer.setWarningLevel(TokenUsageBar.WarningLevel.NONE);
+                .handle((stat, e) -> {
+                    if (e != null) {
+                        logger.error("Unable to obtain token cost estimation task.", e);
+                        return null;
                     }
-                }));
+                    return stat;
+                })
+                .thenAccept(stat -> {
+                    if (stat == null) return;
+                    SwingUtilities.invokeLater(() -> {
+                        try {
+                            // make metadata available to TokenUsageBar for tooltip/warning rendering
+                            tokenUsageBar.setWarningMetadata(stat.successRate, stat.isTested, stat.config);
+                            // Update max and unfilled-portion tooltip; fragment breakdown is supplied via
+                            // contextChanged
+                            tokenUsageBar.setMaxTokens(stat.maxTokens);
+                            tokenUsageBar.setUnfilledTooltip(stat.toolTipHtml);
+
+                            // Compute shared tooltip for both TokenUsageBar and ModelSelector
+                            String sharedTooltip = TokenUsageBar.computeWarningTooltip(
+                                    stat.isTested,
+                                    stat.config,
+                                    stat.warningLevel,
+                                    stat.successRate,
+                                    stat.approxTokens,
+                                    stat.toolTipHtml);
+
+                            contextAreaContainer.setWarningLevel(stat.warningLevel);
+                            contextAreaContainer.setToolTipText(sharedTooltip);
+                            modelSelector.getComponent().setToolTipText(sharedTooltip);
+                            tokenUsageBar.setVisible(true);
+
+                            // Update Brokk Power Ranking indicator
+                            if (stat.successRate == -1) {
+                                brokkRankingLabel.setText(POWER_RANKING_TITLE + ": Unknown");
+                            } else {
+                                brokkRankingLabel.setText(POWER_RANKING_TITLE + ": " + stat.successRate + "%");
+                            }
+                            brokkRankingLabel.setToolTipText(buildBrokkRankingOnlyTooltip(stat.successRate));
+                            brokkRankingLabel.setVisible(true);
+                        } catch (Exception ex) {
+                            logger.debug("Failed to update token usage bar", ex);
+                            tokenUsageBar.setVisible(false);
+                            contextAreaContainer.setWarningLevel(TokenUsageBar.WarningLevel.NONE);
+                        }
+                    });
+                });
     }
 
     private record TokenUsageBarComputation(
@@ -1617,18 +1636,29 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     /**
      * Toggle between Code/Ask/Search modes via the split button dropdown.
-     * Cycles through modes in order: Code → Ask → Search → Code.
+     * In Advanced Mode, cycles: Code → Ask → Plan → Search → Code.
+     * In EZ Mode, cycles: Code → Ask → Search → Code.
      */
     public void toggleCodeAnswerMode() {
         SwingUtilities.invokeLater(() -> {
             String current = actionButton.getSelectedMode();
-            String next =
-                    switch (current) {
-                        case ACTION_CODE -> ACTION_ASK;
-                        case ACTION_ASK -> ACTION_SEARCH;
-                        case ACTION_SEARCH -> ACTION_CODE;
-                        default -> ACTION_SEARCH;
-                    };
+            String next;
+            if (GlobalUiSettings.isAdvancedMode()) {
+                next = switch (current) {
+                    case ACTION_CODE -> ACTION_ASK;
+                    case ACTION_ASK -> ACTION_PLAN;
+                    case ACTION_PLAN -> ACTION_SEARCH;
+                    case ACTION_SEARCH -> ACTION_CODE;
+                    default -> ACTION_SEARCH;
+                };
+            } else {
+                next = switch (current) {
+                    case ACTION_CODE -> ACTION_ASK;
+                    case ACTION_ASK -> ACTION_SEARCH;
+                    case ACTION_SEARCH -> ACTION_CODE;
+                    default -> ACTION_SEARCH;
+                };
+            }
             actionButton.setSelectedMode(next);
             storedAction = next;
             // Place focus back in the command input for convenience
@@ -1769,10 +1799,22 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
-        executeSearchInternal(input);
+        executeSearchInternal(input, SearchAgent.Objective.LUTZ, true);
     }
 
-    private void executeSearchInternal(String query) {
+    public void runPlanCommand() {
+        var input = getInstructions();
+        if (input.isBlank()) {
+            chrome.toolError("Please provide a prompt for planning");
+            return;
+        }
+
+        chrome.getProject().addToInstructionsHistory(input, 20);
+        clearCommandInput();
+        executeSearchInternal(input, SearchAgent.Objective.TASKS_ONLY, false);
+    }
+
+    private void executeSearchInternal(String query, SearchAgent.Objective objective, boolean triggerAutoPlay) {
         final var modelToUse = selectDropdownModelOrShowError("Search");
         if (modelToUse == null) {
             logger.debug("Model selection failed for Search action: contextHasImages={}", contextHasImages());
@@ -1787,7 +1829,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             var cm = chrome.getContextManager();
             var context = cm.liveContext();
-            SearchAgent agent = new SearchAgent(context, query, modelToUse, SearchAgent.Objective.LUTZ, scope);
+            SearchAgent agent = new SearchAgent(context, query, modelToUse, objective, scope);
             try {
                 agent.scanInitialContext();
             } catch (InterruptedException e) {
@@ -1814,6 +1856,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             case ACTION_CODE -> "Applying Code Mode — editing files in your Workspace...";
             case ACTION_SEARCH -> "Running Lutz Mode — agentic search and plan generation...";
             case ACTION_ASK -> "Answering from existing Context only...";
+            case ACTION_PLAN -> "Running Plan Mode — generating task list...";
             default -> "Executing " + action + "...";
         };
     }
@@ -1854,8 +1897,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return cm.submitLlmAction(() -> {
             try {
                 chrome.showOutputSpinner(spinnerText);
-
-                try (var scope = cm.beginTask(input, false, "Lutz Mode")) {
+                var title = input.length() > 50 ? input.substring(0, 47) + "..." : input;
+                try (var scope = cm.beginTask(input, false, "Lutz Mode: " + title)) {
                     var result = task.apply(scope);
                     scope.append(result);
                     if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
@@ -2015,7 +2058,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private boolean isValidMode(String mode) {
-        return ACTION_CODE.equals(mode) || ACTION_ASK.equals(mode) || ACTION_SEARCH.equals(mode);
+        return ACTION_CODE.equals(mode)
+                || ACTION_ASK.equals(mode)
+                || ACTION_SEARCH.equals(mode)
+                || ACTION_PLAN.equals(mode);
     }
 
     private void notifyActionComplete(String actionName) {
@@ -2043,6 +2089,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
                 case ACTION_SEARCH -> runSearchCommand();
                 case ACTION_ASK -> runAskCommand(getInstructions());
+                case ACTION_PLAN -> runPlanCommand();
                 default -> throw new IllegalArgumentException("Unknown action: " + storedAction);
             }
         }
@@ -2440,6 +2487,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 "<b>Ask Mode:</b> An Ask agent giving you general purpose answers to a question or a request based on the files in your context.";
         private static final String MODE_TOOLTIP_LUTZ =
                 "<b>Lutz Mode:</b> Performs an \"agentic\" search across your entire project to find code relevant to your prompt and will generate a plan for you by creating a list of tasks.";
+        private static final String MODE_TOOLTIP_PLAN =
+                "<b>Plan Mode:</b> Performs an agentic search and generates a task list without auto-executing tasks.";
         private boolean dropdownEnabled = true;
 
         public ActionSplitButton(Supplier<Boolean> isActionRunning, String defaultMode) {
@@ -2520,6 +2569,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     switch (selectedMode) {
                         case ACTION_CODE -> MODE_TOOLTIP_CODE;
                         case ACTION_ASK -> MODE_TOOLTIP_ASK;
+                        case ACTION_PLAN -> MODE_TOOLTIP_PLAN;
                         case ACTION_SEARCH -> MODE_TOOLTIP_LUTZ;
                         default -> MODE_TOOLTIP_LUTZ;
                     };
@@ -2595,6 +2645,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         switch (selectedMode) {
                             case ACTION_CODE -> "Code";
                             case ACTION_ASK -> "Ask";
+                            case ACTION_PLAN -> "Plan";
                             case ACTION_SEARCH -> "Lutz";
                             default -> "Lutz";
                         };
@@ -2631,6 +2682,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     "<html><body style='width: 300px;'><b>Ask Mode:</b> An Ask agent giving you general purpose answers to a question or a request based on the files in your context.</body></html>");
             askItem.addActionListener(ev -> setSelectedMode(ACTION_ASK));
             menu.add(askItem);
+
+            JMenuItem planItem = new JMenuItem("Plan");
+            planItem.setToolTipText(
+                    "<html><body style='width: 300px;'><b>Plan Mode:</b> Performs an agentic search and generates a task list without auto-executing tasks.</body></html>");
+            planItem.addActionListener(ev -> setSelectedMode(ACTION_PLAN));
+            menu.add(planItem);
 
             JMenuItem searchItem = new JMenuItem("Lutz");
             searchItem.setToolTipText(
@@ -2856,10 +2913,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             updateFromTheme();
         }
 
-        public Color getAccent() {
-            return accent;
-        }
-
         @Override
         public String getToolTipText(MouseEvent event) {
             try {
@@ -2875,6 +2928,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         title = "Ask Mode";
                         desc =
                                 "Ask: Gives general-purpose answers or guidance grounded in the files that are in your Workspace.";
+                    }
+                    case ACTION_PLAN -> {
+                        title = "Plan Mode";
+                        desc =
+                                "Plan: Performs an agentic search across your entire project, gathers the right context, and generates a task list without auto-executing the tasks.";
                     }
                     case ACTION_SEARCH -> {
                         title = "Lutz Mode";
@@ -2912,6 +2970,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         }
 
+        public Color getAccent() {
+            return accent;
+        }
+
         private void updateFromTheme() {
             boolean isDark = UIManager.getBoolean("laf.dark");
             switch (modeKind) {
@@ -2926,6 +2988,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     this.bg = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_BG);
                     this.fg = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_FG);
                     this.accent = ThemeColors.getColor(isDark, ThemeColors.MODE_ANSWER_ACCENT);
+                }
+                case ACTION_PLAN -> {
+                    this.text = "PLAN MODE";
+                    this.bg = ThemeColors.getColor(isDark, ThemeColors.MODE_PLAN_BG);
+                    this.fg = ThemeColors.getColor(isDark, ThemeColors.MODE_PLAN_FG);
+                    this.accent = ThemeColors.getColor(isDark, ThemeColors.MODE_PLAN_ACCENT);
                 }
                 case ACTION_SEARCH -> {
                     this.text = "LUTZ MODE";
