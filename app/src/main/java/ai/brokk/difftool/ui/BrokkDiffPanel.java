@@ -2351,7 +2351,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             if (!targetPath.isAbsolute()) {
                 var repo = contextManager.getProject().getRepo();
                 if (repo instanceof GitRepo gitRepo) {
-                    targetPath = gitRepo.getGitTopLevel().resolve(targetPath).normalize();
+                    targetPath = gitRepo.resolveFromWorkTreeRoot(targetPath);
                 } else {
                     targetPath = targetPath.toAbsolutePath().normalize();
                 }

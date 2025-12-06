@@ -1920,7 +1920,7 @@ public final class MainProject extends AbstractProject {
             try (var tempRepo = new GitRepo(projectDir)) {
                 isWorktree = tempRepo.isWorktree();
                 if (isWorktree) {
-                    pathForRecentProjectsMap = tempRepo.getGitTopLevel();
+                    pathForRecentProjectsMap = tempRepo.getMainRepoRoot();
                 }
             } catch (Exception e) {
                 logger.warn(
@@ -1993,7 +1993,7 @@ public final class MainProject extends AbstractProject {
             try (var tempRepo = new GitRepo(projectDir)) {
                 isWorktree = tempRepo.isWorktree();
                 if (isWorktree) {
-                    mainProjectPathKey = tempRepo.getGitTopLevel();
+                    mainProjectPathKey = tempRepo.getMainRepoRoot();
                 }
             } catch (Exception e) {
                 logger.warn(

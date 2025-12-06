@@ -11,6 +11,7 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
 import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
@@ -132,7 +133,8 @@ public final class HeadlessExecutorMain {
         Files.createDirectories(sessionsDir);
 
         // Initialize JobStore and SessionManager
-        this.jobStore = new JobStore(workspaceDir.resolve(".brokk").resolve("jobs"));
+        this.jobStore =
+                new JobStore(workspaceDir.resolve(AbstractProject.BROKK_DIR).resolve("jobs"));
         this.sessionManager = new SessionManager(sessionsDir);
 
         // Initialize headless context asynchronously to avoid blocking constructor
@@ -575,8 +577,11 @@ public final class HeadlessExecutorMain {
      */
     void importSessionZip(byte[] zipData, UUID sessionId) throws Exception {
         // Write zip file to the directory ContextManager/SessionManager expect: <workspace>/.brokk/sessions
-        var cmSessionsDir =
-                contextManager.getProject().getRoot().resolve(".brokk").resolve("sessions");
+        var cmSessionsDir = contextManager
+                .getProject()
+                .getMasterRootPathForConfig()
+                .resolve(AbstractProject.BROKK_DIR)
+                .resolve(AbstractProject.SESSIONS_DIR);
         Files.createDirectories(cmSessionsDir);
         var sessionZipPath = cmSessionsDir.resolve(sessionId + ".zip");
         Files.write(sessionZipPath, zipData, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
@@ -1349,7 +1354,8 @@ public final class HeadlessExecutorMain {
             var project = new MainProject(workspaceDir);
             var contextManager = new ContextManager(project);
 
-            var derivedSessionsDir = workspaceDir.resolve(".brokk").resolve("sessions");
+            var derivedSessionsDir =
+                    workspaceDir.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.SESSIONS_DIR);
 
             logger.info(
                     "Starting HeadlessExecutorMain with config: execId={}, listenAddr={}, workspaceDir={}, sessionsDir={}",
