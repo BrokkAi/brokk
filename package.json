@@ -20,7 +20,7 @@
             "type": "GITHUB",
             "url": "https://github.com/shannah/brokk"
         }],
-        "javaVersion": "21",
+        "javaVersion": "25",
         "permissions": [
             {
                 "name": "user_notifications",
