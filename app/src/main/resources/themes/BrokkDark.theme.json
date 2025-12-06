@@ -49,6 +49,9 @@
       "mode_lutz_bg": "#F4C430",
       "mode_lutz_fg": "#000000",
       "mode_lutz_accent": "#F4C430",
+      "mode_plan_bg": "#9C27B0",
+      "mode_plan_fg": "#FFFFFF",
+      "mode_plan_accent": "#CE93D8",
 
       "badge_border": "#428BCA",
       "badge_foreground": "#428BCA",
