@@ -2792,8 +2792,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     public void compressHistory() {
         if (shuttingDown.get()) {
-        logger.debug("Skipping history compression during shutdown");
-        return;
+            logger.debug("Skipping history compression during shutdown");
+            return;
         }
 
         io.disableHistoryPanel();

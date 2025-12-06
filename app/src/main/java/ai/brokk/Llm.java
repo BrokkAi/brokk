@@ -90,7 +90,8 @@ public class Llm {
     private static final AtomicLong CIRCUIT_OPEN_UNTIL = new AtomicLong(0L);
     private static final AtomicBoolean CIRCUIT_WARNED = new AtomicBoolean(false);
     private static final int CIRCUIT_THRESHOLD = Integer.getInteger("brokk.llmCircuitThreshold", 4); // defaults to 4
-    private static final long CIRCUIT_COOLDOWN_MS = Long.getLong("brokk.llmCircuitCooldownMs", 45_000L); // defaults to 45s
+    private static final long CIRCUIT_COOLDOWN_MS =
+            Long.getLong("brokk.llmCircuitCooldownMs", 45_000L); // defaults to 45s
 
     public static Llm create(Options options, IContextManager cm, boolean tagRetain) {
         return new Llm(
@@ -685,7 +686,8 @@ public class Llm {
                 }
             } else {
                 // Non-timeout failures: do not contribute to timeout counter; reset only on success.
-                logger.debug("Non-timeout LLM error encountered: {}", lastError == null ? "null" : lastError.getMessage());
+                logger.debug(
+                        "Non-timeout LLM error encountered: {}", lastError == null ? "null" : lastError.getMessage());
             }
 
             logger.debug("LLM error == {}, isEmpty == {}. Attempt={}", lastError, response.isEmpty(), attempt);

@@ -839,12 +839,12 @@ public class Brokk {
                 } else {
                     // User confirmed close while an LLM task was active — interrupt it immediately.
                     try {
-                    logger.debug(
-                    "Interrupting active LLM action during window close for project {}",
-                    projectPath.getFileName());
-                    ourChromeInstance.getContextManager().interruptLlmAction();
+                        logger.debug(
+                                "Interrupting active LLM action during window close for project {}",
+                                projectPath.getFileName());
+                        ourChromeInstance.getContextManager().interruptLlmAction();
                     } catch (Throwable t) {
-                    logger.debug("Failed to interrupt active LLM action during window close", t);
+                        logger.debug("Failed to interrupt active LLM action during window close", t);
                     }
                 }
             }
@@ -958,19 +958,20 @@ public class Brokk {
             //  - Return immediately from this method so that the EDT remains responsive; the shutdown continues
             //    in the background and will call System.exit(0) when finished.
             CompletableFuture.runAsync(() -> {
-                try {
-                    ContextFragment.shutdownFragmentExecutor();
-                } catch (Throwable t) {
-                    logger.debug("Error during fragment executor shutdown on window close", t);
-                } finally {
-                    System.exit(0);
-                }
-            }).exceptionally(ex -> {
-                logger.debug("Asynchronous fragment executor shutdown failed to start", ex);
-                // Fallback: ensure we still exit to prevent leaving the process alive.
-                System.exit(0);
-                return null;
-            });
+                        try {
+                            ContextFragment.shutdownFragmentExecutor();
+                        } catch (Throwable t) {
+                            logger.debug("Error during fragment executor shutdown on window close", t);
+                        } finally {
+                            System.exit(0);
+                        }
+                    })
+                    .exceptionally(ex -> {
+                        logger.debug("Asynchronous fragment executor shutdown failed to start", ex);
+                        // Fallback: ensure we still exit to prevent leaving the process alive.
+                        System.exit(0);
+                        return null;
+                    });
             // Return immediately so the EDT is not blocked further.
             return;
         } else {
