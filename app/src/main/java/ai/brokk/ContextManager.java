@@ -809,6 +809,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public CompletableFuture<Void> submitLlmAction(ThrowingRunnable task) {
+        // Short-circuit new LLM submissions if shutdown has begun.
+        if (shuttingDown.get()) {
+            logger.debug("Rejecting new LLM action: ContextManager is shutting down");
+            return CompletableFuture.failedFuture(new CancellationException("ContextManager is shutting down"));
+        }
         return userActions.submitLlmAction(task);
     }
 
@@ -1404,6 +1409,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public CompletableFuture<Void> closeAsync(long awaitMillis) {
         // Signal shutdown so long-running background work can short-circuit.
         shuttingDown.set(true);
+
+        // Proactively interrupt any active LLM action so shutdown can proceed promptly.
+        try {
+            userActions.cancelActiveAction();
+            logger.debug("Requested interruption of active LLM action during shutdown");
+        } catch (Throwable t) {
+            logger.debug("Failed to interrupt active LLM action during shutdown", t);
+        }
 
         // Cancel BuildAgent task if still running
         if (buildAgentFuture != null && !buildAgentFuture.isDone()) {
