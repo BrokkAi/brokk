@@ -1,5 +1,6 @@
 package ai.brokk.agents;
 
+import static ai.brokk.project.FileFilteringService.toUnixPath;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.AnalyzerUtil;
@@ -136,21 +137,29 @@ public class BuildAgent {
                 // operations (like AbstractProject.applyFiltering()), we use cached IgnoreNode
                 // with direct path checking instead.
                 try (var dirStream = Files.walk(project.getRoot())) {
-                    dirStream
+                    // Collect all ignored directories, sorted by depth (shortest paths first)
+                    // Use toUnixPath for cross-platform consistency
+                    var ignoredDirs = dirStream
                             .filter(Files::isDirectory)
                             .filter(path -> !path.equals(project.getRoot())) // Skip root
                             .map(path -> project.getRoot().relativize(path))
-                            .filter(relPath -> !relPath.toString().startsWith(".")) // Skip hidden dirs like .git
-                            .filter(relPath -> {
-                                // Explicitly check if directory is gitignored using proper gitignore semantics
-                                // This prevents false positives from empty or non-code directories
-                                return project.isDirectoryIgnored(relPath);
-                            })
-                            .forEach(relPath -> {
-                                var dirName = relPath.toString();
-                                this.currentExcludedDirectories.add(dirName);
-                                addedFromGitignore.add(dirName);
-                            });
+                            .filter(relPath -> !toUnixPath(relPath).startsWith(".")) // Skip hidden dirs like .git
+                            .filter(relPath -> project.isDirectoryIgnored(relPath))
+                            .map(path -> toUnixPath(path))
+                            .sorted(Comparator.comparingInt(s -> s.split("/").length))
+                            .toList();
+
+                    // Only store top-level ignored directories (skip nested paths)
+                    var addedPaths = new HashSet<String>();
+                    for (String dirName : ignoredDirs) {
+                        boolean ancestorExcluded =
+                                addedPaths.stream().anyMatch(existing -> dirName.startsWith(existing + "/"));
+                        if (!ancestorExcluded) {
+                            this.currentExcludedDirectories.add(dirName);
+                            addedFromGitignore.add(dirName);
+                            addedPaths.add(dirName);
+                        }
+                    }
                 }
 
             } catch (IOException e) {
@@ -303,13 +312,31 @@ public class BuildAgent {
                 A baseline set of excluded directories has been established from build conventions and .gitignore.
                 When you use `reportBuildDetails`, the `excludedDirectories` parameter should contain *additional* directories
                 you identify that should be excluded from code intelligence, beyond this baseline.
-                IMPORTANT: Only provide literal directory paths. DO NOT use glob patterns (e.g., "**/target", "**/.idea"),
-                these are already handled by .gitignore processing.
+                IMPORTANT: Only provide literal directory paths for excludedDirectories. DO NOT use glob patterns there.
+
+                Additionally, identify file patterns that should be excluded from code intelligence analysis.
+                Use the `excludedFilePatterns` parameter to specify glob patterns for files that add cost without value.
+                Look for patterns specific to this project. Examples of common exclusions include:
+                - Lock files (e.g., package-lock.json, yarn.lock, Cargo.lock, poetry.lock, go.sum)
+                - Binary/media files (e.g., *.svg, *.png, *.woff, *.ttf)
+                - Minified files (e.g., *.min.js, *.min.css)
+                - Generated code from build tools (e.g., protobuf outputs, code generator outputs in generated/ or gen/ directories)
+                - Vendored dependencies (e.g., **/vendor/**, **/node_modules/** if not gitignored)
+                - Large test data files (e.g., **/testdata/*.json, **/fixtures/*.xml) - but NOT test code itself
+                - Large data files or logs
+
+                Use `**/` prefix for directory patterns that should match at any depth (e.g., `**/build/**`, `**/node_modules/**`, `**/target/**` match both `build/` and `subproject/build/`).
+
+                Do NOT exclude: configuration files, type definitions (*.d.ts, ddl files, etc), schema files (OpenAPI, GraphQL, Protobuf sources, etc), or test code.
+
+                This project's primary language is %s. Consider language-specific exclusions that are appropriate.
 
                 Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
-                The reportBuildDetails tool expects exactly four parameters: buildLintCommand, testAllCommand, testSomeCommand, and excludedDirectories.
+                The reportBuildDetails tool expects exactly five parameters: buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, and excludedFilePatterns.
                 """
-                        .formatted(wrapperScriptInstruction)));
+                        .formatted(
+                                wrapperScriptInstruction,
+                                project.getBuildLanguage().name())));
 
         // Add existing history
         messages.addAll(chatHistory);
@@ -333,11 +360,15 @@ public class BuildAgent {
             @P(
                             "Command template to run specific tests using Mustache templating. Should use either a {{classes}}, {{fqclasses}}, or a {{files}} variable. Again, if no class- or file- based framework is in use, leave it blank.")
                     String testSomeCommand,
-            @P("List of directories to exclude from code intelligence (e.g., generated code, build artifacts)")
-                    List<String> excludedDirectories) {
+            @P(
+                            "List of directories to exclude from code intelligence (e.g., generated code, build artifacts). Use literal paths, not glob patterns.")
+                    List<String> excludedDirectories,
+            @P(
+                            "List of file patterns to exclude from code intelligence (e.g., '*.svg', 'package-lock.json', '**/test/resources/**'). Glob patterns are allowed here.")
+                    List<String> excludedFilePatterns) {
         // Combine baseline excluded directories with those suggested by the LLM
-        // Filter out glob patterns defensively even though the prompt instructs against them
-        var finalExcludes = Stream.concat(this.currentExcludedDirectories.stream(), excludedDirectories.stream())
+        // Filter out glob patterns defensively for directory exclusions
+        var finalDirExcludes = Stream.concat(this.currentExcludedDirectories.stream(), excludedDirectories.stream())
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .filter(s -> !containsGlobPattern(s))
@@ -345,10 +376,23 @@ public class BuildAgent {
                 .map(Path::toString)
                 .collect(Collectors.toSet());
 
+        // Process file patterns (glob patterns are allowed here)
+        var finalFilePatterns = excludedFilePatterns.stream()
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
+
         this.reportedDetails = new BuildDetails(
-                buildLintCommand, testAllCommand, testSomeCommand, finalExcludes, defaultEnvForProject());
+                buildLintCommand,
+                testAllCommand,
+                testSomeCommand,
+                finalDirExcludes,
+                finalFilePatterns,
+                defaultEnvForProject());
         logger.debug(
-                "reportBuildDetails tool executed, details captured. Final excluded directories: {}", finalExcludes);
+                "reportBuildDetails tool executed. Excluded directories: {}, File patterns: {}",
+                finalDirExcludes,
+                finalFilePatterns);
         return "Build details report received and processed.";
     }
 
@@ -371,19 +415,21 @@ public class BuildAgent {
             String testAllCommand,
             String testSomeCommand,
             @JsonDeserialize(as = java.util.LinkedHashSet.class) Set<String> excludedDirectories,
+            @JsonDeserialize(as = java.util.LinkedHashSet.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
+                    Set<String> excludedFilePatterns,
             @JsonDeserialize(as = java.util.LinkedHashMap.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
                     Map<String, String> environmentVariables) {
 
         @VisibleForTesting
-        BuildDetails(
+        public BuildDetails(
                 String buildLintCommand,
                 String testAllCommand,
                 String testSomeCommand,
                 Set<String> excludedDirectories) {
-            this(buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, Map.of());
+            this(buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, Set.of(), Map.of());
         }
 
-        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), Map.of());
+        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), Set.of(), Map.of());
     }
 
     /** Determine the best verification command using the provided Context (no reliance on CM.topContext()). */

@@ -5,12 +5,15 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.PathMatcher;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -47,6 +50,15 @@ public final class FileFilteringService {
      * rawExclusions should come from BuildDetails.excludedDirectories() (un-normalized).
      */
     public Set<ProjectFile> filterFiles(Set<ProjectFile> files, Set<String> rawExclusions) {
+        return filterFiles(files, rawExclusions, Set.of());
+    }
+
+    /**
+     * Filter files by baseline exclusions, file patterns, and gitignore rules.
+     * rawExclusions should come from BuildDetails.excludedDirectories() (un-normalized).
+     * filePatterns should come from BuildDetails.excludedFilePatterns() (glob patterns like *.svg, package-lock.json).
+     */
+    public Set<ProjectFile> filterFiles(Set<ProjectFile> files, Set<String> rawExclusions, Set<String> filePatterns) {
         // Normalize baseline exclusions
         var baselineExclusions = rawExclusions.stream()
                 .map(s -> s.replace('\\', '/').trim())
@@ -75,6 +87,7 @@ public final class FileFilteringService {
 
         Set<ProjectFile> baselineFiltered = files.stream()
                 .filter(file -> !isBaselineExcluded(file, unionNormalized))
+                .filter(file -> !matchesFilePattern(file, filePatterns))
                 .collect(Collectors.toSet());
 
         // If no Git repo, return baseline-filtered only
@@ -153,6 +166,69 @@ public final class FileFilteringService {
 
             if (fileRel.equals(ex) || fileRel.startsWith(ex + "/")) {
                 return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Check if a file matches any of the given file patterns.
+     * Supports exact filename match (package-lock.json), simple extension patterns (*.svg),
+     * and path glob patterns using ** for directory matching.
+     */
+    private boolean matchesFilePattern(ProjectFile file, Set<String> patterns) {
+        if (patterns.isEmpty()) {
+            return false;
+        }
+
+        String filePath = file.getRelPath().toString().replace('\\', '/');
+        String fileName = file.getFileName();
+
+        for (String rawPattern : patterns) {
+            if (rawPattern == null) {
+                continue;
+            }
+            String pattern = rawPattern.trim();
+            if (pattern.isEmpty()) {
+                continue;
+            }
+
+            // Exact filename match (e.g., "package-lock.json") - case-insensitive for consistency with UI
+            if (!pattern.contains("*") && !pattern.contains("?") && !pattern.contains("/")) {
+                if (fileName.equalsIgnoreCase(pattern)) {
+                    logger.trace("File {} excluded by exact pattern: {}", filePath, pattern);
+                    return true;
+                }
+                continue;
+            }
+
+            // Simple extension match (e.g., "*.svg", "*.min.js") - suffix must not contain wildcards
+            // Case-insensitive for consistency with UI
+            if (pattern.startsWith("*.") && !pattern.contains("/")) {
+                String suffix = pattern.substring(1); // ".svg" or ".min.js"
+                // Only use fast path if suffix has no wildcards; otherwise fall through to glob
+                if (!suffix.contains("*") && !suffix.contains("?")) {
+                    if (fileName.toLowerCase(Locale.ROOT).endsWith(suffix.toLowerCase(Locale.ROOT))) {
+                        logger.trace("File {} excluded by extension pattern: {}", filePath, pattern);
+                        return true;
+                    }
+                    continue;
+                }
+            }
+
+            // Path glob pattern (e.g., "**/test/resources/**", "src/test/resources/**")
+            // For patterns without "/", match against just the filename (e.g., "*.*" matches any file with extension)
+            // Normalize to lowercase for case-insensitive matching across all platforms
+            try {
+                String lowerPattern = pattern.toLowerCase(Locale.ROOT);
+                PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + lowerPattern);
+                String pathToMatch = (pattern.contains("/") ? filePath : fileName).toLowerCase(Locale.ROOT);
+                if (matcher.matches(Path.of(pathToMatch))) {
+                    logger.trace("File {} excluded by glob pattern: {}", filePath, pattern);
+                    return true;
+                }
+            } catch (Exception e) {
+                logger.debug("Invalid glob pattern '{}': {}", pattern, e.getMessage());
             }
         }
         return false;
