@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.*;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -3204,8 +3205,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             // Compute right content (working tree)
                             String rightContent = safeReadWorkingTree(file);
 
-                            // Compute line counts
-                            int[] netCounts = computeNetLineCounts(leftContent, rightContent);
+                            // Compute line counts (guarded against binary/huge blobs)
+                            int[] netCounts = computeNetLineCounts(leftContent, rightContent, displayFile);
                             totalAdded += netCounts[0];
                             totalDeleted += netCounts[1];
 
@@ -3479,8 +3480,39 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     // Compute the net added/deleted line counts between two versions of a file.
-    // Uses ContentDiffUtils for accurate Myers-algorithm-based diff counts.
-    private static int[] computeNetLineCounts(String earliestOld, String latestNew) {
+    // Uses ContentDiffUtils for accurate Myers-algorithm-based diff counts, but short-circuits
+    // for binary or extremely large inputs to avoid heavy CPU usage.
+    private static int[] computeNetLineCounts(String earliestOld, String latestNew, String displayFile) {
+        final int SIZE_LIMIT = 1_000_000; // characters
+
+        try {
+            // Binary detection: if either side contains a NUL (heuristic), treat as binary
+            if (earliestOld != null && BrokkFile.isBinary(earliestOld)) {
+                logger.debug("Skipping diff for binary content (left) for file {}", displayFile);
+                return new int[] {0, 0};
+            }
+            if (latestNew != null && BrokkFile.isBinary(latestNew)) {
+                logger.debug("Skipping diff for binary content (right) for file {}", displayFile);
+                return new int[] {0, 0};
+            }
+
+            // Size guard: avoid diffing extremely large blobs
+            int leftLen = earliestOld == null ? 0 : earliestOld.length();
+            int rightLen = latestNew == null ? 0 : latestNew.length();
+            if (leftLen > SIZE_LIMIT || rightLen > SIZE_LIMIT) {
+                logger.debug(
+                        "Skipping diff for oversized content for file {} (left={}, right={}, limit={})",
+                        displayFile,
+                        leftLen,
+                        rightLen,
+                        SIZE_LIMIT);
+                return new int[] {0, 0};
+            }
+        } catch (Throwable t) {
+            // Best-effort detection: if detection fails, log and fall through to diff computation.
+            logger.debug("Error while checking binary/size for file {}: {}", displayFile, t.getMessage());
+        }
+
         var result = ContentDiffUtils.computeDiffResult(earliestOld, latestNew, "old", "new");
         return new int[] {result.added(), result.deleted()};
     }
