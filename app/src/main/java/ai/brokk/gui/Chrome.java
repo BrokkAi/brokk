@@ -1685,8 +1685,18 @@ public class Chrome
     public void close() {
         logger.info("Closing Chrome UI");
 
-        // Initiate asynchronous shutdown of ContextManager but do NOT block the EDT waiting for it.
-        // This prevents the UI from freezing while background executors are being shut down.
+        // IMPORTANT: This method MUST NOT block the Swing Event Dispatch Thread (EDT).
+        // The ContextManager.shutdown/close can perform potentially slow operations
+        // (executor shutdown, flushing logs, network calls, etc.). Blocking here would
+        // make the UI unresponsive and can lead to deadlocks during window close.
+        //
+        // Policy: initiate shutdown asynchronously and do not wait on the EDT.
+        // - We call ContextManager.closeAsync(...) to start shutdown off-EDT.
+        // - Any completion handling (logging, cleanup) runs asynchronously on completion.
+        // - We dispose the frame immediately so the window visibly closes promptly.
+        //
+        // Placing the shutdown initiation inside a try/catch prevents any unexpected
+        // exceptions from escaping the EDT.
         try {
             var shutdownFuture = contextManager.closeAsync(1_000);
             logger.debug("ContextManager.closeAsync(1_000) invoked (shutdown proceeding asynchronously)");

@@ -895,6 +895,8 @@ public class Brokk {
         // Standard cleanup
         Chrome removedChrome = openProjectWindows.remove(projectPath);
         if (removedChrome != null) {
+            // NOTE: Chrome.close() initiates an asynchronous ContextManager shutdown and must NOT block the EDT.
+            // It will dispose the UI and start background shutdown work; do not attempt to wait for that work here.
             removedChrome.close();
         }
         logger.debug("Removed project from open windows map: {}", projectPath);
@@ -944,12 +946,30 @@ public class Brokk {
             // We are about to exit the application.
             // Do NOT remove this project from the persistent "open projects" list.
             logger.info("Last project window ({}) closed. App exiting. It remains MRU.", projectPath);
-            try {
-                ContextFragment.shutdownFragmentExecutor();
-            } catch (Throwable t) {
-                logger.debug("Error during fragment executor shutdown on window close", t);
-            }
-            System.exit(0);
+
+            // IMPORTANT:
+            // The fragment-executor shutdown can be slow and must NOT run on the EDT since it may block
+            // waiting for background fragment computations, causing the UI to hang. We therefore:
+            //  - Schedule ContextFragment.shutdownFragmentExecutor() to run off-EDT via CompletableFuture.runAsync(...)
+            //  - After shutdown completes (or if scheduling fails), call System.exit(0) to terminate the JVM.
+            //  - Return immediately from this method so that the EDT remains responsive; the shutdown continues
+            //    in the background and will call System.exit(0) when finished.
+            CompletableFuture.runAsync(() -> {
+                try {
+                    ContextFragment.shutdownFragmentExecutor();
+                } catch (Throwable t) {
+                    logger.debug("Error during fragment executor shutdown on window close", t);
+                } finally {
+                    System.exit(0);
+                }
+            }).exceptionally(ex -> {
+                logger.debug("Asynchronous fragment executor shutdown failed to start", ex);
+                // Fallback: ensure we still exit to prevent leaving the process alive.
+                System.exit(0);
+                return null;
+            });
+            // Return immediately so the EDT is not blocked further.
+            return;
         } else {
             // Other projects are still open or other projects are pending reopening.
             // This one is just closing, so remove it from the persistent "open projects" list.
