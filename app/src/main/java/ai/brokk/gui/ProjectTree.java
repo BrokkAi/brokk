@@ -7,6 +7,7 @@ import ai.brokk.TrackedFileChangeListener;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.gui.util.ContextSizeGuard;
 import ai.brokk.project.IProject;
 import ai.brokk.util.FileManagerUtil;
 import java.awt.*;
@@ -263,8 +264,12 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
 
         JMenuItem editItem = new JMenuItem(editLabel);
         editItem.addActionListener(ev -> {
-            contextManager.submitContextTask(() -> {
-                contextManager.addFiles(targetFiles);
+            ContextSizeGuard.checkAndConfirm(targetFiles, chrome, confirmed -> {
+                if (confirmed) {
+                    contextManager.submitContextTask(() -> contextManager.addFiles(targetFiles));
+                } else {
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "File addition cancelled");
+                }
             });
         });
         editItem.setEnabled(allFilesTracked);
