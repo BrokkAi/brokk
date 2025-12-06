@@ -61,6 +61,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
@@ -80,6 +81,16 @@ public class Llm {
 
     /** Base directory where LLM interaction history logs are stored. */
     public static final String HISTORY_DIR_NAME = "llm-history";
+
+    // Simple circuit-breaker to avoid hammering upstream when repeated LLM timeouts occur.
+    // - CONSECUTIVE_TIMEOUTS: counts consecutive "timed out" HttpException occurrences.
+    // - CIRCUIT_OPEN_UNTIL: epoch ms until which the circuit is open (short-circuiting).
+    // - CIRCUIT_WARNED: ensure we WARN once per open period about short-circuiting.
+    private static final AtomicInteger CIRCUIT_CONSECUTIVE_TIMEOUTS = new AtomicInteger(0);
+    private static final AtomicLong CIRCUIT_OPEN_UNTIL = new AtomicLong(0L);
+    private static final AtomicBoolean CIRCUIT_WARNED = new AtomicBoolean(false);
+    private static final int CIRCUIT_THRESHOLD = Integer.getInteger("brokk.llmCircuitThreshold", 4); // defaults to 4
+    private static final long CIRCUIT_COOLDOWN_MS = Long.getLong("brokk.llmCircuitCooldownMs", 45_000L); // defaults to 45s
 
     public static Llm create(Options options, IContextManager cm, boolean tagRetain) {
         return new Llm(
@@ -602,6 +613,26 @@ public class Llm {
 
         StreamingResult response;
         while (attempt++ < maxAttempts) {
+            // Circuit-breaker: if circuit is open and still in cooldown, short-circuit immediately.
+            long now = System.currentTimeMillis();
+            long openUntil = CIRCUIT_OPEN_UNTIL.get();
+            if (openUntil > now) {
+                if (CIRCUIT_WARNED.compareAndSet(false, true)) {
+                    logger.warn(
+                            "LLM circuit open ({} ms). Short-circuiting LLM requests until cooldown elapses.",
+                            (openUntil - now));
+                }
+                // Return an HTTP 503 to indicate service unavailable due to cooldown.
+                return new StreamingResult(null, new HttpException(503, "LLM circuit open: cooldown"), attempt - 1);
+            } else if (openUntil != 0 && openUntil <= now) {
+                // cooldown has expired; treat as half-open - allow trial requests and clear warned flag so future
+                // short-circuits will warn again if re-opened.
+                if (CIRCUIT_CONSECUTIVE_TIMEOUTS.get() > 0) {
+                    logger.debug("LLM circuit moving to HALF-OPEN state; allowing trial requests.");
+                }
+                CIRCUIT_WARNED.set(false);
+            }
+
             String description = Messages.getText(messages.getLast());
             logger.debug(
                     "Sending request to {} attempt {}: {}",
@@ -611,14 +642,50 @@ public class Llm {
 
             response = doSingleSendMessage(model, messages, toolContext);
             lastError = response.error;
+
+            // Success path: reset circuit state and return result
             if (!response.isEmpty() && (lastError == null || allowPartialResponses)) {
-                // Success!
+                if (CIRCUIT_CONSECUTIVE_TIMEOUTS.get() != 0 || CIRCUIT_OPEN_UNTIL.get() != 0L) {
+                    logger.debug("LLM circuit reset to CLOSED state after successful response.");
+                }
+                CIRCUIT_CONSECUTIVE_TIMEOUTS.set(0);
+                CIRCUIT_OPEN_UNTIL.set(0L);
+                CIRCUIT_WARNED.set(false);
                 return response.withRetryCount(attempt - 1);
             }
 
             // don't retry on non-retriable errors or known bad request errors
             if (lastError instanceof NonRetriableException) {
                 break;
+            }
+
+            // Detect timeout-like HttpException (504 "timed out") and update circuit state.
+            boolean isLlmTimeout = false;
+            if (lastError instanceof HttpException) {
+                String msg = lastError.getMessage();
+                if (msg != null && msg.toLowerCase(Locale.ROOT).contains("timed out")) {
+                    isLlmTimeout = true;
+                }
+            }
+
+            if (isLlmTimeout) {
+                int nowCount = CIRCUIT_CONSECUTIVE_TIMEOUTS.incrementAndGet();
+                logger.debug("LLM timeout detected (consecutive timeouts={})", nowCount);
+                if (nowCount >= CIRCUIT_THRESHOLD) {
+                    long until = System.currentTimeMillis() + CIRCUIT_COOLDOWN_MS;
+                    // Open circuit only when transitioning from closed to open to avoid noisy logs
+                    if (CIRCUIT_OPEN_UNTIL.get() == 0L) {
+                        CIRCUIT_OPEN_UNTIL.set(until);
+                        CIRCUIT_WARNED.set(false); // allow a WARN when short-circuiting
+                        logger.debug(
+                                "LLM circuit OPENED due to {} consecutive timeouts; cooling down for {} ms",
+                                nowCount,
+                                CIRCUIT_COOLDOWN_MS);
+                    }
+                }
+            } else {
+                // Non-timeout failures: do not contribute to timeout counter; reset only on success.
+                logger.debug("Non-timeout LLM error encountered: {}", lastError == null ? "null" : lastError.getMessage());
             }
 
             logger.debug("LLM error == {}, isEmpty == {}. Attempt={}", lastError, response.isEmpty(), attempt);
@@ -645,17 +712,17 @@ public class Llm {
             long endTime = System.currentTimeMillis() + backoffSeconds * 1000L;
             long nextNotifyAt = System.currentTimeMillis() + 2000L; // notify at most every 2 seconds
             while (true) {
-                long now = System.currentTimeMillis();
-                long remain = endTime - now;
+                long now2 = System.currentTimeMillis();
+                long remain = endTime - now2;
                 if (remain <= 0) {
                     break;
                 }
 
-                if (backoffSeconds > 1 && now >= nextNotifyAt) {
+                if (backoffSeconds > 1 && now2 >= nextNotifyAt) {
                     long secsLeft = (long) Math.ceil(remain / 1000.0);
                     io.showNotification(
                             IConsoleIO.NotificationRole.INFO, "Retrying in %d seconds...".formatted(secsLeft));
-                    nextNotifyAt = now + 2000L;
+                    nextNotifyAt = now2 + 2000L;
                 }
 
                 // short sleep to remain responsive to interruption while avoiding busy-wait
