@@ -27,6 +27,30 @@ public interface IAnalyzer {
         }
     }
 
+    /**
+     * Listener for progress updates during analyzer construction or update operations.
+     * Implementations should be thread-safe as callbacks may come from worker threads.
+     */
+    @FunctionalInterface
+    interface ProgressListener {
+        ProgressListener NOOP = new NoopProgressListener();
+        /**
+         * Called to report progress during analyzer operations.
+         *
+         * @param completed Number of items completed
+         * @param total     Total number of items to process
+         * @param phase     Description of the current phase (e.g., "Parsing Java files")
+         */
+        void onProgress(int completed, int total, String phase);
+    }
+
+    class NoopProgressListener implements ProgressListener {
+        @Override
+        public void onProgress(int completed, int total, String phase) {
+            // No-op
+        }
+    }
+
     // Basics
     List<CodeUnit> getTopLevelDeclarations(ProjectFile file);
 
@@ -126,12 +150,12 @@ public interface IAnalyzer {
     /**
      * Extracts the class/module/type name from a method/member reference like "MyClass.myMethod". This is a heuristic
      * method that may produce false positives/negatives.
-     * Package-private: external callers should use {@link ai.brokk.AnalyzerUtil#extractClassName}.
+     * Package-private: external callers should use {@link ai.brokk.AnalyzerUtil#extractCallReceiver}.
      *
      * @param reference The reference string to analyze (e.g., "MyClass.myMethod", "package::Class::method")
      * @return Optional containing the extracted class/module name, empty if none found
      */
-    Optional<String> extractClassName(String reference);
+    Optional<String> extractCallReceiver(String reference);
 
     /**
      * @return the import snippets for the given file where other code units may be referred to by.

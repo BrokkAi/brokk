@@ -417,6 +417,27 @@ public class GitRepoRemote {
     }
 
     /**
+     * Get the remote name for GitHub PR operations, preferring "origin".
+     * Falls back to standard remote resolution if "origin" doesn't exist.
+     */
+    public @Nullable String getOriginRemoteNameWithFallback() {
+        var remoteNames = repository.getRemoteNames();
+        if (remoteNames.contains("origin")) {
+            return "origin";
+        }
+        return getTargetRemoteName();
+    }
+
+    /**
+     * Get the URL of the origin remote with fallback to target remote.
+     * Preferred for GitHub PR operations.
+     */
+    public @Nullable String getOriginUrlWithFallback() {
+        var remoteName = getOriginRemoteNameWithFallback();
+        return remoteName != null ? getUrl(remoteName) : null;
+    }
+
+    /**
      * Lists branches and tags from a remote repository URL.
      *
      * @param url The URL of the remote repository.

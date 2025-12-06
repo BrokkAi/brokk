@@ -55,16 +55,16 @@ public class RustLanguage implements Language {
     }
 
     @Override
-    public IAnalyzer createAnalyzer(IProject project) {
-        return new RustAnalyzer(project);
+    public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        return new RustAnalyzer(project, listener);
     }
 
     @Override
-    public IAnalyzer loadAnalyzer(IProject project) {
+    public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
         var storage = getStoragePath(project);
         return TreeSitterStateIO.load(storage)
-                .map(state -> (IAnalyzer) RustAnalyzer.fromState(project, state))
-                .orElseGet(() -> createAnalyzer(project));
+                .map(state -> (IAnalyzer) RustAnalyzer.fromState(project, state, listener))
+                .orElseGet(() -> createAnalyzer(project, listener));
     }
 
     @Override

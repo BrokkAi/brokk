@@ -160,9 +160,6 @@ public class WandAction {
                 // Transition from reasoning to content: clear the area first
                 SwingUtilities.invokeLater(() -> instructionsArea.setText(""));
                 hasStartedContent = true;
-            } else if (isReasoning && !lastWasReasoning) {
-                // Illegal transition back to reasoning
-                throw new IllegalStateException("Wand stream switched from non-reasoning to reasoning");
             }
 
             if (!token.isEmpty()) {

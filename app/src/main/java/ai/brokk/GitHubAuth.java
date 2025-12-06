@@ -97,7 +97,7 @@ public class GitHubAuth {
                 || (effectiveRepoName == null || effectiveRepoName.isBlank())) {
             var repo = (GitRepo) project.getRepo();
 
-            var remoteUrl = repo.getRemoteUrl();
+            var remoteUrl = repo.getOriginRemoteUrl();
             // Use GitUiUtil for parsing owner/repo from URL
             var parsedOwnerRepoDetails = GitUiUtil.parseOwnerRepoFromUrl(Objects.requireNonNullElse(remoteUrl, ""));
 
