@@ -839,9 +839,12 @@ public class Brokk {
                 } else {
                     // User confirmed close while an LLM task was active — interrupt it immediately.
                     try {
-                        ourChromeInstance.getContextManager().interruptLlmAction();
+                    logger.debug(
+                    "Interrupting active LLM action during window close for project {}",
+                    projectPath.getFileName());
+                    ourChromeInstance.getContextManager().interruptLlmAction();
                     } catch (Throwable t) {
-                        logger.debug("Failed to interrupt active LLM action during window close", t);
+                    logger.debug("Failed to interrupt active LLM action during window close", t);
                     }
                 }
             }

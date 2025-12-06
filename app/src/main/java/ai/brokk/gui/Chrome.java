@@ -1698,18 +1698,21 @@ public class Chrome
         // Placing the shutdown initiation inside a try/catch prevents any unexpected
         // exceptions from escaping the EDT.
         try {
-            var shutdownFuture = contextManager.closeAsync(1_000);
-            logger.debug("ContextManager.closeAsync(1_000) invoked (shutdown proceeding asynchronously)");
-            shutdownFuture.whenComplete((v, t) -> {
-                if (t != null) {
-                    logger.warn("Asynchronous ContextManager shutdown completed with error", t);
-                } else {
-                    logger.debug("Asynchronous ContextManager shutdown completed successfully");
-                }
-            });
+        logger.debug(
+        "Initiating asynchronous ContextManager.closeAsync(1_000) for project {} (non-blocking EDT)",
+        contextManager.getProject().getRoot());
+        var shutdownFuture = contextManager.closeAsync(1_000);
+        logger.debug("ContextManager.closeAsync(1_000) invoked (shutdown proceeding asynchronously)");
+        shutdownFuture.whenComplete((v, t) -> {
+        if (t != null) {
+        logger.warn("Asynchronous ContextManager shutdown completed with error", t);
+        } else {
+        logger.debug("Asynchronous ContextManager shutdown completed successfully");
+        }
+        });
         } catch (Throwable t) {
-            // Defensive: never let shutdown initiation throw on the EDT
-            logger.warn("Failed to initiate asynchronous ContextManager shutdown", t);
+        // Defensive: never let shutdown initiation throw on the EDT
+        logger.warn("Failed to initiate asynchronous ContextManager shutdown", t);
         }
 
         // Dispose UI immediately so window close is responsive.
