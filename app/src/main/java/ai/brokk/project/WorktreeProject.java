@@ -108,13 +108,13 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public AbstractService.ModelConfig getArchitectModelConfig() {
-        return parent.getArchitectModelConfig();
+    public AbstractService.ModelConfig getPrimaryModelConfig() {
+        return parent.getPrimaryModelConfig();
     }
 
     @Override
-    public void setArchitectModelConfig(AbstractService.ModelConfig config) {
-        parent.setArchitectModelConfig(config);
+    public void setPrimaryModelConfig(AbstractService.ModelConfig config) {
+        parent.setPrimaryModelConfig(config);
     }
 
     @Override

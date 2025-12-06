@@ -665,26 +665,35 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     public StreamingChatModel getScanModel() {
         // First attempt: use project-configured scan model if available
-        try {
-            var cfg = project.getMainProject().getScanModelConfig();
-            var model = getModel(cfg);
-            if (model != null) {
-                return model;
-            }
-        } catch (Exception e) {
-            logger.debug(
-                    "Failed to get project-configured scan model, falling back to dynamic selection: {}",
-                    e.getMessage());
+        var cfg = project.getMainProject().getScanModelConfig();
+        var model = getModel(cfg);
+        if (model != null) {
+            return model;
         }
 
         // Fallback: dynamic selection preferring GEMINI_2_5_FLASH if available, else GPT_5_MINI
         var modelName = modelLocations.containsKey(GEMINI_2_5_FLASH) ? GEMINI_2_5_FLASH : GPT_5_MINI;
-        var model = getModel(new ModelConfig(modelName, ReasoningLevel.DEFAULT));
+        model = getModel(new ModelConfig(modelName, ReasoningLevel.DEFAULT));
         if (model == null) {
             logger.error("Failed to get scan model '{}'", modelName);
             return new UnavailableStreamingModel();
         }
         return model;
+    }
+
+    /**
+     * Returns the model to use for inferring Git commit messages.
+     * First attempt: use project-configured commit model if available.
+     */
+    public StreamingChatModel getCommitModel() {
+        // First attempt: use project-configured commit model if available
+        var cfg = project.getMainProject().getCommitModelConfig();
+        var model = getModel(cfg);
+        if (model != null) {
+            return model;
+        }
+
+        return quickModel;
     }
 
     public boolean hasSttModel() {

@@ -297,11 +297,11 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-    default AbstractService.ModelConfig getArchitectModelConfig() {
+    default AbstractService.ModelConfig getPrimaryModelConfig() {
         throw new UnsupportedOperationException();
     }
 
-    default void setArchitectModelConfig(AbstractService.ModelConfig config) {
+    default void setPrimaryModelConfig(AbstractService.ModelConfig config) {
         throw new UnsupportedOperationException();
     }
 

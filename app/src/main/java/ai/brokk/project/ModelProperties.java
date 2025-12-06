@@ -1,5 +1,6 @@
 package ai.brokk.project;
 
+import ai.brokk.AbstractService;
 import ai.brokk.AbstractService.ModelConfig;
 import ai.brokk.Service;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -127,10 +128,11 @@ public final class ModelProperties {
     enum ModelType {
         QUICK("quickConfig", new ModelConfig(Service.GEMINI_2_0_FLASH)),
         CODE("codeConfig", new ModelConfig(Service.HAIKU_4_5)),
-        ARCHITECT("architectConfig", new ModelConfig(Service.GPT_5)),
+        PRIMARY("architectConfig", new ModelConfig(Service.GPT_5)),
         QUICK_EDIT("quickEditConfig", new ModelConfig("cerebras/gpt-oss-120b")),
         QUICKEST("quickestConfig", new ModelConfig("gemini-2.0-flash-lite")),
-        SCAN("scanConfig", new ModelConfig(Service.GPT_5_MINI));
+        SCAN("scanConfig", new ModelConfig(Service.GPT_5_MINI)),
+        COMMIT("commitConfig", new ModelConfig(Service.HAIKU_4_5, AbstractService.ReasoningLevel.DISABLE));
 
         private final String propertyKey;
         private final ModelConfig preferredConfig;

@@ -395,7 +395,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         // Populate Primary Model combo with favorites
-        var currentPlannerConfig = chrome.getProject().getMainProject().getArchitectModelConfig();
+        var currentPlannerConfig = chrome.getProject().getMainProject().getPrimaryModelConfig();
         primaryModelCombo.removeAllItems();
         for (Service.FavoriteModel favorite : loadedFavorites) {
             primaryModelCombo.addItem(favorite);
@@ -2177,7 +2177,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Save Primary Model (from favorite config)
         if (selectedPrimaryFavorite != null) {
-            chrome.getProject().getMainProject().setArchitectModelConfig(selectedPrimaryFavorite.config());
+            chrome.getProject().getMainProject().setPrimaryModelConfig(selectedPrimaryFavorite.config());
             chrome.getInstructionsPanel().selectPlannerModelConfig(selectedPrimaryFavorite.config());
         }
 

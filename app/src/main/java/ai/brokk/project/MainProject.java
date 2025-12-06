@@ -455,6 +455,16 @@ public final class MainProject extends AbstractProject {
         return ModelProperties.ModelType.SCAN.preferredConfig();
     }
 
+    /**
+     * Returns the code-defined default ModelConfig for the Commit role.
+     *
+     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
+     * persisted user settings or overrides.
+     */
+    public static ModelConfig getDefaultCommitModelConfig() {
+        return ModelProperties.ModelType.COMMIT.preferredConfig();
+    }
+
     private void setModelConfigInternal(ModelType modelType, ModelConfig config) {
         var props = loadGlobalProperties();
         ModelProperties.setModelConfig(props, modelType, config);
@@ -482,13 +492,13 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public ModelConfig getArchitectModelConfig() {
-        return getModelConfigInternal(ModelType.ARCHITECT);
+    public ModelConfig getPrimaryModelConfig() {
+        return getModelConfigInternal(ModelType.PRIMARY);
     }
 
     @Override
-    public void setArchitectModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.ARCHITECT, config);
+    public void setPrimaryModelConfig(ModelConfig config) {
+        setModelConfigInternal(ModelType.PRIMARY, config);
     }
 
     public ModelConfig getQuickEditModelConfig() {
@@ -513,6 +523,14 @@ public final class MainProject extends AbstractProject {
 
     public void setScanModelConfig(ModelConfig config) {
         setModelConfigInternal(ModelType.SCAN, config);
+    }
+
+    public ModelConfig getCommitModelConfig() {
+        return getModelConfigInternal(ModelType.COMMIT);
+    }
+
+    public void setCommitModelConfig(ModelConfig config) {
+        setModelConfigInternal(ModelType.COMMIT, config);
     }
 
     @Override

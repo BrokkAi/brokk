@@ -64,7 +64,6 @@ import java.util.concurrent.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.Border;
 import javax.swing.border.EmptyBorder;
@@ -447,8 +446,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         modelSelector = new ModelSelector(chrome);
-        modelSelector.selectConfig(chrome.getProject().getArchitectModelConfig());
-        modelSelector.addSelectionListener(cfg -> chrome.getProject().setArchitectModelConfig(cfg));
+        modelSelector.selectConfig(chrome.getProject().getPrimaryModelConfig());
+        modelSelector.addSelectionListener(cfg -> chrome.getProject().setPrimaryModelConfig(cfg));
         // Also recompute token/cost indicator when model changes
         modelSelector.addSelectionListener(cfg -> updateTokenCostIndicator());
         // Ensure model selector component is focusable

@@ -85,7 +85,7 @@ public final class GitWorkflow {
 
         var messages = CommitPrompts.instance.collectMessages(cm.getProject(), diff);
         Llm.StreamingResult result;
-        result = cm.getLlm(cm.getService().quickestModel(), "Infer commit message")
+        result = cm.getLlm(cm.getService().getCommitModel(), "Infer commit message")
                 .sendRequest(messages);
 
         return result.error() == null ? result.text() : taskDescription;
