@@ -2447,6 +2447,10 @@ public class Chrome
         return instructionsPanel;
     }
 
+    public TaskListPanel getTaskListPanel() {
+        return taskListPanel;
+    }
+
     public WorkspacePanel getContextPanel() {
         return workspacePanel;
     }
@@ -2874,17 +2878,12 @@ public class Chrome
         }
     }
 
-    public void refreshTaskListUI(boolean triggerAutoPlay, Set<String> preExistingIncompleteTasks) {
+    public void refreshTaskListUI() {
         // Terminal drawer removed — bring the Tasks tab to front instead.
         SwingUtilities.invokeLater(() -> {
             int idx = rightTabbedPanel.indexOfTab("Tasks");
             if (idx != -1) rightTabbedPanel.setSelectedIndex(idx);
             taskListPanel.refreshFromManager();
-
-            // Auto-play tasks when idle after the list finishes refreshing if triggered
-            if (triggerAutoPlay) {
-                SwingUtilities.invokeLater(() -> taskListPanel.autoPlayAllIfIdle(preExistingIncompleteTasks));
-            }
         });
     }
 

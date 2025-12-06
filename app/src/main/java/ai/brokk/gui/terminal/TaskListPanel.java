@@ -2765,7 +2765,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
      * Shows EZ-mode dialog prompting the user to execute, remove, or cancel incomplete tasks.
      * @param preExistingIncompleteTasks Set of pre-existing task texts to show in dialog (empty = auto-execute without dialog)
      */
-    private void showAutoPlayGateDialogAndAct(Set<String> preExistingIncompleteTasks) {
+    public void showAutoPlayGateDialogAndAct(Set<String> preExistingIncompleteTasks) {
         if (!SwingUtilities.isEventDispatchThread()) {
             SwingUtilities.invokeLater(() -> this.showAutoPlayGateDialogAndAct(preExistingIncompleteTasks));
             return;

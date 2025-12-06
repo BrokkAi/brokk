@@ -2664,8 +2664,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     String taskType = null;
                     if (titleHint.contains(InstructionsPanel.ACTION_CODE)) {
                         taskType = InstructionsPanel.ACTION_CODE;
-                    } else if (titleHint.contains(InstructionsPanel.ACTION_SEARCH)) {
-                        taskType = InstructionsPanel.ACTION_SEARCH;
+                    } else if (titleHint.contains(InstructionsPanel.ACTION_LUTZ)) {
+                        taskType = InstructionsPanel.ACTION_LUTZ;
                     } else if (titleHint.contains(InstructionsPanel.ACTION_ASK)) {
                         taskType = InstructionsPanel.ACTION_ASK;
                     }
