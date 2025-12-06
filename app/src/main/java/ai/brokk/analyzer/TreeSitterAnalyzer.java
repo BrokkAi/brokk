@@ -1358,10 +1358,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Determines whether a duplicate CodeUnit with the same FQN should replace the existing one.
      * Default behavior is to keep the first definition and reject duplicates.
      *
-     * @param cu the new CodeUnit that would be a duplicate
-     * @return true if duplicates should replace existing (Python "last wins"), false otherwise
+     * @param existing the CodeUnit already in the list
+     * @param candidate the new CodeUnit that would be a duplicate
+     * @return true if candidate should replace existing (Python "last wins"), false otherwise
      */
-    protected boolean shouldReplaceOnDuplicate(CodeUnit cu) {
+    protected boolean shouldReplaceOnDuplicate(CodeUnit existing, CodeUnit candidate) {
         return false;
     }
 
@@ -1543,7 +1544,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             // Otherwise fall through to general duplicate handling below (e.g., distinct overloads)
         }
 
-        if (shouldReplaceOnDuplicate(cu)) {
+        if (shouldReplaceOnDuplicate(existingDuplicate, cu)) {
             // Language allows duplicate replacement (e.g., Python's "last wins" semantics)
             localTopLevelCUs.removeIf(existing -> existing.fqName().equals(cu.fqName()));
             localTopLevelCUs.add(cu);
@@ -1624,7 +1625,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
 
         // If both are functions and language allows replacement, prefer the one with a body
-        if (cu.isFunction() && existingDuplicate.isFunction() && shouldReplaceOnDuplicate(cu)) {
+        if (cu.isFunction() && existingDuplicate.isFunction() && shouldReplaceOnDuplicate(existingDuplicate, cu)) {
             boolean existingHasBody = localHasBody.getOrDefault(existingDuplicate, false);
             boolean candidateHasBody = localHasBody.getOrDefault(cu, false);
 
@@ -1645,7 +1646,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             // If both have body or both lack body, fall through to general handling below
         }
 
-        if (shouldReplaceOnDuplicate(cu)) {
+        if (shouldReplaceOnDuplicate(existingDuplicate, cu)) {
             // Replace all same-FQN children (e.g., Python's "last wins")
             List<CodeUnit> toRemove =
                     kids.stream().filter(k -> k.fqName().equals(cu.fqName())).toList();

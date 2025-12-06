@@ -1112,10 +1112,10 @@ public final class PythonAnalyzerTest {
 
         // Verify try/except captures (common pattern for optional dependencies)
         assertTrue(
-                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.TryClass")),
+                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.base.TryClass")),
                 "Class inside 'try' should be captured");
         assertTrue(
-                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.ExceptClass")),
+                classes.stream().anyMatch(cu -> cu.fqName().equals("conditional_pkg.base.ExceptClass")),
                 "Class inside 'except' should be captured");
         assertTrue(
                 functions.stream().anyMatch(cu -> cu.identifier().equals("try_function")),
