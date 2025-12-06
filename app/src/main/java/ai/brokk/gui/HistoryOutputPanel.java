@@ -3118,7 +3118,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Fast-path: if a computation is already in-flight and not completed, reuse it.
         var existing = changesComputationRef.get();
         if (existing != null && !existing.isDone()) {
-            logger.debug("Reusing in-flight cumulative changes computation");
+            logger.debug("Reusing in-flight cumulative changes computation (seq={})", changesJobSeq);
             return existing;
         }
 
@@ -3135,15 +3135,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
             // If we win the race to install the placeholder, we start the background work exactly once.
             if (changesComputationRef.compareAndSet(existing, placeholder)) {
-                logger.debug("Starting new cumulative changes computation");
-
-                // Bump job sequence (synchronized to ensure atomic increment)
+                // Bump job sequence (synchronized to ensure atomic increment) and log start with seq.
                 final long jobSeq;
                 synchronized (this) {
                     changesJobSeq++;
                     jobSeq = changesJobSeq;
                 }
-                logger.debug("Assigned cumulative-changes job seq {}", jobSeq);
+                logger.debug("Starting new cumulative changes computation (seq={})", jobSeq);
 
                 var bgFuture = contextManager
                         .submitBackgroundTask("Compute branch-based changes", () -> {
@@ -3226,11 +3224,19 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                         isText = file.isText();
                                     } catch (Throwable t) {
                                         // Defensive: if text detection fails, treat as non-text and log at DEBUG.
-                                        logger.debug("Failed to determine text-ness for file {}, treating as non-text: {}", file, t.getMessage());
+                                        logger.debug(
+                                                "Failed to determine text-ness for file {} (abs={}); treating as non-text: {}",
+                                                file,
+                                                file.absPath(),
+                                                t.getMessage());
                                         isText = false;
                                     }
                                     if (!isText) {
-                                        logger.debug("Skipping non-text file in cumulative changes: {}", file);
+                                        // Include both the ProjectFile (relative) and absolute path for easier debugging.
+                                        logger.debug(
+                                                "Skipping non-text (binary) file in cumulative changes: {} (abs={})",
+                                                file,
+                                                file.absPath());
                                         continue;
                                     }
 
@@ -3568,13 +3574,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         final int SIZE_LIMIT = 1_000_000; // characters
 
         try {
-            // Binary detection: if either side contains a NUL (heuristic), treat as binary
+            // Binary detection: if either side contains a NUL (heuristic), treat as binary.
             if (earliestOld != null && BrokkFile.isBinary(earliestOld)) {
-                logger.debug("Skipping diff for binary content (left) for file {}", displayFile);
+                logger.debug("Short-circuiting diff: left side appears binary for '{}'", displayFile);
                 return new int[] {0, 0};
             }
             if (latestNew != null && BrokkFile.isBinary(latestNew)) {
-                logger.debug("Skipping diff for binary content (right) for file {}", displayFile);
+                logger.debug("Short-circuiting diff: right side appears binary for '{}'", displayFile);
                 return new int[] {0, 0};
             }
 
@@ -3583,7 +3589,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             int rightLen = latestNew == null ? 0 : latestNew.length();
             if (leftLen > SIZE_LIMIT || rightLen > SIZE_LIMIT) {
                 logger.debug(
-                        "Skipping diff for oversized content for file {} (left={}, right={}, limit={})",
+                        "Short-circuiting diff: oversized content for '{}' (left={}, right={}, limit={})",
                         displayFile,
                         leftLen,
                         rightLen,
@@ -3592,7 +3598,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             }
         } catch (Throwable t) {
             // Best-effort detection: if detection fails, log and fall through to diff computation.
-            logger.debug("Error while checking binary/size for file {}: {}", displayFile, t.getMessage());
+            logger.debug("Error while checking binary/size for '{}': {}", displayFile, t.getMessage());
         }
 
         var result = ContentDiffUtils.computeDiffResult(earliestOld, latestNew, "old", "new");
