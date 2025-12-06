@@ -32,53 +32,60 @@ public class CommitPrompts {
     private CommitPrompts() {}
 
     public List<ChatMessage> collectMessages(IProject project, String diffTxt) {
-        if (diffTxt.isEmpty()) {
-            return List.of();
-        }
+            if (diffTxt.isEmpty()) {
+                    return List.of();
+            }
 
-        var trimmedDiff = preprocessUnifiedDiff(diffTxt, FILE_LIMIT, LINES_PER_FILE);
-        if (trimmedDiff.isBlank()) {
-            return List.of();
-        }
+            var trimmedDiff = preprocessUnifiedDiff(diffTxt, FILE_LIMIT, LINES_PER_FILE);
+            if (trimmedDiff.isBlank()) {
+                    return List.of();
+            }
 
-        var formatInstructions = project.getCommitMessageFormat();
+            var formatInstructions = project.getCommitMessageFormat();
 
-        var context = """
-        <diff>
-        %s
-        </diff>
-        """.formatted(trimmedDiff);
+            var context = """
+            <diff>
+            %s
+            </diff>
+            """.formatted(trimmedDiff);
 
-        var instructions =
-                """
-        <goal>
-        Here is my diff, please give me a concise commit message based on the format instructions provided in the system prompt.
-        </goal>
-        """;
-        return List.of(
-                new SystemMessage(systemIntro(formatInstructions)), new UserMessage(context + "\n\n" + instructions));
+            var instructions =
+                            """
+            <goal>
+            Here is my diff. Write a complete Git commit message with:
+            - A single-line subject as described in the system prompt,
+            - A blank line,
+            - A short, wrapped body summarizing the change.
+            </goal>
+            """;
+            return List.of(
+                            new SystemMessage(systemIntro(formatInstructions)), new UserMessage(context + "\n\n" + instructions));
     }
 
     private String systemIntro(String formatInstructions) {
-        return """
-               You are an expert software engineer that generates concise,
-               one-line Git commit messages based on the provided diffs.
-               Review the provided context and diffs which are about to be committed to a git repo.
-               Review the diffs carefully.
-               Generate a one-line commit message for those changes, following the format instructions below.
-               %s
+            return """
+                          You are an expert software engineer that generates high-quality,
+                          conventional Git commit messages from the provided diffs.
 
-               Ensure the commit message:
-               - Follows the specified format.
-               - Is in the imperative mood (e.g., "Add feature" not "Added feature" or "Adding feature").
-               - Does not exceed 72 characters.
+                          Produce a multi-line commit message with this structure:
+                          - First line: a concise subject in the imperative mood (e.g., "Add feature"),
+                              no trailing period, and no more than 72 characters.
+                          - Then a blank line.
+                          - Then a short body (1–3 paragraphs and/or bullet points) explaining the intent,
+                              key changes, and rationale.
 
-               Additionally, if a single file is changed be sure to include the short filename (not the path, not the extension).
+                          Guidelines:
+                          - Wrap body lines at approximately 72 characters.
+                          - Use plain text; avoid markdown headings and code fences. Simple '-' bullets are OK.
+                          - Reference relevant files or subsystems using backticks when helpful.
+                          - Avoid ticket numbers, emojis, or unnecessary verbosity.
+                          - If exactly one file is changed, consider including its short filename (no path,
+                              no extension) in the subject when helpful.
 
-               Reply only with the one-line commit message, without any additional text, explanations,
-               or line breaks.
-               """
-                .formatted(formatInstructions);
+                          Follow any additional format or style preferences:
+                          %s
+                          """
+                            .formatted(formatInstructions);
     }
 
     public String preprocessUnifiedDiff(String diffTxt, int fileCount, int linesPerFile) {
