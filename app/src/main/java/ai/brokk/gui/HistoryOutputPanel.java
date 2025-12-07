@@ -5,6 +5,8 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.*;
 import ai.brokk.analyzer.BrokkFile;
+import ai.brokk.gui.changes.ChangeFileStatus;
+import ai.brokk.gui.changes.ChangeLabelUtil;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
@@ -3235,15 +3237,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             }
 
                             if (!isText) {
-                                // For binary, non-text, or unrecognized/large files, include a per-file entry but mark
-                                // as binary and
-                                // avoid expensive diffing or line-count computations. This allows the Review UI
-                                // to list such files without causing CPU spikes.
+                                // Binary files: include an entry marked BINARY with empty contents and zeroed counts.
                                 logger.debug(
                                         "Including binary (non-text) file in cumulative changes with zeroed counts: {} (abs={})",
                                         file,
                                         file.absPath());
-                                perFileChanges.add(new PerFileChange(displayFile, "", "", true));
+                                perFileChanges.add(
+                                        new PerFileChange(displayFile, "", "", ChangeFileStatus.BINARY));
                                 // Do not attempt to compute line counts for binary files.
                                 continue;
                             }
@@ -3255,25 +3255,27 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             // Compute right content (working tree)
                             String rightContent = safeReadWorkingTree(file);
 
-                            // Fallback: if the combined content is extremely large, skip expensive diffing.
-                            // We omit such files from perFileChanges (simpler, avoids storing huge blobs).
+                            // If the combined content is extremely large, include it as OVERSIZED (listed but not diffed).
                             int combinedLen = leftContent.length() + rightContent.length();
                             if (combinedLen > MAX_COMBINED_CONTENT_SIZE) {
                                 logger.debug(
-                                        "Skipping oversized file in cumulative changes: {} (combined length {} > {})",
+                                        "Marking oversized file in cumulative changes (no diff computed): {} (combined length {} > {})",
                                         displayFile,
                                         combinedLen,
                                         MAX_COMBINED_CONTENT_SIZE);
-                                // Skip adding to totals and per-file list as a simple, conservative fallback.
+                                perFileChanges.add(
+                                        new PerFileChange(displayFile, "", "", ChangeFileStatus.OVERSIZED));
+                                // Do not add to added/deleted totals.
                                 continue;
                             }
 
-                            // Compute line counts (guarded against binary/huge blobs)
+                            // Compute line counts only for TEXT files that passed size guards
                             int[] netCounts = computeNetLineCounts(leftContent, rightContent, displayFile);
                             totalAdded += netCounts[0];
                             totalDeleted += netCounts[1];
 
-                            perFileChanges.add(new PerFileChange(displayFile, leftContent, rightContent, false));
+                            perFileChanges.add(
+                                    new PerFileChange(displayFile, leftContent, rightContent, ChangeFileStatus.TEXT));
                         }
 
                         GitWorkflow.PushPullState pushPullState = null;
@@ -3551,14 +3553,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         for (var change : changes) {
             String path = change.displayFile();
-            boolean isBinary = change.binary();
-            String displayPath = isBinary ? path + " (binary)" : path;
+            ChangeFileStatus status = change.status();
+            String displayPath = ChangeLabelUtil.makeDisplayLabel(path, status);
             String leftContent;
             String rightContent;
 
-            // For binary files we avoid presenting textual diffs; use empty placeholders and a "(binary)"
-            // suffix in the displayed filename so the user sees it in the file list.
-            if (isBinary) {
+            // For BINARY or OVERSIZED entries we avoid presenting textual diffs; use empty placeholders
+            // so the file is listed but no expensive diff is attempted.
+            if (status == ChangeFileStatus.BINARY || status == ChangeFileStatus.OVERSIZED) {
                 leftContent = "";
                 rightContent = "";
             } else {
@@ -3652,7 +3654,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private record PerFileChange(String displayFile, String earliestOld, String latestNew, boolean binary) {}
+    private record PerFileChange(String displayFile, String earliestOld, String latestNew, ChangeFileStatus status) {}
 
     private record CumulativeChanges(
             int filesChanged,
