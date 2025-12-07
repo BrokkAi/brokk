@@ -2830,10 +2830,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         logger.warn("History compression task failed", ee);
                         compressedTaskEntries.add(taskHistoryToCompress.get(i));
                     } catch (java.util.concurrent.TimeoutException te) {
-                        logger.debug(
-                                "History compression entry {} timed out after {}s; falling back to original entry",
-                                i,
-                                PER_ENTRY_TIMEOUT_SECONDS);
                         logger.warn(
                                 "History compression for entry {} timed out after {}s; using original entry",
                                 i,
