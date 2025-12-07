@@ -926,23 +926,110 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         TSQueryMatch match = new TSQueryMatch();
         var found = new ArrayList<LocalVariableInfo>();
         while (cursor.nextMatch(match)) {
+            // Build a capture map for the match (first occurrence wins)
+            Map<String, TSNode> captures = new HashMap<>();
             for (TSQueryCapture cap : match.getCaptures()) {
                 String capName = localsQuery.getCaptureNameForId(cap.getIndex());
                 TSNode n = cap.getNode();
                 if (n == null || n.isNull()) continue;
+                captures.putIfAbsent(capName, n);
+            }
 
-                // Prefer captures that indicate the variable name (e.g., "local.name")
-                if (capName != null && capName.endsWith(".name")) {
-                    String varName = textSlice(n, srcBytes).strip();
-                    int start = n.getStartByte();
-                    int end = n.getEndByte();
-                    int startLine = n.getStartPoint().getRow();
-                    int endLine = n.getEndPoint().getRow();
-                    Range r = new Range(start, end, startLine, endLine, start);
-                    // Type may not be present in the query; leave empty string for now
-                    found.add(new LocalVariableInfo(varName, "", r));
+            // Find the identifier node (e.g., local.name)
+            TSNode nameNode = captures.get("local.name");
+            if (nameNode == null) {
+                // Fallback: any capture that ends with ".name"
+                for (var e : captures.entrySet()) {
+                    if (e.getKey().endsWith(".name")) {
+                        nameNode = e.getValue();
+                        break;
+                    }
                 }
             }
+            if (nameNode == null || nameNode.isNull()) continue;
+
+            String varName = textSlice(nameNode, srcBytes).strip();
+
+            // Find a declaration-like node associated with this match (many patterns capture a parent node).
+            TSNode declNode = null;
+            for (String k : List.of(
+                    "local.declaration",
+                    "local.param",
+                    "local.enhanced_for",
+                    "local.resource",
+                    "local.catch")) {
+                if (captures.containsKey(k)) {
+                    declNode = captures.get(k);
+                    break;
+                }
+            }
+            if (declNode == null || declNode.isNull()) {
+                // Fallback to the name node's parent (variable_declarator or formal_parameter etc.)
+                declNode = nameNode.getParent();
+            }
+
+            String typeName = "";
+            if (declNode != null && !declNode.isNull()) {
+                // If declNode is a variable_declarator, its parent often holds the type token(s)
+                TSNode parent = declNode;
+                if ("variable_declarator".equals(declNode.getType())) {
+                    TSNode p = declNode.getParent();
+                    if (p != null && !p.isNull()) parent = p;
+                }
+
+                // Try to locate the declarator/identifier among parent's named children and take the preceding
+                // named child(s) as the type (heuristic).
+                int namedCount = parent.getNamedChildCount();
+                int declIndex = -1;
+                for (int i = 0; i < namedCount; i++) {
+                    TSNode c = parent.getNamedChild(i);
+                    if (c == null || c.isNull()) continue;
+                    // Match by identity or by byte-range equality to be robust
+                    if (c.equals(declNode)
+                            || (c.getStartByte() == declNode.getStartByte() && c.getEndByte() == declNode.getEndByte())
+                            || (c.getStartByte() == nameNode.getStartByte() && c.getEndByte() == nameNode.getEndByte())) {
+                        declIndex = i;
+                        break;
+                    }
+                }
+
+                if (declIndex > 0) {
+                    // Walk backward from declIndex-1 to find the best candidate for a type node.
+                    TSNode chosen = null;
+                    for (int i = declIndex - 1; i >= 0; i--) {
+                        TSNode cand = parent.getNamedChild(i);
+                        if (cand == null || cand.isNull()) continue;
+                        String t = cand.getType();
+                        // Prefer explicit type-like node names; fall back to the first non-annotation/modifier node.
+                        if (t.contains("type") || t.contains("identifier") || t.contains("primitive") || t.endsWith("type")) {
+                            chosen = cand;
+                            break;
+                        }
+                        if (chosen == null) chosen = cand;
+                    }
+                    if (chosen != null && !chosen.isNull()) {
+                        typeName = textSlice(chosen, srcBytes).strip();
+                    }
+                } else {
+                    // No preceding sibling found; try to locate a child on declNode that looks like a type fragment.
+                    for (int i = 0; i < declNode.getNamedChildCount(); i++) {
+                        TSNode c = declNode.getNamedChild(i);
+                        if (c == null || c.isNull()) continue;
+                        String t = c.getType();
+                        if (t.contains("type") || t.contains("identifier") || t.contains("primitive")) {
+                            typeName = textSlice(c, srcBytes).strip();
+                            break;
+                        }
+                    }
+                }
+            }
+
+            int start = nameNode.getStartByte();
+            int end = nameNode.getEndByte();
+            int startLine = nameNode.getStartPoint().getRow();
+            int endLine = nameNode.getEndPoint().getRow();
+            Range r = new Range(start, end, startLine, endLine, start);
+            found.add(new LocalVariableInfo(varName, typeName, r));
         }
 
         List<LocalVariableInfo> out = List.copyOf(found);
