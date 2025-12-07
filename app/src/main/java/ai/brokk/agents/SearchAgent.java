@@ -800,7 +800,6 @@ public class SearchAgent {
         var messages = buildInitialPruningPrompt();
         var toolNames = new ArrayList<String>();
         toolNames.add("performedInitialReview");
-        toolNames.add("appendNote");
         if (hasDroppableFragments()) {
             toolNames.add("dropWorkspaceFragments");
         }
@@ -810,7 +809,7 @@ public class SearchAgent {
         var janitorOpts = new Llm.Options(model, "Janitor: " + goal).withEcho();
         var jLlm = cm.getLlm(janitorOpts);
         jLlm.setOutput(this.io);
-        var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.AUTO, tr));
+        var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
         if (result.error() != null || result.isEmpty()) {
             return;
         }
@@ -833,49 +832,31 @@ public class SearchAgent {
 
         var sys = new SystemMessage(
                 """
-                You are the Janitor Agent (Workspace Reviewer). This is a single-shot cleanup pass: you will send exactly one response, and the system will execute any tool calls you return in that response. There is no follow-up turn.
+                You are the Janitor Agent (Workspace Reviewer). Single-shot cleanup: one response, then done.
 
-                Your sole responsibility is Workspace curation:
-                - You DO NOT write or modify code.
-                - You DO NOT answer questions, generate task lists, propose plans, or provide pseudocode or implementation guidance.
-                - You DO NOT perform new research or exploration; you only clean and compress what is already in the Workspace.
+                Scope:
+                - Workspace curation ONLY. No code, no answers, no plans.
 
-                Allowed tools (and only these):
-                - performedInitialReview(): use only if every fragment is clearly relevant and no changes are needed.
-                - appendNote(markdown): preserve essential insights from large, mixed, or noisy fragments so they can be safely dropped.
-                - dropWorkspaceFragments({ fragmentId -> explanation }): remove irrelevant or superseded fragments with a brief reason.
+                Tools (exactly one):
+                - performedInitialReview(): use ONLY when ALL fragments are short, focused, clean, and directly relevant.
+                - dropWorkspaceFragments({ fragmentId -> explanation }): batch ALL drops in a single call.
 
-                Single-shot, multi-tool behavior (critical):
-                - You may and should call multiple tools in the same response.
-                - Execution order is preserved; plan your calls so that appendNote happens BEFORE dropWorkspaceFragments for any given fragment.
-                - Respond ONLY with tool calls. Include at least one tool call. If everything is relevant, call performedInitialReview(). Do not return an empty or free-form response.
+                Default behavior:
+                - If a fragment is large, noisy, or mixed → write a short summary in the drop explanation → DROP it.
+                  Large/noisy/mixed = long, multi-file, logs/traces/issues, big diffs, UI/test noise, unfocused content.
 
-                Summarize-then-drop rule (strict):
-                - appendNote exists ONLY for summarize-then-drop.
-                - If you call appendNote, you MUST also call dropWorkspaceFragments in the same response to remove EVERY fragment you extracted from.
-                - Never use appendNote for fragments you intend to keep, and never use it for non-droppable fragments.
+                Keep rule:
+                - KEEP only if it is short, focused, directly relevant, AND keeping it is clearer than summarizing.
 
-                Decision rubric:
-                - KEEP when the fragment is directly useful for the current goal, is likely to be edited by the Code Agent (source files, tests, build files), or is a concise API summary needed for orientation.
-                - SUMMARIZE-THEN-DROP when the fragment is long/noisy or partially relevant (e.g., diffs, issue threads, logs). Extract the relevant bits via appendNote, then drop the original in the same response.
-                - DROP when the fragment is irrelevant, duplicated, stale, or superseded (after noting any essential insight if applicable).
+                Explanation format per fragment (concise):
+                - Summary: 2–4 identifier-first bullets (files/methods and why they matter).
+                - Reason: one short sentence why dropped.
+                - No implementation instructions.
 
-                appendNote content rules:
-                - Purpose: preserve signals, not instructions. Never include implementation directives (avoid words like 'change', 'add', 'modify'). Do not prescribe steps to the Code Agent.
-                - Format the note as short Markdown:
-                  - Title: 'Janitor summary: <topic>'
-                  - Source fragments: list the exact fragment IDs you extracted from.
-                  - Key insights: 3–7 tight bullet points (identifiers, files, methods, reasons they matter).
-                  - Optional Decision: bullets (e.g., 'dropped fragments A, B after extracting summary'; 'kept C because it will be edited').
-                - Length target: about 10–18 lines. Prefer identifiers and rationale over long code. Include small snippets only when indispensable.
+                Response rule:
+                - Tool call only; return exactly ONE tool call (performedInitialReview OR a single batched dropWorkspaceFragments).
 
-                dropWorkspaceFragments usage:
-                - After any appendNote, drop EVERY summarized fragment in a single call by providing a map of { fragmentId -> one-sentence reason }.
-                - Provide clear, one-sentence reasons (e.g., 'large diff; extracted relevant files and rationale to Task Notes').
-                - Do not attempt to drop non-droppable fragments listed below. If a fragment is required by policy, leave it alone (and do not summarize it).
-
-                If everything is relevant:
-                - Call performedInitialReview() and make no other tool calls.
+                Do NOT drop non-droppable fragments (listed below).
 
                 %s
                 """
