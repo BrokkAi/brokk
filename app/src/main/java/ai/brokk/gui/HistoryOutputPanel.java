@@ -4,8 +4,8 @@ import static ai.brokk.SessionManager.SessionInfo;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.*;
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.BrokkFile;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -231,8 +231,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private BaselineMode lastBaselineMode;
 
     // Holds an in-flight computation of cumulative changes so concurrent callers can reuse it
-    private final AtomicReference<CompletableFuture<CumulativeChanges>> changesComputationRef =
-            new AtomicReference<>();
+    private final AtomicReference<CompletableFuture<CumulativeChanges>> changesComputationRef = new AtomicReference<>();
     // Sequence number for background cumulative-changes jobs. Incremented each time a fresh job is started.
     // Volatile so EDT-updates can observe the latest value; increment happens inside a synchronized block.
     private volatile long changesJobSeq = 0L;
@@ -3143,165 +3142,164 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 }
                 logger.debug("Starting new cumulative changes computation (seq={})", jobSeq);
 
-                var bgFuture = contextManager
-                        .submitBackgroundTask("Compute branch-based changes", () -> {
-                            var repoOpt = repo();
-                            if (repoOpt.isEmpty()) {
-                                return new CumulativeChanges(0, 0, 0, List.of(), null);
+                var bgFuture = contextManager.submitBackgroundTask("Compute branch-based changes", () -> {
+                    var repoOpt = repo();
+                    if (repoOpt.isEmpty()) {
+                        return new CumulativeChanges(0, 0, 0, List.of(), null);
+                    }
+
+                    var repo = repoOpt.get();
+
+                    // Branch-specific methods require GitRepo, not just IGitRepo
+                    if (!(repo instanceof GitRepo gitRepo)) {
+                        return new CumulativeChanges(0, 0, 0, List.of(), null);
+                    }
+
+                    var baseline = computeBaselineForChanges();
+                    lastBaselineLabel = baseline.displayLabel();
+                    lastBaselineMode = baseline.mode();
+
+                    // Handle cases with no baseline
+                    if (baseline.mode() == BaselineMode.DETACHED || baseline.mode() == BaselineMode.NO_BASELINE) {
+                        return new CumulativeChanges(0, 0, 0, List.of(), null);
+                    }
+
+                    try {
+                        Set<IGitRepo.ModifiedFile> fileSet = new HashSet<>();
+                        String leftCommitSha = null;
+                        String currentBranch = gitRepo.getCurrentBranch();
+
+                        switch (baseline.mode()) {
+                            case NON_DEFAULT_BRANCH -> {
+                                String defaultBranch = baseline.baselineRef();
+
+                                // Get files changed between branches
+                                var branchChanges =
+                                        gitRepo.listFilesChangedBetweenBranches(currentBranch, defaultBranch);
+                                fileSet.addAll(branchChanges);
+
+                                // Union with working tree changes
+                                fileSet.addAll(gitRepo.getModifiedFiles());
+
+                                // Get merge base for left content
+                                leftCommitSha = gitRepo.getMergeBase(currentBranch, defaultBranch);
                             }
+                            case DEFAULT_WITH_UPSTREAM -> {
+                                String upstreamRef = baseline.baselineRef();
+                                leftCommitSha =
+                                        gitRepo.resolveToCommit(upstreamRef).getName();
 
-                            var repo = repoOpt.get();
+                                // Get files changed between HEAD and upstream
+                                var upstreamChanges = gitRepo.listFilesChangedBetweenCommits("HEAD", upstreamRef);
+                                fileSet.addAll(upstreamChanges);
 
-                            // Branch-specific methods require GitRepo, not just IGitRepo
-                            if (!(repo instanceof GitRepo gitRepo)) {
-                                return new CumulativeChanges(0, 0, 0, List.of(), null);
+                                // Union with working tree changes
+                                fileSet.addAll(gitRepo.getModifiedFiles());
                             }
-
-                            var baseline = computeBaselineForChanges();
-                            lastBaselineLabel = baseline.displayLabel();
-                            lastBaselineMode = baseline.mode();
-
-                            // Handle cases with no baseline
-                            if (baseline.mode() == BaselineMode.DETACHED || baseline.mode() == BaselineMode.NO_BASELINE) {
-                                return new CumulativeChanges(0, 0, 0, List.of(), null);
+                            case DEFAULT_LOCAL_ONLY -> {
+                                // Only working tree changes
+                                fileSet.addAll(gitRepo.getModifiedFiles());
+                                leftCommitSha = "HEAD";
                             }
+                            case DETACHED, NO_BASELINE -> {
+                                // No baseline available; no changes to compute in this switch branch.
+                                // Note: earlier guard already returns empty results for these modes.
+                            }
+                        }
 
+                        // Build per-file changes (skip non-text/binary files)
+                        List<PerFileChange> perFileChanges = new ArrayList<>();
+                        int totalAdded = 0;
+                        int totalDeleted = 0;
+
+                        for (var modFile : fileSet) {
+                            var file = modFile.file();
+
+                            String displayFile = file.getRelPath().toString();
+
+                            boolean isText;
                             try {
-                                Set<IGitRepo.ModifiedFile> fileSet = new HashSet<>();
-                                String leftCommitSha = null;
-                                String currentBranch = gitRepo.getCurrentBranch();
-
-                                switch (baseline.mode()) {
-                                    case NON_DEFAULT_BRANCH -> {
-                                        String defaultBranch = baseline.baselineRef();
-
-                                        // Get files changed between branches
-                                        var branchChanges =
-                                                gitRepo.listFilesChangedBetweenBranches(currentBranch, defaultBranch);
-                                        fileSet.addAll(branchChanges);
-
-                                        // Union with working tree changes
-                                        fileSet.addAll(gitRepo.getModifiedFiles());
-
-                                        // Get merge base for left content
-                                        leftCommitSha = gitRepo.getMergeBase(currentBranch, defaultBranch);
-                                    }
-                                    case DEFAULT_WITH_UPSTREAM -> {
-                                        String upstreamRef = baseline.baselineRef();
-                                        leftCommitSha =
-                                                gitRepo.resolveToCommit(upstreamRef).getName();
-
-                                        // Get files changed between HEAD and upstream
-                                        var upstreamChanges = gitRepo.listFilesChangedBetweenCommits("HEAD", upstreamRef);
-                                        fileSet.addAll(upstreamChanges);
-
-                                        // Union with working tree changes
-                                        fileSet.addAll(gitRepo.getModifiedFiles());
-                                    }
-                                    case DEFAULT_LOCAL_ONLY -> {
-                                        // Only working tree changes
-                                        fileSet.addAll(gitRepo.getModifiedFiles());
-                                        leftCommitSha = "HEAD";
-                                    }
-                                    case DETACHED, NO_BASELINE -> {
-                                        // No baseline available; no changes to compute in this switch branch.
-                                        // Note: earlier guard already returns empty results for these modes.
-                                    }
-                                }
-
-                                // Build per-file changes (skip non-text/binary files)
-                                List<PerFileChange> perFileChanges = new ArrayList<>();
-                                int totalAdded = 0;
-                                int totalDeleted = 0;
-
-                                for (var modFile : fileSet) {
-                                    var file = modFile.file();
-
-                                    String displayFile = file.getRelPath().toString();
-
-                                    boolean isText;
-                                    try {
-                                        isText = file.isText();
-                                    } catch (Throwable t) {
-                                        // Defensive: if text detection fails, treat as non-text and log at DEBUG.
-                                        logger.debug(
-                                                "Failed to determine text-ness for file {} (abs={}); treating as non-text: {}",
-                                                file,
-                                                file.absPath(),
-                                                t.getMessage());
-                                        isText = false;
-                                    }
-
-                                    if (!isText) {
-                                        // For binary / non-text files, include a per-file entry but mark as binary and
-                                        // avoid expensive diffing or line-count computations. This allows the Review UI
-                                        // to list binary files without causing CPU spikes.
-                                        logger.debug(
-                                                "Including binary (non-text) file in cumulative changes with zeroed counts: {} (abs={})",
-                                                file,
-                                                file.absPath());
-                                        perFileChanges.add(new PerFileChange(displayFile, "", "", true));
-                                        // Do not attempt to compute line counts for binary files.
-                                        continue;
-                                    }
-
-                                    // Compute left content based on baseline
-                                    String leftContent =
-                                            (leftCommitSha != null) ? safeGetFileContent(gitRepo, leftCommitSha, file) : "";
-
-                                    // Compute right content (working tree)
-                                    String rightContent = safeReadWorkingTree(file);
-
-                                    // Fallback: if the combined content is extremely large, skip expensive diffing.
-                                    // We omit such files from perFileChanges (simpler, avoids storing huge blobs).
-                                    final int COMBINED_SIZE_CAP = 2_000_000;
-                                    int combinedLen = (leftContent == null ? 0 : leftContent.length())
-                                            + (rightContent == null ? 0 : rightContent.length());
-                                    if (combinedLen > COMBINED_SIZE_CAP) {
-                                        logger.debug(
-                                                "Skipping oversized file in cumulative changes: {} (combined length {} > {})",
-                                                displayFile,
-                                                combinedLen,
-                                                COMBINED_SIZE_CAP);
-                                        // Skip adding to totals and per-file list as a simple, conservative fallback.
-                                        continue;
-                                    }
-
-                                    // Compute line counts (guarded against binary/huge blobs)
-                                    int[] netCounts = computeNetLineCounts(leftContent, rightContent, displayFile);
-                                    totalAdded += netCounts[0];
-                                    totalDeleted += netCounts[1];
-
-                                    perFileChanges.add(new PerFileChange(displayFile, leftContent, rightContent, false));
-                                }
-
-                                GitWorkflow.PushPullState pushPullState = null;
-                                try {
-                                    boolean hasUpstream = gitRepo.hasUpstreamBranch(currentBranch);
-                                    boolean canPull = hasUpstream;
-                                    boolean canPush;
-                                    Set<String> unpushedCommitIds = new HashSet<>();
-                                    if (hasUpstream) {
-                                        unpushedCommitIds.addAll(gitRepo.remote().getUnpushedCommitIds(currentBranch));
-                                        canPush = !unpushedCommitIds.isEmpty();
-                                    } else {
-                                        // Can push to create upstream branch
-                                        canPush = true;
-                                    }
-                                    pushPullState =
-                                            new GitWorkflow.PushPullState(hasUpstream, canPull, canPush, unpushedCommitIds);
-                                } catch (Exception e) {
-                                    logger.debug("Failed to evaluate push/pull state for branch {}", currentBranch, e);
-                                }
-
-                                return new CumulativeChanges(
-                                        perFileChanges.size(), totalAdded, totalDeleted, perFileChanges, pushPullState);
-
-                            } catch (Exception e) {
-                                logger.warn("Failed to compute branch-based changes", e);
-                                return new CumulativeChanges(0, 0, 0, List.of(), null);
+                                isText = file.isText();
+                            } catch (Throwable t) {
+                                // Defensive: if text detection fails, treat as non-text and log at DEBUG.
+                                logger.debug(
+                                        "Failed to determine text-ness for file {} (abs={}); treating as non-text: {}",
+                                        file,
+                                        file.absPath(),
+                                        t.getMessage());
+                                isText = false;
                             }
-                        });
+
+                            if (!isText) {
+                                // For binary / non-text files, include a per-file entry but mark as binary and
+                                // avoid expensive diffing or line-count computations. This allows the Review UI
+                                // to list binary files without causing CPU spikes.
+                                logger.debug(
+                                        "Including binary (non-text) file in cumulative changes with zeroed counts: {} (abs={})",
+                                        file,
+                                        file.absPath());
+                                perFileChanges.add(new PerFileChange(displayFile, "", "", true));
+                                // Do not attempt to compute line counts for binary files.
+                                continue;
+                            }
+
+                            // Compute left content based on baseline
+                            String leftContent =
+                                    (leftCommitSha != null) ? safeGetFileContent(gitRepo, leftCommitSha, file) : "";
+
+                            // Compute right content (working tree)
+                            String rightContent = safeReadWorkingTree(file);
+
+                            // Fallback: if the combined content is extremely large, skip expensive diffing.
+                            // We omit such files from perFileChanges (simpler, avoids storing huge blobs).
+                            final int COMBINED_SIZE_CAP = 2_000_000;
+                            int combinedLen = (leftContent == null ? 0 : leftContent.length())
+                                    + (rightContent == null ? 0 : rightContent.length());
+                            if (combinedLen > COMBINED_SIZE_CAP) {
+                                logger.debug(
+                                        "Skipping oversized file in cumulative changes: {} (combined length {} > {})",
+                                        displayFile,
+                                        combinedLen,
+                                        COMBINED_SIZE_CAP);
+                                // Skip adding to totals and per-file list as a simple, conservative fallback.
+                                continue;
+                            }
+
+                            // Compute line counts (guarded against binary/huge blobs)
+                            int[] netCounts = computeNetLineCounts(leftContent, rightContent, displayFile);
+                            totalAdded += netCounts[0];
+                            totalDeleted += netCounts[1];
+
+                            perFileChanges.add(new PerFileChange(displayFile, leftContent, rightContent, false));
+                        }
+
+                        GitWorkflow.PushPullState pushPullState = null;
+                        try {
+                            boolean hasUpstream = gitRepo.hasUpstreamBranch(currentBranch);
+                            boolean canPull = hasUpstream;
+                            boolean canPush;
+                            Set<String> unpushedCommitIds = new HashSet<>();
+                            if (hasUpstream) {
+                                unpushedCommitIds.addAll(gitRepo.remote().getUnpushedCommitIds(currentBranch));
+                                canPush = !unpushedCommitIds.isEmpty();
+                            } else {
+                                // Can push to create upstream branch
+                                canPush = true;
+                            }
+                            pushPullState =
+                                    new GitWorkflow.PushPullState(hasUpstream, canPull, canPush, unpushedCommitIds);
+                        } catch (Exception e) {
+                            logger.debug("Failed to evaluate push/pull state for branch {}", currentBranch, e);
+                        }
+
+                        return new CumulativeChanges(
+                                perFileChanges.size(), totalAdded, totalDeleted, perFileChanges, pushPullState);
+
+                    } catch (Exception e) {
+                        logger.warn("Failed to compute branch-based changes", e);
+                        return new CumulativeChanges(0, 0, 0, List.of(), null);
+                    }
+                });
 
                 // Capture the job sequence locally for UI-guarding
                 final long seqLocal = jobSeq;
@@ -3323,7 +3321,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     return result;
                 });
 
-                // Complete the placeholder with the bg result and ensure we clear the reference only if we still own it.
+                // Complete the placeholder with the bg result and ensure we clear the reference only if we still own
+                // it.
                 uiUpdated.whenComplete((res, ex) -> {
                     if (ex != null) {
                         placeholder.completeExceptionally(ex);
