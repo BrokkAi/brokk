@@ -809,7 +809,7 @@ public class SearchAgent {
         var janitorOpts = new Llm.Options(model, "Janitor: " + goal).withEcho();
         var jLlm = cm.getLlm(janitorOpts);
         jLlm.setOutput(this.io);
-        var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.AUTO, tr));
+        var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
         if (result.error() != null || result.isEmpty()) {
             return;
         }
@@ -832,13 +832,31 @@ public class SearchAgent {
 
         var sys = new SystemMessage(
                 """
-                You are the Janitor Agent cleaning the Workspace. It is critically important to remove irrelevant
-                fragments before proceeding; they are highly distracting to the other Agents.
+                You are the Janitor Agent (Workspace Reviewer). Single-shot cleanup: one response, then done.
 
-                Your task:
-                  - Evaluate the current workspace contents.
-                  - Call dropWorkspaceFragments to remove irrelevant fragments.
-                  - ONLY if all fragments are relevant, do nothing (skip the tool call).
+                Scope:
+                - Workspace curation ONLY. No code, no answers, no plans.
+
+                Tools (exactly one):
+                - performedInitialReview(): use ONLY when ALL fragments are short, focused, clean, and directly relevant.
+                - dropWorkspaceFragments({ fragmentId -> explanation }): batch ALL drops in a single call.
+
+                Default behavior:
+                - If a fragment is large, noisy, or mixed → write a short summary in the drop explanation → DROP it.
+                  Large/noisy/mixed = long, multi-file, logs/traces/issues, big diffs, UI/test noise, unfocused content.
+
+                Keep rule:
+                - KEEP only if it is short, focused, directly relevant, AND keeping it is clearer than summarizing.
+
+                Explanation format per fragment (concise):
+                - Summary: 2–4 identifier-first bullets (files/methods and why they matter).
+                - Reason: one short sentence why dropped.
+                - No implementation instructions.
+
+                Response rule:
+                - Tool call only; return exactly ONE tool call (performedInitialReview OR a single batched dropWorkspaceFragments).
+
+                Do NOT drop non-droppable fragments (listed below).
 
                 %s
                 """
