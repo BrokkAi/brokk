@@ -102,7 +102,8 @@ public final class ContextSizeGuard {
 
                     // Hard limit - reject without asking
                     if (estimate.estimatedTokens() > hardLimit) {
-                        chrome.toolError(formatHardLimitMessage(estimate, maxInputTokens, hardLimit), "Context Size Limit");
+                        chrome.toolError(
+                                formatHardLimitMessage(estimate, maxInputTokens, hardLimit), "Context Size Limit");
                         onConfirmed.accept(false);
                         return;
                     }
@@ -146,7 +147,9 @@ public final class ContextSizeGuard {
             sb.append(" files)\n\n");
         }
 
-        sb.append("This exceeds 50% of the current model's context window (");
+        sb.append("This exceeds ");
+        sb.append(String.format("%.0f%%", ArchitectPrompts.WORKSPACE_WARNING_THRESHOLD * 100));
+        sb.append(" of the current model's context window (");
         sb.append(String.format("%,d", maxInputTokens));
         sb.append(" tokens).\n");
         sb.append("Large context sizes may cause performance issues.\n\n");
