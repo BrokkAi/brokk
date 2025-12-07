@@ -726,15 +726,34 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             String raw = loadResource(candidate);
             refsQuery = new TSQuery(getTSLanguage(), raw);
             refsResource = candidate;
-        } catch (Exception ignored) {
-            // Fallback for Java using built-in query constant
+        } catch (Throwable t) {
+            // Some native query compilation failures surface as Errors/Throwables from the Tree-sitter JNI layer.
+            // Catch Throwable to ensure they don't escape and break the analyzer construction/parsing pipeline.
+            log.warn(
+                    "Failed to load/compile TSQuery from resource '{}': {}. Falling back to builtin query when available.",
+                    candidate,
+                    t.getMessage());
+
+            boolean compiledBuiltin = false;
+            // Fallback for Java using built-in query constant. Attempt to compile the builtin.
             if (language != null && "JAVA".equalsIgnoreCase(language.name())) {
-                refsQuery = new TSQuery(getTSLanguage(), JAVA_REFS_QUERY);
-                refsResource = "<builtin-java-refs>";
-            } else {
-                // No query available for this language; return empty list
-                referencedIdentifiersCache.putIfAbsent(file, List.of());
-                return List.of();
+                try {
+                    refsQuery = new TSQuery(getTSLanguage(), JAVA_REFS_QUERY);
+                    refsResource = "<builtin-java-refs>";
+                    compiledBuiltin = true;
+                } catch (Throwable t2) {
+                    log.warn("Failed to compile builtin Java refs TSQuery: {}. Falling back to regex extractor.", t2.getMessage());
+                }
+            }
+
+            if (!compiledBuiltin) {
+                // If query compilation failed (both resource and builtin), fall back to a conservative regex-based
+                // extractor that finds dotted/chained identifier expressions and builds prefix ranges. This keeps the
+                // feature usable in environments where TSQuery can't be compiled.
+                log.debug("Using regex-based fallback for referenced-identifiers for file {}", file);
+                List<Range> fallback = regexExtractReferencedIdentifiers(src, srcBytes, file);
+                referencedIdentifiersCache.putIfAbsent(file, fallback);
+                return fallback;
             }
         }
 
@@ -1266,6 +1285,95 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         } else {
             return Optional.empty(); // Fields and other types not supported by default
         }
+    }
+
+    /**
+     * Attempts to parse the declared field type from the textual signature(s) associated with the CodeUnit.
+     *
+     * This is a best-effort parser that:
+     * - Chooses the first non-blank signature line for the CodeUnit
+     * - Uses a permissive regex that strips common modifiers and captures the token(s) immediately before the field name
+     * - Preserves generics and array suffixes (e.g., List<String>, String[])
+     *
+     * Example matches:
+     *   "private List<String> items;" -> "List<String>"
+     *   "public static int field1"     -> "int"
+     */
+    @Override
+    public Optional<String> parseFieldType(CodeUnit cu) {
+        if (cu == null || !cu.isField()) return Optional.empty();
+        List<String> sigs = signaturesOf(cu);
+        if (sigs.isEmpty()) return Optional.empty();
+
+        String fq = cu.fqName();
+        String simple = fq;
+        int dot = fq.lastIndexOf('.');
+        if (dot >= 0) simple = fq.substring(dot + 1);
+
+        // Pattern: optional modifiers at start, capture the minimal sequence before the field name.
+        // Group 1 is the candidate type (may contain generics and array markers).
+        var modifiers = "(?:public|protected|private|static|final|transient|volatile|synchronized|abstract|native|strictfp|default)";
+        var pattern = Pattern.compile("^(?:" + modifiers + "\\s+)*(.+?)\\s+" + Pattern.quote(simple) + "\\b");
+
+        for (String raw : sigs) {
+            if (raw == null || raw.isBlank()) continue;
+            String firstLine = raw.lines().findFirst().orElse("").strip();
+            java.util.regex.Matcher m = pattern.matcher(firstLine);
+            if (m.find()) {
+                String type = m.group(1).strip();
+                // Collapse excessive whitespace inside type (e.g., around generics)
+                type = type.replaceAll("\\s+", " ");
+                return Optional.of(type);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Attempts to parse the return type for a function/method CodeUnit.
+     *
+     * Works by inspecting the first signature line and extracting the token(s) immediately
+     * preceding the method name, after stripping common modifiers. Handles generic method type
+     * parameters (skips leading angle-bracket method-type-params) and returns "void" when present.
+     */
+    @Override
+    public Optional<String> parseReturnType(CodeUnit cu) {
+        if (cu == null || !cu.isFunction()) return Optional.empty();
+        List<String> sigs = signaturesOf(cu);
+        if (sigs.isEmpty()) return Optional.empty();
+
+        String fq = cu.fqName();
+        String simple = fq;
+        int dot = fq.lastIndexOf('.');
+        if (dot >= 0) simple = fq.substring(dot + 1);
+
+        var modifiers = "(?:public|protected|private|static|final|synchronized|abstract|native|strictfp|default)";
+        // Allow optional leading method type-parameters like "<T, U>" before the return type
+        var pattern = Pattern.compile("^(?:" + modifiers + "\\s+)*(?:<[^>]+>\\s*)?(.+?)\\s+" + Pattern.quote(simple) + "\\s*\\(");
+
+        for (String raw : sigs) {
+            if (raw == null || raw.isBlank()) continue;
+            String firstLine = raw.lines().findFirst().orElse("").strip();
+            java.util.regex.Matcher m = pattern.matcher(firstLine);
+            if (m.find()) {
+                String ret = m.group(1).strip();
+                ret = ret.replaceAll("\\s+", " ");
+                return Optional.of(ret);
+            } else {
+                // Handle constructors: no return type, but method name equals enclosing class simple name.
+                // If so, return the simple class name as a reasonable approximation.
+                int lastDot = cu.fqName().lastIndexOf('.');
+                if (lastDot >= 0) {
+                    String parent = cu.fqName().substring(0, lastDot);
+                    int pd = parent.lastIndexOf('.');
+                    String clsSimple = pd >= 0 ? parent.substring(pd + 1) : parent;
+                    if (simple.equals(clsSimple)) {
+                        return Optional.of(clsSimple);
+                    }
+                }
+            }
+        }
+        return Optional.empty();
     }
 
     @Override
@@ -3383,6 +3491,142 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    /**
+     * Conservative regex-based fallback for extracting referenced identifier chains when TSQuery compilation is not
+     * available. Produces prefix ranges for chained expressions so that "Foo.bar.baz()" yields ranges for "Foo",
+     * "Foo.bar", and "Foo.bar.baz".
+     *
+     * This tries to produce UTF-8 byte offsets compatible with the rest of the analyzer (which expects byte offsets).
+     */
+    private List<Range> regexExtractReferencedIdentifiers(String src, byte[] srcBytes, ProjectFile file) {
+        // Primary pattern: dotted/chained identifiers with optional intermediate method call parens.
+        Pattern primary = Pattern.compile("\\b[A-Za-z_$][A-Za-z0-9_$]*(?:\\s*\\.\\s*[A-Za-z_$][A-Za-z0-9_$]*(?:\\([^)]*\\))?)*");
+        java.util.regex.Matcher matcher = primary.matcher(src);
+
+        // Secondary pattern: constructor/`new` usages to capture the type after `new`
+        Pattern newType = Pattern.compile("\\bnew\\s+([A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)*)\\s*\\(",
+                Pattern.CASE_INSENSITIVE);
+
+        // Common Java tokens/keywords we should ignore as standalone identifiers
+        final var JAVA_KEYWORDS = Set.of(
+                "public", "private", "protected", "static", "final", "void", "int", "long", "short", "byte", "char",
+                "boolean", "float", "double", "class", "interface", "enum", "import", "package", "new", "return", "this",
+                "super", "synchronized", "throws", "try", "catch", "finally", "if", "else", "for", "while", "do",
+                "switch", "case", "default", "break", "continue", "instanceof", "assert", "native", "strictfp",
+                "transient", "volatile", "abstract", "const", "goto");
+
+        var found = new LinkedHashSet<Range>();
+
+        while (matcher.find()) {
+            int matchStart = matcher.start();
+            int matchEnd = matcher.end();
+
+            // Skip matches that occur on import/package declaration lines — we don't want to surface the import token.
+            int lineStartIdx = Math.max(0, src.lastIndexOf('\n', Math.max(0, matchStart - 1)) + 1);
+            int nextNewline = src.indexOf('\n', lineStartIdx);
+            int lineEndIdx = nextNewline >= 0 ? nextNewline : src.length();
+            String lineTrim = src.substring(lineStartIdx, lineEndIdx).stripLeading();
+            if (lineTrim.startsWith("import ") || lineTrim.startsWith("package ")) {
+                continue;
+            }
+
+            String matchText = src.substring(matchStart, matchEnd);
+
+            // Collect dot character indices relative to the match
+            List<Integer> dotRel = new ArrayList<>();
+            for (int i = 0; i < matchText.length(); i++) {
+                if (matchText.charAt(i) == '.') dotRel.add(i);
+            }
+
+            // Build prefix end char offsets (exclusive): each dot index yields a prefix up to that dot,
+            // final prefix ends at the match end.
+            List<Integer> endCharOffsets = new ArrayList<>();
+            for (int d : dotRel) {
+                endCharOffsets.add(matchStart + d);
+            }
+            endCharOffsets.add(matchEnd);
+
+            // Compute byteStart once
+            int byteStart = src.substring(0, matchStart).getBytes(StandardCharsets.UTF_8).length;
+
+            for (int endChar : endCharOffsets) {
+                // Build the candidate substring for filtering and for computing end byte
+                String candidate = src.substring(matchStart, endChar).strip();
+                if (candidate.isEmpty()) continue;
+
+                // If this is the final prefix (ends at matchEnd), strip trailing parentheses content
+                // so "si.innerMethod()" becomes "si.innerMethod" (tests expect identifiers without trailing "()").
+                if (endChar == matchEnd) {
+                    candidate = candidate.replaceFirst("\\([^)]*\\)\\s*$", "");
+                    candidate = candidate.strip();
+                    if (candidate.isEmpty()) continue;
+                }
+
+                // Filter out trivial keyword-only captures (e.g., "public", "static", "int")
+                String lower = candidate.toLowerCase(Locale.ROOT);
+                // single token case: if no dot present and token is a keyword, skip
+                if (!candidate.contains(".") && JAVA_KEYWORDS.contains(lower)) {
+                    continue;
+                }
+
+                // Avoid capturing annotation tokens or leading "@" items (rare given pattern, but be defensive)
+                if (candidate.startsWith("@")) continue;
+
+                // Compute byte end for this prefix
+                int byteEnd = src.substring(0, endChar).getBytes(StandardCharsets.UTF_8).length;
+                if (byteEnd <= byteStart) continue;
+
+                int startLine = (int) src.substring(0, matchStart).chars().filter(ch -> ch == '\n').count();
+                int endLine = (int) src.substring(0, endChar).chars().filter(ch -> ch == '\n').count();
+
+                // Final sanity: candidate should contain at least one letter or '_' or '$' to be a sensible identifier
+                if (!candidate.matches(".*[A-Za-z_$].*")) continue;
+
+                found.add(new Range(byteStart, byteEnd, startLine, endLine, byteStart));
+            }
+        }
+
+        // Additionally capture constructor/type usages from "new Type(...)" patterns which the primary pattern may not
+        // include (because it often matches just the 'new' token).
+        java.util.regex.Matcher nm = newType.matcher(src);
+        while (nm.find()) {
+            int typeStart = nm.start(1);
+            int typeEnd = nm.end(1);
+            String typeText = nm.group(1);
+            if (typeText == null || typeText.isBlank()) continue;
+
+            // Build prefixes for the qualified type (e.g., "a.b.C" => "a", "a.b", "a.b.C")
+            int rel = 0;
+            List<Integer> dotRel = new ArrayList<>();
+            for (int i = 0; i < typeText.length(); i++) {
+                if (typeText.charAt(i) == '.') dotRel.add(i);
+            }
+            List<Integer> endChars = new ArrayList<>();
+            for (int d : dotRel) {
+                endChars.add(typeStart + d);
+            }
+            endChars.add(typeEnd);
+
+            int byteStart = src.substring(0, typeStart).getBytes(StandardCharsets.UTF_8).length;
+            for (int endChar : endChars) {
+                String candidate = src.substring(typeStart, endChar).strip();
+                if (candidate.isEmpty()) continue;
+                int byteEnd = src.substring(0, endChar).getBytes(StandardCharsets.UTF_8).length;
+                if (byteEnd <= byteStart) continue;
+                int startLine = (int) src.substring(0, typeStart).chars().filter(ch -> ch == '\n').count();
+                int endLine = (int) src.substring(0, endChar).chars().filter(ch -> ch == '\n').count();
+                if (!candidate.matches(".*[A-Za-z_$].*")) continue;
+                found.add(new Range(byteStart, byteEnd, startLine, endLine, byteStart));
+            }
+        }
+
+        List<Range> out = found.stream()
+                .sorted(Comparator.comparingInt(Range::startByte).thenComparingInt(Range::endByte))
+                .toList();
+        log.debug("Regex-based referenced-identifier extractor produced {} ranges for file {}", out.size(), file);
+        return out;
     }
 
     /**

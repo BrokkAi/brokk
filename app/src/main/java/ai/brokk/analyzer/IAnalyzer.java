@@ -259,8 +259,29 @@ public interface IAnalyzer {
         }
 
         public boolean isContainedWithin(Range other) {
-            return startByte >= other.startByte && endByte <= other.endByte;
+            return startByte >= other.startByte && endByte <= other.endByte();
         }
+    }
+
+    /**
+     * Parse the declared/declared-as-displayed field type for the given CodeUnit.
+     *
+     * Default implementation returns empty. Language-specific analyzers (TreeSitterAnalyzer) may
+     * override to parse the stored signature text and return a cleaned type token such as
+     * "List<String>", "String[]", "int", etc.
+     */
+    default Optional<String> parseFieldType(CodeUnit cu) {
+        return Optional.empty();
+    }
+
+    /**
+     * Parse the return type for the given function/method CodeUnit.
+     *
+     * Default implementation returns empty. Language-specific analyzers may override to extract
+     * things like "Foo", "void", "Map<K,V>" or array types.
+     */
+    default Optional<String> parseReturnType(CodeUnit cu) {
+        return Optional.empty();
     }
 
     /**

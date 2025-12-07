@@ -877,4 +877,44 @@ public class JavaAnalyzerTest {
         assertTrue(missing.isEmpty() && unexpected.isEmpty(),
                 () -> "Referenced identifiers mismatch. Missing=" + missing + ", Unexpected=" + unexpected);
     }
+
+    @Test
+    public void parseSignaturesInline() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                """
+                package p;
+                import java.util.List;
+                public class T {
+                    private List<String> items;
+                    public T() {}
+                    public Foo getFoo() { return null; }
+                    public void doIt() {}
+                    public String[] arr;
+                }
+                """,
+                "T.java").build()) {
+
+            var analyzer = createTreeSitterAnalyzer(testProject);
+
+            // Field with generics
+            var maybeItems = analyzer.getDefinitions("p.T.items").stream().findFirst();
+            assertTrue(maybeItems.isPresent(), "Should find field p.T.items");
+            assertEquals("List<String>", analyzer.parseFieldType(maybeItems.get()).orElse(""), "Generic field type parsed");
+
+            // Field with array
+            var maybeArr = analyzer.getDefinitions("p.T.arr").stream().findFirst();
+            assertTrue(maybeArr.isPresent(), "Should find field p.T.arr");
+            assertEquals("String[]", analyzer.parseFieldType(maybeArr.get()).orElse(""), "Array field type parsed");
+
+            // Method returning an unresolved Foo type (we just parse signature)
+            var maybeGet = analyzer.getDefinitions("p.T.getFoo").stream().findFirst();
+            assertTrue(maybeGet.isPresent(), "Should find method p.T.getFoo");
+            assertEquals("Foo", analyzer.parseReturnType(maybeGet.get()).orElse(""), "Return type parsed for getFoo");
+
+            // Void method
+            var maybeVoid = analyzer.getDefinitions("p.T.doIt").stream().findFirst();
+            assertTrue(maybeVoid.isPresent(), "Should find method p.T.doIt");
+            assertEquals("void", analyzer.parseReturnType(maybeVoid.get()).orElse(""), "Void return type parsed");
+        }
+    }
 }
