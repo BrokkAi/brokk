@@ -1952,6 +1952,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         var tabs = outputTabs;
         if (tabs == null) return;
 
+        // NOTE:
+        // - `res.filesChanged()` counts all changed files that we list in the Review tab, including
+        //   BINARY and OVERSIZED placeholders. We intentionally include placeholders so changes are
+        //   visible rather than silently omitted.
+        // - The numeric totals `res.totalAdded()` and `res.totalDeleted()` are line-based and exclude
+        //   non-text files. This keeps the +/− counts meaningful and avoids over-counting when binary
+        //   or huge files are present.
+
         int idx = -1;
         if (changesTabPlaceholder != null) {
             idx = tabs.indexOfComponent(changesTabPlaceholder);
@@ -3237,14 +3245,25 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             }
 
                             if (!isText) {
-                                // Binary files: include an entry marked BINARY with empty contents and zeroed counts.
+                                // Binary files: we include them in the aggregated "Review" list but purposely do NOT
+                                // attempt any textual diff or line-count computation. Historically these files
+                                // caused expensive work or hang conditions when passed into text-diff engines,
+                                // and that led to UI stalls during change-aggregation. Listing them with an
+                                // explicit BINARY status lets the user see that the file changed (so we don't
+                                // silently omit it), while avoiding any costly processing.
+                                //
+                                // Notes:
+                                //  - We store empty contents for display sources so the diff panel can still
+                                //    present a file entry without attempting to diff binary data.
+                                //  - Line-add/remove totals exclude binary entries (they do not contribute to
+                                //    totalAdded/totalDeleted), so numeric summaries remain textual-line-accurate.
                                 logger.debug(
                                         "Including binary (non-text) file in cumulative changes with zeroed counts: {} (abs={})",
                                         file,
                                         file.absPath());
                                 perFileChanges.add(
                                         new PerFileChange(displayFile, "", "", ChangeFileStatus.BINARY));
-                                // Do not attempt to compute line counts for binary files.
+                                // Skip expensive diff/line-count work for binary files.
                                 continue;
                             }
 
@@ -3258,6 +3277,15 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             // If the combined content is extremely large, include it as OVERSIZED (listed but not diffed).
                             int combinedLen = leftContent.length() + rightContent.length();
                             if (combinedLen > MAX_COMBINED_CONTENT_SIZE) {
+                                // Oversized files: include them in the Review listing but avoid doing any
+                                // expensive diffing or storing huge content blobs. We add an OVERSIZED entry
+                                // so the user can see that the file changed while protecting the UI from
+                                // CPU and memory spikes that caused hangs in the past.
+                                //
+                                // Implementation notes:
+                                //  - We add an OVERSIZED PerFileChange with empty content so it appears in the
+                                //    file list with a "(too large)" suffix via ChangeLabelUtil.
+                                //  - Oversized files do NOT contribute to totalAdded/totalDeleted counts.
                                 logger.debug(
                                         "Marking oversized file in cumulative changes (no diff computed): {} (combined length {} > {})",
                                         displayFile,
@@ -3265,7 +3293,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                         MAX_COMBINED_CONTENT_SIZE);
                                 perFileChanges.add(
                                         new PerFileChange(displayFile, "", "", ChangeFileStatus.OVERSIZED));
-                                // Do not add to added/deleted totals.
+                                // Do not add to added/deleted totals for oversized files.
                                 continue;
                             }
 
@@ -3552,21 +3580,26 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         changes.sort(Comparator.comparing(PerFileChange::displayFile));
 
         for (var change : changes) {
-            String path = change.displayFile();
-            ChangeFileStatus status = change.status();
-            String displayPath = ChangeLabelUtil.makeDisplayLabel(path, status);
-            String leftContent;
-            String rightContent;
-
-            // For BINARY or OVERSIZED entries we avoid presenting textual diffs; use empty placeholders
-            // so the file is listed but no expensive diff is attempted.
-            if (status == ChangeFileStatus.BINARY || status == ChangeFileStatus.OVERSIZED) {
-                leftContent = "";
-                rightContent = "";
-            } else {
-                leftContent = change.earliestOld();
-                rightContent = change.latestNew();
-            }
+        String path = change.displayFile();
+        ChangeFileStatus status = change.status();
+        String displayPath = ChangeLabelUtil.makeDisplayLabel(path, status);
+        String leftContent;
+        String rightContent;
+        
+        // UI policy for non-text entries:
+        // - BINARY and OVERSIZED entries are shown in the file list so users can see that the file
+        //   changed (we do not want to hide them).
+        // - We purposefully pass empty string contents to the diff panel for such files to avoid
+        //   any attempt to compute textual diffs (which would be wasteful or can hang).
+        // - This preserves accurate visibility while keeping added/deleted numerical totals
+        //   representative of text-line changes only (those totals already exclude non-text entries).
+        if (status == ChangeFileStatus.BINARY || status == ChangeFileStatus.OVERSIZED) {
+        leftContent = "";
+        rightContent = "";
+        } else {
+        leftContent = change.earliestOld();
+        rightContent = change.latestNew();
+        }
 
             // Use non-ref titles to avoid accidental git ref resolution; keep filename for syntax highlighting.
             BufferSource left = new BufferSource.StringSource(leftContent, "", displayPath, null);
