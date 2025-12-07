@@ -16,7 +16,6 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import org.jetbrains.annotations.Nullable;
-import static java.util.Objects.requireNonNull;
 
 /**
  * Shows a markdown-rendered question to the human and returns the answer text. Returns {@code null} if the user
