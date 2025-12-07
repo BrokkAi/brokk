@@ -1,6 +1,7 @@
 package ai.brokk.llm;
 
 import dev.langchain4j.exception.HttpException;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Helpers for detecting LLM timeout conditions.
@@ -32,7 +33,7 @@ public final class LlmTimeouts {
      * @param t throwable to inspect
      * @return true if throwable represents a LLM timeout (HTTP 504); false otherwise
      */
-    public static boolean isTimeout(Throwable t) {
+    public static boolean isTimeout(@Nullable Throwable t) {
         if (t instanceof HttpException he) {
             return he.statusCode() == 504;
         }
