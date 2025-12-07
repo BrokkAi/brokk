@@ -27,6 +27,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.logging.log4j.LogManager;
@@ -690,6 +691,25 @@ public final class JobRunner {
 
         } catch (Exception e) {
             throw new RuntimeException("Failed to build review context for PR #" + prNumber, e);
+        }
+    }
+
+    /**
+     * Shuts down the job runner executor, waiting up to the specified timeout.
+     * Any running job will be interrupted.
+     *
+     * @param timeoutMs Maximum time to wait for shutdown in milliseconds
+     */
+    public void shutdown(long timeoutMs) {
+        runner.shutdown();
+        try {
+            if (!runner.awaitTermination(timeoutMs, TimeUnit.MILLISECONDS)) {
+                runner.shutdownNow();
+                logger.warn("JobRunner executor did not terminate gracefully, forced shutdown");
+            }
+        } catch (InterruptedException e) {
+            runner.shutdownNow();
+            Thread.currentThread().interrupt();
         }
     }
 }

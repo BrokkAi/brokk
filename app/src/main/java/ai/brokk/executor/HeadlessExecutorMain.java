@@ -251,6 +251,8 @@ public final class HeadlessExecutorMain {
             Thread.currentThread().interrupt();
             logger.warn("Interrupted while waiting for init thread");
         }
+        // Shutdown job runner to stop any in-flight jobs
+        this.jobRunner.shutdown(5000);
         try {
             this.contextManager.close();
         } catch (Exception e) {
