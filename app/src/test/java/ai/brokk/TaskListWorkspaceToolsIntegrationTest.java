@@ -20,7 +20,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
     @Test
     void workspaceTools_createOrReplaceTaskList_delegatesToContextManager() {
         var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
-        var context = new Context(cm, (String) null);
+        var context = new Context(cm);
         var wst = new WorkspaceTools(context);
 
         // Call the tool method
@@ -43,7 +43,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
     @Test
     void workspaceTools_appendTaskList_delegatesToContextManager() {
         var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
-        var initial = new Context(cm, (String) null);
+        var initial = new Context(cm);
 
         // Create initial list (simulate via withTaskList)
         var c1 = initial.withTaskList(
@@ -73,7 +73,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
     @Test
     void workspaceTools_bothTaskListTools_updateContextImmutably() {
         var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
-        var context = new Context(cm, (String) null);
+        var context = new Context(cm);
         var wst = new WorkspaceTools(context);
 
         // First operation
@@ -95,7 +95,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
     @Test
     void workspaceTools_createOrReplaceTaskList_outputFormatted() {
         var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
-        var context = new Context(cm, (String) null);
+        var context = new Context(cm);
         var wst = new WorkspaceTools(context);
 
         var tasks = List.of("Fix bug in parser", "Add error handling", "Update docs");
@@ -111,7 +111,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
     @Test
     void workspaceTools_appendTaskList_outputFormatted() {
         var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
-        var initial = new Context(cm, (String) null);
+        var initial = new Context(cm);
 
         // Create initial list via Context API
         var c1 = initial.withTaskList(
@@ -131,7 +131,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
     @Test
     void workspaceTools_createOrReplace_dropsCompletedFromPrevious() {
         var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
-        var initial = new Context(cm, (String) null);
+        var initial = new Context(cm);
 
         // Create list with mixed states
         var mixed = new TaskList.TaskListData(List.of(
@@ -153,7 +153,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
     @Test
     void workspaceTools_appendTaskList_preservesCompletedFromPrevious() {
         var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
-        var initial = new Context(cm, (String) null);
+        var initial = new Context(cm);
 
         // Create list with completed task
         var completed = new TaskList.TaskListData(List.of(new TaskList.TaskItem("Done", "Finished", true)));
@@ -173,7 +173,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
     @Test
     void workspaceTools_taskTitlesAutoSummarized_inBothMethods() {
         var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
-        var context = new Context(cm, (String) null);
+        var context = new Context(cm);
         var wst = new WorkspaceTools(context);
 
         var longTaskDescription =

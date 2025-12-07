@@ -1166,9 +1166,9 @@ public final class HeadlessExecutorMain {
                 // Find the skeleton fragment ID in live context for this class
                 var fragId = liveContext
                         .virtualFragments()
-                        .filter(f -> f instanceof ContextFragment.SkeletonFragment)
-                        .map(f -> (ContextFragment.SkeletonFragment) f)
-                        .filter(s -> s.getTargetIdentifiers().contains(className))
+                        .filter(f -> f instanceof ContextFragment.SummaryFragment)
+                        .map(f -> (ContextFragment.SummaryFragment) f)
+                        .filter(s -> s.getTargetIdentifier().contains(className))
                         .map(ContextFragment::id)
                         .findFirst()
                         .orElse("");
@@ -1294,7 +1294,7 @@ public final class HeadlessExecutorMain {
 
             for (var methodName : validMethodNames) {
                 var fragment = new ContextFragment.CodeFragment(contextManager, methodName);
-                contextManager.addVirtualFragment(fragment);
+                contextManager.addFragments(fragment);
                 addedMethods.add(new AddedContextMethod(fragment.id(), methodName));
             }
 
