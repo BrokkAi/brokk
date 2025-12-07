@@ -19,9 +19,6 @@ public final class ChangeLabelUtil {
      * @return a human-friendly display label; never null
      */
     public static String makeDisplayLabel(String path, ChangeFileStatus status) {
-        requireNonNull(path, "path");
-        requireNonNull(status, "status");
-
         return switch (status) {
             case BINARY -> path + " (binary)";
             case OVERSIZED -> path + " (too large)";
