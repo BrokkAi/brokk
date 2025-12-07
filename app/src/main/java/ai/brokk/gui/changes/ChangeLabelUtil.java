@@ -1,7 +1,5 @@
 package ai.brokk.gui.changes;
 
-import static java.util.Objects.requireNonNull;
-
 /**
  * Small utilities to produce user-facing labels for changed files based on their classification.
  */
