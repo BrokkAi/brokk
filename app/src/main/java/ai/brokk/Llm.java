@@ -675,8 +675,7 @@ public class Llm {
                 if (nowCount >= CIRCUIT_THRESHOLD) {
                     long until = System.currentTimeMillis() + CIRCUIT_COOLDOWN_MS;
                     // Open circuit only when transitioning from closed to open to avoid noisy logs
-                    if (CIRCUIT_OPEN_UNTIL.get() == 0L) {
-                        CIRCUIT_OPEN_UNTIL.set(until);
+                    if (CIRCUIT_OPEN_UNTIL.compareAndSet(0L, until)) {
                         CIRCUIT_WARNED.set(false); // allow a WARN when short-circuiting
                         logger.debug(
                                 "LLM circuit OPENED due to {} consecutive timeouts; cooling down for {} ms",
