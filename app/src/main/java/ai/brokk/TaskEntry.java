@@ -69,35 +69,25 @@ public record TaskEntry(
         return new TaskEntry(sequence, null, compressedLog, null);
     }
 
-    /** Provides a string representation suitable for logging or context display. Prefers full messages when available. */
+    /** Provides a string representation suitable for logging or context display. => what the AI sees */
     @Override
     public String toString() {
-        if (hasLog()) {
-            // Prefer full messages if available, note if a summary also exists
-            var logText = formatMessages(castNonNull(log).messages());
-            if (isCompressed()) {
-                return """
-                  <task sequence=%s summarized=true>
-                  %s
-                  </task>
-                  """
-                        .formatted(sequence, logText.indent(2).stripTrailing());
-            }
+        if (isCompressed()) {
             return """
-              <task sequence=%s>
+              <task sequence=%s summarized=true>
               %s
               </task>
               """
-                    .formatted(sequence, logText.indent(2).stripTrailing());
+                    .formatted(sequence, castNonNull(summary).indent(2).stripTrailing());
         }
 
-        // Fallback to summary-only representation (legacy or edge case)
+        var logText = formatMessages(castNonNull(log).messages());
         return """
-          <task sequence=%s summary-only=true>
+          <task sequence=%s>
           %s
           </task>
           """
-                .formatted(sequence, castNonNull(summary).indent(2).stripTrailing());
+                .formatted(sequence, logText.indent(2).stripTrailing());
     }
 
     public static String formatMessages(List<ChatMessage> messages) {
