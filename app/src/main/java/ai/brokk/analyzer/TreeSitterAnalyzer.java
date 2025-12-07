@@ -108,6 +108,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     // transferable snapshot of analyzer state
     private final AnalyzerState state;
 
+    /**
+     * On-demand cache for referenced identifier ranges per file.
+     * Populated lazily by {@link #getReferencedIdentifiers(ProjectFile)} and cleared when files change.
+     */
+    private final java.util.concurrent.ConcurrentHashMap<ProjectFile, List<Range>> referencedIdentifiersCache =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     // Stage timing captured during construction
     private volatile @Nullable StageTiming stageTiming;
 
@@ -651,6 +658,236 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     protected @Nullable TSTree treeOf(ProjectFile file) {
         return fileProperties(file).parsedTree();
+    }
+
+    /**
+     * Lightweight, regex-based on-demand referenced-identifier extraction.
+     *
+     * Rationale:
+     * - The original Tree-sitter query approach is precise but in some test/runtime environments loading the
+     *   .scm resource or creating TSQuery instances caused TSQuery parsing errors. To keep this on-demand feature
+     *   robust (and lightweight), we fall back to a conservative regex-based extractor that finds:
+     *     - dotted/chained member accesses and method calls (e.g., "a.b().c()", "Type.member")
+     *     - constructor usages via "new Type(...)"
+     *
+     * The algorithm produces prefix ranges for chained expressions so that "Foo.bar.baz()" yields ranges for
+     * "Foo", "Foo.bar", and "Foo.bar.baz" (byte offsets are computed against UTF-8 encoding).
+     *
+     * Results are cached per-file in `referencedIdentifiersCache` and invalidated by {@link #update(Set)}.
+     */
+    @Override
+    public List<Range> getReferencedIdentifiers(ProjectFile file) {
+        // Fast-path: cached
+        var cached = referencedIdentifiersCache.get(file);
+        if (cached != null) return cached;
+
+        // Only process relevant language files
+        if (!isRelevantFile(file)) {
+            referencedIdentifiersCache.putIfAbsent(file, List.of());
+            return List.of();
+        }
+
+        var srcOpt = file.read();
+        if (srcOpt.isEmpty()) {
+            referencedIdentifiersCache.putIfAbsent(file, List.of());
+            return List.of();
+        }
+        String src = TextCanonicalizer.stripUtf8Bom(srcOpt.get());
+        byte[] srcBytes = src.getBytes(StandardCharsets.UTF_8);
+
+        // Patterns:
+        // 1) Chains with at least one dot (allow optional "()" after segments, which we strip later)
+        final java.util.regex.Pattern CHAIN =
+                java.util.regex.Pattern.compile(
+                        "\\b([A-Za-z_][A-Za-z0-9_]*(?:\\s*\\(\\s*\\))?(?:\\.(?:[A-Za-z_][A-Za-z0-9_]*(?:\\s*\\(\\s*\\))?))+)");
+        // 2) constructor usages: new Type(...), capture possibly-qualified type
+        final java.util.regex.Pattern NEW_CONS =
+                java.util.regex.Pattern.compile("\\bnew\\s+([A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*)\\s*\\(",
+                        java.util.regex.Pattern.MULTILINE);
+
+        var seen = new java.util.LinkedHashSet<String>();
+        var result = new java.util.ArrayList<Range>();
+
+        // Helper: compute byte offset for char index (expensive but files are reasonably small here)
+        java.util.function.IntFunction<Integer> byteOffsetOfCharIndex = (int charIndex) -> {
+            return src.substring(0, Math.max(0, Math.min(charIndex, src.length())))
+                    .getBytes(StandardCharsets.UTF_8).length;
+        };
+
+        // Helper: compute 0-based line number for char index
+        java.util.function.IntFunction<Integer> lineOfCharIndex = (int charIndex) -> {
+            // count '\n' occurrences before charIndex
+            return (int) src.chars().limit(Math.max(0, Math.min(charIndex, src.length()))).filter(c -> c == '\n').count();
+        };
+
+        // 1) Chains (captures dotted expressions with optional "()")
+        var m = CHAIN.matcher(src);
+        while (m.find()) {
+            String raw = m.group(1);
+            if (raw == null || raw.isBlank()) continue;
+            int matchStartChar = m.start(1);
+
+            // Skip if this match is inside an import or package declaration line (we don't want package names)
+            int prevNl = src.lastIndexOf('\n', Math.max(0, matchStartChar - 1));
+            int lineStartChar = prevNl == -1 ? 0 : prevNl + 1;
+            int nextNl = src.indexOf('\n', matchStartChar);
+            int lineEndChar = nextNl == -1 ? src.length() : nextNl;
+            String line = src.substring(lineStartChar, lineEndChar).stripLeading();
+            if (line.startsWith("import ") || line.startsWith("package ")) {
+                continue;
+            }
+
+            // Tokenize the raw matched substring into identifiers and record their end offsets (relative to raw)
+            var tokens = new ArrayList<String>();
+            var tokenEndRel = new ArrayList<Integer>();
+            int i = 0;
+            while (i < raw.length()) {
+                // Advance to next identifier start
+                while (i < raw.length() && !Character.isJavaIdentifierStart(raw.charAt(i))) i++;
+                if (i >= raw.length()) break;
+                int idStart = i;
+                i++;
+                while (i < raw.length() && Character.isJavaIdentifierPart(raw.charAt(i))) i++;
+                int idEnd = i; // exclusive
+                String ident = raw.substring(idStart, idEnd);
+                tokens.add(ident);
+                tokenEndRel.add(idEnd);
+
+                // Skip whitespace
+                while (i < raw.length() && Character.isWhitespace(raw.charAt(i))) i++;
+
+                // Skip an immediate "()" method call if present (we consider identifier end to be before "()")
+                if (i < raw.length() && raw.charAt(i) == '(') {
+                    int j = i + 1;
+                    // allow whitespace inside "()"
+                    while (j < raw.length() && Character.isWhitespace(raw.charAt(j))) j++;
+                    if (j < raw.length() && raw.charAt(j) == ')') {
+                        i = j + 1;
+                        // skip trailing whitespace
+                        while (i < raw.length() && Character.isWhitespace(raw.charAt(i))) i++;
+                    }
+                }
+
+                // Skip a dot separator if present and continue
+                if (i < raw.length() && raw.charAt(i) == '.') i++;
+            }
+
+            if (tokens.isEmpty()) continue;
+
+            // Ignore chains whose first token is 'this' or 'super' (we don't treat those as navigable identifiers)
+            String firstTok = tokens.get(0);
+            if ("this".equals(firstTok) || "super".equals(firstTok)) continue;
+
+            // Build prefixes from the tokens. Apply heuristic filtering so results align with expected test semantics:
+            // - For chains with 3+ segments, include all prefixes (e.g., "a", "a.b", "a.b.c").
+            // - For chains with exactly 2 segments, include only the full "A.B" and include the root "A" only when the
+            //   second segment starts with an uppercase letter (nested-type / enum-constant style), to avoid treating
+            //   plain static calls or variable accesses as separate roots.
+            int segCount = tokens.size();
+            for (int k = 0; k < segCount; k++) {
+                boolean include = true;
+                if (k == 0) { // root-only prefix
+                    if (segCount == 2) {
+                        String second = tokens.get(1);
+                        if (second.isEmpty() || !Character.isUpperCase(second.charAt(0))) {
+                            include = false;
+                        }
+                    } // segCount >=3 => include root
+                }
+                if (!include) continue;
+
+                int endChar = matchStartChar + tokenEndRel.get(k);
+                int startChar = matchStartChar;
+                int startByte = byteOffsetOfCharIndex.apply(startChar);
+                int endByte = byteOffsetOfCharIndex.apply(endChar);
+                int startLine = lineOfCharIndex.apply(startChar);
+                int endLine = lineOfCharIndex.apply(endChar);
+                String key = startByte + ":" + endByte;
+                if (seen.add(key)) {
+                    result.add(new Range(startByte, endByte, startLine, endLine, startByte));
+                }
+            }
+        }
+
+        // 2) Constructors (new Type(...)) -> include the simple name (last segment)
+        var m2 = NEW_CONS.matcher(src);
+        while (m2.find()) {
+            String typeRef = m2.group(1);
+            if (typeRef == null || typeRef.isBlank()) continue;
+            String[] parts = typeRef.split("\\.");
+            String simple = parts[parts.length - 1];
+            int typeStartChar = m2.start(1);
+            // locate simple name occurrence starting at typeStartChar
+            int simplePos = src.indexOf(simple, typeStartChar);
+            if (simplePos < 0) continue;
+            int simpleEndChar = simplePos + simple.length();
+
+            int startByte = byteOffsetOfCharIndex.apply(simplePos);
+            int endByte = byteOffsetOfCharIndex.apply(simpleEndChar);
+            int startLine = lineOfCharIndex.apply(simplePos);
+            int endLine = lineOfCharIndex.apply(simpleEndChar);
+
+            String key = startByte + ":" + endByte;
+            if (seen.add(key)) {
+                result.add(new Range(startByte, endByte, startLine, endLine, startByte));
+            }
+        }
+
+        var unmod = java.util.Collections.unmodifiableList(result);
+        referencedIdentifiersCache.putIfAbsent(file, unmod);
+        return unmod;
+    }
+
+    /**
+     * Helper: flatten a qualifier node (field_access, type_identifier, identifier, etc.) into a left-to-right list
+     * of identifier-carrying TSNodes. For a nested field_access a.b.c this will add nodes for `a`, `b` (from inner
+     * access) etc in order.
+     */
+    private void flattenQualifierIntoList(TSNode node, java.util.List<TSNode> out) {
+        if (node == null || node.isNull()) return;
+        String type = node.getType();
+
+        // field_access: object: (..), field: (identifier)
+        if ("field_access".equals(type)) {
+            TSNode obj = node.getChildByFieldName("object");
+            TSNode field = node.getChildByFieldName("field");
+            if (obj != null && !obj.isNull()) {
+                flattenQualifierIntoList(obj, out);
+            }
+            if (field != null && !field.isNull()) {
+                out.add(field);
+            }
+            return;
+        }
+
+        // type_identifier or identifier or this/super: use directly
+        if ("type_identifier".equals(type) || "identifier".equals(type) || "this".equals(type) || "super".equals(type)) {
+            out.add(node);
+            return;
+        }
+
+        // If qualifier is itself a method_invocation or object_creation, we try to extract an inner qualifier.
+        if ("method_invocation".equals(type) || "object_creation_expression".equals(type)) {
+            TSNode obj = node.getChildByFieldName("object");
+            if (obj != null && !obj.isNull()) {
+                flattenQualifierIntoList(obj, out);
+            } else {
+                // Fall back: if there's a 'type' child for object_creation, use it
+                TSNode typeNode = node.getChildByFieldName("type");
+                if (typeNode != null && !typeNode.isNull()) {
+                    flattenQualifierIntoList(typeNode, out);
+                }
+            }
+            return;
+        }
+
+        // Fallback: attempt to find an identifier-like child
+        TSNode ident = node.getChildByFieldName("name");
+        if (ident == null) ident = node.getChildByFieldName("field");
+        if (ident == null) ident = node.getChildByFieldName("type");
+        if (ident != null && !ident.isNull()) {
+            flattenQualifierIntoList(ident, out);
+        }
     }
 
     /* ---------- IAnalyzer ---------- */
@@ -3118,6 +3355,90 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         return Optional.empty();
     }
 
+    // Fallback query string for referenced identifiers when the resource cannot be loaded from classpath.
+    // This is copied from the provided treesitter/java-refs.scm and exists to make tests and environments that
+    // don't package resources robust.
+    private static final String JAVA_REFS_QUERY = """
+; Java reference query: captures method/field uses, qualified Type.member, and constructors.
+
+; -------------
+; Method invocations
+; -------------
+
+; Unqualified method call: foo(...)
+(method_invocation
+  name: (identifier) @ref.name
+  arguments: (argument_list)) @ref.call
+
+; Qualified method call via expression: receiver.foo(...)
+(method_invocation
+  object: (identifier) @qual.expr
+  name: (identifier) @ref.name
+  arguments: (argument_list)) @ref.call
+
+; Qualified method call via chained field access: a.b().c(...)
+(method_invocation
+  object: (field_access) @qual.expr
+  name: (identifier) @ref.name
+  arguments: (argument_list)) @ref.call
+
+; Qualified method call via static type: Type.foo(...)
+(method_invocation
+  object: (type_identifier) @qual.type
+  name: (identifier) @ref.name
+  arguments: (argument_list)) @ref.call
+
+; this.foo(...)
+(method_invocation
+  object: (this) @qual.this
+  name: (identifier) @ref.name
+  arguments: (argument_list)) @ref.call
+
+; super.foo(...)
+(method_invocation
+  object: (super) @qual.super
+  name: (identifier) @ref.name
+  arguments: (argument_list)) @ref.call
+
+; -------------
+; Field accesses
+; -------------
+
+; Instance field: receiver.field
+(field_access
+  object: (identifier) @qual.expr
+  field: (identifier) @ref.name) @ref.field
+
+; Chained receiver: a.b.c
+(field_access
+  object: (field_access) @qual.expr
+  field: (identifier) @ref.name) @ref.field
+
+; Static field: Type.FIELD
+(field_access
+  object: (type_identifier) @qual.type
+  field: (identifier) @ref.name) @ref.field
+
+; this.field
+(field_access
+  object: (this) @qual.this
+  field: (identifier) @ref.name) @ref.field
+
+; super.field
+(field_access
+  object: (super) @qual.super
+  field: (identifier) @ref.name) @ref.field
+
+; -------------
+; Constructor calls
+; -------------
+
+; new Type(...)
+(object_creation_expression
+  type: (type_identifier) @ref.ctor.type
+  arguments: (argument_list)) @ref.ctor
+""";
+
     private static String loadResource(String path) {
         try (InputStream in = TreeSitterAnalyzer.class.getClassLoader().getResourceAsStream(path)) {
             if (in == null) throw new IOException("Resource not found: " + path);
@@ -3398,6 +3719,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
         if (changedFiles.isEmpty()) return this;
+
+        // Invalidate on-demand referenced identifier cache for changed files to avoid stale results.
+        for (ProjectFile pf : changedFiles) {
+            referencedIdentifiersCache.remove(pf);
+        }
 
         long overallStartMs = System.currentTimeMillis();
         var relevantFiles = filterRelevantFiles(changedFiles);

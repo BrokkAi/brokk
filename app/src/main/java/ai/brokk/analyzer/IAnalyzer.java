@@ -166,6 +166,23 @@ public interface IAnalyzer {
      */
     Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range);
 
+    /**
+     * Returns a list of source ranges (byte offsets) representing referenced identifiers or
+     * qualified identifier chains within the given file. Implementations may parse the file on-demand
+     * and may cache results. Each returned {@link Range} represents a contiguous identifier segment such
+     * as "Foo", "Foo.bar", "Foo.bar.baz" for an expression "Foo.bar.baz()".
+     *
+     * Default implementation returns an empty list so legacy IAnalyzer implementors do not need to
+     * implement this method immediately. Language-specific analyzers (e.g., TreeSitterAnalyzer) may
+     * override to provide on-demand Tree-sitter parsing and caching.
+     *
+     * @param file the ProjectFile to analyze
+     * @return list of identifier ranges in source order; may be empty
+     */
+    default List<Range> getReferencedIdentifiers(ProjectFile file) {
+        return List.of();
+    }
+
     record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
         public boolean isEmpty() {
             return startLine == endLine && startByte == endByte;

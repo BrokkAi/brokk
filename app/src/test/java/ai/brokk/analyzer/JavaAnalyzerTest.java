@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.analyzer.ASTTraversalUtils;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -291,6 +292,13 @@ public class JavaAnalyzerTest {
                 "OverloadsUser",
                 "ServiceImpl",
                 "ServiceInterface",
+                "TypeRefSample",
+                "TypeRefSample.ChainedA",
+                "TypeRefSample.ChainedB",
+                "TypeRefSample.Inner",
+                "TypeRefSample.MyEnum",
+                "TypeRefSample.StaticInner",
+                "TypeRefSample.UtilClass",
                 "UseE",
                 "UsePackaged",
                 "XExtendsY",
@@ -816,5 +824,57 @@ public class JavaAnalyzerTest {
                     children,
                     "Module children should include only top-level classes A and C (exclude nested types)");
         }
+    }
+
+    @Test
+    public void testGetReferencedIdentifiersForTypeRefSample() {
+        var maybeFile = AnalyzerUtil.getFileFor(analyzer, "TypeRefSample");
+        assertTrue(maybeFile.isPresent(), "TypeRefSample.java should be present in test resources");
+        var file = maybeFile.get();
+
+        var ranges = analyzer.getReferencedIdentifiers(file);
+        assertFalse(ranges.isEmpty(), "Expected to find referenced identifiers in TypeRefSample.java");
+
+        var srcOpt = file.read();
+        assertTrue(srcOpt.isPresent());
+        String src = srcOpt.get();
+
+        var actual = ranges.stream()
+                .map(r -> ASTTraversalUtils.safeSubstringFromByteOffsets(src, r.startByte(), r.endByte()).strip())
+                .collect(java.util.stream.Collectors.toSet());
+
+        var expected = Set.of(
+                // constructors / type usages
+                "StaticInner",
+                "ChainedA",
+                "ChainedB",
+                // enum / enum constants
+                "MyEnum",
+                "MyEnum.FIRST",
+                "MyEnum.SECOND",
+                "paramEnum.enumMethod",
+                "localEnum.enumMethod",
+                // method calls and chained calls
+                "si.innerMethod",
+                "paramInner.innerMethod",
+                "localInner.innerMethod",
+                "a",
+                "a.b",
+                "a.b().c",
+                "UtilClass.staticUtilMethod",
+                // context manager chain
+                "ContextManager",
+                "ContextManager.Context",
+                "ContextManager.Context.foo"
+        );
+
+        var missing = new java.util.HashSet<String>(expected);
+        missing.removeAll(actual);
+
+        var unexpected = new java.util.HashSet<String>(actual);
+        unexpected.removeAll(expected);
+
+        assertTrue(missing.isEmpty() && unexpected.isEmpty(),
+                () -> "Referenced identifiers mismatch. Missing=" + missing + ", Unexpected=" + unexpected);
     }
 }
