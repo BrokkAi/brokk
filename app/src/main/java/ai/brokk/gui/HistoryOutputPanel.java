@@ -90,6 +90,10 @@ import org.jetbrains.annotations.Nullable;
 public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(HistoryOutputPanel.class);
 
+    // Size limits for content processing to avoid heavy CPU usage and memory issues
+    private static final int MAX_COMBINED_CONTENT_SIZE = 2_000_000; // characters
+    private static final int MAX_SINGLE_CONTENT_SIZE = 1_000_000; // characters
+
     private final Chrome chrome;
     private final ContextManager contextManager;
     private final JTable historyTable;
@@ -3231,7 +3235,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             }
 
                             if (!isText) {
-                                // For binary, non-text, or unrecognized/large files, include a per-file entry but mark as binary and
+                                // For binary, non-text, or unrecognized/large files, include a per-file entry but mark
+                                // as binary and
                                 // avoid expensive diffing or line-count computations. This allows the Review UI
                                 // to list such files without causing CPU spikes.
                                 logger.debug(
@@ -3252,14 +3257,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
                             // Fallback: if the combined content is extremely large, skip expensive diffing.
                             // We omit such files from perFileChanges (simpler, avoids storing huge blobs).
-                            final int COMBINED_SIZE_CAP = 2_000_000;
                             int combinedLen = leftContent.length() + rightContent.length();
-                            if (combinedLen > COMBINED_SIZE_CAP) {
+                            if (combinedLen > MAX_COMBINED_CONTENT_SIZE) {
                                 logger.debug(
                                         "Skipping oversized file in cumulative changes: {} (combined length {} > {})",
                                         displayFile,
                                         combinedLen,
-                                        COMBINED_SIZE_CAP);
+                                        MAX_COMBINED_CONTENT_SIZE);
                                 // Skip adding to totals and per-file list as a simple, conservative fallback.
                                 continue;
                             }
@@ -3584,8 +3588,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     // Uses ContentDiffUtils for accurate Myers-algorithm-based diff counts, but short-circuits
     // for binary or extremely large inputs to avoid heavy CPU usage.
     private static int[] computeNetLineCounts(String earliestOld, String latestNew, String displayFile) {
-        final int SIZE_LIMIT = 1_000_000; // characters
-
         try {
             // Binary detection: if either side contains a NUL (heuristic), treat as binary.
             if (BrokkFile.isBinary(earliestOld)) {
@@ -3600,13 +3602,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             // Size guard: avoid diffing extremely large blobs
             int leftLen = earliestOld.length();
             int rightLen = latestNew.length();
-            if (leftLen > SIZE_LIMIT || rightLen > SIZE_LIMIT) {
+            if (leftLen > MAX_SINGLE_CONTENT_SIZE || rightLen > MAX_SINGLE_CONTENT_SIZE) {
                 logger.debug(
                         "Short-circuiting diff: oversized content for '{}' (left={}, right={}, limit={})",
                         displayFile,
                         leftLen,
                         rightLen,
-                        SIZE_LIMIT);
+                        MAX_SINGLE_CONTENT_SIZE);
                 return new int[] {0, 0};
             }
         } catch (Throwable t) {
