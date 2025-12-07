@@ -46,6 +46,7 @@ public final class HeadlessExecutorMain {
     private final SessionManager sessionManager;
     private final JobReservation jobReservation = new JobReservation();
     private final ai.brokk.executor.jobs.JobRunner jobRunner;
+    private final Thread initThread;
     // Indicates whether a session has been loaded (either uploaded or created) at least once.
     // Used to gate /health/ready until the first session is available.
     private volatile boolean sessionLoaded = false;
@@ -136,7 +137,7 @@ public final class HeadlessExecutorMain {
         this.sessionManager = new SessionManager(sessionsDir);
 
         // Initialize headless context asynchronously to avoid blocking constructor
-        var initThread = new Thread(
+        this.initThread = new Thread(
                 () -> {
                     try {
                         this.contextManager.createHeadless();
@@ -146,8 +147,8 @@ public final class HeadlessExecutorMain {
                     }
                 },
                 "ContextManager-Init");
-        initThread.setDaemon(true);
-        initThread.start();
+        this.initThread.setDaemon(true);
+        this.initThread.start();
 
         // Initialize JobRunner
         this.jobRunner = new ai.brokk.executor.jobs.JobRunner(this.contextManager, this.jobStore);
@@ -241,6 +242,15 @@ public final class HeadlessExecutorMain {
     }
 
     public void stop(int delaySeconds) {
+        // Wait for init thread to complete before closing resources
+        // This prevents file handle leaks if createHeadless() is still running
+        try {
+            this.initThread.interrupt();
+            this.initThread.join(5000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warn("Interrupted while waiting for init thread");
+        }
         try {
             this.contextManager.close();
         } catch (Exception e) {
