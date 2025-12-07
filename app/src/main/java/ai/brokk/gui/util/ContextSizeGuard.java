@@ -102,9 +102,7 @@ public final class ContextSizeGuard {
 
                     // Hard limit - reject without asking
                     if (estimate.estimatedTokens() > hardLimit) {
-                        SwingUtilities.invokeLater(() -> {
-                            chrome.toolError(formatHardLimitMessage(estimate, maxInputTokens, hardLimit));
-                        });
+                        chrome.toolError(formatHardLimitMessage(estimate, maxInputTokens, hardLimit), "Context Size Limit");
                         onConfirmed.accept(false);
                         return;
                     }
