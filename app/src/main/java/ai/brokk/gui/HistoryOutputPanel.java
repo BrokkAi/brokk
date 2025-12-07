@@ -3231,7 +3231,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             }
 
                             if (!isText) {
-                                // For binary, non-text, or unrecognized/large files, include a per-file entry but mark as binary and
+                                // For binary, non-text, or unrecognized/large files, include a per-file entry but mark
+                                // as binary and
                                 // avoid expensive diffing or line-count computations. This allows the Review UI
                                 // to list such files without causing CPU spikes.
                                 logger.debug(
