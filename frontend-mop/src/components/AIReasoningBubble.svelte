@@ -24,11 +24,16 @@
 </script>
 
 <BaseBubble {bubble} {hlVar} {bgVar} collapsed={!!bubble.isCollapsed}>
-    <div slot="header" class="reasoning-header {bubble.isCollapsed ? 'collapsed' : ''}" on:click={toggleCollapse}>
+    <div
+        slot="header"
+        class="reasoning-header {bubble.isCollapsed ? 'collapsed' : ''}"
+        style:color={bubble.reasoningComplete ? 'var(--ai-reasoning-header-foreground)' : `var(${hlVar})`}
+        on:click={toggleCollapse}
+    >
         {#if bubble.reasoningComplete}
             <Icon icon={bubble.isCollapsed ? 'mdi:chevron-right' : 'mdi:chevron-down'}
-                  style="color: var(--ai-reasoning-header-foreground); margin-right: 0.35em;"/>
-            <span class="title" style="color: var(--ai-reasoning-header-foreground);">
+                  style="margin-right: 0.35em;"/>
+            <span class="title">
                 {#if showThoughtsLabel}
                     Thoughts
                 {:else}
@@ -36,7 +41,7 @@
                 {/if}
             </span>
         {:else}
-            <Icon icon="mdi:loading" class="spin-icon" style="color: var({hlVar}); margin-right: 0.35em;"/>
+            <Icon icon="mdi:loading" class="spin-icon" style="margin-right: 0.35em;"/>
             <span class="title">Reasoning progress...</span>
         {/if}
     </div>
