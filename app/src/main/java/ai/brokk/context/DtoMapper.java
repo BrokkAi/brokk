@@ -161,8 +161,8 @@ public class DtoMapper {
                             : null;
                     return new TaskEntryRefDto(
                             te.sequence(),
-                            te.hasLog() ? te.log().id() : null,
-                            te.isCompressed() ? writer.writeContent(te.summary(), null) : null,
+                            te.hasLog() ? castNonNull(te.log()).id() : null,
+                            te.isCompressed() ? writer.writeContent(castNonNull(te.summary()), null) : null,
                             type,
                             pmName,
                             pmReason);
@@ -554,11 +554,11 @@ public class DtoMapper {
     private static TaskEntryDto toTaskEntryDto(TaskEntry entry, ContentWriter writer) {
         TaskFragmentDto logDto = null;
         if (entry.hasLog()) {
-            logDto = toTaskFragmentDto(entry.log(), writer);
+            logDto = toTaskFragmentDto(castNonNull(entry.log()), writer);
         }
         String summaryContentId = null;
         if (entry.isCompressed()) {
-            summaryContentId = writer.writeContent(entry.summary(), null);
+            summaryContentId = writer.writeContent(castNonNull(entry.summary()), null);
         }
         return new TaskEntryDto(entry.sequence(), logDto, summaryContentId);
     }
