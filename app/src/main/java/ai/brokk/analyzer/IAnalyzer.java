@@ -183,6 +183,76 @@ public interface IAnalyzer {
         return List.of();
     }
 
+    /**
+     * Returns the identifier (simple or qualified chain) that covers the given UTF-8 byte offset in the file.
+     *
+     * The method inspects the list returned from {@link #getReferencedIdentifiers(ProjectFile)} and chooses the
+     * longest range that contains the supplied byte offset. The offset is interpreted as a UTF-8 byte offset,
+     * which matches the semantics of {@link Range#startByte}/{@link Range#endByte}.
+     *
+     * Implemented as a default method so callers can rely on this helper without each analyzer implementing it.
+     *
+     * @param file the project file
+     * @param offset UTF-8 byte offset within the file to query
+     * @return identifier string if one contains the offset, otherwise empty
+     */
+    default Optional<String> getIdentifierAt(ProjectFile file, int offset) {
+        var ranges = getReferencedIdentifiers(file);
+        if (ranges.isEmpty()) return Optional.empty();
+
+        // Ensure ranges are sorted by start byte (they typically are, but be defensive).
+        List<Range> sorted = ranges.stream()
+                .sorted(Comparator.comparingInt(Range::startByte))
+                .toList();
+
+        // Binary search for first index with startByte > offset
+        int lo = 0;
+        int hi = sorted.size();
+        while (lo < hi) {
+            int mid = (lo + hi) >>> 1;
+            if (sorted.get(mid).startByte() > offset) {
+                hi = mid;
+            } else {
+                lo = mid + 1;
+            }
+        }
+        int idx = lo - 1; // last index with startByte <= offset
+        int bestLen = -1;
+        Range best = null;
+
+        // Scan backwards from idx to find candidate ranges that contain offset; choose the longest.
+        // This is typically small because many matches with the same start are prefixes of increasing length.
+        for (int i = idx; i >= 0; i--) {
+            Range r = sorted.get(i);
+            // If start is after offset (shouldn't happen for i <= idx), skip defensively
+            if (r.startByte() > offset) continue;
+
+            if (r.endByte() >= offset) {
+                int len = r.endByte() - r.startByte();
+                if (len > bestLen) {
+                    bestLen = len;
+                    best = r;
+                }
+            }
+
+            // Heuristic early exit: if we've already found a matching range and the current range
+            // starts "far" before offset, chances are earlier ranges won't extend to offset and we
+            // can break. This keeps worst-case scanning bounded for pathological inputs.
+            if (best != null && r.startByte() < offset - 8192) {
+                break;
+            }
+        }
+
+        if (best == null) return Optional.empty();
+
+        var srcOpt = file.read();
+        if (srcOpt.isEmpty()) return Optional.empty();
+        String src = srcOpt.get();
+
+        String ident = ASTTraversalUtils.safeSubstringFromByteOffsets(src, best.startByte(), best.endByte()).strip();
+        return Optional.of(ident);
+    }
+
     record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
         public boolean isEmpty() {
             return startLine == endLine && startByte == endByte;
