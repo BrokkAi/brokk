@@ -60,6 +60,7 @@ public final class AskHumanDialog {
                     final String[] resultHolder = {null}; // To store the answer from listeners
 
                     var okButton = new MaterialButton("OK");
+                    SwingUtil.applyPrimaryButtonStyle(okButton);
                     var cancelButton = new MaterialButton("Cancel");
 
                     // Disable OK button initially
@@ -161,21 +162,25 @@ public final class AskHumanDialog {
                     questionScroll.setBorder(new EmptyBorder(10, 10, 10, 10));
                     questionScroll.getVerticalScrollBar().setUnitIncrement(16);
 
+                    /* --------- Custom buttons (create early for listeners) ---------- */
+                    var okButton = new MaterialButton("OK");
+                    SwingUtil.applyPrimaryButtonStyle(okButton);
+                    var cancelButton = new MaterialButton("Cancel");
+
+                    // Disable OK button initially (no choice selected)
+                    okButton.setEnabled(false);
+
                     /* --------- Choice buttons (Radio button group) ------------------- */
                     var choicePanel = new JPanel();
                     choicePanel.setLayout(new BoxLayout(choicePanel, BoxLayout.Y_AXIS));
                     choicePanel.setBorder(new EmptyBorder(0, 20, 10, 20));
 
                     var buttonGroup = new ButtonGroup();
-                    final String[] selectedChoice = {null};
 
                     for (String choice : choices) {
                         var radioButton = new JRadioButton(choice);
-                        radioButton.addActionListener(e -> {
-                            if (radioButton.isSelected()) {
-                                selectedChoice[0] = choice;
-                            }
-                        });
+                        radioButton.setActionCommand(choice);
+                        radioButton.addActionListener(e -> okButton.setEnabled(true));
                         buttonGroup.add(radioButton);
                         choicePanel.add(radioButton);
                         choicePanel.add(Box.createVerticalStrut(4));
@@ -186,19 +191,8 @@ public final class AskHumanDialog {
                     content.add(questionScroll, BorderLayout.CENTER);
                     content.add(choicePanel, BorderLayout.SOUTH);
 
-                    /* --------- Custom buttons and dialog logic --------------------- */
+                    /* --------- Dialog logic ---------------------------------------- */
                     final String[] resultHolder = {null};
-
-                    var okButton = new MaterialButton("OK");
-                    var cancelButton = new MaterialButton("Cancel");
-
-                    // Disable OK button initially (no choice selected)
-                    okButton.setEnabled(false);
-
-                    // Enable OK button when a choice is selected
-                    for (AbstractButton button : java.util.Collections.list(buttonGroup.getElements())) {
-                        button.addActionListener(e -> okButton.setEnabled(true));
-                    }
 
                     // JOptionPane with custom buttons
                     var optionPane = new JOptionPane(
@@ -213,10 +207,11 @@ public final class AskHumanDialog {
                     var dialog = optionPane.createDialog(null, sessionName);
                     dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
 
-                    // Action listener for OK button
+                    // Action listener for OK button: read selected value directly from ButtonGroup
                     okButton.addActionListener(e -> {
-                        if (selectedChoice[0] != null) {
-                            resultHolder[0] = selectedChoice[0];
+                        var selection = buttonGroup.getSelection();
+                        if (selection != null) {
+                            resultHolder[0] = selection.getActionCommand();
                             dialog.dispose();
                         }
                     });
