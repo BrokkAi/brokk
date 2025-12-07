@@ -3253,8 +3253,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             // Fallback: if the combined content is extremely large, skip expensive diffing.
                             // We omit such files from perFileChanges (simpler, avoids storing huge blobs).
                             final int COMBINED_SIZE_CAP = 2_000_000;
-                            int combinedLen = (leftContent == null ? 0 : leftContent.length())
-                                    + (rightContent == null ? 0 : rightContent.length());
+                            int combinedLen = leftContent.length() + rightContent.length();
                             if (combinedLen > COMBINED_SIZE_CAP) {
                                 logger.debug(
                                         "Skipping oversized file in cumulative changes: {} (combined length {} > {})",
@@ -3586,18 +3585,18 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         try {
             // Binary detection: if either side contains a NUL (heuristic), treat as binary.
-            if (earliestOld != null && BrokkFile.isBinary(earliestOld)) {
+            if (BrokkFile.isBinary(earliestOld)) {
                 logger.debug("Short-circuiting diff: left side appears binary for '{}'", displayFile);
                 return new int[] {0, 0};
             }
-            if (latestNew != null && BrokkFile.isBinary(latestNew)) {
+            if (BrokkFile.isBinary(latestNew)) {
                 logger.debug("Short-circuiting diff: right side appears binary for '{}'", displayFile);
                 return new int[] {0, 0};
             }
 
             // Size guard: avoid diffing extremely large blobs
-            int leftLen = earliestOld == null ? 0 : earliestOld.length();
-            int rightLen = latestNew == null ? 0 : latestNew.length();
+            int leftLen = earliestOld.length();
+            int rightLen = latestNew.length();
             if (leftLen > SIZE_LIMIT || rightLen > SIZE_LIMIT) {
                 logger.debug(
                         "Short-circuiting diff: oversized content for '{}' (left={}, right={}, limit={})",
