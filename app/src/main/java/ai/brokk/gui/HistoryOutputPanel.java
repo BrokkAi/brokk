@@ -3549,14 +3549,17 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             String path = change.displayFile();
             boolean isBinary = change.binary();
             String displayPath = isBinary ? path + " (binary)" : path;
-            String leftContent = change.earliestOld();
-            String rightContent = change.latestNew();
+            String leftContent;
+            String rightContent;
 
             // For binary files we avoid presenting textual diffs; use empty placeholders and a "(binary)"
             // suffix in the displayed filename so the user sees it in the file list.
             if (isBinary) {
                 leftContent = "";
                 rightContent = "";
+            } else {
+                leftContent = change.earliestOld();
+                rightContent = change.latestNew();
             }
 
             // Use non-ref titles to avoid accidental git ref resolution; keep filename for syntax highlighting.
