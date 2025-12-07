@@ -8,10 +8,7 @@ import ai.brokk.testutil.InlineTestProjectCreator;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
 
-/**
- * Tests for IAnalyzer.getIdentifierAt default implementation.
- */
-public class GetIdentifierAtTest {
+public class IAnalyzerTest {
 
     @Test
     public void testGetIdentifierAtReturnsLongestRange() throws Exception {
