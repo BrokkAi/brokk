@@ -16,6 +16,7 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import org.jetbrains.annotations.Nullable;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Shows a markdown-rendered question to the human and returns the answer text. Returns {@code null} if the user
@@ -132,6 +133,117 @@ public final class AskHumanDialog {
                     return resultHolder[0];
                 },
                 null); // defaultValue if invokeAndWait is interrupted
+    }
+
+    /**
+     * Shows a markdown-rendered question to the human with multiple choice options and returns the selected choice.
+     * Returns {@code null} if the user cancels, closes the dialog, or provides no selection.
+     *
+     * @param chrome the Chrome instance for theme and context
+     * @param question the markdown-formatted question to display
+     * @param choices list of choice strings to present as radio button options
+     * @return the selected choice string, or null if cancelled
+     */
+    public static @Nullable String askWithChoices(Chrome chrome, String question, List<String> choices) {
+        return SwingUtil.runOnEdt(
+                () -> {
+                    String sessionName = "Ask Human";
+
+                    /* --------- Question (Markdown) ---------------------------------- */
+                    var questionPanel = new MarkdownOutputPanel(true);
+                    questionPanel.withContextForLookups(chrome.getContextManager(), chrome);
+                    var fragment = new ContextFragment.TaskFragment(
+                            chrome.getContextManager(), List.of(new AiMessage(question)), sessionName);
+                    questionPanel.setText(fragment);
+                    questionPanel.applyTheme(chrome.getTheme());
+
+                    var questionScroll = new JScrollPane(questionPanel);
+                    questionScroll.setPreferredSize(new Dimension(800, 300));
+                    questionScroll.setBorder(new EmptyBorder(10, 10, 10, 10));
+                    questionScroll.getVerticalScrollBar().setUnitIncrement(16);
+
+                    /* --------- Choice buttons (Radio button group) ------------------- */
+                    var choicePanel = new JPanel();
+                    choicePanel.setLayout(new BoxLayout(choicePanel, BoxLayout.Y_AXIS));
+                    choicePanel.setBorder(new EmptyBorder(0, 20, 10, 20));
+
+                    var buttonGroup = new ButtonGroup();
+                    final String[] selectedChoice = {null};
+
+                    for (String choice : choices) {
+                        var radioButton = new JRadioButton(choice);
+                        radioButton.addActionListener(e -> {
+                            if (radioButton.isSelected()) {
+                                selectedChoice[0] = choice;
+                            }
+                        });
+                        buttonGroup.add(radioButton);
+                        choicePanel.add(radioButton);
+                        choicePanel.add(Box.createVerticalStrut(4));
+                    }
+
+                    /* --------- Compose content ------------------------------------- */
+                    var content = new JPanel(new BorderLayout(0, 8));
+                    content.add(questionScroll, BorderLayout.CENTER);
+                    content.add(choicePanel, BorderLayout.SOUTH);
+
+                    /* --------- Custom buttons and dialog logic --------------------- */
+                    final String[] resultHolder = {null};
+
+                    var okButton = new MaterialButton("OK");
+                    var cancelButton = new MaterialButton("Cancel");
+
+                    // Disable OK button initially (no choice selected)
+                    okButton.setEnabled(false);
+
+                    // Enable OK button when a choice is selected
+                    for (AbstractButton button : java.util.Collections.list(buttonGroup.getElements())) {
+                        button.addActionListener(e -> okButton.setEnabled(true));
+                    }
+
+                    // JOptionPane with custom buttons
+                    var optionPane = new JOptionPane(
+                            content,
+                            JOptionPane.QUESTION_MESSAGE,
+                            JOptionPane.DEFAULT_OPTION,
+                            null,
+                            new Object[] {okButton, cancelButton},
+                            okButton);
+
+                    // Create the dialog
+                    var dialog = optionPane.createDialog(null, sessionName);
+                    dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+
+                    // Action listener for OK button
+                    okButton.addActionListener(e -> {
+                        if (selectedChoice[0] != null) {
+                            resultHolder[0] = selectedChoice[0];
+                            dialog.dispose();
+                        }
+                    });
+
+                    // Action listener for Cancel button
+                    cancelButton.addActionListener(e -> {
+                        resultHolder[0] = null;
+                        dialog.dispose();
+                    });
+
+                    // Window listener for 'X' button close (behaves as Cancel)
+                    dialog.addWindowListener(new WindowAdapter() {
+                        @Override
+                        public void windowClosing(WindowEvent windowEvent) {
+                            resultHolder[0] = null;
+                            dialog.dispose();
+                        }
+                    });
+
+                    dialog.pack();
+                    dialog.setLocationRelativeTo(null);
+                    dialog.setVisible(true);
+
+                    return resultHolder[0];
+                },
+                null);
     }
 
     private AskHumanDialog() {} // utility class; prevent instantiation
