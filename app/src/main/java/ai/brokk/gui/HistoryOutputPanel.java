@@ -5,8 +5,6 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.*;
 import ai.brokk.analyzer.BrokkFile;
-import ai.brokk.gui.changes.ChangeFileStatus;
-import ai.brokk.gui.changes.ChangeLabelUtil;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
@@ -18,6 +16,8 @@ import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
+import ai.brokk.gui.changes.ChangeFileStatus;
+import ai.brokk.gui.changes.ChangeLabelUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.components.SplitButton;
@@ -3261,8 +3261,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                         "Including binary (non-text) file in cumulative changes with zeroed counts: {} (abs={})",
                                         file,
                                         file.absPath());
-                                perFileChanges.add(
-                                        new PerFileChange(displayFile, "", "", ChangeFileStatus.BINARY));
+                                perFileChanges.add(new PerFileChange(displayFile, "", "", ChangeFileStatus.BINARY));
                                 // Skip expensive diff/line-count work for binary files.
                                 continue;
                             }
@@ -3274,7 +3273,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             // Compute right content (working tree)
                             String rightContent = safeReadWorkingTree(file);
 
-                            // If the combined content is extremely large, include it as OVERSIZED (listed but not diffed).
+                            // If the combined content is extremely large, include it as OVERSIZED (listed but not
+                            // diffed).
                             int combinedLen = leftContent.length() + rightContent.length();
                             if (combinedLen > MAX_COMBINED_CONTENT_SIZE) {
                                 // Oversized files: include them in the Review listing but avoid doing any
@@ -3291,8 +3291,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                         displayFile,
                                         combinedLen,
                                         MAX_COMBINED_CONTENT_SIZE);
-                                perFileChanges.add(
-                                        new PerFileChange(displayFile, "", "", ChangeFileStatus.OVERSIZED));
+                                perFileChanges.add(new PerFileChange(displayFile, "", "", ChangeFileStatus.OVERSIZED));
                                 // Do not add to added/deleted totals for oversized files.
                                 continue;
                             }
@@ -3580,26 +3579,26 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         changes.sort(Comparator.comparing(PerFileChange::displayFile));
 
         for (var change : changes) {
-        String path = change.displayFile();
-        ChangeFileStatus status = change.status();
-        String displayPath = ChangeLabelUtil.makeDisplayLabel(path, status);
-        String leftContent;
-        String rightContent;
-        
-        // UI policy for non-text entries:
-        // - BINARY and OVERSIZED entries are shown in the file list so users can see that the file
-        //   changed (we do not want to hide them).
-        // - We purposefully pass empty string contents to the diff panel for such files to avoid
-        //   any attempt to compute textual diffs (which would be wasteful or can hang).
-        // - This preserves accurate visibility while keeping added/deleted numerical totals
-        //   representative of text-line changes only (those totals already exclude non-text entries).
-        if (status == ChangeFileStatus.BINARY || status == ChangeFileStatus.OVERSIZED) {
-        leftContent = "";
-        rightContent = "";
-        } else {
-        leftContent = change.earliestOld();
-        rightContent = change.latestNew();
-        }
+            String path = change.displayFile();
+            ChangeFileStatus status = change.status();
+            String displayPath = ChangeLabelUtil.makeDisplayLabel(path, status);
+            String leftContent;
+            String rightContent;
+
+            // UI policy for non-text entries:
+            // - BINARY and OVERSIZED entries are shown in the file list so users can see that the file
+            //   changed (we do not want to hide them).
+            // - We purposefully pass empty string contents to the diff panel for such files to avoid
+            //   any attempt to compute textual diffs (which would be wasteful or can hang).
+            // - This preserves accurate visibility while keeping added/deleted numerical totals
+            //   representative of text-line changes only (those totals already exclude non-text entries).
+            if (status == ChangeFileStatus.BINARY || status == ChangeFileStatus.OVERSIZED) {
+                leftContent = "";
+                rightContent = "";
+            } else {
+                leftContent = change.earliestOld();
+                rightContent = change.latestNew();
+            }
 
             // Use non-ref titles to avoid accidental git ref resolution; keep filename for syntax highlighting.
             BufferSource left = new BufferSource.StringSource(leftContent, "", displayPath, null);
