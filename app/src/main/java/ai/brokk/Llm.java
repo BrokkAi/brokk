@@ -625,7 +625,7 @@ public class Llm {
                 }
                 // Return an HTTP 503 to indicate service unavailable due to cooldown.
                 return new StreamingResult(null, new HttpException(503, "LLM circuit open: cooldown"), attempt - 1);
-            } else if (openUntil != 0 && openUntil <= now) {
+            } else if (openUntil != 0) {
                 // cooldown has expired; treat as half-open - allow trial requests and clear warned flag so future
                 // short-circuits will warn again if re-opened.
                 if (CIRCUIT_CONSECUTIVE_TIMEOUTS.get() > 0) {
