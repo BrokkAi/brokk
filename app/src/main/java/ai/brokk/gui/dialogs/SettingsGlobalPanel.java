@@ -86,9 +86,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JRadioButton diffUnifiedRadio = new JRadioButton("Unified");
     private JTable quickModelsTable = new JTable();
     private FavoriteModelsTableModel quickModelsTableModel = new FavoriteModelsTableModel(new ArrayList<>());
-    private JComboBox<String> preferredCodeModelCombo = new JComboBox<>();
-    private JComboBox<String> primaryModelCombo = new JComboBox<>();
+    private JComboBox<Service.FavoriteModel> preferredCodeModelCombo = new JComboBox<>();
+    private JComboBox<Service.FavoriteModel> primaryModelCombo = new JComboBox<>();
     private JComboBox<String> otherModelsVendorCombo = new JComboBox<>();
+    private JComboBox<String> watchServiceImplCombo =
+            new JComboBox<>(new String[] {"Default (auto)", "Legacy", "Native"});
 
     @Nullable
     private JLabel otherModelsVendorLabel;
@@ -112,8 +114,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     @Nullable
     private JCheckBox forceToolEmulationCheckbox; // Dev-only
 
-    @Nullable
-    private GitHubSettingsPanel gitHubSettingsPanel; // Null if GitHub tab not shown
+    private GitHubSettingsPanel gitHubSettingsPanel;
 
     private DefaultListModel<McpServer> mcpServersListModel = new DefaultListModel<>();
     private boolean plannerModelSyncListenerRegistered = false;
@@ -144,6 +145,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     // Advanced mode (General tab)
     private JCheckBox advancedModeCheckbox = new JCheckBox("Enable Advanced Mode (show all UI)");
+    private JCheckBox skipCommitGateEzCheckbox = new JCheckBox("Skip commit gate in EZ mode");
 
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
@@ -238,6 +240,27 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Advanced Mode
         advancedModeCheckbox.setSelected(GlobalUiSettings.isAdvancedMode());
+
+        // EZ-mode skip commit gate
+        skipCommitGateEzCheckbox.setSelected(GlobalUiSettings.isSkipCommitGateInEzMode());
+        skipCommitGateEzCheckbox.setVisible(!GlobalUiSettings.isAdvancedMode());
+
+        // File watcher implementation preference
+        try {
+            String pref = MainProject.getWatchServiceImplPreference();
+            String selection;
+            if ("legacy".equalsIgnoreCase(pref)) {
+                selection = "Legacy";
+            } else if ("native".equalsIgnoreCase(pref)) {
+                selection = "Native";
+            } else {
+                selection = "Default (auto)";
+            }
+            watchServiceImplCombo.setSelectedItem(selection);
+        } catch (Exception ex) {
+            // Non-fatal: default to auto
+            watchServiceImplCombo.setSelectedItem("Default (auto)");
+        }
     }
 
     private void populateServiceTab(SettingsData data) {
@@ -343,22 +366,38 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     private void populateQuickModelsTab(SettingsData data) {
         var service = chrome.getContextManager().getService();
-        var availableModelNames =
-                service.getAvailableModels().keySet().stream().sorted().collect(Collectors.toList());
         var loadedFavorites = data.favoriteModels();
         quickModelsTableModel.setFavorites(loadedFavorites);
 
-        // Populate Lutz Code Model combo with available model names
+        // Set up renderer for both combos to display favorite alias
+        var favoriteRenderer = new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(
+                    JList<?> list, @Nullable Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                JLabel lbl = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof Service.FavoriteModel fm) {
+                    String name = fm.config().name();
+                    String alias = fm.alias();
+                    lbl.setText(alias.isBlank() ? name : alias + " (" + name + ")");
+                }
+                return lbl;
+            }
+        };
+        preferredCodeModelCombo.setRenderer(favoriteRenderer);
+        primaryModelCombo.setRenderer(favoriteRenderer);
+
+        // Populate Lutz Code Model combo with favorites
         var currentCodeConfig = chrome.getProject().getMainProject().getCodeModelConfig();
         preferredCodeModelCombo.removeAllItems();
-        for (String modelName : availableModelNames) {
-            preferredCodeModelCombo.addItem(modelName);
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            preferredCodeModelCombo.addItem(favorite);
         }
-        // Select the current code config by name
+        // Select the item whose config matches the current code config
         boolean foundCode = false;
-        for (String name : availableModelNames) {
-            if (name.equals(currentCodeConfig.name())) {
-                preferredCodeModelCombo.setSelectedItem(name);
+        for (int i = 0; i < preferredCodeModelCombo.getItemCount(); i++) {
+            Service.FavoriteModel fm = preferredCodeModelCombo.getItemAt(i);
+            if (fm != null && fm.config().equals(currentCodeConfig)) {
+                preferredCodeModelCombo.setSelectedIndex(i);
                 foundCode = true;
                 break;
             }
@@ -367,42 +406,24 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             preferredCodeModelCombo.setSelectedIndex(0);
         }
 
-        // Populate Primary Model combo with available model names
+        // Populate Primary Model combo with favorites
         var currentPlannerConfig = chrome.getProject().getMainProject().getArchitectModelConfig();
         primaryModelCombo.removeAllItems();
-        for (String modelName : availableModelNames) {
-            primaryModelCombo.addItem(modelName);
+        for (Service.FavoriteModel favorite : loadedFavorites) {
+            primaryModelCombo.addItem(favorite);
         }
-        // Select the current planner config by name
+        // Select the item whose config matches the current planner config
         boolean foundPrimary = false;
-        for (String name : availableModelNames) {
-            if (name.equals(currentPlannerConfig.name())) {
-                primaryModelCombo.setSelectedItem(name);
+        for (int i = 0; i < primaryModelCombo.getItemCount(); i++) {
+            Service.FavoriteModel fm = primaryModelCombo.getItemAt(i);
+            if (fm != null && fm.config().equals(currentPlannerConfig)) {
+                primaryModelCombo.setSelectedIndex(i);
                 foundPrimary = true;
                 break;
             }
         }
         if (!foundPrimary && primaryModelCombo.getItemCount() > 0) {
             primaryModelCombo.setSelectedIndex(0);
-        }
-
-        // Auto-detect and set vendor for other models
-        var quickConfig = chrome.getProject().getMainProject().getQuickModelConfig();
-        var quickEditConfig = chrome.getProject().getMainProject().getQuickEditModelConfig();
-        var quickestConfig = chrome.getProject().getMainProject().getQuickestModelConfig();
-        var scanConfig = chrome.getProject().getMainProject().getScanModelConfig();
-
-        String detectedVendor = "Default"; // default
-        if (scanConfig.name().equals(Service.GPT_5_MINI)
-                && quickConfig.name().equals(Service.GPT_5_NANO)
-                && quickEditConfig.name().equals(Service.GPT_5_NANO)
-                && quickestConfig.name().equals(Service.GPT_5_NANO)) {
-            detectedVendor = "OpenAI";
-        } else if (scanConfig.name().equals(Service.HAIKU_4_5)
-                && quickConfig.name().equals(Service.HAIKU_4_5)
-                && quickEditConfig.name().equals(Service.HAIKU_4_5)
-                && quickestConfig.name().equals(Service.HAIKU_4_5)) {
-            detectedVendor = "Anthropic";
         }
 
         // Build vendor list based on model availability
@@ -419,12 +440,15 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // Rebuild combo with available vendors
         otherModelsVendorCombo.setModel(new DefaultComboBoxModel<>(vendors.toArray(new String[0])));
 
-        // Select Default (or detected vendor if it's in the available list)
-        if (vendors.contains(detectedVendor)) {
-            otherModelsVendorCombo.setSelectedItem(detectedVendor);
+        // Apply persisted preference if present and valid; otherwise fall back to Default
+        String persistedVendor = MainProject.getOtherModelsVendorPreference();
+        String vendorToSelect;
+        if (!persistedVendor.isBlank() && vendors.contains(persistedVendor)) {
+            vendorToSelect = persistedVendor;
         } else {
-            otherModelsVendorCombo.setSelectedItem("Default");
+            vendorToSelect = "Default";
         }
+        otherModelsVendorCombo.setSelectedItem(vendorToSelect);
 
         // Hide vendor row if only one option remains
         boolean hideVendorRow = vendors.size() <= 1;
@@ -443,12 +467,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         if (!plannerModelSyncListenerRegistered) {
             chrome.getInstructionsPanel().addModelSelectionListener(cfg -> {
                 try {
-                    // Sync primary combo with the selected config name
-                    String configName = cfg.name();
+                    // Sync primary combo with the selected config by equality
                     boolean found = false;
                     for (int i = 0; i < primaryModelCombo.getItemCount(); i++) {
-                        if (configName.equals(primaryModelCombo.getItemAt(i))) {
-                            SwingUtilities.invokeLater(() -> primaryModelCombo.setSelectedItem(configName));
+                        Service.FavoriteModel fm = primaryModelCombo.getItemAt(i);
+                        if (fm != null && fm.config().equals(cfg)) {
+                            int finalI = i;
+                            SwingUtilities.invokeLater(() -> primaryModelCombo.setSelectedIndex(finalI));
                             found = true;
                             break;
                         }
@@ -465,9 +490,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     private void populateGitHubTab() {
-        if (gitHubSettingsPanel != null) {
-            gitHubSettingsPanel.loadSettings();
-        }
+        gitHubSettingsPanel.loadSettings();
     }
 
     private void populateMcpServersTab() {
@@ -497,15 +520,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         var modelsPanel = createQuickModelsPanel();
         globalSubTabbedPane.addTab(MODELS_TAB_TITLE, null, modelsPanel, "Configure models and favorites");
 
-        // GitHub Tab (conditionally added)
-        var project = chrome.getProject();
-        boolean shouldShowGitHubTab = project.isGitHubRepo();
-
-        if (shouldShowGitHubTab) {
-            gitHubSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
-            globalSubTabbedPane.addTab(
-                    SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubSettingsPanel, "GitHub integration settings");
-        }
+        // GitHub Tab (always shown - global account configuration)
+        gitHubSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
+        globalSubTabbedPane.addTab(
+                SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubSettingsPanel, "GitHub integration settings");
 
         // MCP Servers Tab
         var mcpPanel = createMcpPanel();
@@ -1038,6 +1056,47 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         panel.add(advancedModeCheckbox, gbc);
+
+        skipCommitGateEzCheckbox.setToolTipText(
+                "When EZ mode is enabled, skip the commit confirmation gate before applying changes.");
+        skipCommitGateEzCheckbox.setVisible(!GlobalUiSettings.isAdvancedMode());
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(skipCommitGateEzCheckbox, gbc);
+
+        advancedModeCheckbox.addActionListener(e -> {
+            boolean advanced = advancedModeCheckbox.isSelected();
+            skipCommitGateEzCheckbox.setVisible(!advanced);
+            panel.revalidate();
+            panel.repaint();
+        });
+
+        // File watcher implementation selector
+        gbc.insets = new Insets(10, 5, 2, 5);
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        panel.add(new JLabel("File watcher implementation:"), gbc);
+
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        var watchPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        watchPanel.add(watchServiceImplCombo);
+        panel.add(watchPanel, gbc);
+
+        var watchNote =
+                new JLabel("<html><i>Changing this will require restarting Brokk to fully take effect.</i></html>");
+        gbc.gridy = row++;
+        gbc.insets = new Insets(0, 25, 2, 5);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(watchNote, gbc);
+
         gbc.insets = new Insets(2, 5, 2, 5);
 
         // Filler
@@ -1149,7 +1208,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         if (Boolean.getBoolean("brokk.devmode")) {
             forceToolEmulationCheckbox = new JCheckBox(
                     "[Dev Mode] Force tool emulation (also show empty workspace chips)",
-                    Service.GLOBAL_FORCE_TOOL_EMULATION);
+                    MainProject.getForceToolEmulation());
             forceToolEmulationCheckbox.setToolTipText(
                     "Development override: emulate tool calls. Also forces the UI to show visually-empty workspace chips for debugging and testing only.\n\n"
                             + "Dev note: When enabled, the UI will also show empty/placeholder workspace chips to aid debugging.");
@@ -1554,6 +1613,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             if (!e.getValueIsAdjusting()) updateRemoveButtonEnabled.run();
         });
         quickModelsTableModel.addTableModelListener(e -> updateRemoveButtonEnabled.run());
+        quickModelsTableModel.addTableModelListener(
+                e -> SwingUtilities.invokeLater(() -> refreshFavoriteModelCombosPreservingSelection()));
         // Initialize enabled state
         updateRemoveButtonEnabled.run();
 
@@ -1627,22 +1688,19 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         otherModelsVendorHolder = new JPanel(new BorderLayout(0, 0));
         otherModelsVendorHolder.add(otherModelsVendorCombo, BorderLayout.CENTER);
 
-        // Build dynamic tooltip with current Default model names
-        String quickName =
-                chrome.getProject().getMainProject().getQuickModelConfig().name();
-        String quickEditName =
-                chrome.getProject().getMainProject().getQuickEditModelConfig().name();
-        String quickestName =
-                chrome.getProject().getMainProject().getQuickestModelConfig().name();
-        String scanName =
-                chrome.getProject().getMainProject().getScanModelConfig().name();
+        String defaultQuick = MainProject.getDefaultQuickModelConfig().name();
+        String defaultQuickEdit = MainProject.getDefaultQuickEditModelConfig().name();
+        String defaultQuickest = MainProject.getDefaultQuickestModelConfig().name();
+        String defaultScan = MainProject.getDefaultScanModelConfig().name();
 
         String vendorTooltip = "<html><div style='width: 340px;'>"
                 + "Selecting a vendor sets Quick, Quick Edit, Quickest, and Scan to vendor defaults.<br/><br/>"
                 + "<b>OpenAI:</b> Quick=gpt-5-nano; Quick Edit=gpt-5-nano; Quickest=gpt-5-nano; Scan=gpt-5-mini<br/>"
                 + "<b>Anthropic:</b> Quick=claude-haiku-4-5; Quick Edit=claude-haiku-4-5; Quickest=claude-haiku-4-5; Scan=claude-haiku-4-5<br/>"
-                + "<b>Default:</b> Quick=" + quickName + "; Quick Edit=" + quickEditName + "; Quickest=" + quickestName
-                + "; Scan=" + scanName
+                + "<b>Default:</b> Quick=" + defaultQuick
+                + "; Quick Edit=" + defaultQuickEdit
+                + "; Quickest=" + defaultQuickest
+                + "; Scan=" + defaultScan
                 + "</div></html>";
 
         var vendorHelpButton = new MaterialButton();
@@ -1697,10 +1755,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             // Set vendor to Default
             otherModelsVendorCombo.setSelectedItem("Default");
 
-            // Set Primary to GPT_5 if available, otherwise index 0
+            // Set Primary to GPT_5 by matching config name, fallback to index 0
             boolean foundPrimary = false;
             for (int i = 0; i < primaryModelCombo.getItemCount(); i++) {
-                if (Service.GPT_5.equals(primaryModelCombo.getItemAt(i))) {
+                Service.FavoriteModel fm = primaryModelCombo.getItemAt(i);
+                if (fm != null && Service.GPT_5.equals(fm.config().name())) {
                     primaryModelCombo.setSelectedIndex(i);
                     foundPrimary = true;
                     break;
@@ -1710,10 +1769,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 primaryModelCombo.setSelectedIndex(0);
             }
 
-            // Set Lutz Code to HAIKU_4_5 if available, otherwise index 0
+            // Set Lutz Code to HAIKU_4_5 by matching config name, fallback to index 0
             boolean foundCode = false;
             for (int i = 0; i < preferredCodeModelCombo.getItemCount(); i++) {
-                if (Service.HAIKU_4_5.equals(preferredCodeModelCombo.getItemAt(i))) {
+                Service.FavoriteModel fm = preferredCodeModelCombo.getItemAt(i);
+                if (fm != null && Service.HAIKU_4_5.equals(fm.config().name())) {
                     preferredCodeModelCombo.setSelectedIndex(i);
                     foundCode = true;
                     break;
@@ -1756,6 +1816,72 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         container.add(modelsTabbed, BorderLayout.CENTER);
 
         return container;
+    }
+
+    private void refreshFavoriteModelCombosPreservingSelection() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::refreshFavoriteModelCombosPreservingSelection);
+            return;
+        }
+        try {
+            Service.ModelConfig prevCodeCfg = null;
+            Service.ModelConfig prevPrimaryCfg = null;
+            Object selCode = preferredCodeModelCombo.getSelectedItem();
+            if (selCode instanceof Service.FavoriteModel fmCode) {
+                prevCodeCfg = fmCode.config();
+            }
+            Object selPrimary = primaryModelCombo.getSelectedItem();
+            if (selPrimary instanceof Service.FavoriteModel fmPrimary) {
+                prevPrimaryCfg = fmPrimary.config();
+            }
+
+            var favorites = quickModelsTableModel.getFavorites();
+
+            preferredCodeModelCombo.removeAllItems();
+            for (Service.FavoriteModel fav : favorites) {
+                preferredCodeModelCombo.addItem(fav);
+            }
+            boolean codeSelected = false;
+            if (prevCodeCfg != null) {
+                for (int i = 0; i < preferredCodeModelCombo.getItemCount(); i++) {
+                    Service.FavoriteModel fav = preferredCodeModelCombo.getItemAt(i);
+                    if (fav != null && prevCodeCfg.equals(fav.config())) {
+                        preferredCodeModelCombo.setSelectedIndex(i);
+                        codeSelected = true;
+                        break;
+                    }
+                }
+            }
+            if (!codeSelected && preferredCodeModelCombo.getItemCount() > 0) {
+                preferredCodeModelCombo.setSelectedIndex(0);
+            }
+
+            primaryModelCombo.removeAllItems();
+            for (Service.FavoriteModel fav : favorites) {
+                primaryModelCombo.addItem(fav);
+            }
+            boolean primarySelected = false;
+            if (prevPrimaryCfg != null) {
+                for (int i = 0; i < primaryModelCombo.getItemCount(); i++) {
+                    Service.FavoriteModel fav = primaryModelCombo.getItemAt(i);
+                    if (fav != null && prevPrimaryCfg.equals(fav.config())) {
+                        primaryModelCombo.setSelectedIndex(i);
+                        primarySelected = true;
+                        break;
+                    }
+                }
+            }
+            if (!primarySelected && primaryModelCombo.getItemCount() > 0) {
+                primaryModelCombo.setSelectedIndex(0);
+            }
+
+            preferredCodeModelCombo.revalidate();
+            preferredCodeModelCombo.repaint();
+            primaryModelCombo.revalidate();
+            primaryModelCombo.repaint();
+        } catch (Exception e) {
+            logger.warn("Failed to refresh favorite model combos", e);
+        }
     }
 
     private void refreshBalanceDisplay() {
@@ -1955,7 +2081,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         // GitHub Tab validation
-        if (gitHubSettingsPanel != null && !gitHubSettingsPanel.applySettings()) {
+        if (!gitHubSettingsPanel.applySettings()) {
             return false;
         }
 
@@ -2000,6 +2126,21 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         boolean jvmAutomatic = memoryAutoRadio.isSelected();
         int jvmMb = ((Number) memorySpinner.getValue()).intValue();
 
+        // File watcher preference from UI
+        String watchPrefSelected = "default";
+        try {
+            String raw = String.valueOf(watchServiceImplCombo.getSelectedItem());
+            if ("Legacy".equalsIgnoreCase(raw)) {
+                watchPrefSelected = "legacy";
+            } else if ("Native".equalsIgnoreCase(raw)) {
+                watchPrefSelected = "native";
+            } else {
+                watchPrefSelected = "default";
+            }
+        } catch (Exception ex) {
+            watchPrefSelected = "default";
+        }
+
         // Model settings
         if (quickModelsTable.isEditing()) {
             quickModelsTable.getCellEditor().stopCellEditing();
@@ -2017,9 +2158,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
         var mcpConfig = new McpConfig(mcpServers);
 
-        // Primary & Lutz Code Model saves from new model name combos
-        var selectedCodeModelName = (String) preferredCodeModelCombo.getSelectedItem();
-        var selectedPrimaryModelName = (String) primaryModelCombo.getSelectedItem();
+        // Primary & Lutz Code Model saves from favorite model combos
+        Service.FavoriteModel selectedCodeFavorite = (Service.FavoriteModel) preferredCodeModelCombo.getSelectedItem();
+        Service.FavoriteModel selectedPrimaryFavorite = (Service.FavoriteModel) primaryModelCombo.getSelectedItem();
 
         // Vendor mapping for Other Models (Quick, Quick Edit, Quickest, Scan)
         var selectedVendor = (String) otherModelsVendorCombo.getSelectedItem();
@@ -2065,7 +2206,19 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 startupSettings,
                 generalSettings,
                 modelSettings);
+
+        // Persist watch service implementation preference (separate global property)
+        try {
+            MainProject.setWatchServiceImplPreference(watchPrefSelected);
+        } catch (Exception ex) {
+            logger.debug("Failed to persist watch service implementation preference (non-fatal)", ex);
+        }
+
         GlobalUiSettings.saveAllUiSettings(notificationSettings, uiPreferences);
+        GlobalUiSettings.saveSkipCommitGateInEzMode(skipCommitGateEzCheckbox.isSelected());
+
+        // Persist force tool emulation immediately so runtime behavior reflects the user's choice.
+        MainProject.setForceToolEmulation(forceToolEmulation);
 
         // === PHASE 5: Side effects after successful save ===
 
@@ -2118,18 +2271,21 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // Terminal font size side effects
         chrome.updateTerminalFontSize();
 
-        // Save Lutz Code Model (by name)
-        if (selectedCodeModelName != null && !selectedCodeModelName.isEmpty()) {
-            chrome.getProject().getMainProject().setCodeModelConfig(new Service.ModelConfig(selectedCodeModelName));
+        // Save Lutz Code Model (from favorite config)
+        if (selectedCodeFavorite != null) {
+            chrome.getProject().getMainProject().setCodeModelConfig(selectedCodeFavorite.config());
         }
 
-        // Save Primary Model (by name)
-        if (selectedPrimaryModelName != null && !selectedPrimaryModelName.isEmpty()) {
-            chrome.getProject()
-                    .getMainProject()
-                    .setArchitectModelConfig(new Service.ModelConfig(selectedPrimaryModelName));
-            chrome.getInstructionsPanel().selectPlannerModelConfig(new Service.ModelConfig(selectedPrimaryModelName));
+        // Save Primary Model (from favorite config)
+        if (selectedPrimaryFavorite != null) {
+            chrome.getProject().getMainProject().setArchitectModelConfig(selectedPrimaryFavorite.config());
+            chrome.getInstructionsPanel().selectPlannerModelConfig(selectedPrimaryFavorite.config());
         }
+
+        String previousVendorPref = MainProject.getOtherModelsVendorPreference();
+
+        // Persist selected vendor preference for "other models" regardless of choice
+        MainProject.setOtherModelsVendorPreference(selectedVendor != null ? selectedVendor : "");
 
         // Apply vendor mappings for Quick, Quick Edit, Quickest, Scan
         if ("OpenAI".equals(selectedVendor)) {
@@ -2142,8 +2298,24 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             chrome.getProject().getMainProject().setQuickEditModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
             chrome.getProject().getMainProject().setQuickestModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
             chrome.getProject().getMainProject().setScanModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
+        } else if ("Default".equals(selectedVendor)) {
+            var mp = chrome.getProject().getMainProject();
+            mp.setQuickModelConfig(MainProject.getDefaultQuickModelConfig());
+            mp.setQuickEditModelConfig(MainProject.getDefaultQuickEditModelConfig());
+            mp.setQuickestModelConfig(MainProject.getDefaultQuickestModelConfig());
+            mp.setScanModelConfig(MainProject.getDefaultScanModelConfig());
         }
-        // For "Default", do nothing (leave current values intact)
+
+        // Reload service if vendor changed so new Quick/Scan models take effect immediately
+        String prev = previousVendorPref;
+        String now = selectedVendor;
+        if (!prev.equals(now)) {
+            try {
+                chrome.getContextManager().reloadService();
+            } catch (Exception ex) {
+                logger.debug("Service reload after vendor change failed (non-fatal)", ex);
+            }
+        }
 
         logger.debug("Applied all settings successfully (2 atomic writes)");
         return true;
@@ -3675,9 +3847,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     // SettingsChangeListener implementation
     @Override
     public void gitHubTokenChanged() {
-        if (gitHubSettingsPanel != null) {
-            gitHubSettingsPanel.gitHubTokenChanged();
-        }
+        gitHubSettingsPanel.gitHubTokenChanged();
     }
 
     @Override

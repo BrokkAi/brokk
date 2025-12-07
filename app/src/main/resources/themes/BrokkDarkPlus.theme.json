@@ -50,6 +50,7 @@
     },
 
     "TabbedPane": {
+      "background": "#1a1a1a",
       "underlineColor": "#42a5f5",
       "tabSelectionHeight": 4,
       "contentAreaColor": "#3a3a3a",
@@ -202,8 +203,8 @@
       "chat_text": "#e8e8e8",
       "chat_header_text": "#42a5f5",
       "message_border_custom": "#4caf50",
-      "message_border_ai": "#42a5f5",
-      "message_border_user": "#64b5f6",
+      "message_border_ai": "#3d6d94",
+      "message_border_user": "#8aaccc",
       "custom_message_background": "#1f1f1f",
       "custom_message_foreground": "#e8e8e8",
 
@@ -236,6 +237,9 @@
       "mode_lutz_bg": "#f9a825",
       "mode_lutz_fg": "#000000",
       "mode_lutz_accent": "#ffb74d",
+      "mode_plan_bg": "#9C27B0",
+      "mode_plan_fg": "#FFFFFF",
+      "mode_plan_accent": "#CE93D8",
 
       "badge_border": "#42a5f5",
       "badge_foreground": "#42a5f5",

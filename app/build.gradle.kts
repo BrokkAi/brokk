@@ -17,7 +17,7 @@ group = "ai.brokk"
 
 java {
     toolchain {
-        languageVersion.set(JavaLanguageVersion.of(21))
+        languageVersion.set(JavaLanguageVersion.of(25))
     }
 }
 
@@ -127,6 +127,9 @@ dependencies {
     implementation(libs.bundles.maven.resolver)
 
     implementation(libs.checker.util)
+
+    // File watching - native recursive directory watching
+    implementation("io.methvin:directory-watcher:0.18.0")
 
     // Testing
     testImplementation(platform(libs.junit.bom))
@@ -581,6 +584,13 @@ tasks.register<JavaExec>("runHeadlessExecutor") {
     // Configuration via environment variables:
     // EXEC_ID, LISTEN_ADDR, AUTH_TOKEN, WORKSPACE_DIR, SESSIONS_DIR (optional)
     systemProperty("brokk.devmode", "false")
+}
+
+tasks.register<JavaExec>("runHeadlessCli") {
+    group = "application"
+    description = "Runs the HeadlessExecCli"
+    mainClass.set("ai.brokk.tools.HeadlessExecCli")
+    classpath = sourceSets.main.get().runtimeClasspath
 }
 
 tasks.register<JavaExec>("runSkeletonPrinter") {

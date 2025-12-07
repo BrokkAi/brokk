@@ -11,16 +11,16 @@ import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.List;
+import java.util.*;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.autocomplete.ShorthandCompletion;
 
 public class Completions {
     private static final Logger logger = LogManager.getLogger(Completions.class);
+    private static final int SHORT_TOLERANCE = 300;
 
     public static List<CodeUnit> completeSymbols(String input, IAnalyzer analyzer) {
         String query = input.trim();
@@ -28,44 +28,85 @@ public class Completions {
             return List.of();
         }
 
-        // getAllDeclarations would not be correct here since it only lists top-level CodeUnits
-        List<CodeUnit> candidates;
+        // 1) Fetch candidates from analyzer (with safe fallback)
+        List<CodeUnit> candidates = fetchAutocompleteCandidates(query, analyzer);
+
+        // 2) For short-name queries, enrich with parent class candidates if nested members were returned
+        if (!isHierarchicalQuery(query) && !candidates.isEmpty()) {
+            candidates = enhanceWithParentClasses(query, candidates, analyzer);
+        }
+
+        // 3) Score, sort, dedupe-by-FQN (stable), and limit
+        return scoreSortDedupeAndLimit(query, candidates);
+    }
+
+    private static boolean isHierarchicalQuery(String query) {
+        return query.indexOf('.') >= 0 || query.indexOf('$') >= 0;
+    }
+
+    private static List<CodeUnit> fetchAutocompleteCandidates(String query, IAnalyzer analyzer) {
         try {
-            candidates =
-                    analyzer.autocompleteDefinitions(query).stream().limit(5000).toList();
+            // getAllDeclarations would not be correct here since it only lists top-level CodeUnits
+            return analyzer.autocompleteDefinitions(query).stream().limit(5000).toList();
         } catch (Exception e) {
             // Handle analyzer exceptions (e.g., SchemaViolationException from JoernAnalyzer)
             logger.warn("Failed to search definitions for autocomplete: {}", e.getMessage());
             // Fall back to using top-level declarations only
-            candidates = analyzer.getAllDeclarations();
+            return analyzer.getAllDeclarations();
         }
+    }
 
+    private static List<CodeUnit> enhanceWithParentClasses(
+            String query, List<CodeUnit> candidates, IAnalyzer analyzer) {
+        // Preserve insertion order while deduping by FQN
+        java.util.LinkedHashMap<String, CodeUnit> dedup = new java.util.LinkedHashMap<>();
+        for (CodeUnit cu : candidates) {
+            dedup.put(cu.fqName(), cu);
+        }
+        for (CodeUnit cu : candidates) {
+            String id = cu.identifier();
+            int dotIdx = id.indexOf('.');
+            // Identifiers should not normally start with '.', but be robust: treat ".Foo" as having an empty first
+            // segment.
+            if (dotIdx >= 0) {
+                String firstSegment = id.substring(0, dotIdx);
+                if (firstSegment.equalsIgnoreCase(query)) {
+                    String parentFqn =
+                            cu.packageName().isEmpty() ? firstSegment : (cu.packageName() + "." + firstSegment);
+                    // Fetch parent definitions and add them to the set
+                    var defs = analyzer.getDefinitions(parentFqn);
+                    for (CodeUnit def : defs) {
+                        dedup.put(def.fqName(), def);
+                    }
+                }
+            }
+        }
+        return new java.util.ArrayList<>(dedup.values());
+    }
+
+    private static List<CodeUnit> scoreSortDedupeAndLimit(String query, List<CodeUnit> candidates) {
         var matcher = new FuzzyMatcher(query);
-        boolean hierarchicalQuery = query.indexOf('.') >= 0 || query.indexOf('$') >= 0;
+        boolean hierarchicalQuery = isHierarchicalQuery(query);
 
-        // has a family resemblance to scoreShortAndLong but different enough that it doesn't fit
-        record ScoredCU(CodeUnit cu, int score) { // Renamed local record to avoid conflict
-        }
+        record ScoredCU(CodeUnit cu, int score) {}
+
         return candidates.stream()
                 .map(cu -> {
-                    int score;
-                    if (hierarchicalQuery) {
-                        // query includes hierarchy separators -> match against full FQN
-                        score = matcher.score(cu.fqName());
-                    } else {
-                        // otherwise match ONLY the trailing symbol (class, method, field)
-                        score = matcher.score(cu.identifier());
-                    }
+                    int score = hierarchicalQuery ? matcher.score(cu.fqName()) : matcher.score(cu.identifier());
                     return new ScoredCU(cu, score);
                 })
                 .filter(sc -> sc.score() != Integer.MAX_VALUE)
                 .sorted(Comparator.<ScoredCU>comparingInt(ScoredCU::score)
                         .thenComparing(sc -> sc.cu().fqName()))
                 .map(ScoredCU::cu)
-                .sorted(Comparator.comparing(CodeUnit::fqName))
-                .distinct()
-                .limit(100)
-                .toList();
+                .collect(Collectors.collectingAndThen(
+                        Collectors.toMap(CodeUnit::fqName, Function.identity(), (a, b) -> a, LinkedHashMap::new), m -> {
+                            var ordered = new ArrayList<>(m.values());
+                            if (ordered.size() > 100) {
+                                return ordered.subList(0, 100);
+                            }
+                            return ordered;
+                        }));
     }
 
     /** Expand paths that may contain wildcards (*, ?), returning all matches. */
@@ -76,9 +117,9 @@ public class Completions {
                 .map(p -> {
                     var abs = p.toAbsolutePath().normalize();
                     if (abs.startsWith(root)) {
-                        return (BrokkFile) new ProjectFile(root, root.relativize(abs));
+                        return new ProjectFile(root, root.relativize(abs));
                     } else {
-                        return (BrokkFile) new ExternalFile(abs);
+                        return new ExternalFile(abs);
                     }
                 })
                 .toList();
@@ -148,7 +189,7 @@ public class Completions {
                 // UNC root without server/share is not walkable; require at least \\server\share\
                 return List.of();
             } else if (trimmed.length() >= 2 && Character.isLetter(trimmed.charAt(0)) && trimmed.charAt(1) == ':') {
-                baseDir = Path.of(Character.toString(trimmed.charAt(0)) + ":\\");
+                baseDir = Path.of(trimmed.charAt(0) + ":\\");
             } else {
                 baseDir = Path.of(File.separator);
             }
@@ -202,9 +243,12 @@ public class Completions {
                 && (s.charAt(2) == '\\' || s.charAt(2) == '/');
     }
 
-    private record ScoredItem<T>(T source, int score, int tiebreakScore, boolean isShort) { // Renamed to avoid conflict
-    }
+    private record ScoredItem<T>(T source, int shortScore, int longScore, int tiebreakScore) {}
 
+    /**
+     * Scores candidates using a short and long text for each item. See the overload with {@code minLength}
+     * for details on the scoring and filtering policy.
+     */
     public static <T> List<ShorthandCompletion> scoreShortAndLong(
             String pattern,
             Collection<T> candidates,
@@ -212,34 +256,62 @@ public class Completions {
             Function<T, String> extractLong,
             Function<T, Integer> tiebreaker,
             Function<T, ShorthandCompletion> toCompletion) {
-        var matcher = new FuzzyMatcher(pattern);
+        return scoreShortAndLong(pattern, candidates, extractShort, extractLong, tiebreaker, toCompletion, 1);
+    }
+
+    /**
+     * Rank-and-filter helper that scores each candidate twice: once against a short label and once against a long label.
+     *
+     * Policy:
+     * - Compute the best short score among all candidates.
+     * - Keep candidates whose short score is within a tolerance window of the best short score
+     *   (bestShort + SHORT_TOLERANCE). This preserves near-best short matches (e.g., "Chrome.java" for "Chr").
+     * - Also keep candidates whose long score is strictly better than the best short score. This allows a long
+     *   form that is an exact or clearly superior match to surface even if its short form is weak.
+     * - Do not include long-only matches that are worse than the best short score. This avoids noisy mid-word
+     *   matches crowding out good short matches.
+     *
+     * The fuzzy matcher returns lower scores for better matches; Integer.MAX_VALUE denotes no match.
+     * Results are sorted by the better of the two scores, then by the provided tiebreaker and short label.
+     *
+     * @param minLength minimum trimmed pattern length required to run matching; shorter inputs return no results.
+     */
+    public static <T> List<ShorthandCompletion> scoreShortAndLong(
+            String pattern,
+            Collection<T> candidates,
+            Function<T, String> extractShort,
+            Function<T, String> extractLong,
+            Function<T, Integer> tiebreaker,
+            Function<T, ShorthandCompletion> toCompletion,
+            int minLength) {
+        String trimmed = pattern.trim();
+        if (trimmed.length() < minLength) {
+            return List.of();
+        }
+
+        var matcher = new FuzzyMatcher(trimmed);
         var scoredCandidates = candidates.stream()
                 .map(c -> {
                     int shortScore = matcher.score(extractShort.apply(c));
                     int longScore = matcher.score(extractLong.apply(c));
-                    int minScore = Math.min(shortScore, longScore);
-                    boolean isShort = shortScore <= longScore; // Prefer short match if scores are equal
                     int tiebreak = tiebreaker.apply(c);
-                    return new ScoredItem<>(c, minScore, tiebreak, isShort);
+                    return new ScoredItem<>(c, shortScore, longScore, tiebreak);
                 })
-                .filter(sc -> sc.score() != Integer.MAX_VALUE)
-                .sorted(Comparator.<ScoredItem<T>>comparingInt(ScoredItem::score)
+                .filter(sc -> sc.shortScore() != Integer.MAX_VALUE || sc.longScore() != Integer.MAX_VALUE)
+                .sorted(Comparator.<ScoredItem<T>>comparingInt(sc -> Math.min(sc.shortScore(), sc.longScore()))
                         .thenComparingInt(ScoredItem::tiebreakScore)
-                        .thenComparing(sc -> extractShort.apply(sc.source)))
+                        .thenComparing(scoredItem -> extractShort.apply(scoredItem.source())))
                 .toList();
 
-        // Find the highest score among the "short" matches
-        int maxShortScore = scoredCandidates.stream()
-                .filter(ScoredItem::isShort)
-                .mapToInt(ScoredItem::score)
-                .max()
-                .orElse(Integer.MAX_VALUE); // If no short matches, keep all long matches
+        int bestShortScore =
+                scoredCandidates.stream().mapToInt(ScoredItem::shortScore).min().orElse(Integer.MAX_VALUE);
 
-        // Filter out long matches that score worse than the best short match
+        int shortThreshold = bestShortScore == Integer.MAX_VALUE ? Integer.MAX_VALUE : bestShortScore + SHORT_TOLERANCE;
+
         return scoredCandidates.stream()
-                .filter(sc -> sc.score <= maxShortScore)
+                .filter(sc -> (sc.shortScore() <= shortThreshold) || (sc.longScore() < bestShortScore))
                 .limit(100)
-                .map(sc -> toCompletion.apply(sc.source))
+                .map(sc -> toCompletion.apply(sc.source()))
                 .toList();
     }
 }

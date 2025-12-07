@@ -27,16 +27,16 @@ public class ScalaLanguage implements Language {
     }
 
     @Override
-    public IAnalyzer createAnalyzer(IProject project) {
-        return new ScalaAnalyzer(project);
+    public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        return new ScalaAnalyzer(project, listener);
     }
 
     @Override
-    public IAnalyzer loadAnalyzer(IProject project) {
+    public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
         var storage = getStoragePath(project);
         return TreeSitterStateIO.load(storage)
-                .map(state -> (IAnalyzer) ScalaAnalyzer.fromState(project, state))
-                .orElseGet(() -> createAnalyzer(project));
+                .map(state -> (IAnalyzer) ScalaAnalyzer.fromState(project, state, listener))
+                .orElseGet(() -> createAnalyzer(project, listener));
     }
 
     @Override

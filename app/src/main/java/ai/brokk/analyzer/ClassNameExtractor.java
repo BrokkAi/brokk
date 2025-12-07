@@ -53,9 +53,7 @@ public final class ClassNameExtractor {
         if (!lastPart.matches("[a-z_][a-zA-Z0-9_]*(?:\\([^)]*\\))?")) return Optional.empty();
 
         // Class segment heuristic: rightmost segment should look like a PascalCase identifier
-        var segLastDot = beforeLast.lastIndexOf('.');
-        var lastSegment = segLastDot >= 0 ? beforeLast.substring(segLastDot + 1) : beforeLast;
-        if (!lastSegment.matches("[A-Z][a-zA-Z0-9_]*")) return Optional.empty();
+        if (!isValidClassSegment(beforeLast, "[A-Z][a-zA-Z0-9_]*")) return Optional.empty();
 
         return Optional.of(beforeLast);
     }
@@ -156,23 +154,7 @@ public final class ClassNameExtractor {
     }
 
     private static String stripAngleGroups(String s) {
-        var sb = new StringBuilder(s.length());
-        int depth = 0;
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            if (c == '<') {
-                depth++;
-                continue;
-            }
-            if (c == '>') {
-                if (depth > 0) depth--;
-                continue;
-            }
-            if (depth == 0) {
-                sb.append(c);
-            }
-        }
-        return sb.toString();
+        return stripBrackets(s, '<', '>');
     }
 
     private static String normalizeQuotedBracketProps(String s) {
@@ -207,6 +189,40 @@ public final class ClassNameExtractor {
             }
         }
         return -1;
+    }
+
+    /**
+     * Strip matching bracket pairs from a string, handling nested brackets.
+     * Used to remove type parameters like &lt;T&gt; or [T] before extraction.
+     */
+    private static String stripBrackets(String s, char open, char close) {
+        var sb = new StringBuilder(s.length());
+        int depth = 0;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == open) {
+                depth++;
+                continue;
+            }
+            if (c == close) {
+                if (depth > 0) depth--;
+                continue;
+            }
+            if (depth == 0) {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Check if the rightmost segment of beforeLast matches the given class regex.
+     * Common validation for dot-based languages (Java, Scala, C#, Go).
+     */
+    private static boolean isValidClassSegment(String beforeLast, String classRegex) {
+        var segLastDot = beforeLast.lastIndexOf('.');
+        var lastSegment = segLastDot >= 0 ? beforeLast.substring(segLastDot + 1) : beforeLast;
+        return lastSegment.matches(classRegex);
     }
 
     /* Python heuristics --------------------------------------------------- */
@@ -252,6 +268,222 @@ public final class ClassNameExtractor {
     public static Optional<String> extractForRust(String reference) {
         // Rust uses :: like C++
         return extractForCpp(reference);
+    }
+
+    /* Scala heuristics ---------------------------------------------------- */
+
+    /**
+     * Extract a Scala class/object name from a method reference like "MyClass.myMethod" or "List.map".
+     *
+     * <p>Scala uses dot notation like Java but has more flexible naming:
+     * <ul>
+     *   <li>Method names can be camelCase, snake_case, or symbolic operators (++, ::, etc.)
+     *   <li>Class/object names use PascalCase
+     *   <li>Type parameters use square brackets [T] instead of angle brackets
+     *   <li>Companion objects have the same name as their class
+     * </ul>
+     *
+     * <p>Examples:
+     * <ul>
+     *   <li>"MyClass.myMethod" → "MyClass"
+     *   <li>"List.map" → "List"
+     *   <li>"scala.collection.immutable.List.apply" → "scala.collection.immutable.List"
+     *   <li>"Option.getOrElse" → "Option"
+     *   <li>"MyList.++" → "MyList"
+     * </ul>
+     */
+    public static Optional<String> extractForScala(@Nullable String reference) {
+        if (reference == null) return Optional.empty();
+        var trimmed = reference.trim();
+        if (!trimmed.contains(".")) return Optional.empty();
+
+        // Strip type parameters [T, U] before processing
+        var normalized = stripSquareBrackets(trimmed);
+
+        // Find the last dot that's not inside parentheses
+        var lastDot = findLastTopLevelDot(normalized);
+        if (lastDot <= 0 || lastDot >= normalized.length() - 1) return Optional.empty();
+
+        var lastPart = normalized.substring(lastDot + 1);
+        var beforeLast = normalized.substring(0, lastDot);
+
+        // Method name heuristic: Scala methods can be:
+        // - alphanumeric starting with lowercase: myMethod, my_method
+        // - symbolic operators: ++, ::, +=, etc.
+        // - optionally followed by parameters
+        // Matches: lowercase/underscore start OR purely symbolic
+        if (!lastPart.matches("([a-z_][a-zA-Z0-9_]*|[+\\-*/%<>=!&|^~:]+)(?:\\([^)]*\\))?")) {
+            return Optional.empty();
+        }
+
+        // Class/object segment heuristic: rightmost segment should look like a PascalCase identifier
+        if (!isValidClassSegment(beforeLast, "[A-Z][a-zA-Z0-9_]*")) return Optional.empty();
+
+        return Optional.of(beforeLast);
+    }
+
+    private static String stripSquareBrackets(String s) {
+        return stripBrackets(s, '[', ']');
+    }
+
+    /* C# heuristics ------------------------------------------------------- */
+
+    /**
+     * Extract a C# class name from a method reference like "MyClass.MyMethod" or "Console.WriteLine".
+     *
+     * <p>C# uses dot notation like Java but has different naming conventions:
+     * <ul>
+     *   <li>Both class names AND method names use PascalCase (uppercase start)
+     *   <li>Generics use angle brackets like Java: List&lt;int&gt;
+     *   <li>Null-conditional operator: obj?.Method()
+     *   <li>Nullable types use ? suffix: Task&lt;User?&gt;
+     * </ul>
+     *
+     * <p>Examples:
+     * <ul>
+     *   <li>"MyClass.MyMethod" → "MyClass"
+     *   <li>"Console.WriteLine" → "Console"
+     *   <li>"System.IO.File.ReadAllText" → "System.IO.File"
+     *   <li>"List&lt;int&gt;.Add" → "List"
+     *   <li>"obj?.MyMethod" → "obj"
+     * </ul>
+     */
+    public static Optional<String> extractForCSharp(@Nullable String reference) {
+        if (reference == null) return Optional.empty();
+        var trimmed = reference.trim();
+        if (!trimmed.contains(".")) return Optional.empty();
+
+        // Normalize: convert ?. to . (null-conditional operator)
+        var normalized = trimmed.replace("?.", ".");
+
+        // Strip generic type parameters <T, U>
+        normalized = stripAngleGroups(normalized);
+
+        // Find the last dot that's not inside parentheses
+        var lastDot = findLastTopLevelDot(normalized);
+        if (lastDot <= 0 || lastDot >= normalized.length() - 1) return Optional.empty();
+
+        var lastPart = normalized.substring(lastDot + 1);
+        var beforeLast = normalized.substring(0, lastDot);
+
+        // Method name heuristic: C# methods use PascalCase (uppercase start)
+        // Optionally followed by parameters
+        if (!lastPart.matches("[A-Z][a-zA-Z0-9_]*(?:\\([^)]*\\))?")) return Optional.empty();
+
+        // Class segment heuristic: rightmost segment should look like a PascalCase identifier
+        if (!isValidClassSegment(beforeLast, "[A-Z][a-zA-Z0-9_]*")) return Optional.empty();
+
+        return Optional.of(beforeLast);
+    }
+
+    /* Go heuristics ------------------------------------------------------- */
+
+    /**
+     * Extract a Go type/struct name from a method or field reference like "http.Server" or "myServer.ListenAndServe".
+     *
+     * <p>Go uses dot notation with specific naming conventions:
+     * <ul>
+     *   <li>Package names are lowercase: http, fmt, strings
+     *   <li>Exported types/structs use PascalCase: Server, Request, Builder
+     *   <li>Exported methods/functions use PascalCase: ListenAndServe, Printf
+     *   <li>Unexported identifiers use camelCase: handle, internal
+     * </ul>
+     *
+     * <p>Examples:
+     * <ul>
+     *   <li>"http.Server" → "http" (package containing Server struct)
+     *   <li>"http.ListenAndServe" → "http" (package containing function)
+     *   <li>"myServer.ListenAndServe" → "myServer" (receiver with method)
+     *   <li>"strings.Builder" → "strings" (package containing type)
+     *   <li>"fmt.Println" → "fmt"
+     * </ul>
+     */
+    public static Optional<String> extractForGo(@Nullable String reference) {
+        if (reference == null) return Optional.empty();
+        var trimmed = reference.trim();
+        if (!trimmed.contains(".")) return Optional.empty();
+
+        // Find the last dot that's not inside parentheses
+        var lastDot = findLastTopLevelDot(trimmed);
+        if (lastDot <= 0 || lastDot >= trimmed.length() - 1) return Optional.empty();
+
+        var lastPart = trimmed.substring(lastDot + 1);
+        var beforeLast = trimmed.substring(0, lastDot);
+
+        // Method/field/type name heuristic: Go identifiers start with letter or underscore
+        // Can be PascalCase (exported) or camelCase (unexported)
+        // Optionally followed by parameters
+        if (!lastPart.matches("[a-zA-Z_][a-zA-Z0-9_]*(?:\\([^)]*\\))?")) return Optional.empty();
+
+        // Package/receiver segment heuristic: must be a valid Go identifier
+        // Go packages are typically lowercase, but receivers can be any case
+        if (!isValidClassSegment(beforeLast, "[a-zA-Z_][a-zA-Z0-9_]*")) return Optional.empty();
+
+        return Optional.of(beforeLast);
+    }
+
+    /* PHP heuristics ------------------------------------------------------ */
+
+    /**
+     * Extract a PHP class name from a method reference like "MyClass::staticMethod" or "$obj->instanceMethod".
+     *
+     * <p>PHP uses different operators for different call types:
+     * <ul>
+     *   <li>Static methods/constants: MyClass::staticMethod(), MyClass::CONSTANT
+     *   <li>Instance methods: $obj->instanceMethod()
+     *   <li>Namespaces use backslash: Namespace\SubNamespace\Class::method()
+     * </ul>
+     *
+     * <p>Examples:
+     * <ul>
+     *   <li>"MyClass::staticMethod" → "MyClass"
+     *   <li>"DateTime::createFromFormat" → "DateTime"
+     *   <li>"Illuminate\Support\Str::random" → "Illuminate\Support\Str"
+     *   <li>"$user->getName" → "$user"
+     *   <li>"$this->processRequest" → "$this"
+     * </ul>
+     */
+    public static Optional<String> extractForPhp(@Nullable String reference) {
+        if (reference == null) return Optional.empty();
+        var trimmed = reference.trim();
+
+        // Check for static method call (::)
+        if (trimmed.contains("::")) {
+            var lastDoubleColon = trimmed.lastIndexOf("::");
+            if (lastDoubleColon <= 0 || lastDoubleColon >= trimmed.length() - 2) return Optional.empty();
+
+            var lastPart = trimmed.substring(lastDoubleColon + 2);
+            var beforeLast = trimmed.substring(0, lastDoubleColon);
+
+            // Method/constant name: starts with letter or underscore, optionally followed by params
+            if (!lastPart.matches("[a-zA-Z_][a-zA-Z0-9_]*(?:\\([^)]*\\))?")) return Optional.empty();
+
+            // Class name: can include namespace backslashes, must be valid PHP identifier
+            // PHP class names start with letter or underscore
+            if (!beforeLast.matches("[a-zA-Z_\\\\][a-zA-Z0-9_\\\\]*")) return Optional.empty();
+
+            return Optional.of(beforeLast);
+        }
+
+        // Check for instance method call (->)
+        if (trimmed.contains("->")) {
+            var lastArrow = trimmed.lastIndexOf("->");
+            if (lastArrow <= 0 || lastArrow >= trimmed.length() - 2) return Optional.empty();
+
+            var lastPart = trimmed.substring(lastArrow + 2);
+            var beforeLast = trimmed.substring(0, lastArrow);
+
+            // Method name: starts with letter or underscore, optionally followed by params
+            if (!lastPart.matches("[a-zA-Z_][a-zA-Z0-9_]*(?:\\([^)]*\\))?")) return Optional.empty();
+
+            // Variable/receiver: can be $var, $this, or chained call result
+            // Must start with $ or be a valid identifier (for chained calls)
+            if (!beforeLast.matches("\\$[a-zA-Z_][a-zA-Z0-9_]*|[a-zA-Z_][a-zA-Z0-9_]*")) return Optional.empty();
+
+            return Optional.of(beforeLast);
+        }
+
+        return Optional.empty();
     }
 
     /* Normalization helpers ----------------------------------------------- */

@@ -260,8 +260,8 @@ public class MultiAnalyzer
     }
 
     @Override
-    public Optional<String> extractClassName(String reference) {
-        return findFirst(analyzer -> analyzer.extractClassName(reference));
+    public Optional<String> extractCallReceiver(String reference) {
+        return findFirst(analyzer -> analyzer.extractCallReceiver(reference));
     }
 
     @Override
@@ -291,5 +291,12 @@ public class MultiAnalyzer
         return delegates.values().stream()
                 .flatMap(analyzer -> analyzer.subAnalyzer(language).stream())
                 .findAny();
+    }
+
+    @Override
+    public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
+        return delegates.values().stream()
+                .flatMap(analyzer -> analyzer.getDirectAncestors(cu).stream())
+                .toList();
     }
 }

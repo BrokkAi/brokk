@@ -18,8 +18,8 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.exception.HttpException;
-import dev.langchain4j.exception.LangChain4jException;
 import dev.langchain4j.exception.NonRetriableException;
+import dev.langchain4j.exception.RetriableException;
 import dev.langchain4j.internal.ExceptionMapper;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
@@ -501,19 +501,19 @@ public class Llm {
         return text;
     }
 
-    private static class LitellmException extends LangChain4jException {
+    private static class LitellmException extends RetriableException {
         public LitellmException(String message) {
             super(message);
         }
     }
 
-    public static class EmptyResponseException extends LangChain4jException {
+    public static class EmptyResponseException extends RetriableException {
         public EmptyResponseException() {
             super("Empty response from LLM");
         }
     }
 
-    public static class MissingToolCallsException extends LangChain4jException {
+    public static class MissingToolCallsException extends RetriableException {
         public MissingToolCallsException(int attemptsMade) {
             super("ToolChoice.REQUIRED could not be satisfied after " + attemptsMade + " attempt(s)");
         }
@@ -617,17 +617,8 @@ public class Llm {
             }
 
             // don't retry on non-retriable errors or known bad request errors
-            if (lastError != null) {
-                if (lastError instanceof NonRetriableException) {
-                    break;
-                }
-                var msg = requireNonNull(lastError.getMessage());
-                if (msg.contains("BadRequestError")
-                        || msg.contains("UnsupportedParamsError")
-                        || msg.contains("Unable to convert openai tool calls")) {
-                    // logged by doSingleStreamingCallInternal, don't be redundant
-                    break;
-                }
+            if (lastError instanceof NonRetriableException) {
+                break;
             }
 
             logger.debug("LLM error == {}, isEmpty == {}. Attempt={}", lastError, response.isEmpty(), attempt);
@@ -1396,6 +1387,7 @@ public class Llm {
             var formattedRequest = "# Request to %s:\n\n%s\n"
                     .formatted(contextManager.getService().nameOf(model), TaskEntry.formatMessages(request.messages()));
             var formattedTools = request.toolSpecifications() == null
+                            || request.toolSpecifications().isEmpty()
                     ? ""
                     : "# Tools:\n\n"
                             + request.toolSpecifications().stream()
@@ -1453,7 +1445,7 @@ public class Llm {
                 if (pricing.bands().isEmpty()) {
                     message = "Cost unknown for %s (%s)".formatted(modelName, tokenSummary);
                 } else {
-                    double cost = pricing.estimateCost(uncached, cached, output);
+                    double cost = pricing.getCostFor(uncached, cached, output);
                     DecimalFormat df = (DecimalFormat) NumberFormat.getNumberInstance(Locale.US);
                     df.applyPattern("#,##0.0000");
                     String costStr = df.format(cost);

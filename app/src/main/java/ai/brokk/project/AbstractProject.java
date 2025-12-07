@@ -445,6 +445,25 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         saveWorkspaceProperties();
     }
 
+    // --- UI Filter persistence ---
+
+    private static final String UI_FILTER_PREFIX = "ui.filter.";
+
+    @Override
+    public @Nullable String getUiFilterProperty(String key) {
+        return workspaceProps.getProperty(UI_FILTER_PREFIX + key);
+    }
+
+    @Override
+    public void setUiFilterProperty(String key, @Nullable String value) {
+        if (value == null || value.isEmpty()) {
+            workspaceProps.remove(UI_FILTER_PREFIX + key);
+        } else {
+            workspaceProps.setProperty(UI_FILTER_PREFIX + key, value);
+        }
+        saveWorkspaceProperties();
+    }
+
     // --- Terminal drawer per-project persistence ---
 
     public @Nullable Boolean getTerminalDrawerOpen() {

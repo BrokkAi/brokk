@@ -22,7 +22,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     private static final Logger log = LoggerFactory.getLogger(CppAnalyzer.class);
 
     @Override
-    public Optional<String> extractClassName(String reference) {
+    public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForCpp(reference);
     }
 
@@ -71,7 +71,11 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             Set.of(STORAGE_CLASS_SPECIFIER, TYPE_QUALIFIER, ACCESS_SPECIFIER));
 
     public CppAnalyzer(IProject project) {
-        super(project, Languages.CPP_TREESITTER);
+        this(project, ProgressListener.NOOP);
+    }
+
+    public CppAnalyzer(IProject project, ProgressListener listener) {
+        super(project, Languages.CPP_TREESITTER, listener);
 
         this.parserCache = ThreadLocal.withInitial(() -> {
             var parser = new TSParser();
@@ -84,8 +88,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         this.namespaceProcessor = new NamespaceProcessor(templateParser);
     }
 
-    private CppAnalyzer(IProject project, AnalyzerState state) {
-        super(project, Languages.CPP_TREESITTER, state);
+    private CppAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
+        super(project, Languages.CPP_TREESITTER, state, listener);
         this.parserCache = ThreadLocal.withInitial(() -> {
             var parser = new TSParser();
             parser.setLanguage(createTSLanguage());
@@ -97,13 +101,13 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         this.namespaceProcessor = new NamespaceProcessor(templateParser);
     }
 
-    public static CppAnalyzer fromState(IProject project, AnalyzerState state) {
-        return new CppAnalyzer(project, state);
+    public static CppAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+        return new CppAnalyzer(project, state, listener);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state) {
-        return new CppAnalyzer(getProject(), state);
+    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+        return new CppAnalyzer(getProject(), state, listener);
     }
 
     @Override
@@ -123,7 +127,14 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected @Nullable CodeUnit createCodeUnit(
-            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
+            ProjectFile file,
+            String captureName,
+            String simpleName,
+            String packageName,
+            String classChain,
+            List<ScopeSegment> scopeChain,
+            @Nullable TSNode definitionNode,
+            SkeletonType skeletonType) {
         final char delimiter =
                 Optional.ofNullable(CPP_SYNTAX_PROFILE.captureConfiguration().get(captureName)).stream()
                                 .anyMatch(x -> x.equals(SkeletonType.CLASS_LIKE))
@@ -140,8 +151,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         }
 
         String fqName = correctedClassChain.isEmpty() ? simpleName : correctedClassChain + delimiter + simpleName;
-
-        var skeletonType = getSkeletonTypeForCapture(captureName);
 
         var type =
                 switch (skeletonType) {
@@ -749,12 +758,12 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                 .strip();
 
         // Augment textual detection with AST-based scanning for robust qualifier extraction
-        boolean nodeHasConst = false;
-        boolean nodeHasVolatile = false;
+        boolean nodeHasConst;
+        boolean nodeHasVolatile;
 
         // Scan both the outer node and the function_declarator node for TYPE_QUALIFIER children in the tail region
-        nodeHasConst = nodeHasConst || scanForQualifier(funcOrDeclNode, tailStart, tailEnd, src, "const");
-        nodeHasVolatile = nodeHasVolatile || scanForQualifier(funcOrDeclNode, tailStart, tailEnd, src, "volatile");
+        nodeHasConst = scanForQualifier(funcOrDeclNode, tailStart, tailEnd, src, "const");
+        nodeHasVolatile = scanForQualifier(funcOrDeclNode, tailStart, tailEnd, src, "volatile");
         nodeHasConst = nodeHasConst || scanForQualifier(decl, tailStart, tailEnd, src, "const");
         nodeHasVolatile = nodeHasVolatile || scanForQualifier(decl, tailStart, tailEnd, src, "volatile");
 
@@ -762,32 +771,31 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         var addedQualTypes = new HashSet<String>(); // Track which qualifier types have been added
 
         // Extract const qualifier (word boundary aware + AST-based)
-        if ((tail != null && !tail.isEmpty() && hasKeywordWithBoundary(tail, "const")) || nodeHasConst) {
-            if (addedQualTypes.add("const")) {
-                quals.add("const");
-            }
+        if ((!tail.isEmpty() && hasKeywordWithBoundary(tail, "const")) || nodeHasConst) {
+            addedQualTypes.add("const");
+            quals.add("const");
         }
 
         // Extract volatile qualifier (word boundary aware + AST-based)
-        if ((tail != null && !tail.isEmpty() && hasKeywordWithBoundary(tail, "volatile")) || nodeHasVolatile) {
+        if ((!tail.isEmpty() && hasKeywordWithBoundary(tail, "volatile")) || nodeHasVolatile) {
             if (addedQualTypes.add("volatile")) {
                 quals.add("volatile");
             }
         }
 
         // Extract reference qualifier: && takes precedence over & (check && first)
-        if (tail != null && tail.contains("&&")) {
+        if (tail.contains("&&")) {
             if (addedQualTypes.add("&&")) {
                 quals.add("&&");
             }
-        } else if (tail != null && tail.contains("&")) {
+        } else if (tail.contains("&")) {
             if (addedQualTypes.add("&")) {
                 quals.add("&");
             }
         }
 
         // Extract full noexcept clause (including optional parenthesized condition)
-        String noexceptClause = (tail == null || tail.isEmpty()) ? "" : extractNoexceptClause(tail);
+        String noexceptClause = tail.isEmpty() ? "" : extractNoexceptClause(tail);
         if (!noexceptClause.isEmpty() && addedQualTypes.add("noexcept")) {
             quals.add(noexceptClause);
         }
@@ -797,9 +805,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         }
 
         String result = String.join(" ", quals).strip();
-        if (log.isDebugEnabled()) {
-            log.debug("Extracted qualifier suffix '{}' from declarator tail: {}", result, (tail == null ? "" : tail));
-        }
+        log.trace("Extracted qualifier suffix '{}' from declarator tail: {}", result, tail);
         return result;
     }
 

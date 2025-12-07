@@ -30,7 +30,7 @@ class AnalyzerWrapperTest {
     Path tempDir;
 
     private AnalyzerWrapper analyzerWrapper;
-    private ProjectWatchService watchService;
+    private LegacyProjectWatchService watchService;
 
     @AfterEach
     void tearDown() {
@@ -56,7 +56,7 @@ class AnalyzerWrapperTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service
-        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
+        watchService = new LegacyProjectWatchService(projectRoot, null, null, List.of());
 
         // Create AnalyzerWrapper with injected watch service
         var listener = new TestAnalyzerListener();
@@ -83,7 +83,7 @@ class AnalyzerWrapperTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service with no initial listeners
-        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
+        watchService = new LegacyProjectWatchService(projectRoot, null, null, List.of());
         watchService.start(CompletableFuture.completedFuture(null));
 
         // Give watcher time to initialize
@@ -120,10 +120,11 @@ class AnalyzerWrapperTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service
-        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
+        watchService = new LegacyProjectWatchService(projectRoot, null, null, List.of());
 
         // Create AnalyzerWrapper
-        analyzerWrapper = new AnalyzerWrapper(project, null, watchService);
+        analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), watchService);
+        analyzerWrapper.get(); // wait for async tasks so they don't race w/ tempdir cleanup
 
         // Verify getWatchService returns the same instance
         var returnedWatchService = analyzerWrapper.getWatchService();
@@ -141,7 +142,7 @@ class AnalyzerWrapperTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service
-        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
+        watchService = new LegacyProjectWatchService(projectRoot, null, null, List.of());
 
         // Create AnalyzerWrapper
         analyzerWrapper = new AnalyzerWrapper(project, new TestAnalyzerListener(), watchService);
@@ -174,10 +175,10 @@ class AnalyzerWrapperTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service
-        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
+        watchService = new LegacyProjectWatchService(projectRoot, null, null, List.of());
 
         // Create AnalyzerWrapper
-        analyzerWrapper = new AnalyzerWrapper(project, null, watchService);
+        analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), watchService);
 
         // Use getWatchService() to pause
         analyzerWrapper.getWatchService().pause();
@@ -203,7 +204,7 @@ class AnalyzerWrapperTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create AnalyzerWrapper with null watch service (headless mode)
-        analyzerWrapper = new AnalyzerWrapper(project, null, (IWatchService) null);
+        analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new IWatchService() {});
 
         // Verify AnalyzerWrapper was created successfully
         assertNotNull(analyzerWrapper, "AnalyzerWrapper should be created with null watch service");
@@ -232,10 +233,10 @@ class AnalyzerWrapperTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service
-        watchService = new ProjectWatchService(projectRoot, null, null, List.of());
+        watchService = new LegacyProjectWatchService(projectRoot, null, null, List.of());
 
         // Create AnalyzerWrapper
-        analyzerWrapper = new AnalyzerWrapper(project, null, watchService);
+        analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), watchService);
 
         // Initially not paused
         assertFalse(analyzerWrapper.isPause(), "Should not be paused initially");

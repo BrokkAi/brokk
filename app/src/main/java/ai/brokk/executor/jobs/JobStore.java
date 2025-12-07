@@ -200,10 +200,14 @@ public final class JobStore {
             var event = objectMapper.readValue(line, JobEvent.class);
             if (event.seq() > afterSeq) {
                 result.add(event);
-                if (limit > 0 && result.size() >= limit) {
-                    break;
-                }
             }
+        }
+
+        // Ensure deterministic ordering even if the underlying file ordering is not strictly monotonic
+        result.sort(java.util.Comparator.comparingLong(JobEvent::seq));
+
+        if (limit > 0 && result.size() > limit) {
+            return result.subList(0, limit);
         }
 
         return result;
@@ -267,6 +271,27 @@ public final class JobStore {
      */
     public Path getJobDir(String jobId) {
         return jobsDir.resolve(jobId);
+    }
+
+    /**
+     * Return the last assigned sequence number for the given job, or -1 if no events
+     * have been appended for that job yet.
+     *
+     * This consults the in-memory sequence counter and lazily initializes it from
+     * the events file if necessary. The method is synchronized to ensure safe
+     * access to the internal `jobSequenceCounters` map.
+     *
+     * This is O(1) in the common case (counter already initialized) and avoids
+     * reading/parsing the entire events file merely to obtain the last seq.
+     */
+    public synchronized long getLastSeq(String jobId) {
+        var counter = jobSequenceCounters.get(jobId);
+        if (counter == null) {
+            counter = loadSequenceCounter(jobId);
+            jobSequenceCounters.put(jobId, counter);
+        }
+        long val = counter.get();
+        return val == 0 ? -1 : val;
     }
 
     // ============================================================================

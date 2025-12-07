@@ -341,6 +341,14 @@ public interface IProject extends AutoCloseable {
 
     default void setExecutorArgs(@Nullable String args) {}
 
+    /** Gets a UI filter property for persistence across sessions (e.g., "issues.status"). */
+    default @Nullable String getUiFilterProperty(String key) {
+        return null;
+    }
+
+    /** Sets a UI filter property for persistence across sessions. */
+    default void setUiFilterProperty(String key, @Nullable String value) {}
+
     default boolean getArchitectRunInWorktree() {
         throw new UnsupportedOperationException();
     }

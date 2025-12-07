@@ -15,6 +15,7 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
@@ -102,6 +103,7 @@ public class EditBlock {
      * <p>Note: it is the responsibility of the caller (e.g. CodeAgent::preCreateNewFiles) to create empty files for
      * blocks corresponding to new files.
      */
+    @Blocking
     public static EditResult apply(Context ctx, IConsoleIO io, Collection<SearchReplaceBlock> blocks)
             throws IOException, InterruptedException {
         IContextManager contextManager = ctx.getContextManager();
@@ -142,8 +144,8 @@ public class EditBlock {
 
             // Pre-resolve BRK_CLASS/BRK_FUNCTION so analyzer offsets are from the original file content
             String effectiveBefore = block.beforeText();
+            var analyzer = ctx.getContextManager().getAnalyzer();
             try {
-                var analyzer = ctx.getContextManager().getAnalyzer();
                 var maybeResolved = resolveBrkSnippet(effectiveBefore, file, analyzer);
                 if (maybeResolved != null) {
                     effectiveBefore = maybeResolved;
@@ -164,7 +166,15 @@ public class EditBlock {
                             + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
                     contextManager.reportException(
                             new BrkSnippetNoMatchException(message, ex),
-                            Map.of("sourcefile", file.getFileName(), "marker", marker));
+                            Map.of(
+                                    "sourcefile", file.getFileName(),
+                                    "marker", marker,
+                                    "sourceContents", file.read().orElse(""),
+                                    "sourceDeclarations",
+                                            analyzer.getDeclarations(file).stream()
+                                                    .map(CodeUnit::shortName)
+                                                    .sorted()
+                                                    .collect(Collectors.joining(", "))));
                 }
 
                 failed.add(new FailedBlock(block, reason, ex.getMessage() == null ? ex.toString() : ex.getMessage()));
@@ -833,6 +843,7 @@ public class EditBlock {
      * @throws SymbolAmbiguousException if the filename matches multiple files.
      * @throws SymbolInvalidException if the file name is not a valid path (possibly absolute) or is null.
      */
+    @Blocking
     static ProjectFile resolveProjectFile(Context ctx, @Nullable String filename)
             throws SymbolNotFoundException, SymbolAmbiguousException, SymbolInvalidException {
         IContextManager cm = ctx.getContextManager();
@@ -860,7 +871,7 @@ public class EditBlock {
 
         // 2. Check editable files (case-insensitive basename match)
         var editableMatches = ctx.getAllFragmentsInDisplayOrder().stream()
-                .flatMap(f -> f.files().stream())
+                .flatMap(f -> f.files().join().stream())
                 .filter(f -> f.getFileName().equalsIgnoreCase(file.getFileName()))
                 .toList();
         if (editableMatches.size() == 1) {

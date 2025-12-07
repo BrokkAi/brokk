@@ -15,6 +15,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
@@ -407,6 +408,46 @@ public final class MainProject extends AbstractProject {
     private ModelConfig getModelConfigInternal(ModelType modelType) {
         var props = loadGlobalProperties();
         return ModelProperties.getModelConfig(props, modelType);
+    }
+
+    /**
+     * Returns the code-defined default ModelConfig for the Quick role.
+     *
+     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
+     * persisted user settings or overrides.
+     */
+    public static ModelConfig getDefaultQuickModelConfig() {
+        return ModelProperties.ModelType.QUICK.preferredConfig();
+    }
+
+    /**
+     * Returns the code-defined default ModelConfig for the Quick Edit role.
+     *
+     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
+     * persisted user settings or overrides.
+     */
+    public static ModelConfig getDefaultQuickEditModelConfig() {
+        return ModelProperties.ModelType.QUICK_EDIT.preferredConfig();
+    }
+
+    /**
+     * Returns the code-defined default ModelConfig for the Quickest role.
+     *
+     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
+     * persisted user settings or overrides.
+     */
+    public static ModelConfig getDefaultQuickestModelConfig() {
+        return ModelProperties.ModelType.QUICKEST.preferredConfig();
+    }
+
+    /**
+     * Returns the code-defined default ModelConfig for the Scan role.
+     *
+     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
+     * persisted user settings or overrides.
+     */
+    public static ModelConfig getDefaultScanModelConfig() {
+        return ModelProperties.ModelType.SCAN.preferredConfig();
     }
 
     private void setModelConfigInternal(ModelType modelType, ModelConfig config) {
@@ -1339,7 +1380,7 @@ public final class MainProject extends AbstractProject {
 
     public static String getTheme() {
         var props = loadGlobalProperties();
-        return props.getProperty("theme", "dark");
+        return props.getProperty("theme", GuiTheme.THEME_DARK_PLUS);
     }
 
     public static void setTheme(String theme) {
@@ -1385,6 +1426,53 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
 
+    // Preference key for selecting the watch service implementation.
+    // Allowed values persisted: "legacy", "native". If unset/blank/unrecognized, treated as "default".
+    private static final String WATCH_SERVICE_IMPL_KEY = "watchServiceImpl";
+
+    /**
+     * Returns the persisted watch service implementation preference.
+     *
+     * Normalized return values:
+     *  - "legacy"  => legacy implementation
+     *  - "native"  => native implementation
+     *  - "default" => no explicit preference / use platform-default behavior
+     */
+    public static String getWatchServiceImplPreference() {
+        var props = loadGlobalProperties();
+        String raw = props.getProperty(WATCH_SERVICE_IMPL_KEY);
+        if (raw == null || raw.isBlank()) {
+            return "default";
+        }
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if ("legacy".equals(normalized) || "native".equals(normalized)) {
+            return normalized;
+        }
+        return "default";
+    }
+
+    /**
+     * Persist the watch service implementation preference.
+     *
+     * Accepts case-insensitive values: "default", "legacy", "native".
+     * If "default" (or blank/unrecognized) the property will be removed to fall back to platform default.
+     */
+    public static void setWatchServiceImplPreference(String v) {
+        var props = loadGlobalProperties();
+        String normalized = v.trim().toLowerCase(Locale.ROOT);
+        if ("default".equals(normalized) || normalized.isBlank()) {
+            props.remove(WATCH_SERVICE_IMPL_KEY);
+        } else if ("legacy".equals(normalized) || "native".equals(normalized)) {
+            props.setProperty(WATCH_SERVICE_IMPL_KEY, normalized);
+        } else {
+            // Unrecognized value: remove key to ensure default behavior.
+            props.remove(WATCH_SERVICE_IMPL_KEY);
+            normalized = "default";
+        }
+        saveGlobalProperties(props);
+        logger.debug("Set watch service implementation preference to {}", normalized);
+    }
+
     // UI Scale global preference
     // Values:
     //  - "auto" (default): detect from environment (kscreen-doctor/gsettings on Linux)
@@ -1394,6 +1482,7 @@ public final class MainProject extends AbstractProject {
     private static final String TERMINAL_FONT_SIZE_KEY = "terminalFontSize";
     private static final String STARTUP_OPEN_MODE_KEY = "startupOpenMode";
     private static final String FORCE_TOOL_EMULATION_KEY = "forceToolEmulation";
+    private static final String OTHER_MODELS_VENDOR_KEY = "otherModelsVendor";
     private static final String HISTORY_AUTO_COMPRESS_KEY = "historyAutoCompress";
     private static final String HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY = "historyAutoCompressThresholdPercent";
     private static final String HISTORY_COMPRESSION_CONCURRENCY_KEY = "historyCompressionConcurrency";
@@ -1474,6 +1563,21 @@ public final class MainProject extends AbstractProject {
             props.setProperty(FORCE_TOOL_EMULATION_KEY, "true");
         } else {
             props.remove(FORCE_TOOL_EMULATION_KEY);
+        }
+        saveGlobalProperties(props);
+    }
+
+    public static String getOtherModelsVendorPreference() {
+        var props = loadGlobalProperties();
+        return props.getProperty(OTHER_MODELS_VENDOR_KEY, "");
+    }
+
+    public static void setOtherModelsVendorPreference(String vendor) {
+        var props = loadGlobalProperties();
+        if (vendor.isBlank()) {
+            props.remove(OTHER_MODELS_VENDOR_KEY);
+        } else {
+            props.setProperty(OTHER_MODELS_VENDOR_KEY, vendor.trim());
         }
         saveGlobalProperties(props);
     }

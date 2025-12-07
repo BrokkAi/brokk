@@ -72,7 +72,7 @@ public final class GitUiUtil {
                         ? SyntaxConstants.SYNTAX_STYLE_NONE
                         : SyntaxDetector.fromExtension(selectedFiles.getFirst().extension());
                 var fragment = new ContextFragment.StringFragment(contextManager, diff, description, syntaxStyle);
-                contextManager.addVirtualFragment(fragment);
+                contextManager.addFragments(fragment);
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO,
                         "Added uncommitted diff for " + selectedFiles.size() + " file(s) to context");
@@ -107,7 +107,7 @@ public final class GitUiUtil {
                 var description = "Diff of %s [%s]".formatted(file.getFileName(), shortHash);
                 var syntaxStyle = SyntaxDetector.fromExtension(file.extension());
                 var fragment = new ContextFragment.StringFragment(contextManager, diff, description, syntaxStyle);
-                contextManager.addVirtualFragment(fragment);
+                contextManager.addFragments(fragment);
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO, "Added changes for " + file.getFileName() + " to context");
             } catch (Exception e) {
@@ -221,7 +221,7 @@ public final class GitUiUtil {
                         ? SyntaxConstants.SYNTAX_STYLE_NONE
                         : SyntaxDetector.fromExtension(changedFiles.getFirst().extension());
                 var fragment = new ContextFragment.StringFragment(contextManager, diff, description, syntaxStyle);
-                contextManager.addVirtualFragment(fragment);
+                contextManager.addFragments(fragment);
                 chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Added changes for commit range to context");
             } catch (Exception ex) {
                 chrome.toolError("Error adding commit range to context: " + ex.getMessage());
@@ -299,7 +299,7 @@ public final class GitUiUtil {
                         ? SyntaxConstants.SYNTAX_STYLE_NONE
                         : SyntaxDetector.fromExtension(files.getFirst().extension());
                 var fragment = new ContextFragment.StringFragment(contextManager, diffs, description, syntaxStyle);
-                contextManager.addVirtualFragment(fragment);
+                contextManager.addFragments(fragment);
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO,
                         "Added changes for selected files in commit range to context");
@@ -640,7 +640,7 @@ public final class GitUiUtil {
                 var description = "Diff of %s vs %s".formatted(compareBranchName, baseBranchName);
                 var fragment =
                         new ContextFragment.StringFragment(cm, diff, description, SyntaxConstants.SYNTAX_STYLE_NONE);
-                cm.addVirtualFragment(fragment);
+                cm.addFragments(fragment);
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO,
                         String.format("Added diff of %s vs %s to context", compareBranchName, baseBranchName));
@@ -782,7 +782,7 @@ public final class GitUiUtil {
                 }
 
                 var fragment = new ContextFragment.StringFragment(cm, diff, description, syntaxStyle);
-                cm.addVirtualFragment(fragment);
+                cm.addFragments(fragment);
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO,
                         String.format("Added diff for PR #%d (%s) to context", prNumber, prTitle));

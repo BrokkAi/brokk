@@ -174,6 +174,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         // Make the container focusable, so it can handle key events
         setFocusable(true);
         tabbedPane = new JTabbedPane();
+        tabbedPane.setBackground(UIManager.getColor("Panel.background"));
+        tabbedPane.setForeground(UIManager.getColor("Panel.foreground"));
+        tabbedPane.setOpaque(true);
 
         // Initialize file tree panel
         fileTreePanel = new FileTreePanel(
@@ -181,6 +184,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
         // Create split pane with file tree on left and tabs on right (if multiple files or multi-file-only mode)
         mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+        mainSplitPane.setBackground(UIManager.getColor("Panel.background"));
         if (showFileTree()) {
             fileTreePanel.setMinimumSize(new Dimension(200, 0)); // Prevent file tree from becoming too small
             mainSplitPane.setLeftComponent(fileTreePanel);
@@ -811,7 +815,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
             var fragment = new ContextFragment.StringFragment(contextManager, diffText, description, syntaxStyle);
             contextManager.submitContextTask(() -> {
-                contextManager.addVirtualFragment(fragment);
+                contextManager.addFragments(fragment);
                 IConsoleIO iConsoleIO = contextManager.getIo();
                 iConsoleIO.showNotification(
                         IConsoleIO.NotificationRole.INFO, "Added captured diff to context: " + description);
@@ -1154,7 +1158,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
             // Build resulting Context by adding any changed files that are not already editable in the top context
             var top = contextManager.liveContext();
-            var resultingCtx = top.addPathFragments(contextManager.toPathFragments(changedFiles));
+            var resultingCtx = top.addFragments(contextManager.toPathFragments(changedFiles));
 
             var result = TaskResult.humanResult(
                     contextManager, actionDescription, messages, resultingCtx, TaskResult.StopReason.SUCCESS);
@@ -1649,6 +1653,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     public void applyTheme(GuiTheme guiTheme) {
         assert SwingUtilities.isEventDispatchThread() : "applyTheme must be called on EDT";
 
+        // Update all child components including toolbar buttons and labels while preserving fonts
+        // Do this FIRST so UIManager has the new theme colors
+        guiTheme.updateComponentTreeUIPreservingFonts(this);
+
         // Apply theme to cached panels
         for (var panel : panelCache.nonNullValues()) {
             panel.applyTheme(guiTheme);
@@ -1659,8 +1667,14 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             fileTreePanel.applyTheme(guiTheme);
         }
 
-        // Update all child components including toolbar buttons and labels while preserving fonts
-        guiTheme.updateComponentTreeUIPreservingFonts(this);
+        // Update tabbedPane and mainSplitPane colors for theme changes (after L&F update)
+        var bg = UIManager.getColor("Panel.background");
+        var fg = UIManager.getColor("Panel.foreground");
+        tabbedPane.setBackground(bg);
+        tabbedPane.setForeground(fg);
+        tabbedPane.setOpaque(true);
+        mainSplitPane.setBackground(bg);
+
         revalidate();
         repaint();
     }

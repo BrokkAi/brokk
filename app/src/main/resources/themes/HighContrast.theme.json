@@ -430,6 +430,7 @@
     "StatusBar.borderColor": "#b3b3b3",
 
     "TabbedPane": {
+      "background": "#000000",
       "underlineColor": "#1AEBFF",
       "tabSelectionHeight": 5,
       "disabledUnderlineColor": "#AA6E28",
@@ -738,6 +739,9 @@
       "mode_lutz_bg": "#FFD333",
       "mode_lutz_fg": "#000000",
       "mode_lutz_accent": "#FFD333",
+      "mode_plan_bg": "#FF00FF",
+      "mode_plan_fg": "#000000",
+      "mode_plan_accent": "#FF00FF",
 
       "badge_border": "#1AEBFF",
       "badge_foreground": "#1AEBFF",
