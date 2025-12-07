@@ -691,7 +691,140 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     private List<Range> getReferencedIdentifiersInternal(ProjectFile file) {
-        return List.of();
+        // Attempt to read file content
+        var srcOpt = file.read();
+        if (srcOpt.isEmpty()) {
+            referencedIdentifiersCache.putIfAbsent(file, List.of());
+            return List.of();
+        }
+        String src = TextCanonicalizer.stripUtf8Bom(srcOpt.get());
+        byte[] srcBytes = src.getBytes(StandardCharsets.UTF_8);
+
+        // Determine root node: try cached tree first, otherwise parse on-demand
+        TSTree tree = treeOf(file);
+        if (tree == null) {
+            try {
+                tree = getTSParser().parseString(null, src);
+            } catch (RuntimeException e) {
+                log.debug("Could not parse file for referenced identifiers {}; falling back to regex-free result: {}", file, e.getMessage());
+                referencedIdentifiersCache.putIfAbsent(file, List.of());
+                return List.of();
+            }
+        }
+        TSNode root = tree.getRootNode();
+        if (root == null || root.isNull()) {
+            referencedIdentifiersCache.putIfAbsent(file, List.of());
+            return List.of();
+        }
+
+        // Load reference query resource: try language-specific "-refs.scm" next to the primary query
+        String refsResource = null;
+        TSQuery refsQuery = null;
+        String candidate = null;
+        try {
+            candidate = getQueryResource().replace(".scm", "-refs.scm");
+            String raw = loadResource(candidate);
+            refsQuery = new TSQuery(getTSLanguage(), raw);
+            refsResource = candidate;
+        } catch (Exception ignored) {
+            // Fallback for Java using built-in query constant
+            if (language != null && "JAVA".equalsIgnoreCase(language.name())) {
+                refsQuery = new TSQuery(getTSLanguage(), JAVA_REFS_QUERY);
+                refsResource = "<builtin-java-refs>";
+            } else {
+                // No query available for this language; return empty list
+                referencedIdentifiersCache.putIfAbsent(file, List.of());
+                return List.of();
+            }
+        }
+
+        // Execute query and collect ranges
+        var cursor = new TSQueryCursor();
+        cursor.exec(refsQuery, root);
+
+        TSQueryMatch match = new TSQueryMatch();
+        // Use LinkedHashSet to preserve insertion order and deduplicate
+        var foundRanges = new LinkedHashSet<Range>();
+        while (cursor.nextMatch(match)) {
+            // Build capture map for this match (first occurrence wins)
+            Map<String, TSNode> captures = new HashMap<>();
+            for (TSQueryCapture cap : match.getCaptures()) {
+                String capName = refsQuery.getCaptureNameForId(cap.getIndex());
+                TSNode n = cap.getNode();
+                if (n == null || n.isNull()) continue;
+                captures.putIfAbsent(capName, n);
+            }
+
+            // Find the primary identifier/type node for this match.
+            // Prefer explicit 'ref.name' or 'ref.ctor.type', otherwise accept any capture that ends with ".name" or ".type".
+            TSNode nameNode = null;
+            if (captures.containsKey("ref.name")) nameNode = captures.get("ref.name");
+            else if (captures.containsKey("ref.ctor.type")) nameNode = captures.get("ref.ctor.type");
+            else {
+                for (var e : captures.entrySet()) {
+                    String k = e.getKey();
+                    if (k.endsWith(".name") || k.endsWith(".type")) {
+                        nameNode = e.getValue();
+                        break;
+                    }
+                }
+            }
+            if (nameNode == null || nameNode.isNull()) continue;
+
+            int nameStart = nameNode.getStartByte();
+            int nameEnd = nameNode.getEndByte();
+            // Determine left-most start for qualifier if present
+            TSNode qualNode = null;
+            for (String q : List.of("qual.expr", "qual.type", "qual.this", "qual.super", "ref.field", "ref.call")) {
+                if (captures.containsKey(q)) {
+                    qualNode = captures.get(q);
+                    break;
+                }
+            }
+            int leftStart = nameStart;
+            if (qualNode != null && !qualNode.isNull()) {
+                // Use qualifier start; it may include nested accesses (field_access) and so gives us the left-most byte
+                leftStart = Math.min(leftStart, qualNode.getStartByte());
+            }
+
+            // Sanity checks
+            if (leftStart < 0) leftStart = 0;
+            if (nameEnd > srcBytes.length) nameEnd = srcBytes.length;
+            if (leftStart >= nameEnd) leftStart = nameStart;
+
+            // Collect dot positions in bytes between leftStart (inclusive) and nameEnd (exclusive)
+            List<Integer> dotPositions = new ArrayList<>();
+            for (int i = leftStart; i < nameEnd; i++) {
+                if (srcBytes[i] == '.') {
+                    dotPositions.add(i);
+                }
+            }
+
+            // Build prefix end offsets: each dot position yields a prefix that ends at that dot index (exclusive),
+            // final prefix ends at the nameEnd.
+            List<Integer> endOffsets = new ArrayList<>(dotPositions.size() + 1);
+            endOffsets.addAll(dotPositions);
+            endOffsets.add(nameEnd);
+
+            // Create Range objects for each prefix (skip empty ranges)
+            int startLine = nameNode.getStartPoint().getRow();
+            int endLine = nameNode.getEndPoint().getRow();
+            int commentStartByte = leftStart;
+            for (int end : endOffsets) {
+                if (end <= leftStart) continue;
+                Range r = new Range(leftStart, end, startLine, endLine, commentStartByte);
+                foundRanges.add(r);
+            }
+        }
+
+        // Convert to list sorted by startByte then endByte to ensure deterministic order
+        List<Range> out = foundRanges.stream()
+                .sorted(Comparator.comparingInt(Range::startByte).thenComparingInt(Range::endByte))
+                .toList();
+
+        // Cache and return
+        referencedIdentifiersCache.putIfAbsent(file, out);
+        return out;
     }
 
     /* ---------- IAnalyzer ---------- */
