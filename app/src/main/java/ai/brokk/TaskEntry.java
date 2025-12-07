@@ -39,6 +39,21 @@ public record TaskEntry(
     }
 
     /**
+     * Returns a copy with the given non-empty summary attached. Preserves sequence, log and meta.
+     * If the summary is unchanged, returns this.
+     *
+     * @param newSummary non-empty summary text
+     * @return a new TaskEntry with the provided summary
+     */
+    public TaskEntry withSummary(String newSummary) {
+        assert !newSummary.isEmpty() : "summary must not be empty";
+        if (summary != null && summary.equals(newSummary)) {
+            return this;
+        }
+        return new TaskEntry(sequence, log, newSummary, meta);
+    }
+
+    /**
      * Returns true if this TaskEntry holds an original message log.
      */
     public boolean hasLog() {

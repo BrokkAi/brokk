@@ -2188,7 +2188,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         logger.debug("Compressed summary:\n{}", summary);
         // Create new entry with both original log and new summary
-        return new TaskEntry(entry.sequence(), entry.log(), summary, entry.meta());
+        return entry.withSummary(summary);
     }
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
