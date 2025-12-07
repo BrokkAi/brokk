@@ -259,7 +259,9 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         try {
             return webHost.getSelectedText().get(200, TimeUnit.MILLISECONDS);
         } catch (Exception e) {
-            logger.warn("Failed to fetch selected text from WebView", e);
+            logger.debug(
+                    "Failed to fetch selected text from WebView: {}",
+                    e.getClass().getSimpleName());
             return "";
         }
     }
