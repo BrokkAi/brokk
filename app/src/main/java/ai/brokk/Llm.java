@@ -660,14 +660,8 @@ public class Llm {
                 break;
             }
 
-            // Detect timeout-like HttpException (504 "timed out") and update circuit state.
-            boolean isLlmTimeout = false;
-            if (lastError instanceof HttpException) {
-                String msg = lastError.getMessage();
-                if (msg != null && msg.toLowerCase(Locale.ROOT).contains("timed out")) {
-                    isLlmTimeout = true;
-                }
-            }
+            // Detect timeout-like HttpException (HTTP 504) using centralized helper to avoid fragile message parsing.
+            boolean isLlmTimeout = ai.brokk.llm.LlmTimeouts.isTimeout(lastError);
 
             if (isLlmTimeout) {
                 int nowCount = CIRCUIT_CONSECUTIVE_TIMEOUTS.incrementAndGet();
