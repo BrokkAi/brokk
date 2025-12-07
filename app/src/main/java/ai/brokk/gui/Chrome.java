@@ -3015,28 +3015,38 @@ public class Chrome
         }
 
         public void updateEnabledState() {
-            if (lastRelevantFocusOwner == null) {
+            var focusOwner = lastRelevantFocusOwner;
+            if (focusOwner == null) {
                 setEnabled(false);
                 return;
             }
 
-            boolean canCopyNow = false;
-            if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
+            // Instructions area: enable if there's either a selection or any text
+            if (focusOwner == instructionsPanel.getInstructionsArea()) {
                 var field = instructionsPanel.getInstructionsArea();
-                canCopyNow = (field.getSelectedText() != null
-                                && !field.getSelectedText().isEmpty())
-                        || !field.getText().isEmpty();
-            } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, historyOutputPanel.getLlmStreamArea())) {
-                var llmArea = historyOutputPanel.getLlmStreamArea();
-                String selectedText = llmArea.getSelectedText();
-                canCopyNow =
-                        !selectedText.isEmpty() || !llmArea.getDisplayedText().isEmpty();
-            } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, workspacePanel)
-                    || SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, historyOutputPanel.getHistoryTable())) {
-                // Focus is in a context area, context copy is always available
-                canCopyNow = true;
+                boolean hasSelection = field.getSelectedText() != null
+                        && !field.getSelectedText().isEmpty();
+                boolean hasText = !field.getText().isEmpty();
+                setEnabled(hasSelection || hasText);
+                return;
             }
-            setEnabled(canCopyNow);
+
+            // If focus is in the MarkdownOutputPanel (LLM output), always enable Copy.
+            // The copy handler will choose selection vs full content.
+            if (SwingUtilities.isDescendingFrom(focusOwner, historyOutputPanel.getLlmStreamArea())) {
+                setEnabled(true);
+                return;
+            }
+
+            // Focus is in a context area (Workspace panel or History table): Copy is available.
+            if (SwingUtilities.isDescendingFrom(focusOwner, workspacePanel)
+                    || SwingUtilities.isDescendingFrom(focusOwner, historyOutputPanel.getHistoryTable())) {
+                setEnabled(true);
+                return;
+            }
+
+            // Default: disabled
+            setEnabled(false);
         }
     }
 
