@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
+import ai.brokk.git.GitTestCleanupUtil;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.TestService;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -79,6 +80,8 @@ class AskModeSearchAgentTest {
         if (executor != null) {
             executor.stop(2);
         }
+        // Clean up JGit resources to prevent Windows file locking issues
+        GitTestCleanupUtil.cleanupGitResources(null);
     }
 
     @Test
