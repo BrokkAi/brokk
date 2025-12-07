@@ -713,17 +713,17 @@ public class Llm {
             long endTime = System.currentTimeMillis() + backoffSeconds * 1000L;
             long nextNotifyAt = System.currentTimeMillis() + 2000L; // notify at most every 2 seconds
             while (true) {
-                long now2 = System.currentTimeMillis();
-                long remain = endTime - now2;
+                long currentTime = System.currentTimeMillis();
+                long remain = endTime - currentTime;
                 if (remain <= 0) {
                     break;
                 }
 
-                if (backoffSeconds > 1 && now2 >= nextNotifyAt) {
+                if (backoffSeconds > 1 && currentTime >= nextNotifyAt) {
                     long secsLeft = (long) Math.ceil(remain / 1000.0);
                     io.showNotification(
                             IConsoleIO.NotificationRole.INFO, "Retrying in %d seconds...".formatted(secsLeft));
-                    nextNotifyAt = now2 + 2000L;
+                    nextNotifyAt = currentTime + 2000L;
                 }
 
                 // short sleep to remain responsive to interruption while avoiding busy-wait
