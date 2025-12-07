@@ -115,6 +115,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     private final java.util.concurrent.ConcurrentHashMap<ProjectFile, List<Range>> referencedIdentifiersCache =
             new java.util.concurrent.ConcurrentHashMap<>();
 
+    /**
+     * Cached local variable information per file. Populated on-demand by {@link #getLocalVariables(ProjectFile)}.
+     */
+    public static record LocalVariableInfo(String name, String typeName, Range range) {}
+
+    private final java.util.concurrent.ConcurrentHashMap<ProjectFile, List<LocalVariableInfo>> localVariablesCache =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     // Stage timing captured during construction
     private volatile @Nullable StageTiming stageTiming;
 
@@ -843,6 +851,102 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         // Cache and return
         referencedIdentifiersCache.putIfAbsent(file, out);
+        return out;
+    }
+
+    /**
+     * Returns the local variables captured in the given file using the language-specific "-locals.scm" query.
+     * Results are cached per-file in {@link #localVariablesCache} and cleared when the file is listed as changed
+     * in {@link #update(Set)}.
+     *
+     * The query is expected to expose captures named like "local.name" (identifier node). If query compilation fails
+     * or the resource cannot be loaded, an empty list is returned and cached for safety.
+     */
+    public List<LocalVariableInfo> getLocalVariables(ProjectFile file) {
+        var cached = localVariablesCache.get(file);
+        if (cached != null) return cached;
+
+        var srcOpt = file.read();
+        if (srcOpt.isEmpty()) {
+            localVariablesCache.putIfAbsent(file, List.of());
+            return List.of();
+        }
+
+        return getLocalVariablesInternal(file);
+    }
+
+    private List<LocalVariableInfo> getLocalVariablesInternal(ProjectFile file) {
+        var srcOpt = file.read();
+        if (srcOpt.isEmpty()) {
+            localVariablesCache.putIfAbsent(file, List.of());
+            return List.of();
+        }
+        String src = TextCanonicalizer.stripUtf8Bom(srcOpt.get());
+        byte[] srcBytes = src.getBytes(StandardCharsets.UTF_8);
+
+        // Try to reuse a cached tree if available, otherwise parse on demand.
+        TSTree tree = treeOf(file);
+        if (tree == null) {
+            try {
+                tree = getTSParser().parseString(null, src);
+            } catch (RuntimeException e) {
+                log.debug("Could not parse file for local variables {}; returning empty list: {}", file, e.getMessage());
+                localVariablesCache.putIfAbsent(file, List.of());
+                return List.of();
+            }
+        }
+        TSNode root = tree.getRootNode();
+        if (root == null || root.isNull()) {
+            localVariablesCache.putIfAbsent(file, List.of());
+            return List.of();
+        }
+
+        // Attempt to load "-locals.scm" resource next to the primary query
+        String localsResource = null;
+        TSQuery localsQuery = null;
+        String candidate = null;
+        try {
+            candidate = getQueryResource().replace(".scm", "-locals.scm");
+            String raw = loadResource(candidate);
+            localsQuery = new TSQuery(getTSLanguage(), raw);
+            localsResource = candidate;
+        } catch (Throwable t) {
+            log.warn(
+                    "Failed to load/compile TSQuery from resource '{}': {}. Returning empty local-variable list.",
+                    candidate,
+                    t.getMessage());
+            localVariablesCache.putIfAbsent(file, List.of());
+            return List.of();
+        }
+
+        // Execute query and collect LocalVariableInfo entries
+        var cursor = new TSQueryCursor();
+        cursor.exec(localsQuery, root);
+
+        TSQueryMatch match = new TSQueryMatch();
+        var found = new ArrayList<LocalVariableInfo>();
+        while (cursor.nextMatch(match)) {
+            for (TSQueryCapture cap : match.getCaptures()) {
+                String capName = localsQuery.getCaptureNameForId(cap.getIndex());
+                TSNode n = cap.getNode();
+                if (n == null || n.isNull()) continue;
+
+                // Prefer captures that indicate the variable name (e.g., "local.name")
+                if (capName != null && capName.endsWith(".name")) {
+                    String varName = textSlice(n, srcBytes).strip();
+                    int start = n.getStartByte();
+                    int end = n.getEndByte();
+                    int startLine = n.getStartPoint().getRow();
+                    int endLine = n.getEndPoint().getRow();
+                    Range r = new Range(start, end, startLine, endLine, start);
+                    // Type may not be present in the query; leave empty string for now
+                    found.add(new LocalVariableInfo(varName, "", r));
+                }
+            }
+        }
+
+        List<LocalVariableInfo> out = List.copyOf(found);
+        localVariablesCache.putIfAbsent(file, out);
         return out;
     }
 
@@ -3915,6 +4019,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         // Invalidate on-demand referenced identifier cache for changed files to avoid stale results.
         for (ProjectFile pf : changedFiles) {
             referencedIdentifiersCache.remove(pf);
+            localVariablesCache.remove(pf);
         }
 
         long overallStartMs = System.currentTimeMillis();

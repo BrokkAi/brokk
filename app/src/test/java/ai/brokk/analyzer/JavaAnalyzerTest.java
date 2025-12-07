@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
+import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -912,6 +913,58 @@ public class JavaAnalyzerTest {
             var maybeVoid = analyzer.getDefinitions("p.T.doIt").stream().findFirst();
             assertTrue(maybeVoid.isPresent(), "Should find method p.T.doIt");
             assertEquals("void", analyzer.parseReturnType(maybeVoid.get()).orElse(""), "Void return type parsed");
+        }
+    }
+
+    @Test
+    public void localVariablesCachePopulationAndInvalidation() throws Exception {
+        try (var testProject = InlineTestProjectCreator.code(
+                """
+                package p;
+                public class L {
+                    public void m(String param) {
+                        int x = 1;
+                        java.util.List<String> items = new java.util.ArrayList<>();
+                        for (String s : items) {
+                            // loop
+                        }
+                        try (java.io.Closeable r = null) {
+                            // resource
+                        } catch (Exception e) {
+                            // handle
+                        }
+                    }
+                }
+                """,
+                "L.java").build()) {
+
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var pf = new ProjectFile(testProject.getRoot(), "L.java");
+
+            // First query should populate cache
+            var locals1 = analyzer.getLocalVariables(pf);
+            assertFalse(locals1.isEmpty(), "Expected local variables to be found");
+            var names1 = locals1.stream().map(TreeSitterAnalyzer.LocalVariableInfo::name).collect(Collectors.toSet());
+            assertTrue(names1.contains("x"), "Expected local 'x' captured");
+            assertTrue(names1.contains("s"), "Expected enhanced-for var 's' captured");
+            assertTrue(names1.contains("param"), "Expected method parameter 'param' captured");
+            assertTrue(names1.contains("r"), "Expected try-with-resources var 'r' captured or parameter capture");
+
+            // Modify file contents (rename x -> y) and trigger incremental update
+            Files.writeString(pf.absPath(), """
+                package p;
+                public class L {
+                    public void m(String param) {
+                        int y = 2;
+                    }
+                }
+                """);
+            analyzer = (JavaAnalyzer) analyzer.update(Set.of(pf));
+
+            var locals2 = analyzer.getLocalVariables(pf);
+            var names2 = locals2.stream().map(TreeSitterAnalyzer.LocalVariableInfo::name).collect(Collectors.toSet());
+            assertTrue(names2.contains("y"), "After modification expected local 'y' to be present");
+            assertFalse(names2.contains("x"), "After modification 'x' should no longer be present");
         }
     }
 
