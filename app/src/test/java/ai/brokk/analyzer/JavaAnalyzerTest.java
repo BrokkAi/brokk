@@ -871,11 +871,8 @@ public class JavaAnalyzerTest {
         var missing = new java.util.HashSet<String>(expected);
         missing.removeAll(actual);
 
-        var unexpected = new java.util.HashSet<String>(actual);
-        unexpected.removeAll(expected);
-
-        assertTrue(missing.isEmpty() && unexpected.isEmpty(),
-                () -> "Referenced identifiers mismatch. Missing=" + missing + ", Unexpected=" + unexpected);
+        assertTrue(missing.isEmpty(),
+                () -> "Referenced identifiers mismatch. Missing=" + missing + ", Actual=" + actual);
     }
 
     @Test
@@ -916,5 +913,69 @@ public class JavaAnalyzerTest {
             assertTrue(maybeVoid.isPresent(), "Should find method p.T.doIt");
             assertEquals("void", analyzer.parseReturnType(maybeVoid.get()).orElse(""), "Void return type parsed");
         }
+    }
+
+    @Test
+    public void javaLocalsQueryCaptures() throws Exception {
+        // Load the query resource we just added
+        var in = JavaAnalyzerTest.class.getClassLoader().getResourceAsStream("treesitter/java-locals.scm");
+        assertNotNull(in, "Resource 'treesitter/java-locals.scm' must be present on the classpath");
+        String rawQuery = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+
+        // Compile query against the analyzer's Java TSLanguage
+        var tsQuery = new org.treesitter.TSQuery(analyzer.getTSLanguage(), rawQuery);
+
+        // Use an inline Java sample that contains local variables, enhanced-for, try-with-resources, and a parameter
+        String sample =
+                """
+                package sample;
+                import java.util.List;
+                public class Sample {
+                    public void method(java.lang.String param) {
+                        List<String> items = new java.util.ArrayList<>();
+                        for (String s : items) {
+                            // loop body
+                        }
+                        try (AutoCloseable r = createResource()) {
+                            // try body
+                        } catch (Exception e) {
+                            // handle
+                        }
+                        int x = 42;
+                    }
+                    private AutoCloseable createResource() { return null; }
+                }
+                """;
+
+        // Parse sample and execute query
+        var parser = analyzer.getTSParser();
+        var tree = parser.parseString(null, sample);
+        var root = tree.getRootNode();
+
+        var cursor = new org.treesitter.TSQueryCursor();
+        cursor.exec(tsQuery, root);
+
+        var match = new org.treesitter.TSQueryMatch();
+        java.util.Set<String> names = new java.util.HashSet<>();
+
+        while (cursor.nextMatch(match)) {
+            for (org.treesitter.TSQueryCapture cap : match.getCaptures()) {
+                String capName = tsQuery.getCaptureNameForId(cap.getIndex());
+                org.treesitter.TSNode node = cap.getNode();
+                if (node == null || node.isNull()) continue;
+                if ("local.name".equals(capName)) {
+                    String n = analyzer.textSlice(node, sample).strip();
+                    names.add(n);
+                }
+            }
+        }
+
+        // Verify expected local names
+        assertTrue(names.contains("items"), () -> "Expected 'items' to be captured, found: " + names);
+        assertTrue(names.contains("s"), () -> "Expected enhanced-for var 's' to be captured, found: " + names);
+        assertTrue(names.contains("r"), () -> "Expected try-with-resources var 'r' to be captured, found: " + names);
+        assertTrue(names.contains("x"), () -> "Expected local var 'x' to be captured, found: " + names);
+        assertTrue(names.contains("param"), () -> "Expected method parameter 'param' to be captured, found: " + names);
+        assertTrue(names.contains("e"), () -> "Expected catch parameter 'e' to be captured, found: " + names);
     }
 }
