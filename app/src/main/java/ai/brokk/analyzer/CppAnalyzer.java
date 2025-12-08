@@ -195,7 +195,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src) {
+    protected String determinePackageName(
+            ProjectFile file, TSNode definitionNode, TSNode rootNode, SourceContent sourceContent) {
         var namespaceParts = new ArrayList<String>();
 
         var current = definitionNode;
@@ -209,7 +210,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             if (NAMESPACE_DEFINITION.equals(current.getType())) {
                 var nameNode = current.getChildByFieldName("name");
                 if (nameNode != null && !nameNode.isNull()) {
-                    namespaceParts.add(ASTTraversalUtils.extractNodeText(nameNode, src));
+                    namespaceParts.add(textSlice(nameNode, sourceContent));
                 }
             }
         }
@@ -220,7 +221,11 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String renderClassHeader(
-            TSNode classNode, String src, String exportPrefix, String signatureText, String baseIndent) {
+            TSNode classNode,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String signatureText,
+            String baseIndent) {
         return signatureText + " {";
     }
 
@@ -232,7 +237,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String renderFunctionDeclaration(
             TSNode funcNode,
-            String src,
+            SourceContent sourceContent,
             String exportAndModifierPrefix,
             String asyncPrefix,
             String functionName,
@@ -248,7 +253,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         if (declaratorNode != null && "function_declarator".equals(declaratorNode.getType())) {
             TSNode paramsNode = declaratorNode.getChildByFieldName("parameters");
             if (paramsNode != null && !paramsNode.isNull()) {
-                actualParamsText = ASTTraversalUtils.extractNodeText(paramsNode, src);
+                actualParamsText = textSlice(paramsNode, sourceContent);
             }
         }
 
@@ -257,7 +262,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             if (fallbackDeclaratorNode != null && "function_declarator".equals(fallbackDeclaratorNode.getType())) {
                 TSNode innerDeclaratorNode = fallbackDeclaratorNode.getChildByFieldName("declarator");
                 if (innerDeclaratorNode != null) {
-                    String extractedName = ASTTraversalUtils.extractNodeText(innerDeclaratorNode, src);
+                    String extractedName = textSlice(innerDeclaratorNode, sourceContent);
                     if (!extractedName.isBlank()) {
                         functionName = extractedName;
                     }
@@ -274,7 +279,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
         var throwsNode = funcNode.getChildByFieldName("noexcept_specifier");
         if (throwsNode != null) {
-            signature += " " + ASTTraversalUtils.extractNodeText(throwsNode, src);
+            signature += " " + textSlice(throwsNode, sourceContent);
         }
 
         // Presentation-only marker: we still append bodyPlaceholder() to the rendered signature for UI clarity.
@@ -448,11 +453,11 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      * Note: This method returns only the comma-separated parameter type list (no enclosing parentheses).
      *
      * @param funcOrDeclNode the function definition or declaration node
-     * @param src the source code
+     * @param sourceContent the source content wrapper
      * @return normalized parameter types CSV, or empty string if no parameters or extraction fails
      */
     @SuppressWarnings("RedundantNullCheck") // Defensive check for TreeSitter JNI interop
-    private String buildCppOverloadSuffix(TSNode funcOrDeclNode, String src) {
+    private String buildCppOverloadSuffix(TSNode funcOrDeclNode, SourceContent sourceContent) {
         if (funcOrDeclNode == null || funcOrDeclNode.isNull()) return "";
 
         // Find the function_declarator (descend if necessary)
@@ -473,7 +478,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             TSNode paramNode = paramsNode.getNamedChild(i);
             if (paramNode == null || paramNode.isNull()) continue;
 
-            String raw = ASTTraversalUtils.extractNodeText(paramNode, src).strip();
+            String raw = textSlice(paramNode, sourceContent).strip();
             if (raw.isEmpty()) continue;
             if (raw.equals("...")) {
                 paramTypes.add("...");
@@ -497,8 +502,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             }
 
             if (nameNode != null && !nameNode.isNull()) {
-                String nameText =
-                        ASTTraversalUtils.extractNodeText(nameNode, src).strip();
+                String nameText = textSlice(nameNode, sourceContent).strip();
                 if (!nameText.isEmpty()) {
                     // Remove the identifier token (token-boundary) to avoid clobbering template names
                     raw = raw.replaceAll("\\b" + java.util.regex.Pattern.quote(nameText) + "\\b", "")
@@ -565,13 +569,13 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected Optional<String> extractSimpleName(TSNode decl, String src) {
+    protected Optional<String> extractSimpleName(TSNode decl, SourceContent sourceContent) {
         if (NAMESPACE_DEFINITION.equals(decl.getType())) {
             TSNode nameNode = decl.getChildByFieldName("name");
             if (nameNode == null || nameNode.isNull()) {
                 return Optional.of("(anonymous)");
             }
-            String name = ASTTraversalUtils.extractNodeText(nameNode, src);
+            String name = textSlice(nameNode, sourceContent);
             return Optional.of(name);
         }
 
@@ -585,7 +589,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                 // Anonymous struct/class/union/enum (e.g., anonymous struct in union)
                 return Optional.of("(anonymous)");
             }
-            String name = ASTTraversalUtils.extractNodeText(nameNode, src);
+            String name = textSlice(nameNode, sourceContent);
             if (name.isBlank()) {
                 // Name exists but is blank - likely parsing edge case
                 return Optional.of("(anonymous)");
@@ -598,7 +602,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             if (declaratorNode != null && "function_declarator".equals(declaratorNode.getType())) {
                 TSNode innerDeclaratorNode = declaratorNode.getChildByFieldName("declarator");
                 if (innerDeclaratorNode != null) {
-                    String name = ASTTraversalUtils.extractNodeText(innerDeclaratorNode, src);
+                    String name = textSlice(innerDeclaratorNode, sourceContent);
                     if (!name.isBlank()) {
                         return Optional.of(name);
                     }
@@ -616,13 +620,13 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                 if ("function_declarator".equals(declaratorNode.getType())) {
                     TSNode innerDeclaratorNode = declaratorNode.getChildByFieldName("declarator");
                     if (innerDeclaratorNode != null) {
-                        String name = ASTTraversalUtils.extractNodeText(innerDeclaratorNode, src);
+                        String name = textSlice(innerDeclaratorNode, sourceContent);
                         if (!name.isBlank()) {
                             return Optional.of(name);
                         }
                     }
                 } else {
-                    String name = ASTTraversalUtils.extractNodeText(declaratorNode, src);
+                    String name = textSlice(declaratorNode, sourceContent);
                     if (!name.isBlank()) {
                         return Optional.of(name);
                     }
@@ -630,7 +634,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             }
         }
 
-        return super.extractSimpleName(decl, src);
+        return super.extractSimpleName(decl, sourceContent);
     }
 
     @Override
@@ -663,7 +667,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String enhanceFqName(String fqName, String captureName, TSNode definitionNode, String src) {
+    protected String enhanceFqName(
+            String fqName, String captureName, TSNode definitionNode, SourceContent sourceContent) {
         var skeletonType = getSkeletonTypeForCapture(captureName);
 
         // For functions, apply name normalization (e.g., destructor tilde) but do NOT append signature
@@ -688,11 +693,12 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      *
      * @param captureName The capture name from the query
      * @param definitionNode The AST node for the function definition
-     * @param src The source code string
+     * @param sourceContent The source content wrapper
      * @return The signature string (e.g., "(int)" or "(int) const"), or null for non-functions
      */
     @Override
-    protected @Nullable String extractSignature(String captureName, TSNode definitionNode, String src) {
+    protected @Nullable String extractSignature(
+            String captureName, TSNode definitionNode, SourceContent sourceContent) {
         var skeletonType = getSkeletonTypeForCapture(captureName);
 
         // Only extract signature for function-like entities
@@ -700,8 +706,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             return null;
         }
 
-        String paramSignature = buildCppOverloadSuffix(definitionNode, src);
-        String qualifierSuffix = buildCppQualifierSuffix(definitionNode, src);
+        String paramSignature = buildCppOverloadSuffix(definitionNode, sourceContent);
+        String qualifierSuffix = buildCppQualifierSuffix(definitionNode, sourceContent);
 
         if (!paramSignature.isEmpty()) {
             return "(" + paramSignature + ")" + (qualifierSuffix.isEmpty() ? "" : " " + qualifierSuffix);
@@ -723,7 +729,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      * - complete noexcept clause (including optional parenthesized condition)
      */
     @SuppressWarnings("RedundantNullCheck") // Defensive check for TreeSitter JNI interop
-    private String buildCppQualifierSuffix(TSNode funcOrDeclNode, String src) {
+    private String buildCppQualifierSuffix(TSNode funcOrDeclNode, SourceContent sourceContent) {
         if (funcOrDeclNode.isNull()) return "";
 
         // Find the function_declarator if present
@@ -754,18 +760,17 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         int tailEnd = outerTailEnd;
         if (tailStart >= tailEnd) return "";
 
-        String tail = ASTTraversalUtils.safeSubstringFromByteOffsets(src, tailStart, tailEnd)
-                .strip();
+        String tail = sourceContent.substringFromByteOffsets(tailStart, tailEnd).strip();
 
         // Augment textual detection with AST-based scanning for robust qualifier extraction
         boolean nodeHasConst;
         boolean nodeHasVolatile;
 
         // Scan both the outer node and the function_declarator node for TYPE_QUALIFIER children in the tail region
-        nodeHasConst = scanForQualifier(funcOrDeclNode, tailStart, tailEnd, src, "const");
-        nodeHasVolatile = scanForQualifier(funcOrDeclNode, tailStart, tailEnd, src, "volatile");
-        nodeHasConst = nodeHasConst || scanForQualifier(decl, tailStart, tailEnd, src, "const");
-        nodeHasVolatile = nodeHasVolatile || scanForQualifier(decl, tailStart, tailEnd, src, "volatile");
+        nodeHasConst = scanForQualifier(funcOrDeclNode, tailStart, tailEnd, sourceContent, "const");
+        nodeHasVolatile = scanForQualifier(funcOrDeclNode, tailStart, tailEnd, sourceContent, "volatile");
+        nodeHasConst = nodeHasConst || scanForQualifier(decl, tailStart, tailEnd, sourceContent, "const");
+        nodeHasVolatile = nodeHasVolatile || scanForQualifier(decl, tailStart, tailEnd, sourceContent, "volatile");
 
         var quals = new ArrayList<String>();
         var addedQualTypes = new HashSet<String>(); // Track which qualifier types have been added
@@ -906,7 +911,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      * for TYPE_QUALIFIER nodes containing the specified qualifier token.
      */
     @SuppressWarnings("RedundantNullCheck") // Defensive check for TreeSitter JNI interop
-    private boolean scanForQualifier(TSNode parent, int tailStart, int tailEnd, String src, String qualifier) {
+    private boolean scanForQualifier(
+            TSNode parent, int tailStart, int tailEnd, SourceContent sourceContent, String qualifier) {
         if (parent == null || parent.isNull()) return false;
         int count = parent.getNamedChildCount();
         for (int i = 0; i < count; i++) {
@@ -916,7 +922,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             if (sb < tailStart || sb >= tailEnd) continue;
             String t = child.getType();
             if (TYPE_QUALIFIER.equals(t)) {
-                String q = ASTTraversalUtils.extractNodeText(child, src).strip();
+                String q = textSlice(child, sourceContent).strip();
                 if (q.contains(qualifier)) {
                     return true;
                 }
