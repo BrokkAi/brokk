@@ -4182,6 +4182,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     /**
      * Performs import resolution as a standalone step. Produces a new AnalyzerState with updated fileState.resolvedImports.
+     * Per-file errors are caught and logged at WARN level, allowing other files to continue processing.
      */
     protected AnalyzerState runImportResolution(AnalyzerState baseState) {
         // Some of the getters expect `this.state` to be non-null, but a callee of this could be the constructor
@@ -4198,8 +4199,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                         baseState.fileState().entrySet().parallelStream().forEach(entry -> {
                             ProjectFile file = entry.getKey();
                             FileProperties fileProps = entry.getValue();
-                            Set<CodeUnit> resolvedImports =
-                                    delegateForImports.resolveImports(file, fileProps.importStatements());
+                            Set<CodeUnit> resolvedImports = Set.of();
+                            try {
+                                resolvedImports =
+                                        delegateForImports.resolveImports(file, fileProps.importStatements());
+                            } catch (Exception e) {
+                                log.warn(
+                                        "Error during import resolution for file {}: {}. Continuing with empty imports.",
+                                        file.absPath(),
+                                        e.getMessage(),
+                                        e);
+                            }
                             updatedFileState.put(
                                     file,
                                     new FileProperties(
