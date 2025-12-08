@@ -15,8 +15,10 @@ import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.dataformat.smile.SmileFactory;
 import java.io.IOException;
 import java.net.URI;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
@@ -237,27 +239,47 @@ public final class TreeSitterStateIO {
     public record FilePropertiesDto(
             List<CodeUnitDto> topLevelCodeUnits, List<String> importStatements, Set<CodeUnitDto> resolvedImports) {}
 
-    /* ================= Public API ================= */
-
     /**
      * Save the given AnalyzerState to the provided file in Smile format.
-     * Creates parent directories if necessary. On error, logs and returns.
+     * Creates parent directories if necessary. Writes to a temp file and then moves into place.
      */
     public static void save(TreeSitterAnalyzer.AnalyzerState state, Path file) {
         long startMs = System.currentTimeMillis();
+        Path temp = null;
+        Path parent = (file.getParent() != null ? file.getParent() : Path.of("."))
+                .toAbsolutePath()
+                .normalize();
         try {
-            Path parent = file.getParent();
-            if (parent != null) {
-                Files.createDirectories(parent);
-            }
+            Files.createDirectories(parent);
+
+            String baseName = file.getFileName().toString();
+            String prefix = "." + baseName + ".";
+            String suffix = ".tmp";
+            temp = Files.createTempFile(parent, prefix, suffix);
+
             var dto = toDto(state);
-            try (GZIPOutputStream out = new GZIPOutputStream(Files.newOutputStream(file))) {
+            try (GZIPOutputStream out = new GZIPOutputStream(Files.newOutputStream(temp))) {
                 SMILE_MAPPER.writeValue(out, dto);
             }
+
+            try {
+                Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException amnse) {
+                log.debug("Atomic move not supported for {}; falling back to non-atomic replace", file);
+                Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+            }
+
             long durMs = System.currentTimeMillis() - startMs;
             log.debug("Saved TreeSitter AnalyzerState to {} in {} ms", file, durMs);
         } catch (IOException e) {
             log.warn("Failed to save TreeSitter AnalyzerState to {}: {}", file, e.getMessage(), e);
+            if (temp != null) {
+                try {
+                    Files.deleteIfExists(temp);
+                } catch (IOException ex) {
+                    log.debug("Failed to delete temp file {} after save failure: {}", temp, ex.getMessage());
+                }
+            }
         }
     }
 

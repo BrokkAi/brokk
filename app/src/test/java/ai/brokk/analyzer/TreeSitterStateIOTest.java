@@ -2,13 +2,17 @@ package ai.brokk.analyzer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.analyzer.TreeSitterStateIO.AnalyzerStateDto;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 public class TreeSitterStateIOTest {
 
@@ -112,5 +116,47 @@ public class TreeSitterStateIOTest {
             // Also validate we can still get skeletons for the modified file
             assertFalse(updatedCpp.getSkeletons(cppFile).isEmpty(), "Expected C++ skeletons after update");
         }
+    }
+
+    @Test
+    void saveIsAtomicAndLeavesNoTempFiles(@TempDir Path tempDir) throws Exception {
+        AnalyzerStateDto emptyDto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L);
+        var state = TreeSitterStateIO.fromDto(emptyDto);
+
+        Path out = tempDir.resolve("state.smile.gz");
+        TreeSitterStateIO.save(state, out);
+
+        assertTrue(Files.exists(out), "Expected final state file to exist");
+
+        var loaded = TreeSitterStateIO.load(out);
+        assertTrue(loaded.isPresent(), "Expected load to succeed after save");
+
+        String baseName = out.getFileName().toString();
+        String tmpPrefix = "." + baseName + ".";
+        String tmpSuffix = ".tmp";
+        var lingering = Files.list(tempDir)
+                .filter(p -> {
+                    String name = p.getFileName().toString();
+                    return name.startsWith(tmpPrefix) && name.endsWith(tmpSuffix);
+                })
+                .toList();
+        assertTrue(lingering.isEmpty(), "No lingering temp files should remain after atomic save");
+    }
+
+    @Test
+    void saveLoadRoundTripUnchanged(@TempDir Path tempDir) throws Exception {
+        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of("KeyA", "keyb"), 99L);
+        var original = TreeSitterStateIO.fromDto(dto);
+
+        Path out = tempDir.resolve("roundtrip.smile.gz");
+        TreeSitterStateIO.save(original, out);
+
+        var loadedOpt = TreeSitterStateIO.load(out);
+        assertTrue(loadedOpt.isPresent(), "Expected to load state after saving");
+        var loaded = loadedOpt.get();
+
+        var dtoOriginal = TreeSitterStateIO.toDto(original);
+        var dtoLoaded = TreeSitterStateIO.toDto(loaded);
+        assertEquals(dtoOriginal, dtoLoaded, "DTO after save+load should match original DTO");
     }
 }
