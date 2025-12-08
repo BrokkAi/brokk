@@ -1038,14 +1038,14 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                     if (member.isFunction()) {
                         Optional<String> ret = parseReturnType(member);
                         if (ret.isEmpty()) {
-                            log.debug("inferTypeAt: member {} is function with unknown return type - returning member", member);
-                            return Optional.of(member); // can't continue; return member
+                            log.debug("inferTypeAt: member {} is function with unknown return type - cannot continue chain", member);
+                            return Optional.empty(); // can't infer type; chain incomplete
                         }
                         curTypeOpt = resolveTypeName.apply(stripGenericTypeArguments(ret.get()));
                         if (curTypeOpt.isEmpty()) {
-                            // Could not resolve the return type to a class; stop at member
-                            log.debug("inferTypeAt: could not resolve return type '{}' of member {}, returning member", ret.get(), member);
-                            return Optional.of(member);
+                            // Could not resolve the return type to a class; chain incomplete
+                            log.debug("inferTypeAt: could not resolve return type '{}' of member {}, chain incomplete", ret.get(), member);
+                            return Optional.empty();
                         }
                         continue;
                     }
@@ -1053,20 +1053,20 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                     if (member.isField()) {
                         Optional<String> ft = parseFieldType(member);
                         if (ft.isEmpty()) {
-                            log.debug("inferTypeAt: member {} is field with unknown type - returning member", member);
-                            return Optional.of(member);
+                            log.debug("inferTypeAt: member {} is field with unknown type - cannot continue chain", member);
+                            return Optional.empty(); // can't infer type; chain incomplete
                         }
                         curTypeOpt = resolveTypeName.apply(stripGenericTypeArguments(ft.get()));
                         if (curTypeOpt.isEmpty()) {
-                            log.debug("inferTypeAt: could not resolve field type '{}' of member {}, returning member", ft.get(), member);
-                            return Optional.of(member);
+                            log.debug("inferTypeAt: could not resolve field type '{}' of member {}, chain incomplete", ft.get(), member);
+                            return Optional.empty(); // chain incomplete
                         }
                         continue;
                     }
 
                     // Fallback: unknown member kind
-                    log.debug("inferTypeAt: unknown member kind for {}, returning member", member);
-                    return Optional.of(member);
+                    log.debug("inferTypeAt: unknown member kind for {}, cannot continue chain", member);
+                    return Optional.empty();
                 }
             }
             return Optional.empty();

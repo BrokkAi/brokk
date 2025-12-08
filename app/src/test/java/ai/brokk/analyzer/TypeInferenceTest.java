@@ -440,6 +440,153 @@ public class TypeInferenceTest {
     }
 
     @Test
+    public void incompleteChainWithUnresolvableReturnType() throws Exception {
+        try (var project = InlineTestProjectCreator.code(
+                """
+                package p;
+
+                public class Unresolvable {
+                    public UnknownType getUnknown() { return null; }
+                }
+
+                public class Use {
+                    public void test() {
+                        Unresolvable u = new Unresolvable();
+                        int x = u.getUnknown().someField;
+                    }
+                }
+                """,
+                "X.java").build()) {
+
+            var analyzer = createTreeSitterAnalyzer(project);
+            var pf = new ProjectFile(project.getRoot(), "X.java");
+            var srcOpt = pf.read();
+            assertTrue(srcOpt.isPresent(), "Source should be readable");
+            String src = srcOpt.get();
+
+            // u.getUnknown().someField - getUnknown() returns UnknownType which cannot be resolved
+            int idxChain = src.indexOf("u.getUnknown().someField");
+            assertTrue(idxChain >= 0, "expected 'u.getUnknown().someField' in sample");
+            int offChain = src.substring(0, idxChain).getBytes(StandardCharsets.UTF_8).length + "u.getUnknown().".length();
+
+            Optional<CodeUnit> result = analyzer.inferTypeAt(pf, offChain);
+            assertFalse(result.isPresent(), "u.getUnknown().someField should return empty (unresolvable return type)");
+        }
+    }
+
+    @Test
+    public void incompleteChainWithUnresolvableFieldType() throws Exception {
+        try (var project = InlineTestProjectCreator.code(
+                """
+                package p;
+
+                public class Container {
+                    public SomeUnknownClass field;
+                }
+
+                public class Use {
+                    public void test() {
+                        Container c = new Container();
+                        int x = c.field.deeperAccess;
+                    }
+                }
+                """,
+                "X.java").build()) {
+
+            var analyzer = createTreeSitterAnalyzer(project);
+            var pf = new ProjectFile(project.getRoot(), "X.java");
+            var srcOpt = pf.read();
+            assertTrue(srcOpt.isPresent(), "Source should be readable");
+            String src = srcOpt.get();
+
+            // c.field.deeperAccess - field type SomeUnknownClass cannot be resolved
+            int idxChain = src.indexOf("c.field.deeperAccess");
+            assertTrue(idxChain >= 0, "expected 'c.field.deeperAccess' in sample");
+            int offChain = src.substring(0, idxChain).getBytes(StandardCharsets.UTF_8).length + "c.field.".length();
+
+            Optional<CodeUnit> result = analyzer.inferTypeAt(pf, offChain);
+            assertFalse(result.isPresent(), "c.field.deeperAccess should return empty (unresolvable field type)");
+        }
+    }
+
+    @Test
+    public void incompleteChainWithUnparsedReturnType() throws Exception {
+        try (var project = InlineTestProjectCreator.code(
+                """
+                package p;
+
+                public class Box<T> {
+                    public T getValue() { return null; }
+                }
+
+                public class Use {
+                    public void test(Box box) {
+                        int x = box.getValue().deeperAccess;
+                    }
+                }
+                """,
+                "X.java").build()) {
+
+            var analyzer = createTreeSitterAnalyzer(project);
+            var pf = new ProjectFile(project.getRoot(), "X.java");
+            var srcOpt = pf.read();
+            assertTrue(srcOpt.isPresent(), "Source should be readable");
+            String src = srcOpt.get();
+
+            // box.getValue().deeperAccess - getValue() return type is T (generic, cannot be resolved without type binding)
+            int idxChain = src.indexOf("box.getValue().deeperAccess");
+            assertTrue(idxChain >= 0, "expected 'box.getValue().deeperAccess' in sample");
+            int offChain = src.substring(0, idxChain).getBytes(StandardCharsets.UTF_8).length + "box.getValue().".length();
+
+            Optional<CodeUnit> result = analyzer.inferTypeAt(pf, offChain);
+            assertFalse(result.isPresent(), "box.getValue().deeperAccess should return empty (unresolvable generic return type)");
+        }
+    }
+
+    @Test
+    public void incompleteChainMultipleSteps() throws Exception {
+        try (var project = InlineTestProjectCreator.code(
+                """
+                package p;
+
+                public class A {
+                    public B getB() { return null; }
+                }
+
+                public class B {
+                    public C getC() { return null; }
+                }
+
+                public class C {
+                    public UnknownType getUnknown() { return null; }
+                }
+
+                public class Use {
+                    public void test() {
+                        A a = new A();
+                        int x = a.getB().getC().getUnknown().field;
+                    }
+                }
+                """,
+                "X.java").build()) {
+
+            var analyzer = createTreeSitterAnalyzer(project);
+            var pf = new ProjectFile(project.getRoot(), "X.java");
+            var srcOpt = pf.read();
+            assertTrue(srcOpt.isPresent(), "Source should be readable");
+            String src = srcOpt.get();
+
+            // a.getB().getC().getUnknown().field - final method returns UnknownType which cannot be resolved
+            int idxChain = src.indexOf("a.getB().getC().getUnknown().field");
+            assertTrue(idxChain >= 0, "expected 'a.getB().getC().getUnknown().field' in sample");
+            int offChain = src.substring(0, idxChain).getBytes(StandardCharsets.UTF_8).length + "a.getB().getC().getUnknown().".length();
+
+            Optional<CodeUnit> result = analyzer.inferTypeAt(pf, offChain);
+            assertFalse(result.isPresent(), "a.getB().getC().getUnknown().field should return empty (unresolvable final return type in chain)");
+        }
+    }
+
+    @Test
     public void typeRefSampleInnerClassAndEnumResolution() throws Exception {
         try (var project = InlineTestProjectCreator.code(
                 """
