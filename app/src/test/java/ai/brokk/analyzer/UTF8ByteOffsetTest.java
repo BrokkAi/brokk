@@ -41,9 +41,12 @@ public class UTF8ByteOffsetTest {
         int startByte = classNode.getStartByte();
         int endByte = classNode.getEndByte();
 
+        // Create SourceContent wrapper for safe byte offset handling
+        SourceContent content = SourceContent.of(javaCodeWithUnicode);
+
         // Calculate character positions for comparison
-        int startChar = ASTTraversalUtils.byteOffsetToCharPosition(startByte, javaCodeWithUnicode);
-        int endChar = ASTTraversalUtils.byteOffsetToCharPosition(endByte, javaCodeWithUnicode);
+        int startChar = content.byteOffsetToCharPosition(startByte);
+        int endChar = content.byteOffsetToCharPosition(endByte);
 
         // Demonstrate the issue: byte offsets != character positions due to Unicode
         assertNotEquals(startByte, startChar, "Byte offset should differ from char position due to Unicode");
@@ -63,7 +66,7 @@ public class UTF8ByteOffsetTest {
         });
 
         // NEW APPROACH (fixed): Using proper byte-to-character conversion
-        String extractedText = ASTTraversalUtils.safeSubstringFromByteOffsets(javaCodeWithUnicode, startByte, endByte);
+        String extractedText = content.substringFromByteOffsets(startByte, endByte);
 
         // Verify the fix works correctly
         assertTrue(
@@ -73,9 +76,9 @@ public class UTF8ByteOffsetTest {
                 extractedText.contains("private String field"), "Fixed approach should extract complete class content");
         assertTrue(extractedText.contains("public void method()"), "Fixed approach should extract method declaration");
 
-        // Also test ASTTraversalUtils.extractNodeText (which is also fixed)
-        String nodeText = ASTTraversalUtils.extractNodeText(classNode, javaCodeWithUnicode);
-        assertTrue(nodeText.contains("public class TestClass"), "ASTTraversalUtils should correctly extract node text");
+        // Also test SourceContent for node text extraction
+        String nodeText = content.substringFromByteOffsets(classNode.getStartByte(), classNode.getEndByte());
+        assertTrue(nodeText.contains("public class TestClass"), "SourceContent should correctly extract node text");
     }
 
     @Test
@@ -104,9 +107,12 @@ public class UTF8ByteOffsetTest {
         int startByte = classNode.getStartByte();
         int endByte = classNode.getEndByte();
 
+        // Create SourceContent wrapper for safe byte offset handling
+        SourceContent content = SourceContent.of(codeWithManyUnicode);
+
         // Calculate the significant offset drift
-        int startChar = ASTTraversalUtils.byteOffsetToCharPosition(startByte, codeWithManyUnicode);
-        int endChar = ASTTraversalUtils.byteOffsetToCharPosition(endByte, codeWithManyUnicode);
+        int startChar = content.byteOffsetToCharPosition(startByte);
+        int endChar = content.byteOffsetToCharPosition(endByte);
 
         int offsetDrift = startByte - startChar;
         assertTrue(offsetDrift > 20, "Should have significant byte offset drift: " + offsetDrift);
@@ -119,7 +125,7 @@ public class UTF8ByteOffsetTest {
         }
 
         // New approach should work
-        String newResult = ASTTraversalUtils.safeSubstringFromByteOffsets(codeWithManyUnicode, startByte, endByte);
+        String newResult = content.substringFromByteOffsets(startByte, endByte);
         assertTrue(newResult.contains("public class UnicodeTest"), "New approach should extract class correctly");
     }
 

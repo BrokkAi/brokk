@@ -1018,15 +1018,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         // For classes, expect one primary definition range (already expanded with comments)
         var range = ranges.getFirst();
 
-        var srcOpt = cu.source().read();
-        if (srcOpt.isEmpty()) {
+        var scOpt = SourceContent.read(cu.source());
+        if (scOpt.isEmpty()) {
             return Optional.empty();
         }
-        String src = TextCanonicalizer.stripUtf8Bom(srcOpt.get());
 
         // Choose start byte based on includeComments parameter
         int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
-        var extractedSource = ASTTraversalUtils.safeSubstringFromByteOffsets(src, extractStartByte, range.endByte());
+        var extractedSource = scOpt.get().substringFromByteOffsets(extractStartByte, range.endByte());
 
         return Optional.of(extractedSource);
     }
@@ -1043,12 +1042,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             return Collections.emptySet();
         }
 
-        var fileContentOpt = cu.source().read();
-        if (fileContentOpt.isEmpty()) {
+        var scOpt = SourceContent.read(cu.source());
+        if (scOpt.isEmpty()) {
             log.warn("Could not read source for CU {} (fqName {}): {}", cu, cu.fqName(), "unreadable");
             return Collections.emptySet();
         }
-        String fileContent = TextCanonicalizer.stripUtf8Bom(fileContentOpt.get());
 
         // Sort ranges by startByte to ensure they appear in source order (important for function overloads)
         // Always sort by the actual code start byte, not the comment start byte, to maintain source order
@@ -1060,8 +1058,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         for (Range range : sortedRanges) {
             // Choose start byte based on includeComments parameter
             int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
-            String methodSource =
-                    ASTTraversalUtils.safeSubstringFromByteOffsets(fileContent, extractStartByte, range.endByte());
+            String methodSource = scOpt.get().substringFromByteOffsets(extractStartByte, range.endByte());
             if (!methodSource.isEmpty()) {
                 methodSources.add(methodSource);
             } else {
@@ -1245,7 +1242,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * @param fqName         the computed FQName
      * @param captureName    the capture name from the query
      * @param definitionNode the AST node for this definition
-     * @param src            the source code
+     * @param sourceContent            the source code
      * @return enhanced FQName, or input FQName if no enhancement needed
      */
     protected String enhanceFqName(
@@ -1273,7 +1270,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * @param file           The project file being analyzed.
      * @param definitionNode The TSNode representing the definition (e.g., class, function).
      * @param rootNode       The root TSNode of the file's syntax tree.
-     * @param src            The source code of the file.
+     * @param sourceContent            The source code of the file.
      * @return The package or namespace name, or an empty string if not applicable.
      */
     protected abstract String determinePackageName(
@@ -1363,7 +1360,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      *
      * @param decoratedNode     the wrapping node (e.g., Python's decorated_definition)
      * @param outDecoratorLines list to append decorator text to
-     * @param srcBytes          source code bytes
+     * @param sourceContent     source code
      * @param profile           language syntax profile for identifying decorator and definition node types
      * @return the unwrapped definition node
      */
@@ -1414,7 +1411,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      *
      * @param node               the method definition node
      * @param primaryCaptureName the primary capture name (e.g., "method.definition")
-     * @param fileBytes          source code bytes
+     * @param sourceContent      source code
      * @return the receiver type name (with leading * removed for pointers), or empty if no receiver
      */
     protected Optional<String> extractReceiverType(
@@ -2339,6 +2336,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     /**
      * Renders the opening part of a class-like structure (e.g., "public class Foo {").
+     *
+     * @param classNode     The AST node representing the class-like declaration.
+     * @param sourceContent The source code wrapper for extracting text from the class node.
+     * @param exportPrefix  The export/visibility modifier prefix (e.g., "export ", "public ").
+     * @param signatureText The signature text of the class header.
+     * @param baseIndent    The base indentation string for this line.
+     * @return The fully rendered class header line.
      */
     protected abstract String renderClassHeader(
             TSNode classNode,
@@ -2353,7 +2357,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     /**
      * Formats the parameter list for a function. Subclasses may override to provide language-specific formatting using
-     * the full AST subtree. The default implementation simply returns the raw text of {@code parametersNode}.
+     * the full AST subtree. The default implementation simply returns the raw text of {@code parametersNode} extracted
+     * from the provided {@code sourceContent}.
+     *
+     * @param parametersNode The AST node representing the parameter list.
+     * @param sourceContent  The source code wrapper for extracting text.
+     * @return The formatted parameter list text, or an empty string if the node is null.
      */
     protected String formatParameterList(TSNode parametersNode, SourceContent sourceContent) {
         return parametersNode.isNull() ? "" : textSlice(parametersNode, sourceContent);
@@ -2363,8 +2372,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     /**
      * Formats the return-type portion of a function signature. Subclasses may override to provide language-specific
-     * formatting. The default implementation returns the raw text of {@code returnTypeNode} (or an empty string if the
-     * node is null).
+     * formatting. The default implementation returns the raw text of {@code returnTypeNode} extracted from the provided
+     * {@code sourceContent}, or an empty string if the node is null.
+     *
+     * @param returnTypeNode The AST node representing the return type, or null if not applicable.
+     * @param sourceContent  The source code wrapper for extracting text.
+     * @return The formatted return type text, or an empty string if the node is null.
      */
     protected String formatReturnType(@Nullable TSNode returnTypeNode, SourceContent sourceContent) {
         return returnTypeNode == null || returnTypeNode.isNull() ? "" : textSlice(returnTypeNode, sourceContent);
@@ -2412,6 +2425,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Formats the complete signature for a field-like declaration. Subclasses must implement this to provide
      * language-specific formatting, including any necessary keywords, type annotations, and terminators (e.g.,
      * semicolon).
+     *
+     * @param fieldNode      The AST node representing the field declaration.
+     * @param sourceContent  The source code wrapper for extracting or processing text.
+     * @param exportPrefix   The export/visibility modifier prefix (e.g., "export ", "public ").
+     * @param signatureText  The base signature text to format.
+     * @param baseIndent     The base indentation string for this line.
+     * @param file           The project file being analyzed.
+     * @return The fully formatted field signature line.
      */
     protected String formatFieldSignature(
             TSNode fieldNode,
@@ -2861,11 +2882,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * function body is not empty or trivial.
      *
      * @param funcNode                The Tree-sitter node representing the function.
-     * @param src                     The source code of the file.
+     * @param sourceContent           The source code wrapper for extracting text from the function node.
      * @param exportAndModifierPrefix The combined export and modifier prefix (e.g., "export async ", "public static ").
      * @param asyncPrefix             This parameter is deprecated and no longer used; async is part of exportAndModifierPrefix.
      *                                Pass empty string.
      * @param functionName            The name of the function.
+     * @param typeParamsText          The text content of the function's type parameters, or empty if none.
      * @param paramsText              The text content of the function's parameters.
      * @param returnTypeText          The text content of the function's return type, or empty if none.
      * @param indent                  The base indentation string for this line.

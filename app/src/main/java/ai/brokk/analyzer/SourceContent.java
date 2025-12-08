@@ -1,6 +1,9 @@
 package ai.brokk.analyzer;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
+
+import ai.brokk.util.TextCanonicalizer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -10,6 +13,11 @@ import org.apache.logging.log4j.Logger;
  */
 public record SourceContent(String text, byte[] utf8Bytes, int byteLength) {
     private static final Logger log = LogManager.getLogger(SourceContent.class);
+
+    public static Optional<SourceContent> read(ProjectFile file) {
+        var srcOpt = file.read();
+        return srcOpt.map(s -> SourceContent.of(TextCanonicalizer.stripUtf8Bom(s)));
+    }
 
     /**
      * Creates a SourceContent wrapper for the provided source text.
@@ -67,5 +75,19 @@ public record SourceContent(String text, byte[] utf8Bytes, int byteLength) {
         // Reconstruct prefix string from bytes and return its length in code units.
         String prefix = new String(utf8Bytes, 0, byteOffset, StandardCharsets.UTF_8);
         return prefix.length();
+    }
+
+    /**
+     * Converts a Java String character index (code unit position) into a UTF-8 byte offset.
+     *
+     * If charPosition <= 0 returns 0. If charPosition >= source.length() returns byteLength.
+     */
+    public int charPositionToByteOffset(int charPosition) {
+        if (charPosition <= 0) return 0;
+        if (charPosition >= text.length()) return byteLength;
+
+        // Build prefix substring and measure UTF-8 byte length.
+        String prefix = text.substring(0, charPosition);
+        return prefix.getBytes(StandardCharsets.UTF_8).length;
     }
 }
