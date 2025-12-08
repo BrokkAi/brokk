@@ -1003,18 +1003,29 @@ public class JavaAnalyzerTest {
                 """
                 package sample;
                 import java.util.List;
+                import java.util.Map;
                 public class Sample {
                     public void method(java.lang.String param) {
+                        // Primitive types
+                        int x = 42;
+                        double d = 3.14;
+                        boolean flag = true;
+                        // Generic types
                         List<String> items = new java.util.ArrayList<>();
+                        Map<String, Integer> mapping = new java.util.HashMap<>();
+                        // Array types
+                        String[] names = new String[10];
+                        int[] numbers = {1, 2, 3};
+                        // Enhanced-for loop
                         for (String s : items) {
                             // loop body
                         }
+                        // Try-with-resources
                         try (AutoCloseable r = createResource()) {
                             // try body
                         } catch (Exception e) {
                             // handle
                         }
-                        int x = 42;
                     }
                     private AutoCloseable createResource() { return null; }
                 }
@@ -1043,12 +1054,25 @@ public class JavaAnalyzerTest {
             }
         }
 
-        // Verify expected local names
-        assertTrue(names.contains("items"), () -> "Expected 'items' to be captured, found: " + names);
+        // Verify expected local names - primitives
+        assertTrue(names.contains("x"), () -> "Expected 'x' (int) to be captured, found: " + names);
+        assertTrue(names.contains("d"), () -> "Expected 'd' (double) to be captured, found: " + names);
+        assertTrue(names.contains("flag"), () -> "Expected 'flag' (boolean) to be captured, found: " + names);
+
+        // Verify expected local names - generics
+        assertTrue(names.contains("items"), () -> "Expected 'items' (List<String>) to be captured, found: " + names);
+        assertTrue(names.contains("mapping"), () -> "Expected 'mapping' (Map<String, Integer>) to be captured, found: " + names);
+
+        // Verify expected local names - arrays
+        assertTrue(names.contains("names"), () -> "Expected 'names' (String[]) to be captured, found: " + names);
+        assertTrue(names.contains("numbers"), () -> "Expected 'numbers' (int[]) to be captured, found: " + names);
+
+        // Verify expected local names - enhanced-for and try-with-resources
         assertTrue(names.contains("s"), () -> "Expected enhanced-for var 's' to be captured, found: " + names);
         assertTrue(names.contains("r"), () -> "Expected try-with-resources var 'r' to be captured, found: " + names);
-        assertTrue(names.contains("x"), () -> "Expected local var 'x' to be captured, found: " + names);
-        assertTrue(names.contains("param"), () -> "Expected method parameter 'param' to be captured, found: " + names);
         assertTrue(names.contains("e"), () -> "Expected catch parameter 'e' to be captured, found: " + names);
+
+        // Verify expected local names - parameters
+        assertTrue(names.contains("param"), () -> "Expected method parameter 'param' to be captured, found: " + names);
     }
 }

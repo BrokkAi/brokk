@@ -947,13 +947,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
                 if (declIndex > 0) {
                     // Walk backward from declIndex-1 to find the best candidate for a type node.
+                    // Use exact node type matches for Java type nodes to avoid false positives.
                     TSNode chosen = null;
                     for (int i = declIndex - 1; i >= 0; i--) {
                         TSNode cand = parent.getNamedChild(i);
                         if (cand == null || cand.isNull()) continue;
                         String t = cand.getType();
-                        // Prefer explicit type-like node names; fall back to the first non-annotation/modifier node.
-                        if (t.contains("type") || t.contains("identifier") || t.contains("primitive") || t.endsWith("type")) {
+                        // Prefer explicit type node types used in Java (exact matches).
+                        if (isJavaTypeNode(t)) {
                             chosen = cand;
                             break;
                         }
@@ -968,7 +969,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                         TSNode c = declNode.getNamedChild(i);
                         if (c == null || c.isNull()) continue;
                         String t = c.getType();
-                        if (t.contains("type") || t.contains("identifier") || t.contains("primitive")) {
+                        // Use exact matches for Java type nodes.
+                        if (isJavaTypeNode(t)) {
                             typeName = textSlice(c, srcBytes).strip();
                             break;
                         }
@@ -3495,6 +3497,29 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
         Collections.reverse(decorators); // Decorators should be in source order
         return decorators;
+    }
+
+    /**
+     * Checks if a TSNode represents a Java type declaration node. Uses exact type matches
+     * to avoid false positives from the loose "contains(type)" heuristic.
+     * Covers primitive types, type identifiers, generics, and array types.
+     */
+    private static boolean isJavaTypeNode(String nodeType) {
+        // Java primitive types
+        if (nodeType.equals("primitive_type")) return true;
+        // Java type identifiers (e.g., "String", "List")
+        if (nodeType.equals("type_identifier")) return true;
+        // Java generic types (e.g., "List<String>")
+        if (nodeType.equals("generic_type")) return true;
+        // Java array types (e.g., "String[]")
+        if (nodeType.equals("array_type")) return true;
+        // Java union types (for catch blocks)
+        if (nodeType.equals("union_type")) return true;
+        // Java wildcard types (e.g., "? extends Number")
+        if (nodeType.equals("wildcard_type")) return true;
+        // Java parameterized types wrapped in type node
+        if (nodeType.equals("type")) return true;
+        return false;
     }
 
     /**
