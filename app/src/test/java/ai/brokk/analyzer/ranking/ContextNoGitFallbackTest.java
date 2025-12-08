@@ -68,27 +68,29 @@ public class ContextNoGitFallbackTest {
             IGitRepo stubRepo = new IGitRepo() {
                 @Override
                 public Set<GitRepo.ModifiedFile> getModifiedFiles() {
+                    repoInvoked.set(true);
                     return java.util.Set.of();
                 }
 
                 @Override
                 public Set<ProjectFile> getTrackedFiles() {
+                    repoInvoked.set(true);
                     return Set.of();
                 }
 
                 @Override
                 public void add(Collection<ai.brokk.analyzer.ProjectFile> files) {
-                    // no-op
+                    repoInvoked.set(true);
                 }
 
                 @Override
                 public void add(Path path) {
-                    // no-op
+                    repoInvoked.set(true);
                 }
 
                 @Override
                 public void remove(ProjectFile file) {
-                    // no-op
+                    repoInvoked.set(true);
                 }
             };
 
