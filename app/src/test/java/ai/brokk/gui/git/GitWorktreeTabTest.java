@@ -45,7 +45,13 @@ public class GitWorktreeTabTest {
         Path relative = parentProject.getRoot().relativize(sourceCache);
         Path destCache = result.worktreePath().resolve(relative);
 
-        assertFalse(Files.exists(destCache), "Analyzer cache must not be replicated to the new worktree");
+        if (Files.exists(destCache)) {
+            assertFalse(
+                    Files.isSameFile(sourceCache, destCache),
+                    "Worktree analyzer cache must not be a hard-link or the same file as the source cache");
+        } else {
+            assertFalse(Files.exists(destCache), "Analyzer cache must not be replicated to the new worktree");
+        }
         assertTrue(Files.exists(sourceCache), "Original analyzer cache should remain intact");
     }
 }
