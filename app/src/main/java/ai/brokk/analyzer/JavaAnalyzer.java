@@ -996,23 +996,11 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                             }
                         }
                     }
-1                }
+                }
 
                 // If still unresolved, chain cannot be followed
                 if (currentType.isEmpty()) {
-                    // Best-effort fallback: if the last segment corresponds uniquely to a field in the project,
-                    // return that field to satisfy simple chained resolution cases where intermediate inference failed.
-                    String lastSegFallback = segments[segments.length - 1];
-                    var allCandidates = searchDefinitions(lastSegFallback);
-                    var fieldCandidates = allCandidates.stream()
-                            .filter(CodeUnit::isField)
-                            .filter(cu -> matchesMember(cu, lastSegFallback))
-                            .toList();
-                    if (fieldCandidates.size() == 1) {
-                        log.debug("inferTypeAt: using unique global field fallback for '{}' -> {}", lastSegFallback, fieldCandidates.getFirst());
-                        return Optional.of(fieldCandidates.getFirst());
-                    }
-                    log.debug("inferTypeAt: chained resolution failed for '{}'", ident);
+                    log.debug("inferTypeAt: unable to resolve leftCandidate '{}', chained resolution failed for '{}'", leftCandidate, ident);
                     return Optional.empty();
                 }
 
@@ -1031,17 +1019,6 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                         }
                     }
                     if (member == null) {
-                        // Not found in this type - try a conservative fallback: if the segment names a field that exists
-                        // uniquely in the whole project, return that one.
-                        var globalCandidates = searchDefinitions(seg);
-                        var globalFieldCandidates = globalCandidates.stream()
-                                .filter(CodeUnit::isField)
-                                .filter(cu -> matchesMember(cu, seg))
-                                .toList();
-                        if (globalFieldCandidates.size() == 1) {
-                            log.debug("inferTypeAt: global unique field fallback for '{}' -> {}", seg, globalFieldCandidates.getFirst());
-                            return Optional.of(globalFieldCandidates.getFirst());
-                        }
                         log.debug("inferTypeAt: member '{}' not found on type {} while walking chain", seg, curType);
                         return Optional.empty();
                     }

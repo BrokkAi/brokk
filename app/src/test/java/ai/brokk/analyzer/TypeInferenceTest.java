@@ -251,6 +251,56 @@ public class TypeInferenceTest {
     }
 
     @Test
+    public void unresolvableChainReturnsEmpty() throws Exception {
+        try (var project = InlineTestProjectCreator.code(
+                """
+                package p;
+
+                public class A {
+                    public void method() {}
+                }
+
+                public class B {
+                    public int unrelatedField;
+                }
+
+                public class Use {
+                    public void test() {
+                        Object unknownVar = null;
+                        unknownVar.nonExistentMethod();
+                        A a = new A();
+                        a.unknownMember.deeperAccess();
+                    }
+                }
+                """,
+                "X.java").build()) {
+
+            var analyzer = createTreeSitterAnalyzer(project);
+            var pf = new ProjectFile(project.getRoot(), "X.java");
+            var srcOpt = pf.read();
+            assertTrue(srcOpt.isPresent(), "Source should be readable");
+            String src = srcOpt.get();
+
+            // Test 1: unknownVar.nonExistentMethod() - unknownVar is Object (unresolvable), should return empty
+            int idxUnknown = src.indexOf("unknownVar.nonExistentMethod()");
+            assertTrue(idxUnknown >= 0, "expected 'unknownVar.nonExistentMethod()' in sample");
+            int offUnknown = src.substring(0, idxUnknown).getBytes(StandardCharsets.UTF_8).length + "unknownVar.".length();
+
+            Optional<CodeUnit> r1 = analyzer.inferTypeAt(pf, offUnknown);
+            assertFalse(r1.isPresent(), "unknownVar.nonExistentMethod should return empty (cannot resolve chain)");
+
+            // Test 2: a.unknownMember.deeperAccess() - unknownMember does not exist on A, should return empty
+            // (not a globally unique field from B even though B has unrelatedField)
+            int idxA = src.indexOf("a.unknownMember.deeperAccess()");
+            assertTrue(idxA >= 0, "expected 'a.unknownMember.deeperAccess()' in sample");
+            int offA = src.substring(0, idxA).getBytes(StandardCharsets.UTF_8).length + "a.".length();
+
+            Optional<CodeUnit> r2 = analyzer.inferTypeAt(pf, offA);
+            assertFalse(r2.isPresent(), "a.unknownMember should return empty (member not found on A, no global fallback)");
+        }
+    }
+
+    @Test
     public void unqualifiedResolutionAndShadowing() throws Exception {
         try (var project = InlineTestProjectCreator.code(
                 """
