@@ -94,7 +94,7 @@
       class="segmented-control"
       role="radiogroup"
       aria-label="Thread view mode"
-      on:keydown|stopPropagation|preventDefault={handleGroupKeydown}
+      on:keydown|stopPropagation={handleGroupKeydown}
     >
       <button
         type="button"

@@ -62,7 +62,7 @@
   // Live view: check for bubbles and/or live summary via summaryParseStore
   $: hasLiveBubbles = $bubblesStore.length > 0;
   $: liveThreadId = hasLiveBubbles ? $bubblesStore[0].threadId : getCurrentLiveThreadId();
-  $: liveSummaryEntry = liveThreadId !== undefined ? $summaryStore[liveThreadId] : undefined;
+  $: liveSummaryEntry = (typeof liveThreadId === 'number' && !isNaN(liveThreadId)) ? $summaryStore[liveThreadId] : undefined;
   $: hasLiveSummaryOnly = !hasLiveBubbles && !!liveSummaryEntry?.compressed && !!liveSummaryEntry?.text;
   $: hasLive = hasLiveBubbles || hasLiveSummaryOnly;
 

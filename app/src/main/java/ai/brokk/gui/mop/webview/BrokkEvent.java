@@ -61,6 +61,7 @@ public sealed interface BrokkEvent {
      * Appends a task to the frontend's history.
      * Can contain summary (when compressed=true), messages (when available), or both.
      * The compressed flag indicates whether the AI uses a summary for this task.
+     * <b>Note:</b> At least one of {@code summary} or {@code messages} must be non-null.
      */
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     record HistoryTask(

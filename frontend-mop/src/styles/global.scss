@@ -8,7 +8,11 @@ body {
   background: var(--chat-background);
 }
 
-* {
+body,
+button,
+input,
+select,
+textarea {
   font-family: 'Segoe UI', system-ui, sans-serif;
 }
 

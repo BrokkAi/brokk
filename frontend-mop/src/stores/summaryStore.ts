@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import type { ResultMsg } from '../worker/shared';
 
 export type SummaryParseEntry = {
@@ -37,9 +37,5 @@ export function clearAllSummaryEntries(): void {
 }
 
 export function getSummaryEntry(threadId: number): SummaryParseEntry | undefined {
-  let result: SummaryParseEntry | undefined;
-  summaryStore.subscribe(store => {
-    result = store[threadId];
-  })();
-  return result;
+  return get(summaryStore)[threadId];
 }
