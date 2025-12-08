@@ -185,7 +185,23 @@ public final class FileFilteringService {
         record Glob(String original, PathMatcher matcher, boolean matchFullPath) implements CompiledPattern {}
     }
 
-    /** Pre-compile file patterns for efficient reuse across many files. */
+    /**
+     * Pre-compile file patterns for efficient reuse across many files.
+     *
+     * <p>Pattern semantics (all matching is case-insensitive):
+     * <ul>
+     *   <li><b>Exact filename</b> (no wildcards, no slash): matched against filename only.
+     *       Example: {@code package-lock.json}
+     *   <li><b>Extension pattern</b> ({@code *.ext} without additional wildcards in suffix):
+     *       matched against filename only. Example: {@code *.svg}, {@code *.min.js}
+     *   <li><b>Glob pattern</b> (contains {@code *}, {@code ?}, or {@code /}):
+     *       if pattern contains {@code /}, matched against full relative path;
+     *       otherwise matched against filename only. Example: {@code *.*}, {@code build/**}
+     * </ul>
+     *
+     * <p>Note: {@code *.*} matches any file with a dot in its name, including dotfiles
+     * like {@code .gitignore} and {@code .env}.
+     */
     private List<CompiledPattern> compilePatterns(Set<String> patterns) {
         var compiled = new ArrayList<CompiledPattern>();
         for (String rawPattern : patterns) {
