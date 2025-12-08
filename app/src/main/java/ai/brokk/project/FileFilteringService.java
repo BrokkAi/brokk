@@ -232,11 +232,13 @@ public final class FileFilteringService {
         String lowerFilePath = filePath.toLowerCase(Locale.ROOT);
 
         for (var cp : compiledPatterns) {
-            boolean matched = switch (cp) {
-                case CompiledPattern.ExactFilename ef -> lowerFileName.equals(ef.lowerName());
-                case CompiledPattern.Extension ext -> lowerFileName.endsWith(ext.lowerSuffix());
-                case CompiledPattern.Glob g -> g.matcher().matches(Path.of(g.matchFullPath() ? lowerFilePath : lowerFileName));
-            };
+            boolean matched =
+                    switch (cp) {
+                        case CompiledPattern.ExactFilename ef -> lowerFileName.equals(ef.lowerName());
+                        case CompiledPattern.Extension ext -> lowerFileName.endsWith(ext.lowerSuffix());
+                        case CompiledPattern.Glob g ->
+                            g.matcher().matches(Path.of(g.matchFullPath() ? lowerFilePath : lowerFileName));
+                    };
             if (matched) {
                 logger.trace("File {} excluded by pattern: {}", filePath, cp.original());
                 return true;

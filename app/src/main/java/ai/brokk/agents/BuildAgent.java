@@ -42,10 +42,13 @@ import java.io.StringReader;
 import java.io.StringWriter;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
@@ -130,36 +133,43 @@ public class BuildAgent {
         var addedFromGitignore = new ArrayList<String>();
         if (project.hasGit()) {
             try {
-                // Walk the full directory tree to find gitignored directories.
-                // Note: This full tree walk is acceptable here because it's a one-time operation
-                // at agent startup, not in the hot filtering path. For frequent file filtering
-                // operations (like AbstractProject.applyFiltering()), we use cached IgnoreNode
-                // with direct path checking instead.
-                try (var dirStream = Files.walk(project.getRoot())) {
-                    // Collect all ignored directories, sorted by depth (shortest paths first)
-                    // Use toUnixPath for cross-platform consistency
-                    var ignoredDirs = dirStream
-                            .filter(Files::isDirectory)
-                            .filter(path -> !path.equals(project.getRoot())) // Skip root
-                            .map(path -> project.getRoot().relativize(path))
-                            .filter(relPath -> !toUnixPath(relPath).startsWith(".")) // Skip hidden dirs like .git
-                            .filter(relPath -> project.isDirectoryIgnored(relPath))
-                            .map(path -> toUnixPath(path))
-                            .sorted(Comparator.comparingInt(s -> s.split("/").length))
-                            .toList();
+                // Walk the directory tree to find gitignored directories.
+                // Uses walkFileTree to skip subtrees once a directory is known-ignored,
+                // avoiding descent into node_modules/, target/, .git/, etc.
+                var addedPaths = new HashSet<String>();
+                var projectRoot = project.getRoot();
 
-                    // Only store top-level ignored directories (skip nested paths)
-                    var addedPaths = new HashSet<String>();
-                    for (String dirName : ignoredDirs) {
-                        boolean ancestorExcluded =
-                                addedPaths.stream().anyMatch(existing -> dirName.startsWith(existing + "/"));
-                        if (!ancestorExcluded) {
-                            this.currentExcludedDirectories.add(dirName);
-                            addedFromGitignore.add(dirName);
-                            addedPaths.add(dirName);
+                Files.walkFileTree(projectRoot, new SimpleFileVisitor<Path>() {
+                    @Override
+                    public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                        if (dir.equals(projectRoot)) {
+                            return FileVisitResult.CONTINUE;
                         }
+
+                        var relPath = projectRoot.relativize(dir);
+                        var unixPath = toUnixPath(relPath);
+
+                        // Skip hidden directories like .git
+                        if (unixPath.startsWith(".")) {
+                            return FileVisitResult.SKIP_SUBTREE;
+                        }
+
+                        // Check if this directory is gitignored
+                        if (project.isDirectoryIgnored(relPath)) {
+                            currentExcludedDirectories.add(unixPath);
+                            addedFromGitignore.add(unixPath);
+                            addedPaths.add(unixPath);
+                            return FileVisitResult.SKIP_SUBTREE; // Don't descend into ignored dirs
+                        }
+
+                        return FileVisitResult.CONTINUE;
                     }
-                }
+
+                    @Override
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                        return FileVisitResult.CONTINUE; // We only care about directories
+                    }
+                });
 
             } catch (IOException e) {
                 logger.warn("Error analyzing gitignore directory exclusions: {}", e.getMessage());
