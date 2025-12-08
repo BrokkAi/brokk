@@ -339,6 +339,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
         // Use cached tree to avoid redundant parsing - significant performance improvement
         String fileContent = getCachedFileContent(file);
+        var sourceContent = SourceContent.of(fileContent);
         TSTree tree = treeOf(file);
         if (tree == null) {
             var parser = getSharedParser();
@@ -346,8 +347,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         }
         var rootNode = tree.getRootNode();
 
-        resultSkeletons = skeletonGenerator.fixGlobalEnumSkeletons(resultSkeletons, file, rootNode, fileContent);
-        resultSkeletons = skeletonGenerator.fixGlobalUnionSkeletons(resultSkeletons, file, rootNode, fileContent);
+        resultSkeletons = skeletonGenerator.fixGlobalEnumSkeletons(resultSkeletons, file, rootNode, sourceContent);
+        resultSkeletons = skeletonGenerator.fixGlobalUnionSkeletons(resultSkeletons, file, rootNode, sourceContent);
         final var tempSkeletons = resultSkeletons; // we need an "effectively final" variable for the callback
         resultSkeletons = withCodeUnitProperties(properties -> {
             var signaturesMap = new HashMap<CodeUnit, List<String>>();
@@ -357,7 +358,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                     signaturesMap,
                     file,
                     rootNode,
-                    fileContent,
+                    sourceContent,
                     namespaceName -> createCodeUnit(file, CodeUnitType.MODULE, "", namespaceName));
         });
         if (isHeaderFile(file)) {

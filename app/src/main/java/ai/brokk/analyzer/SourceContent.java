@@ -1,9 +1,8 @@
 package ai.brokk.analyzer;
 
+import ai.brokk.util.TextCanonicalizer;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
-
-import ai.brokk.util.TextCanonicalizer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
