@@ -1257,46 +1257,49 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
          * If no definition is found, this is a no-op.
          */
     private void goToDefinition() {
-                        if (file == null) return;
+        if (file == null) return;
 
-                        // Capture current caret position (character offset) before we attempt navigation.
-                        final int currentOffset = Math.max(0, textArea.getCaretPosition());
+        // Capture current caret position (character offset) before we attempt navigation.
+        final int currentOffset = Math.max(0, textArea.getCaretPosition());
 
-                        cm.submitBackgroundTask("Go To Definition", () -> {
-                                            var analyzer = cm.getAnalyzerUninterrupted();
-                                            if (analyzer == null || analyzer.isEmpty()) return null;
+        cm.submitBackgroundTask("Go To Definition", () -> {
+            var analyzer = cm.getAnalyzerUninterrupted();
+            if (analyzer.isEmpty()) return null;
 
-                                            // Convert caret char offset to UTF-8 byte offset
-                                            String text = textArea.getText();
-                                            int charOffset = Math.max(0, textArea.getCaretPosition());
-                                            int boundedCharOffset = Math.min(charOffset, text.length());
-                                            int byteOffset = text.substring(0, boundedCharOffset).getBytes(StandardCharsets.UTF_8).length;
+            // Convert caret char offset to UTF-8 byte offset
+            String text = textArea.getText();
+            int charOffset = Math.max(0, textArea.getCaretPosition());
+            int boundedCharOffset = Math.min(charOffset, text.length());
+            int byteOffset = text.substring(0, boundedCharOffset).getBytes(StandardCharsets.UTF_8).length;
 
-                                            try {
-                                                                var inferred = analyzer.inferTypeAt(file, byteOffset);
-                                                                if (inferred.isEmpty()) return null;
-                                                                var target = inferred.get();
+            try {
+                var inferred = analyzer.inferTypeAt(file, byteOffset);
+                if (inferred.isEmpty()) {
+                    logger.debug("No definition found at caret for {}", file);
+                    return null;
+                }
+                var target = inferred.get();
 
-                                                                // UI action: push current location to history, then open the source for the CodeUnit
-                                                                SwingUtilities.invokeLater(() -> {
-                                                                                    try {
-                                                                                                        // Push the current location into the enclosing PreviewFrame history if present
-                                                                                                        var ancestor = SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
-                                                                                                        if (ancestor instanceof PreviewFrame previewFrame) {
-                                                                                                                            previewFrame.pushLocation(file, currentOffset);
-                                                                                                        }
+                // UI action: push current location to history, then open the source for the CodeUnit
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        // Push the current location into the enclosing PreviewFrame history if present
+                        var ancestor = SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
+                        if (ancestor instanceof PreviewFrame previewFrame) {
+                            previewFrame.pushLocation(file, currentOffset);
+                        }
 
-                                                                                                        // Open the source for the inferred CodeUnit
-                                                                                                        cm.sourceCodeForCodeUnit(analyzer, target);
-                                                                                    } catch (Exception ex) {
-                                                                                                        logger.debug("Failed to open definition for {}: {}", target, ex.getMessage());
-                                                                                    }
-                                                                });
-                                            } catch (Exception e) {
-                                                                logger.debug("Error while computing Go To Definition", e);
-                                            }
-                                            return null;
-                        });
+                        // Open the source for the inferred CodeUnit
+                        cm.sourceCodeForCodeUnit(analyzer, target);
+                    } catch (Exception ex) {
+                        logger.debug("Failed to open definition for {}: {}", target, ex.getMessage());
+                    }
+                });
+            } catch (Exception e) {
+                logger.debug("Error while computing Go To Definition", e);
+            }
+            return null;
+        });
 
     }
 
