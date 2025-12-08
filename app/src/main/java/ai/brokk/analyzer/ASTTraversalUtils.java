@@ -1,11 +1,8 @@
 package ai.brokk.analyzer;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Predicate;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSNode;
 
@@ -14,8 +11,6 @@ import org.treesitter.TSNode;
  * recursive node searching and traversal operations.
  */
 public class ASTTraversalUtils {
-    private static final Logger log = LogManager.getLogger(ASTTraversalUtils.class);
-
     /** Recursively finds the first node matching the given predicate. */
     public static @Nullable TSNode findNodeRecursive(@Nullable TSNode rootNode, Predicate<TSNode> predicate) {
         if (rootNode == null || rootNode.isNull()) {

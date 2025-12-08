@@ -2282,7 +2282,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * @param cu           the CodeUnit representing the class-like declaration
      * @param classNode    the TSNode for the class/interface/enum/record declaration
      * @param signature    the rendered signature text (first line typically), if useful
-     * @param src          the source code string
+     * @param sourceContent the source code
      * @return ordered list of raw supertypes; empty if none or not applicable
      */
     protected List<String> extractRawSupertypesForClassLike(
@@ -2461,7 +2461,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * this to provide language-specific logic. The default implementation returns an empty string.
      *
      * @param node The node to check for visibility/export modifiers.
-     * @param src  The source code.
+     * @param sourceContent The source code.
      * @return The visibility or export prefix string.
      */
     protected String getVisibilityPrefix(TSNode node, SourceContent sourceContent) {
@@ -2847,7 +2847,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * tracking comments.
      *
      * @param bodyNode   The TSNode representing the function's body. Can be null.
-     * @param src        The source code.
+     * @param sourceContent The source code.
      * @param functionCu The CodeUnit for the function. Can be null if not available.
      * @return A list of comment strings, or an empty list if none.
      */

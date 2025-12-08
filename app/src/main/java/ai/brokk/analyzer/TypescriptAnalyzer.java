@@ -137,12 +137,10 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     private String cachedTextSliceStripped(TSNode node, SourceContent sc) {
-        if (sc == null) {
-            return "";
-        }
         return textSlice(node, sc).strip();
     }
 
+    @Override
     protected TSLanguage getTSLanguage() {
         return TS_LANGUAGE;
     }

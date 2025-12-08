@@ -2,16 +2,31 @@ package ai.brokk.analyzer;
 
 import ai.brokk.util.TextCanonicalizer;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.Objects;
 import java.util.Optional;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Wrapper for a source text and its UTF-8 bytes. Provides safe substring extraction by UTF-8 byte offsets
  * and avoids repeated String.getBytes(StandardCharsets.UTF_8) allocations across callers.
  */
-public record SourceContent(String text, byte[] utf8Bytes, int byteLength) {
+public final class SourceContent {
     private static final Logger log = LogManager.getLogger(SourceContent.class);
+
+    private final String text;
+    private final byte[] utf8Bytes;
+    private final int byteLength;
+
+    /**
+     */
+    public SourceContent(String text, byte[] utf8Bytes, int byteLength) {
+        this.text = text;
+        this.utf8Bytes = utf8Bytes;
+        this.byteLength = byteLength;
+    }
 
     public static Optional<SourceContent> read(ProjectFile file) {
         var srcOpt = file.read();
@@ -88,5 +103,37 @@ public record SourceContent(String text, byte[] utf8Bytes, int byteLength) {
         // Build prefix substring and measure UTF-8 byte length.
         String prefix = text.substring(0, charPosition);
         return prefix.getBytes(StandardCharsets.UTF_8).length;
+    }
+
+    public String text() {
+        return text;
+    }
+
+    public byte[] utf8Bytes() {
+        return utf8Bytes;
+    }
+
+    public int byteLength() {
+        return byteLength;
+    }
+
+    @Override
+    public boolean equals(@Nullable Object obj) {
+        if (obj == this) return true;
+        if (obj == null || obj.getClass() != this.getClass()) return false;
+        var that = (SourceContent) obj;
+        return Objects.equals(this.text, that.text)
+                && Arrays.equals(this.utf8Bytes, that.utf8Bytes)
+                && this.byteLength == that.byteLength;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(text, Arrays.hashCode(utf8Bytes), byteLength);
+    }
+
+    @Override
+    public String toString() {
+        return "SourceContent[" + "text=" + text + ", " + "byteLength=" + byteLength + ']';
     }
 }

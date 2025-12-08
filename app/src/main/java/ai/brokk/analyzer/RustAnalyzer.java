@@ -83,7 +83,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
      * @param file     The project file being analyzed.
      * @param defNode  The TSNode representing the definition (unused in this implementation).
      * @param rootNode The root TSNode of the file's syntax tree (unused in this implementation).
-     * @param src      The source code of the file (unused in this implementation).
+     * @param sourceContent The source code of the file (unused in this implementation).
      * @return The module path string (e.g., "foo.bar"), or an empty string for the crate root.
      */
     @Override
