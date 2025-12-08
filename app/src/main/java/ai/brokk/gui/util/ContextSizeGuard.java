@@ -38,6 +38,11 @@ public final class ContextSizeGuard {
     /**
      * Estimates tokens for a collection of files/directories using file size heuristic.
      * Does not read file contents - uses bytes/4 approximation.
+     *
+     * <p><b>Note:</b> Enumeration stops after {@value #MAX_FILES_TO_ENUMERATE} files globally
+     * to avoid performance issues with large directory trees. If truncated, the estimate will
+     * undercount the actual token size. The returned {@link SizeEstimate#isTruncated()} flag
+     * indicates whether truncation occurred.
      */
     public static SizeEstimate estimateTokens(Collection<ProjectFile> files) {
         long totalBytes = 0;
@@ -142,9 +147,9 @@ public final class ContextSizeGuard {
         sb.append(" tokens.\n\n");
 
         if (estimate.isTruncated()) {
-            sb.append("(File enumeration was truncated at ");
+            sb.append("Estimate may undercount: enumeration stopped at ");
             sb.append(String.format("%,d", MAX_FILES_TO_ENUMERATE));
-            sb.append(" files)\n\n");
+            sb.append(" files.\n   The actual size is likely larger.\n\n");
         }
 
         sb.append("This exceeds ");
@@ -167,9 +172,9 @@ public final class ContextSizeGuard {
         sb.append(" tokens.\n\n");
 
         if (estimate.isTruncated()) {
-            sb.append("(File enumeration was truncated at ");
+            sb.append("⚠ Estimate may undercount: enumeration stopped at ");
             sb.append(String.format("%,d", MAX_FILES_TO_ENUMERATE));
-            sb.append(" files)\n\n");
+            sb.append(" files.\n   The actual size is likely larger.\n\n");
         }
 
         sb.append("This exceeds the maximum allowed context size (");
