@@ -1942,6 +1942,15 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
+     * Get the URL of the origin remote with fallback to target remote.
+     * Preferred for GitHub PR operations.
+     */
+    @Override
+    public @Nullable String getOriginRemoteUrl() {
+        return remote().getOriginUrlWithFallback();
+    }
+
+    /**
      * Search commits whose full message, author name, or author e-mail match the supplied regular expression
      * (case-insensitive).
      *

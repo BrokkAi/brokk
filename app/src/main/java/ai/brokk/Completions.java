@@ -20,6 +20,7 @@ import org.fife.ui.autocomplete.ShorthandCompletion;
 
 public class Completions {
     private static final Logger logger = LogManager.getLogger(Completions.class);
+    private static final int SHORT_TOLERANCE = 300;
 
     public static List<CodeUnit> completeSymbols(String input, IAnalyzer analyzer) {
         String query = input.trim();
@@ -242,8 +243,12 @@ public class Completions {
                 && (s.charAt(2) == '\\' || s.charAt(2) == '/');
     }
 
-    private record ScoredItem<T>(T source, int score, int tiebreakScore, boolean isShort) {}
+    private record ScoredItem<T>(T source, int shortScore, int longScore, int tiebreakScore) {}
 
+    /**
+     * Scores candidates using a short and long text for each item. See the overload with {@code minLength}
+     * for details on the scoring and filtering policy.
+     */
     public static <T> List<ShorthandCompletion> scoreShortAndLong(
             String pattern,
             Collection<T> candidates,
@@ -254,6 +259,23 @@ public class Completions {
         return scoreShortAndLong(pattern, candidates, extractShort, extractLong, tiebreaker, toCompletion, 1);
     }
 
+    /**
+     * Rank-and-filter helper that scores each candidate twice: once against a short label and once against a long label.
+     *
+     * Policy:
+     * - Compute the best short score among all candidates.
+     * - Keep candidates whose short score is within a tolerance window of the best short score
+     *   (bestShort + SHORT_TOLERANCE). This preserves near-best short matches (e.g., "Chrome.java" for "Chr").
+     * - Also keep candidates whose long score is strictly better than the best short score. This allows a long
+     *   form that is an exact or clearly superior match to surface even if its short form is weak.
+     * - Do not include long-only matches that are worse than the best short score. This avoids noisy mid-word
+     *   matches crowding out good short matches.
+     *
+     * The fuzzy matcher returns lower scores for better matches; Integer.MAX_VALUE denotes no match.
+     * Results are sorted by the better of the two scores, then by the provided tiebreaker and short label.
+     *
+     * @param minLength minimum trimmed pattern length required to run matching; shorter inputs return no results.
+     */
     public static <T> List<ShorthandCompletion> scoreShortAndLong(
             String pattern,
             Collection<T> candidates,
@@ -272,27 +294,22 @@ public class Completions {
                 .map(c -> {
                     int shortScore = matcher.score(extractShort.apply(c));
                     int longScore = matcher.score(extractLong.apply(c));
-                    int minScore = Math.min(shortScore, longScore);
-                    boolean isShort = shortScore <= longScore; // Prefer short match if scores are equal
                     int tiebreak = tiebreaker.apply(c);
-                    return new ScoredItem<>(c, minScore, tiebreak, isShort);
+                    return new ScoredItem<>(c, shortScore, longScore, tiebreak);
                 })
-                .filter(sc -> sc.score() != Integer.MAX_VALUE)
-                .sorted(Comparator.<ScoredItem<T>>comparingInt(ScoredItem::score)
+                .filter(sc -> sc.shortScore() != Integer.MAX_VALUE || sc.longScore() != Integer.MAX_VALUE)
+                .sorted(Comparator.<ScoredItem<T>>comparingInt(sc -> Math.min(sc.shortScore(), sc.longScore()))
                         .thenComparingInt(ScoredItem::tiebreakScore)
                         .thenComparing(scoredItem -> extractShort.apply(scoredItem.source())))
                 .toList();
 
-        // Find the lowest (best) score among the "short" matches
-        int bestShortScore = scoredCandidates.stream()
-                .filter(ScoredItem::isShort)
-                .mapToInt(ScoredItem::score)
-                .min()
-                .orElse(Integer.MAX_VALUE); // If no short matches, keep all long matches
+        int bestShortScore =
+                scoredCandidates.stream().mapToInt(ScoredItem::shortScore).min().orElse(Integer.MAX_VALUE);
 
-        // Keep only candidates whose score is better than or equal to the best short match
+        int shortThreshold = bestShortScore == Integer.MAX_VALUE ? Integer.MAX_VALUE : bestShortScore + SHORT_TOLERANCE;
+
         return scoredCandidates.stream()
-                .filter(sc -> sc.score() <= bestShortScore)
+                .filter(sc -> (sc.shortScore() <= shortThreshold) || (sc.longScore() < bestShortScore))
                 .limit(100)
                 .map(sc -> toCompletion.apply(sc.source()))
                 .toList();

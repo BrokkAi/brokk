@@ -258,6 +258,7 @@ public class JavaAnalyzerTest {
     @Test
     public void getAllClassesTest() {
         final var classes = analyzer.getAllDeclarations().stream()
+                .filter(CodeUnit::isClass)
                 .map(CodeUnit::fqName)
                 .sorted()
                 .toList();

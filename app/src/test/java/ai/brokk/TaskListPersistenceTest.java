@@ -22,7 +22,7 @@ public class TaskListPersistenceTest {
 
     @Test
     void createOrReplaceTaskList_persistsAndDeserializes() throws Exception {
-        var initial = new Context(null, (String) null);
+        var initial = new Context(null);
 
         var tasks = List.of("Build feature X", "Add unit tests", "Write documentation");
         var afterCreate = initial.withTaskList(
@@ -36,11 +36,11 @@ public class TaskListPersistenceTest {
         assertTrue(fragOpt.isPresent(), "Task list fragment should exist after creation");
 
         var frag = fragOpt.get();
-        assertEquals("Task List", frag.description());
-        assertEquals(SpecialTextType.TASK_LIST.syntaxStyle(), frag.syntaxStyle());
+        assertEquals("Task List", frag.description().join());
+        assertEquals(SpecialTextType.TASK_LIST.syntaxStyle(), frag.syntaxStyle().join());
 
         // Verify JSON can be parsed back
-        var data = Json.fromJson(frag.text(), TaskList.TaskListData.class);
+        var data = Json.fromJson(frag.text().join(), TaskList.TaskListData.class);
         assertEquals(3, data.tasks().size());
         assertEquals("Build feature X", data.tasks().get(0).text());
         assertEquals("Add unit tests", data.tasks().get(1).text());
@@ -58,7 +58,7 @@ public class TaskListPersistenceTest {
 
     @Test
     void appendTaskList_persistsIncrementalChanges() throws Exception {
-        var initial = new Context(null, (String) null);
+        var initial = new Context(null);
 
         // Create initial list
         var initialTasks = List.of("Task 1", "Task 2");
@@ -87,13 +87,13 @@ public class TaskListPersistenceTest {
         // Verify JSON persistence
         var frag = afterAppend.getTaskListFragment();
         assertTrue(frag.isPresent());
-        var parsedData = Json.fromJson(frag.get().text(), TaskList.TaskListData.class);
+        var parsedData = Json.fromJson(frag.get().text().join(), TaskList.TaskListData.class);
         assertEquals(4, parsedData.tasks().size());
     }
 
     @Test
     void createOrReplaceTaskList_dropsCompletedTasks_persistsCorrectly() throws Exception {
-        var initial = new Context(null, (String) null);
+        var initial = new Context(null);
 
         // Create with mixed states
         var mixed = new TaskList.TaskListData(List.of(
@@ -111,7 +111,7 @@ public class TaskListPersistenceTest {
         // Verify replacement in persistent storage
         var frag = afterReplace.getTaskListFragment();
         assertTrue(frag.isPresent());
-        var data = Json.fromJson(frag.get().text(), TaskList.TaskListData.class);
+        var data = Json.fromJson(frag.get().text().join(), TaskList.TaskListData.class);
         assertEquals(2, data.tasks().size());
         assertEquals("Fresh task 1", data.tasks().get(0).text());
         assertEquals("Fresh task 2", data.tasks().get(1).text());
@@ -124,7 +124,7 @@ public class TaskListPersistenceTest {
 
     @Test
     void appendTaskList_preservesTaskOrder_acrossMultipleAppends() throws Exception {
-        var initial = new Context(null, (String) null);
+        var initial = new Context(null);
 
         // First create
         var c1 = initial.withTaskList(
@@ -155,7 +155,7 @@ public class TaskListPersistenceTest {
 
     @Test
     void taskListFragment_usesCorrectSyntaxStyle() throws Exception {
-        var initial = new Context(null, (String) null);
+        var initial = new Context(null);
 
         var result = initial.withTaskList(
                 new TaskList.TaskListData(List.of(new TaskList.TaskItem("Task 1", "Task 1", false))),
@@ -163,6 +163,8 @@ public class TaskListPersistenceTest {
 
         var frag = result.getTaskListFragment();
         assertTrue(frag.isPresent());
-        assertEquals(SpecialTextType.TASK_LIST.syntaxStyle(), frag.get().syntaxStyle());
+        assertEquals(
+                SpecialTextType.TASK_LIST.syntaxStyle(),
+                frag.get().syntaxStyle().join());
     }
 }

@@ -9,7 +9,7 @@ import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
 /** A dialog for selecting Java symbols (classes and members) with autocomplete. */
-public class SymbolSelectionDialog extends JDialog {
+public class SymbolSelectionDialog extends BaseThemedDialog {
 
     private final SymbolSelectionPanel selectionPanel;
     private final JButton okButton;
@@ -26,22 +26,16 @@ public class SymbolSelectionDialog extends JDialog {
     private boolean confirmed = false;
 
     public SymbolSelectionDialog(Frame parent, IAnalyzer analyzer, String title, Set<CodeUnitType> typeFilter) {
-        super(parent, title, true); // modal dialog
-
-        JPanel mainPanel = new JPanel(new BorderLayout(8, 8));
-        mainPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        super(parent, title);
 
         // Create the symbol selection panel
         selectionPanel = new SymbolSelectionPanel(analyzer, typeFilter);
-        mainPanel.add(selectionPanel, BorderLayout.NORTH);
 
-        // Include test files checkbox in center
+        // Include test files checkbox
         includeTestFilesCheckBox = new JCheckBox("Include usages in test files");
         includeTestFilesCheckBox.setSelected(false);
-        mainPanel.add(includeTestFilesCheckBox, BorderLayout.CENTER);
 
         // Buttons at the bottom
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         okButton = new JButton("OK");
         okButton.addActionListener(e -> doOk());
         cancelButton = new JButton("Cancel");
@@ -49,9 +43,19 @@ public class SymbolSelectionDialog extends JDialog {
             confirmed = false;
             dispose();
         });
+
+        // Build layout in the content root
+        JPanel root = getContentRoot();
+        root.setLayout(new BorderLayout(8, 8));
+        root.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+        root.add(selectionPanel, BorderLayout.NORTH);
+        root.add(includeTestFilesCheckBox, BorderLayout.CENTER);
+
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         buttonPanel.add(okButton);
         buttonPanel.add(cancelButton);
-        mainPanel.add(buttonPanel, BorderLayout.SOUTH);
+        root.add(buttonPanel, BorderLayout.SOUTH);
 
         // Handle escape key to close dialog
         KeyStroke escapeKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
@@ -71,7 +75,6 @@ public class SymbolSelectionDialog extends JDialog {
         // Add a tooltip to indicate Enter key functionality
         selectionPanel.getInputField().setToolTipText("Enter a class or member name and press Enter to confirm");
 
-        setContentPane(mainPanel);
         pack();
         setLocationRelativeTo(parent);
     }

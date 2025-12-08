@@ -7,10 +7,9 @@ import type {EditBlockProperties} from '../shared';
 import {transformerDiffLines} from '../shiki/shiki-diff-transformer';
 import { createWorkerLogger } from '../../lib/logging';
 import type { VFile } from 'vfile';
+import { isHistorySeq } from '../../shared/seq';
 
 export function rehypeEditDiff(highlighter: HighlighterCore) {
-    // History sequences start at this threshold; see historyStore.ts (nextHistoryBubbleSeq).
-    const HISTORY_SEQ_START = 1_000_000;
     const diffLog = createWorkerLogger('rehype-edit-diff');
 
     return function (this: any, tree: Root, file: VFile) {
@@ -21,7 +20,7 @@ export function rehypeEditDiff(highlighter: HighlighterCore) {
         }
         // Identify whether this parse run is for history or live by reading from tree.data
         const seq: number | undefined = (tree as any).data?.parseSeq;
-        const isHistory = typeof seq === 'number' && seq >= HISTORY_SEQ_START;
+        const isHistory = isHistorySeq(seq);
 
         // Aggregate totals per parsed bubble/tree
         let totalAdds = 0;

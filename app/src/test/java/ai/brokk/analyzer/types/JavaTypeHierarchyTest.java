@@ -45,7 +45,7 @@ public class JavaTypeHierarchyTest {
             var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
             var frag =
                     new ContextFragment.SummaryFragment(cm, "XExtendsY", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-            String txt = frag.text();
+            String txt = frag.text().join();
             assertCodeEquals(
                     """
                             package (default package);
@@ -92,7 +92,7 @@ public class JavaTypeHierarchyTest {
             var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
             var frag = new ContextFragment.SummaryFragment(
                     cm, "ServiceImpl", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-            String txt = frag.text();
+            String txt = frag.text().join();
             assertCodeEquals(
                     """
                             package (default package);
@@ -148,7 +148,7 @@ public class JavaTypeHierarchyTest {
             var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
             var frag = new ContextFragment.SummaryFragment(
                     cm, "ExtendsAndImplements", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-            String txt = frag.text();
+            String txt = frag.text().join();
             assertCodeEquals(
                     """
                             package (default package);
@@ -193,7 +193,7 @@ public class JavaTypeHierarchyTest {
             // Summary fragment should NOT include a direct ancestors section
             var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
             var frag = new ContextFragment.SummaryFragment(cm, "Plain", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-            String txt = frag.text();
+            String txt = frag.text().join();
             assertCodeEquals(
                     """
                             package (default package);
