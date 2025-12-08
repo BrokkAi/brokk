@@ -167,6 +167,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Publicly exposed flag for the exact TaskScope window
     private final AtomicBoolean taskScopeInProgress = new AtomicBoolean(false);
 
+    // Indicates the ContextManager is shutting down. Long-running tasks (e.g., history compression)
+    // should check this flag and exit early to avoid blocking shutdown.
+    private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
+
     @Override
     public ExecutorService getBackgroundTasks() {
         return backgroundTasks;
@@ -805,6 +809,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public CompletableFuture<Void> submitLlmAction(ThrowingRunnable task) {
+        // Short-circuit new LLM submissions if shutdown has begun.
+        if (shuttingDown.get()) {
+            logger.debug("Rejecting new LLM action: ContextManager is shutting down");
+            return CompletableFuture.failedFuture(new CancellationException("ContextManager is shutting down"));
+        }
         return userActions.submitLlmAction(task);
     }
 
@@ -1398,6 +1407,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public CompletableFuture<Void> closeAsync(long awaitMillis) {
+        // Signal shutdown so long-running background work can short-circuit.
+        shuttingDown.set(true);
+
+        // Proactively interrupt any active LLM action so shutdown can proceed promptly.
+        try {
+            userActions.cancelActiveAction();
+            logger.debug("Requested interruption of active LLM action during shutdown");
+        } catch (Throwable t) {
+            logger.debug("Failed to interrupt active LLM action during shutdown", t);
+        }
+
         // Cancel BuildAgent task if still running
         if (buildAgentFuture != null && !buildAgentFuture.isDone()) {
             logger.debug("Cancelling BuildAgent task due to ContextManager shutdown");
@@ -2770,12 +2790,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * history.
      */
     public CompletableFuture<?> compressHistoryAsync() {
+        if (shuttingDown.get()) {
+            logger.debug("Skipping history compression because shutdown is in progress");
+            return CompletableFuture.completedFuture(null);
+        }
         return submitExclusiveAction(() -> {
             compressHistory();
         });
     }
 
     public void compressHistory() {
+        if (shuttingDown.get()) {
+            logger.debug("Skipping history compression during shutdown");
+            return;
+        }
+
         io.disableHistoryPanel();
         try {
             // Operate on the task history
@@ -2797,16 +2826,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     futures.add(exec.submit(() -> compressHistory(entry)));
                 }
 
-                // Collect results in order, with fallback to original on failure
+                // Collect results in order, with fallback to original on failure or timeout
                 List<TaskEntry> compressedTaskEntries = new ArrayList<>(taskHistoryToCompress.size());
+                final long PER_ENTRY_TIMEOUT_SECONDS = 30L;
                 for (int i = 0; i < futures.size(); i++) {
                     try {
-                        compressedTaskEntries.add(futures.get(i).get());
+                        compressedTaskEntries.add(futures.get(i).get(PER_ENTRY_TIMEOUT_SECONDS, TimeUnit.SECONDS));
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
                         compressedTaskEntries.add(taskHistoryToCompress.get(i));
                     } catch (ExecutionException ee) {
                         logger.warn("History compression task failed", ee);
+                        compressedTaskEntries.add(taskHistoryToCompress.get(i));
+                    } catch (java.util.concurrent.TimeoutException te) {
+                        logger.warn(
+                                "History compression for entry {} timed out after {}s; using original entry",
+                                i,
+                                PER_ENTRY_TIMEOUT_SECONDS);
+                        futures.get(i).cancel(true);
                         compressedTaskEntries.add(taskHistoryToCompress.get(i));
                     }
                 }
