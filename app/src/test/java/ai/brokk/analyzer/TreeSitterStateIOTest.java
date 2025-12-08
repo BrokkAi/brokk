@@ -159,4 +159,25 @@ public class TreeSitterStateIOTest {
         var dtoLoaded = TreeSitterStateIO.toDto(loaded);
         assertEquals(dtoOriginal, dtoLoaded, "DTO after save+load should match original DTO");
     }
+
+    @Test
+    void loadReturnsEmptyOnCorruptGzip(@TempDir Path tempDir) throws Exception {
+        Path out = tempDir.resolve("state.smile.gz");
+
+        Files.writeString(out, "not a gzip");
+
+        var loaded = TreeSitterStateIO.load(out);
+        assertTrue(loaded.isEmpty(), "Expected load to return empty on corrupt gzip");
+
+        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of("A"), 1L);
+        var state = TreeSitterStateIO.fromDto(dto);
+        TreeSitterStateIO.save(state, out);
+
+        var after = TreeSitterStateIO.load(out);
+        assertTrue(after.isPresent(), "Expected load to succeed after writing valid state");
+        assertEquals(
+                TreeSitterStateIO.toDto(state),
+                TreeSitterStateIO.toDto(after.get()),
+                "DTO after save+load should equal the original");
+    }
 }
