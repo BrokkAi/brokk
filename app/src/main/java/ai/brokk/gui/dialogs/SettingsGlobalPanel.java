@@ -106,11 +106,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JCheckBox showConfirmNotificationsCheckbox = new JCheckBox("Show confirmation notifications");
     private JCheckBox showInfoNotificationsCheckbox = new JCheckBox("Show info notifications");
 
-    // Compression settings
-    private JCheckBox autoCompressCheckbox = new JCheckBox("Auto-compress conversation history");
-    private JSpinner autoCompressThresholdSpinner = new JSpinner();
-    private JSpinner compressionConcurrencySpinner = new JSpinner();
-
     @Nullable
     private JCheckBox forceToolEmulationCheckbox; // Dev-only
 
@@ -182,7 +177,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         populateAppearanceTab();
         populateStartupTab();
         populateNotificationsTab();
-        populateCompressionTab();
         populateQuickModelsTab(data);
         populateGitHubTab();
         populateMcpServersTab();
@@ -356,12 +350,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         showErrorNotificationsCheckbox.setSelected(GlobalUiSettings.isShowErrorNotifications());
         showConfirmNotificationsCheckbox.setSelected(GlobalUiSettings.isShowConfirmNotifications());
         showInfoNotificationsCheckbox.setSelected(GlobalUiSettings.isShowInfoNotifications());
-    }
-
-    private void populateCompressionTab() {
-        autoCompressCheckbox.setSelected(MainProject.getHistoryAutoCompress());
-        autoCompressThresholdSpinner.setValue(MainProject.getHistoryAutoCompressThresholdPercent());
-        autoCompressThresholdSpinner.setEnabled(autoCompressCheckbox.isSelected());
     }
 
     private void populateQuickModelsTab(SettingsData data) {
@@ -543,10 +531,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         var notificationsPanel = createNotificationsPanel();
         globalSubTabbedPane.addTab("Notifications", null, notificationsPanel, "Notification preferences");
-
-        // Compression Tab
-        var compressionPanel = createCompressionPanel();
-        globalSubTabbedPane.addTab("Compression", null, compressionPanel, "Conversation history compression");
 
         add(globalSubTabbedPane, BorderLayout.CENTER);
     }
@@ -1961,80 +1945,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return panel;
     }
 
-    private JPanel createCompressionPanel() {
-        var panel = new JPanel(new GridBagLayout());
-        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        var gbc = new GridBagConstraints();
-        gbc.insets = new Insets(2, 5, 2, 5);
-        gbc.anchor = GridBagConstraints.WEST;
-        int row = 0;
-
-        // Auto-compress checkbox
-        gbc.gridx = 0;
-        gbc.gridy = row++;
-        gbc.gridwidth = 2;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        panel.add(autoCompressCheckbox, gbc);
-        gbc.gridwidth = 1;
-
-        // Threshold label
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        gbc.fill = GridBagConstraints.NONE;
-        panel.add(new JLabel("Threshold (% of context window):"), gbc);
-
-        // Threshold spinner
-        var model = new SpinnerNumberModel(10, 1, 50, 1);
-        autoCompressThresholdSpinner.setModel(model);
-        autoCompressThresholdSpinner.setEditor(new JSpinner.NumberEditor(autoCompressThresholdSpinner, "#0"));
-
-        var thresholdPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        thresholdPanel.add(autoCompressThresholdSpinner);
-
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        panel.add(thresholdPanel, gbc);
-
-        // Enable/disable spinner based on checkbox
-        autoCompressThresholdSpinner.setEnabled(autoCompressCheckbox.isSelected());
-        autoCompressCheckbox.addActionListener(
-                e -> autoCompressThresholdSpinner.setEnabled(autoCompressCheckbox.isSelected()));
-
-        // Max concurrent compression threads
-        gbc.gridx = 0;
-        gbc.gridy = row++;
-        gbc.weightx = 0.0;
-        gbc.fill = GridBagConstraints.NONE;
-        panel.add(new JLabel("Max concurrent compression threads:"), gbc);
-
-        var concurrencyModel = new SpinnerNumberModel(2, 1, 8, 1);
-        compressionConcurrencySpinner.setModel(concurrencyModel);
-        compressionConcurrencySpinner.setEditor(new JSpinner.NumberEditor(compressionConcurrencySpinner, "#0"));
-
-        var concurrencyPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        concurrencyPanel.add(compressionConcurrencySpinner);
-
-        gbc.gridx = 1;
-        gbc.gridy = row - 1;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        panel.add(concurrencyPanel, gbc);
-
-        // filler
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weighty = 1.0;
-        gbc.gridwidth = 2;
-        gbc.fill = GridBagConstraints.BOTH;
-        panel.add(Box.createVerticalGlue(), gbc);
-
-        return panel;
-    }
-
     public boolean applySettings() {
         // === PHASE 1: Validation ===
 
@@ -2114,10 +2024,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         boolean newWrapMode = wordWrapCheckbox.isSelected();
         float terminalFontSize = ((Double) terminalFontSizeSpinner.getValue()).floatValue();
 
-        // Compression settings
-        boolean autoCompress = autoCompressCheckbox.isSelected();
-        int thresholdPercent = ((Number) autoCompressThresholdSpinner.getValue()).intValue();
-
         // Startup settings
         var startupMode =
                 startupOpenAllRadio.isSelected() ? MainProject.StartupOpenMode.ALL : MainProject.StartupOpenMode.LAST;
@@ -2183,7 +2089,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         var serviceSettings = new MainProject.ServiceSettings(newBrokkKeyFromField, proxySetting, forceToolEmulation);
         var appearanceSettings = new MainProject.AppearanceSettings(newTheme, newWrapMode, uiScale, terminalFontSize);
-        var compressionSettings = new MainProject.CompressionSettings(autoCompress, thresholdPercent);
         var startupSettings = new MainProject.StartupSettings(startupMode);
         var generalSettings = new MainProject.GeneralSettings(new MainProject.JvmMemorySettings(jvmAutomatic, jvmMb));
         var modelSettings = new MainProject.ModelSettings(favoriteModels, mcpConfig);
@@ -2200,12 +2105,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // === PHASE 4: Atomic save (2 writes total) ===
 
         MainProject.saveAllGlobalSettings(
-                serviceSettings,
-                appearanceSettings,
-                compressionSettings,
-                startupSettings,
-                generalSettings,
-                modelSettings);
+                serviceSettings, appearanceSettings, startupSettings, generalSettings, modelSettings);
 
         // Persist watch service implementation preference (separate global property)
         try {
@@ -2213,7 +2113,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         } catch (Exception ex) {
             logger.debug("Failed to persist watch service implementation preference (non-fatal)", ex);
         }
-
         GlobalUiSettings.saveAllUiSettings(notificationSettings, uiPreferences);
         GlobalUiSettings.saveSkipCommitGateInEzMode(skipCommitGateEzCheckbox.isSelected());
 

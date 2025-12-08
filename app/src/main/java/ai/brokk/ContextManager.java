@@ -804,6 +804,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return userActions.submitExclusiveAction(task);
     }
 
+    /**
+     * THE PROVIDED TASK IS RESPONSIBLE FOR HANDLING InterruptedException WITHOUT PROPAGATING IT FURTHER.
+     */
     public CompletableFuture<Void> submitLlmAction(ThrowingRunnable task) {
         return userActions.submitLlmAction(task);
     }
@@ -1583,23 +1586,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Execute a single task using ArchitectAgent with explicit options.
      *
      * @param task Task to execute (non-blank text).
-     * @param autoCommit whether to commit any modified files after a successful run
-     * @param autoCompress whether to compress conversation history after a successful run
      * @return TaskResult from ArchitectAgent execution.
      */
-    public TaskResult executeTask(TaskList.TaskItem task, boolean autoCommit, boolean autoCompress)
-            throws InterruptedException {
+    public TaskResult executeTask(TaskList.TaskItem task) throws InterruptedException {
         var planningModel = io.getInstructionsPanel().getSelectedModel();
         var codeModel = getCodeModel();
-        return executeTask(task, planningModel, codeModel, autoCommit, autoCompress);
+        return executeTask(task, planningModel, codeModel);
     }
 
     public TaskResult executeTask(
-            TaskList.TaskItem task,
-            StreamingChatModel planningModel,
-            StreamingChatModel codeModel,
-            boolean autoCommit,
-            boolean autoCompress)
+            TaskList.TaskItem task, StreamingChatModel planningModel, StreamingChatModel codeModel)
             throws InterruptedException {
         // IMPORTANT: Use task.text() as the LLM prompt, NOT task.title().
         // The title is UI-only metadata for display/organization; the text is the actual task body.
@@ -1619,15 +1615,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-            if (autoCommit) {
+            if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
                 new GitWorkflow(this).performAutoCommit(prompt);
-            }
-            if (autoCompress) {
                 compressHistory(); // synchronous
+                var ctx = markTaskDoneAndPersist(result.context(), task);
+                result = result.withContext(ctx);
             }
-            // Mark the task as done and persist the updated list
-            var ctx = markTaskDoneAndPersist(result.context(), task);
-            result = result.withContext(ctx);
         }
 
         return result;
@@ -1728,10 +1721,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         contextPushed(contextHistory.liveContext());
 
         // Auto-compress conversation history if enabled and exceeds configured threshold of the context window.
-        // This does not run for headless tasks, I think this is not a problem b/c we still compress
-        // after each task; this is to protect users doing repeated manual Ask/Code.
+        // This does not run for headless tasks; protects users doing repeated manual Ask/Code.
         // (null check here against IP is NOT redundant; this is called during Chrome init)
         if (io instanceof Chrome
+                && io.getInstructionsPanel() != null
                 && MainProject.getHistoryAutoCompress()
                 && !newLiveContext.getTaskHistory().isEmpty()) {
             var cf = new ContextFragment.HistoryFragment(this, newLiveContext.getTaskHistory());
@@ -2144,6 +2137,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         io.showNotification(IConsoleIO.NotificationRole.INFO, "Review guide created at .brokk/review.md");
     }
 
+    // Reduced retry count for compression - it's non-critical and shouldn't block session navigation
+    private static final int COMPRESSION_MAX_ATTEMPTS = 2;
+
     /**
      * Compresses a single TaskEntry into a summary string using the quickest model.
      * Preserves the original log and attaches the summary, so the AI uses the summary
@@ -2151,11 +2147,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
      *
      * @param entry The TaskEntry to compress.
      * @return A new TaskEntry with both log and summary, or the original entry if compression fails.
+     * @throws InterruptedException if the operation is cancelled
      */
-    public TaskEntry compressHistory(TaskEntry entry) {
-        // If already has a summary, return as is (already compressed or marked for AI summary)
+    public TaskEntry compressHistory(TaskEntry entry) throws InterruptedException {
         if (entry.isCompressed()) {
             return entry;
+        }
+
+        // Check for interruption before starting LLM call
+        if (Thread.currentThread().isInterrupted()) {
+            throw new InterruptedException("Compression cancelled");
         }
 
         // Must have a log to compress
@@ -2167,13 +2168,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Compress the log into a summary
         var historyString = entry.toString();
         var msgs = SummarizerPrompts.instance.compressHistory(historyString);
-        Llm.StreamingResult result;
-        try {
-            result = getLlm(serviceProvider.get().quickModel(), "Compress history entry")
-                    .sendRequest(msgs);
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
+        Llm.StreamingResult result = getLlm(serviceProvider.get().quickModel(), "Compress history entry")
+                .sendRequest(msgs, COMPRESSION_MAX_ATTEMPTS);
 
         if (result.error() != null) {
             logger.warn("History compression failed for entry: {}", entry, result.error());
@@ -2252,7 +2248,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
          *
          * @param result   The TaskResult to append.
          */
-        public Context append(TaskResult result) {
+        public Context append(TaskResult result) throws InterruptedException {
             assert !closed : "TaskScope already closed";
 
             // If interrupted before any LLM output, skip
@@ -2285,11 +2281,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return r;
             });
 
+            // optionally compress
+            var updated = result.context().withGroup(groupId, groupLabel);
+            TaskEntry entry = updated.createTaskEntry(result);
+            TaskEntry finalEntry = compressResults ? compressHistory(entry) : entry;
+
             // push context
             var updatedContext = pushContext(currentLiveCtx -> {
-                var updated = result.context().withGroup(groupId, groupLabel);
-                TaskEntry entry = updated.createTaskEntry(result);
-                TaskEntry finalEntry = compressResults ? compressHistory(entry) : entry;
                 return updated.addHistoryEntry(finalEntry, result.output(), actionFuture)
                         .withGroup(groupId, groupLabel);
             });
@@ -2766,16 +2764,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /**
      * Asynchronously compresses the entire conversation history of the currently selected context. Replaces the history
-     * with summarized versions of each task entry. This runs as a user action because it visibly modifies the context
-     * history.
+     * with summarized versions of each task entry. This runs as a cancellable LLM action, so it should NOT be
+     * called from other exclusive-tasks (or it will deadlock).
      */
     public CompletableFuture<?> compressHistoryAsync() {
-        return submitExclusiveAction(() -> {
-            compressHistory();
+        return submitLlmAction(() -> {
+            try {
+                compressHistory();
+            } catch (InterruptedException ie) {
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "History compression canceled");
+            }
         });
     }
 
-    public void compressHistory() {
+    @Override
+    public void compressHistory() throws InterruptedException {
         io.disableHistoryPanel();
         try {
             // Operate on the task history
@@ -2788,10 +2791,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Compressing conversation history...");
 
             // Use bounded-concurrency executor to avoid overwhelming the LLM provider
-            int concurrency = MainProject.getHistoryCompressionConcurrency();
-            ExecutorService exec = ExecutorServiceUtil.newFixedThreadExecutor(concurrency, "HistoryCompress-");
             List<Future<TaskEntry>> futures = new ArrayList<>(taskHistoryToCompress.size());
-            try {
+            try (var exec = ExecutorServiceUtil.newFixedThreadExecutor(5, "HistoryCompress-")) {
                 // Submit all compression tasks
                 for (TaskEntry entry : taskHistoryToCompress) {
                     futures.add(exec.submit(() -> compressHistory(entry)));
@@ -2803,9 +2804,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     try {
                         compressedTaskEntries.add(futures.get(i).get());
                     } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        compressedTaskEntries.add(taskHistoryToCompress.get(i));
+                        // Cancellation requested - cancel remaining futures and re-throw
+                        logger.debug("History compression interrupted");
+                        for (int j = i + 1; j < futures.size(); j++) {
+                            futures.get(j).cancel(true);
+                        }
+                        throw ie;
                     } catch (ExecutionException ee) {
+                        // Individual task failed - use original entry and continue
                         logger.warn("History compression task failed", ee);
                         compressedTaskEntries.add(taskHistoryToCompress.get(i));
                     }
@@ -2830,8 +2836,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // Entries now have both log and summary, so AI uses summary while UI can show either
                 pushContext(currentLiveCtx -> currentLiveCtx.withCompressedHistory(List.copyOf(compressedTaskEntries)));
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Task history compressed successfully.");
-            } finally {
-                exec.shutdownNow();
             }
         } finally {
             SwingUtilities.invokeLater(io::enableHistoryPanel);
