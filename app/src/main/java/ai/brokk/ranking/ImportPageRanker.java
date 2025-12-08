@@ -208,7 +208,7 @@ public final class ImportPageRanker {
             }
 
             // Distribute dangling mass uniformly
-            if (danglingMass != 0.0d) {
+            if (Math.abs(danglingMass) > 1.0e-10d) {
                 double add = ALPHA * danglingMass * uniform;
                 for (int i = 0; i < n; i++) {
                     next[i] += add;
