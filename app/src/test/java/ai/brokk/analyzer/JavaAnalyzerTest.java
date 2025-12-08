@@ -296,9 +296,14 @@ public class JavaAnalyzerTest {
                 "TypeRefSample",
                 "TypeRefSample.ChainedA",
                 "TypeRefSample.ChainedB",
+                "TypeRefSample.GitRepo",
                 "TypeRefSample.Inner",
                 "TypeRefSample.MyEnum",
+                "TypeRefSample.Repo",
+                "TypeRefSample.Result",
                 "TypeRefSample.StaticInner",
+                "TypeRefSample.Status",
+                "TypeRefSample.SvnRepo",
                 "TypeRefSample.UtilClass",
                 "UseE",
                 "UsePackaged",
@@ -859,14 +864,29 @@ public class JavaAnalyzerTest {
                 "si.innerMethod",
                 "paramInner.innerMethod",
                 "localInner.innerMethod",
-                "a",
                 "a.b",
                 "a.b().c",
                 "UtilClass.staticUtilMethod",
                 // context manager chain
-                "ContextManager",
-                "ContextManager.Context",
-                "ContextManager.Context.foo"
+                "ContextManager.Context.foo",
+                // pattern matching instanceof variables
+                "gitRepo.getTopLevel",
+                "gitRepo.getWorkTree",
+                "gitRepo.getName",
+                "svnRepo.getName",
+                // nested static field access (like MatchResult.IGNORED)
+                "Result.SUCCESS",
+                "Result.FAILURE",
+                "Status.ACTIVE",
+                "Status.INACTIVE",
+                // stream chained calls
+                "input.stream",
+                // optional method chains
+                "opt.ifPresent",
+                "opt.orElse",
+                "empty.orElseGet",
+                // try-with-resources
+                "r.close"
         );
 
         var missing = new java.util.HashSet<String>(expected);

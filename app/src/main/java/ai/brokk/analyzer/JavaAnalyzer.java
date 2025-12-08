@@ -701,8 +701,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         var ctx = buildTypeInferenceContext(file, offset);
         CodeUnit enclosingClass = ctx.enclosingClass();
         log.debug("inferTypeAt: enclosingClass present={}, enclosingMethod present={}, visibleImports={}",
-                enclosingClass != null,
-                ctx.enclosingMethod() != null,
+                  true,
+                  true,
                 ctx.visibleImports().size());
 
         // Attempt to find the referenced identifier Range so we can inspect nearby source (for 'new' detection).
@@ -761,7 +761,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             }
 
             // 3) Same package as enclosing class
-            String pkg = (enclosingClass != null) ? enclosingClass.packageName() : "";
+            String pkg = enclosingClass.packageName();
             if (!pkg.isBlank()) {
                 var defs = getDefinitions(pkg + "." + nm);
                 if (!defs.isEmpty()) {
@@ -922,22 +922,11 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                 }
                 log.debug("inferTypeAt: attemptedLocals={}, currentTypePresent={}", attemptedLocals, currentType.isPresent());
 
-                // Fallback: when local-variable query unavailable or returned nothing, try a simple source-regex to find a prior
-                // declaration like "Type name = ..." earlier in the same file before the offset.
-                if (currentType.isEmpty() && src != null && !src.isBlank()) {
-                    try {
-                        Optional<String> localType = findLocalTypeInSource(src, leftCandidate, offset);
-                        if (localType.isPresent()) {
-                            var resolved = resolveTypeName.apply(stripGenericTypeArguments(localType.get()));
-                            if (resolved.isPresent()) {
-                                currentType = resolved;
-                                log.debug("inferTypeAt: resolved type via source-local lookup for '{}' -> {}", leftCandidate, resolved.get());
-                            }
-                        }
-                    } catch (Exception e) {
-                        log.debug("Source-local lookup failed for {}: {}", leftCandidate, e.toString());
-                    }
-                }
+                // Fallback: when local-variable query unavailable or returned nothing, continue with
+                // other resolution strategies below (field/method on enclosing class, type name, etc.)
+                // This is a soft failure - pattern variables, implicitly typed locals, etc. may not
+                // be resolvable via the locals query but can still be resolved through other means.
+                log.debug("inferTypeAt: local variable lookup did not resolve type for '{}'", leftCandidate);
 
                 // 3) Try as a field/method on enclosing class (instance)
                 if (currentType.isEmpty()) {
@@ -945,6 +934,14 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                         if (matchesMember(child, leftCandidate)) {
                             log.debug("inferTypeAt: leftCandidate '{}' matched member on enclosing class -> {}", leftCandidate, child);
                             if (rawSegments.length == 1) return Optional.of(child);
+
+                            // If it's a nested class (including enums), use it as the type context and continue
+                            if (child.isClass()) {
+                                currentType = Optional.of(child);
+                                log.debug("inferTypeAt: leftCandidate matched nested class, using as type context -> {}", child);
+                                break;
+                            }
+
                             // infer its declared/return type and attempt to resolve
                             Optional<String> typeTok = child.isFunction()
                                     ? parseReturnType(child)
@@ -971,39 +968,35 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
 
                 // ADDITIONAL FALLBACK: look for classes declared in the SAME file (top-level or nested) with matching simple name.
                 if (currentType.isEmpty()) {
-                    try {
-                        // top-levels first (fast)
-                        for (CodeUnit top : getTopLevelDeclarations(file)) {
-                            if (top.isClass()) {
-                                String shortName = top.shortName();
+                    // top-levels first (fast)
+                    for (CodeUnit top : getTopLevelDeclarations(file)) {
+                        if (top.isClass()) {
+                            String shortName = top.shortName();
+                            int dot = shortName.lastIndexOf('.');
+                            String simple = dot >= 0 ? shortName.substring(dot + 1) : shortName;
+                            if (simple.equals(leftCandidate) || top.identifier().equals(leftCandidate)) {
+                                currentType = Optional.of(top);
+                                log.debug("inferTypeAt: resolved leftCandidate via top-level class in file -> {}", top);
+                                break;
+                            }
+                        }
+                    }
+                    // if still empty, check other declarations in the file (includes nested)
+                    if (currentType.isEmpty()) {
+                        for (CodeUnit cu : getDeclarations(file)) {
+                            if (cu.isClass()) {
+                                String shortName = cu.shortName();
                                 int dot = shortName.lastIndexOf('.');
                                 String simple = dot >= 0 ? shortName.substring(dot + 1) : shortName;
-                                if (simple.equals(leftCandidate) || top.identifier().equals(leftCandidate)) {
-                                    currentType = Optional.of(top);
-                                    log.debug("inferTypeAt: resolved leftCandidate via top-level class in file -> {}", top);
+                                if (simple.equals(leftCandidate) || cu.identifier().equals(leftCandidate)) {
+                                    currentType = Optional.of(cu);
+                                    log.debug("inferTypeAt: resolved leftCandidate via other declaration in file -> {}", cu);
                                     break;
                                 }
                             }
                         }
-                        // if still empty, check other declarations in the file (includes nested)
-                        if (currentType.isEmpty()) {
-                            for (CodeUnit cu : getDeclarations(file)) {
-                                if (cu.isClass()) {
-                                    String shortName = cu.shortName();
-                                    int dot = shortName.lastIndexOf('.');
-                                    String simple = dot >= 0 ? shortName.substring(dot + 1) : shortName;
-                                    if (simple.equals(leftCandidate) || cu.identifier().equals(leftCandidate)) {
-                                        currentType = Optional.of(cu);
-                                        log.debug("inferTypeAt: resolved leftCandidate via other declaration in file -> {}", cu);
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    } catch (Exception e) {
-                        log.debug("File-local class lookup failed during chained resolution: {}", e.toString());
                     }
-                }
+1                }
 
                 // If still unresolved, chain cannot be followed
                 if (currentType.isEmpty()) {
@@ -1016,8 +1009,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                             .filter(cu -> matchesMember(cu, lastSegFallback))
                             .toList();
                     if (fieldCandidates.size() == 1) {
-                        log.debug("inferTypeAt: using unique global field fallback for '{}' -> {}", lastSegFallback, fieldCandidates.get(0));
-                        return Optional.of(fieldCandidates.get(0));
+                        log.debug("inferTypeAt: using unique global field fallback for '{}' -> {}", lastSegFallback, fieldCandidates.getFirst());
+                        return Optional.of(fieldCandidates.getFirst());
                     }
                     log.debug("inferTypeAt: chained resolution failed for '{}'", ident);
                     return Optional.empty();
@@ -1046,8 +1039,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                                 .filter(cu -> matchesMember(cu, seg))
                                 .toList();
                         if (globalFieldCandidates.size() == 1) {
-                            log.debug("inferTypeAt: global unique field fallback for '{}' -> {}", seg, globalFieldCandidates.get(0));
-                            return Optional.of(globalFieldCandidates.get(0));
+                            log.debug("inferTypeAt: global unique field fallback for '{}' -> {}", seg, globalFieldCandidates.getFirst());
+                            return Optional.of(globalFieldCandidates.getFirst());
                         }
                         log.debug("inferTypeAt: member '{}' not found on type {} while walking chain", seg, curType);
                         return Optional.empty();
@@ -1120,29 +1113,25 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             log.debug("inferTypeAt: unqualified name resolution for '{}'", name);
 
             // 1) Locals & parameters (from locals query). Prefer locals declared before offset.
-            try {
-                List<TreeSitterAnalyzer.LocalVariableInfo> locals = getLocalVariables(file);
-                if (!locals.isEmpty()) {
-                    for (var lv : locals) {
-                        if (!name.equals(lv.name())) continue;
-                        if (lv.range().startByte() > offset) continue; // declared after use
-                        String typeName = lv.typeName();
-                        if (!typeName.isBlank()) {
-                            var resolved = resolveTypeName.apply(stripGenericTypeArguments(typeName));
-                            if (resolved.isPresent()) {
-                                log.debug("inferTypeAt: resolved local '{}' declared type -> {}", lv.name(), resolved.get());
-                                return resolved;
-                            }
+            List<TreeSitterAnalyzer.LocalVariableInfo> locals = getLocalVariables(file);
+            if (!locals.isEmpty()) {
+                for (var lv : locals) {
+                    if (!name.equals(lv.name())) continue;
+                    if (lv.range().startByte() > offset) continue; // declared after use
+                    String typeName = lv.typeName();
+                    if (!typeName.isBlank()) {
+                        var resolved = resolveTypeName.apply(stripGenericTypeArguments(typeName));
+                        if (resolved.isPresent()) {
+                            log.debug("inferTypeAt: resolved local '{}' declared type -> {}", lv.name(), resolved.get());
+                            return resolved;
                         }
-                        // Fallback: return a synthetic CodeUnit to represent the local (so callers get a non-empty result).
-                        String pkg = enclosingClass != null ? enclosingClass.packageName() : "";
-                        var synthetic = CodeUnit.field(file, pkg, name);
-                        log.debug("inferTypeAt: returning synthetic CodeUnit for local '{}': {}", name, synthetic);
-                        return Optional.of(synthetic);
                     }
+                    // Fallback: return a synthetic CodeUnit to represent the local (so callers get a non-empty result).
+                    String pkg = enclosingClass.packageName();
+                    var synthetic = CodeUnit.field(file, pkg, name);
+                    log.debug("inferTypeAt: returning synthetic CodeUnit for local '{}': {}", name, synthetic);
+                    return Optional.of(synthetic);
                 }
-            } catch (Exception e) {
-                log.debug("Local variable lookup failed during unqualified resolution: {}", e.toString());
             }
 
             // 2) Fields/methods on enclosing class (instance)
@@ -1180,141 +1169,80 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
          * did not produce a suitable range covering the full chain.
          */
     private static Optional<String> extractChainedIdentifierFromSource(String src, int byteOffset) {
-                        log.debug("extractChainedIdentifierFromSource: byteOffset={}, srcPresent={}", byteOffset, !src.isEmpty());
-                        if (src.isEmpty()) return Optional.empty();
-                        byteOffset = Math.max(0, byteOffset);
+        log.debug("extractChainedIdentifierFromSource: byteOffset={}, srcPresent={}", byteOffset, !src.isEmpty());
+        if (src.isEmpty()) return Optional.empty();
+        byteOffset = Math.max(0, byteOffset);
 
-                        // Map byte offset to char index (UTF-8). Simple linear scan is acceptable for small test inputs.
-                        int charIdx = -1;
-                        byte[] bytes = src.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-                        if (byteOffset > bytes.length) byteOffset = bytes.length;
-                        int acc = 0;
-                        for (int i = 0; i < src.length(); i++) {
-                                            String ch = src.substring(i, i + 1);
-                                            int blen = ch.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
-                                            if (acc + blen > byteOffset) {
-                                                                charIdx = i;
-                                                                break;
-                                            }
-                                            acc += blen;
-                        }
-                        if (charIdx == -1) charIdx = src.length();
-                        log.debug("extractChainedIdentifierFromSource: mapped byteOffset {} -> charIdx {}", byteOffset, charIdx);
+        // Map byte offset to char index (UTF-8). Simple linear scan is acceptable for small test inputs.
+        int charIdx = -1;
+        byte[] bytes = src.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        if (byteOffset > bytes.length) byteOffset = bytes.length;
+        int acc = 0;
+        for (int i = 0; i < src.length(); i++) {
+            String ch = src.substring(i, i + 1);
+            int blen = ch.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            if (acc + blen > byteOffset) {
+                charIdx = i;
+                break;
+            }
+            acc += blen;
+        }
+        if (charIdx == -1) charIdx = src.length();
+        log.debug("extractChainedIdentifierFromSource: mapped byteOffset {} -> charIdx {}", byteOffset, charIdx);
 
-                        // Expand leftwards: allow letters, digits, '_', '$', '.', '(', ')', whitespace
-                        int start = charIdx;
-                        while (start > 0) {
-                                            char c = src.charAt(start - 1);
-                                            if (Character.isLetterOrDigit(c) || c == '_' || c == '$' || c == '.' || c == '(' || c == ')' || Character.isWhitespace(c)) {
-                                                                start--;
-                                            } else {
-                                                                break;
-                                            }
-                        }
+        // Expand leftwards: allow letters, digits, '_', '$', '.', '(', ')', whitespace
+        int start = charIdx;
+        while (start > 0) {
+            char c = src.charAt(start - 1);
+            if (Character.isLetterOrDigit(c) || c == '_' || c == '$' || c == '.' || c == '(' || c == ')' || Character.isWhitespace(c)) {
+                start--;
+            } else {
+                break;
+            }
+        }
 
-                        // Expand rightwards: allow letters, digits, '_', '$', '.', '(', ')'
-                        int end = charIdx;
-                        while (end < src.length()) {
-                                            char c = src.charAt(end);
-                                            if (Character.isLetterOrDigit(c) || c == '_' || c == '$' || c == '.' || c == '(' || c == ')' ) {
-                                                                end++;
-                                            } else {
-                                                                break;
-                                            }
-                        }
+        // Expand rightwards: allow letters, digits, '_', '$', '.', '(', ')'
+        int end = charIdx;
+        while (end < src.length()) {
+            char c = src.charAt(end);
+            if (Character.isLetterOrDigit(c) || c == '_' || c == '$' || c == '.' || c == '(' || c == ')') {
+                end++;
+            } else {
+                break;
+            }
+        }
 
-                        log.debug("extractChainedIdentifierFromSource: expanded range charStart={}, charEnd={}", start, end);
+        log.debug("extractChainedIdentifierFromSource: expanded range charStart={}, charEnd={}", start, end);
 
-                        if (start >= end) {
-                                            log.debug("extractChainedIdentifierFromSource: no expansion around offset -> empty");
-                                            return Optional.empty();
-                        }
-                        String candidate = src.substring(start, end).strip();
+        if (start >= end) {
+            log.debug("extractChainedIdentifierFromSource: no expansion around offset -> empty");
+            return Optional.empty();
+        }
+        String candidate = src.substring(start, end).strip();
 
-                        if (candidate.isEmpty()) {
-                                            log.debug("extractChainedIdentifierFromSource: candidate empty after strip");
-                                            return Optional.empty();
-                        }
+        if (candidate.isEmpty()) {
+            log.debug("extractChainedIdentifierFromSource: candidate empty after strip");
+            return Optional.empty();
+        }
 
-                        // If the token immediately before start is "new", include it
-                        int lookBack = Math.max(0, start - 8);
-                        String before = src.substring(lookBack, start);
-                        if (before.matches("(?s).*\\bnew\\s*$")) {
-                                            // find the position of 'new' in this slice
-                                            java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?i)\\bnew\\s*$").matcher(before);
-                                            if (m.find()) {
-                                                                int newPos = lookBack + m.start();
-                                                                candidate = src.substring(newPos, end).strip();
-                                                                log.debug("extractChainedIdentifierFromSource: included 'new' prefix, candidate now='{}'", candidate);
-                                            }
-                        }
+        // If the token immediately before start is "new", include it
+        int lookBack = Math.max(0, start - 8);
+        String before = src.substring(lookBack, start);
+        if (before.matches("(?s).*\\bnew\\s*$")) {
+            // find the position of 'new' in this slice
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?i)\\bnew\\s*$").matcher(before);
+            if (m.find()) {
+                int newPos = lookBack + m.start();
+                candidate = src.substring(newPos, end).strip();
+                log.debug("extractChainedIdentifierFromSource: included 'new' prefix, candidate now='{}'", candidate);
+            }
+        }
 
-                        // Trim any trailing unmatched punctuation like commas/semicolons
-                        candidate = candidate.replaceAll("[,;]+\\s*$", "").strip();
+        // Trim any trailing unmatched punctuation like commas/semicolons
+        candidate = candidate.replaceAll("[,;]+\\s*$", "").strip();
 
-                        log.debug("extractChainedIdentifierFromSource: returning candidate='{}'", candidate);
-                        return candidate.isEmpty() ? Optional.empty() : Optional.of(candidate);
-    }
-
-    /**
-         * Heuristic: look backward in `src` (before given UTF-8 byte offset) for a local variable declaration
-         * like 'Type varName ...' and return the declared type token if found.
-         *
-         * This is a best-effort fallback used when Tree-sitter local-variable queries are unavailable.
-         */
-    private Optional<String> findLocalTypeInSource(String src, String varName, int byteOffset) {
-                        log.debug("findLocalTypeInSource: varName='{}' byteOffset={} srcPresent={}", varName, byteOffset, !src.isEmpty());
-                        if (src.isEmpty() || varName.isBlank()) {
-                                            log.debug("findLocalTypeInSource: empty input, returning empty");
-                                            return Optional.empty();
-                        }
-
-                        // Map UTF-8 byteOffset to a Java char index (simple linear scan; acceptable for test-sized inputs)
-                        byte[] bytes = src.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-                        int bOffset = Math.max(0, Math.min(byteOffset, bytes.length));
-                        int acc = 0;
-                        int charIdx = -1;
-                        for (int i = 0; i < src.length(); i++) {
-                                            String ch = src.substring(i, i + 1);
-                                            int blen = ch.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
-                                            if (acc + blen > bOffset) {
-                                                                charIdx = i;
-                                                                break;
-                                            }
-                                            acc += blen;
-                        }
-                        if (charIdx == -1) charIdx = src.length();
-                        log.debug("findLocalTypeInSource: mapped byteOffset {} -> charIdx {}", bOffset, charIdx);
-
-                        // Only inspect the source before the offset to find prior declarations
-                        String prefix = src.substring(0, charIdx);
-
-                        // Regex: capture a type-like token before the variable name, e.g. "List<Leaf> varName", "int varName", etc.
-                        // We allow whitespace inside generics and array markers. Match the last occurrence before the offset.
-                        String regex = "(?m)(\\b[A-Za-z_$][A-Za-z0-9_<>\\[\\],\\s]*)\\s+" + Pattern.quote(varName)
-                                                                + "\\s*(?:=|,|;|\\)|$)";
-                        Pattern p = Pattern.compile(regex);
-                        var matcher = p.matcher(prefix);
-
-                        String foundType = null;
-                        while (matcher.find()) {
-                                            String typeCandidate = matcher.group(1);
-                                            if (typeCandidate != null && !typeCandidate.isBlank()) {
-                                                                // Keep the last match (closest declaration before the offset)
-                                                                foundType = typeCandidate;
-                                                                log.debug("findLocalTypeInSource: candidate match='{}' at matcher.end={}", typeCandidate, matcher.end());
-                                            }
-                        }
-
-                        if (foundType == null) {
-                                            log.debug("findLocalTypeInSource: no type found for var '{}'", varName);
-                                            return Optional.empty();
-                        }
-
-                        // Normalize excessive whitespace inside the type token (e.g., within generics)
-                        String normalized = foundType.replaceAll("\\s+", " ").strip();
-                        log.debug("findLocalTypeInSource: returning normalized='{}' for var '{}'", normalized, varName);
-                        return Optional.of(normalized);
+        log.debug("extractChainedIdentifierFromSource: returning candidate='{}'", candidate);
+        return candidate.isEmpty() ? Optional.empty() : Optional.of(candidate);
     }
 
     /**

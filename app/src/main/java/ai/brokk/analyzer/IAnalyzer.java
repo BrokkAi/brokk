@@ -281,6 +281,19 @@ public interface IAnalyzer {
             Set<CodeUnit> visibleImports) {}
 
     /**
+     * Builds a TypeInferenceContext for the given file and byte offset.
+     * The context provides enclosing class/method information and visible imports
+     * to guide type inference.
+     *
+     * @param file the project file
+     * @param offset UTF-8 byte offset within the file
+     * @return context with enclosing declarations and visible imports
+     */
+    default TypeInferenceContext buildTypeInferenceContext(ProjectFile file, int offset) {
+        return new TypeInferenceContext(file, offset, null, null, Set.of());
+    }
+
+    /**
      * Best-effort type inference entry point. Default implementation is a no-op; language-specific
      * analyzers may override to provide resolution to a CodeUnit that represents the type at the
      * given offset (e.g., the declaration of the variable or the return type of an expression).
@@ -290,27 +303,6 @@ public interface IAnalyzer {
      * @return optional CodeUnit representing the inferred type
      */
     default Optional<CodeUnit> inferTypeAt(ProjectFile file, int offset) {
-        return Optional.empty();
-    }
-
-    /**
-     * Parse the declared/declared-as-displayed field type for the given CodeUnit.
-     *
-     * Default implementation returns empty. Language-specific analyzers (TreeSitterAnalyzer) may
-     * override to parse the stored signature text and return a cleaned type token such as
-     * "List<String>", "String[]", "int", etc.
-     */
-    default Optional<String> parseFieldType(CodeUnit cu) {
-        return Optional.empty();
-    }
-
-    /**
-     * Parse the return type for the given function/method CodeUnit.
-     *
-     * Default implementation returns empty. Language-specific analyzers may override to extract
-     * things like "Foo", "void", "Map<K,V>" or array types.
-     */
-    default Optional<String> parseReturnType(CodeUnit cu) {
         return Optional.empty();
     }
 

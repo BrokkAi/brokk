@@ -299,4 +299,24 @@ public class MultiAnalyzer
                 .flatMap(analyzer -> analyzer.getDirectAncestors(cu).stream())
                 .toList();
     }
+
+    @Override
+    public List<Range> getReferencedIdentifiers(ProjectFile file) {
+        return delegateFor(file)
+                .map(analyzer -> analyzer.getReferencedIdentifiers(file))
+                .orElse(List.of());
+    }
+
+    @Override
+    public Optional<CodeUnit> inferTypeAt(ProjectFile file, int offset) {
+        return delegateFor(file)
+                .flatMap(analyzer -> analyzer.inferTypeAt(file, offset));
+    }
+
+    @Override
+    public TypeInferenceContext buildTypeInferenceContext(ProjectFile file, int offset) {
+        return delegateFor(file)
+                .map(analyzer -> analyzer.buildTypeInferenceContext(file, offset))
+                .orElse(new TypeInferenceContext(file, offset, null, null, Set.of()));
+    }
 }

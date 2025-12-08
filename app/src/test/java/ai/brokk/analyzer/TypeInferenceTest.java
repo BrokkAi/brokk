@@ -333,4 +333,146 @@ public class TypeInferenceTest {
             assertNotEquals("p.Derived.own", r5.get().fqName(), "shadowed local should not resolve to field");
         }
     }
+
+    @Test
+    public void patternMatchingInstanceofResolution() throws Exception {
+        try (var project = InlineTestProjectCreator.code(
+                """
+                package p;
+
+                public interface Repo {
+                    String getName();
+                }
+
+                public class GitRepo implements Repo {
+                    public String getName() { return "git"; }
+                    public String getTopLevel() { return "/top"; }
+                }
+
+                public class Use {
+                    public void test(Repo repo) {
+                        if (repo instanceof GitRepo gitRepo) {
+                            String top = gitRepo.getTopLevel();
+                            gitRepo.getName();
+                        }
+                    }
+                }
+                """,
+                "X.java").build()) {
+
+            var analyzer = createTreeSitterAnalyzer(project);
+            var pf = new ProjectFile(project.getRoot(), "X.java");
+            var srcOpt = pf.read();
+            assertTrue(srcOpt.isPresent(), "Source should be readable");
+            String src = srcOpt.get();
+
+            // Test 1: gitRepo.getTopLevel() - pattern variable qualified method call
+            int idxGetTopLevel = src.indexOf("gitRepo.getTopLevel()");
+            assertTrue(idxGetTopLevel >= 0, "expected 'gitRepo.getTopLevel()' in sample");
+            int offGetTopLevel = src.substring(0, idxGetTopLevel).getBytes(java.nio.charset.StandardCharsets.UTF_8).length
+                    + "gitRepo.".length();
+
+            Optional<CodeUnit> r1 = analyzer.inferTypeAt(pf, offGetTopLevel);
+            assertTrue(r1.isPresent(), "gitRepo.getTopLevel should resolve");
+            assertEquals("p.GitRepo.getTopLevel", r1.get().fqName());
+
+            // Test 2: gitRepo.getName() - inherited method call on pattern variable
+            int idxGetName = src.indexOf("gitRepo.getName()");
+            assertTrue(idxGetName >= 0, "expected 'gitRepo.getName()' in sample");
+            int offGetName = src.substring(0, idxGetName).getBytes(java.nio.charset.StandardCharsets.UTF_8).length
+                    + "gitRepo.".length();
+
+            Optional<CodeUnit> r2 = analyzer.inferTypeAt(pf, offGetName);
+            assertTrue(r2.isPresent(), "gitRepo.getName should resolve");
+            // getName is defined on GitRepo (which implements Repo)
+            assertEquals("p.GitRepo.getName", r2.get().fqName());
+        }
+    }
+
+    @Test
+    public void typeRefSampleInnerClassAndEnumResolution() throws Exception {
+        try (var project = InlineTestProjectCreator.code(
+                """
+                public class TypeRefSample {
+                    public enum MyEnum {
+                        FIRST,
+                        SECOND;
+
+                        public void enumMethod() {}
+                    }
+
+                    public static class StaticInner {
+                        public void innerMethod() {}
+                    }
+
+                    public void instanceMethod(StaticInner paramInner, MyEnum paramEnum) {
+                        StaticInner localInner = new StaticInner();
+                        MyEnum localEnum = MyEnum.SECOND;
+                        paramInner.innerMethod();
+                        localInner.innerMethod();
+                        paramEnum.enumMethod();
+                        localEnum.enumMethod();
+                    }
+                }
+                """,
+                "TypeRefSample.java").build()) {
+
+            var analyzer = createTreeSitterAnalyzer(project);
+            var pf = new ProjectFile(project.getRoot(), "TypeRefSample.java");
+            var srcOpt = pf.read();
+            assertTrue(srcOpt.isPresent(), "Source should be readable");
+            String src = srcOpt.get();
+
+            // Test 1: MyEnum.SECOND enum constant resolution
+            // The analyzer resolves the enum type itself (MyEnum), not the specific constant (SECOND)
+            int idxEnumSecond = src.indexOf("MyEnum localEnum = MyEnum.SECOND");
+            assertTrue(idxEnumSecond >= 0, "expected 'MyEnum localEnum = MyEnum.SECOND'");
+            int offEnumSecond = src.substring(0, idxEnumSecond).getBytes(StandardCharsets.UTF_8).length
+                    + "MyEnum localEnum = MyEnum.".length();
+
+            Optional<CodeUnit> r1 = analyzer.inferTypeAt(pf, offEnumSecond);
+            assertTrue(r1.isPresent(), "MyEnum.SECOND should resolve to the enum constant");
+            assertEquals("TypeRefSample.MyEnum.SECOND", r1.get().fqName());
+
+            // Test 2: paramInner.innerMethod() - parameter qualified method call
+            int idxParamInnerMethod = src.indexOf("paramInner.innerMethod();");
+            assertTrue(idxParamInnerMethod >= 0, "expected 'paramInner.innerMethod();'");
+            int offParamInnerMethod = src.substring(0, idxParamInnerMethod).getBytes(StandardCharsets.UTF_8).length
+                    + "paramInner.".length();
+
+            Optional<CodeUnit> r2 = analyzer.inferTypeAt(pf, offParamInnerMethod);
+            assertTrue(r2.isPresent(), "paramInner.innerMethod should resolve");
+            assertEquals("TypeRefSample.StaticInner.innerMethod", r2.get().fqName());
+
+            // Test 3: localInner.innerMethod() - local variable qualified method call
+            int idxLocalInnerMethod = src.indexOf("localInner.innerMethod();");
+            assertTrue(idxLocalInnerMethod >= 0, "expected 'localInner.innerMethod();'");
+            int offLocalInnerMethod = src.substring(0, idxLocalInnerMethod).getBytes(StandardCharsets.UTF_8).length
+                    + "localInner.".length();
+
+            Optional<CodeUnit> r3 = analyzer.inferTypeAt(pf, offLocalInnerMethod);
+            assertTrue(r3.isPresent(), "localInner.innerMethod should resolve");
+            assertEquals("TypeRefSample.StaticInner.innerMethod", r3.get().fqName());
+
+            // Test 4: paramEnum.enumMethod() - parameter enum method call
+            int idxParamEnumMethod = src.indexOf("paramEnum.enumMethod();");
+            assertTrue(idxParamEnumMethod >= 0, "expected 'paramEnum.enumMethod();'");
+            int offParamEnumMethod = src.substring(0, idxParamEnumMethod).getBytes(StandardCharsets.UTF_8).length
+                    + "paramEnum.".length();
+
+            Optional<CodeUnit> r4 = analyzer.inferTypeAt(pf, offParamEnumMethod);
+            assertTrue(r4.isPresent(), "paramEnum.enumMethod should resolve");
+            assertEquals("TypeRefSample.MyEnum.enumMethod", r4.get().fqName());
+
+            // Test 5: localEnum.enumMethod() - local enum variable method call
+            int idxLocalEnumMethod = src.indexOf("localEnum.enumMethod();");
+            assertTrue(idxLocalEnumMethod >= 0, "expected 'localEnum.enumMethod();'");
+            int offLocalEnumMethod = src.substring(0, idxLocalEnumMethod).getBytes(StandardCharsets.UTF_8).length
+                    + "localEnum.".length();
+
+            Optional<CodeUnit> r5 = analyzer.inferTypeAt(pf, offLocalEnumMethod);
+            assertTrue(r5.isPresent(), "localEnum.enumMethod should resolve");
+            assertEquals("TypeRefSample.MyEnum.enumMethod", r5.get().fqName());
+        }
+    }
 }

@@ -673,10 +673,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             return true;
         }
         // - index_signature: intentionally has no name, uses default "[index]"
-        if (CaptureNames.VALUE_DEFINITION.equals(captureName) && "index_signature".equals(nodeType)) {
-            return true;
-        }
-        return false;
+        return CaptureNames.VALUE_DEFINITION.equals(captureName) && "index_signature".equals(nodeType);
     }
 
     @Override
@@ -760,15 +757,10 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
         // Field + Function pattern (TypeScript allows properties and methods with the same name)
         // Example: class A { b: string; b() { ... } }
-        if ((existing.isField() && candidate.isFunction()) || (existing.isFunction() && candidate.isField())) {
-            return true;
-        }
-
         // Note: TypeScript enums are mapped to CLASS type via classLikeNodeTypes in the syntax profile.
         // They are already covered by the class/function merging check above.
         // The enum check that was here was dead code since CodeUnitType enum has no "enum" value.
-
-        return false;
+        return (existing.isField() && candidate.isFunction()) || (existing.isFunction() && candidate.isField());
     }
 
     @Override
@@ -784,14 +776,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
         // Default behavior for other duplicates
         return super.shouldIgnoreDuplicate(existing, candidate, file);
-    }
-
-    /**
-     * Checks if a function node is inside an ambient declaration context (declare namespace/module). In ambient
-     * contexts, function signatures should not include the "function" keyword.
-     */
-    public boolean isInAmbientContext(TSNode node) {
-        return checkAmbientContextDirect(node);
     }
 
     /**
@@ -817,17 +801,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 }
             }
 
-            parent = parent.getParent();
-        }
-        return false;
-    }
-
-    private boolean checkAmbientContextDirect(TSNode node) {
-        TSNode parent = node.getParent();
-        while (parent != null && !parent.isNull()) {
-            if ("ambient_declaration".equals(parent.getType())) {
-                return true;
-            }
             parent = parent.getParent();
         }
         return false;

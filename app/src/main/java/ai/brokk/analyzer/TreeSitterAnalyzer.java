@@ -711,13 +711,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         // Determine root node: try cached tree first, otherwise parse on-demand
         TSTree tree = treeOf(file);
         if (tree == null) {
-            try {
-                tree = getTSParser().parseString(null, src);
-            } catch (RuntimeException e) {
-                log.debug("Could not parse file for referenced identifiers {}; falling back to regex-free result: {}", file, e.getMessage());
-                referencedIdentifiersCache.putIfAbsent(file, List.of());
-                return List.of();
-            }
+            tree = getTSParser().parseString(null, src);
         }
         TSNode root = tree.getRootNode();
         if (root == null || root.isNull()) {
@@ -725,45 +719,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             return List.of();
         }
 
-        // Load reference query resource: try language-specific "-refs.scm" next to the primary query
-        String refsResource = null;
-        TSQuery refsQuery = null;
-        String candidate = null;
-        try {
-            candidate = getQueryResource().replace(".scm", "-refs.scm");
-            String raw = loadResource(candidate);
-            refsQuery = new TSQuery(getTSLanguage(), raw);
-            refsResource = candidate;
-        } catch (Throwable t) {
-            // Some native query compilation failures surface as Errors/Throwables from the Tree-sitter JNI layer.
-            // Catch Throwable to ensure they don't escape and break the analyzer construction/parsing pipeline.
-            log.warn(
-                    "Failed to load/compile TSQuery from resource '{}': {}. Falling back to builtin query when available.",
-                    candidate,
-                    t.getMessage());
-
-            boolean compiledBuiltin = false;
-            // Fallback for Java using built-in query constant. Attempt to compile the builtin.
-            if (language != null && "JAVA".equalsIgnoreCase(language.name())) {
-                try {
-                    refsQuery = new TSQuery(getTSLanguage(), JAVA_REFS_QUERY);
-                    refsResource = "<builtin-java-refs>";
-                    compiledBuiltin = true;
-                } catch (Throwable t2) {
-                    log.warn("Failed to compile builtin Java refs TSQuery: {}. Falling back to regex extractor.", t2.getMessage());
-                }
-            }
-
-            if (!compiledBuiltin) {
-                // If query compilation failed (both resource and builtin), fall back to a conservative regex-based
-                // extractor that finds dotted/chained identifier expressions and builds prefix ranges. This keeps the
-                // feature usable in environments where TSQuery can't be compiled.
-                log.debug("Using regex-based fallback for referenced-identifiers for file {}", file);
-                List<Range> fallback = regexExtractReferencedIdentifiers(src, srcBytes, file);
-                referencedIdentifiersCache.putIfAbsent(file, fallback);
-                return fallback;
-            }
-        }
+        // Load reference query resource: language-specific "-refs.scm" next to the primary query
+        String candidate = getQueryResource().replace(".scm", "-refs.scm");
+        String raw = loadResource(candidate);
+        TSQuery refsQuery = new TSQuery(getTSLanguage(), raw);
 
         // Execute query and collect ranges
         var cursor = new TSQueryCursor();
@@ -887,29 +846,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         // Try to reuse a cached tree if available, otherwise parse on demand.
         TSTree tree = treeOf(file);
         if (tree == null) {
-            try {
-                tree = getTSParser().parseString(null, src);
-            } catch (RuntimeException e) {
-                log.debug("Could not parse file for local variables {}; returning empty list: {}", file, e.getMessage());
-                localVariablesCache.putIfAbsent(file, List.of());
-                return List.of();
-            }
+            tree = getTSParser().parseString(null, src);
         }
         TSNode root = tree.getRootNode();
-        if (root == null || root.isNull()) {
-            localVariablesCache.putIfAbsent(file, List.of());
-            return List.of();
-        }
-
         // Attempt to load "-locals.scm" resource next to the primary query
-        String localsResource = null;
         TSQuery localsQuery = null;
         String candidate = null;
         try {
             candidate = getQueryResource().replace(".scm", "-locals.scm");
             String raw = loadResource(candidate);
             localsQuery = new TSQuery(getTSLanguage(), raw);
-            localsResource = candidate;
         } catch (Throwable t) {
             log.warn(
                     "Failed to load/compile TSQuery from resource '{}': {}. Returning empty local-variable list.",
@@ -1234,6 +1180,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * then heuristically determines the enclosing class and method. Visible imports are taken from the
      * previously-resolved imports for the file.
      */
+    @Override
     public IAnalyzer.TypeInferenceContext buildTypeInferenceContext(ProjectFile file, int offset) {
         // Build a small non-empty byte-range around the requested offset so enclosingCodeUnit
         // can perform containment checks. This is robust when callers provide a single-point
@@ -1597,7 +1544,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      *   "private List<String> items;" -> "List<String>"
      *   "public static int field1"     -> "int"
      */
-    @Override
     public Optional<String> parseFieldType(CodeUnit cu) {
         if (cu == null || !cu.isField()) return Optional.empty();
         List<String> sigs = signaturesOf(cu);
@@ -1634,7 +1580,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * preceding the method name, after stripping common modifiers. Handles generic method type
      * parameters (skips leading angle-bracket method-type-params) and returns "void" when present.
      */
-    @Override
     public Optional<String> parseReturnType(CodeUnit cu) {
         if (cu == null || !cu.isFunction()) return Optional.empty();
         List<String> sigs = signaturesOf(cu);
@@ -3698,90 +3643,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         return Optional.empty();
     }
 
-    // Fallback query string for referenced identifiers when the resource cannot be loaded from classpath.
-    // This is copied from the provided treesitter/java-refs.scm and exists to make tests and environments that
-    // don't package resources robust.
-    private static final String JAVA_REFS_QUERY = """
-; Java reference query: captures method/field uses, qualified Type.member, and constructors.
-
-; -------------
-; Method invocations
-; -------------
-
-; Unqualified method call: foo(...)
-(method_invocation
-  name: (identifier) @ref.name
-  arguments: (argument_list)) @ref.call
-
-; Qualified method call via expression: receiver.foo(...)
-(method_invocation
-  object: (identifier) @qual.expr
-  name: (identifier) @ref.name
-  arguments: (argument_list)) @ref.call
-
-; Qualified method call via chained field access: a.b().c(...)
-(method_invocation
-  object: (field_access) @qual.expr
-  name: (identifier) @ref.name
-  arguments: (argument_list)) @ref.call
-
-; Qualified method call via static type: Type.foo(...)
-(method_invocation
-  object: (type_identifier) @qual.type
-  name: (identifier) @ref.name
-  arguments: (argument_list)) @ref.call
-
-; this.foo(...)
-(method_invocation
-  object: (this) @qual.this
-  name: (identifier) @ref.name
-  arguments: (argument_list)) @ref.call
-
-; super.foo(...)
-(method_invocation
-  object: (super) @qual.super
-  name: (identifier) @ref.name
-  arguments: (argument_list)) @ref.call
-
-; -------------
-; Field accesses
-; -------------
-
-; Instance field: receiver.field
-(field_access
-  object: (identifier) @qual.expr
-  field: (identifier) @ref.name) @ref.field
-
-; Chained receiver: a.b.c
-(field_access
-  object: (field_access) @qual.expr
-  field: (identifier) @ref.name) @ref.field
-
-; Static field: Type.FIELD
-(field_access
-  object: (type_identifier) @qual.type
-  field: (identifier) @ref.name) @ref.field
-
-; this.field
-(field_access
-  object: (this) @qual.this
-  field: (identifier) @ref.name) @ref.field
-
-; super.field
-(field_access
-  object: (super) @qual.super
-  field: (identifier) @ref.name) @ref.field
-
-; -------------
-; Constructor calls
-; -------------
-
-; new Type(...)
-(object_creation_expression
-  type: (type_identifier) @ref.ctor.type
-  arguments: (argument_list)) @ref.ctor
-""";
-
     private static String loadResource(String path) {
         try (InputStream in = TreeSitterAnalyzer.class.getClassLoader().getResourceAsStream(path)) {
             if (in == null) throw new IOException("Resource not found: " + path);
@@ -3789,153 +3650,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
-    }
-
-    private List<Range> regexExtractReferencedIdentifiers(String src, byte[] srcBytes, ProjectFile file) {
-         // Primary pattern: dotted/chained identifiers with optional intermediate method call parens.
-         Pattern primary = Pattern.compile("\\b[A-Za-z_$][A-Za-z0-9_$]*(?:\\s*\\.\\s*[A-Za-z_$][A-Za-z0-9_$]*(?:\\([^)]*\\))?)*");
-         java.util.regex.Matcher matcher = primary.matcher(src);
-
-         // Secondary pattern: constructor/`new` usages to capture the type after `new`
-         Pattern newType = Pattern.compile("\\bnew\\s+([A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)*)\\s*\\(",
-                   Pattern.CASE_INSENSITIVE);
-
-         // Common Java tokens/keywords we should ignore as standalone identifiers
-         final var JAVA_KEYWORDS = Set.of(
-                   "public", "private", "protected", "static", "final", "void", "int", "long", "short", "byte", "char",
-                   "boolean", "float", "double", "class", "interface", "enum", "import", "package", "new", "return", "this",
-                   "super", "synchronized", "throws", "try", "catch", "finally", "if", "else", "for", "while", "do",
-                   "switch", "case", "default", "break", "continue", "instanceof", "assert", "native", "strictfp",
-                   "transient", "volatile", "abstract", "const", "goto");
-
-         var found = new LinkedHashSet<Range>();
-
-         while (matcher.find()) {
-              int matchStart = matcher.start();
-              int matchEnd = matcher.end();
-
-              // Skip matches that occur on import/package declaration lines — we don't want to surface the import token.
-              int lineStartIdx = Math.max(0, src.lastIndexOf('\n', Math.max(0, matchStart - 1)) + 1);
-              int nextNewline = src.indexOf('\n', lineStartIdx);
-              int lineEndIdx = nextNewline >= 0 ? nextNewline : src.length();
-              String lineTrim = src.substring(lineStartIdx, lineEndIdx).stripLeading();
-              if (lineTrim.startsWith("import ") || lineTrim.startsWith("package ")) {
-                   continue;
-              }
-
-              String matchText = src.substring(matchStart, matchEnd);
-
-              // Collect dot character indices relative to the match
-              List<Integer> dotRel = new ArrayList<>();
-              for (int i = 0; i < matchText.length(); i++) {
-                   if (matchText.charAt(i) == '.') dotRel.add(i);
-              }
-
-              // Build prefix end char offsets (exclusive): each dot index yields a prefix up to that dot,
-              // final prefix ends at the match end.
-              List<Integer> endCharOffsets = new ArrayList<>();
-              for (int d : dotRel) {
-                   endCharOffsets.add(matchStart + d);
-              }
-              endCharOffsets.add(matchEnd);
-
-              // Compute byteStart once
-              int byteStart = src.substring(0, matchStart).getBytes(StandardCharsets.UTF_8).length;
-
-              for (int endChar : endCharOffsets) {
-                   // Build the candidate substring for filtering and for computing end byte
-                   String candidate = src.substring(matchStart, endChar).strip();
-                   if (candidate.isEmpty()) continue;
-
-                   // If this is the final prefix (ends at matchEnd), strip trailing parentheses content
-                   // so "si.innerMethod()" becomes "si.innerMethod" (tests expect identifiers without trailing "()").
-                   if (endChar == matchEnd) {
-                        String strippedFinal = candidate.replaceFirst("\\([^)]*\\)\\s*$", "").strip();
-                        if (strippedFinal.isEmpty()) continue;
-                        candidate = strippedFinal;
-                   }
-
-                   // Filter out trivial keyword-only captures (e.g., "public", "static", "int")
-                   String lower = candidate.toLowerCase(Locale.ROOT);
-                   // single token case: if no dot present and token is a keyword, skip
-                   if (!candidate.contains(".") && JAVA_KEYWORDS.contains(lower)) {
-                        continue;
-                   }
-
-                   // Avoid capturing annotation tokens or leading "@" items (rare given pattern, but be defensive)
-                   if (candidate.startsWith("@")) continue;
-
-                   // Compute byte end for this prefix
-                   int byteEnd = src.substring(0, endChar).getBytes(StandardCharsets.UTF_8).length;
-                   if (byteEnd <= byteStart) continue;
-
-                   int startLine = (int) src.substring(0, matchStart).chars().filter(ch -> ch == '\n').count();
-                   int endLine = (int) src.substring(0, endChar).chars().filter(ch -> ch == '\n').count();
-
-                   // Final sanity: candidate should contain at least one letter or '_' or '$' to be a sensible identifier
-                   if (!candidate.matches(".*[A-Za-z_$].*")) continue;
-
-                   found.add(new Range(byteStart, byteEnd, startLine, endLine, byteStart));
-
-                   // If the extracted candidate still contains a trailing "()" (intermediate prefixes), also add a paren-stripped
-                   // variant so callers that expect "a.b" in addition to "a.b()" get coverage.
-                   // We compute a new endChar that trims the characters corresponding to the parentheses suffix.
-                   java.util.regex.Matcher parenMatcher = java.util.regex.Pattern.compile("(.*)\\([^)]*\\)\\s*$").matcher(
-                             src.substring(matchStart, endChar));
-                   if (parenMatcher.find()) {
-                        String withoutParens = parenMatcher.group(1).strip();
-                        if (!withoutParens.isEmpty()) {
-                             int removedChars = src.substring(matchStart, endChar).length() - withoutParens.length();
-                             int endCharStripped = endChar - removedChars;
-                             if (endCharStripped > matchStart) {
-                                  int byteEndStripped = src.substring(0, endCharStripped).getBytes(StandardCharsets.UTF_8).length;
-                                  if (byteEndStripped > byteStart) {
-                                       found.add(new Range(byteStart, byteEndStripped, startLine, endLine, byteStart));
-                                  }
-                             }
-                        }
-                   }
-              }
-         }
-
-         // Additionally capture constructor/type usages from "new Type(...)" patterns which the primary pattern may not
-         // include (because it often matches just the 'new' token).
-         java.util.regex.Matcher nm = newType.matcher(src);
-         while (nm.find()) {
-              int typeStart = nm.start(1);
-              int typeEnd = nm.end(1);
-              String typeText = nm.group(1);
-              if (typeText == null || typeText.isBlank()) continue;
-
-              // Build prefixes for the qualified type (e.g., "a.b.C" => "a", "a.b", "a.b.C")
-              List<Integer> dotRel = new ArrayList<>();
-              for (int i = 0; i < typeText.length(); i++) {
-                   if (typeText.charAt(i) == '.') dotRel.add(i);
-              }
-              List<Integer> endChars = new ArrayList<>();
-              for (int d : dotRel) {
-                   endChars.add(typeStart + d);
-              }
-              endChars.add(typeEnd);
-
-              int byteStart = src.substring(0, typeStart).getBytes(StandardCharsets.UTF_8).length;
-              for (int endChar : endChars) {
-                   String candidate = src.substring(typeStart, endChar).strip();
-                   if (candidate.isEmpty()) continue;
-                   int byteEnd = src.substring(0, endChar).getBytes(StandardCharsets.UTF_8).length;
-                   if (byteEnd <= byteStart) continue;
-                   int startLine = (int) src.substring(0, typeStart).chars().filter(ch -> ch == '\n').count();
-                   int endLine = (int) src.substring(0, endChar).chars().filter(ch -> ch == '\n').count();
-                   if (!candidate.matches(".*[A-Za-z_$].*")) continue;
-                   found.add(new Range(byteStart, byteEnd, startLine, endLine, byteStart));
-              }
-         }
-
-         List<Range> out = found.stream()
-                   .sorted(Comparator.comparingInt(Range::startByte).thenComparingInt(Range::endByte))
-                   .toList();
-         log.debug("Regex-based referenced-identifier extractor produced {} ranges for file {}", out.size(), file);
-         return out;
     }
 
     /**
