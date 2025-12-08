@@ -15,14 +15,38 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+/**
+ * Ranks related files using import relationships and Personalized PageRank (PPR).
+ * <p>
+ * The graph is built from file-to-file import edges. Seeds provide a teleport vector to PPR,
+ * returning the top-k related files (excluding the seeds).
+ */
 public final class ImportPageRanker {
 
     private ImportPageRanker() {}
 
-    private static final int REACH_DEPTH = 2;
-    private static final int BACKGROUND_BUDGET = 64;
+    private static final Logger log = LoggerFactory.getLogger(ImportPageRanker.class);
 
+    /** Damping factor for PageRank. */
+    private static final double ALPHA = 0.85d;
+    /** Convergence tolerance for L1 difference between iterations. */
+    private static final double CONVERGENCE_EPSILON = 1.0e-6d;
+    /** Maximum PageRank iterations. */
+    private static final int MAX_ITERS = 75;
+    /** Import reach depth when constructing the candidate set. */
+    private static final int IMPORT_DEPTH = 2;
+    /** Optional background set size to avoid tiny graphs. */
+    private static final int BACKGROUND_BUDGET = 64;
+    /** Node threshold above which we log a warning about graph size. */
+    private static final int LARGE_GRAPH_NODE_THRESHOLD = 2000;
+
+    /**
+     * Builds a candidate set by starting from the seed files and expanding via imported files
+     * up to IMPORT_DEPTH. Optionally mixes in a small background set for stability.
+     */
     private static Set<ProjectFile> buildCandidateSet(IAnalyzer analyzer, Map<ProjectFile, Double> seedWeights) {
         LinkedHashSet<ProjectFile> candidates = new LinkedHashSet<>();
         ArrayDeque<ProjectFile> frontier = new ArrayDeque<>();
@@ -33,7 +57,7 @@ public final class ImportPageRanker {
             }
         }
 
-        for (int depth = 0; depth < REACH_DEPTH && !frontier.isEmpty(); depth++) {
+        for (int depth = 0; depth < IMPORT_DEPTH && !frontier.isEmpty(); depth++) {
             ArrayDeque<ProjectFile> next = new ArrayDeque<>();
             while (!frontier.isEmpty()) {
                 ProjectFile pf = frontier.removeFirst();
@@ -61,6 +85,15 @@ public final class ImportPageRanker {
         return candidates;
     }
 
+    /**
+     * Compute the top-k related files using import-based Personalized PageRank.
+     *
+     * @param analyzer the analyzer providing import data and declarations.
+     * @param seedWeights map of seed files to positive weights (teleport vector); zero/negative are ignored.
+     * @param k number of results to return.
+     * @param reversed if true, reverse edges to rank importers instead of imports.
+     * @return ranked list of related files (excluding the seeds).
+     */
     public static List<IAnalyzer.FileRelevance> getRelatedFilesByImports(
             IAnalyzer analyzer, Map<ProjectFile, Double> seedWeights, int k, boolean reversed) {
         Objects.requireNonNull(analyzer, "analyzer");
@@ -111,6 +144,9 @@ public final class ImportPageRanker {
         if (n == 0) {
             return List.of();
         }
+        if (totalSeed <= 0.0d) {
+            return List.of();
+        }
         double[] v = new double[n];
         for (var e : positiveSeeds.entrySet()) {
             Integer idx = indexByFile.get(e.getKey());
@@ -122,6 +158,7 @@ public final class ImportPageRanker {
         // Prepare outdegree and neighbor arrays
         int[][] neighbors = new int[n][];
         int[] outdeg = new int[n];
+        long edgeCount = 0L;
         for (int i = 0; i < n; i++) {
             ProjectFile pf = nodes.get(i);
             Set<ProjectFile> outs = adjacency.getOrDefault(pf, Set.of());
@@ -132,22 +169,29 @@ public final class ImportPageRanker {
                     .toArray();
             neighbors[i] = outIdx;
             outdeg[i] = outIdx.length;
+            edgeCount += outIdx.length;
+        }
+
+        if (n > LARGE_GRAPH_NODE_THRESHOLD && log.isWarnEnabled()) {
+            log.warn(
+                    "ImportPageRanker large graph: nodes={}, edges={}, candidates={}, seeds={}",
+                    n,
+                    edgeCount,
+                    candidates.size(),
+                    positiveSeeds.size());
         }
 
         // Personalized PageRank
-        double alpha = 0.85d;
-        double epsilon = 1.0e-6d;
-        int maxIters = 100;
 
         double[] rank = new double[n];
         System.arraycopy(v, 0, rank, 0, n); // start from teleport vector
 
         double[] next = new double[n];
         double uniform = 1.0d / n;
-        for (int iter = 0; iter < maxIters; iter++) {
+        for (int iter = 0; iter < MAX_ITERS; iter++) {
             // Teleport component
             for (int i = 0; i < n; i++) {
-                next[i] = (1.0d - alpha) * v[i];
+                next[i] = (1.0d - ALPHA) * v[i];
             }
 
             // Link-follow component
@@ -156,7 +200,7 @@ public final class ImportPageRanker {
                 if (outdeg[i] == 0) {
                     danglingMass += rank[i];
                 } else {
-                    double share = alpha * rank[i] / outdeg[i];
+                    double share = ALPHA * rank[i] / outdeg[i];
                     for (int j : neighbors[i]) {
                         next[j] += share;
                     }
@@ -165,7 +209,7 @@ public final class ImportPageRanker {
 
             // Distribute dangling mass uniformly
             if (danglingMass != 0.0d) {
-                double add = alpha * danglingMass * uniform;
+                double add = ALPHA * danglingMass * uniform;
                 for (int i = 0; i < n; i++) {
                     next[i] += add;
                 }
@@ -181,7 +225,7 @@ public final class ImportPageRanker {
             rank = next;
             next = tmp;
 
-            if (diff < epsilon) {
+            if (diff < CONVERGENCE_EPSILON) {
                 break;
             }
         }
@@ -209,6 +253,9 @@ public final class ImportPageRanker {
         return ranked.subList(0, k);
     }
 
+    /**
+     * Resolve imported files for the given source file using the most accurate analyzer APIs available.
+     */
     private static Set<ProjectFile> importedFilesFor(IAnalyzer analyzer, ProjectFile file) {
         // Prefer TreeSitterAnalyzer if available for accurate resolution
         if (analyzer instanceof TreeSitterAnalyzer tsa) {
