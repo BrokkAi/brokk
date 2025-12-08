@@ -9,7 +9,10 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import java.awt.*;
 import java.awt.event.*;
+import java.awt.event.InputEvent;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import javax.swing.*;
@@ -28,6 +31,19 @@ public class PreviewFrame extends JFrame implements ThemeAware {
     private final Map<ProjectFile, Component> fileToTabMap = new HashMap<>();
     // Track tabs by their associated fragment for fragment-based deduplication
     private final Map<Component, ContextFragment> tabToFragmentMap = new HashMap<>();
+
+    // Navigation history for back/forward support
+    private static final int MAX_HISTORY_SIZE = 1000;
+
+    /**
+     * Simple navigation entry representing a file + character offset (caret position).
+     */
+    private static record NavigationEntry(ProjectFile file, int offset) {}
+
+    // Bounded list of navigation entries and the current index into the list.
+    // navigationIndex == -1 means the history is empty.
+    private final List<NavigationEntry> navigationHistory = new ArrayList<>();
+    private int navigationIndex = -1;
 
     public PreviewFrame(Chrome chrome, GuiTheme guiTheme) {
         super("Preview");
@@ -56,6 +72,9 @@ public class PreviewFrame extends JFrame implements ThemeAware {
                 handleFrameClose();
             }
         });
+
+        // Register navigation keyboard shortcuts (Ctrl+Alt+Left/Right for back/forward)
+        registerNavigationShortcuts();
     }
 
     /**
@@ -294,6 +313,119 @@ public class PreviewFrame extends JFrame implements ThemeAware {
 
         // Dispose the frame
         dispose();
+    }
+
+    /**
+     * Pushes a location (file + caret character offset) onto the navigation history.
+     * Avoids adding consecutive duplicates and truncates forward history if present.
+     */
+    public void pushLocation(ProjectFile file, int offset) {
+        if (file == null) return;
+
+        // Avoid consecutive duplicates
+        if (navigationIndex >= 0 && navigationIndex < navigationHistory.size()) {
+            NavigationEntry current = navigationHistory.get(navigationIndex);
+            if (current.file().equals(file) && current.offset() == offset) {
+                return;
+            }
+        }
+
+        // Truncate forward history if necessary
+        if (navigationIndex >= 0 && navigationIndex < navigationHistory.size() - 1) {
+            navigationHistory.subList(navigationIndex + 1, navigationHistory.size()).clear();
+        }
+
+        // Add entry and clamp size
+        navigationHistory.add(new NavigationEntry(file, offset));
+        navigationIndex = navigationHistory.size() - 1;
+
+        while (navigationHistory.size() > MAX_HISTORY_SIZE) {
+            navigationHistory.remove(0);
+            navigationIndex--;
+        }
+    }
+
+    /**
+     * Navigate back in history (Ctrl+Alt+Left).
+     */
+    public void navigateBack() {
+        if (navigationIndex <= 0) return;
+        navigationIndex--;
+        navigateToEntry(navigationHistory.get(navigationIndex));
+    }
+
+    /**
+     * Navigate forward in history (Ctrl+Alt+Right).
+     */
+    public void navigateForward() {
+        if (navigationIndex >= navigationHistory.size() - 1) return;
+        navigationIndex++;
+        navigateToEntry(navigationHistory.get(navigationIndex));
+    }
+
+    /**
+     * Navigate to a specific history entry. If the file is already open in a tab, select it and
+     * move the caret. If not open, attempt to request Chrome to preview the file (best-effort).
+     */
+    private void navigateToEntry(NavigationEntry entry) {
+        SwingUtilities.invokeLater(() -> {
+            // If file is already open, select it
+            Component existingTab = fileToTabMap.get(entry.file());
+            if (existingTab != null) {
+                int index = tabbedPane.indexOfComponent(existingTab);
+                if (index >= 0) {
+                    tabbedPane.setSelectedIndex(index);
+                    if (existingTab instanceof PreviewTextPanel textPanel) {
+                        textPanel.setCaretPositionAndCenter(entry.offset());
+                    }
+                    return;
+                }
+            }
+
+            // Best-effort: ask Chrome to preview the file at the recorded offset.
+            // If Chrome doesn't implement previewFile, this call is wrapped so it won't crash the app.
+            try {
+                chrome.previewFile(entry.file(), entry.offset());
+            } catch (Throwable t) {
+                // Ignore: not all Chrome implementations may expose previewFile
+            }
+
+            // Try again to set the caret after preview opens (may be a no-op if preview didn't open)
+            SwingUtilities.invokeLater(() -> {
+                Component newTab = fileToTabMap.get(entry.file());
+                if (newTab instanceof PreviewTextPanel textPanel) {
+                    textPanel.setCaretPositionAndCenter(entry.offset());
+                }
+            });
+        });
+    }
+
+    /**
+     * Registers Ctrl+Alt+Left and Ctrl+Alt+Right to navigateBack/navigateForward.
+     */
+    private void registerNavigationShortcuts() {
+        JRootPane rootPane = getRootPane();
+        if (rootPane == null) return;
+
+        KeyStroke backKey = KeyStroke.getKeyStroke(KeyEvent.VK_LEFT,
+                InputEvent.CTRL_DOWN_MASK | InputEvent.ALT_DOWN_MASK);
+        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(backKey, "navigateBack");
+        rootPane.getActionMap().put("navigateBack", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                navigateBack();
+            }
+        });
+
+        KeyStroke forwardKey = KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT,
+                InputEvent.CTRL_DOWN_MASK | InputEvent.ALT_DOWN_MASK);
+        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(forwardKey, "navigateForward");
+        rootPane.getActionMap().put("navigateForward", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                navigateForward();
+            }
+        });
     }
 
     private void updateWindowTitle() {
