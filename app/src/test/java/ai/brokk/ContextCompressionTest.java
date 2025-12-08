@@ -159,9 +159,9 @@ public class ContextCompressionTest {
     }
 
     @Test
-    void testToStringPreferringFullMessagesWhenCompressed() {
-        // When an entry has both log and summary, toString() should indicate
-        // that it's summarized but prefer showing the full messages
+    void testToStringShowsSummaryForAI() {
+        // toString() is for AI consumption - when summarized, it should show the summary
+        // (not the full messages, which are only for the UI)
         List<ChatMessage> messages = List.of(UserMessage.from("Question"), AiMessage.from("Answer"));
 
         var taskFragment = new ContextFragment.TaskFragment(contextManager, messages, "Q&A");
@@ -173,8 +173,11 @@ public class ContextCompressionTest {
         // Should indicate summarized
         assertTrue(str.contains("summarized=true"), "toString should indicate summarized");
 
-        // Should include message types (prefers full messages)
-        assertTrue(str.contains("message"), "toString should include message content");
+        // Should include the summary content (what the AI sees)
+        assertTrue(str.contains("Q&A interaction"), "toString should include summary content");
+
+        // Should NOT include full message tags (those are for UI only)
+        assertFalse(str.contains("<message type="), "toString should not include message tags when summarized");
     }
 
     @Test

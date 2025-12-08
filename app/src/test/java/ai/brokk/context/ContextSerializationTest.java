@@ -1463,23 +1463,34 @@ public class ContextSerializationTest {
     }
 
     @Test
-    void testTaskEntryToStringWithBothLogAndSummary() {
-        // Verify toString prefers full messages when both are present
+    void testTaskEntryToStringShowsSummaryForAI() {
+        // Verify toString shows summary (not full messages) for AI consumption
+        // Per design: "the AI sees the summary, but the UI prefers to render the full log messages"
         var messages = List.of(UserMessage.from("User"), AiMessage.from("AI"));
         var taskFragment = new ContextFragment.TaskFragment(mockContextManager, messages, "Task");
         var summary = "Compressed summary";
 
+        // When both log and summary exist, toString should show the summary for the AI
         var both = new TaskEntry(1, taskFragment, summary);
         String str = both.toString();
 
-        // Should include the messages (from log), not just the summary
         assertTrue(str.contains("summarized=true"), "toString should indicate summarized");
-        assertTrue(str.contains("user") || str.contains("ai"), "toString should include message types");
+        assertTrue(str.contains("Compressed summary"), "toString should include the summary content");
+        // The AI view should NOT include full message types when summary is present
+        assertFalse(str.contains("<message type="), "toString should not include message tags when summarized");
 
-        // Summary only should show as summary-only
-        var summaryOnly = new TaskEntry(2, null, summary);
-        String str2 = summaryOnly.toString();
-        assertTrue(str2.contains("summary-only=true"), "toString should indicate summary-only");
+        // When only log exists (no summary), toString should show the full messages
+        var logOnly = new TaskEntry(2, taskFragment, null);
+        String str2 = logOnly.toString();
+        assertFalse(str2.contains("summarized=true"), "log-only should not indicate summarized");
+        assertTrue(str2.contains("<message type=user>"), "log-only should include user message");
+        assertTrue(str2.contains("<message type=ai>"), "log-only should include ai message");
+
+        // When only summary exists (no log), toString should show the summary
+        var summaryOnly = new TaskEntry(3, null, summary);
+        String str3 = summaryOnly.toString();
+        assertTrue(str3.contains("summarized=true"), "summary-only should indicate summarized");
+        assertTrue(str3.contains("Compressed summary"), "summary-only should include summary content");
     }
 
     @Test
@@ -1609,7 +1620,7 @@ public class ContextSerializationTest {
     @Test
     void testMixedTaskEntryStatesRoundTrip() throws Exception {
         // Create a context with multiple TaskEntry states: log-only, summary-only, and both
-        var ctx = new Context(mockContextManager, "Mixed task entries");
+        var ctx = new Context(mockContextManager);
 
         // Entry 1: Log only
         var msg1 = List.<ChatMessage>of(UserMessage.from("Query 1"), AiMessage.from("Response 1"));
