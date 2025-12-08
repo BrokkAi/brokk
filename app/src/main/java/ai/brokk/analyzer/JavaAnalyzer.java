@@ -621,4 +621,115 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         LinkedHashSet<String> unique = new LinkedHashSet<>(supers);
         return List.copyOf(unique);
     }
+
+    /**
+     * Best-effort type/member resolution at a file offset.
+     *
+     * Recognizes simple identifier chains produced by {@link IAnalyzer#getIdentifierAt(ProjectFile, int)} such as
+     * "this.field", "this.method()", "super.field" and "super.method()".
+     *
+     * Resolution strategy:
+     *  - "this.<name>": look in the enclosing class's direct children first, then fall back to ancestor classes.
+     *  - "super.<name>": look in direct ancestors first (immediate parents), then the wider ancestor chain.
+     *
+     * Returns the CodeUnit of the matching member (field or function) if found.
+     */
+    @Override
+    public Optional<CodeUnit> inferTypeAt(ProjectFile file, int offset) {
+        var identOpt = getIdentifierAt(file, offset);
+        if (identOpt.isEmpty()) return Optional.empty();
+        String ident = identOpt.get().strip();
+        if (ident.isEmpty()) return Optional.empty();
+
+        // Normalize common cases where trailing "()" or argument lists may be present
+        String normalized = ident;
+
+        // Helper to strip trailing parentheses for method calls like "method()" or "method(arg)"
+        java.util.function.UnaryOperator<String> stripParens = s -> {
+            int p = s.indexOf('(');
+            return p >= 0 ? s.substring(0, p) : s;
+        };
+
+        // Build inference context (enclosing class/method + imports)
+        var ctx = buildTypeInferenceContext(file, offset);
+        CodeUnit enclosingClass = ctx.enclosingClass();
+
+        if (normalized.startsWith("this.")) {
+            String memberChain = normalized.substring("this.".length()).strip();
+            if (memberChain.isEmpty() || enclosingClass == null) return Optional.empty();
+            String leftmost = stripParens.apply(memberChain.split("\\.", 2)[0]);
+
+            // 1) Search direct children of enclosing class
+            for (CodeUnit child : getDirectChildren(enclosingClass)) {
+                if (matchesMember(child, leftmost)) {
+                    return Optional.of(child);
+                }
+            }
+
+            // 2) Fallback: search ancestors (inherited members)
+            for (CodeUnit anc : getAncestors(enclosingClass)) {
+                for (CodeUnit child : getDirectChildren(anc)) {
+                    if (matchesMember(child, leftmost)) {
+                        return Optional.of(child);
+                    }
+                }
+            }
+
+            return Optional.empty();
+        } else if (normalized.startsWith("super.")) {
+            String memberChain = normalized.substring("super.".length()).strip();
+            if (memberChain.isEmpty() || enclosingClass == null) return Optional.empty();
+            String leftmost = stripParens.apply(memberChain.split("\\.", 2)[0]);
+
+            // 1) Prefer direct ancestors (non-transitive), i.e., immediate supertypes
+            for (CodeUnit directParent : getDirectAncestors(enclosingClass)) {
+                for (CodeUnit child : getDirectChildren(directParent)) {
+                    if (matchesMember(child, leftmost)) {
+                        return Optional.of(child);
+                    }
+                }
+            }
+
+            // 2) Fallback: transitive ancestors
+            for (CodeUnit anc : getAncestors(enclosingClass)) {
+                for (CodeUnit child : getDirectChildren(anc)) {
+                    if (matchesMember(child, leftmost)) {
+                        return Optional.of(child);
+                    }
+                }
+            }
+
+            return Optional.empty();
+        }
+
+        // Not a recognized this./super. access that we handle
+        return Optional.empty();
+    }
+
+    /**
+     * Robust member name comparison helper. Matches by:
+     *  - CodeUnit.identifier()
+     *  - CodeUnit.shortName()
+     *  - trailing segment of CodeUnit.fqName() ('.' or '$' separators)
+     */
+    private static boolean matchesMember(CodeUnit cu, String name) {
+        if (cu == null || name == null || name.isBlank()) return false;
+        String candidate = name.strip();
+
+        // Direct identifier (may be different from shortName in some languages)
+        try {
+            if (candidate.equals(cu.identifier())) return true;
+        } catch (Exception ignored) {
+        }
+        if (candidate.equals(cu.shortName())) return true;
+
+        String fq = cu.fqName();
+        if (fq.endsWith("." + candidate) || fq.endsWith("$" + candidate)) return true;
+
+        // Sometimes shortName contains classChain + "." + simpleName (e.g., inner classes),
+        // allow a suffix match as a last resort.
+        if (cu.shortName().endsWith("." + candidate)) return true;
+
+        return false;
+    }
 }
