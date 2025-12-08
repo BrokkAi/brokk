@@ -96,14 +96,12 @@ public final class ImportPageRanker {
      */
     public static List<IAnalyzer.FileRelevance> getRelatedFilesByImports(
             IAnalyzer analyzer, Map<ProjectFile, Double> seedWeights, int k, boolean reversed) {
-        Objects.requireNonNull(analyzer, "analyzer");
-        Objects.requireNonNull(seedWeights, "seedWeights");
         if (k <= 0) return List.of();
 
         // Normalize seeds (ignore zero/negative)
         Map<ProjectFile, Double> positiveSeeds = new HashMap<>();
         for (var e : seedWeights.entrySet()) {
-            if (e.getValue() != null && e.getValue() > 0.0d) {
+            if (e.getValue() > 0.0d) {
                 positiveSeeds.merge(e.getKey(), e.getValue(), Double::sum);
             }
         }
