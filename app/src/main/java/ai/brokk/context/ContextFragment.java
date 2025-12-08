@@ -1745,16 +1745,20 @@ public interface ContextFragment {
 
         private String formatSummaryWithAncestors(
                 CodeUnit cu, List<CodeUnit> ancestorList, Map<CodeUnit, String> skeletons) {
-            Map<CodeUnit, String> primary = new LinkedHashMap<>();
-            skeletons.forEach((k, v) -> {
-                if (k.fqName().equals(cu.fqName())
-                        && !(isAnonymousName(k.fqName()) || isAnonymousName(k.identifier()))) {
-                    primary.put(k, v);
-                }
-            });
             var sb = new StringBuilder();
-            String primaryFormatted = formatSkeletonsByPackage(primary);
-            if (!primaryFormatted.isEmpty()) sb.append(primaryFormatted).append("\n\n");
+
+            boolean isCuAnonymous = isAnonymousName(cu.fqName()) || isAnonymousName(cu.identifier());
+
+            if (!isCuAnonymous) {
+                Map<CodeUnit, String> primary = new LinkedHashMap<>();
+                skeletons.forEach((k, v) -> {
+                    if (k.fqName().equals(cu.fqName())) {
+                        primary.put(k, v);
+                    }
+                });
+                String primaryFormatted = formatSkeletonsByPackage(primary);
+                if (!primaryFormatted.isEmpty()) sb.append(primaryFormatted).append("\n\n");
+            }
 
             var filteredAncestors = ancestorList.stream()
                     .filter(anc -> !(isAnonymousName(anc.fqName()) || isAnonymousName(anc.identifier())))
