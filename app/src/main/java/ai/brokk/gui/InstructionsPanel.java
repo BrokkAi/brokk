@@ -2950,7 +2950,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         ProjectFile::getFileName,
                         ProjectFile::toString,
                         f -> 0,
-                        f -> new ShorthandCompletion(this, f.toString(), formatCompletionText(f.toString())));
+                        f -> new ShorthandCompletion(this, f.getFileName(), formatCompletionText(f.getFileName())));
                 completions = new ArrayList<>(fileCompletions.stream().limit(50).toList());
             } else {
                 var analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
