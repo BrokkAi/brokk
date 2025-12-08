@@ -715,7 +715,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
         TSNode root = tree.getRootNode();
         if (root == null || root.isNull()) {
-            referencedIdentifiersCache.putIfAbsent(file, List.of());
+            // Do not cache parse failures - allows retry on next call
+            log.debug("Parse produced null root node for {}; not caching to allow retry", file);
             return List.of();
         }
 
@@ -849,6 +850,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             tree = getTSParser().parseString(null, src);
         }
         TSNode root = tree.getRootNode();
+        if (root == null || root.isNull()) {
+            // Do not cache parse failures - allows retry on next call
+            log.debug("Parse produced null root node for {} in getLocalVariables; not caching to allow retry", file);
+            return List.of();
+        }
         // Attempt to load "-locals.scm" resource next to the primary query
         TSQuery localsQuery = null;
         String candidate = null;
@@ -858,10 +864,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             localsQuery = new TSQuery(getTSLanguage(), raw);
         } catch (Throwable t) {
             log.warn(
-                    "Failed to load/compile TSQuery from resource '{}': {}. Returning empty local-variable list.",
+                    "Failed to load/compile TSQuery from resource '{}': {}. Returning empty local-variable list (not cached to allow retry).",
                     candidate,
                     t.getMessage());
-            localVariablesCache.putIfAbsent(file, List.of());
+            // Do not cache query loading failures - allows retry on next call
             return List.of();
         }
 
