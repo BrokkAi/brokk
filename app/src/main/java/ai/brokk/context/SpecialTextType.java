@@ -94,7 +94,7 @@ public final class SpecialTextType {
             false, // non-droppable
             true, // singleton
             SpecialTextType::renderTaskListMarkdown, // render JSON → Markdown for preview
-            v -> v.taskType() == TaskResult.Type.SEARCH
+            v -> (v.taskType() == TaskResult.Type.SEARCH && v.useTaskList())
                     || v.taskType() == TaskResult.Type.ASK
                     || v.taskType() == TaskResult.Type.COPY // COPY used for CopyExternal prompts
             ));
