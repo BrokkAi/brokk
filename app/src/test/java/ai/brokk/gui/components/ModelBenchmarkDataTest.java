@@ -78,7 +78,7 @@ class ModelBenchmarkDataTest {
     @Test
     void boundary_inclusive_checks() {
         int result = ModelBenchmarkData.getSuccessRate("zai-glm-4.6", Service.ReasoningLevel.DEFAULT, 100);
-        assertEquals(85, result, "\"zai-glm-4.6\" DEFAULT @100 (16K-32K range) should be 85%");
+        assertEquals(85, result, "zai-glm-4.6 DEFAULT @100 (16K-32K range) should be 85%");
     }
 
     @Test
