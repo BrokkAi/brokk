@@ -309,6 +309,10 @@ public class GitCommitTab extends JPanel implements ThemeAware {
         });
         buttonPanel.add(resolveConflictsButton);
 
+        // Fix button widths to accommodate all text variants, preventing layout shifts
+        fixButtonWidth(commitButton, "Commit All...", "Commit Selected...");
+        fixButtonWidth(stashButton, "Stash All", "Stash Selected");
+
         // Table selection => update commit button text and enable/disable buttons
         uncommittedFilesTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
@@ -457,6 +461,21 @@ public class GitCommitTab extends JPanel implements ThemeAware {
         // Let the horizontal scroll handle overflow; no wrapping or panel-wide revalidation necessary
         buttonPanel.revalidate();
         buttonPanel.repaint();
+    }
+
+    /**
+     * Sets a fixed preferred width on the button to accommodate the widest text variant.
+     */
+    private static void fixButtonWidth(AbstractButton button, String... textVariants) {
+        var fm = button.getFontMetrics(button.getFont());
+        var insets = button.getInsets();
+        int maxTextWidth = 0;
+        for (var text : textVariants) {
+            maxTextWidth = Math.max(maxTextWidth, fm.stringWidth(text));
+        }
+        int fixedWidth = maxTextWidth + insets.left + insets.right;
+        var pref = button.getPreferredSize();
+        button.setPreferredSize(new Dimension(fixedWidth, pref.height));
     }
 
     /**
