@@ -49,5 +49,10 @@ public class UndoRedoWatcherPauseTest {
         // Perform redo while pausing file change notifications
         var redoResult = cm.withFileChangeNotificationsPaused(() -> ch.redo(cm.getIo(), project));
         Assertions.assertTrue(redoResult.wasRedone(), "Redo should be possible after one undo");
+
+        // Verify pause/resume called exactly once for the redo operation as well (cumulative totals: 2 each)
+        Assertions.assertEquals(2, fake.getPauseCount(), "pause() should be called exactly twice across undo and redo");
+        Assertions.assertEquals(
+                2, fake.getResumeCount(), "resume() should be called exactly twice across undo and redo");
     }
 }

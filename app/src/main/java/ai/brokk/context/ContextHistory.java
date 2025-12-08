@@ -354,9 +354,8 @@ public class ContextHistory {
     /**
      * Redoes the last undone operation.
      *
-     * @param io the console IO for feedback
-     * @param project the project for file operations
-     * @return A RedoResult containing whether something was redone and the set of changed files.
+     * @param wasRedone true if the redo was applied.
+     * @param changedFiles the changes files from the result
      */
     public record RedoResult(boolean wasRedone, Set<ProjectFile> changedFiles) {
         public static RedoResult none() {
@@ -575,7 +574,7 @@ public class ContextHistory {
                 });
 
         // Phase 2: write all differing files and collect changed files
-        var restoredFiles = new HashSet<ProjectFile>();
+        var changedFiles = new HashSet<ProjectFile>();
 
         // Write text files
         for (var entry : desiredContents.entrySet()) {
@@ -585,7 +584,7 @@ public class ContextHistory {
                 var currentContent = pf.exists() ? pf.read().orElse("") : "";
                 if (!Objects.equals(newContent, currentContent)) {
                     pf.write(newContent);
-                    restoredFiles.add(pf);
+                    changedFiles.add(pf);
                 }
             } catch (IOException e) {
                 logger.error("Failed to restore file {} from snapshot", pf, e);
@@ -602,7 +601,7 @@ public class ContextHistory {
                 byte[] currentBytes = Files.exists(pf.absPath()) ? Files.readAllBytes(pf.absPath()) : null;
                 if (currentBytes == null || !java.util.Arrays.equals(currentBytes, bytes)) {
                     Files.write(pf.absPath(), bytes);
-                    restoredFiles.add(pf);
+                    changedFiles.add(pf);
                 }
             } catch (IOException e) {
                 logger.error("Failed to restore image file {} from snapshot", pf, e);
@@ -610,11 +609,11 @@ public class ContextHistory {
             }
         }
 
-        if (!restoredFiles.isEmpty()) {
+        if (!changedFiles.isEmpty()) {
             io.showNotification(
                     IConsoleIO.NotificationRole.INFO,
                     "Restored files: "
-                            + restoredFiles.stream().map(ProjectFile::toString).collect(Collectors.joining(", ")));
+                            + changedFiles.stream().map(ProjectFile::toString).collect(Collectors.joining(", ")));
             io.updateWorkspace();
         }
 
@@ -624,6 +623,6 @@ public class ContextHistory {
                     "Undo/Redo Warning");
         }
 
-        return restoredFiles;
+        return changedFiles;
     }
 }
