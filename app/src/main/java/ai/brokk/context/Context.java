@@ -12,6 +12,7 @@ import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.ActivityTableRenderers;
 import ai.brokk.project.AbstractProject;
+import ai.brokk.ranking.ImportPageRanker;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.*;
@@ -315,6 +316,20 @@ public class Context {
 
         if (weightedSeeds.isEmpty()) {
             return List.of();
+        }
+
+        IAnalyzer analyzer = contextManager.getAnalyzer();
+        boolean noGit = !contextManager.getProject().hasGit() || !(contextManager.getRepo() instanceof GitRepo);
+
+        boolean manyNewSeeds = areManySeedsNew(weightedSeeds.keySet());
+
+        if (noGit || manyNewSeeds) {
+            var pprResults =
+                    ImportPageRanker.getRelatedFilesByImports(analyzer, weightedSeeds, topK, false);
+            return pprResults.stream()
+                    .map(IAnalyzer.FileRelevance::file)
+                    .filter(file -> !ineligibleSources.contains(file))
+                    .toList();
         }
 
         var gitDistanceResults =
@@ -1271,6 +1286,30 @@ public class Context {
                 cf.await(Duration.ofMillis(remainingMillis));
             }
         }
+    }
+
+    private boolean areManySeedsNew(Set<ProjectFile> seedFiles) {
+        if (seedFiles.isEmpty()) {
+            return false;
+        }
+        var repo = contextManager.getRepo();
+        var tracked = repo.getTrackedFiles();
+        Set<ProjectFile> newlyAdded;
+        try {
+            newlyAdded = repo.getModifiedFiles().stream()
+                    .filter(mf -> mf.status() == ai.brokk.git.IGitRepo.ModificationType.NEW)
+                    .map(ai.brokk.git.IGitRepo.ModifiedFile::file)
+                    .collect(Collectors.toSet());
+        } catch (Exception e) {
+            newlyAdded = Set.of();
+        }
+        int newCount = 0;
+        for (var f : seedFiles) {
+            if (!tracked.contains(f) || newlyAdded.contains(f)) {
+                newCount++;
+            }
+        }
+        return (double) newCount / (double) seedFiles.size() >= 0.3d;
     }
 
     private static Set<ContextFragment> validateReadOnlyFragments(
