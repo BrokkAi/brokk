@@ -435,6 +435,7 @@ public class SearchAgent {
                 .collect(Collectors.joining(", "));
 
         var nonDroppableSection = buildNonDroppableSection();
+        var workspaceToc = CodePrompts.formatWorkspaceToc(context);
 
         var sys = new SystemMessage(
                 """
@@ -478,8 +479,11 @@ public class SearchAgent {
                 %s
                 %s
                 </instructions>
+                <workspace-toc>
+                %s
+                </workspace-toc>
                 """
-                        .formatted(supportedTypes, reminder, nonDroppableSection));
+                        .formatted(supportedTypes, reminder, nonDroppableSection, workspaceToc));
         messages.add(sys);
 
         // Describe available MCP tools
@@ -839,7 +843,7 @@ public class SearchAgent {
 
                 Tools (exactly one):
                 - performedInitialReview(): use ONLY when ALL fragments are short, focused, clean, and directly relevant.
-                - dropWorkspaceFragments({ fragmentId -> explanation }): batch ALL drops in a single call.
+                - dropWorkspaceFragments(fragments: {fragmentId, explanation}[]): batch ALL drops in a single call.
 
                 Default behavior:
                 - If a fragment is large, noisy, or mixed → write a short summary in the drop explanation → DROP it.
@@ -848,7 +852,7 @@ public class SearchAgent {
                 Keep rule:
                 - KEEP only if it is short, focused, directly relevant, AND keeping it is clearer than summarizing.
 
-                Explanation format per fragment (concise):
+                fragment.explanation (string) format:
                 - Summary: 2–4 identifier-first bullets (files/methods and why they matter).
                 - Reason: one short sentence why dropped.
                 - No implementation instructions.

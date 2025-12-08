@@ -39,9 +39,9 @@ public abstract class ArchitectPrompts extends CodePrompts {
           <instructions>
           %s
           </instructions>
-          <workspace-summary>
+          <workspace-toc>
           %s
-          </workspace-summary>
+          </workspace-toc>
           <style_guide>
           %s
           </style_guide>
@@ -62,9 +62,9 @@ public abstract class ArchitectPrompts extends CodePrompts {
           <instructions>
           %s
           </instructions>
-          <workspace-summary>
+          <workspace-toc>
           %s
-          </workspace-summary>
+          </workspace-toc>
           <style_guide>
           %s
           </style_guide>
@@ -236,9 +236,9 @@ public abstract class ArchitectPrompts extends CodePrompts {
             When you are done, call projectFinished or abortProject.
 
             Here is a summary of the current Workspace. Its full contents were sent earlier in the chat.
-            <workspace_summary>
+            <workspace-toc>
             %s
-            </workspace_summary>
+            </workspace-toc>
 
             %s
             """
