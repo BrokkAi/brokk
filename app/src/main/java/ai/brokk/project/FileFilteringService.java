@@ -85,9 +85,12 @@ public final class FileFilteringService {
         Set<String> unionNormalized = new HashSet<>(baselineExclusions);
         unionNormalized.addAll(normalizedFromRawLeading);
 
+        // Pre-compile file patterns once for efficient matching across all files
+        var compiledPatterns = compilePatterns(filePatterns);
+
         Set<ProjectFile> baselineFiltered = files.stream()
                 .filter(file -> !isBaselineExcluded(file, unionNormalized))
-                .filter(file -> !matchesFilePattern(file, filePatterns))
+                .filter(file -> !matchesFilePattern(file, compiledPatterns))
                 .collect(Collectors.toSet());
 
         // If no Git repo, return baseline-filtered only
@@ -171,64 +174,72 @@ public final class FileFilteringService {
         return false;
     }
 
-    /**
-     * Check if a file matches any of the given file patterns.
-     * Supports exact filename match (package-lock.json), simple extension patterns (*.svg),
-     * and path glob patterns using ** for directory matching.
-     */
-    private boolean matchesFilePattern(ProjectFile file, Set<String> patterns) {
-        if (patterns.isEmpty()) {
+    /** Represents a pre-compiled file pattern for efficient matching. */
+    private sealed interface CompiledPattern {
+        String original();
+
+        record ExactFilename(String original, String lowerName) implements CompiledPattern {}
+
+        record Extension(String original, String lowerSuffix) implements CompiledPattern {}
+
+        record Glob(String original, PathMatcher matcher, boolean matchFullPath) implements CompiledPattern {}
+    }
+
+    /** Pre-compile file patterns for efficient reuse across many files. */
+    private List<CompiledPattern> compilePatterns(Set<String> patterns) {
+        var compiled = new ArrayList<CompiledPattern>();
+        for (String rawPattern : patterns) {
+            if (rawPattern == null) continue;
+            String pattern = rawPattern.trim();
+            if (pattern.isEmpty()) continue;
+
+            // Exact filename match (e.g., "package-lock.json")
+            if (!pattern.contains("*") && !pattern.contains("?") && !pattern.contains("/")) {
+                compiled.add(new CompiledPattern.ExactFilename(pattern, pattern.toLowerCase(Locale.ROOT)));
+                continue;
+            }
+
+            // Simple extension match (e.g., "*.svg", "*.min.js")
+            if (pattern.startsWith("*.") && !pattern.contains("/")) {
+                String suffix = pattern.substring(1);
+                if (!suffix.contains("*") && !suffix.contains("?")) {
+                    compiled.add(new CompiledPattern.Extension(pattern, suffix.toLowerCase(Locale.ROOT)));
+                    continue;
+                }
+            }
+
+            // Path glob pattern - precompile the PathMatcher
+            try {
+                String lowerPattern = pattern.toLowerCase(Locale.ROOT);
+                var matcher = FileSystems.getDefault().getPathMatcher("glob:" + lowerPattern);
+                compiled.add(new CompiledPattern.Glob(pattern, matcher, pattern.contains("/")));
+            } catch (Exception e) {
+                logger.debug("Invalid glob pattern '{}': {}", pattern, e.getMessage());
+            }
+        }
+        return compiled;
+    }
+
+    /** Check if a file matches any of the pre-compiled patterns. */
+    private boolean matchesFilePattern(ProjectFile file, List<CompiledPattern> compiledPatterns) {
+        if (compiledPatterns.isEmpty()) {
             return false;
         }
 
         String filePath = toUnixPath(file.getRelPath());
         String fileName = file.getFileName();
+        String lowerFileName = fileName.toLowerCase(Locale.ROOT);
+        String lowerFilePath = filePath.toLowerCase(Locale.ROOT);
 
-        for (String rawPattern : patterns) {
-            if (rawPattern == null) {
-                continue;
-            }
-            String pattern = rawPattern.trim();
-            if (pattern.isEmpty()) {
-                continue;
-            }
-
-            // Exact filename match (e.g., "package-lock.json") - case-insensitive for consistency with UI
-            if (!pattern.contains("*") && !pattern.contains("?") && !pattern.contains("/")) {
-                if (fileName.equalsIgnoreCase(pattern)) {
-                    logger.trace("File {} excluded by exact pattern: {}", filePath, pattern);
-                    return true;
-                }
-                continue;
-            }
-
-            // Simple extension match (e.g., "*.svg", "*.min.js") - suffix must not contain wildcards
-            // Case-insensitive for consistency with UI
-            if (pattern.startsWith("*.") && !pattern.contains("/")) {
-                String suffix = pattern.substring(1); // ".svg" or ".min.js"
-                // Only use fast path if suffix has no wildcards; otherwise fall through to glob
-                if (!suffix.contains("*") && !suffix.contains("?")) {
-                    if (fileName.toLowerCase(Locale.ROOT).endsWith(suffix.toLowerCase(Locale.ROOT))) {
-                        logger.trace("File {} excluded by extension pattern: {}", filePath, pattern);
-                        return true;
-                    }
-                    continue;
-                }
-            }
-
-            // Path glob pattern (e.g., "**/test/resources/**", "src/test/resources/**")
-            // For patterns without "/", match against just the filename (e.g., "*.*" matches any file with extension)
-            // Normalize to lowercase for case-insensitive matching across all platforms
-            try {
-                String lowerPattern = pattern.toLowerCase(Locale.ROOT);
-                PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + lowerPattern);
-                String pathToMatch = (pattern.contains("/") ? filePath : fileName).toLowerCase(Locale.ROOT);
-                if (matcher.matches(Path.of(pathToMatch))) {
-                    logger.trace("File {} excluded by glob pattern: {}", filePath, pattern);
-                    return true;
-                }
-            } catch (Exception e) {
-                logger.debug("Invalid glob pattern '{}': {}", pattern, e.getMessage());
+        for (var cp : compiledPatterns) {
+            boolean matched = switch (cp) {
+                case CompiledPattern.ExactFilename ef -> lowerFileName.equals(ef.lowerName());
+                case CompiledPattern.Extension ext -> lowerFileName.endsWith(ext.lowerSuffix());
+                case CompiledPattern.Glob g -> g.matcher().matches(Path.of(g.matchFullPath() ? lowerFilePath : lowerFileName));
+            };
+            if (matched) {
+                logger.trace("File {} excluded by pattern: {}", filePath, cp.original());
+                return true;
             }
         }
         return false;
