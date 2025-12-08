@@ -287,6 +287,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
         // Register Ctrl/Cmd+S to save
         registerSaveKey();
+        // Register Ctrl/Cmd+B to go to definition
+        registerGoToDefinitionKey();
         // Setup custom window close handler
         setupWindowCloseHandler();
 
@@ -1195,6 +1197,65 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 performSave(saveButton);
             }
         });
+    }
+
+    /**
+     * Registers the Ctrl/Cmd+B keybinding to go to the inferred definition at caret.
+     * Bound to the text area when it has focus.
+     */
+    private void registerGoToDefinitionKey() {
+        var ks = KeyStroke.getKeyStroke(KeyEvent.VK_B, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        // Bind the keystroke when the text area has focus
+        textArea.getInputMap(JComponent.WHEN_FOCUSED).put(ks, "goToDefinition");
+        textArea.getActionMap().put("goToDefinition", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                goToDefinition();
+            }
+        });
+    }
+
+    /**
+     * Performs the "Go To Definition" workflow:
+     * - Runs on a background thread to call analyzer.inferTypeAt(file, byteOffset)
+     * - If a CodeUnit is returned, schedules a UI action to open the source for that CodeUnit via ContextManager
+     *
+     * If no definition is found, this is a no-op.
+     */
+    private void goToDefinition() {
+        if (file == null) return;
+
+        cm.submitBackgroundTask("Go To Definition", () -> {
+            var analyzer = cm.getAnalyzerUninterrupted();
+            if (analyzer == null || analyzer.isEmpty()) return null;
+
+            // Convert caret char offset to UTF-8 byte offset
+            String text = textArea.getText();
+            int charOffset = Math.max(0, textArea.getCaretPosition());
+            int boundedCharOffset = Math.min(charOffset, text.length());
+            int byteOffset = text.substring(0, boundedCharOffset).getBytes(StandardCharsets.UTF_8).length;
+
+            try {
+                var inferred = analyzer.inferTypeAt(file, byteOffset);
+                if (inferred.isEmpty()) return null;
+                var target = inferred.get();
+
+                // UI action: open the source for the CodeUnit in the preview panel.
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        // Pass the analyzer instance we used to compute the inference in case the
+                        // ContextManager or downstream helpers can leverage it.
+                        cm.sourceCodeForCodeUnit(analyzer, target);
+                    } catch (Exception ex) {
+                        logger.debug("Failed to open definition for {}: {}", target, ex.getMessage());
+                    }
+                });
+            } catch (Exception e) {
+                logger.debug("Error while computing Go To Definition", e);
+            }
+            return null;
+        });
+
     }
 
     /**
