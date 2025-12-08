@@ -7,7 +7,6 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.AbstractService;
 import ai.brokk.Completions;
 import ai.brokk.ContextManager;
-import ai.brokk.FuzzyMatcher;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
@@ -15,7 +14,6 @@ import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.SearchAgent;
-import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.difftool.utils.ColorUtil;
@@ -57,11 +55,8 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
-import java.util.AbstractMap;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -2823,37 +2818,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         }
 
-        private List<CodeUnit> fallbackForHierarchicalQueryIfEmpty(
-                String sanitizedText, ai.brokk.analyzer.IAnalyzer analyzer, List<CodeUnit> symbols) {
-            if (!symbols.isEmpty()) {
-                return symbols;
-            }
-            boolean hierarchical = sanitizedText.indexOf('.') >= 0 || sanitizedText.indexOf('$') >= 0;
-            if (!hierarchical) {
-                return symbols;
-            }
-
-            int dot = sanitizedText.lastIndexOf('.');
-            int dollar = sanitizedText.lastIndexOf('$');
-            int sep = Math.max(dot, dollar);
-            String lastSegment =
-                    (sep >= 0 && sep + 1 < sanitizedText.length()) ? sanitizedText.substring(sep + 1) : sanitizedText;
-
-            var fallback = Completions.completeSymbols(lastSegment, analyzer);
-            if (fallback.isEmpty()) {
-                return symbols;
-            }
-
-            var matcher = new FuzzyMatcher(sanitizedText);
-            return fallback.stream()
-                    .map(cu -> new AbstractMap.SimpleEntry<>(cu, matcher.score(cu.fqName())))
-                    .filter(e -> e.getValue() != Integer.MAX_VALUE)
-                    .sorted(Comparator.<Map.Entry<CodeUnit, Integer>>comparingInt(Map.Entry::getValue)
-                            .thenComparing(e -> e.getKey().fqName()))
-                    .map(Map.Entry::getKey)
-                    .toList();
-        }
-
         /**
          * Derives the raw token from the current line up to the caret position.
          * Falls back to the provided value when the document positions cannot be resolved.
@@ -2876,17 +2840,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         }
 
+        private String lastSegmentForQualifiedToken(String token) {
+            if (token.isEmpty()) return token;
+            int dot = token.lastIndexOf('.');
+            int dollar = token.lastIndexOf('$');
+            int sep = Math.max(dot, dollar);
+            if (sep >= 0 && sep + 1 < token.length()) {
+                return token.substring(sep + 1);
+            }
+            return token;
+        }
+
         private static String formatCompletionText(String inputText) {
             return "`" + inputText + "`";
         }
 
         @Override
         public List<Completion> getCompletions(JTextComponent comp) {
-            // Sanitized text to be replaced in the editor.
-            // Leading punctuation such as '.', '`', and '(' is excluded only if it appears before
-            // letters/digits/underscores.
-            // Note: '.' is excluded for identifiers, but not for relative paths (e.g., './foo'), so its exclusion is
-            // conditional.
             String sanitizedText = getAlreadyEnteredText(comp);
             if (sanitizedText.isEmpty()) {
                 return List.of();
@@ -2912,10 +2882,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 if (analyzer == null) {
                     return List.of();
                 }
-                // Use the sanitized token for querying so patterns like ".C" and "ai.brokk.gui.Chr" remain effective.
-                var symbols = Completions.completeSymbols(sanitizedText, analyzer);
-                symbols = fallbackForHierarchicalQueryIfEmpty(sanitizedText, analyzer, symbols);
 
+                String queryToken = lastSegmentForQualifiedToken(sanitizedText);
+
+                var symbols = Completions.completeSymbols(queryToken, analyzer);
                 completions = symbols.stream()
                         .limit(50)
                         .map(symbol -> (Completion) new ShorthandCompletion(

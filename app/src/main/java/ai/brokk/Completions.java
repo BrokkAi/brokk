@@ -80,7 +80,7 @@ public class Completions {
                 }
             }
         }
-        return new java.util.ArrayList<>(dedup.values());
+        return new ArrayList<>(dedup.values());
     }
 
     private static List<CodeUnit> scoreSortDedupeAndLimit(String query, List<CodeUnit> candidates) {
