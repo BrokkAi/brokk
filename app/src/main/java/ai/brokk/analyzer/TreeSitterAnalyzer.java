@@ -1227,6 +1227,113 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         return Map.copyOf(result);
     }
 
+    /**
+     * Build a minimal TypeInferenceContext for the given file/offset.
+     *
+     * This helper uses {@link #enclosingCodeUnit(ProjectFile, IAnalyzer.Range)} to discover the nearest CU and
+     * then heuristically determines the enclosing class and method. Visible imports are taken from the
+     * previously-resolved imports for the file.
+     */
+    public IAnalyzer.TypeInferenceContext buildTypeInferenceContext(ProjectFile file, int offset) {
+        // Build a small non-empty byte-range around the requested offset so enclosingCodeUnit
+        // can perform containment checks. This is robust when callers provide a single-point
+        // offset (common from editors).
+        int startByte = Math.max(0, offset - 1);
+        int endByte = offset + 1;
+
+        // Clamp endByte to file length if we can read the file; be defensive if file unreadable.
+        var srcOpt = file.read();
+        if (srcOpt.isPresent()) {
+            int fileLen = TextCanonicalizer.stripUtf8Bom(srcOpt.get()).getBytes(StandardCharsets.UTF_8).length;
+            if (endByte > fileLen) endByte = fileLen;
+            if (startByte > endByte) startByte = Math.max(0, endByte - 1);
+        }
+
+        Range r = new Range(startByte, endByte, 0, 0, startByte);
+        Optional<CodeUnit> maybeEnclosing = enclosingCodeUnit(file, r);
+
+        CodeUnit enclosingClass = null;
+        CodeUnit enclosingMethod = null;
+
+        if (maybeEnclosing.isPresent()) {
+            CodeUnit cu = maybeEnclosing.get();
+            if (cu.isFunction()) {
+                enclosingMethod = cu;
+
+                // First attempt: walk the canonical parent-child path from top-level declarations.
+                for (CodeUnit top : getTopLevelDeclarations(file)) {
+                    List<CodeUnit> path = findPathTo(top, cu);
+                    if (path != null) {
+                        // path = [top, ..., cu]. Walk backwards (excluding cu) to find nearest class-like ancestor.
+                        for (int i = path.size() - 2; i >= 0; i--) {
+                            CodeUnit candidate = path.get(i);
+                            if (candidate.isClass()) {
+                                enclosingClass = candidate;
+                                break;
+                            }
+                        }
+                        if (enclosingClass != null) break;
+                    }
+                }
+
+                // Fallback: if not found via the children graph, locate a class in the same file whose source range
+                // contains the method's primary range. This is robust against cases where parent-child linkage wasn't
+                // established during parsing but ranges are available.
+                if (enclosingClass == null) {
+                    // Determine the method's representative byte range (use first recorded range if available).
+                    int methodStart = Integer.MAX_VALUE;
+                    int methodEnd = -1;
+                    List<Range> methodRanges = rangesOf(cu);
+                    if (!methodRanges.isEmpty()) {
+                        methodStart = methodRanges.get(0).startByte();
+                        methodEnd = methodRanges.get(0).endByte();
+                    }
+
+                    // Scan class-like declarations in the file for a containing range.
+                    var decls = getDeclarations(file);
+                    for (CodeUnit candidate : decls) {
+                        if (!candidate.isClass()) continue;
+                        List<Range> candRanges = rangesOf(candidate);
+                        for (Range cr : candRanges) {
+                            if (methodStart >= cr.startByte() && methodEnd <= cr.endByte()) {
+                                enclosingClass = candidate;
+                                break;
+                            }
+                        }
+                        if (enclosingClass != null) break;
+                    }
+                }
+            } else if (cu.isClass() || cu.isModule()) {
+                enclosingClass = cu;
+            }
+        }
+
+        Set<CodeUnit> visibleImports = importedCodeUnitsOf(file);
+        return new IAnalyzer.TypeInferenceContext(
+                file, offset, enclosingClass, enclosingMethod, Collections.unmodifiableSet(visibleImports));
+    }
+
+    /**
+     * Find a path of CodeUnits from root to target (inclusive). Returns {@code null} if target not found under root.
+     *
+     * The returned List contains the root as first element and the target as last.
+     */
+    private List<CodeUnit> findPathTo(CodeUnit root, CodeUnit target) {
+        if (root.equals(target)) {
+            return List.of(root);
+        }
+        for (CodeUnit child : childrenOf(root)) {
+            List<CodeUnit> sub = findPathTo(child, target);
+            if (sub != null) {
+                ArrayList<CodeUnit> out = new ArrayList<>();
+                out.add(root);
+                out.addAll(sub);
+                return out;
+            }
+        }
+        return null;
+    }
+
     @Override
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
         // Only process files relevant to this analyzer's language

@@ -264,6 +264,36 @@ public interface IAnalyzer {
     }
 
     /**
+     * Context record supplied to type-inference helpers that describes the location and
+     * surrounding declaration context used to guide inference.
+     *
+     * @param file the project file containing the queried offset
+     * @param offset the UTF-8 byte offset within {@code file}
+     * @param enclosingClass the nearest enclosing class/module CodeUnit (may be null)
+     * @param enclosingMethod the nearest enclosing function/method CodeUnit (may be null)
+     * @param visibleImports a read-only set of CodeUnits resolved from imports visible in the file
+     */
+    record TypeInferenceContext(
+            ProjectFile file,
+            int offset,
+            CodeUnit enclosingClass,
+            CodeUnit enclosingMethod,
+            Set<CodeUnit> visibleImports) {}
+
+    /**
+     * Best-effort type inference entry point. Default implementation is a no-op; language-specific
+     * analyzers may override to provide resolution to a CodeUnit that represents the type at the
+     * given offset (e.g., the declaration of the variable or the return type of an expression).
+     *
+     * @param file file to analyze
+     * @param offset UTF-8 byte offset within the file
+     * @return optional CodeUnit representing the inferred type
+     */
+    default Optional<CodeUnit> inferTypeAt(ProjectFile file, int offset) {
+        return Optional.empty();
+    }
+
+    /**
      * Parse the declared/declared-as-displayed field type for the given CodeUnit.
      *
      * Default implementation returns empty. Language-specific analyzers (TreeSitterAnalyzer) may
