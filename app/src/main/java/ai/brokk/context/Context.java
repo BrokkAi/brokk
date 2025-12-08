@@ -58,6 +58,14 @@ public class Context {
     public static final String SUMMARIZING = "(Summarizing)";
     public static final long CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS = 5;
 
+    /**
+     * Experimental threshold for switching to import-based ranking. If the ratio of new/untracked seed
+     * files to total seed files exceeds this value, {@link ai.brokk.ranking.ImportPageRanker} will be used instead of
+     * {@link ai.brokk.git.GitDistance}. This is intended to provide better related files when working on a set of
+     * new, uncommitted files.
+     */
+    private static final double NEW_SEED_FILE_RATIO_THRESHOLD = 0.3d;
+
     private final transient IContextManager contextManager;
 
     // Unified list for all fragments (paths and virtuals)
@@ -1316,7 +1324,7 @@ public class Context {
                 newCount++;
             }
         }
-        return (double) newCount / (double) seedFiles.size() >= 0.3d;
+        return (double) newCount / (double) seedFiles.size() >= NEW_SEED_FILE_RATIO_THRESHOLD;
     }
 
     private static Set<ContextFragment> validateReadOnlyFragments(
