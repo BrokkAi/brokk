@@ -410,6 +410,16 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             };
             menu.add(copyAction);
 
+            // Add Go To Definition option (disabled by default, will be enabled when identifier is found)
+            var goToDefAction = new AbstractAction("Go To Definition") {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    PreviewTextPanel.this.goToDefinition();
+                }
+            };
+            goToDefAction.setEnabled(false); // Initially disabled
+            menu.add(goToDefAction);
+
             // Add Quick Edit option (disabled by default, will be enabled when text is selected and file != null)
             var quickEditAction = new AbstractAction("Quick Edit") {
                 @Override
@@ -425,6 +435,30 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 @Override
                 public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
                     var textSelected = getSelectedText() != null;
+
+                    // Enable Go To Definition only if we have an identifier at the mouse position
+                    boolean hasIdentifierAtMouse = false;
+                    if (file != null && getMousePosition() != null) {
+                        try {
+                            int offset = viewToModel2D(getMousePosition());
+                            if (offset >= 0) {
+                                int lineNum = getLineOfOffset(offset);
+                                var token = getTokenListForLine(lineNum);
+                                while (token != null && token.getType() != TokenTypes.NULL) {
+                                    int tokenStart = token.getOffset();
+                                    int tokenEnd = tokenStart + token.length();
+                                    if (offset >= tokenStart && offset < tokenEnd) {
+                                        hasIdentifierAtMouse = true;
+                                        break;
+                                    }
+                                    token = token.getNextToken();
+                                }
+                            }
+                        } catch (BadLocationException ex) {
+                            logger.debug("Error checking for identifier at mouse position", ex);
+                        }
+                    }
+                    goToDefAction.setEnabled(hasIdentifierAtMouse);
 
                     // Enable Quick Edit only if text is selected and it's a project file
                     quickEditAction.setEnabled(textSelected && file != null);
