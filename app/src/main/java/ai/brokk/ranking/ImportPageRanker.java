@@ -4,6 +4,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -18,6 +19,47 @@ import java.util.Set;
 public final class ImportPageRanker {
 
     private ImportPageRanker() {}
+
+    private static final int REACH_DEPTH = 2;
+    private static final int BACKGROUND_BUDGET = 64;
+
+    private static Set<ProjectFile> buildCandidateSet(IAnalyzer analyzer, Map<ProjectFile, Double> seedWeights) {
+        LinkedHashSet<ProjectFile> candidates = new LinkedHashSet<>();
+        ArrayDeque<ProjectFile> frontier = new ArrayDeque<>();
+
+        for (ProjectFile pf : seedWeights.keySet()) {
+            if (candidates.add(pf)) {
+                frontier.add(pf);
+            }
+        }
+
+        for (int depth = 0; depth < REACH_DEPTH && !frontier.isEmpty(); depth++) {
+            ArrayDeque<ProjectFile> next = new ArrayDeque<>();
+            while (!frontier.isEmpty()) {
+                ProjectFile pf = frontier.removeFirst();
+                for (ProjectFile dep : importedFilesFor(analyzer, pf)) {
+                    if (candidates.add(dep)) {
+                        next.add(dep);
+                    }
+                }
+            }
+            frontier = next;
+        }
+
+        if (BACKGROUND_BUDGET > 0) {
+            LinkedHashSet<ProjectFile> background = new LinkedHashSet<>();
+            for (CodeUnit cu : analyzer.getAllDeclarations()) {
+                ProjectFile src = cu.source();
+                if (!candidates.contains(src)) {
+                    background.add(src);
+                    if (background.size() >= BACKGROUND_BUDGET) break;
+                }
+            }
+            candidates.addAll(background);
+        }
+
+        return candidates;
+    }
 
     public static List<IAnalyzer.FileRelevance> getRelatedFilesByImports(
             IAnalyzer analyzer, Map<ProjectFile, Double> seedWeights, int k, boolean reversed) {
@@ -36,19 +78,16 @@ public final class ImportPageRanker {
             return List.of();
         }
 
-        // Build universe of files: all sources known to analyzer + seeds
-        Set<ProjectFile> universe = new LinkedHashSet<>();
-        analyzer.getAllDeclarations().forEach(cu -> universe.add(cu.source()));
-        universe.addAll(positiveSeeds.keySet());
+        // Build small candidate universe by import reach from seeds
+        Set<ProjectFile> candidates = buildCandidateSet(analyzer, positiveSeeds);
 
-        // Build adjacency map from imports
+        // Build adjacency map restricted to candidate set
         Map<ProjectFile, Set<ProjectFile>> adjacency = new HashMap<>();
-        for (ProjectFile pf : universe) {
-            Set<ProjectFile> imported = importedFilesFor(analyzer, pf);
-            // Ensure node exists
+        for (ProjectFile pf : candidates) {
             adjacency.computeIfAbsent(pf, __ -> new LinkedHashSet<>());
+            Set<ProjectFile> imported = importedFilesFor(analyzer, pf);
             for (ProjectFile dep : imported) {
-                // Only keep dependencies with known files; otherwise include and let them be dangling nodes
+                if (!candidates.contains(dep)) continue;
                 adjacency.computeIfAbsent(dep, __ -> new LinkedHashSet<>());
                 if (reversed) {
                     adjacency.get(dep).add(pf); // reverse edge: dep -> pf (importers of dep)
@@ -56,13 +95,6 @@ public final class ImportPageRanker {
                     adjacency.get(pf).add(dep); // normal edge: pf -> dep (imports)
                 }
             }
-        }
-
-        // Include any neighbor nodes that weren't in universe explicitly
-        Set<ProjectFile> allNodes = new LinkedHashSet<>(adjacency.keySet());
-        adjacency.values().forEach(allNodes::addAll);
-        for (ProjectFile pf : allNodes) {
-            adjacency.computeIfAbsent(pf, __ -> new LinkedHashSet<>());
         }
 
         // Index nodes
@@ -75,29 +107,19 @@ public final class ImportPageRanker {
         // Teleport vector from seeds, normalized
         double totalSeed =
                 positiveSeeds.values().stream().mapToDouble(Double::doubleValue).sum();
-        double[] v = new double[nodes.size()];
+        int n = nodes.size();
+        if (n == 0) {
+            return List.of();
+        }
+        double[] v = new double[n];
         for (var e : positiveSeeds.entrySet()) {
             Integer idx = indexByFile.get(e.getKey());
             if (idx != null) {
                 v[idx] = e.getValue() / totalSeed;
-            } else {
-                // Add unseen seed as dangling node
-                nodes.add(e.getKey());
-                int newIdx = nodes.size() - 1;
-                indexByFile.put(e.getKey(), newIdx);
-                v = extendVector(v, newIdx + 1);
-                v[newIdx] = e.getValue() / totalSeed;
-                adjacency.put(e.getKey(), new LinkedHashSet<>());
             }
         }
 
-        // Ensure adjacency covers any newly added nodes
-        for (ProjectFile pf : nodes) {
-            adjacency.computeIfAbsent(pf, __ -> new LinkedHashSet<>());
-        }
-
         // Prepare outdegree and neighbor arrays
-        int n = nodes.size();
         int[][] neighbors = new int[n][];
         int[] outdeg = new int[n];
         for (int i = 0; i < n; i++) {
@@ -187,12 +209,6 @@ public final class ImportPageRanker {
         return ranked.subList(0, k);
     }
 
-    private static double[] extendVector(double[] v, int newSize) {
-        double[] nv = new double[newSize];
-        System.arraycopy(v, 0, nv, 0, Math.min(v.length, newSize));
-        return nv;
-    }
-
     private static Set<ProjectFile> importedFilesFor(IAnalyzer analyzer, ProjectFile file) {
         // Prefer TreeSitterAnalyzer if available for accurate resolution
         if (analyzer instanceof TreeSitterAnalyzer tsa) {
@@ -204,10 +220,9 @@ public final class ImportPageRanker {
         Set<ProjectFile> out = new LinkedHashSet<>();
         List<String> imports = analyzer.importStatementsOf(file);
         for (String imp : imports) {
-            // Try exact definitions first
+            int before = out.size();
             addDefinitions(analyzer.getDefinitions(imp), out);
-            // If nothing found, broaden search
-            if (out.isEmpty()) {
+            if (out.size() == before) {
                 addDefinitions(analyzer.searchDefinitions(imp), out);
             }
         }
