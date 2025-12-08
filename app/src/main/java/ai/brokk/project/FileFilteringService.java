@@ -61,7 +61,7 @@ public final class FileFilteringService {
     public Set<ProjectFile> filterFiles(Set<ProjectFile> files, Set<String> rawExclusions, Set<String> filePatterns) {
         // Normalize baseline exclusions
         var baselineExclusions = rawExclusions.stream()
-                .map(s -> s.replace('\\', '/').trim())
+                .map(s -> toUnixPath(s).trim())
                 .map(s -> s.startsWith("/") ? s.substring(1) : s)
                 .map(s -> s.startsWith("./") ? s.substring(2) : s)
                 .map(s -> s.endsWith("/") ? s.substring(0, s.length() - 1) : s)
@@ -76,7 +76,7 @@ public final class FileFilteringService {
 
         Set<String> normalizedFromRawLeading = rawLeadingSlashExclusions.stream()
                 .map(s -> s.substring(1))
-                .map(s -> s.replace('\\', '/'))
+                .map(FileFilteringService::toUnixPath)
                 .map(String::trim)
                 .map(s -> s.endsWith("/") ? s.substring(0, s.length() - 1) : s)
                 .filter(s -> !s.isEmpty())
@@ -156,9 +156,9 @@ public final class FileFilteringService {
     // -------------------------
 
     private boolean isBaselineExcluded(ProjectFile file, Set<String> baselineExclusions) {
-        String fileRel = file.getRelPath().toString().replace('\\', '/');
+        String fileRel = toUnixPath(file.getRelPath());
         for (String exclusion : baselineExclusions) {
-            String ex = exclusion.replace('\\', '/');
+            String ex = toUnixPath(exclusion);
             while (ex.startsWith("./")) ex = ex.substring(2);
             if (ex.startsWith("/")) ex = ex.substring(1);
             if (ex.endsWith("/")) ex = ex.substring(0, ex.length() - 1);
@@ -181,7 +181,7 @@ public final class FileFilteringService {
             return false;
         }
 
-        String filePath = file.getRelPath().toString().replace('\\', '/');
+        String filePath = toUnixPath(file.getRelPath());
         String fileName = file.getFileName();
 
         for (String rawPattern : patterns) {
@@ -342,6 +342,11 @@ public final class FileFilteringService {
     @VisibleForTesting
     public static String toUnixPath(Path path) {
         return path.toString().replace('\\', '/');
+    }
+
+    /** Normalize a string path to use forward slashes. */
+    public static String toUnixPath(String path) {
+        return path.replace('\\', '/');
     }
 
     @VisibleForTesting

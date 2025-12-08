@@ -17,7 +17,7 @@ group = "ai.brokk"
 
 java {
     toolchain {
-        languageVersion.set(JavaLanguageVersion.of(21))
+        languageVersion.set(JavaLanguageVersion.of(25))
     }
 }
 
@@ -580,7 +580,7 @@ tasks.register<JavaExec>("runHeadlessExecutor") {
     description = "Runs the Brokk Headless Executor"
     mainClass.set("ai.brokk.executor.HeadlessExecutorMain")
     classpath = sourceSets.main.get().runtimeClasspath
-    
+
     // Configuration via environment variables:
     // EXEC_ID, LISTEN_ADDR, AUTH_TOKEN, WORKSPACE_DIR, SESSIONS_DIR (optional)
     systemProperty("brokk.devmode", "false")

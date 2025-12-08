@@ -682,7 +682,7 @@ public class BuildAgent {
             return "";
         }
 
-        String s = rel.toString().replace('\\', '/');
+        String s = toUnixPath(rel);
         if (s.endsWith(".py")) s = s.substring(0, s.length() - 3);
         if (s.endsWith("/__init__")) s = s.substring(0, s.length() - "/__init__".length());
         while (s.startsWith("/")) s = s.substring(1);
