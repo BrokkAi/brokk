@@ -1307,6 +1307,9 @@ public class Context {
         if (seedFiles.isEmpty()) {
             return false;
         }
+        if (!contextManager.getProject().hasGit()) {
+            return false;
+        }
         var repo = contextManager.getRepo();
         var tracked = repo.getTrackedFiles();
         Set<ProjectFile> newlyAdded;
