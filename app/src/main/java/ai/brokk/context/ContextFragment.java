@@ -1750,14 +1750,13 @@ public interface ContextFragment {
             boolean isCuAnonymous = isAnonymousName(cu.fqName()) || isAnonymousName(cu.identifier());
 
             if (!isCuAnonymous) {
-                Map<CodeUnit, String> primary = new LinkedHashMap<>();
-                skeletons.forEach((k, v) -> {
-                    if (k.fqName().equals(cu.fqName())) {
-                        primary.put(k, v);
-                    }
-                });
-                String primaryFormatted = formatSkeletonsByPackage(primary);
-                if (!primaryFormatted.isEmpty()) sb.append(primaryFormatted).append("\n\n");
+                String primarySkeleton = skeletons.get(cu);
+                if (primarySkeleton != null && !primarySkeleton.isEmpty()) {
+                    Map<CodeUnit, String> primary = new LinkedHashMap<>();
+                    primary.put(cu, primarySkeleton);
+                    String primaryFormatted = formatSkeletonsByPackage(primary);
+                    if (!primaryFormatted.isEmpty()) sb.append(primaryFormatted).append("\n\n");
+                }
             }
 
             var filteredAncestors = ancestorList.stream()
@@ -1785,20 +1784,21 @@ public interface ContextFragment {
 
         private String formatSkeletonsByPackage(Map<CodeUnit, String> skeletons) {
             if (skeletons.isEmpty()) return "";
-            var filteredEntries = skeletons.entrySet().stream()
+
+            var skeletonsByPackage = skeletons.entrySet().stream()
                     .filter(e -> {
                         var cu = e.getKey();
                         return !(isAnonymousName(cu.fqName()) || isAnonymousName(cu.identifier()));
                     })
-                    .toList();
-            if (filteredEntries.isEmpty()) return "";
-            var skeletonsByPackage = filteredEntries.stream()
                     .collect(Collectors.groupingBy(
                             e -> e.getKey().packageName().isEmpty()
                                     ? "(default package)"
                                     : e.getKey().packageName(),
                             Collectors.toMap(
                                     Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new)));
+
+            if (skeletonsByPackage.isEmpty()) return "";
+
             return skeletonsByPackage.entrySet().stream()
                     .sorted(Map.Entry.comparingByKey())
                     .map(pkgEntry -> "package " + pkgEntry.getKey() + ";\n\n"
