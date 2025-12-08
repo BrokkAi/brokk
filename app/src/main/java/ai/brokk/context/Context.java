@@ -330,7 +330,7 @@ public class Context {
         var repoObj = contextManager.getRepo();
         boolean hasGit = contextManager.getProject().hasGit();
 
-        boolean manyNewSeeds = areManySeedsNew(weightedSeeds.keySet());
+        boolean manyNewSeeds = hasGit && areManySeedsNew(weightedSeeds.keySet());
 
         if (!hasGit || manyNewSeeds) {
             var pprResults = ImportPageRanker.getRelatedFilesByImports(analyzer, weightedSeeds, topK, false);
