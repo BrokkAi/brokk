@@ -318,7 +318,7 @@ public class SymbolLookupService {
             }
 
             // Fallback: Try partial matching via class name extraction
-            var extractedClassName = AnalyzerUtil.extractClassName(analyzer, trimmed);
+            var extractedClassName = AnalyzerUtil.extractCallReceiver(analyzer, trimmed);
             if (extractedClassName.isPresent()) {
                 var rawClassName = extractedClassName.get();
                 logger.trace("Extracted class name '{}' from '{}'", rawClassName, trimmed);

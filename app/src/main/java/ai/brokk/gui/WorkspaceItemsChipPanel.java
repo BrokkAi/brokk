@@ -5,6 +5,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.gui.search.ScrollingUtils;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.MainProject;
@@ -336,19 +337,18 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
      */
     private boolean hasRenderableContent(ContextFragment f) {
         try {
-            if (f instanceof ContextFragment.ComputedFragment) {
-                return true;
-            }
+            // Always render output fragments (e.g., HISTORY, TASK, SEARCH) even while async text/desc is loading
             if (f.getType().isOutput()) {
                 return true;
             }
+
             if (f.isText()) {
-                String txt = f.text();
+                String txt = f.text().renderNowOr("(Loading text...)");
                 return !txt.trim().isEmpty();
             } else {
                 boolean hasImage = f instanceof ContextFragment.ImageFragment;
-                Set<ProjectFile> files = f.files();
-                String desc = f.description();
+                Set<ProjectFile> files = f.files().renderNowOr(Set.of());
+                String desc = f.description().renderNowOr("(Loading image...)");
                 return hasImage || !files.isEmpty() || !desc.trim().isEmpty();
             }
         } catch (Exception ex) {
@@ -494,5 +494,37 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
 
     Set<String> getHoveredFragmentIds() {
         return hoveredFragmentIds;
+    }
+
+    /**
+     * Scroll the chip corresponding to the given fragment into view within the parent scroll pane, if present.
+     * <p>
+     * This is intended to be called from hover handlers (e.g. TokenUsageBar) so that when a fragment segment
+     * is highlighted in the token usage bar, the associated workspace chip is made visible to the user.
+     * <p>
+     * Safe to call from any thread; the scroll operation is marshaled onto the EDT.
+     */
+    public void scrollFragmentIntoView(@Nullable ContextFragment fragment) {
+        if (fragment == null) {
+            return;
+        }
+        if (readOnly) {
+            return;
+        }
+        SwingUtilities.invokeLater(() -> {
+            WorkspaceChip targetChip = chipById.get(fragment.id());
+            if (targetChip == null && syntheticSummaryChip != null) {
+                // If this fragment is a summary that is represented by the synthetic "Summaries" chip,
+                // scroll that synthetic chip into view instead.
+                if (syntheticSummaryChip.getFragments().stream()
+                        .anyMatch(f -> fragment.id().equals(f.id()))) {
+                    targetChip = syntheticSummaryChip;
+                }
+            }
+            if (targetChip == null) {
+                return;
+            }
+            ScrollingUtils.scrollToComponent(targetChip);
+        });
     }
 }

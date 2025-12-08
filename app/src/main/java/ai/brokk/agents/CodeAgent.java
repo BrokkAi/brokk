@@ -13,6 +13,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
@@ -47,6 +48,7 @@ import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -71,7 +73,7 @@ public class CodeAgent {
     private final IConsoleIO io;
 
     // A "global" for current task Context. Updated mid-task with new files and build status.
-    private Context context;
+    Context context;
 
     public CodeAgent(IContextManager contextManager, StreamingChatModel model) {
         this(contextManager, model, contextManager.getIo());
@@ -82,7 +84,7 @@ public class CodeAgent {
         this.model = model;
         this.io = io;
         // placeholder to make Null Away happy; initialized in runTaskInternal
-        this.context = new Context(contextManager, null);
+        this.context = new Context(contextManager);
     }
 
     public enum Option {
@@ -91,8 +93,8 @@ public class CodeAgent {
 
     /** Implicitly includes the DEFER_BUILD option. */
     public TaskResult runSingleFileEdit(ProjectFile file, String instructions, List<ChatMessage> readOnlyMessages) {
-        var ctx = new Context(contextManager, null)
-                .addPathFragments(List.of(new ContextFragment.ProjectPathFragment(file, contextManager)));
+        var ctx = new Context(contextManager)
+                .addFragments(List.of(new ContextFragment.ProjectPathFragment(file, contextManager)));
 
         contextManager.getAnalyzerWrapper().pause();
         try {
@@ -119,6 +121,7 @@ public class CodeAgent {
         }
     }
 
+    @Blocking
     TaskResult runTask(Context initialContext, List<ChatMessage> prologue, String userInput, Set<Option> options) {
         // pause watching for external changes (so they don't get added to activity history while we're still making
         // changes);
@@ -131,6 +134,7 @@ public class CodeAgent {
         }
     }
 
+    @Blocking
     TaskResult runTaskInternal(
             Context initialContext, List<ChatMessage> prologue, String userInput, Set<Option> options) {
         var collectMetrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"));
@@ -181,7 +185,7 @@ public class CodeAgent {
             contextManager
                     .getAnalyzerWrapper()
                     .updateFiles(context.fileFragments()
-                            .flatMap(cf -> cf.files().stream())
+                            .flatMap(cf -> cf.files().join().stream())
                             .collect(Collectors.toSet()))
                     .get();
         } catch (InterruptedException e) {
@@ -265,7 +269,7 @@ public class CodeAgent {
 
             // Incorporate any newly created files into the live context immediately
             var filesInContext = context.getAllFragmentsInDisplayOrder().stream()
-                    .flatMap(f -> f.files().stream())
+                    .flatMap(f -> f.files().join().stream())
                     .collect(Collectors.toSet());
             var newlyCreated = es.changedFiles().stream()
                     .filter(pf -> !filesInContext.contains(pf))
@@ -282,8 +286,11 @@ public class CodeAgent {
                 var newFrags = newlyCreated.stream()
                         .map(pf -> new ContextFragment.ProjectPathFragment(pf, contextManager))
                         .collect(Collectors.toList());
-                context = context.addPathFragments(newFrags);
+                context = context.addFragments(newFrags);
             }
+
+            // Refresh context fragments for any files that were modified (so LLM sees current contents)
+            context = context.copyAndRefresh(es.changedFiles());
 
             if (applyOutcome instanceof Step.Retry retryApply) {
                 cs = retryApply.cs();
@@ -735,6 +742,7 @@ public class CodeAgent {
         }
     }
 
+    @Blocking
     Step applyPhase(ConversationState cs, EditState es, @Nullable Metrics metrics) {
         if (es.pendingBlocks().isEmpty()) {
             logger.debug("nothing to apply, continuing to next phase");
@@ -1469,20 +1477,30 @@ public class CodeAgent {
         }
     }
 
+    @Blocking
     static Set<String> computeReadOnlyPaths(Context ctx) {
         // Since ContextFragments can refer to multiple files, we need a way to resolve conflicting read-only status.
         // Our priority is:
         // 1. Files referred to by a ProjectPathFragment marked read-only should always be in our Set.
         // 2. Files referred to by other editable Fragments should not be in our Set.
         // 3. Files referred to by other read-only Fragments should be in our Set.
+
+        // If any fragments need to be computed, we'll wait a bit
+        try {
+            ctx.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+        } catch (InterruptedException e) {
+            logger.warn("Interrupted while waiting for contexts to be computed", e);
+        }
         var readonlyPaths = ctx.getMarkedReadonlyFragments()
                 .filter(cf -> cf instanceof ContextFragment.ProjectPathFragment)
-                .flatMap(cf -> cf.files().stream())
+                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
                 .collect(Collectors.toSet());
-        var editableAll =
-                ctx.getEditableFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toSet());
-        var readonly =
-                ctx.getReadonlyFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toSet());
+        var editableAll = ctx.getEditableFragments()
+                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
+                .collect(Collectors.toSet());
+        var readonly = ctx.getReadonlyFragments()
+                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
+                .collect(Collectors.toSet());
         var files = Streams.concat(Sets.difference(readonly, editableAll).stream(), readonlyPaths.stream());
         return files.map(ProjectFile::toString).collect(Collectors.toSet());
     }

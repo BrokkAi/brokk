@@ -9,6 +9,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.AbstractProject;
+import ai.brokk.util.ComputedValue;
 import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -19,11 +20,7 @@ import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
@@ -118,7 +115,7 @@ public class WorkspaceTools {
                 .toList();
 
         var fragments = context.getContextManager().toPathFragments(toAddFiles);
-        context = context.addPathFragments(fragments);
+        context = context.addFragments(fragments);
 
         String addedNames =
                 toAddFiles.stream().map(ProjectFile::toString).sorted().collect(Collectors.joining(", "));
@@ -222,7 +219,7 @@ public class WorkspaceTools {
         Map<String, String> mergedDiscarded = new LinkedHashMap<>(existingDiscardedMap);
         for (var f : toDrop) {
             var explanation = idToExplanation.getOrDefault(f.id(), "");
-            mergedDiscarded.put(f.description(), explanation);
+            mergedDiscarded.put(f.description().join(), explanation);
         }
 
         // Serialize updated JSON
@@ -259,6 +256,7 @@ public class WorkspaceTools {
         if (!protectedFragments.isEmpty()) {
             var protectedDescriptions = protectedFragments.stream()
                     .map(ContextFragment::description)
+                    .map(ComputedValue::join)
                     .collect(Collectors.joining(", "));
             baseMsg += " Protected (not dropped): " + protectedDescriptions + ".";
         }
@@ -283,7 +281,7 @@ public class WorkspaceTools {
         }
 
         var fragment = new ContextFragment.UsageFragment(context.getContextManager(), symbol); // Pass contextManager
-        context = context.addVirtualFragments(List.of(fragment));
+        context = context.addFragments(List.of(fragment));
 
         return "Added dynamic usage analysis for symbol '%s'.".formatted(symbol);
     }
@@ -510,10 +508,10 @@ public class WorkspaceTools {
         }
     }
 
-    private java.util.Set<ProjectFile> currentWorkspaceFiles() {
+    private Set<ProjectFile> currentWorkspaceFiles() {
         return context.fileFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
-                .flatMap(f -> f.files().stream())
+                .flatMap(f -> f.files().join().stream())
                 .collect(Collectors.toSet());
     }
 

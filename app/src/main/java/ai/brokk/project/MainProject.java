@@ -1370,6 +1370,95 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
 
+    // Preference key for selecting the watch service implementation.
+    // Allowed values persisted: "legacy", "native". If unset/blank/unrecognized, treated as "default".
+    private static final String WATCH_SERVICE_IMPL_KEY = "watchServiceImpl";
+
+    // Keys for history auto-compression settings
+    private static final String HISTORY_AUTO_COMPRESS_KEY = "historyAutoCompress";
+    private static final String HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY = "historyAutoCompressThresholdPercent";
+
+    /**
+     * Returns the persisted watch service implementation preference.
+     *
+     * Normalized return values:
+     *  - "legacy"  => legacy implementation
+     *  - "native"  => native implementation
+     *  - "default" => no explicit preference / use platform-default behavior
+     */
+    public static String getWatchServiceImplPreference() {
+        var props = loadGlobalProperties();
+        String raw = props.getProperty(WATCH_SERVICE_IMPL_KEY);
+        if (raw == null || raw.isBlank()) {
+            return "default";
+        }
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if ("legacy".equals(normalized) || "native".equals(normalized)) {
+            return normalized;
+        }
+        return "default";
+    }
+
+    /**
+     * Persist the watch service implementation preference.
+     *
+     * Accepts case-insensitive values: "default", "legacy", "native".
+     * If "default" (or blank/unrecognized) the property will be removed to fall back to platform default.
+     */
+    public static void setWatchServiceImplPreference(String v) {
+        var props = loadGlobalProperties();
+        String normalized = v.trim().toLowerCase(Locale.ROOT);
+        if ("default".equals(normalized) || normalized.isBlank()) {
+            props.remove(WATCH_SERVICE_IMPL_KEY);
+        } else if ("legacy".equals(normalized) || "native".equals(normalized)) {
+            props.setProperty(WATCH_SERVICE_IMPL_KEY, normalized);
+        } else {
+            // Unrecognized value: remove key to ensure default behavior.
+            props.remove(WATCH_SERVICE_IMPL_KEY);
+            normalized = "default";
+        }
+        saveGlobalProperties(props);
+        logger.debug("Set watch service implementation preference to {}", normalized);
+    }
+
+    /**
+     * Returns whether automatic history compression is enabled.
+     * Enabled by default to help manage conversation context size.
+     *
+     * @return true if history auto-compression is enabled, false otherwise
+     */
+    public static boolean getHistoryAutoCompress() {
+        var props = loadGlobalProperties();
+        return Boolean.parseBoolean(props.getProperty(HISTORY_AUTO_COMPRESS_KEY, "true"));
+    }
+
+    /**
+     * Returns the threshold percentage for auto-compressing conversation history.
+     * When the token count of history exceeds this percentage of the model's max input tokens,
+     * automatic compression is triggered.
+     *
+     * @return threshold as a percentage (e.g., 70 means 70%), clamped to [10, 95]
+     */
+    public static int getHistoryAutoCompressThresholdPercent() {
+        var props = loadGlobalProperties();
+        String value = props.getProperty(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY);
+        int defaultValue = 70;
+        if (value == null || value.isBlank()) {
+            return defaultValue;
+        }
+        try {
+            int pct = Integer.parseInt(value.trim());
+            // Clamp to reasonable bounds [10, 95]
+            if (pct < 10) pct = 10;
+            if (pct > 95) pct = 95;
+            return pct;
+        } catch (NumberFormatException e) {
+            logger.debug(
+                    "Invalid history auto-compress threshold percentage: {}, using default {}", value, defaultValue);
+            return defaultValue;
+        }
+    }
+
     // UI Scale global preference
     // Values:
     //  - "auto" (default): detect from environment (kscreen-doctor/gsettings on Linux)

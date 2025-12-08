@@ -50,6 +50,10 @@ public record TaskResult(
                 null);
     }
 
+    public TaskResult withContext(Context ctx) {
+        return new TaskResult(actionDescription, output, ctx, stopDetails, meta);
+    }
+
     /** Enum representing the reason a session concluded. */
     public enum StopReason {
         /** The agent successfully completed the goal. */

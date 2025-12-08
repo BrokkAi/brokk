@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import java.time.Duration;
 import java.util.Optional;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
@@ -12,51 +12,21 @@ import org.junit.jupiter.api.Test;
 public class ComputedValueTest {
 
     @Test
-    public void lazyStart_doesNotStartUntilAccessed() throws Exception {
-        var started = new CountDownLatch(1);
-        var cv = new ComputedValue<Integer>("lazy", () -> {
-            started.countDown();
-            return 42;
-        });
+    public void compute_startsImmediately() throws Exception {
+        var cv = new ComputedValue<>("eager", CompletableFuture.supplyAsync(() -> 7));
 
-        // Not started yet (lazy constructor must not start)
-        assertEquals(1L, started.getCount(), "supplier should not have started yet");
-
-        // tryGet should not start computation
-        assertTrue(cv.tryGet().isEmpty());
-        assertEquals(1L, started.getCount(), "supplier should still not have started");
-
-        // future() should start computation
-        var fut = cv.future();
-        assertTrue(
-                started.await(500, java.util.concurrent.TimeUnit.MILLISECONDS), "supplier should start after future()");
-        assertEquals(42, fut.get().intValue());
-    }
-
-    @Test
-    public void eagerStart_startsImmediately() throws Exception {
-        var started = new CountDownLatch(1);
-        var cv = new ComputedValue<Integer>("eager", () -> {
-            started.countDown();
-            return 7;
-        });
-
-        // Explicitly request eager start to avoid race with constructor return
-        cv.start();
-
-        assertTrue(started.await(500, java.util.concurrent.TimeUnit.MILLISECONDS), "supplier should start eagerly");
         assertEquals(7, cv.future().get().intValue());
     }
 
     @Test
     public void awaitOnNonEdt_timesOutAndReturnsEmpty() {
-        var cv = new ComputedValue<>("slow", () -> {
+        var cv = new ComputedValue<>("slow", CompletableFuture.supplyAsync(() -> {
             try {
                 Thread.sleep(1000);
             } catch (InterruptedException ignored) {
             }
             return 1;
-        });
+        }));
 
         Optional<Integer> res = cv.await(Duration.ofMillis(50));
         assertTrue(res.isEmpty(), "await should time out and return empty");
@@ -64,13 +34,13 @@ public class ComputedValueTest {
 
     @Test
     public void awaitOnEdt_returnsEmptyImmediately() throws Exception {
-        var cv = new ComputedValue<>("edt", () -> {
+        var cv = new ComputedValue<>("edt", CompletableFuture.supplyAsync(() -> {
             try {
                 Thread.sleep(200);
             } catch (InterruptedException ignored) {
             }
             return 2;
-        });
+        }));
 
         var ref = new AtomicReference<Optional<Integer>>();
         SwingUtilities.invokeAndWait(() -> {
@@ -82,9 +52,9 @@ public class ComputedValueTest {
 
     @Test
     public void exception_propagatesToFuture() {
-        var cv = new ComputedValue<Integer>("fail", () -> {
+        var cv = new ComputedValue<Integer>("fail", CompletableFuture.supplyAsync(() -> {
             throw new IllegalStateException("boom");
-        });
+        }));
 
         var fut = cv.future();
         var ex = assertThrows(java.util.concurrent.CompletionException.class, fut::join);
@@ -93,15 +63,42 @@ public class ComputedValueTest {
     }
 
     @Test
-    public void threadName_hasPredictablePrefix() throws Exception {
-        var threadName = new AtomicReference<String>();
-        var cv = new ComputedValue<>("nameCheck", () -> {
-            threadName.set(Thread.currentThread().getName());
-            return 99;
-        });
+    public void join_isIdempotent() {
+        var cv = new ComputedValue<>("joinTest", CompletableFuture.supplyAsync(() -> {
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException ignored) {
+            }
+            return "Hello, world!";
+        }));
 
-        cv.future().get();
-        assertNotNull(threadName.get());
-        assertTrue(threadName.get().startsWith("cv-nameCheck-"));
+        assertEquals("Hello, world!", cv.join());
+        // Check for same result again
+        assertEquals("Hello, world!", cv.join());
+    }
+
+    @Test
+    public void completed_returnsValueImmediately() {
+        var cv = ComputedValue.completed("test", 42);
+
+        assertTrue(cv.tryGet().isPresent());
+        assertEquals(42, cv.tryGet().get().intValue());
+        assertEquals(42, cv.join().intValue());
+    }
+
+    @Test
+    public void map_transformsValue() throws Exception {
+        var cv = ComputedValue.completed("base", 10);
+        var mapped = cv.map(v -> v * 2);
+
+        assertEquals(20, mapped.future().get().intValue());
+    }
+
+    @Test
+    public void flatMap_chainsComputations() throws Exception {
+        var cv = ComputedValue.completed("base", 5);
+        var chained = cv.flatMap(v -> ComputedValue.completed("derived", v + 3));
+
+        assertEquals(8, chained.future().get().intValue());
     }
 }
