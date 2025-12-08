@@ -872,8 +872,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcPat.anchor = GridBagConstraints.NORTHWEST;
         var filePatternsLabel = new JLabel("File patterns:");
         filePatternsLabel.setToolTipText(
-                "<html>Glob patterns for files to exclude from Code Intelligence (case-insensitive).<br>" +
-                "Examples: *.min.js, **/*.svg, **/test/resources/**</html>");
+                "<html>Glob patterns for files to exclude from Code Intelligence (case-insensitive).<br>"
+                        + "Examples: *.min.js, **/*.svg, **/test/resources/**</html>");
         patternPanel.add(filePatternsLabel, gbcPat);
         excludedFilePatternsList.setVisibleRowCount(3);
         gbcPat.gridx = 1;
