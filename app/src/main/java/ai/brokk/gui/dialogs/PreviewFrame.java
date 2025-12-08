@@ -116,6 +116,11 @@ public class PreviewFrame extends JFrame implements ThemeAware {
                 tabToFragmentMap.put(panel, fragmentKey);
             }
 
+            // Apply theme to new tab content
+            if (panel instanceof ThemeAware themeAware) {
+                themeAware.applyTheme(guiTheme);
+            }
+
             // Select the new tab
             tabbedPane.setSelectedIndex(tabIndex);
 
