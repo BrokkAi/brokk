@@ -3137,17 +3137,19 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         switch (baseline.mode()) {
                             case NON_DEFAULT_BRANCH -> {
                                 String defaultBranch = baseline.baselineRef();
+                                // Use fully-qualified ref to avoid ambiguity with tags
+                                String defaultBranchRef = "refs/heads/" + defaultBranch;
 
                                 // Get files changed between branches
                                 var branchChanges =
-                                        gitRepo.listFilesChangedBetweenBranches(currentBranch, defaultBranch);
+                                        gitRepo.listFilesChangedBetweenBranches(currentBranch, defaultBranchRef);
                                 fileSet.addAll(branchChanges);
 
                                 // Union with working tree changes
                                 fileSet.addAll(gitRepo.getModifiedFiles());
 
                                 // Get merge base for left content
-                                leftCommitSha = gitRepo.getMergeBase(currentBranch, defaultBranch);
+                                leftCommitSha = gitRepo.getMergeBase(currentBranch, defaultBranchRef);
                             }
                             case DEFAULT_WITH_UPSTREAM -> {
                                 String upstreamRef = baseline.baselineRef();
