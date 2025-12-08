@@ -4,6 +4,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import java.awt.*;
 import java.util.Arrays;
@@ -17,7 +18,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
-public class CommitDialog extends JDialog {
+public class CommitDialog extends BaseThemedDialog {
     private static final Logger logger = LogManager.getLogger(CommitDialog.class);
 
     private final JTextArea commitMessageArea;
@@ -50,15 +51,14 @@ public class CommitDialog extends JDialog {
             List<ProjectFile> filesToCommit,
             @Nullable String prefilledMessage,
             Consumer<GitWorkflow.CommitResult> onCommitSuccessCallback) {
-        super(owner, "Commit Changes", true);
+        super(owner, "Commit Changes");
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.workflowService = workflowService;
         this.filesToCommit = filesToCommit;
         this.onCommitSuccessCallback = onCommitSuccessCallback;
 
-        setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-        setLayout(new BorderLayout(10, 10)); // Add some padding
+        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
 
         commitMessageArea = new JTextArea(10, 50);
         commitMessageArea.setLineWrap(true);
@@ -94,7 +94,10 @@ public class CommitDialog extends JDialog {
         contentPanel.add(scrollPane, BorderLayout.CENTER);
         contentPanel.add(buttonPanel, BorderLayout.SOUTH);
 
-        add(contentPanel, BorderLayout.CENTER);
+        // Route layout through content root instead of directly to dialog
+        JPanel root = getContentRoot();
+        root.setLayout(new BorderLayout(10, 10));
+        root.add(contentPanel, BorderLayout.CENTER);
 
         KeyboardShortcutUtil.registerDialogEscapeKey(getRootPane(), this::dispose);
 

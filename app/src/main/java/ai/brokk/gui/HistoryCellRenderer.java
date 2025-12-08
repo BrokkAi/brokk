@@ -3,7 +3,6 @@ package ai.brokk.gui;
 import ai.brokk.ContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.mop.ThemeColors;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -208,26 +207,21 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
         try {
             var fragment = de.fragment();
             Set<ProjectFile> files = Set.of();
-            if (fragment instanceof ContextFragment.ComputedFragment cf) {
-                var computedFilesOpt = cf.computedFiles();
-                var filesOpt = computedFilesOpt.tryGet();
-                if (filesOpt.isPresent()) {
-                    files = filesOpt.get();
-                }
-                // ComputedSubscription.bind has been moved to HistoryOutputPanel to avoid
-                // registering listeners from within the rendering path.
-            } else {
-                // Non-computed fragments: safe to call files() directly.
-                files = fragment.files();
+            var computedFilesOpt = fragment.files();
+            var filesOpt = computedFilesOpt.tryGet();
+            if (filesOpt.isPresent()) {
+                files = filesOpt.get();
             }
+            // ComputedSubscription.bind has been moved to HistoryOutputPanel to avoid
+            // registering listeners from within the rendering path.
             if (!files.isEmpty()) {
                 var pf = files.iterator().next();
                 return pf.getRelPath().getFileName().toString();
             } else {
-                return fragment.shortDescription();
+                return fragment.shortDescription().renderNowOr("(Loading...)");
             }
         } catch (Exception ex) {
-            return de.fragment().shortDescription();
+            return de.fragment().shortDescription().renderNowOr("(Loading...)");
         }
     }
 

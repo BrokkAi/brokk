@@ -3,9 +3,7 @@ package ai.brokk.analyzer;
 import ai.brokk.project.IProject;
 import java.util.*;
 import java.util.regex.Pattern;
-import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
-import org.jetbrains.annotations.Nullable;
 
 /**
  * Core analyzer interface providing code intelligence capabilities.
@@ -24,6 +22,30 @@ public interface IAnalyzer {
         public int compareTo(FileRelevance other) {
             int scoreComparison = Double.compare(other.score, this.score);
             return scoreComparison != 0 ? scoreComparison : this.file.absPath().compareTo(other.file.absPath());
+        }
+    }
+
+    /**
+     * Listener for progress updates during analyzer construction or update operations.
+     * Implementations should be thread-safe as callbacks may come from worker threads.
+     */
+    @FunctionalInterface
+    interface ProgressListener {
+        ProgressListener NOOP = new NoopProgressListener();
+        /**
+         * Called to report progress during analyzer operations.
+         *
+         * @param completed Number of items completed
+         * @param total     Total number of items to process
+         * @param phase     Description of the current phase (e.g., "Parsing Java files")
+         */
+        void onProgress(int completed, int total, String phase);
+    }
+
+    class NoopProgressListener implements ProgressListener {
+        @Override
+        public void onProgress(int completed, int total, String phase) {
+            // No-op
         }
     }
 
@@ -215,7 +237,7 @@ public interface IAnalyzer {
     default Set<CodeUnit> searchDefinitions(String pattern, boolean autoQuote) {
         // Validate pattern
         if (pattern.isEmpty()) {
-            return Set.of();
+            throw new IllegalArgumentException("Search pattern may not be empty");
         }
 
         // Prepare case-insensitive regex pattern
@@ -223,18 +245,16 @@ public interface IAnalyzer {
             pattern = "(?i)" + (pattern.contains(".*") ? pattern : ".*" + Pattern.quote(pattern) + ".*");
         }
 
-        // Try to compile the pattern
-        Pattern compiledPattern;
-        try {
-            compiledPattern = Pattern.compile(pattern);
-        } catch (PatternSyntaxException e) {
-            // Fallback to simple case-insensitive substring matching
-            var fallbackPattern = pattern.toLowerCase(Locale.ROOT);
-            return searchDefinitionsImpl(pattern, fallbackPattern, null);
-        }
+        Pattern compiledPattern = Pattern.compile(pattern);
+        // Reuse a single Matcher across all declarations to avoid allocation overhead
+        return searchDefinitions(compiledPattern);
+    }
 
-        // Delegate to implementation-specific method
-        return searchDefinitionsImpl(pattern, null, compiledPattern);
+    default Set<CodeUnit> searchDefinitions(Pattern compiledPattern) {
+        var matcher = compiledPattern.matcher("");
+        return getAllDeclarations().stream()
+                .filter(cu -> matcher.reset(cu.fqName()).find())
+                .collect(Collectors.toSet());
     }
 
     /**
@@ -277,37 +297,6 @@ public interface IAnalyzer {
             byFqName.computeIfAbsent(cu.fqName(), k -> new LinkedHashSet<>()).add(cu);
 
         return byFqName.values().stream().flatMap(Set::stream).collect(Collectors.toSet());
-    }
-
-    /**
-     * Implementation-specific search method called by the default searchDefinitions. Subclasses should implement this
-     * method to provide their specific search logic.
-     *
-     * <p><b>Performance Warning:</b> The default implementation iterates over all declarations in the project, which
-     * can be very slow for large codebases. Production-ready implementations should override this method with a more
-     * efficient approach, such as using an index.
-     *
-     * @param originalPattern The original search pattern provided by the user
-     * @param fallbackPattern The lowercase fallback pattern (null if not using fallback)
-     * @param compiledPattern The compiled regex pattern (null if using fallback)
-     * @return List of matching CodeUnits
-     */
-    default Set<CodeUnit> searchDefinitionsImpl(
-            String originalPattern, @Nullable String fallbackPattern, @Nullable Pattern compiledPattern) {
-        // Default implementation using getAllDeclarations
-        if (fallbackPattern != null) {
-            return getAllDeclarations().stream()
-                    .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(fallbackPattern))
-                    .collect(Collectors.toSet());
-        } else if (compiledPattern != null) {
-            return getAllDeclarations().stream()
-                    .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
-                    .collect(Collectors.toSet());
-        } else {
-            return getAllDeclarations().stream()
-                    .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(originalPattern))
-                    .collect(Collectors.toSet());
-        }
     }
 
     /**

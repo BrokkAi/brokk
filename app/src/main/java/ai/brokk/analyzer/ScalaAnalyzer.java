@@ -12,20 +12,24 @@ import org.treesitter.TreeSitterScala;
 public class ScalaAnalyzer extends TreeSitterAnalyzer {
 
     public ScalaAnalyzer(IProject project) {
-        super(project, Languages.SCALA);
+        this(project, ProgressListener.NOOP);
     }
 
-    private ScalaAnalyzer(IProject project, AnalyzerState state) {
-        super(project, Languages.SCALA, state);
+    public ScalaAnalyzer(IProject project, ProgressListener listener) {
+        super(project, Languages.SCALA, listener);
     }
 
-    public static ScalaAnalyzer fromState(IProject project, AnalyzerState state) {
-        return new ScalaAnalyzer(project, state);
+    private ScalaAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
+        super(project, Languages.SCALA, state, listener);
+    }
+
+    public static ScalaAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+        return new ScalaAnalyzer(project, state, listener);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state) {
-        return new ScalaAnalyzer(getProject(), state);
+    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+        return new ScalaAnalyzer(getProject(), state, listener);
     }
 
     @Override

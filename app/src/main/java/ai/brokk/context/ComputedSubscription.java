@@ -1,6 +1,6 @@
-package ai.brokk.util;
+package ai.brokk.context;
 
-import ai.brokk.context.ContextFragment;
+import ai.brokk.util.ComputedValue;
 import java.util.ArrayList;
 import java.util.List;
 import javax.swing.*;
@@ -59,34 +59,18 @@ public final class ComputedSubscription {
      * @param owner the Swing component that owns these subscriptions
      * @param uiUpdate a runnable to execute on the EDT when any computed value completes
      */
-    public static void bind(ContextFragment.ComputedFragment fragment, JComponent owner, Runnable uiUpdate) {
-        fragment.computedText().start();
-        fragment.computedDescription().start();
-        fragment.computedFiles().start();
-
+    public static void bind(ContextFragment fragment, JComponent owner, Runnable uiUpdate) {
         // Helper to run UI update, coalesced onto EDT
-        final boolean[] scheduled = {false};
-        Runnable scheduleUpdate = () -> {
-            if (!scheduled[0]) {
-                scheduled[0] = true;
-                SwingUtilities.invokeLater(() -> {
-                    scheduled[0] = false;
-                    uiUpdate.run();
-                });
-            }
-        };
+        Runnable scheduleUpdate = () -> SwingUtilities.invokeLater(uiUpdate);
 
-        // Subscribe to text completion
-        var s1 = fragment.computedText().onComplete((v, ex) -> scheduleUpdate.run());
-        register(owner, s1);
+        if (!(fragment instanceof ContextFragment.AbstractComputedFragment acf)) {
+            scheduleUpdate.run();
+            return;
+        }
 
-        // Subscribe to description completion
-        var s2 = fragment.computedDescription().onComplete((v, ex) -> scheduleUpdate.run());
-        register(owner, s2);
-
-        // Subscribe to files completion
-        var s3 = fragment.computedFiles().onComplete((v, ex) -> scheduleUpdate.run());
-        register(owner, s3);
+        // Subscribe to completion
+        var sub = acf.snapshotCv.onComplete((v, ex) -> scheduleUpdate.run());
+        register(owner, sub);
     }
 
     /**

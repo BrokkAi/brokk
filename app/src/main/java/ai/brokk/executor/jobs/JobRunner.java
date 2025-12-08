@@ -469,7 +469,7 @@ public final class JobRunner {
                 // Clean up
                 if (console != null) {
                     try {
-                        console.shutdown(5);
+                        // No-op: events are written synchronously, so nothing to await.
                     } catch (Throwable ignore) {
                         // Non-critical: shutdown failed
                     }
@@ -657,7 +657,7 @@ public final class JobRunner {
             String description = pr.getBody();
 
             var fragment = new ContextFragment.StringFragment(cm, fullDiff, description, "text/x-diff");
-            cm.addVirtualFragment(fragment);
+            cm.addFragments(fragment);
 
             String reviewGuide = cm.getProject().getReviewGuide();
 
