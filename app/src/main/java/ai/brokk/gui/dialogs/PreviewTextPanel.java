@@ -103,6 +103,14 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     @Nullable
     private final Future<Map<Language, AnalyzerCapabilities>> analyzerCapabilities;
 
+    /**
+     * Background future that triggers a pre-cache of identifier ranges within the file via
+     * {@link IAnalyzer#getReferencedIdentifiers(ProjectFile)}. This is only used to kick off
+     * analyzer work and may be null when no file is provided.
+     */
+    @Nullable
+    private final Future<List<IAnalyzer.Range>> referencedIdentifiersFuture;
+
     private final List<JComponent> dynamicMenuItems = new ArrayList<>(); // For usage capture items
 
     private record AnalyzerCapabilities(boolean hasUsages, boolean hasSource) {}
@@ -288,6 +296,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 var analyzer = cm.getAnalyzerUninterrupted();
                 return analyzer.isEmpty() ? Collections.emptySet() : analyzer.getDeclarations(file);
             });
+
             analyzerCapabilities = cm.submitBackgroundTask("Fetch Analyzer Capabilities", () -> {
                 var analyzer = cm.getAnalyzerUninterrupted();
                 final var capabilityMap = new HashMap<Language, AnalyzerCapabilities>();
@@ -310,9 +319,24 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 }
                 return capabilityMap;
             });
+
+            // Kick off referenced-identifier parsing to warm-up analyzer caches (best-effort).
+            referencedIdentifiersFuture = cm.submitBackgroundTask("Fetch Referenced Identifiers", () -> {
+                var analyzer = cm.getAnalyzerUninterrupted();
+                if (analyzer == null || analyzer.isEmpty()) return Collections.<IAnalyzer.Range>emptyList();
+                try {
+                    // This call may trigger Tree-sitter parsing/caching in language analyzers.
+                    return analyzer.getReferencedIdentifiers(file);
+                } catch (Exception e) {
+                    // Swallow exceptions; this is a best-effort background cache warming.
+                    logger.debug("Error pre-caching referenced identifiers for {}: {}", file, e.getMessage());
+                    return Collections.<IAnalyzer.Range>emptyList();
+                }
+            });
         } else {
             fileDeclarations = null; // Ensure @Nullable field is explicitly null if file is null
             analyzerCapabilities = null;
+            referencedIdentifiersFuture = null;
         }
     }
 
