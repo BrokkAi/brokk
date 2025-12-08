@@ -137,7 +137,6 @@ public class BuildAgent {
                 // Walk the directory tree to find gitignored directories.
                 // Uses walkFileTree to skip subtrees once a directory is known-ignored,
                 // avoiding descent into node_modules/, target/, .git/, etc.
-                var addedPaths = new HashSet<String>();
                 var projectRoot = project.getRoot();
 
                 Files.walkFileTree(projectRoot, new SimpleFileVisitor<Path>() {
@@ -159,7 +158,6 @@ public class BuildAgent {
                         if (project.isDirectoryIgnored(relPath)) {
                             currentExcludedDirectories.add(unixPath);
                             addedFromGitignore.add(unixPath);
-                            addedPaths.add(unixPath);
                             return FileVisitResult.SKIP_SUBTREE; // Don't descend into ignored dirs
                         }
 

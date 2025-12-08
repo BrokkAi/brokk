@@ -715,10 +715,11 @@ public class SettingsProjectBuildPanel extends JPanel {
             allTestsCommandField.setText(details.testAllCommand());
             someTestsCommandField.setText(details.testSomeCommand());
 
-            // Also refresh the CI exclusions list model in the parent SettingsProjectPanel
+            // Also refresh the CI exclusions list models in the parent SettingsProjectPanel
             try {
                 var spp = parentDialog.getProjectPanel();
                 spp.updateExcludedDirectories(details.excludedDirectories());
+                spp.updateExcludedFilePatterns(details.excludedFilePatterns());
             } catch (Exception ex) {
                 logger.warn("Failed to update CI exclusions list from agent details: {}", ex.getMessage(), ex);
             }
