@@ -623,87 +623,197 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     }
 
     /**
-     * Best-effort type/member resolution at a file offset.
-     *
-     * Recognizes simple identifier chains produced by {@link IAnalyzer#getIdentifierAt(ProjectFile, int)} such as
-     * "this.field", "this.method()", "super.field" and "super.method()".
-     *
-     * Resolution strategy:
-     *  - "this.<name>": look in the enclosing class's direct children first, then fall back to ancestor classes.
-     *  - "super.<name>": look in direct ancestors first (immediate parents), then the wider ancestor chain.
-     *
-     * Returns the CodeUnit of the matching member (field or function) if found.
-     */
+         * Best-effort type/member resolution at a file offset.
+         *
+         * Recognizes simple identifier chains produced by {@link IAnalyzer#getIdentifierAt(ProjectFile, int)} such as
+         * "this.field", "this.method()", "super.field", "Type.staticMember" and constructor usages via "new Type(...)".
+         *
+         * Resolution strategy:
+         *  - "this.<name>": look in the enclosing class's direct children first, then fall back to ancestor classes.
+         *  - "super.<name>": look in direct ancestors first (immediate parents), then the wider ancestor chain.
+         *  - "Type.member": resolve Type via imports, same-package, or global search, then look for a matching static member.
+         *  - "new Type(...)": detect 'new' token immediately preceding the identifier range and resolve the Type to its class CodeUnit.
+         *
+         * Returns the CodeUnit of the matching member (field or function) or the class CodeUnit for constructors when found.
+         */
     @Override
     public Optional<CodeUnit> inferTypeAt(ProjectFile file, int offset) {
-        var identOpt = getIdentifierAt(file, offset);
-        if (identOpt.isEmpty()) return Optional.empty();
-        String ident = identOpt.get().strip();
-        if (ident.isEmpty()) return Optional.empty();
+                        var identOpt = getIdentifierAt(file, offset);
+                        if (identOpt.isEmpty()) return Optional.empty();
+                        String ident = identOpt.get().strip();
+                        if (ident.isEmpty()) return Optional.empty();
 
-        // Normalize common cases where trailing "()" or argument lists may be present
-        String normalized = ident;
+                        // Helper to strip trailing parentheses for method call cases (e.g., "method()" -> "method").
+                        java.util.function.UnaryOperator<String> stripParens = s -> {
+                                            int p = s.indexOf('(');
+                                            return p >= 0 ? s.substring(0, p) : s;
+                        };
 
-        // Helper to strip trailing parentheses for method calls like "method()" or "method(arg)"
-        java.util.function.UnaryOperator<String> stripParens = s -> {
-            int p = s.indexOf('(');
-            return p >= 0 ? s.substring(0, p) : s;
-        };
+                        // Build inference context (enclosing class/method + imports)
+                        var ctx = buildTypeInferenceContext(file, offset);
+                        CodeUnit enclosingClass = ctx.enclosingClass();
 
-        // Build inference context (enclosing class/method + imports)
-        var ctx = buildTypeInferenceContext(file, offset);
-        CodeUnit enclosingClass = ctx.enclosingClass();
+                        // Attempt to find the referenced identifier Range so we can inspect nearby source (for 'new' detection).
+                        List<IAnalyzer.Range> ranges = getReferencedIdentifiers(file);
+                        IAnalyzer.Range bestRange = null;
+                        int bestLen = -1;
+                        for (var r : ranges) {
+                                            if (r.startByte() <= offset && r.endByte() >= offset) {
+                                                                int len = r.endByte() - r.startByte();
+                                                                if (len > bestLen) {
+                                                                                    bestLen = len;
+                                                                                    bestRange = r;
+                                                                }
+                                            }
+                        }
 
-        if (normalized.startsWith("this.")) {
-            String memberChain = normalized.substring("this.".length()).strip();
-            if (memberChain.isEmpty() || enclosingClass == null) return Optional.empty();
-            String leftmost = stripParens.apply(memberChain.split("\\.", 2)[0]);
+                        // Read source if available for constructor detection and richer heuristics
+                        var srcOpt = file.read();
+                        String src = srcOpt.orElse("");
+                        boolean looksLikeConstructor = false;
+                        if (bestRange != null && !src.isBlank()) {
+                                            int ctxStart = Math.max(0, bestRange.startByte() - 16); // small window for "new "
+                                            String prefix = ASTTraversalUtils.safeSubstringFromByteOffsets(src, ctxStart, bestRange.startByte());
+                                            if (prefix.matches("(?s).*\\bnew\\s*$")) {
+                                                                looksLikeConstructor = true;
+                                            }
+                        }
 
-            // 1) Search direct children of enclosing class
-            for (CodeUnit child : getDirectChildren(enclosingClass)) {
-                if (matchesMember(child, leftmost)) {
-                    return Optional.of(child);
-                }
-            }
+                        // Handle "this.<member>" accesses
+                        if (ident.startsWith("this.")) {
+                                            String memberChain = ident.substring("this.".length()).strip();
+                                            if (memberChain.isEmpty() || enclosingClass == null) return Optional.empty();
+                                            String leftmost = stripParens.apply(memberChain.split("\\.", 2)[0]);
 
-            // 2) Fallback: search ancestors (inherited members)
-            for (CodeUnit anc : getAncestors(enclosingClass)) {
-                for (CodeUnit child : getDirectChildren(anc)) {
-                    if (matchesMember(child, leftmost)) {
-                        return Optional.of(child);
-                    }
-                }
-            }
+                                            // 1) Search direct children of enclosing class
+                                            for (CodeUnit child : getDirectChildren(enclosingClass)) {
+                                                                if (matchesMember(child, leftmost)) {
+                                                                                    return Optional.of(child);
+                                                                }
+                                            }
 
-            return Optional.empty();
-        } else if (normalized.startsWith("super.")) {
-            String memberChain = normalized.substring("super.".length()).strip();
-            if (memberChain.isEmpty() || enclosingClass == null) return Optional.empty();
-            String leftmost = stripParens.apply(memberChain.split("\\.", 2)[0]);
+                                            // 2) Fallback: search ancestors (inherited members)
+                                            for (CodeUnit anc : getAncestors(enclosingClass)) {
+                                                                for (CodeUnit child : getDirectChildren(anc)) {
+                                                                                    if (matchesMember(child, leftmost)) {
+                                                                                                        return Optional.of(child);
+                                                                                    }
+                                                                }
+                                            }
 
-            // 1) Prefer direct ancestors (non-transitive), i.e., immediate supertypes
-            for (CodeUnit directParent : getDirectAncestors(enclosingClass)) {
-                for (CodeUnit child : getDirectChildren(directParent)) {
-                    if (matchesMember(child, leftmost)) {
-                        return Optional.of(child);
-                    }
-                }
-            }
+                                            return Optional.empty();
+                        }
 
-            // 2) Fallback: transitive ancestors
-            for (CodeUnit anc : getAncestors(enclosingClass)) {
-                for (CodeUnit child : getDirectChildren(anc)) {
-                    if (matchesMember(child, leftmost)) {
-                        return Optional.of(child);
-                    }
-                }
-            }
+                        // Handle "super.<member>" accesses
+                        if (ident.startsWith("super.")) {
+                                            String memberChain = ident.substring("super.".length()).strip();
+                                            if (memberChain.isEmpty() || enclosingClass == null) return Optional.empty();
+                                            String leftmost = stripParens.apply(memberChain.split("\\.", 2)[0]);
 
-            return Optional.empty();
-        }
+                                            // 1) Prefer direct ancestors (non-transitive), i.e., immediate supertypes
+                                            for (CodeUnit directParent : getDirectAncestors(enclosingClass)) {
+                                                                for (CodeUnit child : getDirectChildren(directParent)) {
+                                                                                    if (matchesMember(child, leftmost)) {
+                                                                                                        return Optional.of(child);
+                                                                                    }
+                                                                }
+                                            }
 
-        // Not a recognized this./super. access that we handle
-        return Optional.empty();
+                                            // 2) Fallback: transitive ancestors
+                                            for (CodeUnit anc : getAncestors(enclosingClass)) {
+                                                                for (CodeUnit child : getDirectChildren(anc)) {
+                                                                                    if (matchesMember(child, leftmost)) {
+                                                                                                        return Optional.of(child);
+                                                                                    }
+                                                                }
+                                            }
+
+                                            return Optional.empty();
+                        }
+
+                        // Helper: resolve a simple type name to a CodeUnit representing the class (best-effort).
+                        java.util.function.Function<String, Optional<CodeUnit>> resolveTypeName = (name) -> {
+                                            if (name == null || name.isBlank()) return Optional.empty();
+                                            String nm = name.strip();
+                                            // 1) Fully-qualified attempt
+                                            if (nm.contains(".")) {
+                                                                var defs = getDefinitions(nm);
+                                                                if (!defs.isEmpty()) {
+                                                                                    for (CodeUnit d : defs) if (d.isClass()) return Optional.of(d);
+                                                                }
+                                            }
+
+                                            // 2) Visible imports (explicit/wildcard resolution was precomputed in buildTypeInferenceContext)
+                                            for (CodeUnit imp : ctx.visibleImports()) {
+                                                                if (imp.identifier().equals(nm) || imp.shortName().equals(nm) || imp.fqName().endsWith("." + nm)) {
+                                                                                    if (imp.isClass()) return Optional.of(imp);
+                                                                }
+                                            }
+
+                                            // 3) Same package as enclosing class
+                                            if (enclosingClass != null) {
+                                                                String pkg = enclosingClass.packageName();
+                                                                if (!pkg.isBlank()) {
+                                                                                    var defs = getDefinitions(pkg + "." + nm);
+                                                                                    if (!defs.isEmpty()) {
+                                                                                                        for (CodeUnit d : defs) if (d.isClass()) return Optional.of(d);
+                                                                                    }
+                                                                }
+                                            }
+
+                                            // 4) Global direct definitions (exact)
+                                            var defsExact = getDefinitions(nm);
+                                            if (!defsExact.isEmpty()) {
+                                                                for (CodeUnit d : defsExact) if (d.isClass()) return Optional.of(d);
+                                            }
+
+                                            // 5) Broad search fallback
+                                            var search = searchDefinitions(nm);
+                                            if (!search.isEmpty()) {
+                                                                for (CodeUnit d : search) if (d.isClass()) return Optional.of(d);
+                                            }
+
+                                            return Optional.empty();
+                        };
+
+                        // Qualified access: "Type.member" or chained "A.B.C" (we use only the first member for static lookup)
+                        if (ident.contains(".")) {
+                                            String[] segments = ident.split("\\.");
+                                            if (segments.length >= 2) {
+                                                                String left = segments[0];
+                                                                String member = segments[1];
+                                                                // If the left itself may be a qualified package prefix (e.g., p.A.member), prefer full resolution
+                                                                Optional<CodeUnit> typeCu = Optional.empty();
+                                                                if (left.contains(".")) {
+                                                                                    typeCu = resolveTypeName.apply(left);
+                                                                }
+                                                                if (typeCu.isEmpty()) {
+                                                                                    typeCu = resolveTypeName.apply(left);
+                                                                }
+
+                                                                if (typeCu.isPresent()) {
+                                                                                    CodeUnit type = typeCu.get();
+                                                                                    // Look for member among direct children (static members, enum constants, nested types)
+                                                                                    for (CodeUnit child : getDirectChildren(type)) {
+                                                                                                        if (matchesMember(child, stripParens.apply(member))) {
+                                                                                                                            return Optional.of(child);
+                                                                                                        }
+                                                                                    }
+                                                                }
+                                            }
+                                            return Optional.empty();
+                        }
+
+                        // Constructor invocation detection: "new Foo(...)" -> return the Foo class CodeUnit (if resolvable)
+                        if (looksLikeConstructor) {
+                                            var typeCu = resolveTypeName.apply(ident);
+                                            if (typeCu.isPresent()) {
+                                                                return typeCu;
+                                            }
+                        }
+
+                        // Not handled by this helper
+                        return Optional.empty();
     }
 
     /**
