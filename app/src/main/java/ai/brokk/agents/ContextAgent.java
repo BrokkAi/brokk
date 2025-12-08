@@ -560,7 +560,7 @@ public class ContextAgent {
         var coalescedClasses = AnalyzerUtil.coalesceInnerClasses(Set.copyOf(classes));
         logger.debug("Found {} classes", coalescedClasses.size());
 
-        return coalescedClasses.parallelStream()
+        Map<CodeUnit, String> summaries = coalescedClasses.parallelStream()
                 .map(cu -> {
                     final String skeleton = analyzer.as(SkeletonProvider.class)
                             .flatMap(skp -> skp.getSkeleton(cu))
@@ -569,6 +569,21 @@ public class ContextAgent {
                 })
                 .filter(entry -> !entry.getValue().isEmpty())
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
+
+        Map<CodeUnit, String> filtered = filterAnonymousSummaries(summaries);
+        if (filtered.size() != summaries.size()) {
+            logger.debug("Filtered out {} anonymous code unit summaries", (summaries.size() - filtered.size()));
+        }
+        return filtered;
+    }
+
+    static Map<CodeUnit, String> filterAnonymousSummaries(Map<CodeUnit, String> summaries) {
+        return summaries.entrySet().stream()
+                .filter(e -> {
+                    var cu = e.getKey();
+                    return !(cu.fqName().contains("$anon$") || cu.identifier().contains("$anon$"));
+                })
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new));
     }
 
     // --- Files-pruning utilities (budget-capped at 100k) ---
