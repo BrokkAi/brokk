@@ -76,12 +76,13 @@ public final class FileDropHandlerFactory {
                     }
 
                     // Check size and confirm before adding large content
-                    ContextSizeGuard.checkAndConfirm(projectFiles, chrome, confirmed -> {
-                        if (confirmed) {
+                    ContextSizeGuard.checkAndConfirm(projectFiles, chrome, decision -> {
+                        if (decision == ContextSizeGuard.Decision.ALLOW) {
                             contextManager.submitContextTask(() -> contextManager.addFiles(projectFiles));
-                        } else {
+                        } else if (decision == ContextSizeGuard.Decision.CANCELLED) {
                             chrome.showNotification(IConsoleIO.NotificationRole.INFO, "File addition cancelled");
                         }
+                        // BLOCKED case already shows error dialog in checkAndConfirm
                     });
 
                     return true;

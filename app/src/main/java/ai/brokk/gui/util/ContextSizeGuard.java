@@ -1,5 +1,6 @@
 package ai.brokk.gui.util;
 
+import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
 import ai.brokk.prompts.ArchitectPrompts;
@@ -34,6 +35,16 @@ public final class ContextSizeGuard {
     private ContextSizeGuard() {}
 
     public record SizeEstimate(int fileCount, long estimatedTokens, boolean isTruncated) {}
+
+    /** Result of the size check, passed to the callback. */
+    public enum Decision {
+        /** Operation should proceed (under threshold, user confirmed, or estimation error). */
+        ALLOW,
+        /** User explicitly cancelled via the confirmation dialog. */
+        CANCELLED,
+        /** Operation blocked because estimated size exceeds hard limit. */
+        BLOCKED
+    }
 
     /**
      * Estimates tokens for a collection of files/directories using file size heuristic.
@@ -87,12 +98,19 @@ public final class ContextSizeGuard {
      * Checks if the estimated tokens exceed the threshold and prompts for confirmation if so.
      * Runs estimation in background to avoid blocking EDT.
      *
+     * <p><b>Threading:</b> The callback may be invoked on a background thread (for ALLOW/BLOCKED
+     * when no dialog is shown) or on the EDT (after user interaction with the confirmation dialog).
+     * Chrome's UI methods ({@code toolError}, {@code showNotification}) are thread-safe and handle
+     * EDT dispatch internally, so callers can safely use them from the callback.
+     *
+     * <p><b>Error handling:</b> Uses fail-open policy - if estimation fails, the operation proceeds
+     * with a warning notification. This prioritizes usability over strict protection.
+     *
      * @param files Files to add
      * @param chrome Chrome instance for dialogs and model info
-     * @param onConfirmed Called with true if user confirms or no confirmation needed,
-     *                    false if user cancels
+     * @param onDecision Called with the decision result
      */
-    public static void checkAndConfirm(Collection<ProjectFile> files, Chrome chrome, Consumer<Boolean> onConfirmed) {
+    public static void checkAndConfirm(Collection<ProjectFile> files, Chrome chrome, Consumer<Decision> onDecision) {
         CompletableFuture.supplyAsync(() -> estimateTokens(files))
                 .thenAccept(estimate -> {
                     var contextManager = chrome.getContextManager();
@@ -109,13 +127,13 @@ public final class ContextSizeGuard {
                     if (estimate.estimatedTokens() > hardLimit) {
                         chrome.toolError(
                                 formatHardLimitMessage(estimate, maxInputTokens, hardLimit), "Context Size Limit");
-                        onConfirmed.accept(false);
+                        onDecision.accept(Decision.BLOCKED);
                         return;
                     }
 
                     // Under warning threshold - allow without asking
                     if (estimate.estimatedTokens() <= warningThreshold) {
-                        onConfirmed.accept(true);
+                        onDecision.accept(Decision.ALLOW);
                         return;
                     }
 
@@ -127,13 +145,16 @@ public final class ContextSizeGuard {
                                 "Large Context Warning",
                                 JOptionPane.YES_NO_OPTION,
                                 JOptionPane.WARNING_MESSAGE);
-                        onConfirmed.accept(result == JOptionPane.YES_OPTION);
+                        onDecision.accept(result == JOptionPane.YES_OPTION ? Decision.ALLOW : Decision.CANCELLED);
                     });
                 })
                 .exceptionally(ex -> {
                     logger.error("Error estimating context size", ex);
-                    // On error, allow the operation to proceed
-                    onConfirmed.accept(true);
+                    // Fail-open: allow operation but warn user that size check was skipped
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO,
+                            "Could not estimate context size; proceeding without size checks");
+                    onDecision.accept(Decision.ALLOW);
                     return null;
                 });
     }
