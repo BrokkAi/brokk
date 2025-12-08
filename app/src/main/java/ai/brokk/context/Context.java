@@ -319,22 +319,29 @@ public class Context {
         }
 
         IAnalyzer analyzer = contextManager.getAnalyzer();
-        boolean noGit = !contextManager.getProject().hasGit() || !(contextManager.getRepo() instanceof GitRepo);
+        var repoObj = contextManager.getRepo();
+        boolean hasGit = contextManager.getProject().hasGit();
 
         boolean manyNewSeeds = areManySeedsNew(weightedSeeds.keySet());
 
-        if (noGit || manyNewSeeds) {
-            var pprResults =
-                    ImportPageRanker.getRelatedFilesByImports(analyzer, weightedSeeds, topK, false);
+        if (!hasGit || manyNewSeeds) {
+            var pprResults = ImportPageRanker.getRelatedFilesByImports(analyzer, weightedSeeds, topK, false);
             return pprResults.stream()
                     .map(IAnalyzer.FileRelevance::file)
                     .filter(file -> !ineligibleSources.contains(file))
                     .toList();
         }
 
-        var gitDistanceResults =
-                GitDistance.getRelatedFiles((GitRepo) contextManager.getRepo(), weightedSeeds, topK, false);
-        return gitDistanceResults.stream()
+        if (repoObj instanceof GitRepo gr) {
+            var gitDistanceResults = GitDistance.getRelatedFiles(gr, weightedSeeds, topK, false);
+            return gitDistanceResults.stream()
+                    .map(IAnalyzer.FileRelevance::file)
+                    .filter(file -> !ineligibleSources.contains(file))
+                    .toList();
+        }
+
+        var pprResults = ImportPageRanker.getRelatedFilesByImports(analyzer, weightedSeeds, topK, false);
+        return pprResults.stream()
                 .map(IAnalyzer.FileRelevance::file)
                 .filter(file -> !ineligibleSources.contains(file))
                 .toList();
