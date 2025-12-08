@@ -57,7 +57,12 @@ public sealed interface BrokkEvent {
         }
     }
 
-    /** Appends a task (either compressed summary or full messages) to the frontend's history. */
+    /**
+     * Appends a task to the frontend's history.
+     * Can contain summary (when compressed=true), messages (when available), or both.
+     * The compressed flag indicates whether the AI uses a summary for this task.
+     * <b>Note:</b> At least one of {@code summary} or {@code messages} must be non-null.
+     */
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     record HistoryTask(
             int epoch, int taskSequence, boolean compressed, @Nullable String summary, @Nullable List<Message> messages)
@@ -71,6 +76,23 @@ public sealed interface BrokkEvent {
         @Override
         public String getType() {
             return "history-task";
+        }
+
+        @Override
+        public Integer getEpoch() {
+            return epoch;
+        }
+    }
+
+    /**
+     * Delivers a compressed summary for the live thread.
+     * Used when the AI produces a summary for the current live task.
+     * The taskSequence identifies the backend TaskEntry; the frontend maps this to its own threadId.
+     */
+    record LiveSummary(int epoch, int taskSequence, boolean compressed, String summary) implements BrokkEvent {
+        @Override
+        public String getType() {
+            return "live-summary";
         }
 
         @Override

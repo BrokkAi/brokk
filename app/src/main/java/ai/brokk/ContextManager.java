@@ -2146,17 +2146,25 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /**
      * Compresses a single TaskEntry into a summary string using the quickest model.
+     * Preserves the original log and attaches the summary, so the AI uses the summary
+     * while the UI can still display the full messages.
      *
      * @param entry The TaskEntry to compress.
-     * @return A new compressed TaskEntry, or the original entry (with updated sequence) if compression fails.
+     * @return A new TaskEntry with both log and summary, or the original entry if compression fails.
      */
     public TaskEntry compressHistory(TaskEntry entry) {
-        // If already compressed, return as is
+        // If already has a summary, return as is (already compressed or marked for AI summary)
         if (entry.isCompressed()) {
             return entry;
         }
 
-        // Compress
+        // Must have a log to compress
+        if (!entry.hasLog()) {
+            logger.warn("Cannot compress entry without a log: {}", entry);
+            return entry;
+        }
+
+        // Compress the log into a summary
         var historyString = entry.toString();
         var msgs = SummarizerPrompts.instance.compressHistory(historyString);
         Llm.StreamingResult result;
@@ -2179,7 +2187,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         logger.debug("Compressed summary:\n{}", summary);
-        return TaskEntry.fromCompressed(entry.sequence(), summary);
+        // Create new entry with both original log and new summary
+        return entry.withSummary(summary);
     }
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
@@ -2802,8 +2811,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     }
                 }
 
+                // Check if any entries were actually modified (got a summary attached)
                 boolean changed = IntStream.range(0, taskHistoryToCompress.size())
-                        .anyMatch(i -> !taskHistoryToCompress.get(i).equals(compressedTaskEntries.get(i)));
+                        .anyMatch(i -> {
+                            TaskEntry original = taskHistoryToCompress.get(i);
+                            TaskEntry compressed = compressedTaskEntries.get(i);
+                            // Entry changed if it now has a summary when it didn't before
+                            return compressed.isCompressed() && !original.isCompressed();
+                        });
 
                 if (!changed) {
                     io.showNotification(IConsoleIO.NotificationRole.INFO, "History is already compressed.");
@@ -2812,6 +2827,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                 // pushContext will update liveContext with the compressed history
                 // and add a frozen version to contextHistory.
+                // Entries now have both log and summary, so AI uses summary while UI can show either
                 pushContext(currentLiveCtx -> currentLiveCtx.withCompressedHistory(List.copyOf(compressedTaskEntries)));
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Task history compressed successfully.");
             } finally {
