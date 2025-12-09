@@ -2587,20 +2587,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         SwingUtilities.invokeLater(this::updateButtonStates);
     }
 
-    /**
-     * EZ-mode only: auto-plays all tasks when idle.
-     * <p>
-     * Guards: EDT-safe, no-op if queue active or LLM is busy.
-     * Prompts if tasks exist.
-     */
-    public void autoPlayAllIfIdle() {
-        if (!SwingUtilities.isEventDispatchThread()) {
-            SwingUtilities.invokeLater(this::autoPlayAllIfIdle);
-            return;
-        }
-        autoPlayAllIfIdle(Set.of());
-    }
-
     public void autoPlayAllIfIdle(Set<String> preExistingIncompleteTasks) {
         if (!SwingUtilities.isEventDispatchThread()) {
             SwingUtilities.invokeLater(() -> this.autoPlayAllIfIdle(preExistingIncompleteTasks));
