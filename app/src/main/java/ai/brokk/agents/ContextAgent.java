@@ -557,35 +557,22 @@ public class ContextAgent {
     }
 
     private Map<CodeUnit, String> getSummaries(Collection<CodeUnit> classes) {
-        var coalescedClasses = AnalyzerUtil.coalesceInnerClasses(Set.copyOf(classes));
-        logger.debug("Found {} classes", coalescedClasses.size());
+            var coalescedClasses = AnalyzerUtil.coalesceInnerClasses(Set.copyOf(classes));
+            logger.debug("Found {} classes", coalescedClasses.size());
 
-        Map<CodeUnit, String> summaries = coalescedClasses.parallelStream()
-                .map(cu -> {
-                    final String skeleton = analyzer.as(SkeletonProvider.class)
-                            .flatMap(skp -> skp.getSkeleton(cu))
-                            .orElse("");
-                    return Map.entry(cu, skeleton);
-                })
-                .filter(entry -> !entry.getValue().isEmpty())
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
+            Map<CodeUnit, String> summaries = coalescedClasses.parallelStream()
+                            .map(cu -> {
+                                    final String skeleton = analyzer.as(SkeletonProvider.class)
+                                                    .flatMap(skp -> skp.getSkeleton(cu))
+                                                    .orElse("");
+                                    return Map.entry(cu, skeleton);
+                            })
+                            .filter(entry -> !entry.getValue().isEmpty())
+                            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
 
-        Map<CodeUnit, String> filtered = filterAnonymousSummaries(summaries);
-        if (filtered.size() != summaries.size()) {
-            logger.debug("Filtered out {} anonymous code unit summaries", (summaries.size() - filtered.size()));
-        }
-        return filtered;
+            return summaries;
     }
 
-    static Map<CodeUnit, String> filterAnonymousSummaries(Map<CodeUnit, String> summaries) {
-            return summaries.entrySet().stream()
-                            .filter(e -> !e.getKey().isAnonymous())
-                            .collect(Collectors.toMap(
-                                            Map.Entry::getKey,
-                                            Map.Entry::getValue,
-                                            (v1, v2) -> v1,
-                                            LinkedHashMap::new));
-    }
 
     // --- Files-pruning utilities (budget-capped at 100k) ---
 

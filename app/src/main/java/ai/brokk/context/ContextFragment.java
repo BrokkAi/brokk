@@ -1744,42 +1744,44 @@ public interface ContextFragment {
         }
 
         private String formatSummaryWithAncestors(
-                CodeUnit cu, List<CodeUnit> ancestorList, Map<CodeUnit, String> skeletons) {
-            var sb = new StringBuilder();
+                        CodeUnit cu, List<CodeUnit> ancestorList, Map<CodeUnit, String> skeletons) {
+                var sb = new StringBuilder();
 
-            boolean isCuAnonymous = isAnonymousName(cu.fqName()) || isAnonymousName(cu.identifier());
+                boolean isCuAnonymous = isAnonymousName(cu.fqName()) || isAnonymousName(cu.identifier());
 
-            if (!isCuAnonymous) {
-                String primarySkeleton = skeletons.get(cu);
-                if (primarySkeleton != null && !primarySkeleton.isEmpty()) {
-                    Map<CodeUnit, String> primary = new LinkedHashMap<>();
-                    primary.put(cu, primarySkeleton);
-                    String primaryFormatted = formatSkeletonsByPackage(primary);
-                    if (!primaryFormatted.isEmpty()) sb.append(primaryFormatted).append("\n\n");
+                if (!isCuAnonymous) {
+                        String primarySkeleton = skeletons.get(cu);
+                        if (primarySkeleton != null && !primarySkeleton.isEmpty()) {
+                                Map<CodeUnit, String> primary = new LinkedHashMap<>();
+                                primary.put(cu, primarySkeleton);
+                                String primaryFormatted = formatSkeletonsByPackage(primary);
+                                if (!primaryFormatted.isEmpty()) sb.append(primaryFormatted).append("\n\n");
+                        }
                 }
-            }
 
-            var filteredAncestors = ancestorList.stream()
-                    .filter(anc -> !(isAnonymousName(anc.fqName()) || isAnonymousName(anc.identifier())))
-                    .toList();
+                var filteredAncestors = ancestorList.stream()
+                                .filter(anc -> !(isAnonymousName(anc.fqName()) || isAnonymousName(anc.identifier())))
+                                .toList();
 
-            if (!filteredAncestors.isEmpty()) {
-                String ancestorNames =
-                        filteredAncestors.stream().map(CodeUnit::shortName).collect(Collectors.joining(", "));
-                sb.append("// Direct ancestors of ")
-                        .append(cu.shortName())
-                        .append(": ")
-                        .append(ancestorNames)
-                        .append("\n\n");
-                Map<CodeUnit, String> ancestorsMap = new LinkedHashMap<>();
-                filteredAncestors.forEach(anc -> {
-                    String sk = skeletons.get(anc);
-                    if (sk != null) ancestorsMap.put(anc, sk);
-                });
-                String ancestorsFormatted = formatSkeletonsByPackage(ancestorsMap);
-                if (!ancestorsFormatted.isEmpty()) sb.append(ancestorsFormatted).append("\n\n");
-            }
-            return sb.toString().trim();
+                if (!filteredAncestors.isEmpty()) {
+                        if (!isCuAnonymous) {
+                                String ancestorNames =
+                                                filteredAncestors.stream().map(CodeUnit::shortName).collect(Collectors.joining(", "));
+                                sb.append("// Direct ancestors of ")
+                                                .append(cu.shortName())
+                                                .append(": ")
+                                                .append(ancestorNames)
+                                                .append("\n\n");
+                        }
+                        Map<CodeUnit, String> ancestorsMap = new LinkedHashMap<>();
+                        filteredAncestors.forEach(anc -> {
+                                String sk = skeletons.get(anc);
+                                if (sk != null) ancestorsMap.put(anc, sk);
+                        });
+                        String ancestorsFormatted = formatSkeletonsByPackage(ancestorsMap);
+                        if (!ancestorsFormatted.isEmpty()) sb.append(ancestorsFormatted).append("\n\n");
+                }
+                return sb.toString().trim();
         }
 
         private String formatSkeletonsByPackage(Map<CodeUnit, String> skeletons) {
