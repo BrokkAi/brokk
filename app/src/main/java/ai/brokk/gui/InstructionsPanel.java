@@ -1839,6 +1839,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             shouldAutoExecuteTasks = true;
         }
 
+        // CRITICAL: Capture pre-existing incomplete tasks BEFORE submitAction to avoid race condition.
+        // SearchAgent will modify the task list, so we must capture the state before that happens.
+        final var preExistingIncompleteTasks =
+                contextManager.liveContext().getTaskListDataOrEmpty().tasks().stream()
+                        .filter(t -> !t.done())
+                        .map(TaskList.TaskItem::text)
+                        .collect(Collectors.toSet());
+
         submitAction(action, query, scope -> {
                     assert !query.isBlank();
 
@@ -1865,12 +1873,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     // Lutz Mode (shouldAutoExecuteTasks=true) auto-executes in EZ mode
                     // Plan Mode (shouldAutoExecuteTasks=false) shows tasks but does not execute
                     if (shouldAutoExecuteTasks && !GlobalUiSettings.isAdvancedMode()) {
-                        // Capture pre-existing incomplete tasks for the gate dialog
-                        var preExistingIncompleteTasks =
-                                contextManager.liveContext().getTaskListDataOrEmpty().tasks().stream()
-                                        .filter(t -> !t.done())
-                                        .map(TaskList.TaskItem::text)
-                                        .collect(Collectors.toSet());
                         SwingUtilities.invokeLater(() ->
                                 chrome.getTaskListPanel().showAutoPlayGateDialogAndAct(preExistingIncompleteTasks));
                     }
