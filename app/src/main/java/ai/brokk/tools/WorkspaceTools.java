@@ -14,6 +14,7 @@ import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.data.message.ChatMessageType;
+import dev.langchain4j.model.output.structured.Description;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -62,6 +63,14 @@ public class WorkspaceTools {
     public Context getContext() {
         return context;
     }
+
+    /**
+     * Represents a fragment removal request with its ID and explanation.
+     * Used by {@link #dropWorkspaceFragments(List)} to structure the input.
+     */
+    public record FragmentRemoval(
+            @Description("The numeric ID exactly as listed in <workspace-toc>") String fragmentId,
+            @Description("Why this fragment is being discarded") String explanation) {}
 
     /** Updates the working Context for this WorkspaceTools instance. */
     public void setContext(Context newContext) {
@@ -189,12 +198,17 @@ public class WorkspaceTools {
             value =
                     "Remove specified fragments (files, text snippets, task history, analysis results) from the Workspace and record explanations in DISCARDED_CONTEXT as a JSON map. Do not drop file fragments that you still need to read, or need to edit as part of your current task, unless the edits are localized to a single function.")
     public String dropWorkspaceFragments(
-            @P(
-                            "Map of { fragmentId -> explanation } for why each fragment is being discarded. Must not be empty. 'Discarded Context' fragment is not itself drop-able.")
-                    Map<String, String> idToExplanation) {
-        if (idToExplanation.isEmpty()) {
-            return "Fragment map cannot be empty.";
+            @P("List of fragments to remove from the Workspace. Must not be empty.") List<FragmentRemoval> fragments) {
+        if (fragments.isEmpty()) {
+            return "Fragments list cannot be empty.";
         }
+
+        // Convert list to map for internal processing (preserves existing logic)
+        Map<String, String> idToExplanation = fragments.stream()
+                .collect(Collectors.toMap(
+                        FragmentRemoval::fragmentId,
+                        FragmentRemoval::explanation,
+                        (a, b) -> a)); // handle duplicates by keeping first
 
         // Operate on actual stored fragments only
         var allFragments = context.allFragments().toList();
