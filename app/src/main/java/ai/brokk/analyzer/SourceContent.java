@@ -29,14 +29,14 @@ public final class SourceContent {
 
     public static Optional<SourceContent> read(ProjectFile file) {
         var srcOpt = file.read();
-        return srcOpt.map(s -> SourceContent.of(TextCanonicalizer.stripUtf8Bom(s)));
+        return srcOpt.map(SourceContent::of);
     }
 
     /**
      * Creates a SourceContent wrapper for the provided source text.
      */
     public static SourceContent of(String src) {
-        byte[] bytes = src.getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = TextCanonicalizer.stripUtf8Bom(src).getBytes(StandardCharsets.UTF_8);
         return new SourceContent(src, bytes, bytes.length);
     }
 
