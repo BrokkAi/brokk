@@ -785,9 +785,9 @@ class CodeAgentTest {
         project.setBuildDetails(bd);
         project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
-        // Generate long build output (> 200 lines to trigger LLM preprocessing)
+        // Generate long build output (> 500 lines to trigger LLM preprocessing)
         StringBuilder longOutput = new StringBuilder();
-        for (int i = 1; i <= 210; i++) {
+        for (int i = 1; i <= 510; i++) {
             longOutput.append("Error line ").append(i).append("\n");
         }
 

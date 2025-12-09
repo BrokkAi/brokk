@@ -56,6 +56,11 @@ public final class TestService extends AbstractService {
     @Override
     public StreamingChatModel getModel(
             AbstractService.ModelConfig config, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {
+        // If a custom quickest model is set and this is a request for the quickest model config,
+        // return the custom model to enable test instrumentation
+        if (customQuickestModel != null && GPT_5_NANO.equals(config.name())) {
+            return customQuickestModel;
+        }
         return new StreamingChatModel() {
             @Override
             public void doChat(ChatRequest request, StreamingChatResponseHandler handler) {
