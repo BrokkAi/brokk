@@ -2,9 +2,11 @@ package ai.brokk.gui.tests;
 
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.IConsoleIO;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.InstructionsPanel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
@@ -37,18 +39,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import javax.swing.BorderFactory;
-import javax.swing.DefaultListCellRenderer;
-import javax.swing.DefaultListModel;
-import javax.swing.JLabel;
-import javax.swing.JList;
-import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.JSplitPane;
-import javax.swing.JTextArea;
-import javax.swing.ListSelectionModel;
-import javax.swing.SwingUtilities;
-import javax.swing.UIManager;
+import javax.swing.*;
 import javax.swing.text.AttributeSet;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.PlainDocument;
@@ -117,7 +108,26 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
         runQueue = new ArrayDeque<>();
 
-        runList = new JList<>(runListModel);
+        runList = new JList<>(runListModel) {
+            @Override
+            public String getToolTipText(java.awt.event.MouseEvent e) {
+                int index = locationToIndex(e.getPoint());
+                if (index < 0) return null;
+                java.awt.Rectangle cellBounds = getCellBounds(index, index);
+                if (cellBounds == null) return null;
+
+                RunEntry run = runListModel.get(index);
+                boolean isFailed = !run.isQueued() && !run.isRunning() && !run.isSuccess();
+                if (isFailed) {
+                    int buttonWidth = 30;
+                    int buttonX = cellBounds.x + cellBounds.width - buttonWidth;
+                    if (e.getX() >= buttonX) {
+                        return "Fix this failing test with Lutz Mode";
+                    }
+                }
+                return run.command;
+            }
+        };
         runList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         runList.setCellRenderer(new RunEntryRenderer());
         runList.setVisibleRowCount(5);
@@ -126,6 +136,31 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 updateOutputForSelectedRun();
             }
         });
+
+        runList.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                int index = runList.locationToIndex(e.getPoint());
+                if (index < 0) return;
+
+                RunEntry run = runListModel.get(index);
+                boolean isFailed = !run.isQueued() && !run.isRunning() && !run.isSuccess();
+                if (!isFailed || chrome == null) return;
+
+                // Check if click is in the button area (right side of the cell)
+                java.awt.Rectangle cellBounds = runList.getCellBounds(index, index);
+                if (cellBounds == null) return;
+
+                // Button is approximately 24-30px wide on the right
+                int buttonWidth = 30;
+                int buttonX = cellBounds.x + cellBounds.width - buttonWidth;
+                if (e.getX() >= buttonX) {
+                    fixFailedRun(run);
+                }
+            }
+        });
+
+        javax.swing.ToolTipManager.sharedInstance().registerComponent(runList);
 
         runListScrollPane = new JScrollPane(
                 runList, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
@@ -774,6 +809,54 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         repaint();
     }
 
+    /**
+     * Initiates a fix workflow for a failed test run:
+     * 1. Creates a new session
+     * 2. Switches to the Instructions tab
+     * 3. Adds the failed test output to the workspace
+     * 4. Sets instruction text
+     * 5. Starts Lutz Mode
+     */
+    private void fixFailedRun(RunEntry run) {
+        if (chrome == null) {
+            logger.warn("Cannot fix failed run without Chrome context");
+            return;
+        }
+
+        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Starting fix for failed tests...");
+
+        String output = run.getOutput();
+        String sessionName = "Fix: " + (run.command.length() > 40
+                ? run.command.substring(0, 37) + "..."
+                : run.command);
+
+        var cm = chrome.getContextManager();
+
+        // Create a new session and then perform the fix workflow
+        cm.createSessionAsync(sessionName).thenRun(() -> {
+            SwingUtilities.invokeLater(() -> {
+                // Switch to Instructions tab in the right tabbed panel
+                JTabbedPane rightTabs = chrome.getRightTabbedPanel();
+                int idx = rightTabs.indexOfTab("Instructions");
+                if (idx != -1) {
+                    rightTabs.setSelectedIndex(idx);
+                }
+
+                // Add the failed test output to the workspace
+                cm.addPastedTextFragment(output);
+
+                // Set the instruction and run Lutz Mode when text is ready
+                InstructionsPanel instructionsPanel = chrome.getInstructionsPanel();
+                String instruction = "Analyze the failing test output and fix the issue. The problem may be in the test code or the tested code. Explain what's wrong before making changes.";
+                instructionsPanel.populateInstructionsArea(instruction, 
+                    () -> instructionsPanel.runSearchCommand());
+            });
+        }).exceptionally(ex -> {
+            logger.error("Failed to create session for fix workflow", ex);
+            return null;
+        });
+    }
+
     private void scrollToBottom() {
         outputArea.setCaretPosition(outputArea.getDocument().getLength());
     }
@@ -885,7 +968,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private static class RunEntryRenderer extends DefaultListCellRenderer {
+    private class RunEntryRenderer extends DefaultListCellRenderer {
         private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
 
         @Override
@@ -920,6 +1003,28 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                                 ? new Color(100, 150, 255)
                                 : (run.isSuccess() ? new Color(100, 200, 100) : new Color(255, 100, 100)));
                 label.setForeground(statusColor);
+            }
+
+            // For failed runs (completed but not successful), add a Fix button
+            boolean isFailed = !run.isQueued() && !run.isRunning() && !run.isSuccess();
+            if (isFailed && chrome != null) {
+                JPanel panel = new JPanel(new BorderLayout(4, 0));
+                panel.setOpaque(true);
+                panel.setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
+
+                label.setOpaque(false);
+                panel.add(label, BorderLayout.CENTER);
+
+                JButton fixButton = new JButton(Icons.WAND);
+                fixButton.setToolTipText("Fix this failing test with Lutz Mode");
+                fixButton.setMargin(new Insets(0, 2, 0, 2));
+                fixButton.setBorderPainted(false);
+                fixButton.setContentAreaFilled(false);
+                fixButton.setFocusPainted(false);
+                fixButton.setOpaque(false);
+                panel.add(fixButton, BorderLayout.EAST);
+
+                return panel;
             }
 
             return label;
