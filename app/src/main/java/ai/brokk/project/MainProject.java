@@ -20,6 +20,7 @@ import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.AtomicWrites;
 import ai.brokk.util.BrokkConfigPaths;
+import ai.brokk.util.DependencyUpdateScheduler;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.PathNormalizer;
@@ -71,6 +72,8 @@ public final class MainProject extends AbstractProject {
     @Nullable
     private volatile DiskLruCache diskCache = null;
 
+    private final DependencyUpdateScheduler dependencyUpdateScheduler;
+
     private static final long DEFAULT_DISK_CACHE_SIZE = 10L * 1024L * 1024L; // 10 MB
 
     private static final String BUILD_DETAILS_KEY = "buildDetailsJson";
@@ -109,6 +112,8 @@ public final class MainProject extends AbstractProject {
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
     private static final String COMMIT_MESSAGE_FORMAT_KEY = "commitMessageFormat";
     private static final String EXCEPTION_REPORTING_ENABLED_KEY = "exceptionReportingEnabled";
+    private static final String AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY = "autoUpdateLocalDependencies";
+    private static final String AUTO_UPDATE_GIT_DEPENDENCIES_KEY = "autoUpdateGitDependencies";
 
     private static final List<SettingsChangeListener> settingsChangeListeners = new CopyOnWriteArrayList<>();
 
@@ -201,6 +206,9 @@ public final class MainProject extends AbstractProject {
 
         // Initialize cache and trigger migration/defaulting if necessary
         this.issuesProviderCache = getIssuesProvider();
+
+        // Initialize dependency update scheduler
+        this.dependencyUpdateScheduler = new DependencyUpdateScheduler(this);
     }
 
     @Override
@@ -525,6 +533,40 @@ public final class MainProject extends AbstractProject {
             saveProjectProperties();
             logger.debug("Set commit message format.");
         }
+    }
+
+    @Override
+    public boolean getAutoUpdateLocalDependencies() {
+        String value = projectProps.getProperty(AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY);
+        return value != null && Boolean.parseBoolean(value);
+    }
+
+    @Override
+    public void setAutoUpdateLocalDependencies(boolean enabled) {
+        if (enabled) {
+            projectProps.setProperty(AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY, "true");
+        } else {
+            projectProps.remove(AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY);
+        }
+        saveProjectProperties();
+        notifyAutoUpdateLocalDependenciesChanged();
+    }
+
+    @Override
+    public boolean getAutoUpdateGitDependencies() {
+        String value = projectProps.getProperty(AUTO_UPDATE_GIT_DEPENDENCIES_KEY);
+        return value != null && Boolean.parseBoolean(value);
+    }
+
+    @Override
+    public void setAutoUpdateGitDependencies(boolean enabled) {
+        if (enabled) {
+            projectProps.setProperty(AUTO_UPDATE_GIT_DEPENDENCIES_KEY, "true");
+        } else {
+            projectProps.remove(AUTO_UPDATE_GIT_DEPENDENCIES_KEY);
+        }
+        saveProjectProperties();
+        notifyAutoUpdateGitDependenciesChanged();
     }
 
     public long getRunCommandTimeoutSeconds() {
@@ -941,6 +983,26 @@ public final class MainProject extends AbstractProject {
                 listener.gitHubTokenChanged();
             } catch (Exception e) {
                 logger.error("Error notifying listener of GitHub token change", e);
+            }
+        }
+    }
+
+    private static void notifyAutoUpdateLocalDependenciesChanged() {
+        for (SettingsChangeListener listener : settingsChangeListeners) {
+            try {
+                listener.autoUpdateLocalDependenciesChanged();
+            } catch (Exception e) {
+                logger.error("Error notifying listener of auto-update local dependencies change", e);
+            }
+        }
+    }
+
+    private static void notifyAutoUpdateGitDependenciesChanged() {
+        for (SettingsChangeListener listener : settingsChangeListeners) {
+            try {
+                listener.autoUpdateGitDependenciesChanged();
+            } catch (Exception e) {
+                logger.error("Error notifying listener of auto-update git dependencies change", e);
             }
         }
     }
@@ -2128,6 +2190,9 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void close() {
+        // Close dependency update scheduler
+        dependencyUpdateScheduler.close();
+
         // Close disk cache if open
         try {
             if (diskCache != null) {
@@ -2142,6 +2207,14 @@ public final class MainProject extends AbstractProject {
         // Close session manager and other resources
         sessionManager.close();
         super.close();
+    }
+
+    /**
+     * Returns the dependency update scheduler for this project.
+     * Worktree projects delegate to the main project's scheduler.
+     */
+    public DependencyUpdateScheduler getDependencyUpdateScheduler() {
+        return dependencyUpdateScheduler;
     }
 
     public Path getWorktreeStoragePath() {

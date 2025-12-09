@@ -181,6 +181,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
     }
 
+    @Override
     public abstract Set<Dependency> getLiveDependencies();
 
     public abstract void saveLiveDependencies(Set<Path> dependencyTopLevelDirs);
@@ -597,6 +598,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
     }
 
+    @Override
     public Set<ProjectFile> getAllOnDiskDependencies() {
         var dependenciesPath = getDependenciesDir();
         if (!Files.exists(dependenciesPath) || !Files.isDirectory(dependenciesPath)) {

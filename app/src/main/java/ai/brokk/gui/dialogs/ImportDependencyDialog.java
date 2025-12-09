@@ -16,6 +16,7 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.util.CloneOperationTracker;
+import ai.brokk.util.DependencyUpdater;
 import ai.brokk.util.FileUtil;
 import java.awt.BorderLayout;
 import java.awt.Component;
@@ -531,6 +532,8 @@ public class ImportDependencyDialog {
                             .distinct()
                             .toList();
                     copyDirectoryRecursively(sourcePath, targetPath, allowedExtensions);
+                    DependencyUpdater.writeLocalPathDependencyMetadata(
+                            targetPath, sourcePath.toAbsolutePath().normalize());
                     SwingUtilities.invokeLater(() -> {
                         dialog.dispose();
                         chrome.showNotification(
@@ -602,6 +605,9 @@ public class ImportDependencyDialog {
 
                     GitRepoFactory.cloneRepo(repoUrl, targetPath, 1, branchOrTag);
 
+                    // Capture commit hash before removing .git
+                    String commitHash = GitRepoFactory.getHeadCommit(targetPath);
+
                     CloneOperationTracker.createInProgressMarker(targetPath, repoUrl, branchOrTag);
                     CloneOperationTracker.registerCloneOperation(targetPath);
 
@@ -610,6 +616,8 @@ public class ImportDependencyDialog {
                         if (Files.exists(gitInternalDir)) {
                             FileUtil.deleteRecursively(gitInternalDir);
                         }
+
+                        DependencyUpdater.writeGitDependencyMetadata(targetPath, repoUrl, branchOrTag, commitHash);
 
                         CloneOperationTracker.createCompleteMarker(targetPath, repoUrl, branchOrTag);
                         CloneOperationTracker.unregisterCloneOperation(targetPath);

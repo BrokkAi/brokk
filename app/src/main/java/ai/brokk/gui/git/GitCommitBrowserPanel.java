@@ -7,6 +7,7 @@ import ai.brokk.SettingsChangeListener;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.ICommitInfo;
 import ai.brokk.gui.Chrome;
@@ -1438,7 +1439,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         var repo = contextManager.getProject().getRepo();
         if (repo instanceof GitRepo gitRepo) {
             var remoteUrl = gitRepo.getRemoteUrl();
-            if (remoteUrl != null && remoteUrl.startsWith("https://") && remoteUrl.contains("github.com")) {
+            if (GitRepoFactory.isGitHubHttpsUrl(remoteUrl)) {
                 // Check if GitHub token is configured (fast, no network call)
                 if (!GitHubAuth.tokenPresent()) {
                     return new ButtonConfig(

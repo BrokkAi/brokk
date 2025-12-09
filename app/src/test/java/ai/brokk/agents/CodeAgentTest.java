@@ -777,10 +777,10 @@ class CodeAgentTest {
         var cannedPreprocessedOutput = "Error in file.java:10: syntax error";
         var countingModel = new CountingPreprocessorModel(cannedPreprocessedOutput);
 
-        // Configure the context manager to use the counting model for quickest model
-        cm.setQuickestModel(countingModel);
+        // Configure the context manager to use the counting model for GPT_5_NANO (used by preprocessor)
+        cm.setNanoModel(countingModel);
 
-        // Configure build to fail with output that exceeds threshold (> 200 lines)
+        // Configure build to fail with output that exceeds threshold (> 500 lines)
         var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of());
         project.setBuildDetails(bd);
         project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);

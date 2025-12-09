@@ -1,8 +1,10 @@
 package ai.brokk.git;
 
+import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import java.io.IOException;
 import java.util.*;
+import java.util.function.Supplier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.Git;
@@ -13,6 +15,7 @@ import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.transport.PushResult;
 import org.eclipse.jgit.transport.RefSpec;
 import org.eclipse.jgit.transport.RemoteRefUpdate;
+import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -445,11 +448,23 @@ public class GitRepoRemote {
      * @throws GitAPIException if the remote is inaccessible or another Git error occurs.
      */
     public static GitRepo.RemoteInfo listRemoteRefs(String url) throws GitAPIException {
-        var remoteRefs = Git.lsRemoteRepository()
-                .setHeads(true)
-                .setTags(true)
-                .setRemote(url)
-                .call();
+        return listRemoteRefs(MainProject::getGitHubToken, url);
+    }
+
+    static GitRepo.RemoteInfo listRemoteRefs(Supplier<String> tokenSupplier, String url) throws GitAPIException {
+        var lsRemote = Git.lsRemoteRepository().setHeads(true).setTags(true).setRemote(url);
+
+        // Apply GitHub authentication if needed (only for GitHub HTTPS URLs)
+        if (GitRepoFactory.isGitHubHttpsUrl(url)) {
+            var token = tokenSupplier.get();
+            if (!token.trim().isEmpty()) {
+                logger.debug("Using GitHub token authentication for ls-remote: {}", url);
+                lsRemote.setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", token));
+            }
+            // Don't throw if token is empty - allow graceful failure for public repos
+        }
+
+        var remoteRefs = lsRemote.call();
 
         var branches = new ArrayList<String>();
         var tags = new ArrayList<String>();
