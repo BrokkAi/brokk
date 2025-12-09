@@ -124,7 +124,8 @@ public class BuildOutputPreprocessor {
             - Specific error message
             - File path and line number when available
             - Full stack trace when available
-            - Relevant debug output
+            - Relevant debug output: you may CROP the output to the most relevant portions, but you
+              MUST NOT CHANGE the parts you include
 
             WARNINGS AND ERRORS IN THE SAME FILE:
             Include ALL errors AND warnings from the same file. Warnings often indicate
