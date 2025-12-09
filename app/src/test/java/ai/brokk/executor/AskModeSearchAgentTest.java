@@ -42,6 +42,7 @@ class AskModeSearchAgentTest {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private HeadlessExecutorMain executor;
+    private MainProject project;
     private int port;
     private String authToken = "test-secret-token";
     private String baseUrl;
@@ -60,7 +61,7 @@ class AskModeSearchAgentTest {
         Files.writeString(propsFile, "# Minimal properties for test\n");
 
         var execId = UUID.randomUUID();
-        var project = new MainProject(workspaceDir);
+        project = new MainProject(workspaceDir);
         var cm = new ContextManager(project, TestService.provider(project));
         executor = new HeadlessExecutorMain(
                 execId,
@@ -78,6 +79,9 @@ class AskModeSearchAgentTest {
     void cleanup() {
         if (executor != null) {
             executor.stop(2);
+        }
+        if (project != null) {
+            project.close();
         }
     }
 
