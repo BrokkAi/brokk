@@ -127,11 +127,14 @@ public class MaterialButton extends JButton {
     @Override
     public void setIcon(@Nullable Icon icon) {
         this.originalIcon = icon;
-        if (icon != null) {
-            putClientProperty("JButton.buttonType", "borderless");
-            setBorder(null);
-        }
         updateIconForEnabledState();
+        updateBorderForContent();
+    }
+
+    @Override
+    public void setText(@Nullable String text) {
+        super.setText(text);
+        updateBorderForContent();
     }
 
     @Override
@@ -139,6 +142,7 @@ public class MaterialButton extends JButton {
         super.setEnabled(enabled);
         updateIconForEnabledState();
         updateCursorForEnabledState();
+        updateBorderForContent();
     }
 
     private void updateIconForEnabledState() {
@@ -152,6 +156,26 @@ public class MaterialButton extends JButton {
         } else {
             Icon disabledIcon = createDisabledVersion(originalIcon);
             super.setIcon(disabledIcon);
+        }
+    }
+
+    private void updateBorderForContent() {
+        boolean hasText = getText() != null && !getText().isBlank();
+        boolean hasIcon = originalIcon != null;
+        boolean iconOnly = hasIcon && !hasText;
+
+        if (iconOnly) {
+            putClientProperty("JButton.buttonType", "borderless");
+            setBorder(null);
+            setBorderPainted(false);
+        } else {
+            putClientProperty("JButton.buttonType", null);
+
+            var borderColor = UIManager.getColor("Component.borderColor");
+            setBorder(BorderFactory.createCompoundBorder(
+                    new LineBorder(borderColor != null ? borderColor : Color.GRAY, 1, true),
+                    BorderFactory.createEmptyBorder(4, 8, 4, 8)));
+            setBorderPainted(true);
         }
     }
 
