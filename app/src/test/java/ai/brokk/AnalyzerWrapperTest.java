@@ -34,11 +34,12 @@ class AnalyzerWrapperTest {
 
     @AfterEach
     void tearDown() {
-        if (analyzerWrapper != null) {
-            analyzerWrapper.close();
-        }
+        // Close watchService first to release directory handles (required for Windows)
         if (watchService != null) {
             watchService.close();
+        }
+        if (analyzerWrapper != null) {
+            analyzerWrapper.close();
         }
     }
 

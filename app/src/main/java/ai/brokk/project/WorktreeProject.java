@@ -260,4 +260,24 @@ public final class WorktreeProject extends AbstractProject {
     public void setMcpConfig(McpConfig config) {
         parent.setMcpConfig(config);
     }
+
+    @Override
+    public boolean getAutoUpdateLocalDependencies() {
+        return parent.getAutoUpdateLocalDependencies();
+    }
+
+    @Override
+    public void setAutoUpdateLocalDependencies(boolean enabled) {
+        parent.setAutoUpdateLocalDependencies(enabled);
+    }
+
+    @Override
+    public boolean getAutoUpdateGitDependencies() {
+        return parent.getAutoUpdateGitDependencies();
+    }
+
+    @Override
+    public void setAutoUpdateGitDependencies(boolean enabled) {
+        parent.setAutoUpdateGitDependencies(enabled);
+    }
 }

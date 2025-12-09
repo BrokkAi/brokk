@@ -232,7 +232,8 @@ public class ContextHistory {
             newAction = "Load external changes (%d)".formatted(newCount);
         }
 
-        var updatedLive = merged.withAction(CompletableFuture.completedFuture(newAction));
+        // parsedOutout == null indicated no AI result (render no icon in activity)
+        var updatedLive = merged.withParsedOutput(null, CompletableFuture.completedFuture(newAction));
 
         if (isContinuation) {
             replaceTopInternal(updatedLive);
@@ -265,13 +266,13 @@ public class ContextHistory {
 
     /* ─────────────── undo / redo  ────────────── */
 
-    public record UndoResult(boolean wasUndone, int steps) {
+    public record UndoResult(boolean wasUndone, int steps, Set<ProjectFile> changedFiles) {
         public static UndoResult none() {
-            return new UndoResult(false, 0);
+            return new UndoResult(false, 0, Set.of());
         }
 
-        public static UndoResult success(int n) {
-            return new UndoResult(true, n);
+        public static UndoResult success(int n, Set<ProjectFile> changedFiles) {
+            return new UndoResult(true, n, changedFiles);
         }
     }
 
@@ -294,11 +295,11 @@ public class ContextHistory {
             undoFileDeletions(io, project, popped);
             redo.addLast(popped);
         }
-        applySnapshotToWorkspace(liveContext(), io);
+        var changedFiles = applySnapshotToWorkspace(liveContext(), io);
         selected = liveContext();
         // Start computing diffs for the new live context post-undo
         diffService.diff(selected);
-        return UndoResult.success(toUndo);
+        return UndoResult.success(toUndo, changedFiles);
     }
 
     private void undoFileDeletions(IConsoleIO io, IProject project, Context popped) {
@@ -329,11 +330,9 @@ public class ContextHistory {
                     io.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             "Restored and staged files: "
-                                    + String.join(
-                                            ", ",
-                                            trackedToStage.stream()
-                                                    .map(Object::toString)
-                                                    .toList()));
+                                    + trackedToStage.stream()
+                                            .map(Object::toString)
+                                            .collect(Collectors.joining(", ")));
                 } catch (Exception e) {
                     var msg = "Failed to stage restored files during undo: " + e.getMessage();
                     io.toolError(msg, "Undo Error");
@@ -356,20 +355,30 @@ public class ContextHistory {
     /**
      * Redoes the last undone operation.
      *
-     * @param io the console IO for feedback
-     * @return {@code true} if something was redone.
+     * @param wasRedone true if the redo was applied.
+     * @param changedFiles the changes files from the result
      */
-    public synchronized boolean redo(IConsoleIO io, IProject project) {
-        if (redo.isEmpty()) return false;
+    public record RedoResult(boolean wasRedone, Set<ProjectFile> changedFiles) {
+        public static RedoResult none() {
+            return new RedoResult(false, Set.of());
+        }
+
+        public static RedoResult success(Set<ProjectFile> changedFiles) {
+            return new RedoResult(true, changedFiles);
+        }
+    }
+
+    public synchronized RedoResult redo(IConsoleIO io, IProject project) {
+        if (redo.isEmpty()) return RedoResult.none();
         var popped = redo.removeLast();
         history.addLast(popped);
         truncateHistory();
         selected = liveContext();
-        applySnapshotToWorkspace(castNonNull(history.peekLast()), io);
+        var changedFiles = applySnapshotToWorkspace(castNonNull(history.peekLast()), io);
         // Start computing diffs for the live context post-redo
         diffService.diff(selected);
         redoFileDeletions(io, project, popped);
-        return true;
+        return RedoResult.success(changedFiles);
     }
 
     private void redoFileDeletions(IConsoleIO io, IProject project, Context popped) {
@@ -388,11 +397,9 @@ public class ContextHistory {
                     io.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             "Deleted files as part of redo: "
-                                    + String.join(
-                                            ", ",
-                                            filesToDelete.stream()
-                                                    .map(Object::toString)
-                                                    .toList()));
+                                    + filesToDelete.stream()
+                                            .map(Object::toString)
+                                            .collect(Collectors.joining(", ")));
                 } catch (Exception e) {
                     io.toolError("Failed to delete files during redo: " + e.getMessage(), "Redo error");
                     logger.error("Failed to delete files during redo", e);
@@ -503,7 +510,7 @@ public class ContextHistory {
     }
 
     @Blocking
-    private void applySnapshotToWorkspace(Context snapshot, IConsoleIO io) {
+    private Set<ProjectFile> applySnapshotToWorkspace(Context snapshot, IConsoleIO io) {
         // Phase 0: wait once up front
         try {
             snapshot.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
@@ -567,8 +574,8 @@ public class ContextHistory {
                     }
                 });
 
-        // Phase 2: write all differing files and notify once
-        var restoredFiles = new ArrayList<String>();
+        // Phase 2: write all differing files and collect changed files
+        var changedFiles = new HashSet<ProjectFile>();
 
         // Write text files
         for (var entry : desiredContents.entrySet()) {
@@ -578,7 +585,7 @@ public class ContextHistory {
                 var currentContent = pf.exists() ? pf.read().orElse("") : "";
                 if (!Objects.equals(newContent, currentContent)) {
                     pf.write(newContent);
-                    restoredFiles.add(pf.toString());
+                    changedFiles.add(pf);
                 }
             } catch (IOException e) {
                 logger.error("Failed to restore file {} from snapshot", pf, e);
@@ -595,7 +602,7 @@ public class ContextHistory {
                 byte[] currentBytes = Files.exists(pf.absPath()) ? Files.readAllBytes(pf.absPath()) : null;
                 if (currentBytes == null || !java.util.Arrays.equals(currentBytes, bytes)) {
                     Files.write(pf.absPath(), bytes);
-                    restoredFiles.add(pf.toString());
+                    changedFiles.add(pf);
                 }
             } catch (IOException e) {
                 logger.error("Failed to restore image file {} from snapshot", pf, e);
@@ -603,9 +610,11 @@ public class ContextHistory {
             }
         }
 
-        if (!restoredFiles.isEmpty()) {
+        if (!changedFiles.isEmpty()) {
             io.showNotification(
-                    IConsoleIO.NotificationRole.INFO, "Restored files: " + String.join(", ", restoredFiles));
+                    IConsoleIO.NotificationRole.INFO,
+                    "Restored files: "
+                            + changedFiles.stream().map(ProjectFile::toString).collect(Collectors.joining(", ")));
             io.updateWorkspace();
         }
 
@@ -614,5 +623,7 @@ public class ContextHistory {
                     "Some files could not be restored within timeout: " + String.join(", ", materializationWarnings),
                     "Undo/Redo Warning");
         }
+
+        return changedFiles;
     }
 }

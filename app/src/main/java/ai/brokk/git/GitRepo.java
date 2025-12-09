@@ -757,7 +757,7 @@ public class GitRepo implements Closeable, IGitRepo {
     <T, C extends TransportCommand<C, T>> void applyGitHubAuthentication(C command, @Nullable String remoteUrl)
             throws GitHubAuthenticationException {
         // Only handle GitHub HTTPS URLs - everything else uses JGit defaults
-        if (remoteUrl == null || !remoteUrl.startsWith("https://") || !remoteUrl.contains("github.com")) {
+        if (!GitRepoFactory.isGitHubHttpsUrl(remoteUrl)) {
             return;
         }
 

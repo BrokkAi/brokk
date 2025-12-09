@@ -161,6 +161,13 @@ public final class TestContextManager implements IContextManager {
         stubService.setQuickestModel(model);
     }
 
+    /**
+     * Set a custom model to be returned for GPT_5_NANO config. Used for testing build output preprocessing.
+     */
+    public void setNanoModel(StreamingChatModel model) {
+        stubService.setNanoModel(model);
+    }
+
     public ProjectFile toFile(String relativePath) {
         var trimmed = relativePath.trim();
 

@@ -13,13 +13,18 @@ import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.dataformat.smile.SmileFactory;
+import java.io.EOFException;
 import java.io.IOException;
 import java.net.URI;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
+import java.util.zip.ZipException;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.pcollections.HashTreePMap;
 import org.pcollections.PMap;
@@ -237,27 +242,44 @@ public final class TreeSitterStateIO {
     public record FilePropertiesDto(
             List<CodeUnitDto> topLevelCodeUnits, List<String> importStatements, Set<CodeUnitDto> resolvedImports) {}
 
-    /* ================= Public API ================= */
-
-    /**
-     * Save the given AnalyzerState to the provided file in Smile format.
-     * Creates parent directories if necessary. On error, logs and returns.
-     */
+    @Blocking
     public static void save(TreeSitterAnalyzer.AnalyzerState state, Path file) {
         long startMs = System.currentTimeMillis();
+        Path temp = null;
+        Path parent = (file.getParent() != null ? file.getParent() : Path.of("."))
+                .toAbsolutePath()
+                .normalize();
         try {
-            Path parent = file.getParent();
-            if (parent != null) {
-                Files.createDirectories(parent);
-            }
+            Files.createDirectories(parent);
+
+            String baseName = file.getFileName().toString();
+            String prefix = "." + baseName + ".";
+            String suffix = ".tmp";
+            temp = Files.createTempFile(parent, prefix, suffix);
+
             var dto = toDto(state);
-            try (GZIPOutputStream out = new GZIPOutputStream(Files.newOutputStream(file))) {
+            try (GZIPOutputStream out = new GZIPOutputStream(Files.newOutputStream(temp))) {
                 SMILE_MAPPER.writeValue(out, dto);
             }
+
+            try {
+                Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException amnse) {
+                log.debug("Atomic move not supported for {}; falling back to non-atomic replace with retries", file);
+                moveWithRetriesOrCopyFallback(temp, file);
+            }
+
             long durMs = System.currentTimeMillis() - startMs;
             log.debug("Saved TreeSitter AnalyzerState to {} in {} ms", file, durMs);
         } catch (IOException e) {
             log.warn("Failed to save TreeSitter AnalyzerState to {}: {}", file, e.getMessage(), e);
+            if (temp != null) {
+                try {
+                    Files.deleteIfExists(temp);
+                } catch (IOException ex) {
+                    log.debug("Failed to delete temp file {} after save failure: {}", temp, ex.getMessage());
+                }
+            }
         }
     }
 
@@ -265,6 +287,7 @@ public final class TreeSitterStateIO {
      * Load an AnalyzerState from the provided file in Smile format.
      * Returns Optional.empty() if file is missing or deserialization fails.
      */
+    @Blocking
     public static Optional<TreeSitterAnalyzer.AnalyzerState> load(Path file) {
         if (!Files.exists(file)) {
             log.debug("Analyzer state file does not exist: {}", file);
@@ -279,12 +302,17 @@ public final class TreeSitterStateIO {
                 log.debug("Loaded TreeSitter AnalyzerState from {} in {} ms", file, durMs);
                 return Optional.of(state);
             }
+        } catch (ZipException | EOFException e) {
+            log.warn("Analyzer state at {} is corrupt or truncated; will rebuild ({}).", file, e.getMessage());
+            log.debug("Corrupt analyzer state at {} details: {}", file, e, e);
+            return Optional.empty();
         } catch (MismatchedInputException mie) {
-            // Schema mismatch / incompatible version - trigger a rebuild
             log.warn("Analyzer state at {} appears incompatible ({}). Will rebuild analyzer.", file, mie.getMessage());
+            log.debug("Incompatible analyzer state at {} details: {}", file, mie, mie);
             return Optional.empty();
         } catch (IOException e) {
-            log.warn("Failed to load TreeSitter AnalyzerState from {}: {}", file, e.getMessage(), e);
+            log.warn("Failed to load TreeSitter AnalyzerState from {} ({}). Will rebuild.", file, e.getMessage());
+            log.debug("I/O exception when loading analyzer state {}: {}", file, e, e);
             return Optional.empty();
         }
     }
@@ -468,5 +496,40 @@ public final class TreeSitterStateIO {
         }
 
         return new ProjectFile(root, rel);
+    }
+
+    private static void moveWithRetriesOrCopyFallback(Path temp, Path file) throws IOException {
+        boolean moved = false;
+        IOException lastMoveEx = null;
+        for (int attempt = 1; attempt <= 3 && !moved; attempt++) {
+            try {
+                Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+                moved = true;
+            } catch (IOException ioe) {
+                lastMoveEx = ioe;
+                log.debug("Non-atomic move attempt {}/3 failed for {}: {}", attempt, file, ioe.getMessage());
+                try {
+                    Thread.sleep(75L);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        if (!moved) {
+            log.debug("Falling back to copy(REPLACE_EXISTING) for {} after move failures", file);
+            try {
+                Files.copy(temp, file, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException copyEx) {
+                copyEx.addSuppressed(lastMoveEx);
+                throw copyEx;
+            } finally {
+                try {
+                    Files.deleteIfExists(temp);
+                } catch (IOException ex) {
+                    log.debug("Failed to delete temp file {} after copy fallback: {}", temp, ex.getMessage());
+                }
+            }
+        }
     }
 }

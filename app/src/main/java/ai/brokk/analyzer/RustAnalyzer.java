@@ -83,11 +83,12 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
      * @param file     The project file being analyzed.
      * @param defNode  The TSNode representing the definition (unused in this implementation).
      * @param rootNode The root TSNode of the file's syntax tree (unused in this implementation).
-     * @param src      The source code of the file (unused in this implementation).
+     * @param sourceContent The source code of the file (unused in this implementation).
      * @return The module path string (e.g., "foo.bar"), or an empty string for the crate root.
      */
     @Override
-    protected String determinePackageName(ProjectFile file, TSNode defNode, TSNode rootNode, String src) {
+    protected String determinePackageName(
+            ProjectFile file, TSNode defNode, TSNode rootNode, SourceContent sourceContent) {
         Path projectRoot = getProject().getRoot();
         Path absFilePath = file.absPath();
         Path fileParentDir = absFilePath.getParent();
@@ -219,13 +220,15 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String getVisibilityPrefix(TSNode node, String src) {
+    protected String getVisibilityPrefix(TSNode node, SourceContent sourceContent) {
         // A common pattern for Rust grammar is that visibility_modifier is a direct child.
         // We check the first few children as its position can vary slightly (e.g. after attributes).
         for (int i = 0; i < node.getChildCount(); i++) {
             TSNode child = node.getChild(i);
             if (!child.isNull() && VISIBILITY_MODIFIER.equals(child.getType())) {
-                String text = textSlice(child, src).strip();
+                String text = sourceContent
+                        .substringFromBytes(child.getStartByte(), child.getEndByte())
+                        .strip();
                 return text + " ";
             }
         }
@@ -235,7 +238,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String renderFunctionDeclaration(
             TSNode fnNode,
-            String src,
+            SourceContent sourceContent,
             String exportPrefix,
             String asyncPrefix,
             String functionName,
@@ -262,7 +265,11 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String renderClassHeader(
-            TSNode classNode, String src, String exportPrefix, String signatureText, String baseIndent) {
+            TSNode classNode,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String signatureText,
+            String baseIndent) {
         // signatureText is derived by TreeSitterAnalyzer using textSlice up to the body or end of node.
         // For Rust, this text (e.g. "struct Foo", "impl Point for Bar") is what we want, prefixed by visibility.
         return baseIndent + exportPrefix + signatureText + " {";
@@ -281,7 +288,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected Optional<String> extractSimpleName(TSNode decl, String src) {
+    protected Optional<String> extractSimpleName(TSNode decl, SourceContent sourceContent) {
         if (IMPL_ITEM.equals(decl.getType())) {
             TSNode typeNode = decl.getChildByFieldName("type");
             // In `impl Trait for Type`, typeNode is `Type`.
@@ -289,38 +296,56 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             if (typeNode != null && !typeNode.isNull()) {
                 String typeNodeType = typeNode.getType();
                 return switch (typeNodeType) {
-                    case TYPE_IDENTIFIER -> Optional.of(textSlice(typeNode, src));
+                    case TYPE_IDENTIFIER ->
+                        Optional.of(sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte()));
                     case GENERIC_TYPE -> {
                         TSNode genericTypeNameNode = typeNode.getChildByFieldName("type");
                         if (!genericTypeNameNode.isNull() && TYPE_IDENTIFIER.equals(genericTypeNameNode.getType())) {
-                            yield Optional.of(textSlice(genericTypeNameNode, src));
+                            yield Optional.of(sourceContent.substringFromBytes(
+                                    genericTypeNameNode.getStartByte(), genericTypeNameNode.getEndByte()));
                         }
-                        String fullGenericTypeNodeText = textSlice(typeNode, src);
+                        String fullGenericTypeNodeText =
+                                sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte());
                         log.warn(
                                 "RustAnalyzer.extractSimpleName for impl_item (generic_type): Could not extract specific name. Using full text '{}'. Node: {}",
                                 fullGenericTypeNodeText,
-                                textSlice(decl, src).lines().findFirst().orElse(""));
+                                sourceContent
+                                        .substringFromBytes(decl.getStartByte(), decl.getEndByte())
+                                        .lines()
+                                        .findFirst()
+                                        .orElse(""));
                         yield Optional.of(fullGenericTypeNodeText);
                     }
                     case SCOPED_TYPE_IDENTIFIER -> {
                         TSNode scopedNameNode = typeNode.getChildByFieldName("name");
                         if (!scopedNameNode.isNull() && TYPE_IDENTIFIER.equals(scopedNameNode.getType())) {
-                            yield Optional.of(textSlice(scopedNameNode, src));
+                            yield Optional.of(sourceContent.substringFromBytes(
+                                    scopedNameNode.getStartByte(), scopedNameNode.getEndByte()));
                         }
-                        String fullScopedTypeNodeText = textSlice(typeNode, src);
+                        String fullScopedTypeNodeText =
+                                sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte());
                         log.warn(
                                 "RustAnalyzer.extractSimpleName for impl_item (scoped_type_identifier): Could not extract specific name. Using full text '{}'. Node: {}",
                                 fullScopedTypeNodeText,
-                                textSlice(decl, src).lines().findFirst().orElse(""));
+                                sourceContent
+                                        .substringFromBytes(decl.getStartByte(), decl.getEndByte())
+                                        .lines()
+                                        .findFirst()
+                                        .orElse(""));
                         yield Optional.of(fullScopedTypeNodeText);
                     }
                     default -> {
-                        String fullTypeNodeText = textSlice(typeNode, src);
+                        String fullTypeNodeText =
+                                sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte());
                         log.warn(
                                 "RustAnalyzer.extractSimpleName for impl_item: Unhandled type node structure '{}'. Using full text '{}'. Node: {}",
                                 typeNodeType,
                                 fullTypeNodeText,
-                                textSlice(decl, src).lines().findFirst().orElse(""));
+                                sourceContent
+                                        .substringFromBytes(decl.getStartByte(), decl.getEndByte())
+                                        .lines()
+                                        .findFirst()
+                                        .orElse(""));
                         yield Optional.of(fullTypeNodeText);
                     }
                 };
@@ -328,7 +353,12 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             String errorContext = String.format(
                     "Node type %s (text: '%s')",
                     decl.getType(),
-                    textSlice(decl, src).lines().findFirst().orElse("").trim());
+                    sourceContent
+                            .substringFromBytes(decl.getStartByte(), decl.getEndByte())
+                            .lines()
+                            .findFirst()
+                            .orElse("")
+                            .trim());
             throw new IllegalStateException(
                     "RustAnalyzer.extractSimpleName for impl_item: 'type' field not found or null. Cannot determine simple name for "
                             + errorContext);
@@ -336,12 +366,17 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
         // For all other node types, defer to the base class implementation.
         // If super returns empty, throw.
-        Optional<String> nameFromSuper = super.extractSimpleName(decl, src);
+        Optional<String> nameFromSuper = super.extractSimpleName(decl, sourceContent);
         if (nameFromSuper.isEmpty()) {
             String errorContext = String.format(
                     "Node type %s (text: '%s')",
                     decl.getType(),
-                    textSlice(decl, src).lines().findFirst().orElse("").trim());
+                    sourceContent
+                            .substringFromBytes(decl.getStartByte(), decl.getEndByte())
+                            .lines()
+                            .findFirst()
+                            .orElse("")
+                            .trim());
             throw new IllegalStateException(
                     "super.extractSimpleName (from RustAnalyzer) failed to find a name for " + errorContext);
         }
@@ -351,7 +386,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String formatFieldSignature(
             TSNode fieldNode,
-            String src,
+            SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
             String baseIndent,

@@ -379,6 +379,14 @@ public class Chrome
         dependenciesPanel = new DependenciesPanel(this);
         projectFilesPanel = new ProjectFilesPanel(this, contextManager, dependenciesPanel);
 
+        // Register analyzer callback to notify MainProject's dependency scheduler when ready
+        contextManager.addAnalyzerCallback(new IContextManager.AnalyzerCallback() {
+            @Override
+            public void onAnalyzerReady() {
+                getProject().getMainProject().getDependencyUpdateScheduler().onAnalyzerReady();
+            }
+        });
+
         // Register for dependency state changes to update badge and border title
         dependenciesPanel.addDependencyStateChangeListener(this::updateProjectFilesTabBadge);
 
