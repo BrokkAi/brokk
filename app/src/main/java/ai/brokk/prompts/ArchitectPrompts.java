@@ -9,16 +9,18 @@ import dev.langchain4j.data.message.SystemMessage;
 import java.util.Comparator;
 import java.util.Map;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.Blocking;
 
 public abstract class ArchitectPrompts extends CodePrompts {
     public static final ArchitectPrompts instance = new ArchitectPrompts() {};
     public static final double WORKSPACE_WARNING_THRESHOLD = 0.5;
     public static final double WORKSPACE_CRITICAL_THRESHOLD = 0.9;
 
+    @Blocking
     private static String resolveAggregatedStyleGuide(IContextManager cm, Context ctx) {
         // Collect project-backed files from current context (nearest-first resolution uses parent dirs).
         var projectFiles =
-                ctx.fileFragments().flatMap(cf -> cf.files().stream()).toList();
+                ctx.fileFragments().flatMap(cf -> cf.files().join().stream()).toList();
 
         // Resolve composite style guide from AGENTS.md files nearest to current context files; fall back to project
         // root guide.
@@ -27,6 +29,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
     }
 
     @Override
+    @Blocking
     public SystemMessage systemMessage(IContextManager cm, String reminder) {
         var workspaceSummary = formatWorkspaceToc(cm.liveContext());
         var styleGuide = resolveAggregatedStyleGuide(cm, cm.liveContext());
@@ -36,9 +39,9 @@ public abstract class ArchitectPrompts extends CodePrompts {
           <instructions>
           %s
           </instructions>
-          <workspace-summary>
+          <workspace-toc>
           %s
-          </workspace-summary>
+          </workspace-toc>
           <style_guide>
           %s
           </style_guide>
@@ -49,6 +52,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
     }
 
     @Override
+    @Blocking
     public SystemMessage systemMessage(IContextManager cm, Context ctx, String reminder) {
         var workspaceSummary = formatWorkspaceToc(ctx);
         var styleGuide = resolveAggregatedStyleGuide(cm, ctx);
@@ -58,9 +62,9 @@ public abstract class ArchitectPrompts extends CodePrompts {
           <instructions>
           %s
           </instructions>
-          <workspace-summary>
+          <workspace-toc>
           %s
-          </workspace-summary>
+          </workspace-toc>
           <style_guide>
           %s
           </style_guide>
@@ -232,9 +236,9 @@ public abstract class ArchitectPrompts extends CodePrompts {
             When you are done, call projectFinished or abortProject.
 
             Here is a summary of the current Workspace. Its full contents were sent earlier in the chat.
-            <workspace_summary>
+            <workspace-toc>
             %s
-            </workspace_summary>
+            </workspace-toc>
 
             %s
             """

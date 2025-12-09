@@ -58,22 +58,26 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     }
 
     public PhpAnalyzer(IProject project) {
-        super(project, Languages.PHP);
+        this(project, ProgressListener.NOOP);
+    }
+
+    public PhpAnalyzer(IProject project, ProgressListener listener) {
+        super(project, Languages.PHP, listener);
         this.phpNamespaceQuery = createPhpNamespaceQuery();
     }
 
-    private PhpAnalyzer(IProject project, Language language, AnalyzerState state) {
-        super(project, language, state);
+    private PhpAnalyzer(IProject project, Language language, AnalyzerState state, ProgressListener listener) {
+        super(project, language, state, listener);
         this.phpNamespaceQuery = createPhpNamespaceQuery();
     }
 
-    public static PhpAnalyzer fromState(IProject project, AnalyzerState state) {
-        return new PhpAnalyzer(project, Languages.PHP, state);
+    public static PhpAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+        return new PhpAnalyzer(project, Languages.PHP, state, listener);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state) {
-        return new PhpAnalyzer(getProject(), Languages.PHP, state);
+    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+        return new PhpAnalyzer(getProject(), Languages.PHP, state, listener);
     }
 
     @Override
@@ -93,7 +97,14 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected @Nullable CodeUnit createCodeUnit(
-            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
+            ProjectFile file,
+            String captureName,
+            String simpleName,
+            String packageName,
+            String classChain,
+            List<ScopeSegment> scopeChain,
+            @Nullable TSNode definitionNode,
+            SkeletonType skeletonType) {
         return switch (captureName) {
             case CaptureNames.CLASS_DEFINITION, CaptureNames.INTERFACE_DEFINITION, CaptureNames.TRAIT_DEFINITION -> {
                 String finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
@@ -132,7 +143,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         };
     }
 
-    private String computeFilePackageName(ProjectFile file, TSNode rootNode, String src) {
+    private String computeFilePackageName(ProjectFile file, TSNode rootNode, SourceContent sourceContent) {
         TSQuery currentPhpNamespaceQuery;
         if (this.phpNamespaceQuery != null) { // Check if PhpAnalyzer constructor has initialized the ThreadLocal
             currentPhpNamespaceQuery = this.phpNamespaceQuery.get();
@@ -165,7 +176,9 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                 if ("nsname".equals(currentPhpNamespaceQuery.getCaptureNameForId(capture.getIndex()))) {
                     TSNode nameNode = capture.getNode();
                     if (nameNode != null) {
-                        return textSlice(nameNode, src).replace('\\', '.');
+                        return sourceContent
+                                .substringFromBytes(nameNode.getStartByte(), nameNode.getEndByte())
+                                .replace('\\', '.');
                     }
                 }
             }
@@ -176,7 +189,9 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             if (current != null && NAMESPACE_DEFINITION.equals(current.getType())) {
                 TSNode nameNode = current.getChildByFieldName("name");
                 if (nameNode != null) {
-                    return textSlice(nameNode, src).replace('\\', '.');
+                    return sourceContent
+                            .substringFromBytes(nameNode.getStartByte(), nameNode.getEndByte())
+                            .replace('\\', '.');
                 }
             }
             if (current != null
@@ -191,7 +206,8 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src) {
+    protected String determinePackageName(
+            ProjectFile file, TSNode definitionNode, TSNode rootNode, SourceContent sourceContent) {
         // definitionNode is not used here as package is file-scoped.
 
         // If this.fileScopedPackageNames is null, it means this method is being called
@@ -201,12 +217,12 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         // We must compute the package name directly. computeFilePackageName will handle query initialization.
         if (this.fileScopedPackageNames == null) {
             log.trace("PhpAnalyzer.determinePackageName called during super-constructor for file: {}", file);
-            return computeFilePackageName(file, rootNode, src);
+            return computeFilePackageName(file, rootNode, sourceContent);
         }
 
         // If fileScopedPackageNames is not null, the PhpAnalyzer instance is (likely) fully initialized,
         // and we can use the caching mechanism.
-        return fileScopedPackageNames.computeIfAbsent(file, f -> computeFilePackageName(f, rootNode, src));
+        return fileScopedPackageNames.computeIfAbsent(file, f -> computeFilePackageName(f, rootNode, sourceContent));
     }
 
     @Override
@@ -226,7 +242,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         return "  ";
     }
 
-    private String extractModifiers(TSNode methodNode, String src) {
+    private String extractModifiers(TSNode methodNode, SourceContent sourceContent) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < methodNode.getChildCount(); i++) {
             TSNode child = methodNode.getChild(i);
@@ -234,9 +250,11 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             String type = child.getType();
 
             if (PHP_SYNTAX_PROFILE.decoratorNodeTypes().contains(type)) { // This is an attribute
-                sb.append(textSlice(child, src)).append("\n");
+                sb.append(sourceContent.substringFromBytes(child.getStartByte(), child.getEndByte()))
+                        .append("\n");
             } else if (PHP_SYNTAX_PROFILE.modifierNodeTypes().contains(type)) { // This is a keyword modifier
-                sb.append(textSlice(child, src)).append(" ");
+                sb.append(sourceContent.substringFromBytes(child.getStartByte(), child.getEndByte()))
+                        .append(" ");
             } else if (type.equals("function")) { // Stop when the 'function' keyword token itself is encountered
                 break;
             }
@@ -247,7 +265,11 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String renderClassHeader(
-            TSNode classNode, String src, String exportPrefix, String signatureText, String baseIndent) {
+            TSNode classNode,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String signatureText,
+            String baseIndent) {
         TSNode bodyNode = classNode.getChildByFieldName(PHP_SYNTAX_PROFILE.bodyFieldName());
         boolean isEmptyBody =
                 (bodyNode == null || bodyNode.getNamedChildCount() == 0); // bodyNode.isNull() check removed
@@ -259,7 +281,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String renderFunctionDeclaration(
             TSNode funcNode,
-            String src,
+            SourceContent sourceContent,
             String exportPrefix,
             String asyncPrefix,
             String functionName,
@@ -270,7 +292,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         // Attributes that are children of the funcNode (e.g., PHP attributes on methods)
         // are collected by extractModifiers.
         // exportPrefix and asyncPrefix are "" for PHP. indent is also "" at this stage from base.
-        String modifiers = extractModifiers(funcNode, src);
+        String modifiers = extractModifiers(funcNode, sourceContent);
 
         String ampersand = "";
         TSNode referenceModifierNode = null;
@@ -285,7 +307,9 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         }
 
         if (referenceModifierNode != null) { // No need for !referenceModifierNode.isNull()
-            ampersand = textSlice(referenceModifierNode, src).trim();
+            ampersand = sourceContent
+                    .substringFromBytes(referenceModifierNode.getStartByte(), referenceModifierNode.getEndByte())
+                    .trim();
         }
 
         String formattedReturnType = "";
@@ -315,7 +339,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String getVisibilityPrefix(TSNode node, String src) {
+    protected String getVisibilityPrefix(TSNode node, SourceContent sourceContent) {
         return "";
     }
 
@@ -325,5 +349,10 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         // as namespace processing is now handled by computeFilePackageName.
         // attribute.definition is handled by decorator logic in base class.
         return Set.of(CaptureNames.NAMESPACE_DEFINITION, "namespace.name", CaptureNames.ATTRIBUTE_DEFINITION);
+    }
+
+    @Override
+    public Optional<String> extractCallReceiver(String reference) {
+        return ClassNameExtractor.extractForPhp(reference);
     }
 }

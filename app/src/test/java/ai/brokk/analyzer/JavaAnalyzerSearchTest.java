@@ -135,10 +135,7 @@ public class JavaAnalyzerSearchTest {
     }
 
     @Test
-    public void testSearchDefinitions_EmptyAndNonExistent() {
-        var emptyPatternSymbols = analyzer.searchDefinitions("");
-        assertTrue(emptyPatternSymbols.isEmpty(), "Empty pattern should return no results");
-
+    public void testSearchDefinitions_NonExistent() {
         var nonExistentSymbols = analyzer.searchDefinitions("NonExistentPatternXYZ123");
         assertTrue(nonExistentSymbols.isEmpty(), "Non-existent pattern should return no results");
     }

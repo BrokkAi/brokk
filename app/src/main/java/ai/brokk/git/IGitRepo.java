@@ -35,13 +35,9 @@ public interface IGitRepo {
         return proposedName;
     }
 
-    default Path getGitTopLevel() {
-        throw new UnsupportedOperationException();
-    }
-
     /**
      * Returns the working tree root for this repository.
-     * For regular repos, this is the same as getGitTopLevel().
+     * For regular repos, this is the git repository root.
      * For worktrees, this is the worktree's directory (not the main repo's directory).
      *
      * @return the working tree root path
@@ -227,6 +223,66 @@ public interface IGitRepo {
     }
 
     default @Nullable String getRemoteUrl() {
+        throw new UnsupportedOperationException();
+    }
+
+    /*
+     * Get the URL of the origin remote with fallback to target remote.
+     * Preferred for GitHub PR operations.
+     */
+    default @Nullable String getOriginRemoteUrl() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * For worktrees, computes the corresponding path in the main repository.
+     * If this repo is opened at a subdirectory of the worktree, returns the same
+     * subdirectory in the main repository.
+     *
+     * @param projectPath The path where the project is opened (may be worktree root or subdirectory)
+     * @return The corresponding path in the main repository
+     */
+    default Path getCorrespondingMainRepoPath(Path projectPath) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Computes the relative subdirectory path if the project is opened at a subdirectory of the git repo.
+     *
+     * @param projectPath The project root path to check
+     * @return The relative path from work tree root to project root, or null if project is at work tree root
+     */
+    default @Nullable Path getRelativeSubdir(Path projectPath) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Resolves a relative path against the git work tree root.
+     * Useful for converting git-relative paths to absolute paths.
+     *
+     * @param relativePath The relative path to resolve
+     * @return The absolute path resolved against the work tree root
+     */
+    default Path resolveFromWorkTreeRoot(Path relativePath) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Gets the repository name, either from the remote URL or from the directory name.
+     *
+     * @return The repository name
+     */
+    default String getRepositoryName() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * For worktrees, returns the main repository's root path.
+     * For regular repos, returns the work tree root (same as getWorkTreeRoot).
+     *
+     * @return The main repository's root path
+     */
+    default Path getMainRepoRoot() {
         throw new UnsupportedOperationException();
     }
 }

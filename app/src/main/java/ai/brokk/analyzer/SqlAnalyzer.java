@@ -53,7 +53,7 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
         for (var pf : filesToAnalyze) {
             try {
                 String content = Files.readString(pf.absPath(), StandardCharsets.UTF_8);
-                // byte[] contentBytes = content.getBytes(StandardCharsets.UTF_8); // Unused variable removed
+                SourceContent sc = SourceContent.of(content);
 
                 var matcher = CREATE_STMT_PATTERN.matcher(content);
                 int searchOffset = 0;
@@ -72,17 +72,10 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
                     }
                     int statementEndOffsetInChars = semicolonCharPos; // inclusive of semicolon
 
-                    // Convert char offsets to byte offsets
-                    int statementStartByte = new String(
-                                    content.substring(0, statementStartOffsetInChars)
-                                            .getBytes(StandardCharsets.UTF_8),
-                                    StandardCharsets.UTF_8)
-                            .length();
-                    int statementEndByte = new String(
-                                    content.substring(0, statementEndOffsetInChars + 1)
-                                            .getBytes(StandardCharsets.UTF_8),
-                                    StandardCharsets.UTF_8)
-                            .length();
+                    // Convert char offsets to byte offsets using SourceContent helper
+                    int statementStartByte = sc.charPositionToByteOffset(statementStartOffsetInChars);
+                    int statementEndByte =
+                            sc.charPositionToByteOffset(statementEndOffsetInChars + 1); // include semicolon
 
                     String packageName;
                     String shortName;
@@ -220,21 +213,19 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
         var range = ranges.get(0);
 
         try {
-            // Read the specific part of the file using byte offsets
-            // Note: Files.readString might be inefficient for very large files if called repeatedly.
-            // Consider caching file contents if performance becomes an issue.
-            byte[] allBytes = Files.readAllBytes(cu.source().absPath());
-            if (range.endByte() > allBytes.length || range.startByte() > range.endByte()) {
+            // Read the specific part of the file using byte offsets via SourceContent
+            String fileContent = Files.readString(cu.source().absPath(), StandardCharsets.UTF_8);
+            SourceContent sc = SourceContent.of(fileContent);
+            if (range.endByte() > sc.byteLength() || range.startByte() > range.endByte()) {
                 logger.error(
                         "Invalid range for skeleton for {}: start {}, end {}, file size {}",
                         cu.fqName(),
                         range.startByte(),
                         range.endByte(),
-                        allBytes.length);
+                        sc.byteLength());
                 return Optional.empty();
             }
-            String statementText = new String(
-                    allBytes, range.startByte(), range.endByte() - range.startByte(), StandardCharsets.UTF_8);
+            String statementText = sc.substringFromBytes(range.startByte(), range.endByte());
             return Optional.of(statementText);
         } catch (IOException e) {
             logger.warn(
@@ -336,5 +327,20 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     @Override
     public Set<Language> languages() {
         return Set.of(Languages.SQL);
+    }
+
+    @Override
+    public Optional<String> extractCallReceiver(String reference) {
+        return Optional.empty();
+    }
+
+    @Override
+    public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
+        return List.of();
+    }
+
+    @Override
+    public List<CodeUnit> getDirectChildren(CodeUnit cu) {
+        return List.of();
     }
 }

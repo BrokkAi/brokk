@@ -13,7 +13,9 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ViewingPolicy;
+import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.mcp.McpUtils;
 import ai.brokk.metrics.SearchMetrics;
@@ -24,6 +26,7 @@ import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.ComputedValue;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -53,6 +56,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -126,20 +131,33 @@ public class SearchAgent {
     private boolean beastMode;
     private boolean codeAgentJustSucceeded;
 
+    /**
+     * Creates a SearchAgent with explicit IO (streaming is enabled unless IO is MutedConsoleIO).
+     *
+     * @param initialContext the initial context
+     * @param goal the search goal
+     * @param model the LLM model to use
+     * @param objective the search objective
+     * @param scope the task scope for history recording
+     * @param io the IConsoleIO instance for output (null defaults to cm.getIo())
+     */
     public SearchAgent(
             Context initialContext,
             String goal,
             StreamingChatModel model,
             Objective objective,
-            ContextManager.TaskScope scope) {
+            ContextManager.TaskScope scope,
+            @Nullable IConsoleIO io) {
         this.goal = goal;
         this.cm = initialContext.getContextManager();
         this.model = model;
         this.scope = scope;
 
-        this.io = cm.getIo();
-        this.llm = cm.getLlm(new Llm.Options(model, "Search: " + goal).withEcho());
-        this.llm.setOutput(io);
+        this.io = io != null ? io : cm.getIo();
+        var llmOptions = new Llm.Options(model, "Search: " + goal).withEcho();
+        this.llm = cm.getLlm(llmOptions);
+        this.llm.setOutput(this.io);
+
         var summarizeConfig = new Service.ModelConfig(
                 cm.getService().nameOf(cm.getService().getScanModel()), Service.ReasoningLevel.LOW);
         var summarizeModel = requireNonNull(cm.getService().getModel(summarizeConfig));
@@ -163,6 +181,18 @@ public class SearchAgent {
         }
         this.mcpTools = List.copyOf(tools);
         this.context = initialContext;
+    }
+
+    /**
+     * Creates a SearchAgent with output streaming enabled (default behavior) and default IO.
+     */
+    public SearchAgent(
+            Context initialContext,
+            String goal,
+            StreamingChatModel model,
+            Objective objective,
+            ContextManager.TaskScope scope) {
+        this(initialContext, goal, model, objective, scope, null);
     }
 
     /** Entry point. Runs until answer/abort or interruption. */
@@ -202,8 +232,8 @@ public class SearchAgent {
             // Beast mode triggers
             var inputLimit = cm.getService().getMaxInputTokens(model);
             // Determine viewing policy based on search objective
-            boolean isLutz = objective == Objective.LUTZ;
-            var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, isLutz);
+            boolean useTaskList = objective == Objective.LUTZ || objective == Objective.TASKS_ONLY;
+            var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, useTaskList);
             // Build workspace messages in insertion order with viewing policy applied
             var workspaceMessages =
                     new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(context, viewingPolicy));
@@ -376,11 +406,18 @@ public class SearchAgent {
     private ToolExecutionResult executeTool(ToolExecutionRequest req, ToolRegistry registry, WorkspaceTools wst)
             throws InterruptedException {
         metrics.recordToolCall(req.name());
+
+        // ensure WorkspaceTools sees the freshest Context before executing any tool.
+        // This hardens against future tools that might mutate context between calls
+        wst.setContext(context);
+
         var result = registry.executeTool(req);
-        // Only copy context back if this was a workspace tool
+
+        // If this was a WorkspaceTools call, copy its immutable update back to the agent-local Context.
         if (isWorkspaceTool(req, registry)) {
             context = wst.getContext();
         }
+
         return result;
     }
 
@@ -397,6 +434,9 @@ public class SearchAgent {
         var supportedTypes = cm.getProject().getAnalyzerLanguages().stream()
                 .map(Language::name)
                 .collect(Collectors.joining(", "));
+
+        var nonDroppableSection = buildNonDroppableSection();
+        var workspaceToc = CodePrompts.formatWorkspaceToc(context);
 
         var sys = new SystemMessage(
                 """
@@ -438,9 +478,13 @@ public class SearchAgent {
                   - If you already know what to add, use Workspace tools directly; do not search redundantly.
 
                 %s
+                %s
                 </instructions>
+                <workspace-toc>
+                %s
+                </workspace-toc>
                 """
-                        .formatted(supportedTypes, reminder));
+                        .formatted(supportedTypes, reminder, nonDroppableSection, workspaceToc));
         messages.add(sys);
 
         // Describe available MCP tools
@@ -639,7 +683,9 @@ public class SearchAgent {
         // FIXME re-enable when context freezing is solved
         //        names.add("addSymbolUsagesToWorkspace");
         names.add("appendNote");
-        names.add("dropWorkspaceFragments");
+        if (hasDroppableFragments()) {
+            names.add("dropWorkspaceFragments");
+        }
 
         // Human-in-the-loop tool (only meaningful when GUI is available; safe to include otherwise)
         if (io instanceof Chrome) {
@@ -757,11 +803,18 @@ public class SearchAgent {
         var tr = cm.getToolRegistry().builder().register(wst).register(this).build();
 
         var messages = buildInitialPruningPrompt();
-        var toolSpecs = tr.getTools(List.of("performedInitialReview", "dropWorkspaceFragments"));
+        var toolNames = new ArrayList<String>();
+        toolNames.add("performedInitialReview");
+        if (hasDroppableFragments()) {
+            toolNames.add("dropWorkspaceFragments");
+        }
+        var toolSpecs = tr.getTools(toolNames);
 
         io.llmOutput("\n**Brokk** performing initial workspace review…", ChatMessageType.AI, true, false);
-        var jLlm = cm.getLlm(new Llm.Options(model, "Janitor: " + goal).withEcho());
-        var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.AUTO, tr));
+        var janitorOpts = new Llm.Options(model, "Janitor: " + goal).withEcho();
+        var jLlm = cm.getLlm(janitorOpts);
+        jLlm.setOutput(this.io);
+        var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
         if (result.error() != null || result.isEmpty()) {
             return;
         }
@@ -780,16 +833,39 @@ public class SearchAgent {
     private List<ChatMessage> buildInitialPruningPrompt() {
         var messages = new ArrayList<ChatMessage>();
 
+        var nonDroppableSection = buildNonDroppableSection();
+
         var sys = new SystemMessage(
                 """
-                You are the Janitor Agent cleaning the Workspace. It is critically important to remove irrelevant
-                fragments before proceeding; they are highly distracting to the other Agents.
+                You are the Janitor Agent (Workspace Reviewer). Single-shot cleanup: one response, then done.
 
-                Your task:
-                  - Evaluate the current workspace contents.
-                  - Call dropWorkspaceFragments to remove irrelevant fragments.
-                  - ONLY if all fragments are relevant, do nothing (skip the tool call).
-                """);
+                Scope:
+                - Workspace curation ONLY. No code, no answers, no plans.
+
+                Tools (exactly one):
+                - performedInitialReview(): use ONLY when ALL fragments are short, focused, clean, and directly relevant.
+                - dropWorkspaceFragments(fragments: {fragmentId, explanation}[]): batch ALL drops in a single call.
+
+                Default behavior:
+                - If a fragment is large, noisy, or mixed → write a short summary in the drop explanation → DROP it.
+                  Large/noisy/mixed = long, multi-file, logs/traces/issues, big diffs, UI/test noise, unfocused content.
+
+                Keep rule:
+                - KEEP only if it is short, focused, directly relevant, AND keeping it is clearer than summarizing.
+
+                fragment.explanation (string) format:
+                - Summary: 2–4 identifier-first bullets (files/methods and why they matter).
+                - Reason: one short sentence why dropped.
+                - No implementation instructions.
+
+                Response rule:
+                - Tool call only; return exactly ONE tool call (performedInitialReview OR a single batched dropWorkspaceFragments).
+
+                Do NOT drop non-droppable fragments (listed below).
+
+                %s
+                """
+                        .formatted(nonDroppableSection));
         messages.add(sys);
 
         // Current Workspace contents (use default viewing policy)
@@ -813,16 +889,27 @@ public class SearchAgent {
 
     /**
      * Scan initial context using ContextAgent and add recommendations to the workspace.
-     * Returns a TaskResult that the caller should append to scope.
      * Callers should invoke this before calling execute() if they want the initial context scan.
+     * Updates the SearchAgent's internal Context, and also returns it.
+     * <p>
+     * If {@code appendToScope} is {@code true}, the context scan result is appended to the scope's history.
+     * If {@code appendToScope} is {@code false}, the method returns the context resulting from the scan
+     * without modifying or appending to the scope's history.
+     * <p>
+     * Callers should invoke this before calling {@code execute()} if they want the initial context scan.
+     *
+     * @param model the LLM model to use for context scanning
+     * @param appendToScope if true, appends the context scan result to the scope; if false, returns context without appending to the scope's history
+     * @return the resulting {@link Context} after the scan, either appended to the scope or not, depending on {@code appendToScope}
      */
-    public Context scanInitialContext(StreamingChatModel model) throws InterruptedException {
+    @Blocking
+    public Context scanInitialContext(StreamingChatModel model, boolean appendToScope) throws InterruptedException {
         // Prune initial workspace when not empty
         performInitialPruningTurn(model);
 
         Set<ProjectFile> filesBeforeScan = getWorkspaceFileSet();
 
-        var contextAgent = new ContextAgent(cm, model, goal);
+        var contextAgent = new ContextAgent(cm, model, goal, this.io);
         io.llmOutput("\n**Brokk Context Engine** analyzing repository context…\n", ChatMessageType.AI, true, false);
 
         var recommendation = contextAgent.getRecommendations(context);
@@ -833,7 +920,11 @@ public class SearchAgent {
             io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.AI);
             var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
             metrics.recordContextScan(0, false, Set.of(), md);
-            context = scope.append(contextAgentResult);
+            if (appendToScope) {
+                context = scope.append(contextAgentResult);
+            } else {
+                context = contextAgentResult.context();
+            }
             return context;
         }
 
@@ -842,7 +933,7 @@ public class SearchAgent {
         int finalBudget = cm.getService().getMaxInputTokens(this.model) / 2 - Messages.getApproximateTokens(context);
         if (totalTokens > finalBudget) {
             var summaries = ContextFragment.describe(recommendation.fragments());
-            context = context.addVirtualFragments(List.of(new ContextFragment.StringFragment(
+            context = context.addFragments(List.of(new ContextFragment.StringFragment(
                     cm,
                     "ContextAgent analyzed the repository and marked these fragments as highly relevant. Since including all would exceed the model’s context capacity, their summarized descriptions are provided below:\n\n"
                             + summaries,
@@ -850,7 +941,8 @@ public class SearchAgent {
                     recommendation.fragments().stream()
                             .findFirst()
                             .orElseThrow()
-                            .syntaxStyle())));
+                            .syntaxStyle()
+                            .renderNowOr(SyntaxConstants.SYNTAX_STYLE_NONE))));
         } else {
             logger.debug("Recommended context fits within final budget.");
             addToWorkspace(recommendation);
@@ -867,14 +959,34 @@ public class SearchAgent {
         Set<ProjectFile> filesAdded = new HashSet<>(filesAfterScan);
         filesAdded.removeAll(filesBeforeScan);
         metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
-        context = scope.append(contextAgentResult);
+        if (appendToScope) {
+            context = scope.append(contextAgentResult);
+        } else {
+            context = contextAgentResult.context();
+        }
         return context;
     }
 
+    /**
+     * Scan initial context using ContextAgent and add recommendations to the workspace.
+     * Appends the result to scope by default.
+     */
+    @Blocking
     public Context scanInitialContext() throws InterruptedException {
-        return scanInitialContext(cm.getService().getScanModel());
+        return scanInitialContext(cm.getService().getScanModel(), true);
     }
 
+    /**
+     * Scan initial context using ContextAgent and add recommendations to the workspace.
+     *
+     * @param model the LLM model to use for context scanning
+     */
+    @Blocking
+    public Context scanInitialContext(StreamingChatModel model) throws InterruptedException {
+        return scanInitialContext(model, true);
+    }
+
+    @Blocking
     public void addToWorkspace(ContextAgent.RecommendationResult recommendationResult) {
         logger.debug("Recommended context fits within final budget.");
         List<ContextFragment> selected = recommendationResult.fragments();
@@ -889,7 +1001,7 @@ public class SearchAgent {
             logger.debug(
                     "Adding selected ProjectPathFragments: {}",
                     pathFragments.stream().map(ppf -> ppf.file().toString()).collect(Collectors.joining(", ")));
-            context = context.addPathFragments(pathFragments);
+            context = context.addFragments(pathFragments);
         }
 
         // Process SkeletonFragments
@@ -897,7 +1009,7 @@ public class SearchAgent {
                 .map(ContextFragment.SummaryFragment.class::cast)
                 .toList();
         if (!skeletonFragments.isEmpty()) {
-            context = context.addVirtualFragments(skeletonFragments);
+            context = context.addFragments(skeletonFragments);
         }
 
         // Emit pseudo-tool explanation for UX parity
@@ -921,6 +1033,8 @@ public class SearchAgent {
         if (!skeletonFragments.isEmpty()) {
             var skeletonNames = skeletonFragments.stream()
                     .map(ContextFragment::description)
+                    .map(ComputedValue::renderNowOrNull)
+                    .filter(Objects::nonNull)
                     .sorted()
                     .toList();
             details.put("skeletonFragments", skeletonNames);
@@ -1033,12 +1147,13 @@ public class SearchAgent {
         boolean didChange = !context.getChangedFiles(contextBefore).isEmpty();
 
         if (reason == TaskResult.StopReason.SUCCESS) {
-            // CodeAgent appended its own result; output concise success
-            io.llmOutput("# Code Agent\n\nFinished with a successful build!", ChatMessageType.AI);
-            var resultString = "CodeAgent finished with a successful build!";
+            // housekeeping
+            new GitWorkflow(cm).performAutoCommit(instructions);
+            cm.compressHistory();
+            // CodeAgent appended its own result; we don't need to llmOutput anything redundant
             logger.debug("SearchAgent.callCodeAgent finished successfully");
             codeAgentJustSucceeded = true;
-            return resultString;
+            return "CodeAgent finished with a successful build!";
         }
 
         // propagate critical failures
@@ -1151,9 +1266,15 @@ public class SearchAgent {
     }
 
     private Set<ProjectFile> getWorkspaceFileSet() {
+        // Allow time to compute
+        try {
+            context.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+        } catch (InterruptedException e) {
+            logger.warn("Interrupted while waiting for contexts to be computed", e);
+        }
         return context.allFragments()
                 .filter(SearchAgent::isWorkspaceFileFragment)
-                .flatMap(f -> f.files().stream())
+                .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
                 .collect(Collectors.toSet());
     }
 
@@ -1162,17 +1283,71 @@ public class SearchAgent {
     }
 
     private List<SearchMetrics.FragmentInfo> getWorkspaceFragments() {
+        // Allow time to compute
+        try {
+            context.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+        } catch (InterruptedException e) {
+            logger.warn("Interrupted while waiting for contexts to be computed", e);
+        }
         return context.allFragments()
                 .filter(SearchAgent::isWorkspaceFileFragment)
                 .map(f -> new SearchMetrics.FragmentInfo(
                         f.getType().toString(),
                         f.id(),
-                        f.description(),
-                        f.files().stream()
+                        f.description().renderNowOr("(empty)"),
+                        f.files().renderNowOr(Set.of()).stream()
                                 .map(pf -> pf.getRelPath().toString())
                                 .sorted()
                                 .toList()))
                 .toList();
+    }
+
+    // =======================
+    // Non-droppable helpers
+    // =======================
+
+    /**
+     * Returns a formatted section listing non-droppable fragments present in the current workspace,
+     * or an empty string when no such fragments exist. This educates the LLM to avoid futile pruning loops.
+     */
+    private String buildNonDroppableSection() {
+        var items = context.allFragments()
+                .filter(f -> f instanceof ContextFragment.StringFragment)
+                .map(f -> (ContextFragment.StringFragment) f)
+                .filter(sf ->
+                        sf.specialType().isPresent() && !sf.specialType().get().droppable())
+                .map(sf -> "- " + sf.description().join() + " (fragmentid=" + sf.id() + "): non-droppable by policy.")
+                .sorted()
+                .toList();
+
+        if (items.isEmpty()) {
+            return "";
+        }
+
+        return """
+                <non_droppable>
+                The following fragments cannot be dropped by policy. Do NOT attempt to drop them:
+                %s
+                </non_droppable>
+                """
+                .formatted(String.join("\n", items));
+    }
+
+    /**
+     * True when there exists at least one droppable fragment in the current workspace.
+     * Special text fragments may be marked non-droppable via SpecialTextType.
+     */
+    private boolean hasDroppableFragments() {
+        return context.allFragments().anyMatch(f -> {
+            if (f instanceof ContextFragment.StringFragment sf) {
+                var st = sf.specialType();
+                if (st.isPresent()) {
+                    return st.get().droppable();
+                }
+            }
+            // All other fragment types are considered droppable by default
+            return true;
+        });
     }
 
     // =======================

@@ -5,9 +5,14 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.SessionManager;
+import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
+import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
 import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
@@ -18,12 +23,17 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -124,7 +134,8 @@ public final class HeadlessExecutorMain {
         Files.createDirectories(sessionsDir);
 
         // Initialize JobStore and SessionManager
-        this.jobStore = new JobStore(workspaceDir.resolve(".brokk").resolve("jobs"));
+        this.jobStore =
+                new JobStore(workspaceDir.resolve(AbstractProject.BROKK_DIR).resolve("jobs"));
         this.sessionManager = new SessionManager(sessionsDir);
 
         // Initialize headless context asynchronously to avoid blocking constructor
@@ -156,6 +167,9 @@ public final class HeadlessExecutorMain {
         // - PUT  /v1/sessions  (import/load an existing session from a zip)
         this.server.registerAuthenticatedContext("/v1/sessions", this::handleSessionsRouter);
         this.server.registerAuthenticatedContext("/v1/jobs", this::handleJobsRouter);
+        this.server.registerAuthenticatedContext("/v1/context/files", this::handlePostContextFiles);
+        this.server.registerAuthenticatedContext("/v1/context/classes", this::handlePostContextClasses);
+        this.server.registerAuthenticatedContext("/v1/context/methods", this::handlePostContextMethods);
 
         logger.info("HeadlessExecutorMain initialized successfully");
     }
@@ -208,7 +222,7 @@ public final class HeadlessExecutorMain {
      * Asynchronously execute a job. Called after a new job is created.
      * Delegates to JobRunner and manages currentJobId lifecycle.
      */
-    private void executeJobAsync(String jobId, ai.brokk.executor.jobs.JobSpec jobSpec) {
+    private void executeJobAsync(String jobId, JobSpec jobSpec) {
         logger.info("Starting job execution: {}, session={}", jobId, contextManager.getCurrentSessionId());
         jobRunner.runAsync(jobId, jobSpec).whenComplete((unused, throwable) -> {
             if (throwable != null) {
@@ -478,6 +492,9 @@ public final class HeadlessExecutorMain {
             var sessionId = contextManager.getCurrentSessionId();
             logger.info("Created new session: {} ({})", sessionName, sessionId);
 
+            System.out.println("Session created: " + sessionId + " (" + sessionName + ")");
+            System.out.println("Executor ready to accept requests.");
+
             sessionLoaded = true;
 
             var response = Map.of("sessionId", sessionId.toString(), "name", sessionName);
@@ -561,8 +578,11 @@ public final class HeadlessExecutorMain {
      */
     void importSessionZip(byte[] zipData, UUID sessionId) throws Exception {
         // Write zip file to the directory ContextManager/SessionManager expect: <workspace>/.brokk/sessions
-        var cmSessionsDir =
-                contextManager.getProject().getRoot().resolve(".brokk").resolve("sessions");
+        var cmSessionsDir = contextManager
+                .getProject()
+                .getMasterRootPathForConfig()
+                .resolve(AbstractProject.BROKK_DIR)
+                .resolve(AbstractProject.SESSIONS_DIR);
         Files.createDirectories(cmSessionsDir);
         var sessionZipPath = cmSessionsDir.resolve(sessionId + ".zip");
         Files.write(sessionZipPath, zipData, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
@@ -578,6 +598,9 @@ public final class HeadlessExecutorMain {
             logger.warn("Timed out switching to session {}; continuing asynchronously", sessionId);
         }
 
+        System.out.println("Session imported: " + sessionId);
+        System.out.println("Executor ready to accept requests.");
+
         // Mark executor as ready to serve requests that require a session.
         sessionLoaded = true;
     }
@@ -591,7 +614,6 @@ public final class HeadlessExecutorMain {
             SimpleHttpServer.sendJsonResponse(exchange, 405, error);
             return;
         }
-
         try {
             var idempotencyKey = exchange.getRequestHeaders().getFirst("Idempotency-Key");
             if (idempotencyKey == null || idempotencyKey.isBlank()) {
@@ -599,6 +621,18 @@ public final class HeadlessExecutorMain {
                 SimpleHttpServer.sendJsonResponse(exchange, 400, error);
                 return;
             }
+            var sessionIdStr = exchange.getRequestHeaders().getFirst("X-Session-Id");
+            UUID sessionId = null;
+            if (sessionIdStr != null && !sessionIdStr.isBlank()) {
+                try {
+                    sessionId = UUID.fromString(sessionIdStr);
+                } catch (IllegalArgumentException e) {
+                    var error = ErrorPayload.validationError("Invalid Session-Id format: must be a valid UUID");
+                    SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                    return;
+                }
+            }
+            var githubToken = exchange.getRequestHeaders().getFirst("X-Github-Token");
 
             // Parse JobSpec payload from request body
             var jobSpecRequest = SimpleHttpServer.parseJsonRequest(exchange, JobSpecRequest.class);
@@ -617,8 +651,17 @@ public final class HeadlessExecutorMain {
             }
 
             var tags = jobSpecRequest.tags();
+            if (tags != null) {
+                if (sessionId != null) {
+                    tags.put("session_id", sessionId.toString());
+                }
+                if (githubToken != null && !githubToken.isBlank()) {
+                    tags.put("github_token", githubToken);
+                }
+            }
+
             Map<String, String> safeTags = tags != null ? Map.copyOf(tags) : Map.of();
-            var jobSpec = ai.brokk.executor.jobs.JobSpec.of(
+            var jobSpec = JobSpec.of(
                     jobSpecRequest.taskInput(),
                     jobSpecRequest.autoCommit(),
                     jobSpecRequest.autoCompress(),
@@ -632,10 +675,11 @@ public final class HeadlessExecutorMain {
             var isNewJob = createResult.isNewJob();
 
             logger.info(
-                    "Job {}: isNewJob={}, jobId={}, requestedSessionId={}",
+                    "Job {}: isNewJob={}, jobId={}, sessionId={}, currentCmSession={}",
                     idempotencyKey,
                     isNewJob,
                     jobId,
+                    sessionId,
                     jobSpecRequest.sessionId());
 
             // Load job status
@@ -813,6 +857,178 @@ public final class HeadlessExecutorMain {
         }
     }
 
+    /**
+     * POST /v1/context/files - Add files to the current session context.
+     * <p>
+     * <b>Authentication:</b> Required (via Authorization header)
+     * <p>
+     * <b>Request Body (JSON):</b>
+     * <pre>
+     * {
+     *   "relativePaths": ["src/main/java/com/example/Foo.java", "src/test/java/com/example/FooTest.java"]
+     * }
+     * </pre>
+     * <p>
+     * <b>Response (200 OK):</b>
+     * <pre>
+     * {
+     *   "added": [
+     *     { "id": "1", "relativePath": "src/main/java/com/example/Foo.java" },
+     *     { "id": "2", "relativePath": "src/test/java/com/example/FooTest.java" }
+     *   ]
+     * }
+     * </pre>
+     * <p>
+     * <b>Validation:</b>
+     * <ul>
+     *   <li>Paths must be relative (not absolute)</li>
+     *   <li>Paths must not escape the workspace (no "../.." attacks)</li>
+     *   <li>Paths must refer to regular files that exist</li>
+     *   <li>At least one valid path must be provided</li>
+     * </ul>
+     * <p>
+     * <b>Side Effects:</b>
+     * <ul>
+     *   <li>Adds valid files to the current session's live context</li>
+     *   <li>Emits a notification via IConsoleIO</li>
+     *   <li>Pushes a new frozen context to history</li>
+     * </ul>
+     */
+    void handlePostContextFiles(HttpExchange exchange) throws IOException {
+        if (!exchange.getRequestMethod().equals("POST")) {
+            var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
+            SimpleHttpServer.sendJsonResponse(exchange, 405, error);
+            return;
+        }
+
+        try {
+            // Parse request
+            var request = SimpleHttpServer.parseJsonRequest(exchange, AddContextFilesRequest.class);
+            if (request == null) {
+                var error = ErrorPayload.validationError("Request body is required");
+                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                return;
+            }
+
+            if (request.relativePaths().isEmpty()) {
+                var error = ErrorPayload.validationError("relativePaths must not be empty");
+                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                return;
+            }
+
+            var root = contextManager.getProject().getRoot();
+            var validProjectFiles = new HashSet<ProjectFile>();
+            var invalidPaths = new ArrayList<String>();
+
+            // Validate and collect valid paths
+            for (var pathStr : request.relativePaths()) {
+                if (pathStr == null || pathStr.isBlank()) {
+                    invalidPaths.add("(blank path)");
+                    continue;
+                }
+
+                var pathObj = Path.of(pathStr);
+
+                // Check if absolute
+                if (pathObj.isAbsolute()) {
+                    invalidPaths.add(pathStr + " (absolute path not allowed)");
+                    continue;
+                }
+
+                // Resolve against root and normalize
+                var absolutePath = root.resolve(pathObj).normalize();
+
+                // Check if it escapes the workspace
+                if (!absolutePath.startsWith(root)) {
+                    invalidPaths.add(pathStr + " (escapes workspace)");
+                    continue;
+                }
+
+                // Check if it's a regular file that exists
+                if (!Files.isRegularFile(absolutePath)) {
+                    invalidPaths.add(pathStr + " (not a regular file or does not exist)");
+                    continue;
+                }
+
+                // Compute normalized relative path
+                var normalizedRelPath = root.relativize(absolutePath).toString();
+
+                try {
+                    var projectFile = contextManager.toFile(normalizedRelPath);
+                    validProjectFiles.add(projectFile);
+                } catch (Exception e) {
+                    logger.warn("Failed to convert path to ProjectFile: {}", normalizedRelPath, e);
+                    invalidPaths.add(normalizedRelPath + " (conversion error)");
+                }
+            }
+
+            // Check if we have at least one valid path
+            if (validProjectFiles.isEmpty()) {
+                var msg = "No valid relative paths provided";
+                if (!invalidPaths.isEmpty()) {
+                    msg += "; invalid: " + String.join(", ", invalidPaths);
+                }
+                var error = ErrorPayload.validationError(msg);
+                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                return;
+            }
+
+            // Capture files in context BEFORE
+            var before = contextManager.getFilesInContext();
+
+            // Add files to context (this emits notifications and pushes context)
+            contextManager.addFiles(validProjectFiles);
+
+            // Capture files in context AFTER
+            var after = contextManager.getFilesInContext();
+
+            // Determine which files were effectively added
+            var addedFiles = after.stream().filter(pf -> !before.contains(pf)).collect(Collectors.toList());
+
+            // Build response with fragment IDs
+            var addedContextFiles = new ArrayList<AddedContextFile>();
+            var liveContext = contextManager.liveContext();
+
+            for (var projectFile : addedFiles) {
+                // Find the fragment ID in live context
+                var fragId = liveContext
+                        .fileFragments()
+                        .filter(f -> f instanceof ai.brokk.context.ContextFragment.PathFragment)
+                        .map(f -> (ai.brokk.context.ContextFragment.PathFragment) f)
+                        .filter(p -> {
+                            var bf = p.file();
+                            if (!(bf instanceof ai.brokk.analyzer.ProjectFile)) {
+                                return false;
+                            }
+                            var a = bf.absPath();
+                            var b = projectFile.absPath();
+                            return a.equals(b);
+                        })
+                        .map(ai.brokk.context.ContextFragment::id)
+                        .findFirst()
+                        .orElse("");
+
+                var relPath = root.relativize(projectFile.absPath()).toString();
+                addedContextFiles.add(new AddedContextFile(fragId, relPath));
+            }
+
+            var response = new AddContextFilesResponse(addedContextFiles);
+            logger.info(
+                    "Added {} files to context (session={}): {}",
+                    addedContextFiles.size(),
+                    contextManager.getCurrentSessionId(),
+                    addedContextFiles.stream()
+                            .map(AddedContextFile::relativePath)
+                            .collect(Collectors.joining(", ")));
+
+            SimpleHttpServer.sendJsonResponse(exchange, 200, response);
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/context/files", e);
+            var error = ErrorPayload.internalError("Failed to add files to context", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
     private record CreateSessionRequest(String name) {}
 
     private record JobSpecRequest(
@@ -823,6 +1039,285 @@ public final class HeadlessExecutorMain {
             @Nullable String plannerModel,
             @Nullable String codeModel,
             @Nullable Map<String, String> tags) {}
+
+    private record AddContextFilesRequest(List<String> relativePaths) {}
+
+    private record AddedContextFile(String id, String relativePath) {}
+
+    private record AddContextFilesResponse(List<AddedContextFile> added) {}
+
+    private record AddContextClassesRequest(List<String> classNames) {}
+
+    private record AddedContextClass(String id, String className) {}
+
+    private record AddContextClassesResponse(List<AddedContextClass> added) {}
+
+    private record AddContextMethodsRequest(List<String> methodNames) {}
+
+    private record AddedContextMethod(String id, String methodName) {}
+
+    private record AddContextMethodsResponse(List<AddedContextMethod> added) {}
+
+    /**
+     * POST /v1/context/classes - Add class summaries to the current session context.
+     * <p>
+     * <b>Authentication:</b> Required (via Authorization header)
+     * <p>
+     * <b>Request Body (JSON):</b>
+     * <pre>
+     * {
+     *   "classNames": ["com.example.Foo", "com.example.Bar"]
+     * }
+     * </pre>
+     * <p>
+     * <b>Response (200 OK):</b>
+     * <pre>
+     * {
+     *   "added": [
+     *     { "id": "1", "className": "com.example.Foo" },
+     *     { "id": "2", "className": "com.example.Bar" }
+     *   ]
+     * }
+     * </pre>
+     * <p>
+     * <b>Validation:</b>
+     * <ul>
+     *   <li>Class names must be non-empty and non-blank</li>
+     *   <li>At least one valid class name must be provided</li>
+     *   <li>Class names are resolved via the analyzer; invalid names are skipped with a warning</li>
+     * </ul>
+     * <p>
+     * <b>Side Effects:</b>
+     * <ul>
+     *   <li>Adds class summary fragments to the current session's live context</li>
+     *   <li>Emits a notification via IConsoleIO</li>
+     *   <li>Pushes a new frozen context to history</li>
+     * </ul>
+     */
+    void handlePostContextClasses(HttpExchange exchange) throws IOException {
+        if (!exchange.getRequestMethod().equals("POST")) {
+            var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
+            SimpleHttpServer.sendJsonResponse(exchange, 405, error);
+            return;
+        }
+
+        try {
+            // Parse request
+            var request = SimpleHttpServer.parseJsonRequest(exchange, AddContextClassesRequest.class);
+            if (request == null) {
+                var error = ErrorPayload.validationError("Request body is required");
+                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                return;
+            }
+
+            if (request.classNames().isEmpty()) {
+                var error = ErrorPayload.validationError("classNames must not be empty");
+                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                return;
+            }
+
+            var analyzer = contextManager.getAnalyzerUninterrupted();
+            var validClassNames = new ArrayList<String>();
+            var invalidNames = new ArrayList<String>();
+
+            // Validate and collect valid class names
+            for (var className : request.classNames()) {
+                if (className == null || className.isBlank()) {
+                    invalidNames.add("(blank name)");
+                    continue;
+                }
+
+                var trimmed = className.strip();
+
+                // Try to resolve the class name via the analyzer
+                var definitions = analyzer.getDefinitions(trimmed);
+                if (definitions.isEmpty()) {
+                    invalidNames.add(trimmed + " (not found in analyzer)");
+                    continue;
+                }
+
+                var codeUnit = definitions.stream().filter(CodeUnit::isClass).findFirst();
+                if (codeUnit.isEmpty()) {
+                    invalidNames.add(trimmed + " (not a class)");
+                    continue;
+                }
+
+                validClassNames.add(trimmed);
+            }
+
+            // Check if we have at least one valid class name
+            if (validClassNames.isEmpty()) {
+                var msg = "No valid class names provided";
+                if (!invalidNames.isEmpty()) {
+                    msg += "; invalid: " + String.join(", ", invalidNames);
+                }
+                var error = ErrorPayload.validationError(msg);
+                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                return;
+            }
+
+            // Add class summaries to context
+            contextManager.addSummaries(
+                    Set.of(),
+                    validClassNames.stream()
+                            .flatMap(name ->
+                                    analyzer.getDefinitions(name).stream().filter(CodeUnit::isClass))
+                            .collect(Collectors.toSet()));
+
+            // Build response with fragment IDs
+            var addedClasses = new ArrayList<AddedContextClass>();
+            var liveContext = contextManager.liveContext();
+
+            for (var className : validClassNames) {
+                // Find the skeleton fragment ID in live context for this class
+                var fragId = liveContext
+                        .virtualFragments()
+                        .filter(f -> f instanceof ContextFragment.SummaryFragment)
+                        .map(f -> (ContextFragment.SummaryFragment) f)
+                        .filter(s -> s.getTargetIdentifier().contains(className))
+                        .map(ContextFragment::id)
+                        .findFirst()
+                        .orElse("");
+
+                addedClasses.add(new AddedContextClass(fragId, className));
+            }
+
+            var response = new AddContextClassesResponse(addedClasses);
+            logger.info(
+                    "Added {} classes to context (session={}): {}",
+                    addedClasses.size(),
+                    contextManager.getCurrentSessionId(),
+                    addedClasses.stream().map(AddedContextClass::className).collect(Collectors.joining(", ")));
+
+            SimpleHttpServer.sendJsonResponse(exchange, 200, response);
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/context/classes", e);
+            var error = ErrorPayload.internalError("Failed to add classes to context", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
+    /**
+     * POST /v1/context/methods - Add method sources to the current session context.
+     * <p>
+     * <b>Authentication:</b> Required (via Authorization header)
+     * <p>
+     * <b>Request Body (JSON):</b>
+     * <pre>
+     * {
+     *   "methodNames": ["com.example.Foo.bar", "com.example.Baz.qux"]
+     * }
+     * </pre>
+     * <p>
+     * <b>Response (200 OK):</b>
+     * <pre>
+     * {
+     *   "added": [
+     *     { "id": "1", "methodName": "com.example.Foo.bar" },
+     *     { "id": "2", "methodName": "com.example.Baz.qux" }
+     *   ]
+     * }
+     * </pre>
+     * <p>
+     * <b>Validation:</b>
+     * <ul>
+     *   <li>Method names must be non-empty and non-blank</li>
+     *   <li>At least one valid method name must be provided</li>
+     *   <li>Method names are resolved via the analyzer; invalid names are skipped with a warning</li>
+     * </ul>
+     * <p>
+     * <b>Side Effects:</b>
+     * <ul>
+     *   <li>Adds code (method source) fragments to the current session's live context</li>
+     *   <li>Emits a notification via IConsoleIO</li>
+     *   <li>Pushes a new frozen context to history</li>
+     * </ul>
+     */
+    void handlePostContextMethods(HttpExchange exchange) throws IOException {
+        if (!exchange.getRequestMethod().equals("POST")) {
+            var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
+            SimpleHttpServer.sendJsonResponse(exchange, 405, error);
+            return;
+        }
+
+        try {
+            // Parse request
+            var request = SimpleHttpServer.parseJsonRequest(exchange, AddContextMethodsRequest.class);
+            if (request == null) {
+                var error = ErrorPayload.validationError("Request body is required");
+                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                return;
+            }
+
+            if (request.methodNames().isEmpty()) {
+                var error = ErrorPayload.validationError("methodNames must not be empty");
+                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                return;
+            }
+
+            var analyzer = contextManager.getAnalyzerUninterrupted();
+            var validMethodNames = new ArrayList<String>();
+            var invalidNames = new ArrayList<String>();
+
+            // Validate and collect valid method names
+            for (var methodName : request.methodNames()) {
+                if (methodName == null || methodName.isBlank()) {
+                    invalidNames.add("(blank name)");
+                    continue;
+                }
+
+                var trimmed = methodName.strip();
+
+                // Try to resolve the method name via the analyzer
+                var definitions = analyzer.getDefinitions(trimmed);
+                if (definitions.isEmpty()) {
+                    invalidNames.add(trimmed + " (not found in analyzer)");
+                    continue;
+                }
+
+                var codeUnit = definitions.stream().filter(CodeUnit::isFunction).findFirst();
+                if (codeUnit.isEmpty()) {
+                    invalidNames.add(trimmed + " (not a method)");
+                    continue;
+                }
+
+                validMethodNames.add(trimmed);
+            }
+
+            // Check if we have at least one valid method name
+            if (validMethodNames.isEmpty()) {
+                var msg = "No valid method names provided";
+                if (!invalidNames.isEmpty()) {
+                    msg += "; invalid: " + String.join(", ", invalidNames);
+                }
+                var error = ErrorPayload.validationError(msg);
+                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                return;
+            }
+
+            // Add method sources to context as CodeFragments
+            var addedMethods = new ArrayList<AddedContextMethod>();
+
+            for (var methodName : validMethodNames) {
+                var fragment = new ContextFragment.CodeFragment(contextManager, methodName);
+                contextManager.addFragments(fragment);
+                addedMethods.add(new AddedContextMethod(fragment.id(), methodName));
+            }
+
+            var response = new AddContextMethodsResponse(addedMethods);
+            logger.info(
+                    "Added {} methods to context (session={}): {}",
+                    addedMethods.size(),
+                    contextManager.getCurrentSessionId(),
+                    addedMethods.stream().map(AddedContextMethod::methodName).collect(Collectors.joining(", ")));
+
+            SimpleHttpServer.sendJsonResponse(exchange, 200, response);
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/context/methods", e);
+            var error = ErrorPayload.internalError("Failed to add methods to context", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
 
     public static void main(String[] args) {
         try {
@@ -860,7 +1355,8 @@ public final class HeadlessExecutorMain {
             var project = new MainProject(workspaceDir);
             var contextManager = new ContextManager(project);
 
-            var derivedSessionsDir = workspaceDir.resolve(".brokk").resolve("sessions");
+            var derivedSessionsDir =
+                    workspaceDir.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.SESSIONS_DIR);
 
             logger.info(
                     "Starting HeadlessExecutorMain with config: execId={}, listenAddr={}, workspaceDir={}, sessionsDir={}",
@@ -869,25 +1365,49 @@ public final class HeadlessExecutorMain {
                     workspaceDir,
                     derivedSessionsDir);
 
+            // Print startup banner and config summary to console
+            System.out.println();
+            System.out.println("Brokk Headless Executor starting...");
+            System.out.println("  execId:      " + execId);
+            System.out.println("  listenAddr:  " + listenAddr);
+            System.out.println("  workspaceDir: " + workspaceDir);
+            System.out.println();
+            System.out.println("Health check endpoints (no auth required):");
+            System.out.println("  GET /health/live  - executor liveness probe");
+            System.out.println("  GET /health/ready - returns 503 until a session is loaded");
+            System.out.println();
+
             // Create and start executor
             var executor = new HeadlessExecutorMain(execId, listenAddr, authToken, contextManager);
             executor.start();
+
+            // Print effective bind address and curl example after server starts
+            var boundPort = executor.getPort();
+            var listenParts = Splitter.on(':').splitToList(listenAddr);
+            var boundHost = listenParts.get(0);
+            System.out.println("Executor listening on http://" + boundHost + ":" + boundPort);
+            System.out.println("Try: curl http://" + boundHost + ":" + boundPort + "/health/live");
+            System.out.println();
 
             // Add shutdown hook
             Runtime.getRuntime()
                     .addShutdownHook(new Thread(
                             () -> {
+                                System.out.println();
+                                System.out.println("Shutting down Brokk Headless Executor...");
                                 logger.info("Shutdown signal received, stopping executor");
                                 executor.stop(5);
+                                System.out.println("Executor stopped.");
                             },
                             "HeadlessExecutor-ShutdownHook"));
-
             logger.info("HeadlessExecutorMain is running");
             Thread.currentThread().join(); // Keep the main thread alive
         } catch (InterruptedException e) {
+            System.out.println("HeadlessExecutorMain interrupted: " + e.getMessage());
             logger.info("HeadlessExecutorMain interrupted", e);
             Thread.currentThread().interrupt();
         } catch (Exception e) {
+            System.out.println("Fatal error starting HeadlessExecutorMain: " + e.getMessage());
             logger.error("Fatal error in HeadlessExecutorMain", e);
             System.exit(1);
         }

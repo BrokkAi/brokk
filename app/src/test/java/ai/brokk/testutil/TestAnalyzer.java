@@ -26,10 +26,17 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
     private final List<CodeUnit> allClasses;
     private final Map<String, List<CodeUnit>> methodsMap;
     private Function<List<ProjectFile>, LintResult> lintBehavior = files -> new LintResult(List.of());
+    private @Nullable IProject testProject;
 
-    public TestAnalyzer(List<CodeUnit> allClasses, Map<String, List<CodeUnit>> methodsMap) {
+    public TestAnalyzer(
+            List<CodeUnit> allClasses, Map<String, List<CodeUnit>> methodsMap, @Nullable IProject testProject) {
         this.allClasses = allClasses;
         this.methodsMap = methodsMap;
+        this.testProject = testProject;
+    }
+
+    public TestAnalyzer(List<CodeUnit> allClasses, Map<String, List<CodeUnit>> methodsMap) {
+        this(allClasses, methodsMap, null);
     }
 
     public TestAnalyzer() {
@@ -65,7 +72,10 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
 
     @Override
     public IProject getProject() {
-        throw new UnsupportedOperationException();
+        if (testProject == null) {
+            throw new UnsupportedOperationException();
+        }
+        return testProject;
     }
 
     @Override
@@ -144,5 +154,20 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
     @Override
     public LintResult lintFiles(List<ProjectFile> files) {
         return lintBehavior.apply(files);
+    }
+
+    @Override
+    public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
+        return List.of();
+    }
+
+    @Override
+    public List<CodeUnit> getDirectChildren(CodeUnit cu) {
+        return List.of();
+    }
+
+    @Override
+    public Optional<String> extractCallReceiver(String reference) {
+        return Optional.empty();
     }
 }

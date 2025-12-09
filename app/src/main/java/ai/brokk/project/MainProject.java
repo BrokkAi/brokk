@@ -15,11 +15,12 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.Chrome;
-import ai.brokk.issues.IssueProviderType;
+import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.AtomicWrites;
 import ai.brokk.util.BrokkConfigPaths;
+import ai.brokk.util.DependencyUpdateScheduler;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.PathNormalizer;
@@ -71,6 +72,8 @@ public final class MainProject extends AbstractProject {
     @Nullable
     private volatile DiskLruCache diskCache = null;
 
+    private final DependencyUpdateScheduler dependencyUpdateScheduler;
+
     private static final long DEFAULT_DISK_CACHE_SIZE = 10L * 1024L * 1024L; // 10 MB
 
     private static final String BUILD_DETAILS_KEY = "buildDetailsJson";
@@ -109,6 +112,8 @@ public final class MainProject extends AbstractProject {
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
     private static final String COMMIT_MESSAGE_FORMAT_KEY = "commitMessageFormat";
     private static final String EXCEPTION_REPORTING_ENABLED_KEY = "exceptionReportingEnabled";
+    private static final String AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY = "autoUpdateLocalDependencies";
+    private static final String AUTO_UPDATE_GIT_DEPENDENCIES_KEY = "autoUpdateGitDependencies";
 
     private static final List<SettingsChangeListener> settingsChangeListeners = new CopyOnWriteArrayList<>();
 
@@ -201,6 +206,9 @@ public final class MainProject extends AbstractProject {
 
         // Initialize cache and trigger migration/defaulting if necessary
         this.issuesProviderCache = getIssuesProvider();
+
+        // Initialize dependency update scheduler
+        this.dependencyUpdateScheduler = new DependencyUpdateScheduler(this);
     }
 
     @Override
@@ -407,6 +415,46 @@ public final class MainProject extends AbstractProject {
         return ModelProperties.getModelConfig(props, modelType);
     }
 
+    /**
+     * Returns the code-defined default ModelConfig for the Quick role.
+     *
+     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
+     * persisted user settings or overrides.
+     */
+    public static ModelConfig getDefaultQuickModelConfig() {
+        return ModelProperties.ModelType.QUICK.preferredConfig();
+    }
+
+    /**
+     * Returns the code-defined default ModelConfig for the Quick Edit role.
+     *
+     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
+     * persisted user settings or overrides.
+     */
+    public static ModelConfig getDefaultQuickEditModelConfig() {
+        return ModelProperties.ModelType.QUICK_EDIT.preferredConfig();
+    }
+
+    /**
+     * Returns the code-defined default ModelConfig for the Quickest role.
+     *
+     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
+     * persisted user settings or overrides.
+     */
+    public static ModelConfig getDefaultQuickestModelConfig() {
+        return ModelProperties.ModelType.QUICKEST.preferredConfig();
+    }
+
+    /**
+     * Returns the code-defined default ModelConfig for the Scan role.
+     *
+     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
+     * persisted user settings or overrides.
+     */
+    public static ModelConfig getDefaultScanModelConfig() {
+        return ModelProperties.ModelType.SCAN.preferredConfig();
+    }
+
     private void setModelConfigInternal(ModelType modelType, ModelConfig config) {
         var props = loadGlobalProperties();
         ModelProperties.setModelConfig(props, modelType, config);
@@ -485,6 +533,40 @@ public final class MainProject extends AbstractProject {
             saveProjectProperties();
             logger.debug("Set commit message format.");
         }
+    }
+
+    @Override
+    public boolean getAutoUpdateLocalDependencies() {
+        String value = projectProps.getProperty(AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY);
+        return value != null && Boolean.parseBoolean(value);
+    }
+
+    @Override
+    public void setAutoUpdateLocalDependencies(boolean enabled) {
+        if (enabled) {
+            projectProps.setProperty(AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY, "true");
+        } else {
+            projectProps.remove(AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY);
+        }
+        saveProjectProperties();
+        notifyAutoUpdateLocalDependenciesChanged();
+    }
+
+    @Override
+    public boolean getAutoUpdateGitDependencies() {
+        String value = projectProps.getProperty(AUTO_UPDATE_GIT_DEPENDENCIES_KEY);
+        return value != null && Boolean.parseBoolean(value);
+    }
+
+    @Override
+    public void setAutoUpdateGitDependencies(boolean enabled) {
+        if (enabled) {
+            projectProps.setProperty(AUTO_UPDATE_GIT_DEPENDENCIES_KEY, "true");
+        } else {
+            projectProps.remove(AUTO_UPDATE_GIT_DEPENDENCIES_KEY);
+        }
+        saveProjectProperties();
+        notifyAutoUpdateGitDependenciesChanged();
     }
 
     public long getRunCommandTimeoutSeconds() {
@@ -641,26 +723,18 @@ public final class MainProject extends AbstractProject {
     @Override
     public void setIssuesProvider(IssueProvider provider) {
         IssueProvider oldProvider = this.issuesProviderCache;
-        IssueProviderType oldType = null;
-        if (oldProvider != null) {
-            oldType = oldProvider.type();
-        } else {
-            // Attempt to load from props if cache is null to get a definitive "before" type
+        if (oldProvider == null) {
             String currentJsonInProps = projectProps.getProperty(ISSUES_PROVIDER_JSON_KEY);
             if (currentJsonInProps != null && !currentJsonInProps.isBlank()) {
                 try {
-                    IssueProvider providerFromProps = objectMapper.readValue(currentJsonInProps, IssueProvider.class);
-                    oldType = providerFromProps.type();
+                    oldProvider = objectMapper.readValue(currentJsonInProps, IssueProvider.class);
                 } catch (JsonProcessingException e) {
-                    // Log or ignore, oldType remains null or determined by migration if applicable
                     logger.debug(
-                            "Could not parse existing IssueProvider JSON from properties while determining old type: {}",
+                            "Could not parse existing IssueProvider JSON from properties while determining old provider: {}",
                             e.getMessage());
                 }
             }
         }
-
-        var newType = provider.type();
 
         try {
             String json = objectMapper.writeValueAsString(provider);
@@ -682,9 +756,8 @@ public final class MainProject extends AbstractProject {
                     provider.type(),
                     getRoot().getFileName());
 
-            // Notify listeners if the provider *type* has changed.
-            if (oldType != newType) {
-                logger.debug("Issue provider type changed from {} to {}. Notifying listeners.", oldType, newType);
+            if (!Objects.equals(oldProvider, provider)) {
+                logger.debug("Issue provider changed from {} to {}. Notifying listeners.", oldProvider, provider);
                 notifyIssueProviderChanged();
             }
         } catch (JsonProcessingException e) {
@@ -910,6 +983,26 @@ public final class MainProject extends AbstractProject {
                 listener.gitHubTokenChanged();
             } catch (Exception e) {
                 logger.error("Error notifying listener of GitHub token change", e);
+            }
+        }
+    }
+
+    private static void notifyAutoUpdateLocalDependenciesChanged() {
+        for (SettingsChangeListener listener : settingsChangeListeners) {
+            try {
+                listener.autoUpdateLocalDependenciesChanged();
+            } catch (Exception e) {
+                logger.error("Error notifying listener of auto-update local dependencies change", e);
+            }
+        }
+    }
+
+    private static void notifyAutoUpdateGitDependenciesChanged() {
+        for (SettingsChangeListener listener : settingsChangeListeners) {
+            try {
+                listener.autoUpdateGitDependenciesChanged();
+            } catch (Exception e) {
+                logger.error("Error notifying listener of auto-update git dependencies change", e);
             }
         }
     }
@@ -1283,7 +1376,7 @@ public final class MainProject extends AbstractProject {
 
     public static String getTheme() {
         var props = loadGlobalProperties();
-        return props.getProperty("theme", "dark");
+        return props.getProperty("theme", GuiTheme.THEME_DARK_PLUS);
     }
 
     public static void setTheme(String theme) {
@@ -1329,6 +1422,95 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
 
+    // Preference key for selecting the watch service implementation.
+    // Allowed values persisted: "legacy", "native". If unset/blank/unrecognized, treated as "default".
+    private static final String WATCH_SERVICE_IMPL_KEY = "watchServiceImpl";
+
+    // Keys for history auto-compression settings
+    private static final String HISTORY_AUTO_COMPRESS_KEY = "historyAutoCompress";
+    private static final String HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY = "historyAutoCompressThresholdPercent";
+
+    /**
+     * Returns the persisted watch service implementation preference.
+     *
+     * Normalized return values:
+     *  - "legacy"  => legacy implementation
+     *  - "native"  => native implementation
+     *  - "default" => no explicit preference / use platform-default behavior
+     */
+    public static String getWatchServiceImplPreference() {
+        var props = loadGlobalProperties();
+        String raw = props.getProperty(WATCH_SERVICE_IMPL_KEY);
+        if (raw == null || raw.isBlank()) {
+            return "default";
+        }
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if ("legacy".equals(normalized) || "native".equals(normalized)) {
+            return normalized;
+        }
+        return "default";
+    }
+
+    /**
+     * Persist the watch service implementation preference.
+     *
+     * Accepts case-insensitive values: "default", "legacy", "native".
+     * If "default" (or blank/unrecognized) the property will be removed to fall back to platform default.
+     */
+    public static void setWatchServiceImplPreference(String v) {
+        var props = loadGlobalProperties();
+        String normalized = v.trim().toLowerCase(Locale.ROOT);
+        if ("default".equals(normalized) || normalized.isBlank()) {
+            props.remove(WATCH_SERVICE_IMPL_KEY);
+        } else if ("legacy".equals(normalized) || "native".equals(normalized)) {
+            props.setProperty(WATCH_SERVICE_IMPL_KEY, normalized);
+        } else {
+            // Unrecognized value: remove key to ensure default behavior.
+            props.remove(WATCH_SERVICE_IMPL_KEY);
+            normalized = "default";
+        }
+        saveGlobalProperties(props);
+        logger.debug("Set watch service implementation preference to {}", normalized);
+    }
+
+    /**
+     * Returns whether automatic history compression is enabled.
+     * Enabled by default to help manage conversation context size.
+     *
+     * @return true if history auto-compression is enabled, false otherwise
+     */
+    public static boolean getHistoryAutoCompress() {
+        var props = loadGlobalProperties();
+        return Boolean.parseBoolean(props.getProperty(HISTORY_AUTO_COMPRESS_KEY, "true"));
+    }
+
+    /**
+     * Returns the threshold percentage for auto-compressing conversation history.
+     * When the token count of history exceeds this percentage of the model's max input tokens,
+     * automatic compression is triggered.
+     *
+     * @return threshold as a percentage (e.g., 70 means 70%), clamped to [10, 95]
+     */
+    public static int getHistoryAutoCompressThresholdPercent() {
+        var props = loadGlobalProperties();
+        String value = props.getProperty(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY);
+        int defaultValue = 70;
+        if (value == null || value.isBlank()) {
+            return defaultValue;
+        }
+        try {
+            int pct = Integer.parseInt(value.trim());
+            // Clamp to reasonable bounds [10, 95]
+            if (pct < 10) pct = 10;
+            if (pct > 95) pct = 95;
+            return pct;
+        } catch (NumberFormatException e) {
+            logger.debug(
+                    "Invalid history auto-compress threshold percentage: {}, using default {}", value, defaultValue);
+            return defaultValue;
+        }
+    }
+
     // UI Scale global preference
     // Values:
     //  - "auto" (default): detect from environment (kscreen-doctor/gsettings on Linux)
@@ -1338,9 +1520,7 @@ public final class MainProject extends AbstractProject {
     private static final String TERMINAL_FONT_SIZE_KEY = "terminalFontSize";
     private static final String STARTUP_OPEN_MODE_KEY = "startupOpenMode";
     private static final String FORCE_TOOL_EMULATION_KEY = "forceToolEmulation";
-    private static final String HISTORY_AUTO_COMPRESS_KEY = "historyAutoCompress";
-    private static final String HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY = "historyAutoCompressThresholdPercent";
-    private static final String HISTORY_COMPRESSION_CONCURRENCY_KEY = "historyCompressionConcurrency";
+    private static final String OTHER_MODELS_VENDOR_KEY = "otherModelsVendor";
 
     public static String getUiScalePref() {
         var props = loadGlobalProperties();
@@ -1422,69 +1602,17 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
 
-    public static boolean getHistoryAutoCompress() {
+    public static String getOtherModelsVendorPreference() {
         var props = loadGlobalProperties();
-        return Boolean.parseBoolean(props.getProperty(HISTORY_AUTO_COMPRESS_KEY, "true"));
+        return props.getProperty(OTHER_MODELS_VENDOR_KEY, "");
     }
 
-    public static void setHistoryAutoCompress(boolean autoCompress) {
+    public static void setOtherModelsVendorPreference(String vendor) {
         var props = loadGlobalProperties();
-        props.setProperty(HISTORY_AUTO_COMPRESS_KEY, Boolean.toString(autoCompress));
-        saveGlobalProperties(props);
-    }
-
-    public static int getHistoryAutoCompressThresholdPercent() {
-        var props = loadGlobalProperties();
-        String value = props.getProperty(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY);
-        int def = 10;
-        if (value == null || value.isBlank()) {
-            return def;
-        }
-        try {
-            int parsed = Integer.parseInt(value.trim());
-            if (parsed < 1) parsed = 1;
-            if (parsed > 50) parsed = 50;
-            return parsed;
-        } catch (NumberFormatException e) {
-            return def;
-        }
-    }
-
-    public static void setHistoryAutoCompressThresholdPercent(int percent) {
-        int clamped = Math.max(1, Math.min(50, percent));
-        var props = loadGlobalProperties();
-        if (clamped == 10) {
-            props.remove(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY);
+        if (vendor.isBlank()) {
+            props.remove(OTHER_MODELS_VENDOR_KEY);
         } else {
-            props.setProperty(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY, Integer.toString(clamped));
-        }
-        saveGlobalProperties(props);
-    }
-
-    public static int getHistoryCompressionConcurrency() {
-        var props = loadGlobalProperties();
-        String value = props.getProperty(HISTORY_COMPRESSION_CONCURRENCY_KEY);
-        int def = 2;
-        if (value == null || value.isBlank()) {
-            return def;
-        }
-        try {
-            int parsed = Integer.parseInt(value.trim());
-            if (parsed < 1) parsed = 1;
-            if (parsed > 8) parsed = 8;
-            return parsed;
-        } catch (NumberFormatException e) {
-            return def;
-        }
-    }
-
-    public static void setHistoryCompressionConcurrency(int value) {
-        int clamped = Math.max(1, Math.min(8, value));
-        var props = loadGlobalProperties();
-        if (clamped == 2) {
-            props.remove(HISTORY_COMPRESSION_CONCURRENCY_KEY);
-        } else {
-            props.setProperty(HISTORY_COMPRESSION_CONCURRENCY_KEY, Integer.toString(clamped));
+            props.setProperty(OTHER_MODELS_VENDOR_KEY, vendor.trim());
         }
         saveGlobalProperties(props);
     }
@@ -1557,18 +1685,6 @@ public final class MainProject extends AbstractProject {
         }
     }
 
-    public record CompressionSettings(boolean autoCompress, int thresholdPercent) {
-        public void applyTo(Properties props) {
-            props.setProperty(HISTORY_AUTO_COMPRESS_KEY, String.valueOf(autoCompress));
-            int clamped = Math.max(0, Math.min(100, thresholdPercent));
-            if (clamped == 80) {
-                props.remove(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY);
-            } else {
-                props.setProperty(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY, Integer.toString(clamped));
-            }
-        }
-    }
-
     public record StartupSettings(StartupOpenMode openMode) {
         public void applyTo(Properties props) {
             props.setProperty(STARTUP_OPEN_MODE_KEY, openMode.name());
@@ -1607,14 +1723,12 @@ public final class MainProject extends AbstractProject {
     public static void saveAllGlobalSettings(
             ServiceSettings service,
             AppearanceSettings appearance,
-            CompressionSettings compression,
             StartupSettings startup,
             GeneralSettings general,
             ModelSettings models) {
         var props = loadGlobalProperties();
         service.applyTo(props);
         appearance.applyTo(props);
-        compression.applyTo(props);
         startup.applyTo(props);
         general.applyTo(props);
         models.applyTo(props);
@@ -1863,7 +1977,7 @@ public final class MainProject extends AbstractProject {
             try (var tempRepo = new GitRepo(projectDir)) {
                 isWorktree = tempRepo.isWorktree();
                 if (isWorktree) {
-                    pathForRecentProjectsMap = tempRepo.getGitTopLevel();
+                    pathForRecentProjectsMap = tempRepo.getMainRepoRoot();
                 }
             } catch (Exception e) {
                 logger.warn(
@@ -1936,7 +2050,7 @@ public final class MainProject extends AbstractProject {
             try (var tempRepo = new GitRepo(projectDir)) {
                 isWorktree = tempRepo.isWorktree();
                 if (isWorktree) {
-                    mainProjectPathKey = tempRepo.getGitTopLevel();
+                    mainProjectPathKey = tempRepo.getMainRepoRoot();
                 }
             } catch (Exception e) {
                 logger.warn(
@@ -2076,6 +2190,9 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void close() {
+        // Close dependency update scheduler
+        dependencyUpdateScheduler.close();
+
         // Close disk cache if open
         try {
             if (diskCache != null) {
@@ -2090,6 +2207,14 @@ public final class MainProject extends AbstractProject {
         // Close session manager and other resources
         sessionManager.close();
         super.close();
+    }
+
+    /**
+     * Returns the dependency update scheduler for this project.
+     * Worktree projects delegate to the main project's scheduler.
+     */
+    public DependencyUpdateScheduler getDependencyUpdateScheduler() {
+        return dependencyUpdateScheduler;
     }
 
     public Path getWorktreeStoragePath() {

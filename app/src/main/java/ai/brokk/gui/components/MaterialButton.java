@@ -5,6 +5,7 @@ import ai.brokk.gui.util.KeyboardShortcutUtil;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 import java.awt.Color;
 import java.awt.Cursor;
+import java.awt.Insets;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import javax.swing.BorderFactory;
@@ -44,12 +45,12 @@ public class MaterialButton extends JButton {
         setBorderPainted(true);
         setFocusable(true);
         setOpaque(false);
-        putClientProperty("JButton.buttonType", "borderless");
 
         var borderColor = UIManager.getColor("Component.borderColor");
         setBorder(BorderFactory.createCompoundBorder(
                 new LineBorder(borderColor != null ? borderColor : Color.GRAY, 1, true),
                 BorderFactory.createEmptyBorder(4, 8, 4, 8)));
+        setMargin(new Insets(4, 8, 4, 8));
         // Allow the Look-and-Feel to render rollover effects by keeping the content area filled
         // and enabling rollover support on the button model.
         setContentAreaFilled(true);
@@ -98,6 +99,15 @@ public class MaterialButton extends JButton {
      */
     public void setAppendShortcutToTooltip(boolean append) {
         this.appendShortcutToTooltip = append;
+        updateTooltip();
+    }
+
+    @Override
+    public void updateUI() {
+        super.updateUI();
+        applyStyling();
+        updateIconForEnabledState();
+        updateCursorForEnabledState();
         updateTooltip();
     }
 

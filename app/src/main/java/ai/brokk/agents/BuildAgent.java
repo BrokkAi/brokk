@@ -53,6 +53,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -386,6 +387,7 @@ public class BuildAgent {
     }
 
     /** Determine the best verification command using the provided Context (no reliance on CM.topContext()). */
+    @Blocking
     public static @Nullable String determineVerificationCommand(Context ctx) throws InterruptedException {
         var cm = ctx.getContextManager();
 
@@ -412,12 +414,12 @@ public class BuildAgent {
 
         // Get ProjectFiles from editable and read-only fragments
         var projectFilesFromEditableOrReadOnly =
-                ctx.fileFragments().flatMap(fragment -> fragment.files().stream()); // No analyzer
+                ctx.fileFragments().flatMap(fragment -> fragment.files().join().stream()); // No analyzer
 
         // Get ProjectFiles specifically from SkeletonFragments among all virtual fragments
         var projectFilesFromSkeletons = ctx.virtualFragments()
                 .filter(vf -> vf.getType() == ContextFragment.FragmentType.SKELETON)
-                .flatMap(skeletonFragment -> skeletonFragment.files().stream()); // No analyzer
+                .flatMap(skeletonFragment -> skeletonFragment.files().join().stream()); // No analyzer
 
         // Combine all relevant ProjectFiles into a single set for checking against test files
         var workspaceFiles = Stream.concat(projectFilesFromEditableOrReadOnly, projectFilesFromSkeletons)
@@ -442,19 +444,15 @@ public class BuildAgent {
         return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
     }
 
-    /** Backwards-compatible shim using CM.liveContext(). Prefer the Context-based overload. */
-    public static @Nullable String determineVerificationCommand(IContextManager cm) throws InterruptedException {
-        return determineVerificationCommand(cm.liveContext());
-    }
-
     /**
-     * Runs {@link #determineVerificationCommand(IContextManager)} on the {@link ContextManager} background pool and
+     * Runs determineVerificationCommand on the {@link ContextManager} background pool and
      * delivers the result asynchronously.
      *
      * @return a {@link CompletableFuture} that completes on the background thread.
      */
     public static CompletableFuture<@Nullable String> determineVerificationCommandAsync(ContextManager cm) {
-        return cm.submitBackgroundTask("Determine build verification command", () -> determineVerificationCommand(cm));
+        return cm.submitBackgroundTask(
+                "Determine build verification command", () -> determineVerificationCommand(cm.liveContext()));
     }
 
     /**
@@ -724,6 +722,7 @@ public class BuildAgent {
      * <p>Returns empty string on success (or when no command is configured), otherwise the raw combined error/output
      * text.
      */
+    @Blocking
     public static String runVerification(IContextManager cm) throws InterruptedException {
         var interrupted = new AtomicReference<InterruptedException>(null);
         var updated = cm.pushContext(ctx -> {
@@ -747,6 +746,7 @@ public class BuildAgent {
      * Context-based overload that performs build/check and returns an updated Context with the build results. No pushes
      * are performed here; callers decide when to persist.
      */
+    @Blocking
     public static Context runVerification(Context ctx) throws InterruptedException {
         var cm = ctx.getContextManager();
         var io = cm.getIo();
@@ -818,16 +818,7 @@ public class BuildAgent {
     }
 
     private static String getOriginRepositoryName(IContextManager cm) {
-        var url = cm.getRepo().getRemoteUrl();
-        if (url == null || url.isBlank()) {
-            return cm.getRepo().getGitTopLevel().getFileName().toString();
-        }
-        if (url.endsWith(".git")) url = url.substring(0, url.length() - 4);
-        int idx = Math.max(url.lastIndexOf('/'), url.lastIndexOf(':'));
-        if (idx >= 0 && idx < url.length() - 1) {
-            return url.substring(idx + 1);
-        }
-        throw new IllegalArgumentException("Unable to parse git repo url " + url);
+        return cm.getRepo().getRepositoryName();
     }
 
     /** Context-based internal variant: returns a new Context with the updated build results, streams output via IO. */

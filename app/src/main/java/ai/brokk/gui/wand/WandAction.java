@@ -49,10 +49,8 @@ public class WandAction {
                 if (!refined.isBlank()) {
                     SwingUtilities.invokeLater(() -> promptConsumer.accept(refined));
                 } else {
-                    SwingUtilities.invokeLater(() -> {
-                        instructionsArea.setEnabled(true);
-                        instructionsArea.requestFocusInWindow();
-                    });
+                    // Blank refinement - restore original text (also re-enables undo listener)
+                    SwingUtilities.invokeLater(() -> promptConsumer.accept(original));
                 }
             } catch (InterruptedException e) {
                 SwingUtilities.invokeLater(() -> promptConsumer.accept(original));
@@ -162,9 +160,6 @@ public class WandAction {
                 // Transition from reasoning to content: clear the area first
                 SwingUtilities.invokeLater(() -> instructionsArea.setText(""));
                 hasStartedContent = true;
-            } else if (isReasoning && !lastWasReasoning) {
-                // Illegal transition back to reasoning
-                throw new IllegalStateException("Wand stream switched from non-reasoning to reasoning");
             }
 
             if (!token.isEmpty()) {
@@ -179,6 +174,13 @@ public class WandAction {
         @Override
         public void toolError(String message, String title) {
             errorReporter.toolError(message, title);
+        }
+
+        @Override
+        public void showNotification(NotificationRole role, String message) {
+            // Delegate to errorReporter instead of writing to instructionsArea
+            // This prevents cost notifications from polluting the refined prompt
+            errorReporter.showNotification(role, message);
         }
 
         @Override

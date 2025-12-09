@@ -3,16 +3,14 @@ package ai.brokk.analyzer;
 import ai.brokk.project.IProject;
 import java.util.*;
 import java.util.regex.Pattern;
-import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
-import org.jetbrains.annotations.Nullable;
 
 /**
  * Core analyzer interface providing code intelligence capabilities.
  *
  * <p><b>API Pattern:</b> Capability providers ({@link SkeletonProvider}, {@link SourceCodeProvider},
  * {@link CallGraphProvider}) accept {@link CodeUnit} parameters. When you have a CodeUnit, call
- * provider methods directly. When you only have a String FQN, use {@link io.github.jbellis.brokk.AnalyzerUtil}
+ * provider methods directly. When you only have a String FQN, use {@link ai.brokk.AnalyzerUtil}
  * convenience methods to convert and delegate.
  */
 public interface IAnalyzer {
@@ -27,15 +25,31 @@ public interface IAnalyzer {
         }
     }
 
+    /**
+     * Listener for progress updates during analyzer construction or update operations.
+     * Implementations should be thread-safe as callbacks may come from worker threads.
+     */
+    @FunctionalInterface
+    interface ProgressListener {
+        ProgressListener NOOP = new NoopProgressListener();
+        /**
+         * Called to report progress during analyzer operations.
+         *
+         * @param completed Number of items completed
+         * @param total     Total number of items to process
+         * @param phase     Description of the current phase (e.g., "Parsing Java files")
+         */
+        void onProgress(int completed, int total, String phase);
+    }
+
+    class NoopProgressListener implements ProgressListener {
+        @Override
+        public void onProgress(int completed, int total, String phase) {
+            // No-op
+        }
+    }
+
     // Basics
-    default boolean isEmpty() {
-        return getAllDeclarations().isEmpty();
-    }
-
-    default <T extends CapabilityProvider> Optional<T> as(Class<T> capability) {
-        return capability.isInstance(this) ? Optional.of(capability.cast(this)) : Optional.empty();
-    }
-
     List<CodeUnit> getTopLevelDeclarations(ProjectFile file);
 
     /**
@@ -87,10 +101,6 @@ public interface IAnalyzer {
      */
     Set<CodeUnit> getDeclarations(ProjectFile file);
 
-    default Optional<ProjectFile> getFileFor(CodeUnit cu) {
-        return Optional.of(cu.source());
-    }
-
     /**
      * Finds ALL CodeUnits matching the given fqName, returned in priority order.
      * For overloaded functions, returns all overloads ordered by language-specific prioritization.
@@ -107,6 +117,80 @@ public interface IAnalyzer {
      * @return SequencedSet of all matching CodeUnits in priority order (may be empty)
      */
     SequencedSet<CodeUnit> getDefinitions(String fqName);
+
+    /**
+     * Returns the immediate children of the given CodeUnit for language-specific hierarchy traversal.
+     *
+     * <p>This method is used by the default getSymbols(java.util.Set) implementation to traverse the code unit
+     * hierarchy and collect symbols from nested declarations. The specific parent-child relationships depend on the
+     * target language:
+     *
+     * <ul>
+     *   <li><strong>Classes:</strong> Return methods, fields, and nested classes
+     *   <li><strong>Modules/Files:</strong> Return top-level declarations in the same file
+     *   <li><strong>Functions/Methods:</strong> Typically return empty list (no children)
+     *   <li><strong>Fields/Variables:</strong> Typically return empty list (no children)
+     * </ul>
+     *
+     * <p><strong>Implementation Notes:</strong>
+     *
+     * <ul>
+     *   <li>This method should be efficient as it may be called frequently during symbol resolution
+     *   <li>Return an empty list rather than null for CodeUnits with no children
+     *   <li>The returned list should contain only immediate children, not recursive descendants
+     *   <li>Implementations should handle null input gracefully by returning an empty list
+     * </ul>
+     * <p>
+     * See getSymbols(java.util.Set) for how this method is used in symbol collection.
+     */
+    List<CodeUnit> getDirectChildren(CodeUnit cu);
+
+    /**
+     * Extracts the class/module/type name from a method/member reference like "MyClass.myMethod". This is a heuristic
+     * method that may produce false positives/negatives.
+     * Package-private: external callers should use {@link ai.brokk.AnalyzerUtil#extractCallReceiver}.
+     *
+     * @param reference The reference string to analyze (e.g., "MyClass.myMethod", "package::Class::method")
+     * @return Optional containing the extracted class/module name, empty if none found
+     */
+    Optional<String> extractCallReceiver(String reference);
+
+    /**
+     * @return the import snippets for the given file where other code units may be referred to by.
+     */
+    List<String> importStatementsOf(ProjectFile file);
+
+    /**
+     * @return the nearest enclosing code unit of the range within the file. Returns null if none exists or range is
+     * invalid.
+     */
+    Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range);
+
+    record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
+        public boolean isEmpty() {
+            return startLine == endLine && startByte == endByte;
+        }
+
+        public boolean isContainedWithin(Range other) {
+            return startByte >= other.startByte && endByte <= other.endByte;
+        }
+    }
+
+    /**
+     * Returns the direct supertypes/basetypes (non-transitive) for the given CodeUnit.
+     * Implementations should return only the immediate ancestors.
+     */
+    List<CodeUnit> getDirectAncestors(CodeUnit cu);
+
+    // Things most implementations won't have to override
+
+    default boolean isEmpty() {
+        return getAllDeclarations().isEmpty();
+    }
+
+    default <T extends CapabilityProvider> Optional<T> as(Class<T> capability) {
+        return capability.isInstance(this) ? Optional.of(capability.cast(this)) : Optional.empty();
+    }
 
     /**
      * Returns a comparator for prioritizing among multiple definitions with the same FQN.
@@ -153,7 +237,7 @@ public interface IAnalyzer {
     default Set<CodeUnit> searchDefinitions(String pattern, boolean autoQuote) {
         // Validate pattern
         if (pattern.isEmpty()) {
-            return Set.of();
+            throw new IllegalArgumentException("Search pattern may not be empty");
         }
 
         // Prepare case-insensitive regex pattern
@@ -161,18 +245,16 @@ public interface IAnalyzer {
             pattern = "(?i)" + (pattern.contains(".*") ? pattern : ".*" + Pattern.quote(pattern) + ".*");
         }
 
-        // Try to compile the pattern
-        Pattern compiledPattern;
-        try {
-            compiledPattern = Pattern.compile(pattern);
-        } catch (PatternSyntaxException e) {
-            // Fallback to simple case-insensitive substring matching
-            var fallbackPattern = pattern.toLowerCase(Locale.ROOT);
-            return searchDefinitionsImpl(pattern, fallbackPattern, null);
-        }
+        Pattern compiledPattern = Pattern.compile(pattern);
+        // Reuse a single Matcher across all declarations to avoid allocation overhead
+        return searchDefinitions(compiledPattern);
+    }
 
-        // Delegate to implementation-specific method
-        return searchDefinitionsImpl(pattern, null, compiledPattern);
+    default Set<CodeUnit> searchDefinitions(Pattern compiledPattern) {
+        var matcher = compiledPattern.matcher("");
+        return getAllDeclarations().stream()
+                .filter(cu -> matcher.reset(cu.fqName()).find())
+                .collect(Collectors.toSet());
     }
 
     /**
@@ -215,66 +297,6 @@ public interface IAnalyzer {
             byFqName.computeIfAbsent(cu.fqName(), k -> new LinkedHashSet<>()).add(cu);
 
         return byFqName.values().stream().flatMap(Set::stream).collect(Collectors.toSet());
-    }
-
-    /**
-     * Implementation-specific search method called by the default searchDefinitions. Subclasses should implement this
-     * method to provide their specific search logic.
-     *
-     * <p><b>Performance Warning:</b> The default implementation iterates over all declarations in the project, which
-     * can be very slow for large codebases. Production-ready implementations should override this method with a more
-     * efficient approach, such as using an index.
-     *
-     * @param originalPattern The original search pattern provided by the user
-     * @param fallbackPattern The lowercase fallback pattern (null if not using fallback)
-     * @param compiledPattern The compiled regex pattern (null if using fallback)
-     * @return List of matching CodeUnits
-     */
-    default Set<CodeUnit> searchDefinitionsImpl(
-            String originalPattern, @Nullable String fallbackPattern, @Nullable Pattern compiledPattern) {
-        // Default implementation using getAllDeclarations
-        if (fallbackPattern != null) {
-            return getAllDeclarations().stream()
-                    .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(fallbackPattern))
-                    .collect(Collectors.toSet());
-        } else if (compiledPattern != null) {
-            return getAllDeclarations().stream()
-                    .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
-                    .collect(Collectors.toSet());
-        } else {
-            return getAllDeclarations().stream()
-                    .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(originalPattern))
-                    .collect(Collectors.toSet());
-        }
-    }
-
-    /**
-     * Returns the immediate children of the given CodeUnit for language-specific hierarchy traversal.
-     *
-     * <p>This method is used by the default getSymbols(java.util.Set) implementation to traverse the code unit
-     * hierarchy and collect symbols from nested declarations. The specific parent-child relationships depend on the
-     * target language:
-     *
-     * <ul>
-     *   <li><strong>Classes:</strong> Return methods, fields, and nested classes
-     *   <li><strong>Modules/Files:</strong> Return top-level declarations in the same file
-     *   <li><strong>Functions/Methods:</strong> Typically return empty list (no children)
-     *   <li><strong>Fields/Variables:</strong> Typically return empty list (no children)
-     * </ul>
-     *
-     * <p><strong>Implementation Notes:</strong>
-     *
-     * <ul>
-     *   <li>This method should be efficient as it may be called frequently during symbol resolution
-     *   <li>Return an empty list rather than null for CodeUnits with no children
-     *   <li>The returned list should contain only immediate children, not recursive descendants
-     *   <li>Implementations should handle null input gracefully by returning an empty list
-     * </ul>
-     * <p>
-     * See getSymbols(java.util.Set) for how this method is used in symbol collection.
-     */
-    default List<CodeUnit> getDirectChildren(CodeUnit cu) {
-        return List.of();
     }
 
     /**
@@ -324,48 +346,6 @@ public interface IAnalyzer {
             work.addAll(getDirectChildren(cu));
         }
         return symbols;
-    }
-
-    /**
-     * Extracts the class/module/type name from a method/member reference like "MyClass.myMethod". This is a heuristic
-     * method that may produce false positives/negatives.
-     * Package-private: external callers should use {@link ai.brokk.AnalyzerUtil#extractClassName}.
-     *
-     * @param reference The reference string to analyze (e.g., "MyClass.myMethod", "package::Class::method")
-     * @return Optional containing the extracted class/module name, empty if none found
-     */
-    default Optional<String> extractClassName(String reference) {
-        return Optional.empty();
-    }
-
-    /**
-     * @return the import snippets for the given file where other code units may be referred to by.
-     */
-    List<String> importStatementsOf(ProjectFile file);
-
-    /**
-     * @return the nearest enclosing code unit of the range within the file. Returns null if none exists or range is
-     * invalid.
-     */
-    Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range);
-
-    record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
-        public boolean isEmpty() {
-            return startLine == endLine && startByte == endByte;
-        }
-
-        public boolean isContainedWithin(Range other) {
-            return startByte >= other.startByte && endByte <= other.endByte;
-        }
-    }
-
-    /**
-     * Returns the direct supertypes/basetypes (non-transitive) for the given CodeUnit.
-     * Implementations should return only the immediate ancestors.
-     */
-    default List<CodeUnit> getDirectAncestors(CodeUnit cu) {
-        // should always be supported; UOE here is for convenience in mocking
-        throw new UnsupportedOperationException();
     }
 
     /**

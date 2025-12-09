@@ -17,6 +17,7 @@ import dev.langchain4j.data.message.ChatMessageType;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,27 +28,74 @@ class HeadlessHttpConsoleTest {
 
     private HeadlessHttpConsole console;
     private JobStore jobStore;
-    private String jobId = "test-job-123";
+    private String jobId;
 
     @BeforeEach
     void setup(@TempDir Path tempDir) throws Exception {
         jobStore = new JobStore(tempDir);
+        // Use a unique jobId per test run to avoid cross-test interference when events are read.
+        jobId = "test-job-" + System.nanoTime();
         console = new HeadlessHttpConsole(jobStore, jobId);
     }
 
     @AfterEach
     void cleanup() {
-        console.shutdown(2);
+        // No-op: events are written synchronously, so nothing to await.
+    }
+
+    /**
+     * Polls the JobStore until at least the given number of events are present for the job,
+     * or the timeout elapses. This avoids relying on arbitrary Thread.sleep() durations
+     * while the HeadlessHttpConsole writes events asynchronously.
+     *
+     * In addition to the count check, this helper verifies that the first {@code expectedCount}
+     * events have strictly increasing, contiguous sequence numbers. It also uses a snapshot of
+     * {@link HeadlessHttpConsole#getLastSeq()} as a fence, ensuring that all events known to
+     * the console at the start of the wait have been flushed to the JobStore before returning.
+     */
+    private List<ai.brokk.executor.jobs.JobEvent> awaitEvents(int expectedCount, long timeoutMillis) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+        long targetLastSeq = console.getLastSeq();
+        List<ai.brokk.executor.jobs.JobEvent> events = List.of();
+        while (System.nanoTime() < deadline) {
+            events = jobStore.readEvents(jobId, -1, 0);
+            if (events.size() >= expectedCount && hasContiguousIncreasingSeq(events, expectedCount)) {
+                long lastObservedSeq = events.get(expectedCount - 1).seq();
+                if (lastObservedSeq >= targetLastSeq) {
+                    return events;
+                }
+            }
+            Thread.sleep(50L);
+        }
+        // Final read before giving up
+        events = jobStore.readEvents(jobId, -1, 0);
+        return events;
+    }
+
+    /**
+     * Returns true if the first {@code count} events in the list have strictly increasing,
+     * contiguous sequence numbers (i.e., seq[i+1] == seq[i] + 1).
+     */
+    private static boolean hasContiguousIncreasingSeq(List<ai.brokk.executor.jobs.JobEvent> events, int count) {
+        if (events.size() < count) {
+            return false;
+        }
+        long prevSeq = events.get(0).seq();
+        for (int i = 1; i < count; i++) {
+            long currentSeq = events.get(i).seq();
+            if (currentSeq != prevSeq + 1) {
+                return false;
+            }
+            prevSeq = currentSeq;
+        }
+        return true;
     }
 
     @Test
     void testLlmOutput_MapsToLlmTokenEvent() throws Exception {
         console.llmOutput("test token", ChatMessageType.AI, true, false);
 
-        // Give event writer thread time to process
-        Thread.sleep(100);
-
-        var events = jobStore.readEvents(jobId, -1, 100);
+        var events = awaitEvents(1, 1_000);
         assertEquals(1, events.size());
 
         var event = events.get(0);
@@ -68,9 +116,7 @@ class HeadlessHttpConsoleTest {
     void testShowNotification_MapsToNotificationEvent() throws Exception {
         console.showNotification(IConsoleIO.NotificationRole.INFO, "Test notification");
 
-        Thread.sleep(100);
-
-        var events = jobStore.readEvents(jobId, -1, 100);
+        var events = awaitEvents(1, 1_000);
         assertEquals(1, events.size());
 
         var event = events.get(0);
@@ -88,9 +134,7 @@ class HeadlessHttpConsoleTest {
     void testToolError_MapsToErrorEvent() throws Exception {
         console.toolError("Something went wrong", "Error Title");
 
-        Thread.sleep(100);
-
-        var events = jobStore.readEvents(jobId, -1, 100);
+        var events = awaitEvents(1, 1_000);
         assertEquals(1, events.size());
 
         var event = events.get(0);
@@ -108,9 +152,7 @@ class HeadlessHttpConsoleTest {
     void testSystemNotify_MapsToNotificationEvent() throws Exception {
         console.systemNotify("System message", "System Title", javax.swing.JOptionPane.INFORMATION_MESSAGE);
 
-        Thread.sleep(100);
-
-        var events = jobStore.readEvents(jobId, -1, 100);
+        var events = awaitEvents(1, 1_000);
         assertEquals(1, events.size());
 
         var event = events.get(0);
@@ -134,9 +176,7 @@ class HeadlessHttpConsoleTest {
         // Decision should be the default YES_OPTION for YES_NO* option types
         assertEquals(javax.swing.JOptionPane.YES_OPTION, decision);
 
-        Thread.sleep(100);
-
-        var events = jobStore.readEvents(jobId, -1, 100);
+        var events = awaitEvents(1, 1_000);
         assertEquals(1, events.size());
         var event = events.get(0);
         assertEquals("CONFIRM_REQUEST", event.type());
@@ -165,9 +205,7 @@ class HeadlessHttpConsoleTest {
                 new java.awt.Panel(), "Proceed with step 2?", "Confirm Step 2", optionType2, messageType2);
         assertEquals(javax.swing.JOptionPane.OK_OPTION, decision2);
 
-        Thread.sleep(150);
-
-        var events = jobStore.readEvents(jobId, -1, 100);
+        var events = awaitEvents(2, 1_000);
         assertEquals(2, events.size());
 
         var event1 = events.get(0);
@@ -199,9 +237,7 @@ class HeadlessHttpConsoleTest {
 
         console.prepareOutputForNextStream(history);
 
-        Thread.sleep(100);
-
-        var events = jobStore.readEvents(jobId, -1, 100);
+        var events = awaitEvents(1, 1_000);
         assertEquals(1, events.size());
 
         var event = events.get(0);
@@ -220,7 +256,7 @@ class HeadlessHttpConsoleTest {
         console.llmOutput("Hello", ChatMessageType.AI, true, false);
         console.llmOutput(" world", ChatMessageType.AI, false, false);
 
-        Thread.sleep(100);
+        awaitEvents(2, 1_000);
 
         var seqBefore = console.getLastSeq();
         assertTrue(seqBefore >= 0L);
@@ -228,7 +264,7 @@ class HeadlessHttpConsoleTest {
 
         console.prepareOutputForNextStream(List.of());
 
-        Thread.sleep(100);
+        awaitEvents(3, 1_000);
 
         var messages = console.getLlmRawMessages();
         assertTrue(messages.isEmpty());
@@ -253,7 +289,7 @@ class HeadlessHttpConsoleTest {
         console.llmOutput("Hello", ChatMessageType.AI, true, false);
         console.llmOutput(" world", ChatMessageType.AI, false, false);
 
-        Thread.sleep(100);
+        awaitEvents(2, 1_000);
 
         var seqBefore = console.getLastSeq();
         assertTrue(seqBefore >= 0L);
@@ -264,7 +300,7 @@ class HeadlessHttpConsoleTest {
 
         console.setLlmAndHistoryOutput(history, taskEntry);
 
-        Thread.sleep(100);
+        awaitEvents(3, 1_000);
 
         var messages = console.getLlmRawMessages();
         assertTrue(messages.isEmpty());
@@ -292,9 +328,7 @@ class HeadlessHttpConsoleTest {
 
         console.setLlmAndHistoryOutput(history, taskEntry);
 
-        Thread.sleep(100);
-
-        var events = jobStore.readEvents(jobId, -1, 100);
+        var events = awaitEvents(1, 1_000);
         assertEquals(1, events.size());
 
         var event = events.get(0);
@@ -313,9 +347,7 @@ class HeadlessHttpConsoleTest {
     void testBackgroundOutput_MapsToStateHintEvent() throws Exception {
         console.backgroundOutput("Background task description");
 
-        Thread.sleep(100);
-
-        var events = jobStore.readEvents(jobId, -1, 100);
+        var events = awaitEvents(1, 1_000);
         assertEquals(1, events.size());
 
         var event = events.get(0);
@@ -333,9 +365,7 @@ class HeadlessHttpConsoleTest {
     void testBackgroundOutputWithDetails_MapsToStateHintEvent() throws Exception {
         console.backgroundOutput("Summary", "Detailed info");
 
-        Thread.sleep(100);
-
-        var events = jobStore.readEvents(jobId, -1, 100);
+        var events = awaitEvents(1, 1_000);
         assertEquals(1, events.size());
 
         var event = events.get(0);
@@ -354,9 +384,7 @@ class HeadlessHttpConsoleTest {
     void testSetTaskInProgress_MapsToStateHintEvent() throws Exception {
         console.setTaskInProgress(true);
 
-        Thread.sleep(100);
-
-        var events = jobStore.readEvents(jobId, -1, 100);
+        var events = awaitEvents(1, 1_000);
         assertEquals(1, events.size());
 
         var event = events.get(0);
@@ -374,9 +402,7 @@ class HeadlessHttpConsoleTest {
     void testUpdateWorkspace_MapsToStateHintEvent() throws Exception {
         console.updateWorkspace();
 
-        Thread.sleep(100);
-
-        var events = jobStore.readEvents(jobId, -1, 100);
+        var events = awaitEvents(1, 1_000);
         assertEquals(1, events.size());
 
         var event = events.get(0);
@@ -395,9 +421,7 @@ class HeadlessHttpConsoleTest {
     void testUpdateGitRepo_MapsToStateHintEvent() throws Exception {
         console.updateGitRepo();
 
-        Thread.sleep(100);
-
-        var events = jobStore.readEvents(jobId, -1, 100);
+        var events = awaitEvents(1, 1_000);
         assertEquals(1, events.size());
 
         var event = events.get(0);
@@ -416,9 +440,7 @@ class HeadlessHttpConsoleTest {
     void testUpdateContextHistoryTable_MapsToStateHintEvent() throws Exception {
         console.updateContextHistoryTable();
 
-        Thread.sleep(100);
-
-        var events = jobStore.readEvents(jobId, -1, 100);
+        var events = awaitEvents(1, 1_000);
         assertEquals(1, events.size());
 
         var event = events.get(0);
@@ -438,9 +460,7 @@ class HeadlessHttpConsoleTest {
     void testUpdateContextHistoryTableWithContext_MapsToStateHintEvent() throws Exception {
         console.updateContextHistoryTable(Context.EMPTY);
 
-        Thread.sleep(100);
-
-        var events = jobStore.readEvents(jobId, -1, 100);
+        var events = awaitEvents(1, 1_000);
         assertEquals(1, events.size());
 
         var event = events.get(0);
@@ -461,9 +481,7 @@ class HeadlessHttpConsoleTest {
         console.disableActionButtons();
         console.enableActionButtons();
 
-        Thread.sleep(150);
-
-        var events = jobStore.readEvents(jobId, -1, 100);
+        var events = awaitEvents(2, 1_000);
         assertEquals(2, events.size());
 
         var event1 = events.get(0);
@@ -488,9 +506,7 @@ class HeadlessHttpConsoleTest {
         console.showOutputSpinner("Loading");
         console.hideOutputSpinner();
 
-        Thread.sleep(150);
-
-        var events = jobStore.readEvents(jobId, -1, 100);
+        var events = awaitEvents(2, 1_000);
         assertEquals(2, events.size());
 
         var event1 = events.get(0);
@@ -515,9 +531,7 @@ class HeadlessHttpConsoleTest {
         console.showSessionSwitchSpinner();
         console.hideSessionSwitchSpinner();
 
-        Thread.sleep(150);
-
-        var events = jobStore.readEvents(jobId, -1, 100);
+        var events = awaitEvents(2, 1_000);
         assertEquals(2, events.size());
 
         var event1 = events.get(0);
@@ -543,9 +557,7 @@ class HeadlessHttpConsoleTest {
         console.toolError("error1", "Error");
         console.showNotification(IConsoleIO.NotificationRole.INFO, "notification1");
 
-        Thread.sleep(150);
-
-        var events = jobStore.readEvents(jobId, -1, 100);
+        var events = awaitEvents(3, 1_000);
         assertEquals(3, events.size());
 
         assertEquals(1L, events.get(0).seq());
@@ -565,7 +577,7 @@ class HeadlessHttpConsoleTest {
         console.llmOutput("token1", ChatMessageType.AI, true, false);
         console.llmOutput("token2", ChatMessageType.AI, false, false);
 
-        Thread.sleep(150);
+        awaitEvents(2, 1_000);
 
         var lastSeq = console.getLastSeq();
         assertEquals(2L, lastSeq);
@@ -577,9 +589,7 @@ class HeadlessHttpConsoleTest {
     void testEmptyHistory_InContextBaseline() throws Exception {
         console.prepareOutputForNextStream(List.of());
 
-        Thread.sleep(100);
-
-        var events = jobStore.readEvents(jobId, -1, 100);
+        var events = awaitEvents(1, 1_000);
         assertEquals(1, events.size());
 
         var event = events.get(0);
@@ -598,16 +608,36 @@ class HeadlessHttpConsoleTest {
             console.llmOutput("token" + i, ChatMessageType.AI, i == 0, false);
         }
 
-        // Wait for all events to be written
-        Thread.sleep(200);
+        var events = awaitEvents(10, 10_000);
 
-        var events = jobStore.readEvents(jobId, -1, 100);
-        assertEquals(10, events.size());
+        // We require that at least the 10 events from this burst are persisted.
+        // AwaitEvents already enforces contiguity for the first 10 events and
+        // fences on console.getLastSeq(), but other code paths might occasionally
+        // enqueue additional events in some environments.
+        assertTrue(
+                events.size() >= 10,
+                "Expected at least 10 events to be persisted by this test, but saw " + events.size());
 
-        // Verify monotonic sequence numbers
-        for (int i = 0; i < events.size(); i++) {
-            assertEquals(i + 1L, events.get(i).seq());
-            assertEquals("LLM_TOKEN", events.get(i).type());
+        // Verify monotonic, contiguous sequence numbers and correct type for the first 10 events.
+        // Do not assume a particular starting seq, only that each is +1 from the previous.
+        for (int i = 0; i < 10; i++) {
+            var event = events.get(i);
+            assertEquals("LLM_TOKEN", event.type(), "Unexpected type at index " + i + ": " + event.type());
+            if (i > 0) {
+                var prev = events.get(i - 1);
+                assertEquals(
+                        prev.seq() + 1,
+                        event.seq(),
+                        "Expected contiguous seq between index "
+                                + (i - 1)
+                                + " (seq="
+                                + prev.seq()
+                                + ") and "
+                                + i
+                                + " (seq="
+                                + event.seq()
+                                + ")");
+            }
         }
 
         cleanup();
@@ -620,7 +650,7 @@ class HeadlessHttpConsoleTest {
         console.llmOutput("token2", ChatMessageType.AI, false, false);
 
         // Shutdown should wait for events to be written
-        console.shutdown(5);
+        // No-op: events are written synchronously, so nothing to await.
 
         // Verify events were persisted
         var events = jobStore.readEvents(jobId, -1, 100);

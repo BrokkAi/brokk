@@ -14,21 +14,29 @@ public class RoundedLineBorder extends AbstractBorder {
     private final Color color;
     private final int thickness;
     private final int arc; // if < 0, compute from component height for a pill-like shape
+    private final int padding; // internal padding between border and content
 
     public RoundedLineBorder(Color color, int thickness, int arc) {
+        this(color, thickness, arc, 4); // default 4px padding
+    }
+
+    public RoundedLineBorder(Color color, int thickness, int arc, int padding) {
         this.color = color;
         this.thickness = Math.max(1, thickness);
         this.arc = arc;
+        this.padding = Math.max(0, padding);
     }
 
     @Override
     public Insets getBorderInsets(Component c) {
-        return new Insets(thickness, thickness, thickness, thickness);
+        int inset = thickness + padding;
+        return new Insets(inset, inset, inset, inset);
     }
 
     @Override
     public Insets getBorderInsets(Component c, Insets insets) {
-        insets.top = insets.left = insets.bottom = insets.right = thickness;
+        int inset = thickness + padding;
+        insets.top = insets.left = insets.bottom = insets.right = inset;
         return insets;
     }
 

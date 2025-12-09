@@ -125,9 +125,6 @@ public final class SearchBehaviorComparisonTest {
 
     @Test
     void testEmptyAndNonExistentPatterns() {
-        var jsEmpty = jsAnalyzer.searchDefinitions("");
-        assertTrue(jsEmpty.isEmpty(), "JavaScript analyzer should return empty list for empty pattern");
-
         var nonExistentPattern = "NonExistentSymbolXYZ123";
         var javaNonExistent = javaAnalyzer.searchDefinitions(nonExistentPattern);
         var jsNonExistent = jsAnalyzer.searchDefinitions(nonExistentPattern);

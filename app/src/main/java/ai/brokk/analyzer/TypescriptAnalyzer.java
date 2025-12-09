@@ -113,27 +113,27 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     ));
 
     public TypescriptAnalyzer(IProject project) {
-        super(project, Languages.TYPESCRIPT);
+        this(project, ProgressListener.NOOP);
     }
 
-    private TypescriptAnalyzer(IProject project, AnalyzerState state) {
-        super(project, Languages.TYPESCRIPT, state);
+    public TypescriptAnalyzer(IProject project, ProgressListener listener) {
+        super(project, Languages.TYPESCRIPT, listener);
+    }
+
+    private TypescriptAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
+        super(project, Languages.TYPESCRIPT, state, listener);
     }
 
     /**
      * Factory to create a snapshot-based analyzer from a prebuilt AnalyzerState.
      */
-    public static TypescriptAnalyzer fromState(IProject project, AnalyzerState state) {
-        return new TypescriptAnalyzer(project, state);
+    public static TypescriptAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+        return new TypescriptAnalyzer(project, state, listener);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state) {
-        return new TypescriptAnalyzer(getProject(), state);
-    }
-
-    private String cachedTextSliceStripped(TSNode node, String src) {
-        return textSlice(node, src).strip();
+    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+        return new TypescriptAnalyzer(getProject(), state, listener);
     }
 
     @Override
@@ -164,6 +164,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             String simpleName,
             String packageName,
             String classChain,
+            List<ScopeSegment> scopeChain,
             @Nullable TSNode definitionNode,
             SkeletonType skeletonType) {
         // In TypeScript, namespaces appear in BOTH packageName and classChain.
@@ -243,18 +244,11 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected @Nullable CodeUnit createCodeUnit(
-            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
-        SkeletonType skeletonType = getSkeletonTypeForCapture(captureName);
-        return createCodeUnit(file, captureName, simpleName, packageName, classChain, null, skeletonType);
-    }
-
-    @Override
-    protected String formatReturnType(@Nullable TSNode returnTypeNode, String src) {
+    protected String formatReturnType(@Nullable TSNode returnTypeNode, SourceContent sourceContent) {
         if (returnTypeNode == null || returnTypeNode.isNull()) {
             return "";
         }
-        String text = cachedTextSliceStripped(returnTypeNode, src);
+        String text = sourceContent.substringFrom(returnTypeNode).strip();
         // A type_annotation node in TS is typically ": type"
         // We only want the "type" part for the suffix.
         if (text.startsWith(":")) {
@@ -281,7 +275,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         return super.buildParentFqName(cu, classChain);
     }
 
-    private Optional<String> extractNamespacePath(TSNode definitionNode, String src) {
+    private Optional<String> extractNamespacePath(TSNode definitionNode, SourceContent sourceContent) {
         // Optimized: use ArrayDeque for O(1) prepend instead of ArrayList's O(n) addAll(0, ...)
         var namespaces = new java.util.ArrayDeque<String>();
         TSNode current = definitionNode.getParent();
@@ -301,7 +295,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             if ("internal_module".equals(nodeType)) {
                 TSNode nameNode = current.getChildByFieldName("name");
                 if (nameNode != null && !nameNode.isNull()) {
-                    String name = cachedTextSliceStripped(nameNode, src);
+                    String name = sourceContent.substringFrom(nameNode).strip();
                     // Manual dot-splitting instead of Splitter (faster, less overhead)
                     // Handles dotted namespace names: "A.B.C" -> ["A", "B", "C"]
                     // Parse dot-separated parts in order, then prepend entire list to deque
@@ -336,8 +330,9 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src) {
-        var namespacePath = extractNamespacePath(definitionNode, src);
+    protected String determinePackageName(
+            ProjectFile file, TSNode definitionNode, TSNode rootNode, SourceContent sourceContent) {
+        var namespacePath = extractNamespacePath(definitionNode, sourceContent);
         if (namespacePath.isPresent()) {
             return namespacePath.get();
         }
@@ -357,7 +352,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String renderFunctionDeclaration(
             TSNode funcNode,
-            String src,
+            SourceContent sourceContent,
             String exportAndModifierPrefix,
             String ignoredAsyncPrefix,
             String functionName,
@@ -382,8 +377,10 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         }
 
         if (hasBody) {
-            String signature = textSlice(funcNode.getStartByte(), bodyNode.getStartByte(), src)
-                    .strip();
+            int startByte = funcNode.getStartByte();
+            int endByte = bodyNode.getStartByte();
+            String signature =
+                    sourceContent.substringFromBytes(startByte, endByte).strip();
 
             String prefix = exportAndModifierPrefix.stripTrailing();
             if (!prefix.isEmpty() && !signature.startsWith(prefix)) {
@@ -463,7 +460,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String formatFieldSignature(
             TSNode fieldNode,
-            String src,
+            SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
             String baseIndent,
@@ -490,13 +487,19 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String renderClassHeader(
-            TSNode classNode, String src, String exportAndModifierPrefix, String signatureText, String baseIndent) {
+            TSNode classNode,
+            SourceContent sourceContent,
+            String exportAndModifierPrefix,
+            String signatureText,
+            String baseIndent) {
         // Use text slicing approach but include export prefix
         TSNode bodyNode =
                 classNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
         if (bodyNode != null && !bodyNode.isNull()) {
-            String signature = textSlice(classNode.getStartByte(), bodyNode.getStartByte(), src)
-                    .strip();
+            int startByte = classNode.getStartByte();
+            int endByte = bodyNode.getStartByte();
+            String signature =
+                    sourceContent.substringFromBytes(startByte, endByte).strip();
 
             // Prepend export and other modifiers if not already present
             String prefix = exportAndModifierPrefix.stripTrailing();
@@ -533,7 +536,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String getVisibilityPrefix(TSNode node, String src) {
+    protected String getVisibilityPrefix(TSNode node, SourceContent sourceContent) {
         // With keyword captures now in the query, this method is only called as a fallback
         // for cases not covered by query patterns (e.g., class/interface member modifiers).
         // The query handles export, default, declare, async, abstract, const, let, var at the top level.
@@ -553,7 +556,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         for (int i = 0; i < Math.min(nodeToCheck.getChildCount(), 6); i++) {
             TSNode child = nodeToCheck.getChild(i);
             if (child != null && !child.isNull()) {
-                String childText = cachedTextSliceStripped(child, src);
+                String childText = sourceContent.substringFrom(child).strip();
                 if (Set.of("abstract", "static", "readonly", "async", "const", "let", "var")
                         .contains(childText)) {
                     modifiers.append(childText).append(" ");
@@ -587,7 +590,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String enhanceFqName(String fqName, String captureName, TSNode definitionNode, String src) {
+    protected String enhanceFqName(
+            String fqName, String captureName, TSNode definitionNode, SourceContent sourceContent) {
         var skeletonType = getSkeletonTypeForCapture(captureName);
 
         // For function-like and field-like nodes in classes, check for modifiers
@@ -682,7 +686,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected boolean shouldSkipNode(TSNode node, String captureName, byte[] srcBytes) {
+    protected boolean shouldSkipNode(TSNode node, String captureName, SourceContent sourceContent) {
         // Skip method_definition nodes inside object literals to prevent duplicate FQNames.
         // Example: class field "shellIntegration" vs getter in object literal value.
         if ("method_definition".equals(node.getType())) {
@@ -932,7 +936,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected Optional<String> extractSimpleName(TSNode decl, String src) {
+    protected Optional<String> extractSimpleName(TSNode decl, SourceContent sourceContent) {
         // Provide default names for special TypeScript constructs that don't have explicit names
         String nodeType = decl.getType();
         if ("construct_signature".equals(nodeType)) {
@@ -944,14 +948,14 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         if ("call_signature".equals(nodeType)) {
             return Optional.of("[call]");
         }
-        return super.extractSimpleName(decl, src);
+        return super.extractSimpleName(decl, sourceContent);
     }
 
     @Override
     protected void buildFunctionSkeleton(
             TSNode funcNode,
             Optional<String> providedNameOpt,
-            String src,
+            SourceContent sourceContent,
             String indent,
             List<String> lines,
             String exportPrefix) {
@@ -960,13 +964,15 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             TSNode valueNode = funcNode.getChildByFieldName("value");
             if (valueNode != null && !valueNode.isNull() && "arrow_function".equals(valueNode.getType())) {
                 // Build the const/let declaration with arrow function
-                String fullDeclaration = textSlice(funcNode, src).strip();
+                String fullDeclaration = sourceContent.substringFrom(funcNode).strip();
 
                 // Replace function body with placeholder
                 TSNode bodyNode = valueNode.getChildByFieldName("body");
                 if (bodyNode != null && !bodyNode.isNull()) {
-                    String beforeBody = textSlice(funcNode.getStartByte(), bodyNode.getStartByte(), src)
-                            .strip();
+                    int startByte = funcNode.getStartByte();
+                    int endByte = bodyNode.getStartByte();
+                    String beforeBody =
+                            sourceContent.substringFromBytes(startByte, endByte).strip();
                     String signature = exportPrefix.stripTrailing() + " " + beforeBody + " " + bodyPlaceholder();
                     lines.add(indent + signature.stripLeading());
                 } else {
@@ -980,24 +986,24 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         if ("construct_signature".equals(funcNode.getType())) {
             TSNode typeNode = funcNode.getChildByFieldName("type");
             if (typeNode != null && !typeNode.isNull()) {
-                String typeText = textSlice(typeNode, src);
+                String typeText = sourceContent.substringFrom(typeNode);
                 String returnTypeText =
                         typeText.startsWith(":") ? typeText.substring(1).strip() : typeText;
 
                 var profile = getLanguageSyntaxProfile();
-                String functionName = extractSimpleName(funcNode, src).orElse("new");
+                String functionName = extractSimpleName(funcNode, sourceContent).orElse("new");
                 TSNode paramsNode = funcNode.getChildByFieldName(profile.parametersFieldName());
-                String paramsText = formatParameterList(paramsNode, src);
+                String paramsText = formatParameterList(paramsNode, sourceContent);
 
                 String typeParamsText = "";
                 TSNode typeParamsNode = funcNode.getChildByFieldName(profile.typeParametersFieldName());
                 if (typeParamsNode != null && !typeParamsNode.isNull()) {
-                    typeParamsText = textSlice(typeParamsNode, src);
+                    typeParamsText = sourceContent.substringFrom(typeParamsNode);
                 }
 
                 String signature = renderFunctionDeclaration(
                         funcNode,
-                        src,
+                        sourceContent,
                         exportPrefix,
                         "",
                         functionName,
@@ -1013,11 +1019,11 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         }
 
         // For all other cases, use the parent implementation
-        super.buildFunctionSkeleton(funcNode, providedNameOpt, src, indent, lines, exportPrefix);
+        super.buildFunctionSkeleton(funcNode, providedNameOpt, sourceContent, indent, lines, exportPrefix);
     }
 
     @Override
-    public Optional<String> extractClassName(String reference) {
+    public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForJsTs(reference);
     }
 
@@ -1048,7 +1054,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected @Nullable String extractSignature(String captureName, TSNode definitionNode, String src) {
+    protected @Nullable String extractSignature(
+            String captureName, TSNode definitionNode, SourceContent sourceContent) {
         // TypeScript uses signature merging for overloads (shouldMergeSignaturesForSameFqn = true).
         // We should NOT set the signature field on individual CodeUnits because it makes them unequal.
         // Instead, signature information is extracted during skeleton building and stored in
