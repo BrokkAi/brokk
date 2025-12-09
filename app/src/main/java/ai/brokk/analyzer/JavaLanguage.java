@@ -1,8 +1,8 @@
 package ai.brokk.analyzer;
 
-import ai.brokk.IProject;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependenciesPanel;
+import ai.brokk.project.IProject;
 import ai.brokk.util.Decompiler;
 import ai.brokk.util.Environment;
 import java.io.IOException;
@@ -47,14 +47,19 @@ public class JavaLanguage implements Language {
     }
 
     @Override
-    public IAnalyzer createAnalyzer(IProject project) {
-        return new JavaAnalyzer(project);
+    public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        return new JavaAnalyzer(project, listener);
     }
 
     @Override
-    public IAnalyzer loadAnalyzer(IProject project) {
-        // the LSP server component will handle loading in the cache
-        return createAnalyzer(project);
+    public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        var storage = getStoragePath(project);
+        return TreeSitterStateIO.load(storage)
+                .map(state -> {
+                    var analyzer = JavaAnalyzer.fromState(project, state, listener);
+                    return (IAnalyzer) analyzer;
+                })
+                .orElseGet(() -> createAnalyzer(project, listener));
     }
 
     @Override

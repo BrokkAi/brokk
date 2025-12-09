@@ -52,7 +52,7 @@ public class FragmentDtos {
 
     /** DTO for ProjectFile - contains root and relative path as strings. */
     @JsonTypeInfo(use = JsonTypeInfo.Id.NONE)
-    public record ProjectFileDto(String id, String repoRoot, String relPath)
+    public record ProjectFileDto(String id, String repoRoot, String relPath, @Nullable String snapshotText)
             implements PathFragmentDto { // id changed to String
         public ProjectFileDto {
             if (repoRoot.isEmpty()) {
@@ -62,15 +62,24 @@ public class FragmentDtos {
                 throw new IllegalArgumentException("relPath cannot be null or empty");
             }
         }
+
+        public ProjectFileDto(String id, String repoRoot, String relPath) {
+            this(id, repoRoot, relPath, null);
+        }
     }
 
     /** DTO for ExternalFile - contains absolute path as string. */
     @JsonTypeInfo(use = JsonTypeInfo.Id.NONE)
-    public record ExternalFileDto(String id, String absPath) implements PathFragmentDto { // id changed to String
+    public record ExternalFileDto(String id, String absPath, @Nullable String snapshotText)
+            implements PathFragmentDto { // id changed to String
         public ExternalFileDto {
             if (absPath.isEmpty()) {
                 throw new IllegalArgumentException("absPath cannot be null or empty");
             }
+        }
+
+        public ExternalFileDto(String id, String absPath) {
+            this(id, absPath, null);
         }
     }
 
@@ -85,12 +94,12 @@ public class FragmentDtos {
         }
     }
 
-    /** DTO for TaskEntry - represents a task history entry. */
+    /** DTO for TaskEntry - represents a task history entry with optional log and summary. */
     public record TaskEntryDto(int sequence, @Nullable TaskFragmentDto log, @Nullable String summaryContentId) {
         public TaskEntryDto {
-            // Exactly one of log or summary must be non-null (same constraint as TaskEntry)
-            if ((log == null) == (summaryContentId == null)) {
-                throw new IllegalArgumentException("Exactly one of log or summary must be non-null");
+            // At least one of log or summary must be non-null
+            if ((log == null) && (summaryContentId == null)) {
+                throw new IllegalArgumentException("At least one of log or summary must be non-null");
             }
             if (summaryContentId != null && summaryContentId.isEmpty()) {
                 throw new IllegalArgumentException("summaryContentId cannot be empty when present");
@@ -107,11 +116,16 @@ public class FragmentDtos {
     }
 
     /** DTO for ChatMessage - simplified representation with role and content. */
-    public record ChatMessageDto(String role, String contentId) {
+    public record ChatMessageDto(String role, String contentId, @Nullable String reasoningContentId) {
         public ChatMessageDto {
             if (role.isEmpty()) {
                 throw new IllegalArgumentException("role cannot be null or empty");
             }
+        }
+
+        /** Backward-compatible constructor for older code that doesn't provide reasoningContentId. */
+        public ChatMessageDto(String role, String contentId) {
+            this(role, contentId, null);
         }
     }
 
@@ -161,7 +175,8 @@ public class FragmentDtos {
     public record UsageFragmentDto(
             String id,
             String targetIdentifier,
-            @JsonProperty(value = "includeTestFiles", defaultValue = "false") boolean includeTestFiles)
+            @JsonProperty(value = "includeTestFiles", defaultValue = "false") boolean includeTestFiles,
+            @Nullable String snapshotText)
             implements VirtualFragmentDto { // id changed to String
         public UsageFragmentDto {
             if (targetIdentifier.isEmpty()) {
@@ -220,7 +235,7 @@ public class FragmentDtos {
     }
 
     /** DTO for CodeFragment - contains the fully qualified name of the code unit. */
-    public record CodeFragmentDto(String id, String fullyQualifiedName)
+    public record CodeFragmentDto(String id, String fullyQualifiedName, @Nullable String snapshotText)
             implements VirtualFragmentDto { // id changed to String
     }
 
@@ -334,9 +349,9 @@ public class FragmentDtos {
             @Nullable String primaryModelName,
             @Nullable String primaryModelReasoning) {
         public TaskEntryRefDto {
-            // Preserve existing invariant: exactly one of logId or summaryContentId must be non-null
-            if ((logId == null) == (summaryContentId == null)) {
-                throw new IllegalArgumentException("Exactly one of logId or summary must be non-null");
+            // At least one of logId or summaryContentId must be non-null (both can coexist)
+            if ((logId == null) && (summaryContentId == null)) {
+                throw new IllegalArgumentException("At least one of logId or summary must be non-null");
             }
             if (summaryContentId != null && summaryContentId.isEmpty()) {
                 throw new IllegalArgumentException("summaryContentId cannot be empty when present");

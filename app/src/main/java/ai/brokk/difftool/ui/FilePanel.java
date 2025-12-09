@@ -1,6 +1,5 @@
 package ai.brokk.difftool.ui;
 
-import ai.brokk.MainProject;
 import ai.brokk.difftool.doc.BufferDocumentChangeListenerIF;
 import ai.brokk.difftool.doc.BufferDocumentIF;
 import ai.brokk.difftool.doc.JMDocumentEvent;
@@ -13,6 +12,7 @@ import ai.brokk.gui.search.SearchableComponent;
 import ai.brokk.gui.theme.FontSizeAware;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.project.MainProject;
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Patch;
 import java.awt.*;
@@ -136,9 +136,11 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
     private void init() {
         visualComponentContainer = new JPanel(new BorderLayout());
+        visualComponentContainer.setBackground(UIManager.getColor("Panel.background"));
 
         // Initialize status panel for file notifications
         statusPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 2));
+        statusPanel.setBackground(UIManager.getColor("Panel.background"));
         statusLabel = new JLabel();
         statusLabel.setFont(statusLabel.getFont().deriveFont(Font.PLAIN, 11f));
         statusLabel.setForeground(new Color(204, 120, 50)); // Orange color for warnings
@@ -779,6 +781,11 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
+        // Update container panel backgrounds for theme changes
+        var bg = UIManager.getColor("Panel.background");
+        visualComponentContainer.setBackground(bg);
+        statusPanel.setBackground(bg);
+
         // Apply current theme
         String themeName = MainProject.getTheme();
         GuiTheme.loadRSyntaxTheme(themeName).ifPresent(theme -> {

@@ -3,7 +3,6 @@ package ai.brokk.gui.git;
 import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
-import ai.brokk.MainProject;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
@@ -20,6 +19,7 @@ import ai.brokk.gui.dialogs.CreatePullRequestDialog;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
+import ai.brokk.project.MainProject;
 import com.google.common.base.Splitter;
 import java.awt.*;
 import java.awt.event.ActionListener;
@@ -703,7 +703,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                     try {
                         final String content = getRepo().getFileContent(commitId, pf);
                         var fragment = new ContextFragment.GitFileFragment(pf, shortId, content);
-                        contextManager.addPathFragmentAsync(fragment);
+                        contextManager.addFragmentAsync(fragment);
                         success++;
                     } catch (GitAPIException ex) {
                         logger.warn("Error capturing {} at {}: {}", pf, commitId, ex.getMessage());

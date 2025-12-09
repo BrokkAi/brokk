@@ -5,7 +5,6 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
-import ai.brokk.IProject;
 import ai.brokk.Llm;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
@@ -13,6 +12,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.project.IProject;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.BuildOutputPreprocessor;
@@ -24,6 +24,7 @@ import ai.brokk.util.ExecutorConfig;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
 import com.github.mustachejava.MustacheFactory;
@@ -52,6 +53,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -368,8 +370,9 @@ public class BuildAgent {
             String buildLintCommand,
             String testAllCommand,
             String testSomeCommand,
-            Set<String> excludedDirectories,
-            @JsonSetter(nulls = Nulls.AS_EMPTY) Map<String, String> environmentVariables) {
+            @JsonDeserialize(as = java.util.LinkedHashSet.class) Set<String> excludedDirectories,
+            @JsonDeserialize(as = java.util.LinkedHashMap.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
+                    Map<String, String> environmentVariables) {
 
         @VisibleForTesting
         BuildDetails(
@@ -384,6 +387,7 @@ public class BuildAgent {
     }
 
     /** Determine the best verification command using the provided Context (no reliance on CM.topContext()). */
+    @Blocking
     public static @Nullable String determineVerificationCommand(Context ctx) throws InterruptedException {
         var cm = ctx.getContextManager();
 
@@ -410,12 +414,12 @@ public class BuildAgent {
 
         // Get ProjectFiles from editable and read-only fragments
         var projectFilesFromEditableOrReadOnly =
-                ctx.fileFragments().flatMap(fragment -> fragment.files().stream()); // No analyzer
+                ctx.fileFragments().flatMap(fragment -> fragment.files().join().stream()); // No analyzer
 
         // Get ProjectFiles specifically from SkeletonFragments among all virtual fragments
         var projectFilesFromSkeletons = ctx.virtualFragments()
                 .filter(vf -> vf.getType() == ContextFragment.FragmentType.SKELETON)
-                .flatMap(skeletonFragment -> skeletonFragment.files().stream()); // No analyzer
+                .flatMap(skeletonFragment -> skeletonFragment.files().join().stream()); // No analyzer
 
         // Combine all relevant ProjectFiles into a single set for checking against test files
         var workspaceFiles = Stream.concat(projectFilesFromEditableOrReadOnly, projectFilesFromSkeletons)
@@ -440,19 +444,15 @@ public class BuildAgent {
         return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
     }
 
-    /** Backwards-compatible shim using CM.liveContext(). Prefer the Context-based overload. */
-    public static @Nullable String determineVerificationCommand(IContextManager cm) throws InterruptedException {
-        return determineVerificationCommand(cm.liveContext());
-    }
-
     /**
-     * Runs {@link #determineVerificationCommand(IContextManager)} on the {@link ContextManager} background pool and
+     * Runs determineVerificationCommand on the {@link ContextManager} background pool and
      * delivers the result asynchronously.
      *
      * @return a {@link CompletableFuture} that completes on the background thread.
      */
     public static CompletableFuture<@Nullable String> determineVerificationCommandAsync(ContextManager cm) {
-        return cm.submitBackgroundTask("Determine build verification command", () -> determineVerificationCommand(cm));
+        return cm.submitBackgroundTask(
+                "Determine build verification command", () -> determineVerificationCommand(cm.liveContext()));
     }
 
     /**
@@ -722,6 +722,7 @@ public class BuildAgent {
      * <p>Returns empty string on success (or when no command is configured), otherwise the raw combined error/output
      * text.
      */
+    @Blocking
     public static String runVerification(IContextManager cm) throws InterruptedException {
         var interrupted = new AtomicReference<InterruptedException>(null);
         var updated = cm.pushContext(ctx -> {
@@ -745,6 +746,7 @@ public class BuildAgent {
      * Context-based overload that performs build/check and returns an updated Context with the build results. No pushes
      * are performed here; callers decide when to persist.
      */
+    @Blocking
     public static Context runVerification(Context ctx) throws InterruptedException {
         var cm = ctx.getContextManager();
         var io = cm.getIo();

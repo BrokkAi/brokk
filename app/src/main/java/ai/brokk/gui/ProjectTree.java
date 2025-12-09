@@ -2,12 +2,12 @@ package ai.brokk.gui;
 
 import ai.brokk.AnalyzerWrapper;
 import ai.brokk.ContextManager;
-import ai.brokk.FileSystemEventListener;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IProject;
+import ai.brokk.TrackedFileChangeListener;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.project.IProject;
 import ai.brokk.util.FileManagerUtil;
 import java.awt.*;
 import java.awt.datatransfer.Clipboard;
@@ -41,7 +41,7 @@ import org.jetbrains.annotations.Nullable;
  * A custom tree component for displaying project files with lazy loading, git tracking status, and interactive
  * features.
  */
-public class ProjectTree extends JTree implements FileSystemEventListener {
+public class ProjectTree extends JTree implements TrackedFileChangeListener {
     private static final Logger logger = LogManager.getLogger(ProjectTree.class);
     private static final String LOADING_PLACEHOLDER = "Loading...";
 
@@ -56,7 +56,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
         this.project = project;
         this.contextManager = contextManager;
         this.chrome = chrome;
-        this.contextManager.addFileSystemEventListener(this);
+        this.contextManager.addTrackedFileChangeListener(this);
 
         initializeTree();
         setupTreeBehavior(); // Includes mouse listeners and keyboard bindings now
@@ -65,7 +65,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
     @Override
     public void removeNotify() {
         super.removeNotify();
-        this.contextManager.removeFileSystemEventListener(this);
+        this.contextManager.removeTrackedFileChangeListener(this);
     }
 
     private void initializeTree() {

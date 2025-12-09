@@ -3,6 +3,8 @@ package ai.brokk;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 
+import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
 import dev.langchain4j.agent.tool.ToolSpecification;
@@ -37,8 +39,6 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public static final long FLEX_FIRST_TOKEN_TIMEOUT_SECONDS = 15L * 60L; // 15 minutes
     public static final long DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS = 2L * 60L; // 2 minutes
     public static final long NEXT_TOKEN_TIMEOUT_SECONDS = DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS;
-
-    public static final boolean GLOBAL_FORCE_TOOL_EMULATION = true;
 
     public static final String UNAVAILABLE = "AI is unavailable";
 
@@ -90,6 +90,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     // Helper record to store model name and reasoning level for checking
+    @com.google.errorprone.annotations.Immutable
     public record ModelConfig(String name, ReasoningLevel reasoning, ProcessingTier tier) {
         public ModelConfig(String name, ReasoningLevel reasoning) {
             this(name, reasoning, ProcessingTier.DEFAULT);
@@ -145,7 +146,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
                     .orElse(bands.getLast()); // fallback to last band if no match
         }
 
-        public double estimateCost(long uncachedInputTokens, long cachedTokens, long outputTokens) {
+        public double getCostFor(long uncachedInputTokens, long cachedTokens, long outputTokens) {
             var promptTokens = uncachedInputTokens + cachedTokens;
             var band = bandFor(promptTokens);
             return uncachedInputTokens * band.inputCostPerToken()
@@ -501,7 +502,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     public boolean isLazy(StreamingChatModel model) {
         String modelName = nameOf(model);
-        return !(modelName.contains("sonnet") || modelName.contains("gemini-2.5-pro"));
+        return !(modelName.contains("gpt-5") && !modelName.contains("mini") && !modelName.contains("nano"));
     }
 
     public boolean requiresEmulatedTools(StreamingChatModel model) {
@@ -516,10 +517,6 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         var info = getModelInfo(location);
         if (info == null) {
             logger.warn("Model info not found for location {}, assuming tool emulation required.", location);
-            return true;
-        }
-
-        if (GLOBAL_FORCE_TOOL_EMULATION) {
             return true;
         }
 

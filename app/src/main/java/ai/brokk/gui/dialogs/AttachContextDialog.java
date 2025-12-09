@@ -37,7 +37,6 @@ import javax.swing.BoxLayout;
 import javax.swing.ButtonGroup;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
-import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
@@ -60,7 +59,7 @@ import org.jetbrains.annotations.Nullable;
  * SkeletonProvider / SourceCodeProvider / UsagesProvider. - Registers an AnalyzerCallback to update gating as analyzer
  * state changes.
  */
-public class AttachContextDialog extends JDialog {
+public class AttachContextDialog extends BaseThemedDialog {
 
     public enum TabType {
         FILES,
@@ -123,13 +122,16 @@ public class AttachContextDialog extends JDialog {
     private ContextManager.AnalyzerCallback analyzerCallback;
 
     public AttachContextDialog(Frame parent, ContextManager cm) {
-        super(parent, "Attach Context", true);
+        super(parent, "Attach Context");
         this.cm = cm;
         this.hotkeyModifierString =
                 Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() == KeyEvent.CTRL_DOWN_MASK ? "Ctrl" : "⌘";
 
-        setLayout(new BorderLayout(8, 8));
         setResizable(false);
+
+        // Get the content root panel from BaseThemedDialog and configure its layout
+        JPanel root = getContentRoot();
+        root.setLayout(new BorderLayout(8, 8));
 
         // Segmented control (replaces JTabbedPane)
         tabBar.setLayout(new BoxLayout(tabBar, BoxLayout.X_AXIS));
@@ -226,7 +228,7 @@ public class AttachContextDialog extends JDialog {
         top.add(tabBar);
         top.add(searchAndSummarize);
 
-        add(top, BorderLayout.NORTH);
+        root.add(top, BorderLayout.NORTH);
 
         // Prepare autocomplete: default to Files
         filesProvider.setAutoActivationRules(
@@ -503,7 +505,9 @@ public class AttachContextDialog extends JDialog {
             return;
         }
 
-        Optional<CodeUnit> opt = analyzer.getDefinition(input).filter(CodeUnit::isClass);
+        Optional<CodeUnit> opt = analyzer.getDefinitions(input).stream()
+                .filter(CodeUnit::isClass)
+                .findFirst();
         if (opt.isEmpty()) {
             var s = analyzer.searchDefinitions(input).stream()
                     .filter(CodeUnit::isClass)
@@ -531,7 +535,9 @@ public class AttachContextDialog extends JDialog {
             return;
         }
 
-        Optional<CodeUnit> opt = analyzer.getDefinition(input).filter(CodeUnit::isFunction);
+        Optional<CodeUnit> opt = analyzer.getDefinitions(input).stream()
+                .filter(CodeUnit::isFunction)
+                .findFirst();
         if (opt.isEmpty()) {
             var s = analyzer.searchDefinitions(input).stream()
                     .filter(CodeUnit::isFunction)
@@ -560,10 +566,13 @@ public class AttachContextDialog extends JDialog {
         }
 
         // Find best matching symbol (class or method). Prefer method if exact.
-        Optional<CodeUnit> exactMethod = analyzer.getDefinition(input).filter(CodeUnit::isFunction);
+        Optional<CodeUnit> exactMethod = analyzer.getDefinitions(input).stream()
+                .filter(CodeUnit::isFunction)
+                .findFirst();
         Optional<CodeUnit> any = exactMethod.isPresent()
                 ? exactMethod
-                : analyzer.getDefinition(input)
+                : analyzer.getDefinitions(input).stream()
+                        .findFirst()
                         .or(() -> analyzer.searchDefinitions(input).stream().findFirst());
 
         if (summarizeCheck.isSelected() && any.isPresent() && any.get().isFunction()) {

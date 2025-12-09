@@ -1,8 +1,8 @@
 package ai.brokk.testutil;
 
-import ai.brokk.IProject;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
+import ai.brokk.project.IProject;
 
 public class AnalyzerCreator {
 
@@ -16,11 +16,8 @@ public class AnalyzerCreator {
     public static TreeSitterAnalyzer createTreeSitterAnalyzer(IProject project) {
         var language = project.getBuildLanguage();
         var analyzer = language.createAnalyzer(project);
-        if (analyzer instanceof TreeSitterAnalyzer treeSitterAnalyzer) {
-            return treeSitterAnalyzer;
-        } else {
-            throw new NoSupportedAnalyzerForTestProjectException(language);
-        }
+        return (TreeSitterAnalyzer) analyzer.subAnalyzer(language)
+                .orElseThrow(() -> new NoSupportedAnalyzerForTestProjectException(language));
     }
 
     static class NoSupportedAnalyzerForTestProjectException extends RuntimeException {

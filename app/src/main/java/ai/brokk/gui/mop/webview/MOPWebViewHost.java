@@ -3,11 +3,11 @@ package ai.brokk.gui.mop.webview;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.ContextManager;
-import ai.brokk.MainProject;
 import ai.brokk.TaskEntry;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
+import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
@@ -81,6 +81,8 @@ public final class MOPWebViewHost extends JPanel {
         record HistoryReset() implements HostCommand {}
 
         record HistoryTask(TaskEntry entry) implements HostCommand {}
+
+        record LiveSummary(int taskSequence, boolean compressed, String summary) implements HostCommand {}
     }
 
     public MOPWebViewHost() {
@@ -374,6 +376,12 @@ public final class MOPWebViewHost extends JPanel {
         bridge.sendEnvironmentInfo(analyzerReady);
     }
 
+    public void sendLiveSummary(int taskSequence, boolean compressed, String summary) {
+        sendOrQueue(
+                new HostCommand.LiveSummary(taskSequence, compressed, summary),
+                bridge -> bridge.sendLiveSummary(taskSequence, compressed, summary));
+    }
+
     public void addSearchStateListener(Consumer<MOPBridge.SearchState> l) {
         searchListeners.add(l);
         var bridge = bridgeRef.get();
@@ -532,6 +540,8 @@ public final class MOPWebViewHost extends JPanel {
                     case HostCommand.Clear ignored -> bridge.clear();
                     case HostCommand.HistoryReset ignored -> bridge.sendHistoryReset();
                     case HostCommand.HistoryTask ht -> bridge.sendHistoryTask(ht.entry());
+                    case HostCommand.LiveSummary ls ->
+                        bridge.sendLiveSummary(ls.taskSequence(), ls.compressed(), ls.summary());
                 }
             });
             pendingCommands.clear();

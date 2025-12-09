@@ -3,13 +3,12 @@ package ai.brokk.cli;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import ai.brokk.AbstractProject;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.MainProject;
+import ai.brokk.IContextManager;
+import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
-import ai.brokk.WorktreeProject;
 import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.CodeAgent;
@@ -20,30 +19,55 @@ import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.ContentDtos.ContentMetadataDto;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.DtoMapper;
+import ai.brokk.context.FragmentDtos.AllFragmentsDto;
+import ai.brokk.context.FragmentDtos.ReferencedFragmentDto;
+import ai.brokk.context.FragmentDtos.TaskFragmentDto;
+import ai.brokk.context.FragmentDtos.VirtualFragmentDto;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.InstructionsPanel;
+import ai.brokk.project.AbstractProject;
+import ai.brokk.project.MainProject;
+import ai.brokk.project.WorktreeProject;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.util.HistoryIo;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import picocli.CommandLine;
 
@@ -194,6 +218,7 @@ public final class BrokkCli implements Callable<Integer> {
     }
 
     @Override
+    @Blocking
     public Integer call() throws Exception {
 
         // Handle --list-models early exit
@@ -227,9 +252,10 @@ public final class BrokkCli implements Callable<Integer> {
                     "At most one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace) can be specified.");
             return 1;
         }
+        if (deepScan) actionCount++;
         if (actionCount == 0 && worktreePath == null) {
             System.err.println(
-                    "Exactly one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace) or --worktree is required.");
+                    "At least one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace, --deepscan) or --worktree is required.");
             return 1;
         }
 
@@ -295,12 +321,14 @@ public final class BrokkCli implements Callable<Integer> {
             if (actionCount == 0) {
                 return 0; // successfully created worktree and no other action was requested
             }
+            // If deepscan is the only action, continue to execute it below
             projectPath = worktreePath;
         }
 
         // Create Project + ContextManager
         var mainProject = new MainProject(projectPath);
         project = worktreePath == null ? mainProject : new WorktreeProject(worktreePath, mainProject);
+        logger.trace("Project files at {} are {}", project.getRepo().getCurrentCommitId(), project.getAllFiles());
         cm = new ContextManager(project);
 
         // Build BuildDetails from environment variables
@@ -417,7 +445,7 @@ public final class BrokkCli implements Callable<Integer> {
         for (var readFile : resolvedReadFiles) {
             var pf = cm.toFile(readFile);
             var fragment = new ContextFragment.ProjectPathFragment(pf, cm);
-            context = context.addPathFragments(List.of(fragment));
+            context = context.addFragments(fragment);
             context = context.setReadonly(fragment, true);
         }
 
@@ -441,15 +469,15 @@ public final class BrokkCli implements Callable<Integer> {
         // Add usages, callers, callees (simple fragment creation)
         for (var symbol : addUsages) {
             var fragment = new ContextFragment.UsageFragment(cm, symbol);
-            context = context.addVirtualFragment(fragment);
+            context = context.addFragments(fragment);
         }
         for (var entry : addCallers.entrySet()) {
             var fragment = new ContextFragment.CallGraphFragment(cm, entry.getKey(), entry.getValue(), false);
-            context = context.addVirtualFragment(fragment);
+            context = context.addFragments(fragment);
         }
         for (var entry : addCallees.entrySet()) {
             var fragment = new ContextFragment.CallGraphFragment(cm, entry.getKey(), entry.getValue(), true);
-            context = context.addVirtualFragment(fragment);
+            context = context.addFragments(fragment);
         }
 
         // Push accumulated context changes back to ContextManager
@@ -457,6 +485,17 @@ public final class BrokkCli implements Callable<Integer> {
         cm.pushContext(ctx -> finalContext);
 
         // --- Deep Scan ------------------------------------------------------
+        boolean isStandaloneDeepScan = deepScan
+                && architectPrompt == null
+                && codePrompt == null
+                && askPrompt == null
+                && searchAnswerPrompt == null
+                && lutzPrompt == null
+                && lutzLitePrompt == null
+                && !merge
+                && !build
+                && searchWorkspace == null;
+
         if (deepScan) {
             if (planModel == null) {
                 System.err.println("Deep Scan requires --planmodel to be specified.");
@@ -468,14 +507,30 @@ public final class BrokkCli implements Callable<Integer> {
                     IConsoleIO.NotificationRole.INFO,
                     ContextFragment.describe(cm.liveContext().allFragments()));
 
-            String goalForScan = Stream.of(architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt)
-                    .filter(s -> s != null && !s.isBlank())
-                    .findFirst()
-                    .orElseThrow();
-            var agent = new ContextAgent(cm, planModel, goalForScan);
-            var recommendations = agent.getRecommendations(cm.liveContext());
-            io.showNotification(
-                    IConsoleIO.NotificationRole.INFO, "Deep Scan token usage: " + recommendations.metadata());
+            String goalForScan = isStandaloneDeepScan
+                    ? "Analyze the workspace and suggest relevant context"
+                    : Stream.of(architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt)
+                            .filter(s -> s != null && !s.isBlank())
+                            .findFirst()
+                            .orElseThrow();
+
+            // Attempt to serve recommendation from local JSON cache keyed by commit + goal.
+            ContextAgent.RecommendationResult recommendations;
+
+            String cacheKey = computeCacheKey(goalForScan, project.getRepo());
+            var cached = readRecommendationFromCache(cacheKey, cm);
+            if (cached.isPresent()) {
+                recommendations = cached.get();
+            } else {
+                var agent = new ContextAgent(cm, planModel, goalForScan);
+                recommendations = agent.getRecommendations(cm.liveContext());
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "Deep Scan token usage: " + recommendations.metadata());
+                // Persist successful results to cache; failures are not cached.
+                if (recommendations.success() && getCacheMode().canWrite()) {
+                    writeRecommendationToCache(cacheKey, recommendations);
+                }
+            }
 
             if (recommendations.success()) {
                 io.showNotification(
@@ -487,14 +542,19 @@ public final class BrokkCli implements Callable<Integer> {
                 for (var fragment : recommendations.fragments()) {
                     switch (fragment.getType()) {
                         case SKELETON -> {
-                            cm.addVirtualFragment((ContextFragment.VirtualFragment) fragment);
+                            cm.addFragments(fragment);
                             io.showNotification(IConsoleIO.NotificationRole.INFO, "Added " + fragment);
                         }
-                        default -> cm.addSummaries(fragment.files(), Set.of());
+                        default -> cm.addSummaries(fragment.files().renderNowOr(Set.of()), Set.of());
                     }
                 }
             } else {
                 io.toolError("Deep Scan did not complete successfully: " + recommendations.reasoning());
+            }
+
+            // If deepscan is standalone, exit here with success
+            if (isStandaloneDeepScan || "true".equals(System.getenv().get("BRK_SCAN_ONLY"))) {
+                return 0;
             }
         }
 
@@ -857,4 +917,273 @@ public final class BrokkCli implements Callable<Integer> {
      * Model information for JSON serialization.
      */
     private record ModelInfo(String alias, String model) {}
+
+    // -------------------------
+    // CA cache helpers (JSON)
+    // -------------------------
+
+    /**
+     * Compute a deterministic cache key for ContextAgent recommendations.
+     */
+    private static String computeCacheKey(String goal, IGitRepo repo) {
+        MessageDigest md;
+        try {
+            md = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
+        md.update(goal.getBytes(StandardCharsets.UTF_8));
+        md.update(requireNonNull(repo.getRemoteUrl()).getBytes(StandardCharsets.UTF_8));
+        byte[] digest = md.digest();
+        return HexFormat.of().formatHex(digest);
+    }
+
+    private static Path getCaCacheDir() {
+        var home = Path.of(System.getProperty("user.home"));
+        var dir = home.resolve(".brokkbench").resolve("ca-cache");
+        try {
+            if (!Files.exists(dir)) {
+                Files.createDirectories(dir);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        return dir;
+    }
+
+    /**
+     * Cache mode derived from BRK_CONTEXT_CACHE.
+     *
+     * Supported values (case-insensitive):
+     *  - "RW" (default): read from and write to the cache.
+     *  - "READ": read from cache but do not write.
+     *  - "WRITE": write to cache but do not read.
+     *  - "OFF": neither read from nor write to the cache.
+     */
+    private enum CacheMode {
+        OFF(0),
+        READ(1),
+        WRITE(2),
+        RW(1 | 2);
+
+        private static final int READ_BIT = 1;
+        private static final int WRITE_BIT = 2;
+
+        private final int mask;
+
+        CacheMode(int mask) {
+            this.mask = mask;
+        }
+
+        boolean canRead() {
+            return (mask & READ_BIT) != 0;
+        }
+
+        boolean canWrite() {
+            return (mask & WRITE_BIT) != 0;
+        }
+    }
+
+    private static CacheMode getCacheMode() {
+        String val = System.getenv("BRK_CONTEXT_CACHE");
+        if (val == null || val.isBlank()) {
+            return CacheMode.RW;
+        }
+        return switch (val.trim().toUpperCase(Locale.ROOT)) {
+            case "READ" -> CacheMode.READ;
+            case "WRITE" -> CacheMode.WRITE;
+            case "OFF" -> CacheMode.OFF;
+            case "RW" -> CacheMode.RW;
+            default -> CacheMode.RW;
+        };
+    }
+
+    static Optional<ContextAgent.RecommendationResult> readRecommendationFromCache(String key, IContextManager mgr) {
+        CacheMode mode = getCacheMode();
+        if (!mode.canRead()) {
+            logger.debug(
+                    "Context cache mode {}: skipping read for key {} (BRK_CONTEXT_CACHE={})",
+                    mode,
+                    key,
+                    System.getenv("BRK_CONTEXT_CACHE"));
+            return Optional.empty();
+        }
+        var dir = getCaCacheDir();
+        var fileZip = dir.resolve(key + ".zip");
+        if (!Files.exists(fileZip)) {
+            return Optional.empty();
+        }
+
+        var mapper = AbstractProject.objectMapper;
+        AllFragmentsDto allFragmentsDto = null;
+        var contentBytesMap = new HashMap<String, byte[]>();
+        byte[] recommendationBytes = null;
+        Map<String, ContentMetadataDto> contentMetadata = Map.of();
+
+        try (var zis = new ZipInputStream(Files.newInputStream(fileZip))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                String entryName = entry.getName();
+                if (entryName.equals("fragments-v4.json")) {
+                    var bytes = zis.readAllBytes();
+                    allFragmentsDto = mapper.readValue(bytes, AllFragmentsDto.class);
+                } else if (entryName.equals("content_metadata.json")) {
+                    var typeRef = new TypeReference<Map<String, ContentMetadataDto>>() {};
+                    contentMetadata = mapper.readValue(zis.readAllBytes(), typeRef);
+                } else if (entryName.equals("recommendation.json")) {
+                    recommendationBytes = zis.readAllBytes();
+                } else if (entryName.startsWith("content/") && !entry.isDirectory()) {
+                    String contentId = entryName.substring("content/".length()).replaceFirst("\\.txt$", "");
+                    contentBytesMap.put(contentId, zis.readAllBytes());
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to read context cache zip {}: {}", fileZip, e.getMessage());
+            return Optional.empty();
+        }
+
+        if (allFragmentsDto == null || recommendationBytes == null) {
+            logger.debug("Incomplete cache zip for key {}, missing fragments or recommendation", key);
+            return Optional.empty();
+        }
+
+        var contentReader = new HistoryIo.ContentReader(contentBytesMap);
+        contentReader.setContentMetadata(contentMetadata);
+
+        // parse recommendation.json first to know which fragments we need
+        try {
+            JsonNode node = mapper.readTree(recommendationBytes);
+            boolean success = true;
+            String reasoning = "";
+            List<String> fragmentIds = new ArrayList<>();
+            var arr = node.path("fragmentIds");
+            if (arr.isArray()) {
+                arr.forEach(n -> fragmentIds.add(n.asText()));
+            }
+
+            // Attempt to restore metadata if present
+            Llm.ResponseMetadata metadata = null;
+            if (node.has("metadata") && !node.get("metadata").isNull()) {
+                metadata = mapper.treeToValue(node.get("metadata"), Llm.ResponseMetadata.class);
+            }
+
+            if (fragmentIds.isEmpty()) {
+                return Optional.of(new ContextAgent.RecommendationResult(success, List.of(), reasoning, metadata));
+            }
+
+            // Build only required fragments; require a non-null ContextManager
+            Map<String, ContextFragment> fragmentCache = new ConcurrentHashMap<>();
+            final var referencedDtosById = allFragmentsDto.referenced();
+            final var virtualDtosById = allFragmentsDto.virtual();
+            final var taskDtosById = allFragmentsDto.task();
+
+            fragmentIds.stream()
+                    .distinct()
+                    .forEach(id -> fragmentCache.computeIfAbsent(id, currentId -> {
+                        return DtoMapper.resolveAndBuildFragment(
+                                currentId,
+                                referencedDtosById,
+                                virtualDtosById,
+                                taskDtosById,
+                                mgr,
+                                /* imageBytesMap */ null,
+                                fragmentCache,
+                                contentReader);
+                    }));
+
+            List<ContextFragment> fragments = fragmentIds.stream()
+                    .map(fragmentCache::get)
+                    .filter(Objects::nonNull)
+                    .toList();
+
+            logger.debug("Successfully loaded recommendations from cache");
+            return Optional.of(new ContextAgent.RecommendationResult(success, fragments, reasoning, metadata));
+        } catch (Exception e) {
+            logger.warn("Failed to parse recommendation.json in cache {}: {}", fileZip, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    static void writeRecommendationToCache(String key, ContextAgent.RecommendationResult rec) throws IOException {
+        CacheMode mode = getCacheMode();
+        if (!mode.canWrite()) {
+            logger.debug(
+                    "Context cache mode {}: skipping write for key {} (BRK_CONTEXT_CACHE={})",
+                    mode,
+                    key,
+                    System.getenv("BRK_CONTEXT_CACHE"));
+            return;
+        }
+
+        var dir = getCaCacheDir();
+        var target = dir.resolve(key + ".zip");
+        var tmp = Files.createTempFile(
+                dir, key + ".zip.tmp.", Long.toString(Instant.now().toEpochMilli()));
+        var mapper = AbstractProject.objectMapper;
+
+        // Collect DTOs and content via DtoMapper + HistoryIo.ContentWriter
+        var writer = new HistoryIo.ContentWriter();
+        var collectedReferencedDtos = new HashMap<String, ReferencedFragmentDto>();
+        var collectedVirtualDtos = new HashMap<String, VirtualFragmentDto>();
+        var collectedTaskDtos = new HashMap<String, TaskFragmentDto>();
+
+        for (ContextFragment fragment : rec.fragments()) {
+            if (fragment instanceof ContextFragment.ProjectPathFragment) {
+                collectedReferencedDtos.put(fragment.id(), DtoMapper.toReferencedFragmentDto(fragment, writer));
+            } else if (!collectedVirtualDtos.containsKey(fragment.id())) {
+                var fragmentDto = DtoMapper.toVirtualFragmentDto(fragment, writer);
+                if (fragmentDto != null) collectedVirtualDtos.put(fragment.id(), fragmentDto);
+            } else {
+                throw new IllegalArgumentException(
+                        "Unhandled ContextFragment type for cache serialization: " + fragment.getClass());
+            }
+        }
+
+        var allFragmentsDto = new AllFragmentsDto(4, collectedReferencedDtos, collectedVirtualDtos, collectedTaskDtos);
+        byte[] fragmentsBytes = mapper.writeValueAsBytes(allFragmentsDto);
+
+        // Build recommendation.json content referencing fragment ids
+        var fragmentIds = rec.fragments().stream().map(ContextFragment::id).toList();
+        var recommendationMap = new HashMap<String, Object>();
+        recommendationMap.put("fragmentIds", fragmentIds);
+        recommendationMap.put("metadata", rec.metadata()); // may be null; objectMapper will handle
+
+        byte[] recommendationBytes = mapper.writeValueAsBytes(recommendationMap);
+
+        // Write zip
+        try (var out = Files.newOutputStream(tmp);
+                var zos = new java.util.zip.ZipOutputStream(out)) {
+
+            zos.putNextEntry(new ZipEntry("fragments-v4.json"));
+            zos.write(fragmentsBytes);
+            zos.closeEntry();
+
+            // content metadata
+            zos.putNextEntry(new ZipEntry("content_metadata.json"));
+            var typeRef = new TypeReference<Map<String, ContentMetadataDto>>() {};
+            byte[] contentMetadataBytes = mapper.writerFor(typeRef).writeValueAsBytes(writer.getContentMetadata());
+            zos.write(contentMetadataBytes);
+            zos.closeEntry();
+
+            // write content files
+            for (var entry : writer.getContentBytes().entrySet()) {
+                zos.putNextEntry(new ZipEntry("content/" + entry.getKey() + ".txt"));
+                zos.write(entry.getValue());
+                zos.closeEntry();
+            }
+
+            // recommendation
+            zos.putNextEntry(new ZipEntry("recommendation.json"));
+            zos.write(recommendationBytes);
+            zos.closeEntry();
+        }
+
+        // Move temp to final atomically if possible
+        try {
+            Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            logger.debug("Atomic move not supported or failed for {}, attempting non-atomic move.", target);
+            Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
 }

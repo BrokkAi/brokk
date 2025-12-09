@@ -258,6 +258,7 @@ public class JavaAnalyzerTest {
     @Test
     public void getAllClassesTest() {
         final var classes = analyzer.getAllDeclarations().stream()
+                .filter(CodeUnit::isClass)
                 .map(CodeUnit::fqName)
                 .sorted()
                 .toList();
@@ -286,6 +287,8 @@ public class JavaAnalyzerTest {
                 "Interface",
                 "MethodReferenceUsage",
                 "MethodReturner",
+                "Overloads",
+                "OverloadsUser",
                 "ServiceImpl",
                 "ServiceInterface",
                 "UseE",
@@ -332,7 +335,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void testGetDefinitionForClass() {
-        var classDDef = analyzer.getDefinition("D");
+        var classDDef = analyzer.getDefinitions("D").stream().findFirst();
         assertTrue(classDDef.isPresent(), "Should find definition for class 'D'");
         assertEquals("D", classDDef.get().fqName());
         assertTrue(classDDef.get().isClass());
@@ -340,7 +343,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void testGetDefinitionForMethod() {
-        var method1Def = analyzer.getDefinition("A.method1");
+        var method1Def = analyzer.getDefinitions("A.method1").stream().findFirst();
         assertTrue(method1Def.isPresent(), "Should find definition for method 'A.method1'");
         assertEquals("A.method1", method1Def.get().fqName());
         assertTrue(method1Def.get().isFunction());
@@ -348,7 +351,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void testGetDefinitionForField() {
-        var field1Def = analyzer.getDefinition("D.field1");
+        var field1Def = analyzer.getDefinitions("D.field1").stream().findFirst();
         assertTrue(field1Def.isPresent(), "Should find definition for field 'D.field1'");
         assertEquals("D.field1", field1Def.get().fqName());
         assertFalse(field1Def.get().isClass());
@@ -357,7 +360,8 @@ public class JavaAnalyzerTest {
 
     @Test
     public void testGetDefinitionNonExistent() {
-        var nonExistentDef = analyzer.getDefinition("NonExistentSymbol");
+        var nonExistentDef =
+                analyzer.getDefinitions("NonExistentSymbol").stream().findFirst();
         assertFalse(nonExistentDef.isPresent(), "Should not find definition for non-existent symbol");
     }
 
@@ -386,7 +390,7 @@ public class JavaAnalyzerTest {
 
     @Test
     public void getDirectClassChildren() {
-        final var maybeClassD = analyzer.getDefinition("D");
+        final var maybeClassD = analyzer.getDefinitions("D").stream().findFirst();
         assertTrue(maybeClassD.isPresent());
         final var maybeFile = AnalyzerUtil.getFileFor(analyzer, "D");
         assertTrue(maybeFile.isPresent());
@@ -767,7 +771,7 @@ public class JavaAnalyzerTest {
 
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeModule = analyzer.getDefinition("p1");
+            var maybeModule = analyzer.getDefinitions("p1").stream().findFirst();
             assertTrue(maybeModule.isPresent(), "Module CodeUnit for package 'p1' should be created");
             var module = maybeModule.get();
             assertTrue(module.isModule(), "Found CodeUnit should be a MODULE type");
@@ -797,7 +801,7 @@ public class JavaAnalyzerTest {
 
             var analyzer = createTreeSitterAnalyzer(testProject);
 
-            var maybeModule = analyzer.getDefinition("p2");
+            var maybeModule = analyzer.getDefinitions("p2").stream().findFirst();
             assertTrue(maybeModule.isPresent(), "Module CodeUnit for package 'p2' should be created");
             var module = maybeModule.get();
             assertTrue(module.isModule(), "Found CodeUnit should be a MODULE type");

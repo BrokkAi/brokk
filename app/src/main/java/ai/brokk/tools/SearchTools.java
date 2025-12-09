@@ -338,12 +338,14 @@ public class SearchTools {
 
         var analyzer = getAnalyzer();
         classNames.stream().distinct().filter(s -> !s.isBlank()).forEach(className -> {
-            var cuOpt = analyzer.getDefinition(className);
-            if (cuOpt.isPresent() && cuOpt.get().isClass()) {
+            var cuOpt = analyzer.getDefinitions(className).stream()
+                    .filter(CodeUnit::isClass)
+                    .findFirst();
+            if (cuOpt.isPresent()) {
                 var cu = cuOpt.get();
                 if (added.add(cu.fqName())) {
                     var fragment = new ContextFragment.CodeFragment(contextManager, cu);
-                    var text = fragment.text();
+                    var text = fragment.text().join();
                     if (!text.isEmpty()) {
                         if (!result.isEmpty()) {
                             result.append("\n\n");
@@ -381,7 +383,7 @@ public class SearchTools {
         List<String> notFound = new ArrayList<>();
 
         symbols.stream().distinct().filter(s -> !s.isBlank()).forEach(symbol -> {
-            var cuOpt = analyzer.getDefinition(symbol);
+            var cuOpt = analyzer.getDefinitions(symbol).stream().findFirst();
             if (cuOpt.isPresent()) {
                 var cu = cuOpt.get();
                 var filepath = cu.source().toString();
@@ -422,12 +424,14 @@ public class SearchTools {
 
         var analyzer = getAnalyzer();
         methodNames.stream().distinct().filter(s -> !s.isBlank()).forEach(methodName -> {
-            var cuOpt = analyzer.getDefinition(methodName);
-            if (cuOpt.isPresent() && cuOpt.get().isFunction()) {
+            var cuOpt = analyzer.getDefinitions(methodName).stream()
+                    .filter(CodeUnit::isFunction)
+                    .findFirst();
+            if (cuOpt.isPresent()) {
                 var cu = cuOpt.get();
                 if (added.add(cu.fqName())) {
                     var fragment = new ContextFragment.CodeFragment(contextManager, cu);
-                    var text = fragment.text();
+                    var text = fragment.text().join();
                     if (!text.isEmpty()) {
                         if (!result.isEmpty()) {
                             result.append("\n\n");

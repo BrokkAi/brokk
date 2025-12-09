@@ -2,8 +2,8 @@ package ai.brokk.git;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.MainProject;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
@@ -901,12 +901,8 @@ public class GitRepo implements Closeable, IGitRepo {
      * branch name)
      */
     public void checkoutRemoteBranch(String remoteBranchName) throws GitAPIException {
-        String branchName;
-        if (remoteBranchName.contains("/")) {
-            branchName = remoteBranchName.substring(remoteBranchName.indexOf('/') + 1);
-        } else {
-            branchName = remoteBranchName;
-        }
+        var ref = GitRepoRemote.RemoteBranchRef.parse(remoteBranchName);
+        var branchName = ref != null ? ref.branchName() : remoteBranchName;
         checkoutRemoteBranch(remoteBranchName, branchName);
     }
 
@@ -1969,6 +1965,15 @@ public class GitRepo implements Closeable, IGitRepo {
     @Override
     public @Nullable String getRemoteUrl() {
         return remote().getUrl();
+    }
+
+    /**
+     * Get the URL of the origin remote with fallback to target remote.
+     * Preferred for GitHub PR operations.
+     */
+    @Override
+    public @Nullable String getOriginRemoteUrl() {
+        return remote().getOriginUrlWithFallback();
     }
 
     /**

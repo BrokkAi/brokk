@@ -17,6 +17,7 @@ import ai.brokk.gui.DiffWindowManager;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.ResponsiveButtonPanel;
+import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitDiffUiUtil;
@@ -308,6 +309,10 @@ public class GitCommitTab extends JPanel implements ThemeAware {
         });
         buttonPanel.add(resolveConflictsButton);
 
+        // Fix button widths to accommodate all text variants, preventing layout shifts
+        fixButtonWidth(commitButton, "Commit All...", "Commit Selected...");
+        fixButtonWidth(stashButton, "Stash All", "Stash Selected");
+
         // Table selection => update commit button text and enable/disable buttons
         uncommittedFilesTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
@@ -456,6 +461,21 @@ public class GitCommitTab extends JPanel implements ThemeAware {
         // Let the horizontal scroll handle overflow; no wrapping or panel-wide revalidation necessary
         buttonPanel.revalidate();
         buttonPanel.repaint();
+    }
+
+    /**
+     * Sets a fixed preferred width on the button to accommodate the widest text variant.
+     */
+    private static void fixButtonWidth(AbstractButton button, String... textVariants) {
+        var fm = button.getFontMetrics(button.getFont());
+        var insets = button.getInsets();
+        int maxTextWidth = 0;
+        for (var text : textVariants) {
+            maxTextWidth = Math.max(maxTextWidth, fm.stringWidth(text));
+        }
+        int fixedWidth = maxTextWidth + insets.left + insets.right;
+        var pref = button.getPreferredSize();
+        button.setPreferredSize(new Dimension(fixedWidth, pref.height));
     }
 
     /**
@@ -677,7 +697,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                         .filter(pf -> contextManager
                                 .liveContext()
                                 .allFragments()
-                                .noneMatch(f -> f.files().contains(pf)))
+                                .noneMatch(f -> f.files().join().contains(pf)))
                         .collect(Collectors.toSet());
 
                 // 2. Add all selected files to the workspace to snapshot their current state.
@@ -703,8 +723,9 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                         .map(f -> {
                             var ppf = (ContextFragment.ProjectPathFragment) f;
                             try {
-                                ProjectFile pf = (ProjectFile) ppf.file();
-                                return new ContextHistory.DeletedFile(pf, ppf.text(), true);
+                                ProjectFile pf = ppf.file();
+                                return new ContextHistory.DeletedFile(
+                                        pf, ppf.text().join(), true);
                             } catch (UncheckedIOException e) {
                                 logger.error("Could not read content for new file being rolled back: " + ppf.file(), e);
                                 return null;
@@ -858,8 +879,9 @@ Would you like to resolve these conflicts with the Merge Agent?
                         .formatted(conflict.state(), conflict.otherCommitId(), conflictCount);
 
         // Create custom dialog with instructions textarea
-        var dialog = new JDialog(chrome.getFrame(), "Merge Conflicts Detected", true);
-        dialog.setLayout(new BorderLayout(Constants.H_GAP, Constants.V_GAP));
+        var dialog = new BaseThemedDialog(chrome.getFrame(), "Merge Conflicts Detected");
+        var root = dialog.getContentRoot();
+        root.setLayout(new BorderLayout(Constants.H_GAP, Constants.V_GAP));
 
         // Message panel
         var messageArea = new JTextArea(message);
@@ -909,9 +931,9 @@ Would you like to resolve these conflicts with the Merge Agent?
         dialogButtonPanel.add(cancelButton);
 
         // Layout
-        dialog.add(messagePanel, BorderLayout.NORTH);
-        dialog.add(customPanel, BorderLayout.CENTER);
-        dialog.add(dialogButtonPanel, BorderLayout.SOUTH);
+        root.add(messagePanel, BorderLayout.NORTH);
+        root.add(customPanel, BorderLayout.CENTER);
+        root.add(dialogButtonPanel, BorderLayout.SOUTH);
 
         dialog.pack();
         dialog.setLocationRelativeTo(chrome.getFrame());
@@ -939,8 +961,9 @@ Would you like to resolve these conflicts with the Merge Agent?
                         .formatted(conflict.state(), conflict.otherCommitId(), conflictCount);
 
         // Create custom dialog with instructions textarea
-        var dialog = new JDialog(chrome.getFrame(), "Merge Conflicts Detected", true);
-        dialog.setLayout(new BorderLayout(Constants.H_GAP, Constants.V_GAP));
+        var dialog = new BaseThemedDialog(chrome.getFrame(), "Merge Conflicts Detected");
+        var root = dialog.getContentRoot();
+        root.setLayout(new BorderLayout(Constants.H_GAP, Constants.V_GAP));
 
         // Message panel
         var messageArea = new JTextArea(message);
@@ -990,9 +1013,9 @@ Would you like to resolve these conflicts with the Merge Agent?
         dialogButtonPanel.add(cancelButton);
 
         // Layout
-        dialog.add(messagePanel, BorderLayout.NORTH);
-        dialog.add(customPanel, BorderLayout.CENTER);
-        dialog.add(dialogButtonPanel, BorderLayout.SOUTH);
+        root.add(messagePanel, BorderLayout.NORTH);
+        root.add(customPanel, BorderLayout.CENTER);
+        root.add(dialogButtonPanel, BorderLayout.SOUTH);
 
         dialog.pack();
         dialog.setLocationRelativeTo(chrome.getFrame());

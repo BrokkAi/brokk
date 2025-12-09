@@ -2,8 +2,8 @@ package ai.brokk.prompts;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-import ai.brokk.IProject;
 import ai.brokk.difftool.performance.PerformanceConstants;
+import ai.brokk.project.IProject;
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Chunk;
 import com.github.difflib.patch.DeltaType;

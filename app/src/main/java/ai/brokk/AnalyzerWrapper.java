@@ -4,17 +4,18 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.IWatchService.EventBatch;
 import ai.brokk.agents.BuildAgent;
-import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.project.IProject;
 import ai.brokk.util.LoggingExecutorService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
@@ -25,12 +26,12 @@ import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper {
     private final Logger logger = LogManager.getLogger(AnalyzerWrapper.class);
 
-    @Nullable
     private final AnalyzerListener listener; // can be null if no one is listening
 
     private final Path root;
@@ -51,60 +52,8 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
     // Dedicated single-threaded executor for analyzer refresh tasks
     private final LoggingExecutorService analyzerExecutor;
     private volatile @Nullable Thread analyzerExecutorThread;
-
-    /**
-     * Creates an AnalyzerWrapper with an AnalyzerListener.
-     * Creates a temporary UI listener internally for backward compatibility.
-     * @deprecated Use {@link #AnalyzerWrapper(IProject, AnalyzerListener, IWatchService)} instead
-     */
-    @Deprecated
-    @SuppressWarnings("InlineMeSuggester")
-    public AnalyzerWrapper(IProject project, @Nullable AnalyzerListener listener) {
-        this(project, listener, (IWatchService) null);
-    }
-
-    /**
-     * Creates an AnalyzerWrapper with separate listeners for analyzer and file system events.
-     * @param project The project to analyze
-     * @param analyzerListener Listener for analyzer lifecycle events (can be null)
-     * @param fileWatchListener Additional file watch listener (e.g., from ContextManager). If null, creates temporary uiListener.
-     * @deprecated Use {@link #AnalyzerWrapper(IProject, AnalyzerListener, IWatchService)} and add listeners via watchService.addListener()
-     */
-    @Deprecated
-    public AnalyzerWrapper(
-            IProject project,
-            @Nullable AnalyzerListener analyzerListener,
-            @Nullable IWatchService.Listener fileWatchListener) {
-        this.project = project;
-        this.root = project.getRoot();
-        gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
-        this.listener = analyzerListener;
-
-        if (analyzerListener == null) {
-            this.watchService = new IWatchService() {};
-        } else {
-            Path globalGitignorePath = null;
-            if (project instanceof AbstractProject abstractProject) {
-                globalGitignorePath = abstractProject.getGlobalGitignorePath().orElse(null);
-            }
-            // Build list of listeners
-            var listeners = new ArrayList<IWatchService.Listener>();
-            listeners.add(this); // Analyzer listener
-
-            // Add file watch listener if provided
-            if (fileWatchListener != null) {
-                listeners.add(fileWatchListener);
-            }
-            // Note: If no fileWatchListener is provided, only analyzer events will be handled.
-            // Callers should use the new constructor and add their own listeners via watchService.addListener()
-
-            this.watchService = new ProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
-        }
-
-        // Initialize executor and analyzer
-        this.analyzerExecutor = createAnalyzerExecutor();
-        submitInitialAnalyzerBuild();
-    }
+    private boolean readyForWatcherEvents = false;
+    private final List<EventBatch> queuedWatcherEvents = new ArrayList<>();
 
     /**
      * Creates an AnalyzerWrapper with an injected watch service.
@@ -115,20 +64,15 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
      * @param analyzerListener Listener for analyzer lifecycle events (can be null for headless mode)
      * @param watchService The watch service to use (can be null for headless mode or testing)
      */
-    public AnalyzerWrapper(
-            IProject project, @Nullable AnalyzerListener analyzerListener, @Nullable IWatchService watchService) {
+    public AnalyzerWrapper(IProject project, AnalyzerListener analyzerListener, @NotNull IWatchService watchService) {
         this.project = project;
         this.root = project.getRoot();
         this.gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
         this.listener = analyzerListener;
 
         // Use provided watch service or create stub for headless mode
-        this.watchService = watchService != null ? watchService : new IWatchService() {};
-
-        // Register self as listener if we have both a real watch service and an analyzer listener
-        if (watchService != null && analyzerListener != null) {
-            watchService.addListener(this);
-        }
+        this.watchService = watchService;
+        watchService.addListener(this);
 
         // Initialize executor and analyzer
         this.analyzerExecutor = createAnalyzerExecutor();
@@ -161,17 +105,14 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
      */
     private void submitInitialAnalyzerBuild() {
         analyzerExecutor.submit(() -> {
-            // Watcher will wait for the future to complete before processing events,
-            // but it will start watching files immediately in order not to miss any changes in the meantime.
-            var delayNotificationsUntilCompleted = new CompletableFuture<Void>();
-            watchService.start(delayNotificationsUntilCompleted);
-
-            // Loading the analyzer with `Optional.empty` tells the analyzer to determine changed files on its own
             long start = System.currentTimeMillis();
             currentAnalyzer = loadOrCreateAnalyzer();
             long durationMs = System.currentTimeMillis() - start;
 
-            delayNotificationsUntilCompleted.complete(null);
+            analyzerExecutor.submit(() -> {
+                readyForWatcherEvents = true;
+                processQueuedWatcherEvents();
+            });
 
             // debug logging
             final var metrics = currentAnalyzer.getMetrics();
@@ -185,9 +126,31 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         });
     }
 
+    private void processQueuedWatcherEvents() {
+        logger.debug("Processing {} queued watcher event batches", queuedWatcherEvents.size());
+        List<EventBatch> localQueuedEvents;
+        synchronized (queuedWatcherEvents) {
+            localQueuedEvents = new ArrayList<>(queuedWatcherEvents);
+            queuedWatcherEvents.clear();
+        }
+
+        for (var batch : localQueuedEvents) {
+            onFilesChanged(batch);
+        }
+    }
+
     @Override
     public void onFilesChanged(EventBatch batch) {
         logger.trace("AnalyzerWrapper received events batch: {}", batch);
+        if (!readyForWatcherEvents) {
+            synchronized (queuedWatcherEvents) {
+                if (!readyForWatcherEvents) {
+                    logger.debug("AnalyzerWrapper not ready for watcher events yet, queuing batch");
+                    queuedWatcherEvents.add(batch);
+                    return;
+                }
+            }
+        }
 
         // AnalyzerWrapper now focuses only on analyzer-relevant changes.
         // Git metadata and tracked file change notifications are handled by ContextManager's listener.
@@ -211,10 +174,8 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
                     batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir));
             if (batch.isOverflowed || gitMetaTouched) {
                 logger.debug("Changes in git metadata directory ({}) detected", gitRepoRoot.resolve(".git"));
-                if (listener != null) {
-                    listener.onRepoChange();
-                    listener.onTrackedFileChange(); // Tracked files can also change as a result, e.g. git add <files>
-                }
+                listener.onRepoChange();
+                listener.onTrackedFileChange(); // Tracked files can also change as a result, e.g. git add <files>
             }
         }
 
@@ -280,7 +241,8 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         if (externalRebuildRequested) {
             long count = idlePollTriggeredRebuilds.incrementAndGet();
             logger.debug("Idle-poll triggered external rebuild #{}", count);
-            refresh(prev -> getLanguageHandle().createAnalyzer(project));
+            IAnalyzer.ProgressListener progressListener = listener::onProgress;
+            refresh(prev -> getLanguageHandle().createAnalyzer(project, progressListener));
             externalRebuildRequested = false;
         }
     }
@@ -315,9 +277,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         }
 
         /* ── 1.  Pre‑flight notifications & build details ───────────────────────────── */
-        if (listener != null) {
-            listener.beforeEachBuild();
-        }
+        listener.beforeEachBuild();
 
         logger.debug("Waiting for build details");
         BuildAgent.BuildDetails buildDetails = project.awaitBuildDetails();
@@ -340,10 +300,13 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         }
 
         /* ── 3.  Load or build the analyzer via the Language handle ─────────────────── */
+        // Create progress listener to pass through construction
+        IAnalyzer.ProgressListener progressListener = listener::onProgress;
+
         IAnalyzer analyzer;
         try {
             logger.debug("Attempting to load existing analyzer");
-            analyzer = langHandle.loadAnalyzer(project);
+            analyzer = langHandle.loadAnalyzer(project, progressListener);
             logger.info(
                     "Loaded existing analyzer: {} for directory: {}",
                     analyzer.getClass().getSimpleName(),
@@ -351,7 +314,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         } catch (Throwable th) {
             // cache missing or corrupt, rebuild
             logger.warn(th);
-            analyzer = langHandle.createAnalyzer(project);
+            analyzer = langHandle.createAnalyzer(project, progressListener);
             logger.info(
                     "Created new analyzer: {} for directory: {}",
                     analyzer.getClass().getSimpleName(),
@@ -359,23 +322,26 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
             needsRebuild = false;
         }
 
-        /* ── 4.  Notify listeners ───────────────────────────────────────────────────── */
-        if (listener != null) {
-            logger.debug("AnalyzerWrapper has listener, submitting workspace refresh task");
-
-            // always refresh workspace in case there was a race and we shut down
-            // after saving a new analyzer but before refreshing the workspace
-            if (wasReady) {
-                logger.debug("No analyzer ready transition detected");
-            } else {
-                logger.debug("Analyzer became ready during loadOrCreateAnalyzer, notifying listeners");
-                listener.onAnalyzerReady();
-            }
-            listener.afterEachBuild(false);
-            wasReady = true;
-        } else {
-            logger.debug("AnalyzerWrapper has no listener - skipping notification");
+        // Persist analyzer snapshots by language (best-effort)
+        try {
+            persistAnalyzerState(analyzer);
+        } catch (Throwable t) {
+            logger.debug("Ignoring exception during analyzer state persistence: {}", t.toString());
         }
+
+        /* ── 4.  Notify listeners ───────────────────────────────────────────────────── */
+        logger.debug("AnalyzerWrapper has listener, submitting workspace refresh task");
+
+        // always refresh workspace in case there was a race and we shut down
+        // after saving a new analyzer but before refreshing the workspace
+        if (wasReady) {
+            logger.debug("No analyzer ready transition detected");
+        } else {
+            logger.debug("Analyzer became ready during loadOrCreateAnalyzer, notifying listeners");
+            listener.onAnalyzerReady();
+        }
+        listener.afterEachBuild(false);
+        wasReady = true;
 
         /* ── 5.  If we used stale caches, schedule a background rebuild ─────────────── */
         if (needsRebuild && !externalRebuildRequested) {
@@ -473,25 +439,31 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         logger.trace("Scheduling analyzer refresh task");
         return analyzerExecutor.submit(() -> {
             requireNonNull(currentAnalyzer);
-            if (listener != null) {
-                listener.beforeEachBuild();
-            }
+            listener.beforeEachBuild();
+
             // The function is supplied the current analyzer (may be null).
             currentAnalyzer = fn.apply(currentAnalyzer);
-            logger.debug("Analyzer refresh completed.");
-            if (listener != null) {
-                boolean isNowReady = (currentAnalyzer != null);
-                logger.debug(
-                        "Checking analyzer ready transition after refresh: wasReady={}, isNowReady={}",
-                        wasReady,
-                        isNowReady);
-                if (!wasReady && isNowReady) {
-                    logger.debug("Analyzer became ready, notifying listeners");
-                    listener.onAnalyzerReady();
-                }
-                listener.afterEachBuild(externalRebuildRequested);
-                wasReady = isNowReady;
+
+            // Persist analyzer snapshots by language (best-effort)
+            try {
+                persistAnalyzerState(currentAnalyzer);
+            } catch (Throwable t) {
+                logger.debug("Ignoring exception during analyzer state persistence: {}", t.toString());
             }
+
+            logger.debug("Analyzer refresh completed.");
+
+            boolean isNowReady = (currentAnalyzer != null);
+            logger.debug(
+                    "Checking analyzer ready transition after refresh: wasReady={}, isNowReady={}",
+                    wasReady,
+                    isNowReady);
+            if (!wasReady && isNowReady) {
+                logger.debug("Analyzer became ready, notifying listeners");
+                listener.onAnalyzerReady();
+            }
+            listener.afterEachBuild(externalRebuildRequested);
+            wasReady = isNowReady;
             return currentAnalyzer;
         });
     }
@@ -520,9 +492,8 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         }
 
         // Otherwise, this must be the very first build (or a failed one); we'll have to wait for it to be ready.
-        if (listener != null) {
-            listener.onBlocked();
-        }
+        listener.onBlocked();
+
         while (currentAnalyzer == null) {
             //noinspection BusyWait
             Thread.sleep(100);
@@ -572,6 +543,29 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
             analyzerExecutor.shutdownAndAwait(5000L, "AnalyzerWrapper");
         } catch (Throwable th) {
             logger.debug("Exception while shutting down analyzerExecutor: {}", th.getMessage());
+        }
+    }
+
+    /**
+     * Persist per-language analyzer snapshots if the sub-analyzers are TreeSitter-backed.
+     */
+    private void persistAnalyzerState(IAnalyzer analyzer) {
+
+        var langs = analyzer.languages();
+        if (langs.isEmpty()) {
+            logger.trace(
+                    "No languages to persist for analyzer: {}",
+                    analyzer.getClass().getSimpleName());
+            return;
+        }
+
+        for (var lang : langs) {
+            try {
+                var sub = analyzer.subAnalyzer(lang).orElse(analyzer);
+                lang.saveAnalyzer(sub, project);
+            } catch (Throwable t) {
+                logger.debug("Failed persisting analyzer state for {}: {}", lang.name(), t.toString());
+            }
         }
     }
 }

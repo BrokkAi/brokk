@@ -1,11 +1,13 @@
 package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
-import ai.brokk.MainProject;
-import ai.brokk.WorktreeProject;
 import ai.brokk.git.GitRepo;
+import ai.brokk.gui.components.FuzzyComboBox;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.util.MergeDialogUtil;
+import ai.brokk.project.MainProject;
+import ai.brokk.project.WorktreeProject;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -19,7 +21,6 @@ import java.util.List;
 import java.util.Locale;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
-import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
@@ -39,7 +40,7 @@ import org.jetbrains.annotations.Nullable;
  * - Conflict checking in background, gating OK on success
  * - Material buttons, primary style, default button, named components
  */
-public class MergeDialogPanel extends JDialog {
+public class MergeDialogPanel extends BaseThemedDialog {
     private static final Logger logger = LogManager.getLogger(MergeDialogPanel.class);
 
     private final ContextManager contextManager;
@@ -51,7 +52,7 @@ public class MergeDialogPanel extends JDialog {
     private final boolean isWorktreeFlow;
     private final MainProject mainProject;
 
-    private final JComboBox<String> targetBranchComboBox = new JComboBox<>();
+    private @Nullable FuzzyComboBox<String> targetBranchComboBox;
     private final JComboBox<GitRepo.MergeMode> mergeModeComboBox = new JComboBox<>(GitRepo.MergeMode.values());
 
     private final JLabel conflictStatusLabel = new JLabel(" ");
@@ -72,7 +73,7 @@ public class MergeDialogPanel extends JDialog {
             boolean deleteBranch) {}
 
     public MergeDialogPanel(@Nullable Frame parent, MergeDialogUtil.MergeDialogOptions options) {
-        super(parent, options.dialogTitle(), true);
+        super(parent, options.dialogTitle());
         this.contextManager = options.contextManager();
         this.sourceBranch = options.sourceBranch();
         this.showDeleteWorktree = options.showDeleteWorktree();
@@ -87,8 +88,8 @@ public class MergeDialogPanel extends JDialog {
             this.mainProject = project.getMainProject();
         }
 
-        initializeDialog();
         populateTargetBranches();
+        initializeDialog();
         initializeMergeMode();
         configureCheckboxes();
 
@@ -99,7 +100,9 @@ public class MergeDialogPanel extends JDialog {
 
         // Initial conflict check and listeners
         Runnable conflictChecker = this::checkConflictsAsync;
-        targetBranchComboBox.addActionListener(e -> conflictChecker.run());
+        if (targetBranchComboBox != null) {
+            targetBranchComboBox.setSelectionChangeListener(b -> conflictChecker.run());
+        }
         mergeModeComboBox.addActionListener(e -> conflictChecker.run());
         conflictChecker.run();
 
@@ -108,7 +111,8 @@ public class MergeDialogPanel extends JDialog {
     }
 
     private void initializeDialog() {
-        setLayout(new BorderLayout());
+        JPanel root = getContentRoot();
+        root.setLayout(new BorderLayout());
 
         var contentPanel = new JPanel(new GridBagLayout());
         var gbc = new GridBagConstraints();
@@ -158,14 +162,14 @@ public class MergeDialogPanel extends JDialog {
         conflictStatusLabel.setForeground(UIManager.getColor("Label.foreground"));
         contentPanel.add(conflictStatusLabel, gbc);
 
-        add(contentPanel, BorderLayout.CENTER);
+        root.add(contentPanel, BorderLayout.CENTER);
 
         // Button panel
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         SwingUtil.applyPrimaryButtonStyle(okButton);
         buttonPanel.add(okButton);
         buttonPanel.add(cancelButton);
-        add(buttonPanel, BorderLayout.SOUTH);
+        root.add(buttonPanel, BorderLayout.SOUTH);
 
         getRootPane().setDefaultButton(okButton);
 
@@ -187,19 +191,17 @@ public class MergeDialogPanel extends JDialog {
                     repoObj.getClass().getSimpleName());
             conflictStatusLabel.setText("Repository type not supported for merge operations");
             conflictStatusLabel.setForeground(Color.RED);
-            targetBranchComboBox.setEnabled(false);
             return;
         }
         try {
             List<String> localBranches = repo.listLocalBranches();
-            localBranches.forEach(targetBranchComboBox::addItem);
+            targetBranchComboBox = FuzzyComboBox.forStrings(localBranches);
             String currentParentBranch = repo.getCurrentBranch();
             targetBranchComboBox.setSelectedItem(currentParentBranch);
         } catch (GitAPIException e) {
             logger.error("Failed to get branches for merge dialog", e);
             conflictStatusLabel.setText("Error loading branches: " + e.getMessage());
             conflictStatusLabel.setForeground(Color.RED);
-            targetBranchComboBox.setEnabled(false);
         }
     }
 
@@ -220,8 +222,8 @@ public class MergeDialogPanel extends JDialog {
     }
 
     private void configureCheckboxes() {
-        var contentPanel =
-                (JPanel) ((BorderLayout) getContentPane().getLayout()).getLayoutComponent(BorderLayout.CENTER);
+        var root = getContentRoot();
+        var contentPanel = (JPanel) ((BorderLayout) root.getLayout()).getLayoutComponent(BorderLayout.CENTER);
         var gbc = new GridBagConstraints();
         gbc.gridwidth = GridBagConstraints.REMAINDER;
         gbc.gridx = 0;
@@ -288,8 +290,8 @@ public class MergeDialogPanel extends JDialog {
         dirtyWorkingTreeLabel.setText(message);
         dirtyWorkingTreeLabel.setForeground(Color.RED);
 
-        var contentPanel =
-                (JPanel) ((BorderLayout) getContentPane().getLayout()).getLayoutComponent(BorderLayout.CENTER);
+        var root = getContentRoot();
+        var contentPanel = (JPanel) ((BorderLayout) root.getLayout()).getLayoutComponent(BorderLayout.CENTER);
         var gbc = new GridBagConstraints();
         gbc.gridx = 0;
         gbc.weightx = 1.0;
@@ -313,7 +315,12 @@ public class MergeDialogPanel extends JDialog {
 
     private void checkConflictsAsync() {
         okButton.setEnabled(false);
-        var selectedTargetBranch = (String) targetBranchComboBox.getSelectedItem();
+        if (targetBranchComboBox == null) {
+            conflictStatusLabel.setText("Branch selector not initialized.");
+            conflictStatusLabel.setForeground(Color.RED);
+            return;
+        }
+        var selectedTargetBranch = targetBranchComboBox.getSelectedItem();
         var selectedMergeMode = (GitRepo.MergeMode) mergeModeComboBox.getSelectedItem();
 
         if (selectedTargetBranch == null) {
@@ -384,11 +391,11 @@ public class MergeDialogPanel extends JDialog {
     public Result showDialog() {
         setVisible(true);
 
-        var target = (String) targetBranchComboBox.getSelectedItem();
+        var target = targetBranchComboBox != null ? targetBranchComboBox.getSelectedItem() : null;
         var mode = (GitRepo.MergeMode) mergeModeComboBox.getSelectedItem();
         boolean deleteWorktree = deleteWorktreeCb.isSelected();
         boolean deleteBranch = deleteBranchCb.isSelected();
 
-        return new Result(confirmed, sourceBranch, target == null ? "" : target, mode, deleteWorktree, deleteBranch);
+        return new Result(confirmed, sourceBranch, target != null ? target : "", mode, deleteWorktree, deleteBranch);
     }
 }

@@ -29,10 +29,21 @@ public final class PythonTreeSitterNodeTypes {
     // Statements
     public static final String PASS_STATEMENT = "pass_statement";
 
-    // Other common Python node types that might be used
+    // Other common Python node types
     public static final String DECORATED_DEFINITION = "decorated_definition";
+    public static final String ATTRIBUTE = "attribute";
 
-    public static final String IMPORT_DECLARATION = "import_statement";
+    // Import-related captures
+    public static final String IMPORT_DECLARATION = "import.declaration";
+    public static final String IMPORT_MODULE = "import.module";
+    public static final String IMPORT_NAME = "import.name";
+    public static final String IMPORT_ALIAS = "import.alias";
+    public static final String IMPORT_RELATIVE = "import.relative";
+
+    // Wildcard import captures
+    public static final String IMPORT_WILDCARD = "import.wildcard";
+    public static final String IMPORT_MODULE_WILDCARD = "import.module.wildcard";
+    public static final String IMPORT_RELATIVE_WILDCARD = "import.relative.wildcard";
 
     private PythonTreeSitterNodeTypes() {}
 }

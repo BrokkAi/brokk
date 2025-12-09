@@ -8,13 +8,19 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.git.TestRepo;
+import ai.brokk.project.IProject;
+import ai.brokk.tasks.TaskList;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.File;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -25,52 +31,55 @@ import org.jetbrains.annotations.Nullable;
  * exist and support pause()/resume()/get().
  */
 public final class TestContextManager implements IContextManager {
-    private final TestProject project;
-    private final IAnalyzer analyzer;
+    private final IProject project;
+    private final AtomicReference<IAnalyzer> analyzerRef;
     private final TestRepo repo;
     private final Set<ProjectFile> editableFiles;
-    private final Set<ProjectFile> readonlyFiles;
     private final IConsoleIO consoleIO;
     private final TestService stubService;
-    private final Context liveContext;
+    private Context liveContext;
 
     // Test-friendly AnalyzerWrapper that uses a "quick runner" to return the mockAnalyzer immediately.
     private final IAnalyzerWrapper analyzerWrapper;
 
     public TestContextManager(Path projectRoot, IConsoleIO consoleIO) {
-        this(new TestProject(projectRoot, Languages.JAVA), consoleIO, new HashSet<>(), new TestAnalyzer());
+        this(new TestProject(projectRoot, Languages.JAVA), consoleIO, Set.of(), new TestAnalyzer());
     }
 
     public TestContextManager(Path projectRoot, IConsoleIO consoleIO, IAnalyzer analyzer) {
-        this(new TestProject(projectRoot, Languages.JAVA), consoleIO, new HashSet<>(), analyzer);
+        this(
+                analyzer instanceof TestAnalyzer ? new TestProject(projectRoot, Languages.JAVA) : analyzer.getProject(),
+                consoleIO,
+                Set.of(),
+                analyzer);
     }
 
     public TestContextManager(
-            TestProject project, IConsoleIO consoleIO, Set<ProjectFile> editableFiles, IAnalyzer analyzer) {
+            IProject project, IConsoleIO consoleIO, Set<ProjectFile> editableFiles, IAnalyzer analyzer) {
         this.project = project;
-        this.analyzer = analyzer;
-        this.editableFiles = editableFiles;
+        this.analyzerRef = new AtomicReference<>(analyzer);
+        this.editableFiles = new HashSet<>(editableFiles);
 
-        this.readonlyFiles = new HashSet<>();
         this.repo = new TestRepo(project.getRoot());
         this.consoleIO = consoleIO;
         this.stubService = new TestService(this.project);
-        this.liveContext = new Context(this, "Test context").addPathFragments(toPathFragments(editableFiles));
+        this.liveContext = new Context(this).addFragments(toPathFragments(editableFiles));
 
         this.analyzerWrapper = new IAnalyzerWrapper() {
             @Override
-            public IAnalyzer get() throws InterruptedException {
-                return analyzer;
+            public IAnalyzer get() {
+                return analyzerRef.get();
             }
 
             @Override
             public @Nullable IAnalyzer getNonBlocking() {
-                return analyzer;
+                return analyzerRef.get();
             }
 
             @Override
             public CompletableFuture<IAnalyzer> updateFiles(Set<ProjectFile> relevantFiles) {
-                return CompletableFuture.completedFuture(analyzer);
+                analyzerRef.set(analyzerRef.get().update(relevantFiles));
+                return CompletableFuture.completedFuture(analyzerRef.get());
             }
         };
     }
@@ -86,7 +95,7 @@ public final class TestContextManager implements IContextManager {
     }
 
     @Override
-    public TestProject getProject() {
+    public IProject getProject() {
         return project;
     }
 
@@ -95,19 +104,8 @@ public final class TestContextManager implements IContextManager {
         return repo;
     }
 
-    @Override
-    public Set<ProjectFile> getFilesInContext() {
-        return new HashSet<>(editableFiles);
-    }
-
     public void addEditableFile(ProjectFile file) {
-        this.editableFiles.add(file);
-        this.readonlyFiles.remove(file); // Cannot be both
-    }
-
-    public void addReadonlyFile(ProjectFile file) {
-        this.readonlyFiles.add(file);
-        this.editableFiles.remove(file); // Cannot be both
+        liveContext = liveContext.addFragments(new ContextFragment.ProjectPathFragment(file, this));
     }
 
     @Override
@@ -117,12 +115,12 @@ public final class TestContextManager implements IContextManager {
 
     @Override
     public IAnalyzer getAnalyzerUninterrupted() {
-        return analyzer;
+        return analyzerRef.get();
     }
 
     @Override
     public IAnalyzer getAnalyzer() {
-        return analyzer;
+        return analyzerRef.get();
     }
 
     @Override
@@ -182,6 +180,34 @@ public final class TestContextManager implements IContextManager {
         }
 
         return new ProjectFile(project.getRoot(), trimmed);
+    }
+
+    @Override
+    public Context createOrReplaceTaskList(Context context, List<String> tasks) {
+        // Strip whitespace-only entries
+        var cleaned =
+                tasks.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
+        if (cleaned.isEmpty()) {
+            // Clear task list when nothing valid is provided
+            return context.withTaskList(new TaskList.TaskListData(List.of()), "Task list cleared");
+        }
+        var items = cleaned.stream()
+                .map(t -> new TaskList.TaskItem(t, t, false)) // title=text, done=false
+                .toList();
+        return context.withTaskList(new TaskList.TaskListData(items), "Task list replaced");
+    }
+
+    @Override
+    public Context appendTasksToTaskList(Context context, List<String> tasks) {
+        var cleaned =
+                tasks.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
+        if (cleaned.isEmpty()) {
+            return context; // no-op
+        }
+        var existing = new ArrayList<>(context.getTaskListDataOrEmpty().tasks());
+        existing.addAll(
+                cleaned.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList());
+        return context.withTaskList(new TaskList.TaskListData(List.copyOf(existing)), "Task list updated");
     }
 
     private String buildFragmentContent = "";

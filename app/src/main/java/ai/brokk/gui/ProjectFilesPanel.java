@@ -2,13 +2,13 @@ package ai.brokk.gui;
 
 import ai.brokk.Completions;
 import ai.brokk.ContextManager;
-import ai.brokk.IProject;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.OverlayPanel;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.util.GitHostUtil;
 import ai.brokk.gui.util.Icons;
+import ai.brokk.project.IProject;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.FocusAdapter;
@@ -405,6 +405,7 @@ public class ProjectFilesPanel extends JPanel {
         @Override
         protected List<Completion> getCompletionsImpl(JTextComponent comp) {
             String pattern = getAlreadyEnteredText(comp);
+            var minLength = 2;
             if (pattern.isEmpty() || !project.hasGit()) {
                 return Collections.emptyList();
             }
@@ -417,7 +418,8 @@ public class ProjectFilesPanel extends JPanel {
                     ProjectFile::getFileName,
                     pf -> pf.getRelPath().toString(),
                     pf -> 0,
-                    this::createProjectFileCompletion);
+                    this::createProjectFileCompletion,
+                    minLength);
 
             return scoredCompletions.stream().map(c -> (Completion) c).collect(Collectors.toList());
         }

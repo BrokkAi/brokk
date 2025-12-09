@@ -2,7 +2,7 @@ import './styles/global.scss';
 import {mount, tick} from 'svelte';
 import {get} from 'svelte/store';
 import Mop from './MOP.svelte';
-import {bubblesStore, onBrokkEvent, reparseAll, setLiveTaskInProgress} from './stores/bubblesStore';
+import {bubblesStore, onBrokkEvent, reparseAll, setLiveTaskInProgress, getCurrentLiveThreadId} from './stores/bubblesStore';
 import {onHistoryEvent} from './stores/historyStore';
 import {spinnerStore} from './stores/spinnerStore';
 import {themeStore} from './stores/themeStore';
@@ -14,6 +14,10 @@ import {onFilePathResolutionResponse, clearFilePathCache} from './stores/filePat
 import {zoomIn, zoomOut, resetZoom, zoomStore, getZoomPercentage, setZoom} from './stores/zoomStore';
 import './components/ZoomWidget.ts';
 import { envStore } from './stores/envStore';
+import { setSummaryEntry, deleteSummaryEntry, getSummaryEntry, updateSummaryTree, summaryStore } from './stores/summaryStore';
+import { register, unregister, isRegistered } from './worker/parseRouter';
+import { parse } from './worker/worker-bridge';
+import { allocSummarySeq } from './shared/seq';
 
 const mainLog = createLogger('main');
 
@@ -112,6 +116,8 @@ function setupBrokkInterface(): any[] {
 async function handleEvent(payload: any): Promise<void> {
     if (payload.type === 'history-reset' || payload.type === 'history-task') {
         onHistoryEvent(payload);
+    } else if (payload.type === 'live-summary') {
+        onLiveSummary(payload);
     } else {
         onBrokkEvent(payload); // updates store & talks to worker
     }
@@ -121,6 +127,38 @@ async function handleEvent(payload: any): Promise<void> {
     requestAnimationFrame(() => {
         if (payload.epoch) window.javaBridge?.onAck(payload.epoch);
     });
+}
+
+function onLiveSummary(payload: any): void {
+    const { compressed, summary } = payload;
+
+    // Get the current live thread's threadId directly (doesn't depend on bubbles existing)
+    const threadId = getCurrentLiveThreadId();
+
+    // Clear any previous summary entry for this threadId
+    const prevEntry = getSummaryEntry(threadId);
+    if (prevEntry && isRegistered(prevEntry.seq)) {
+        unregister(prevEntry.seq);
+    }
+    deleteSummaryEntry(threadId);
+
+    // Create a new sequence number for this summary parse
+    const summarySeq = allocSummarySeq();
+
+    // Store the summary entry in summaryParseStore (merged metadata)
+    setSummaryEntry(threadId, {
+        seq: summarySeq,
+        text: summary,
+        compressed,
+    });
+
+    // Register a parse result handler
+    register(summarySeq, (msg: any) => {
+        updateSummaryTree(threadId, msg.tree);
+    });
+
+    // Trigger parsing with the worker (slow parse, don't update buffer)
+    parse(summary, summarySeq, false, false);
 }
 
 function getCurrentSelection(): string {
@@ -142,7 +180,7 @@ function setAppTheme(themeName: string, isDevMode?: boolean, wrapMode?: boolean,
     const html = document.querySelector('html')!;
 
     // Handle theme classes - remove all theme classes first, then add the correct one
-    html.classList.remove('theme-dark', 'theme-light', 'theme-high-contrast', 'theme-dark-plus');
+    html.classList.remove('theme-dark', 'theme-light', 'theme-high-contrast', 'theme-dark-plus', 'theme-light-plus');
 
     if (themeName === 'light') {
         html.classList.add('theme-light');
@@ -152,6 +190,10 @@ function setAppTheme(themeName: string, isDevMode?: boolean, wrapMode?: boolean,
         // Dark+ reuses dark variables/tokens for readability, plus a marker class for optional future overrides
         html.classList.add('theme-dark');
         html.classList.add('theme-dark-plus');
+    } else if (themeName === 'light-plus') {
+        // Light+ reuses light variables/tokens for readability, plus a marker class for optional future overrides
+        html.classList.add('theme-light');
+        html.classList.add('theme-light-plus');
     } else if (themeName === 'high-contrast') {
         html.classList.add('theme-high-contrast');
     } else {

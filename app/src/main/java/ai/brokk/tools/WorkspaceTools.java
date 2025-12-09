@@ -1,8 +1,6 @@
 package ai.brokk.tools;
 
-import ai.brokk.AbstractProject;
 import ai.brokk.ContextManager;
-import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SkeletonProvider;
@@ -10,7 +8,8 @@ import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
-import ai.brokk.gui.Chrome;
+import ai.brokk.project.AbstractProject;
+import ai.brokk.util.ComputedValue;
 import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -21,14 +20,9 @@ import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.checkerframework.checker.nullness.util.NullnessUtil;
@@ -121,7 +115,7 @@ public class WorkspaceTools {
                 .toList();
 
         var fragments = context.getContextManager().toPathFragments(toAddFiles);
-        context = context.addPathFragments(fragments);
+        context = context.addFragments(fragments);
 
         String addedNames =
                 toAddFiles.stream().map(ProjectFile::toString).sorted().collect(Collectors.joining(", "));
@@ -225,7 +219,7 @@ public class WorkspaceTools {
         Map<String, String> mergedDiscarded = new LinkedHashMap<>(existingDiscardedMap);
         for (var f : toDrop) {
             var explanation = idToExplanation.getOrDefault(f.id(), "");
-            mergedDiscarded.put(f.description(), explanation);
+            mergedDiscarded.put(f.description().join(), explanation);
         }
 
         // Serialize updated JSON
@@ -262,6 +256,7 @@ public class WorkspaceTools {
         if (!protectedFragments.isEmpty()) {
             var protectedDescriptions = protectedFragments.stream()
                     .map(ContextFragment::description)
+                    .map(ComputedValue::join)
                     .collect(Collectors.joining(", "));
             baseMsg += " Protected (not dropped): " + protectedDescriptions + ".";
         }
@@ -286,7 +281,7 @@ public class WorkspaceTools {
         }
 
         var fragment = new ContextFragment.UsageFragment(context.getContextManager(), symbol); // Pass contextManager
-        context = context.addVirtualFragments(List.of(fragment));
+        context = context.addFragments(List.of(fragment));
 
         return "Added dynamic usage analysis for symbol '%s'.".formatted(symbol);
     }
@@ -395,13 +390,12 @@ public class WorkspaceTools {
         return existed ? "Appended note to Task Notes." : "Created Task Notes and added the note.";
     }
 
-    @Tool(value = "Produce a numbered, incremental task list for implementing the requested code changes.")
-    public String createTaskList(
-            @P(
-                            "Explanation of the problem and a high-level but comprehensive overview of the solution proposed in the tasks, formatted in Markdown.")
-                    String explanation,
-            @P(
-                            """
+    /**
+     * Shared guidance text for task-list tools (createOrReplaceTaskList and appendTaskList).
+     * Used in @Tool parameter descriptions to keep guidance synchronized.
+     */
+    public static final String TASK_LIST_GUIDANCE =
+            """
             Produce an ordered list of coding tasks that are each 'right-sized': small enough to complete in one sitting, yet large enough to be meaningful.
 
             Requirements (apply to EACH task):
@@ -421,29 +415,72 @@ public class WorkspaceTools {
             - JUST RIGHT if the diff + test could be reviewed and landed as a single commit without coordination.
 
             Aim for 8 tasks or fewer. Do not include "external" tasks like PRDs or manual testing.
-            """)
-                    List<String> tasks) {
-        logger.debug("createTaskList selected with {} tasks", tasks.size());
+            """;
+
+    @Tool(
+            value =
+                    "Replace the entire task list with the provided tasks. Completed tasks from the previous list are implicitly dropped. Use this when you want to create a fresh task list or significantly revise the scope.")
+    public String createOrReplaceTaskList(
+            @P(
+                            "Explanation of the problem and a high-level but comprehensive overview of the solution proposed in the tasks, formatted in Markdown.")
+                    String explanation,
+            @P(TASK_LIST_GUIDANCE) List<String> tasks) {
+        logger.debug("createOrReplaceTaskList selected with {} tasks", tasks.size());
         if (tasks.isEmpty()) {
             return "No tasks provided.";
         }
 
         var cm = context.getContextManager();
+        // Delegate to ContextManager to ensure title summarization + centralized refresh via setTaskList
+        context = cm.createOrReplaceTaskList(context, tasks);
+
+        var lines = IntStream.range(0, tasks.size())
+                .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
+                .collect(java.util.stream.Collectors.joining("\n"));
+        var formattedTaskList = "# Task List\n" + lines + "\n";
+
         var io = cm.getIo();
         io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, true, false);
 
-        // Append tasks to the local context
-        // also takes care of autostarting tasks in EZ mode
+        int count = tasks.size();
+        String suffix = (count == 1) ? "" : "s";
+        String message =
+                "**Task list created** with %d item%s. Review it in the **Tasks** tab or open the **Task List** fragment in the Workspace below."
+                        .formatted(count, suffix);
+        io.llmOutput(message, ChatMessageType.AI, true, false);
+
+        return formattedTaskList;
+    }
+
+    @Tool(
+            value =
+                    "Append new tasks to the existing task list without modifying or removing existing tasks. Use this when you want to extend the current task list incrementally.")
+    public String appendTaskList(
+            @P("Explanation of why these tasks are being added, formatted in Markdown.") String explanation,
+            @P(TASK_LIST_GUIDANCE) List<String> tasks) {
+        logger.debug("appendTaskList selected with {} tasks", tasks.size());
+        if (tasks.isEmpty()) {
+            return "No tasks provided.";
+        }
+
+        var cm = context.getContextManager();
+        // Delegate to ContextManager to ensure title summarization + centralized refresh via setTaskList
         context = cm.appendTasksToTaskList(context, tasks);
 
         var lines = IntStream.range(0, tasks.size())
                 .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
                 .collect(java.util.stream.Collectors.joining("\n"));
         var formattedTaskList = "# Task List\n" + lines + "\n";
-        io.llmOutput("I am suggesting the following tasks:\n" + formattedTaskList, ChatMessageType.AI, true, false);
-        if (io instanceof Chrome chrome) {
-            SwingUtilities.invokeLater(chrome::refreshTaskListUI);
-        }
+
+        var io = cm.getIo();
+        io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, true, false);
+
+        int count = tasks.size();
+        String suffix = (count == 1) ? "" : "s";
+        String message =
+                "**Added** %d task%s to the list. Review them in the **Tasks** tab or open the **Task List** fragment in the Workspace below."
+                        .formatted(count, suffix);
+        io.llmOutput(message, ChatMessageType.AI, true, false);
 
         return formattedTaskList;
     }
@@ -471,10 +508,10 @@ public class WorkspaceTools {
         }
     }
 
-    private java.util.Set<ProjectFile> currentWorkspaceFiles() {
+    private Set<ProjectFile> currentWorkspaceFiles() {
         return context.fileFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
-                .flatMap(f -> f.files().stream())
+                .flatMap(f -> f.files().join().stream())
                 .collect(Collectors.toSet());
     }
 

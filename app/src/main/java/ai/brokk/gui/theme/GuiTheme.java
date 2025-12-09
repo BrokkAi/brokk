@@ -1,10 +1,10 @@
 package ai.brokk.gui.theme;
 
 import ai.brokk.Brokk;
-import ai.brokk.MainProject;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.mop.ThemeColors;
+import ai.brokk.project.MainProject;
 import com.formdev.flatlaf.FlatDarculaLaf;
 import com.formdev.flatlaf.IntelliJTheme;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
@@ -35,6 +35,7 @@ public class GuiTheme {
     public static final String THEME_HIGH_CONTRAST = "high-contrast";
     // Independent Dark+ theme with extended Brokk.* palette (gradients, transparency, modern visuals)
     public static final String THEME_DARK_PLUS = "dark-plus";
+    public static final String THEME_LIGHT_PLUS = "light-plus";
 
     private final JFrame frame;
 
@@ -69,8 +70,8 @@ public class GuiTheme {
     public static void setupLookAndFeel(String themeName) {
         String effectiveTheme = themeName;
         if (effectiveTheme == null || effectiveTheme.isEmpty()) {
-            logger.warn("Null or empty theme name, defaulting to dark");
-            effectiveTheme = THEME_DARK;
+            logger.warn("Null or empty theme name, defaulting to dark-plus");
+            effectiveTheme = THEME_DARK_PLUS;
         }
 
         String themeFile =
@@ -79,6 +80,7 @@ public class GuiTheme {
                     case THEME_DARK -> "/themes/BrokkDark.theme.json";
                     case THEME_HIGH_CONTRAST -> "/themes/HighContrast.theme.json";
                     case THEME_DARK_PLUS -> "/themes/BrokkDarkPlus.theme.json";
+                    case THEME_LIGHT_PLUS -> "/themes/BrokkLightPlus.theme.json";
                     default -> {
                         logger.warn("Unknown theme '{}', defaulting to dark", effectiveTheme);
                         yield "/themes/BrokkDark.theme.json";
@@ -126,8 +128,7 @@ public class GuiTheme {
             ThemeColors.reloadColors();
 
             // Register custom icons for this theme
-            boolean isDark = !THEME_LIGHT.equals(themeName);
-            registerCustomIcons(isDark);
+            registerCustomIcons(themeName);
 
             // Apply theme to RSyntaxTextArea components
             applyThemeAsync(themeName, wordWrap);
@@ -251,8 +252,8 @@ public class GuiTheme {
     public static Optional<Theme> loadRSyntaxTheme(String themeName) {
         String themeResource =
                 switch (themeName) {
-                    case THEME_LIGHT -> "/org/fife/ui/rsyntaxtextarea/themes/default.xml";
-                    case THEME_DARK -> "/org/fife/ui/rsyntaxtextarea/themes/dark.xml";
+                    case THEME_LIGHT, THEME_LIGHT_PLUS -> "/org/fife/ui/rsyntaxtextarea/themes/default.xml";
+                    case THEME_DARK, THEME_DARK_PLUS -> "/org/fife/ui/rsyntaxtextarea/themes/dark.xml";
                     case THEME_HIGH_CONTRAST -> "/org/fife/ui/rsyntaxtextarea/themes/high-contrast.xml";
                     default -> {
                         logger.warn("Unknown theme '{}' for RSyntaxTextArea, defaulting to dark", themeName);
@@ -260,20 +261,75 @@ public class GuiTheme {
                     }
                 };
 
-        var inputStream = GuiTheme.class.getResourceAsStream(themeResource);
-
-        if (inputStream == null) {
-            logger.error("RSyntaxTextArea theme resource not found: {}", themeResource);
-            return Optional.empty();
-        }
-
-        try {
-            return Optional.of(Theme.load(inputStream));
+        try (var inputStream = GuiTheme.class.getResourceAsStream(themeResource)) {
+            if (inputStream == null) {
+                logger.error("RSyntaxTextArea theme resource not found: {}", themeResource);
+                return Optional.empty();
+            }
+            var theme = Theme.load(inputStream);
+            applyFlatLafColorsToTheme(theme);
+            return Optional.of(theme);
         } catch (IOException e) {
             logger.error(
                     "Could not load {} RSyntaxTextArea theme from {}: {}", themeName, themeResource, e.getMessage());
             return Optional.empty();
         }
+    }
+
+    /**
+     * Overrides editor-chrome colors of an RSyntaxTextArea Theme with colors from FlatLaf UIManager.
+     * Syntax token colors are preserved from the XML theme.
+     */
+    private static void applyFlatLafColorsToTheme(Theme theme) {
+        // Editor background - use Brokk.rsyntax_background or Editor.background
+        var bg = ThemeColors.getColor("rsyntax_background");
+        if (bg == null) bg = UIManager.getColor("Editor.background");
+        if (bg != null) theme.bgColor = bg;
+
+        // Selection colors
+        var selBg = UIManager.getColor("*.selectionBackground");
+        if (selBg != null) theme.selectionBG = selBg;
+
+        var selFg = UIManager.getColor("*.selectionForeground");
+        if (selFg != null) theme.selectionFG = selFg;
+
+        // Caret
+        var caret = UIManager.getColor("TextField.caretForeground");
+        if (caret != null) theme.caretColor = caret;
+
+        // Current line highlight - derive from background
+        if (theme.bgColor != null) {
+            int r = theme.bgColor.getRed();
+            int g = theme.bgColor.getGreen();
+            int b = theme.bgColor.getBlue();
+            int delta = isColorDark(theme.bgColor) ? 15 : -15;
+            theme.currentLineHighlight = new Color(clamp(r + delta), clamp(g + delta), clamp(b + delta));
+        }
+
+        // Gutter styling
+        var panelBg = UIManager.getColor("Panel.background");
+        if (panelBg != null) theme.gutterBackgroundColor = panelBg;
+
+        var borderColor = UIManager.getColor("Component.borderColor");
+        if (borderColor != null) {
+            theme.gutterBorderColor = borderColor;
+            theme.marginLineColor = borderColor;
+        }
+
+        // Line numbers
+        var lineNumColor = UIManager.getColor("*.disabledForeground");
+        if (lineNumColor != null) theme.lineNumberColor = lineNumColor;
+
+        var fg = UIManager.getColor("*.foreground");
+        if (fg != null) theme.currentLineNumberColor = fg;
+    }
+
+    private static boolean isColorDark(Color c) {
+        return (c.getRed() * 0.299 + c.getGreen() * 0.587 + c.getBlue() * 0.114) < 128;
+    }
+
+    private static int clamp(int v) {
+        return Math.max(0, Math.min(255, v));
     }
 
     /** Applies the syntax theme to every relevant component contained in the supplied frame. */
@@ -328,13 +384,14 @@ public class GuiTheme {
     /**
      * Get the human-readable display name for the current theme.
      *
-     * @return "Brokk Light", "Brokk Dark", "Brokk Dark+", or "High Contrast"
+     * @return "Brokk Light", "Brokk Dark", "Brokk Dark+", "Brokk Light+", or "High Contrast"
      */
     public String getCurrentThemeName() {
         return switch (getCurrentTheme()) {
             case THEME_LIGHT -> "Brokk Light";
             case THEME_DARK -> "Brokk Dark";
             case THEME_DARK_PLUS -> "Brokk Dark+";
+            case THEME_LIGHT_PLUS -> "Brokk Light+";
             case THEME_HIGH_CONTRAST -> "High Contrast";
             default -> "Unknown Theme";
         };
@@ -469,13 +526,14 @@ public class GuiTheme {
     /**
      * Registers custom icons for the application based on the current theme
      *
-     * @param isDark true for dark theme icons, false for light theme icons
+     * @param themeName the theme name ("dark", "light", "light-plus", or "dark-plus")
      */
-    private void registerCustomIcons(boolean isDark) {
-        String iconBase = isDark ? "/icons/dark/" : "/icons/light/";
+    private void registerCustomIcons(String themeName) {
+        String iconBase = getIconDirectoryForTheme(themeName);
+        String fallbackBase = getIconFallbackDirectoryForTheme(themeName);
 
         try {
-            // Try to discover icons from the resource directory
+            // Try to discover icons from the primary theme resource directory
             var iconUrl = GuiTheme.class.getResource(iconBase);
             if (iconUrl != null) {
                 var iconFiles = discoverIconFiles(iconUrl, iconBase);
@@ -488,13 +546,62 @@ public class GuiTheme {
 
                     registerIcon(iconKey, iconFile);
                 }
-                logger.debug("Registered {} custom icons for {} theme", iconFiles.size(), isDark ? "dark" : "light");
+                logger.debug("Registered {} custom icons for {} theme from {}", iconFiles.size(), themeName, iconBase);
             } else {
                 logger.warn("Icon directory not found: {}", iconBase);
             }
+
+            // Register fallback icons if applicable (e.g., light-plus falls back to light)
+            if (fallbackBase != null) {
+                var fallbackUrl = GuiTheme.class.getResource(fallbackBase);
+                if (fallbackUrl != null) {
+                    var fallbackFiles = discoverIconFiles(fallbackUrl, fallbackBase);
+                    for (String iconFile : fallbackFiles) {
+                        String filename = iconFile.substring(iconFile.lastIndexOf('/') + 1);
+                        int dotIndex = filename.lastIndexOf('.');
+                        String keyName = (dotIndex == -1) ? filename : filename.substring(0, dotIndex);
+                        String iconKey = "Brokk." + keyName;
+
+                        // Only register if not already registered from primary directory
+                        if (UIManager.get(iconKey) == null) {
+                            registerIcon(iconKey, iconFile);
+                        }
+                    }
+                    logger.debug("Registered fallback icons for {} theme from {}", themeName, fallbackBase);
+                }
+            }
         } catch (Exception e) {
-            logger.warn("Failed to discover icons from {}: {}", iconBase, e.getMessage());
+            logger.warn("Failed to discover icons for theme {}: {}", themeName, e.getMessage());
         }
+    }
+
+    /**
+     * Gets the primary icon directory for the given theme name
+     *
+     * @param themeName the theme name
+     * @return the icon directory path
+     */
+    private String getIconDirectoryForTheme(String themeName) {
+        return switch (themeName.toLowerCase(Locale.ROOT)) {
+            case THEME_DARK, THEME_HIGH_CONTRAST -> "/icons/dark/";
+            case THEME_LIGHT_PLUS -> "/icons/light-plus/";
+            case THEME_LIGHT -> "/icons/light/";
+            case THEME_DARK_PLUS -> "/icons/dark/";
+            default -> "/icons/light/";
+        };
+    }
+
+    /**
+     * Gets the fallback icon directory for the given theme name (or null if no fallback)
+     *
+     * @param themeName the theme name
+     * @return the fallback icon directory path, or null if no fallback
+     */
+    private @Nullable String getIconFallbackDirectoryForTheme(String themeName) {
+        return switch (themeName.toLowerCase(Locale.ROOT)) {
+            case THEME_LIGHT_PLUS -> "/icons/light/";
+            default -> null;
+        };
     }
 
     /**
@@ -540,8 +647,12 @@ public class GuiTheme {
                 }
                 var exclamationIndex = jarPath.indexOf('!');
                 if (exclamationIndex >= 0) {
-                    var jarFile = jarPath.substring(5, exclamationIndex); // Remove "file:"
+                    var jarFileUrl = jarPath.substring(5, exclamationIndex); // Remove "file:"
                     var entryPath = jarPath.substring(exclamationIndex + 2); // Remove "!/"
+
+                    // Decode URL encoding (e.g., %20 -> space) to handle paths with spaces
+                    // Use URI to properly decode file paths (handles %20, etc. correctly)
+                    var jarFile = new java.net.URI(jarFileUrl).getPath();
 
                     try (var jar = new JarFile(jarFile)) {
                         var entries = jar.entries();

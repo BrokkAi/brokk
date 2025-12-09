@@ -4,7 +4,6 @@ import static ai.brokk.SessionManager.SessionInfo;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.ContextManager;
-import ai.brokk.MainProject;
 import ai.brokk.SessionRegistry;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;
@@ -19,6 +18,7 @@ import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
+import ai.brokk.project.MainProject;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -51,7 +51,7 @@ import javax.swing.table.DefaultTableModel;
 import org.jetbrains.annotations.Nullable;
 
 /** Modal dialog for managing sessions with Activity log, Workspace panel, and MOP preview */
-public class SessionsDialog extends JDialog {
+public class SessionsDialog extends BaseThemedDialog {
     private static final int SEARCH_DEBOUNCE_DELAY = 300;
     private final Chrome chrome;
     private final ContextManager contextManager;
@@ -87,7 +87,7 @@ public class SessionsDialog extends JDialog {
     private @Nullable Context selectedActivityContext;
 
     public SessionsDialog(Chrome chrome, ContextManager contextManager) {
-        super(chrome.getFrame(), "Manage Sessions", true);
+        super(chrome.getFrame(), "Manage Sessions", Dialog.ModalityType.APPLICATION_MODAL);
         this.chrome = chrome;
         this.contextManager = contextManager;
 
@@ -221,7 +221,8 @@ public class SessionsDialog extends JDialog {
     }
 
     private void layoutComponents() {
-        setLayout(new BorderLayout());
+        JPanel root = getContentRoot();
+        root.setLayout(new BorderLayout());
 
         // Create sessions panel
         JPanel sessionsPanel = new JPanel(new BorderLayout());
@@ -277,9 +278,9 @@ public class SessionsDialog extends JDialog {
         buttonPanel.setBorder(BorderFactory.createEmptyBorder(5, 10, 10, 10));
         buttonPanel.add(closeButton);
 
-        // Add components to dialog
-        add(mainSplit, BorderLayout.CENTER);
-        add(buttonPanel, BorderLayout.SOUTH);
+        // Add components to contentRoot
+        root.add(mainSplit, BorderLayout.CENTER);
+        root.add(buttonPanel, BorderLayout.SOUTH);
     }
 
     private void setupEventHandlers() {

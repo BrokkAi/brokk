@@ -1,6 +1,5 @@
 package ai.brokk.testutil;
 
-import ai.brokk.IProject;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
@@ -8,9 +7,11 @@ import ai.brokk.analyzer.LintResult;
 import ai.brokk.analyzer.LintingProvider;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SkeletonProvider;
+import ai.brokk.project.IProject;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.SequencedSet;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -25,10 +26,17 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
     private final List<CodeUnit> allClasses;
     private final Map<String, List<CodeUnit>> methodsMap;
     private Function<List<ProjectFile>, LintResult> lintBehavior = files -> new LintResult(List.of());
+    private @Nullable IProject testProject;
 
-    public TestAnalyzer(List<CodeUnit> allClasses, Map<String, List<CodeUnit>> methodsMap) {
+    public TestAnalyzer(
+            List<CodeUnit> allClasses, Map<String, List<CodeUnit>> methodsMap, @Nullable IProject testProject) {
         this.allClasses = allClasses;
         this.methodsMap = methodsMap;
+        this.testProject = testProject;
+    }
+
+    public TestAnalyzer(List<CodeUnit> allClasses, Map<String, List<CodeUnit>> methodsMap) {
+        this(allClasses, methodsMap, null);
     }
 
     public TestAnalyzer() {
@@ -41,7 +49,10 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
 
     @Override
     public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
-        throw new UnsupportedOperationException();
+        return allClasses.stream()
+                .filter(cu -> cu.source().equals(file))
+                .filter(cu -> cu.isClass() || cu.isModule())
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -61,7 +72,10 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
 
     @Override
     public IProject getProject() {
-        throw new UnsupportedOperationException();
+        if (testProject == null) {
+            throw new UnsupportedOperationException();
+        }
+        return testProject;
     }
 
     @Override
@@ -110,8 +124,11 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
     }
 
     @Override
-    public Optional<CodeUnit> getDefinition(String fqName) {
-        return allClasses.stream().filter(cu -> cu.fqName().equals(fqName)).findFirst();
+    public SequencedSet<CodeUnit> getDefinitions(String fqName) {
+        var matches = allClasses.stream()
+                .filter(cu -> cu.fqName().equals(fqName))
+                .collect(java.util.stream.Collectors.toSet());
+        return sortDefinitions(matches);
     }
 
     @Override
@@ -137,5 +154,20 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
     @Override
     public LintResult lintFiles(List<ProjectFile> files) {
         return lintBehavior.apply(files);
+    }
+
+    @Override
+    public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
+        return List.of();
+    }
+
+    @Override
+    public List<CodeUnit> getDirectChildren(CodeUnit cu) {
+        return List.of();
+    }
+
+    @Override
+    public Optional<String> extractCallReceiver(String reference) {
+        return Optional.empty();
     }
 }

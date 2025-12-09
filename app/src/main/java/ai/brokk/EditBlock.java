@@ -4,6 +4,7 @@ import static ai.brokk.prompts.EditBlockUtils.DEFAULT_FENCE;
 
 import ai.brokk.analyzer.*;
 import ai.brokk.context.Context;
+import ai.brokk.util.IndentUtil;
 import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -14,6 +15,7 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
@@ -101,6 +103,7 @@ public class EditBlock {
      * <p>Note: it is the responsibility of the caller (e.g. CodeAgent::preCreateNewFiles) to create empty files for
      * blocks corresponding to new files.
      */
+    @Blocking
     public static EditResult apply(Context ctx, IConsoleIO io, Collection<SearchReplaceBlock> blocks)
             throws IOException, InterruptedException {
         IContextManager contextManager = ctx.getContextManager();
@@ -141,8 +144,8 @@ public class EditBlock {
 
             // Pre-resolve BRK_CLASS/BRK_FUNCTION so analyzer offsets are from the original file content
             String effectiveBefore = block.beforeText();
+            var analyzer = ctx.getContextManager().getAnalyzer();
             try {
-                var analyzer = ctx.getContextManager().getAnalyzer();
                 var maybeResolved = resolveBrkSnippet(effectiveBefore, file, analyzer);
                 if (maybeResolved != null) {
                     effectiveBefore = maybeResolved;
@@ -163,7 +166,15 @@ public class EditBlock {
                             + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
                     contextManager.reportException(
                             new BrkSnippetNoMatchException(message, ex),
-                            Map.of("sourcefile", file.getFileName(), "marker", marker));
+                            Map.of(
+                                    "sourcefile", file.getFileName(),
+                                    "marker", marker,
+                                    "sourceContents", file.read().orElse(""),
+                                    "sourceDeclarations",
+                                            analyzer.getDeclarations(file).stream()
+                                                    .map(CodeUnit::shortName)
+                                                    .sorted()
+                                                    .collect(Collectors.joining(", "))));
                 }
 
                 failed.add(new FailedBlock(block, reason, ex.getMessage() == null ? ex.toString() : ex.getMessage()));
@@ -466,19 +477,6 @@ public class EditBlock {
         throw new NoMatchException("No matching oldLines found in content");
     }
 
-    /** Counts how many leading lines in 'lines' are completely blank (trim().isEmpty()). */
-    static int countLeadingBlankLines(String[] lines) {
-        int c = 0;
-        for (String ln : lines) {
-            if (ln.trim().isEmpty()) {
-                c++;
-            } else {
-                break;
-            }
-        }
-        return c;
-    }
-
     /**
      * If the search/replace has lines of "..." as placeholders, do naive partial replacements. The
      * `originalEndsWithNewline` flag indicates if the `whole` string (original content) ended with a newline. The
@@ -641,12 +639,33 @@ public class EditBlock {
 
         List<String> resultLines = new ArrayList<>(Arrays.asList(originalLines).subList(0, matchStart));
         if (truncatedReplace.length > 0) {
-            String leadingWhitespace = getLeadingWhitespace(originalLines[matchStart]);
-            // Add the first replacement line with adjusted leading whitespace
-            resultLines.add(leadingWhitespace + truncatedReplace[0].stripLeading());
-            // Add subsequent replacement lines, also with adjusted leading whitespace
-            for (int i = 1; i < truncatedReplace.length; i++) {
-                resultLines.add(leadingWhitespace + truncatedReplace[i].stripLeading());
+            String baseIndent = getLeadingWhitespace(originalLines[matchStart]);
+            int baseTargetIndent = IndentUtil.countLeadingWhitespace(truncatedTarget[0]);
+            int baseReplaceIndent = IndentUtil.countLeadingWhitespace(truncatedReplace[0]);
+
+            // Compute a scaling factor using shared utility to keep logic consistent across prod and tests.
+            int targetIndentStep = IndentUtil.findFirstIndentStep(truncatedTarget, baseTargetIndent);
+            int replaceIndentStep = IndentUtil.findFirstIndentStep(truncatedReplace, baseReplaceIndent);
+            double scale = IndentUtil.computeIndentScale(targetIndentStep, replaceIndentStep);
+
+            for (String replLine : truncatedReplace) {
+                if (replLine.trim().isEmpty()) {
+                    // Preserve blank line (no trailing spaces)
+                    resultLines.add("");
+                    continue;
+                }
+                int replaceRelativeIndent = IndentUtil.countLeadingWhitespace(replLine) - baseReplaceIndent;
+                int rawAdjustedRelativeIndent = (int) Math.round(replaceRelativeIndent * scale);
+                int adjustedRelativeIndent = Math.max(0, rawAdjustedRelativeIndent);
+                if (rawAdjustedRelativeIndent < 0) {
+                    logger.warn(
+                            "Negative indentation detected in replace block: rawAdjustedRelativeIndent={}, replaceRelativeIndent={}, scale={}",
+                            rawAdjustedRelativeIndent,
+                            replaceRelativeIndent,
+                            scale);
+                }
+                String adjusted = baseIndent + " ".repeat(adjustedRelativeIndent) + replLine.stripLeading();
+                resultLines.add(adjusted);
             }
         }
         resultLines.addAll(Arrays.asList(originalLines).subList(matchStart + needed, originalLines.length));
@@ -772,7 +791,9 @@ public class EditBlock {
         String shortName = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
         if ("CLASS".equals(kind)) {
             // Prefer exact definition lookup
-            var def = analyzer.getDefinition(fqName);
+            var def = analyzer.getDefinitions(fqName).stream()
+                    .filter(CodeUnit::isClass)
+                    .findFirst();
             if (def.isPresent()) {
                 var cu = def.get();
                 var src = scp.getClassSource(cu, true);
@@ -822,6 +843,7 @@ public class EditBlock {
      * @throws SymbolAmbiguousException if the filename matches multiple files.
      * @throws SymbolInvalidException if the file name is not a valid path (possibly absolute) or is null.
      */
+    @Blocking
     static ProjectFile resolveProjectFile(Context ctx, @Nullable String filename)
             throws SymbolNotFoundException, SymbolAmbiguousException, SymbolInvalidException {
         IContextManager cm = ctx.getContextManager();
@@ -849,7 +871,7 @@ public class EditBlock {
 
         // 2. Check editable files (case-insensitive basename match)
         var editableMatches = ctx.getAllFragmentsInDisplayOrder().stream()
-                .flatMap(f -> f.files().stream())
+                .flatMap(f -> f.files().join().stream())
                 .filter(f -> f.getFileName().equalsIgnoreCase(file.getFileName()))
                 .toList();
         if (editableMatches.size() == 1) {

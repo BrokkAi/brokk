@@ -4,15 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
-import ai.brokk.IProject;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.cli.HeadlessConsole;
-import ai.brokk.context.Context;
-import ai.brokk.testutil.TestProject;
-import ai.brokk.testutil.TestService;
+import ai.brokk.project.IProject;
+import ai.brokk.testutil.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -25,17 +22,6 @@ import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
 class BlitzForgeTest {
-
-    private static IContextManager stubCm() {
-        // Use interface defaults; no special behavior needed for this minimal test
-        return new IContextManager() {
-            @Override
-            public Context liveContext() {
-                // Return an empty Context for test purposes
-                return new Context(this, null);
-            }
-        };
-    }
 
     private static IProject stubProject() throws Exception {
         var root = Files.createTempDirectory("bftest-");
@@ -86,8 +72,12 @@ class BlitzForgeTest {
         }
 
         var listener = new StubListener();
-        var service = new TestService(stubProject());
-        var engine = new BlitzForge(stubCm(), service, cfg, listener);
+        var project = stubProject();
+        var service = new TestService(project);
+        var testAnalyzer = new TestAnalyzer(List.of(), Map.of());
+        var testIo = new TestConsoleIO();
+        var engine =
+                new BlitzForge(new TestContextManager(project.getRoot(), testIo, testAnalyzer), service, cfg, listener);
         engine.executeParallel(
                 List.of(f1, f2), file -> new BlitzForge.FileResult(file, true, null, "OK " + file.getFileName()));
 

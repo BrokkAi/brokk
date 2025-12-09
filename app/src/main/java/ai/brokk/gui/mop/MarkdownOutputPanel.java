@@ -4,7 +4,6 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
-import ai.brokk.MainProject;
 import ai.brokk.TaskEntry;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.Chrome;
@@ -12,6 +11,7 @@ import ai.brokk.gui.mop.webview.MOPBridge;
 import ai.brokk.gui.mop.webview.MOPWebViewHost;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.project.MainProject;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -154,15 +154,37 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     public CompletableFuture<Void> setMainThenHistoryAsync(
             List<? extends ChatMessage> mainMessages, List<TaskEntry> history) {
         setMainIfChanged(mainMessages);
-        return flushAsync().thenRun(() -> SwingUtilities.invokeLater(() -> setHistoryIfChanged(history)));
+        return flushAsync().thenRun(() -> {
+            logger.debug("MOP: applying history after main flush ({} entries)", history.size());
+            setHistoryIfChanged(history);
+        });
     }
 
     /** Convenience overload to accept a TaskEntry as the main content. */
     public CompletableFuture<Void> setMainThenHistoryAsync(TaskEntry main, List<TaskEntry> history) {
-        List<? extends ChatMessage> mainMessages = main.isCompressed()
-                ? List.of(Messages.customSystem(Objects.toString(main.summary(), "Summary not available")))
-                : castNonNull(main.log()).messages();
-        return setMainThenHistoryAsync(mainMessages, history);
+        // Prefer full messages when available (even if compressed); fall back to summary only if log is unavailable
+        List<? extends ChatMessage> mainMessages = main.hasLog()
+                ? castNonNull(main.log()).messages()
+                : List.of(Messages.customSystem(Objects.toString(main.summary(), "Summary not available")));
+
+        // Send main messages first (which triggers clear on frontend). After the flush, apply history in-order,
+        // then send live summary so it cannot be cleared by a subsequent history-reset on the frontend.
+        var summary = main.summary();
+        CompletableFuture<Void> result = setMainThenHistoryAsync(mainMessages, history);
+
+        if (summary != null && !summary.isEmpty()) {
+            // Send live summary strictly after history is applied
+            result = result.thenRun(() -> {
+                logger.debug(
+                        "MOP: sending live-summary after history; seq={} compressed={} len={}",
+                        main.sequence(),
+                        main.isCompressed(),
+                        summary.length());
+                webHost.sendLiveSummary(main.sequence(), main.isCompressed(), summary);
+            });
+        }
+
+        return result;
     }
 
     public void clear() {
@@ -210,7 +232,6 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         messages.addAll(newMessages);
         webHost.clear();
         for (var message : newMessages) {
-            // reasoning is false atm, only transient via streamed append calls (not persisted)
             var isReasoning = isReasoningMessage(message);
             webHost.append(Messages.getText(message), true, message.type(), false, isReasoning);
         }
@@ -259,7 +280,9 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         try {
             return webHost.getSelectedText().get(200, TimeUnit.MILLISECONDS);
         } catch (Exception e) {
-            logger.warn("Failed to fetch selected text from WebView", e);
+            logger.debug(
+                    "Failed to fetch selected text from WebView: {}",
+                    e.getClass().getSimpleName());
             return "";
         }
     }

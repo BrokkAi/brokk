@@ -1,9 +1,9 @@
 package ai.brokk.analyzer;
 
-import ai.brokk.AbstractProject;
-import ai.brokk.IProject;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependenciesPanel;
+import ai.brokk.project.AbstractProject;
+import ai.brokk.project.IProject;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -20,13 +20,32 @@ public interface Language {
 
     String internalName(); // Filesystem-safe
 
-    IAnalyzer createAnalyzer(IProject project);
+    default IAnalyzer createAnalyzer(IProject project) {
+        return createAnalyzer(project, IAnalyzer.ProgressListener.NOOP);
+    }
+
+    /**
+     * Creates an analyzer with a progress listener that will receive updates during construction.
+     * Default implementation creates the analyzer and adds the listener afterward (which means
+     * initial construction progress won't be reported). Implementations should override to
+     * pass the listener through construction if progress reporting during build is desired.
+     */
+    IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener);
 
     /**
      * ACHTUNG! LoadAnalyzer can throw if the file on disk is corrupt or simply an obsolete format, so never call it
      * outside of try/catch with recovery!
      */
-    IAnalyzer loadAnalyzer(IProject project);
+    default IAnalyzer loadAnalyzer(IProject project) {
+        return loadAnalyzer(project, IAnalyzer.ProgressListener.NOOP);
+    }
+
+    /**
+     * Loads an analyzer with a progress listener that will receive updates during loading/rebuilding.
+     * Default implementation loads the analyzer and adds the listener afterward.
+     * Implementations should override to pass the listener through if progress reporting is desired.
+     */
+    IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener);
 
     /**
      * Get the path where the storage for this analyzer in the given project should be stored.
@@ -36,9 +55,29 @@ public interface Language {
      */
     default Path getStoragePath(IProject project) {
         // Use oldName for storage path to ensure stable and filesystem-safe names
+        // Persist snapshots compressed with GZIP to reduce size
         return project.getRoot()
                 .resolve(AbstractProject.BROKK_DIR)
-                .resolve(internalName().toLowerCase(Locale.ROOT) + ".bin");
+                .resolve(internalName().toLowerCase(Locale.ROOT) + ".bin.gzip");
+    }
+
+    /**
+     * Persist the analyzer state for this language, when possible.
+     * Default implementation saves TreeSitterAnalyzer snapshots to the per-language storage path.
+     * Implementations may override to customize or disable saving.
+     */
+    default void saveAnalyzer(IAnalyzer analyzer, IProject project) {
+        try {
+            if (analyzer instanceof TreeSitterAnalyzer tsa) {
+                Path file = getStoragePath(project);
+                TreeSitterStateIO.save(tsa.snapshotState(), file);
+                logger.debug("Saved analyzer state for {} to {}", name(), file);
+            } else {
+                logger.trace("saveAnalyzer: analyzer for {} is not TreeSitter-backed; skipping", name());
+            }
+        } catch (Throwable t) {
+            logger.warn("Failed to save analyzer state for {}: {}", name(), t.toString());
+        }
     }
 
     default List<Path> getDependencyCandidates(IProject project) {
@@ -172,20 +211,20 @@ public interface Language {
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project) {
+        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
             var delegates = new HashMap<Language, IAnalyzer>();
             for (var lang : languages) {
-                var analyzer = lang.createAnalyzer(project);
+                var analyzer = lang.createAnalyzer(project, listener);
                 if (!analyzer.isEmpty()) delegates.put(lang, analyzer);
             }
             return delegates.size() == 1 ? delegates.values().iterator().next() : new MultiAnalyzer(delegates);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project) {
+        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
             var delegates = new HashMap<Language, IAnalyzer>();
             for (var lang : languages) {
-                var analyzer = lang.loadAnalyzer(project);
+                var analyzer = lang.loadAnalyzer(project, listener);
                 if (!analyzer.isEmpty()) delegates.put(lang, analyzer);
             }
             return delegates.size() == 1 ? delegates.values().iterator().next() : new MultiAnalyzer(delegates);

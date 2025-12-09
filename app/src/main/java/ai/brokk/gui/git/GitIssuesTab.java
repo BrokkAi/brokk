@@ -1,13 +1,9 @@
 package ai.brokk.gui.git;
 
-import ai.brokk.*;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.IProject;
-import ai.brokk.MainProject;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.gui.*;
 import ai.brokk.gui.AutoScalingHtmlPane;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.Constants;
@@ -22,7 +18,8 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
-import ai.brokk.issues.*;
+import ai.brokk.gui.util.SlidingWindowState;
+import ai.brokk.gui.util.StreamingPaginationHelper;
 import ai.brokk.issues.Comment;
 import ai.brokk.issues.FilterOptions;
 import ai.brokk.issues.GitHubFilterOptions;
@@ -33,6 +30,8 @@ import ai.brokk.issues.IssueProviderType;
 import ai.brokk.issues.IssueService;
 import ai.brokk.issues.JiraFilterOptions;
 import ai.brokk.issues.JiraIssueService;
+import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.HtmlUtil;
 import ai.brokk.util.ImageUtil;
@@ -92,11 +91,17 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
     private FilterBox statusFilter;
 
     @Nullable
-    private FilterBox resolutionFilter; // Initialized conditionally
+    private FilterBox resolutionFilter; // Jira only
 
-    private FilterBox authorFilter;
-    private FilterBox labelFilter;
-    private FilterBox assigneeFilter;
+    @Nullable
+    private FilterBox authorFilter; // GitHub only (not yet implemented for Jira)
+
+    @Nullable
+    private FilterBox labelFilter; // GitHub only (not yet implemented for Jira)
+
+    @Nullable
+    private FilterBox assigneeFilter; // GitHub only (not yet implemented for Jira)
+
     private LoadingTextBox searchBox;
     private Timer searchDebounceTimer;
     private static final int SEARCH_DEBOUNCE_DELAY = 400; // ms for search debounce
@@ -124,6 +129,14 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
     private List<IssueHeader> displayedIssues = new ArrayList<>();
 
     private boolean isShowingError = false;
+
+    // Sliding window pagination state
+    private final SlidingWindowState<IssueHeader> slidingWindow = new SlidingWindowState<>();
+
+    private volatile @Nullable Iterator<List<IssueHeader>> activeIssueIterator;
+    private long searchGeneration = 0;
+
+    private MaterialButton loadMoreButton;
 
     // Store default options for static filters to easily reset them
     private static final List<String> STATUS_FILTER_OPTIONS = List.of("Open", "Closed"); // "All" is null selection
@@ -194,18 +207,29 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 .setToolTipText("Search issues (Ctrl+F to focus)"); // Set tooltip on the inner JTextField
         searchPanel.add(searchBox, BorderLayout.CENTER);
 
+        // ── Load More button ─────────────────────────────────────────────────────
+        loadMoreButton = new MaterialButton();
+        loadMoreButton.setText("Load more");
+        loadMoreButton.setToolTipText("Load more issues");
+        loadMoreButton.setVisible(false);
+        loadMoreButton.addActionListener(e -> loadMoreIssues());
+
         // ── Refresh button ──────────────────────────────────────────────────────
         refreshButton = new MaterialButton();
         final Icon refreshIcon = Icons.REFRESH;
         refreshButton.setIcon(refreshIcon);
         refreshButton.setText("");
-        refreshButton.setMargin(new Insets(2, 2, 2, 2)); // small padding
-        // Slightly enlarge the glyph so it is more legible than default-size text
+        refreshButton.setMargin(new Insets(2, 2, 2, 2));
         refreshButton.setFont(
                 refreshButton.getFont().deriveFont(refreshButton.getFont().getSize() * 1.25f));
         refreshButton.setToolTipText("Refresh");
         refreshButton.addActionListener(e -> updateIssueList());
-        searchPanel.add(refreshButton, BorderLayout.EAST);
+
+        // Panel to hold both buttons on the right
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, Constants.H_GAP, 0));
+        buttonPanel.add(loadMoreButton);
+        buttonPanel.add(refreshButton);
+        searchPanel.add(buttonPanel, BorderLayout.EAST);
 
         mainIssueAreaPanel.add(topContentPanel, BorderLayout.NORTH);
 
@@ -289,54 +313,86 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         filtersContainer.add(filterLabel);
         filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP)); // Space after label
 
-        if (this.issueService instanceof JiraIssueService) {
-            resolutionFilter =
-                    new FilterBox(this.chrome, "Resolution", () -> List.of("Resolved", "Unresolved"), "Unresolved");
-            resolutionFilter.setToolTipText("Filter by Jira issue resolution");
-            resolutionFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-            // API call needed when resolution changes
-            resolutionFilter.addPropertyChangeListener("value", e -> updateIssueList());
-            filtersContainer.add(resolutionFilter); // Add to filtersContainer
-            filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
+        var project = contextManager.getProject();
 
-            statusFilter = new FilterBox(
-                    this.chrome, "Status", () -> actualStatusFilterOptions, null); // No default for Jira status
+        if (this.issueService instanceof JiraIssueService) {
+            String savedResolution = project.getUiFilterProperty("issues.resolution");
+            String defaultResolution = savedResolution != null ? savedResolution : "Unresolved";
+            var jiraResolutionFilter = new FilterBox(
+                    this.chrome, "Resolution", () -> List.of("Resolved", "Unresolved"), defaultResolution);
+            jiraResolutionFilter.setToolTipText("Filter by Jira issue resolution");
+            jiraResolutionFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
+            jiraResolutionFilter.addPropertyChangeListener("value", e -> {
+                project.setUiFilterProperty("issues.resolution", jiraResolutionFilter.getSelected());
+                updateIssueList();
+            });
+            filtersContainer.add(jiraResolutionFilter);
+            filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
+            resolutionFilter = jiraResolutionFilter;
+
+            String savedStatus = project.getUiFilterProperty("issues.status");
+            statusFilter = new FilterBox(this.chrome, "Status", () -> actualStatusFilterOptions, savedStatus);
             statusFilter.setToolTipText("Filter by Jira issue status");
         } else { // GitHub or default
-            statusFilter = new FilterBox(
-                    this.chrome, "Status", () -> actualStatusFilterOptions, "Open"); // Default "Open" for GitHub
+            String savedStatus = project.getUiFilterProperty("issues.status");
+            String defaultStatus = savedStatus != null ? savedStatus : "Open";
+            statusFilter = new FilterBox(this.chrome, "Status", () -> actualStatusFilterOptions, defaultStatus);
             statusFilter.setToolTipText("Filter by GitHub issue status");
         }
         statusFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         statusFilter.addPropertyChangeListener("value", e -> {
-            // Status filter change triggers a new API fetch and subsequent processing.
+            project.setUiFilterProperty("issues.status", statusFilter.getSelected());
             updateIssueList();
         });
         filtersContainer.add(statusFilter);
         filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
 
-        authorFilter =
-                new FilterBox(this.chrome, "Author", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "author"));
-        authorFilter.setToolTipText("Filter by issue author");
-        authorFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        authorFilter.addPropertyChangeListener("value", e -> triggerClientSideFilterUpdate());
-        filtersContainer.add(authorFilter);
-        filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
+        // Author/Label/Assignee filters only shown for GitHub (not yet implemented for Jira)
+        if (!(this.issueService instanceof JiraIssueService)) {
+            String savedAuthor = project.getUiFilterProperty("issues.author");
+            var author = new FilterBox(
+                    this.chrome,
+                    "Author",
+                    () -> generateFilterOptionsFromIssues(allIssuesFromApi, "author"),
+                    savedAuthor);
+            author.setToolTipText("Filter by issue author");
+            author.setAlignmentX(Component.LEFT_ALIGNMENT);
+            author.addPropertyChangeListener("value", e -> {
+                project.setUiFilterProperty("issues.author", author.getSelected());
+                updateIssueList();
+            });
+            filtersContainer.add(author);
+            filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
+            authorFilter = author;
 
-        labelFilter =
-                new FilterBox(this.chrome, "Label", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "label"));
-        labelFilter.setToolTipText("Filter by issue label");
-        labelFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        labelFilter.addPropertyChangeListener("value", e -> triggerClientSideFilterUpdate());
-        filtersContainer.add(labelFilter);
-        filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
+            String savedLabel = project.getUiFilterProperty("issues.label");
+            var label = new FilterBox(
+                    this.chrome, "Label", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "label"), savedLabel);
+            label.setToolTipText("Filter by issue label");
+            label.setAlignmentX(Component.LEFT_ALIGNMENT);
+            label.addPropertyChangeListener("value", e -> {
+                project.setUiFilterProperty("issues.label", label.getSelected());
+                updateIssueList();
+            });
+            filtersContainer.add(label);
+            filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
+            labelFilter = label;
 
-        assigneeFilter = new FilterBox(
-                this.chrome, "Assignee", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "assignee"));
-        assigneeFilter.setToolTipText("Filter by issue assignee");
-        assigneeFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        assigneeFilter.addPropertyChangeListener("value", e -> triggerClientSideFilterUpdate());
-        filtersContainer.add(assigneeFilter);
+            String savedAssignee = project.getUiFilterProperty("issues.assignee");
+            var assignee = new FilterBox(
+                    this.chrome,
+                    "Assignee",
+                    () -> generateFilterOptionsFromIssues(allIssuesFromApi, "assignee"),
+                    savedAssignee);
+            assignee.setToolTipText("Filter by issue assignee");
+            assignee.setAlignmentX(Component.LEFT_ALIGNMENT);
+            assignee.addPropertyChangeListener("value", e -> {
+                project.setUiFilterProperty("issues.assignee", assignee.getSelected());
+                updateIssueList();
+            });
+            filtersContainer.add(assignee);
+            assigneeFilter = assignee;
+        }
 
         // Put the horizontal filter bar in a scroll pane so it can overflow cleanly
         // Add bottom padding and attach the container directly; FlowLayout wraps rows automatically
@@ -754,6 +810,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                     disableIssueActionsAndClearDetails();
                     setReloadUiEnabled(false);
                     searchBox.setLoading(false, "");
+                    loadMoreButton.setVisible(false);
+                    loadMoreButton.setEnabled(false);
                 });
     }
 
@@ -826,42 +884,51 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         return false;
     }
 
-    /** Fetches open GitHub issues and populates the issue table. */
+    /** Fetches issues with streaming pagination and populates the issue table. */
     private void updateIssueList() {
+        assert SwingUtilities.isEventDispatchThread();
         if (currentSearchFuture != null && !currentSearchFuture.isDone()) {
             currentSearchFuture.cancel(true);
         }
 
-        searchBox.setLoading(true, "Searching issues");
+        searchBox.setLoading(true, "Loading issues...");
+        loadMoreButton.setVisible(false);
+        loadMoreButton.setEnabled(false);
+
+        final long capturedGeneration = ++searchGeneration;
+
+        SwingUtilities.invokeLater(() -> {
+            slidingWindow.clear();
+            activeIssueIterator = null;
+            allIssuesFromApi.clear();
+            displayedIssues.clear();
+            issueTableModel.setRowCount(0);
+        });
+
         currentSearchFuture = contextManager.submitBackgroundTask("Fetching GitHub Issues", () -> {
-            List<IssueHeader> fetchedIssueHeaders;
             try {
-                // Read filter values on EDT or before submitting task. searchBox can be null during early init.
+                // Read filter values
                 final String currentSearchQuery = searchBox.getText().strip();
                 final String queryForApi = currentSearchQuery.isBlank() ? null : currentSearchQuery;
 
                 final String statusVal = getBaseFilterValue(statusFilter.getSelected());
-                final String authorVal =
-                        getBaseFilterValue(authorFilter.getSelected()); // For GitHub server-side search
-                final String labelVal = getBaseFilterValue(labelFilter.getSelected()); // For GitHub server-side search
+                final String authorVal = authorFilter != null ? getBaseFilterValue(authorFilter.getSelected()) : null;
+                final String labelVal = labelFilter != null ? getBaseFilterValue(labelFilter.getSelected()) : null;
                 final String assigneeVal =
-                        getBaseFilterValue(assigneeFilter.getSelected()); // For GitHub server-side search
+                        assigneeFilter != null ? getBaseFilterValue(assigneeFilter.getSelected()) : null;
 
                 FilterOptions apiFilterOptions;
                 if (this.issueService instanceof JiraIssueService) {
                     String resolutionVal = (resolutionFilter != null)
                             ? getBaseFilterValue(resolutionFilter.getSelected())
                             : "Unresolved";
-                    // For Jira, author/label/assignee are client-filtered. Query is passed for server-side text search.
                     apiFilterOptions = new JiraFilterOptions(statusVal, resolutionVal, null, null, null, queryForApi);
                     logger.debug(
                             "Jira API filters: Status='{}', Resolution='{}', Query='{}'",
                             statusVal,
                             resolutionVal,
                             queryForApi);
-                } else { // GitHub or default
-                    // For GitHub, all filters including query are passed for server-side search if query is present.
-                    // If query is null, service handles client-side filtering for author/label/assignee.
+                } else {
                     apiFilterOptions =
                             new GitHubFilterOptions(statusVal, authorVal, labelVal, assigneeVal, queryForApi);
                     logger.debug(
@@ -873,15 +940,46 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                             queryForApi);
                 }
 
-                fetchedIssueHeaders = this.issueService.listIssues(apiFilterOptions);
-                logger.debug("Fetched {} issue headers via IssueService.", fetchedIssueHeaders.size());
+                // Create new iterator and load first batch
+                var pageIterator = this.issueService.listIssuesPaginated(
+                        apiFilterOptions, StreamingPaginationHelper.DEFAULT_PAGE_SIZE, Integer.MAX_VALUE);
+
+                var result = StreamingPaginationHelper.loadPrebatchedBatch(
+                        pageIterator, StreamingPaginationHelper.BATCH_SIZE);
+
+                // Store iterator for "Load more"
+                activeIssueIterator = pageIterator;
+
+                SwingUtilities.invokeLater(() -> {
+                    if (capturedGeneration != searchGeneration) {
+                        return;
+                    }
+
+                    slidingWindow.appendBatch(result.items(), result.hasMore());
+                    allIssuesFromApi = new ArrayList<>(slidingWindow.getItems());
+                    displayedIssues = new ArrayList<>(allIssuesFromApi);
+                    updateTableFromDisplayedIssues();
+                    searchBox.setLoading(false, slidingWindow.formatStatusMessage("issues"));
+                    loadMoreButton.setVisible(slidingWindow.hasMore());
+                    loadMoreButton.setEnabled(slidingWindow.hasMore());
+
+                    if (!result.items().isEmpty()) {
+                        issueTable.scrollRectToVisible(issueTable.getCellRect(0, 0, true));
+                    }
+                });
+
             } catch (HttpException httpEx) {
                 logger.error(
                         "HTTP error while fetching issues: {} (status {})",
                         httpEx.getMessage(),
                         httpEx.getResponseCode());
-                String errorMessage = GitTabErrorUtil.mapExceptionToUserMessage(httpEx);
+                String errorMessage = GitHubErrorUtil.formatError(httpEx, "issues");
                 SwingUtilities.invokeLater(() -> {
+                    if (capturedGeneration != searchGeneration) {
+                        return;
+                    }
+                    activeIssueIterator = null;
+                    slidingWindow.clear();
                     allIssuesFromApi.clear();
                     displayedIssues.clear();
                     showErrorInTable(errorMessage);
@@ -891,6 +989,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 logger.error("Network error while fetching issues: unknown host", ex);
                 String errorMessage = GitTabErrorUtil.mapExceptionToUserMessage(ex);
                 SwingUtilities.invokeLater(() -> {
+                    if (capturedGeneration != searchGeneration) {
+                        return;
+                    }
+                    activeIssueIterator = null;
+                    slidingWindow.clear();
                     allIssuesFromApi.clear();
                     displayedIssues.clear();
                     showErrorInTable(errorMessage);
@@ -900,6 +1003,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 logger.error("Timeout while fetching issues", ex);
                 String errorMessage = GitTabErrorUtil.mapExceptionToUserMessage(ex);
                 SwingUtilities.invokeLater(() -> {
+                    if (capturedGeneration != searchGeneration) {
+                        return;
+                    }
+                    activeIssueIterator = null;
+                    slidingWindow.clear();
                     allIssuesFromApi.clear();
                     displayedIssues.clear();
                     showErrorInTable(errorMessage);
@@ -909,6 +1017,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 logger.error("Connection error while fetching issues", ex);
                 String errorMessage = GitTabErrorUtil.mapExceptionToUserMessage(ex);
                 SwingUtilities.invokeLater(() -> {
+                    if (capturedGeneration != searchGeneration) {
+                        return;
+                    }
+                    activeIssueIterator = null;
+                    slidingWindow.clear();
                     allIssuesFromApi.clear();
                     displayedIssues.clear();
                     showErrorInTable(errorMessage);
@@ -918,154 +1031,136 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 logger.error("I/O error while fetching issues", ex);
                 String errorMessage = GitTabErrorUtil.mapExceptionToUserMessage(ex);
                 SwingUtilities.invokeLater(() -> {
+                    if (capturedGeneration != searchGeneration) {
+                        return;
+                    }
+                    activeIssueIterator = null;
+                    slidingWindow.clear();
                     allIssuesFromApi.clear();
                     displayedIssues.clear();
                     showErrorInTable(errorMessage);
                 });
                 return null;
             } catch (Exception ex) {
+                activeIssueIterator = null;
                 if (wasCancellation(ex)) {
-                    SwingUtilities.invokeLater(() -> searchBox.setLoading(false, ""));
-                } else {
-                    logger.error("Unexpected error while fetching issues", ex);
                     SwingUtilities.invokeLater(() -> {
+                        if (capturedGeneration == searchGeneration) {
+                            searchBox.setLoading(false, "");
+                        }
+                    });
+                } else {
+                    logger.error("Failed to fetch issues via IssueService", ex);
+                    var errorMessage = GitHubErrorUtil.formatError(ex, "issues");
+                    SwingUtilities.invokeLater(() -> {
+                        if (capturedGeneration != searchGeneration) {
+                            return;
+                        }
+                        slidingWindow.clear();
                         allIssuesFromApi.clear();
                         displayedIssues.clear();
-                        showErrorInTable("Unexpected error: " + ex.getMessage());
+                        showErrorInTable(errorMessage);
                     });
                 }
-                return null;
             }
-
-            if (Thread.currentThread().isInterrupted()) {
-                // If interrupted after successful fetch but before processing, ensure loading is stopped.
-                SwingUtilities.invokeLater(() -> searchBox.setLoading(false, ""));
-                return null;
-            }
-            // Perform filtering and display processing in the background
-            processAndDisplayWorker(fetchedIssueHeaders, true);
             return null;
         });
         trackCancellableFuture(currentSearchFuture);
     }
 
-    private void triggerClientSideFilterUpdate() {
-        // This method is called when author, label, or assignee filters change.
-        // It re-filters the existing 'allIssuesFromApi' list.
-        if (allIssuesFromApi.isEmpty() && issueTableModel.getRowCount() == 0) {
-            logger.debug("Skipping client-side filter update: allIssuesFromApi is not ready or an error is displayed.");
+    /** Loads the next batch of issues when user clicks "Load more". */
+    private void loadMoreIssues() {
+        if (activeIssueIterator == null || !slidingWindow.hasMore()) {
             return;
         }
-        searchBox.setLoading(true, "Filtering issues");
-        final List<IssueHeader> currentIssuesToFilter = new ArrayList<>(allIssuesFromApi); // Use a snapshot
 
-        contextManager.submitBackgroundTask("Applying Client-Side Filters", () -> {
-            logger.debug(
-                    "Client-side filter update triggered. Processing {} issues from current API list.",
-                    currentIssuesToFilter.size());
-            processAndDisplayWorker(
-                    currentIssuesToFilter, false); // 'false' means don't update allIssuesFromApi, just displayedIssues
+        var iterator = activeIssueIterator;
+        final long capturedGeneration = searchGeneration;
+        loadMoreButton.setEnabled(false);
+        searchBox.setLoading(true, "Loading more issues...");
+
+        var future = contextManager.submitBackgroundTask("Loading more issues", () -> {
+            try {
+                var result =
+                        StreamingPaginationHelper.loadPrebatchedBatch(iterator, StreamingPaginationHelper.BATCH_SIZE);
+
+                SwingUtilities.invokeLater(() -> {
+                    if (capturedGeneration != searchGeneration) {
+                        return;
+                    }
+                    slidingWindow.appendBatch(result.items(), result.hasMore());
+                    allIssuesFromApi = new ArrayList<>(slidingWindow.getItems());
+                    displayedIssues = new ArrayList<>(allIssuesFromApi);
+                    updateTableFromDisplayedIssues();
+                    searchBox.setLoading(false, slidingWindow.formatStatusMessage("issues"));
+                    loadMoreButton.setVisible(slidingWindow.hasMore());
+                    loadMoreButton.setEnabled(slidingWindow.hasMore());
+                });
+
+            } catch (Exception ex) {
+                if (!wasCancellation(ex)) {
+                    logger.error("Failed to load more issues", ex);
+                }
+                SwingUtilities.invokeLater(() -> {
+                    if (capturedGeneration == searchGeneration) {
+                        searchBox.setLoading(false, "");
+                        loadMoreButton.setEnabled(slidingWindow.hasMore());
+                    }
+                });
+            }
             return null;
         });
+        trackCancellableFuture(future);
     }
 
-    private void processAndDisplayWorker(List<IssueHeader> sourceList, boolean isFullUpdate) {
-        if (Thread.currentThread().isInterrupted()) {
-            // Ensure searchBox loading state is reset correctly on the EDT.
-            SwingUtilities.invokeLater(() -> searchBox.setLoading(false, ""));
-            return;
+    /** Updates the table model from displayedIssues. Must be called on EDT. */
+    private void updateTableFromDisplayedIssues() {
+        assert SwingUtilities.isEventDispatchThread();
+
+        // We are showing real data again
+        isShowingError = false;
+
+        // Remember selection
+        int selectedRow = issueTable.getSelectedRow();
+        String selectedId = null;
+        if (selectedRow >= 0 && selectedRow < displayedIssues.size()) {
+            selectedId = displayedIssues.get(selectedRow).id();
         }
-        // This method runs on a background thread.
-        logger.debug(
-                "processAndDisplayWorker: Starting. Source list size: {}. isFullUpdate: {}",
-                sourceList.size(),
-                isFullUpdate);
 
-        // Read filter values. These are assumed to be safe to read from a background thread
-        // as FilterBox.getSelected() should be a simple getter.
-        String selectedAuthorActual = getBaseFilterValue(authorFilter.getSelected());
-        String selectedLabelActual = getBaseFilterValue(labelFilter.getSelected());
-        String selectedAssigneeActual = getBaseFilterValue(assigneeFilter.getSelected());
-        logger.debug(
-                "processAndDisplayWorker: Filters - Author: '{}', Label: '{}', Assignee: '{}'",
-                selectedAuthorActual,
-                selectedLabelActual,
-                selectedAssigneeActual);
+        issueTableModel.setRowCount(0);
+        if (displayedIssues.isEmpty()) {
+            setIssueTitleRenderer(false);
+            disableIssueActions();
+        } else {
+            setIssueTitleRenderer(true);
+            issueTable.setRowHeight(DEFAULT_ROW_HEIGHT);
 
-        List<IssueHeader> filteredIssues = new ArrayList<>();
-        // Guard against null sourceList
-        for (var header : sourceList) {
-            boolean matches = true;
-            if (selectedAuthorActual != null && !selectedAuthorActual.equals(header.author())) {
-                matches = false;
+            // Sort issues by update date, newest first
+            displayedIssues.sort(
+                    Comparator.comparing(IssueHeader::updated, Comparator.nullsLast(Comparator.reverseOrder())));
+
+            var today = LocalDate.now(ZoneId.systemDefault());
+            for (var header : displayedIssues) {
+                String updated = header.updated() == null
+                        ? ""
+                        : GitDiffUiUtil.formatRelativeDate(header.updated().toInstant(), today);
+                issueTableModel.addRow(new Object[] {header.id(), header.title(), header.author(), updated});
             }
-            if (matches && selectedLabelActual != null) {
-                if (header.labels().stream().noneMatch(l -> selectedLabelActual.equals(l))) {
-                    matches = false;
+
+            // Restore selection if possible
+            if (selectedId != null) {
+                for (int i = 0; i < displayedIssues.size(); i++) {
+                    if (displayedIssues.get(i).id().equals(selectedId)) {
+                        issueTable.setRowSelectionInterval(i, i);
+                        break;
+                    }
                 }
-            }
-            if (matches && selectedAssigneeActual != null) {
-                if (header.assignees().stream().noneMatch(a -> selectedAssigneeActual.equals(a))) {
-                    matches = false;
-                }
-            }
-            if (matches) {
-                filteredIssues.add(header);
             }
         }
-        logger.debug("processAndDisplayWorker: After filtering, {} issues remain.", filteredIssues.size());
 
-        // Sort issues by update date, newest first
-        filteredIssues.sort(
-                Comparator.comparing(IssueHeader::updated, Comparator.nullsLast(Comparator.reverseOrder())));
-        logger.debug("processAndDisplayWorker: Sorted the {} filtered issues.", filteredIssues.size());
-
-        // Data for EDT update
-        final List<IssueHeader> finalFilteredIssuesForDisplay = filteredIssues; // Already a new list
-
-        SwingUtilities.invokeLater(() -> {
-            // This part runs on the EDT
-            logger.debug("processAndDisplayWorker (EDT): Starting UI updates.");
-            if (isFullUpdate) {
-                isShowingError = false;
-                issueTable.setRowHeight(DEFAULT_ROW_HEIGHT);
-                allIssuesFromApi = new ArrayList<>(sourceList);
-                logger.debug(
-                        "processAndDisplayWorker (EDT): Updated allIssuesFromApi with {} issues.",
-                        allIssuesFromApi.size());
-                // FilterBoxes will lazily re-generate options using the new allIssuesFromApi
-                // when the user interacts with them.
-            }
-            displayedIssues = finalFilteredIssuesForDisplay;
-            logger.debug("processAndDisplayWorker (EDT): Set displayedIssues with {} issues.", displayedIssues.size());
-
-            // Update table model
-            issueTableModel.setRowCount(0);
-            if (displayedIssues.isEmpty()) {
-                setIssueTitleRenderer(false);
-                disableIssueActions();
-            } else {
-                setIssueTitleRenderer(true);
-                var today = LocalDate.now(ZoneId.systemDefault());
-                for (var header : displayedIssues) {
-                    String updated = header.updated() == null
-                            ? ""
-                            : GitDiffUiUtil.formatRelativeDate(header.updated().toInstant(), today);
-                    issueTableModel.addRow(new Object[] {header.id(), header.title(), header.author(), updated});
-                }
-            }
-
-            // Manage button states based on selection
-            if (issueTable.getSelectedRow() == -1) {
-                disableIssueActions();
-            }
-
-            if (isFullUpdate) {
-                setReloadUiEnabled(true);
-            }
-            searchBox.setLoading(false, ""); // Stop loading after UI updates
-            logger.debug("processAndDisplayWorker (EDT): UI updates complete.");
-        });
+        if (issueTable.getSelectedRow() == -1) {
+            disableIssueActions();
+        }
     }
 
     private List<String> generateFilterOptionsFromIssues(List<IssueHeader> issueHeaders, String filterType) {
@@ -1158,11 +1253,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 List<ChatMessage> issueTextMessages = buildIssueTextContentFromDetails(details);
                 ContextFragment.TaskFragment issueTextFragment =
                         createIssueTextFragmentFromDetails(details, issueTextMessages);
-                contextManager.addVirtualFragment(issueTextFragment);
+                contextManager.addFragments(issueTextFragment);
 
                 List<ChatMessage> commentChatMessages = buildChatMessagesFromDtoComments(details.comments());
                 if (!commentChatMessages.isEmpty()) {
-                    contextManager.addVirtualFragment(createCommentsFragmentFromDetails(details, commentChatMessages));
+                    contextManager.addFragments(createCommentsFragmentFromDetails(details, commentChatMessages));
                 }
 
                 int capturedImageCount = processAndCaptureImagesFromDetails(details);

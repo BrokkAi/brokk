@@ -1,14 +1,14 @@
 package ai.brokk.gui.dialogs;
 
-import ai.brokk.IProject;
-import ai.brokk.MainProject;
-import ai.brokk.MainProject.DataRetentionPolicy;
 import ai.brokk.github.BackgroundGitHubAuth;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
+import ai.brokk.project.MainProject.DataRetentionPolicy;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
@@ -18,7 +18,7 @@ import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-public class SettingsDialog extends JDialog implements ThemeAware {
+public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SettingsDialog.class);
 
     public static final String GITHUB_SETTINGS_TAB_NAME = "GitHub";
@@ -36,7 +36,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
     private boolean uiScaleSettingsChanged = false; // Track if UI scale needs restart
 
     public SettingsDialog(Frame owner, Chrome chrome) {
-        super(owner, "Settings", true);
+        super(owner, "Settings");
         this.chrome = chrome;
         setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         setSize(1100, 600);
@@ -105,9 +105,10 @@ public class SettingsDialog extends JDialog implements ThemeAware {
             }
         });
 
-        getContentPane().setLayout(new BorderLayout());
-        getContentPane().add(tabbedPane, BorderLayout.CENTER);
-        getContentPane().add(buttonPanel, BorderLayout.SOUTH);
+        JPanel root = getContentRoot();
+        root.setLayout(new BorderLayout());
+        root.add(tabbedPane, BorderLayout.CENTER);
+        root.add(buttonPanel, BorderLayout.SOUTH);
 
         // Load settings in background and populate UI when done
         loadSettingsInBackground();
@@ -312,7 +313,8 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         assert project.isDataShareAllowed()
                 : "Standalone data retention dialog should not be shown if data sharing is disabled by organization";
 
-        var dialog = new JDialog(owner, "Data Retention Policy Required", true);
+        BaseThemedDialog dialog =
+                new BaseThemedDialog(owner, "Data Retention Policy Required", Dialog.ModalityType.APPLICATION_MODAL);
         dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
         dialog.setSize(600, 350); // Adjusted size
         dialog.setLocationRelativeTo(owner);
@@ -376,7 +378,11 @@ public class SettingsDialog extends JDialog implements ThemeAware {
             }
         });
 
-        dialog.setContentPane(contentPanel);
+        // Place contentPanel in the content root (which BaseThemedDialog manages)
+        JPanel root = dialog.getContentRoot();
+        root.setLayout(new BorderLayout());
+        root.add(contentPanel, BorderLayout.CENTER);
+
         okButtonDialog.requestFocusInWindow();
         dialog.setVisible(true);
 

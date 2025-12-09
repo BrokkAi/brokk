@@ -1,11 +1,11 @@
 package ai.brokk.gui.dialogs;
 
 import ai.brokk.Brokk;
-import ai.brokk.MainProject;
 import ai.brokk.Service;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.BrowserLabel;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.project.MainProject;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -17,14 +17,14 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /** Modal dialog that prompts the user for a Brokk Key and validates it before closing. */
-public class BrokkKeyDialog extends JDialog {
+public class BrokkKeyDialog extends BaseThemedDialog {
     private static final Logger logger = LogManager.getLogger(BrokkKeyDialog.class);
 
     private final JTextField keyField = new JTextField(30);
     private @Nullable String validatedKey = null;
 
     private BrokkKeyDialog(@Nullable Frame owner, @Nullable String initialKey) {
-        super(owner, "Enter Brokk Key", true);
+        super(owner, "Enter Brokk Key");
         Chrome.applyIcon(this);
 
         if (initialKey != null && !initialKey.isEmpty()) {
@@ -45,15 +45,16 @@ public class BrokkKeyDialog extends JDialog {
     }
 
     private void initComponents() {
-        setLayout(new BorderLayout(10, 10));
-        getRootPane().setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        JPanel root = getContentRoot();
+        root.setLayout(new BorderLayout(10, 10));
+        root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         // Icon
         var iconUrl = Brokk.class.getResource(Brokk.ICON_RESOURCE);
         if (iconUrl != null) {
             var icon = new ImageIcon(iconUrl);
             var image = icon.getImage().getScaledInstance(96, 96, Image.SCALE_SMOOTH);
-            add(new JLabel(new ImageIcon(image)), BorderLayout.WEST);
+            root.add(new JLabel(new ImageIcon(image)), BorderLayout.WEST);
         }
 
         // Center panel with instructions and key field
@@ -71,7 +72,7 @@ public class BrokkKeyDialog extends JDialog {
         keyPanel.add(keyField, BorderLayout.CENTER);
         center.add(keyPanel);
 
-        add(center, BorderLayout.CENTER);
+        root.add(center, BorderLayout.CENTER);
 
         // Buttons
         var okBtn = new MaterialButton("OK");
@@ -83,7 +84,7 @@ public class BrokkKeyDialog extends JDialog {
         var btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         btnPanel.add(cancelBtn);
         btnPanel.add(okBtn);
-        add(btnPanel, BorderLayout.SOUTH);
+        root.add(btnPanel, BorderLayout.SOUTH);
 
         getRootPane().setDefaultButton(okBtn);
 

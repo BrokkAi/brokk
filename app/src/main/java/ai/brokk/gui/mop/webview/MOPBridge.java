@@ -1,16 +1,14 @@
 package ai.brokk.gui.mop.webview;
 
-import static java.util.Objects.requireNonNull;
-
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
-import ai.brokk.MainProject;
 import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.menu.ContextMenuBuilder;
 import ai.brokk.gui.mop.FilePathLookupService;
 import ai.brokk.gui.mop.SymbolLookupService;
+import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -202,17 +200,9 @@ public final class MOPBridge {
     public void sendHistoryTask(TaskEntry entry) {
         var e = epoch.incrementAndGet();
 
-        // compressed summary
-        if (entry.isCompressed()) {
-            var event = new BrokkEvent.HistoryTask(e, entry.sequence(), true, requireNonNull(entry.summary()), null);
-            eventQueue.add(event);
-            scheduleSend();
-            return;
-        }
-
-        // Uncompressed: convert messages
-        var taskFragment = entry.log();
+        // Convert messages from log when available
         List<BrokkEvent.HistoryTask.Message> messages = new ArrayList<>();
+        var taskFragment = entry.log();
 
         if (taskFragment != null) {
             var msgs = taskFragment.messages();
@@ -222,8 +212,29 @@ public final class MOPBridge {
                         new BrokkEvent.HistoryTask.Message(text, message.type(), Messages.isReasoningMessage(message)));
             }
         }
-        var event = new BrokkEvent.HistoryTask(e, entry.sequence(), false, null, messages);
+
+        // Build event: compressed flag is true when summary is present (AI uses summary)
+        // Include both summary and messages when available
+        var summary = entry.isCompressed() ? entry.summary() : null;
+        var compressed = entry.isCompressed();
+        var messagesList = messages.isEmpty() ? null : messages;
+
+        var event = new BrokkEvent.HistoryTask(e, entry.sequence(), compressed, summary, messagesList);
         eventQueue.add(event);
+        scheduleSend();
+    }
+
+    /**
+     * Sends a live summary event to the frontend for the current in-progress task.
+     * This allows the frontend to display a summary toggle in the live area.
+     *
+     * @param taskSequence The backend TaskEntry sequence number
+     * @param compressed Whether the task is compressed (AI uses summary)
+     * @param summary The summary text
+     */
+    public void sendLiveSummary(int taskSequence, boolean compressed, String summary) {
+        var e = epoch.incrementAndGet();
+        eventQueue.add(new BrokkEvent.LiveSummary(e, taskSequence, compressed, summary));
         scheduleSend();
     }
 

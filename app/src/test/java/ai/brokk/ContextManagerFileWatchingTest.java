@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.IWatchService.EventBatch;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.project.MainProject;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -129,7 +130,7 @@ class ContextManagerFileWatchingTest {
         var fragment1 = new ContextFragment.ProjectPathFragment(file1, contextManager);
         var fragment2 = new ContextFragment.ProjectPathFragment(file2, contextManager);
 
-        contextManager.pushContext(ctx -> ctx.addPathFragments(List.of(fragment1, fragment2)));
+        contextManager.pushContext(ctx -> ctx.addFragments(List.of(fragment1, fragment2)));
 
         // Get context files directly
         Set<ProjectFile> contextFiles = contextManager.getContextFiles();
@@ -190,7 +191,7 @@ class ContextManagerFileWatchingTest {
         // Add file to context
         ProjectFile file1 = new ProjectFile(projectRoot, Path.of("src/Main.java"));
         var fragment1 = new ContextFragment.ProjectPathFragment(file1, contextManager);
-        contextManager.pushContext(ctx -> ctx.addPathFragments(List.of(fragment1)));
+        contextManager.pushContext(ctx -> ctx.addFragments(List.of(fragment1)));
 
         // Set the test IO using reflection (io field must remain private)
         var ioField = ContextManager.class.getDeclaredField("io");
@@ -321,7 +322,7 @@ class ContextManagerFileWatchingTest {
         ProjectFile nonContextFile = new ProjectFile(projectRoot, Path.of("src/Test.java"));
 
         var fragment = new ContextFragment.ProjectPathFragment(contextFile, contextManager);
-        contextManager.pushContext(ctx -> ctx.addPathFragments(List.of(fragment)));
+        contextManager.pushContext(ctx -> ctx.addFragments(List.of(fragment)));
 
         // Get context files to verify directly
         Set<ProjectFile> contextFiles = contextManager.getContextFiles();

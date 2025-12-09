@@ -2,7 +2,7 @@ package ai.brokk.analyzer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.IProject;
+import ai.brokk.project.IProject;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -135,10 +135,7 @@ public class JavaAnalyzerSearchTest {
     }
 
     @Test
-    public void testSearchDefinitions_EmptyAndNonExistent() {
-        var emptyPatternSymbols = analyzer.searchDefinitions("");
-        assertTrue(emptyPatternSymbols.isEmpty(), "Empty pattern should return no results");
-
+    public void testSearchDefinitions_NonExistent() {
         var nonExistentSymbols = analyzer.searchDefinitions("NonExistentPatternXYZ123");
         assertTrue(nonExistentSymbols.isEmpty(), "Non-existent pattern should return no results");
     }

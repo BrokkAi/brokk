@@ -1,17 +1,18 @@
 package ai.brokk.gui.dialogs;
 
 import ai.brokk.IConsoleIO;
-import ai.brokk.IProject;
-import ai.brokk.MainProject;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.ExecutorConfig;
 import ai.brokk.util.ExecutorValidator;
+import ai.brokk.util.PathNormalizer;
 import com.google.common.io.Files;
 import java.awt.*;
 import java.util.*;
@@ -431,7 +432,7 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     private void verifyBuildConfiguration() {
-        var verifyDialog = new JDialog(parentDialog, "Verifying Build Configuration", true);
+        var verifyDialog = new BaseThemedDialog(parentDialog, "Verifying Build Configuration");
         verifyDialog.setSize(600, 400);
         verifyDialog.setLocationRelativeTo(parentDialog);
 
@@ -452,9 +453,10 @@ public class SettingsProjectBuildPanel extends JPanel {
         bottomPanel.add(closeButton, BorderLayout.EAST);
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
 
-        verifyDialog.setLayout(new BorderLayout(5, 5));
-        verifyDialog.add(scrollPane, BorderLayout.CENTER);
-        verifyDialog.add(bottomPanel, BorderLayout.SOUTH);
+        var root = verifyDialog.getContentRoot();
+        root.setLayout(new BorderLayout(5, 5));
+        root.add(scrollPane, BorderLayout.CENTER);
+        root.add(bottomPanel, BorderLayout.SOUTH);
 
         SwingWorker<String, String> worker = new SwingWorker<>() {
             @Override
@@ -777,7 +779,7 @@ public class SettingsProjectBuildPanel extends JPanel {
             if (setJavaHomeCheckbox.isSelected()) {
                 var selPath = jdkSelector.getSelectedJdkPath();
                 if (selPath != null && !selPath.isBlank()) {
-                    envVars.put("JAVA_HOME", selPath);
+                    envVars.put("JAVA_HOME", PathNormalizer.canonicalizeEnvPathValue(selPath));
                 }
             }
         } else if (selectedPrimaryLang == Languages.PYTHON) {

@@ -57,6 +57,8 @@ public final class GlobalUiSettings {
     private static final String KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION = "instructions.tab.insertIndentation";
     private static final String KEY_VERTICAL_LAYOUT_LEFT_SPLIT = "verticalLayout.leftSplit";
     private static final String KEY_VERTICAL_LAYOUT_HORIZONTAL_SPLIT = "verticalLayout.horizontalSplit";
+    private static final String KEY_CLONE_DIRECTORY = "clone.lastDirectory";
+    private static final String KEY_SKIP_COMMIT_GATE_EZ_MODE = "ui.skipCommitGateEzMode";
 
     private static volatile @Nullable Properties cachedProps;
 
@@ -411,7 +413,7 @@ public final class GlobalUiSettings {
     }
 
     public static boolean isVerticalActivityLayout() {
-        return getBoolean(KEY_UI_VERTICAL_ACTIVITY_LAYOUT, false);
+        return getBoolean(KEY_UI_VERTICAL_ACTIVITY_LAYOUT, true);
     }
 
     public static void saveVerticalActivityLayout(boolean enabled) {
@@ -425,6 +427,14 @@ public final class GlobalUiSettings {
 
     public static void saveInstructionsTabInsertIndentation(boolean enabled) {
         setBoolean(KEY_INSTRUCTIONS_TAB_INSERT_INDENTATION, enabled);
+    }
+
+    public static boolean isSkipCommitGateInEzMode() {
+        return getBoolean(KEY_SKIP_COMMIT_GATE_EZ_MODE, false);
+    }
+
+    public static void saveSkipCommitGateInEzMode(boolean skip) {
+        setBoolean(KEY_SKIP_COMMIT_GATE_EZ_MODE, skip);
     }
 
     // Vertical layout split positions (pixels)
@@ -442,6 +452,23 @@ public final class GlobalUiSettings {
 
     public static void saveVerticalLayoutHorizontalSplitPosition(int px) {
         setInt(KEY_VERTICAL_LAYOUT_HORIZONTAL_SPLIT, px);
+    }
+
+    // Clone directory persistence
+    public static String getLastCloneDirectory() {
+        var props = loadProps();
+        var raw = props.getProperty(KEY_CLONE_DIRECTORY);
+        if (raw == null || raw.isBlank()) {
+            return System.getProperty("user.home");
+        }
+        return raw;
+    }
+
+    public static void saveLastCloneDirectory(String directory) {
+        if (directory.isBlank()) return;
+        var props = loadProps();
+        props.setProperty(KEY_CLONE_DIRECTORY, directory);
+        saveProps(props);
     }
 
     private static int getInt(String key) {

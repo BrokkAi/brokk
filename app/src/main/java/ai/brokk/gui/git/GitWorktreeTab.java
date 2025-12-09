@@ -3,15 +3,16 @@ package ai.brokk.gui.git;
 import ai.brokk.Brokk;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.MainProject;
-import ai.brokk.WorktreeProject;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
+import ai.brokk.gui.components.FuzzyComboBox;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.MergeDialogUtil;
+import ai.brokk.project.MainProject;
+import ai.brokk.project.WorktreeProject;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -548,13 +549,12 @@ public class GitWorktreeTab extends JPanel {
                 JTextField newBranchNameField = new JTextField(15);
                 newBranchNameField.setEnabled(true);
 
-                JComboBox<String> sourceBranchForNewComboBox =
-                        new JComboBox<>(finalLocalBranches.toArray(new String[0]));
+                var sourceBranchForNewComboBox = FuzzyComboBox.forStrings(finalLocalBranches);
                 sourceBranchForNewComboBox.setSelectedItem(finalCurrentGitBranch);
                 sourceBranchForNewComboBox.setEnabled(true);
 
                 JRadioButton useExistingBranchRadio = new JRadioButton("Use existing branch:");
-                JComboBox<String> branchComboBox = new JComboBox<>(finalAvailableBranches.toArray(new String[0]));
+                var branchComboBox = FuzzyComboBox.forStrings(finalAvailableBranches);
                 branchComboBox.setEnabled(false);
                 // Determine whether any existing branches are available to reuse
                 boolean hasAvailableBranches = !finalAvailableBranches.isEmpty();
@@ -692,11 +692,13 @@ public class GitWorktreeTab extends JPanel {
                         selectedBranchName =
                                 newBranchNameField.getText().trim(); // Raw name, will be sanitized on background thread
                     } else {
-                        selectedBranchName = (String) branchComboBox.getSelectedItem();
+                        var selected = branchComboBox.getSelectedItem();
+                        selectedBranchName = selected != null ? selected : "";
                     }
+                    var sourceBranch = sourceBranchForNewComboBox.getSelectedItem();
                     dialogFuture.complete(new AddWorktreeDialogResult(
                             selectedBranchName,
-                            (String) sourceBranchForNewComboBox.getSelectedItem(),
+                            sourceBranch != null ? sourceBranch : "",
                             createNewBranchRadio.isSelected(),
                             copyWorkspaceCheckbox.isSelected(),
                             true));

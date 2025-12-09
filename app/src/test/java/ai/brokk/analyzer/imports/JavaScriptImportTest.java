@@ -3,8 +3,8 @@ package ai.brokk.analyzer.imports;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import ai.brokk.AnalyzerUtil;
-import ai.brokk.IProject;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
+import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
 import java.util.HashSet;
