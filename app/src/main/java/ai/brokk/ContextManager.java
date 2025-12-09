@@ -377,7 +377,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Create watch service using factory (selects best implementation for platform)
         var watchService = WatchServiceFactory.create(
                 project.getRoot(),
-                project.hasGit() ? project.getRepo().getGitTopLevel() : null,
+                project.hasGit() ? project.getRepo().getWorkTreeRoot() : null,
                 globalGitignorePath,
                 List.of() // Start with empty listeners
                 );
@@ -532,8 +532,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * responsibility to ContextManager where it belongs.
      */
     IWatchService.Listener createFileWatchListener() {
-        Path gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
-        FileWatcherHelper helper = new FileWatcherHelper(project.getRoot(), gitRepoRoot);
+        Path workTreeRoot = project.hasGit() ? project.getRepo().getWorkTreeRoot() : null;
+        FileWatcherHelper helper = new FileWatcherHelper(project.getRoot(), workTreeRoot);
 
         return new IWatchService.Listener() {
             @Override

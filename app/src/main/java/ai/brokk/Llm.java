@@ -161,7 +161,7 @@ public class Llm {
         this.echo = echo;
         this.MAX_ATTEMPTS = determineMaxAttempts();
         logger.trace("MAX_ATTEMPTS configured to {}", this.MAX_ATTEMPTS);
-        var historyBaseDir = getHistoryBaseDir(contextManager.getProject().getRoot());
+        var historyBaseDir = getHistoryBaseDir(contextManager.getProject().getMasterRootPathForConfig());
 
         // Create task directory name for this specific LLM interaction
         var timestamp =
