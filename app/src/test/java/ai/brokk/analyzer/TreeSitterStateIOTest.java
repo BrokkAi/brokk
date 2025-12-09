@@ -172,6 +172,8 @@ public class TreeSitterStateIOTest {
         AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of("A"), 1L);
         var state = TreeSitterStateIO.fromDto(dto);
         TreeSitterStateIO.save(state, out);
+        assertTrue(Files.exists(out), "Expected analyzer state file to exist after save");
+        assertTrue(Files.size(out) > 0, "Saved analyzer state file should be non-empty");
 
         var after = TreeSitterStateIO.load(out);
         assertTrue(after.isPresent(), "Expected load to succeed after writing valid state");
@@ -190,6 +192,8 @@ public class TreeSitterStateIOTest {
         var original = TreeSitterStateIO.fromDto(dto);
 
         TreeSitterStateIO.save(original, out);
+        assertTrue(Files.exists(out), "Expected analyzer state file to exist after save");
+        assertTrue(Files.size(out) > 0, "Saved analyzer state file should be non-empty");
 
         var loadedOpt = TreeSitterStateIO.load(out);
         assertTrue(loadedOpt.isPresent(), "Expected save to replace existing corrupt file");
