@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.project.FileFilteringService;
 import ai.brokk.project.MainProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -2431,5 +2432,88 @@ class ProjectFilteringGitRepoTest {
         assertFalse(allFiles.stream().anyMatch(pf -> normalize(pf).equals("data.xml")));
 
         project.close();
+    }
+
+    // ==================== globToRegex unit tests ====================
+    // These tests validate the glob-to-regex conversion works correctly
+    // with Unix-normalized paths (forward slashes), ensuring cross-platform compatibility.
+
+    @Test
+    void globToRegex_single_star_matches_filename_only() {
+        var pattern = FileFilteringService.globToRegex("*.svg");
+
+        assertTrue(pattern.matcher("icon.svg").matches());
+        assertTrue(pattern.matcher("logo.svg").matches());
+        assertFalse(pattern.matcher("assets/icon.svg").matches(), "* should not cross path separators");
+        assertFalse(pattern.matcher("icon.png").matches());
+    }
+
+    @Test
+    void globToRegex_double_star_matches_across_directories() {
+        var pattern = FileFilteringService.globToRegex("**/*.svg");
+
+        assertTrue(pattern.matcher("icon.svg").matches());
+        assertTrue(pattern.matcher("assets/icon.svg").matches());
+        assertTrue(pattern.matcher("src/assets/deep/icon.svg").matches());
+        assertFalse(pattern.matcher("icon.png").matches());
+    }
+
+    @Test
+    void globToRegex_double_star_in_middle() {
+        var pattern = FileFilteringService.globToRegex("**/build/**");
+
+        assertTrue(pattern.matcher("build/output.class").matches());
+        assertTrue(pattern.matcher("src/build/output.class").matches());
+        assertTrue(pattern.matcher("project/src/build/classes/Main.class").matches());
+        assertFalse(pattern.matcher("src/builder/output.class").matches());
+    }
+
+    @Test
+    void globToRegex_uses_forward_slashes_only() {
+        var pattern = FileFilteringService.globToRegex("**/test/**");
+
+        // Unix-normalized paths should match
+        assertTrue(pattern.matcher("src/test/Main.java").matches());
+        assertTrue(pattern.matcher("test/resources/data.json").matches());
+
+        // Backslash paths should NOT match (they would be normalized before matching)
+        assertFalse(pattern.matcher("src\\test\\Main.java").matches());
+    }
+
+    @Test
+    void globToRegex_question_mark_matches_single_char() {
+        var pattern = FileFilteringService.globToRegex("file?.txt");
+
+        assertTrue(pattern.matcher("file1.txt").matches());
+        assertTrue(pattern.matcher("fileA.txt").matches());
+        assertFalse(pattern.matcher("file12.txt").matches());
+        assertFalse(pattern.matcher("file.txt").matches());
+    }
+
+    @Test
+    void globToRegex_escapes_regex_metacharacters() {
+        var pattern = FileFilteringService.globToRegex("config[1].json");
+
+        assertTrue(pattern.matcher("config[1].json").matches());
+        assertFalse(pattern.matcher("config1.json").matches(), "brackets should be literal, not character class");
+    }
+
+    @Test
+    void globToRegex_exact_filename() {
+        var pattern = FileFilteringService.globToRegex("package-lock.json");
+
+        assertTrue(pattern.matcher("package-lock.json").matches());
+        assertFalse(pattern.matcher("src/package-lock.json").matches());
+        assertFalse(pattern.matcher("package-lock.json.bak").matches());
+    }
+
+    @Test
+    void globToRegex_complex_pattern() {
+        var pattern = FileFilteringService.globToRegex("**/src/**/test/*.java");
+
+        assertTrue(pattern.matcher("src/test/Main.java").matches());
+        assertTrue(pattern.matcher("project/src/main/test/Helper.java").matches());
+        assertFalse(pattern.matcher("src/Main.java").matches());
+        assertFalse(pattern.matcher("test/Main.java").matches());
     }
 }

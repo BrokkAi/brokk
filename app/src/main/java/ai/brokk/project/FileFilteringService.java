@@ -5,10 +5,8 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.PathMatcher;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -18,6 +16,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -182,7 +181,7 @@ public final class FileFilteringService {
 
         record Extension(String original, String lowerSuffix) implements CompiledPattern {}
 
-        record Glob(String original, PathMatcher matcher, boolean matchFullPath) implements CompiledPattern {}
+        record Glob(String original, Pattern regex, boolean matchFullPath) implements CompiledPattern {}
     }
 
     /**
@@ -224,11 +223,11 @@ public final class FileFilteringService {
                 }
             }
 
-            // Path glob pattern - precompile the PathMatcher
+            // Path glob pattern - convert to regex for platform-independent matching
             try {
                 String lowerPattern = pattern.toLowerCase(Locale.ROOT);
-                var matcher = FileSystems.getDefault().getPathMatcher("glob:" + lowerPattern);
-                compiled.add(new CompiledPattern.Glob(pattern, matcher, pattern.contains("/")));
+                var regex = globToRegex(lowerPattern);
+                compiled.add(new CompiledPattern.Glob(pattern, regex, pattern.contains("/")));
             } catch (Exception e) {
                 logger.debug("Invalid glob pattern '{}': {}", pattern, e.getMessage());
             }
@@ -253,7 +252,9 @@ public final class FileFilteringService {
                         case CompiledPattern.ExactFilename ef -> lowerFileName.equals(ef.lowerName());
                         case CompiledPattern.Extension ext -> lowerFileName.endsWith(ext.lowerSuffix());
                         case CompiledPattern.Glob g ->
-                            g.matcher().matches(Path.of(g.matchFullPath() ? lowerFilePath : lowerFileName));
+                            g.regex()
+                                    .matcher(g.matchFullPath() ? lowerFilePath : lowerFileName)
+                                    .matches();
                     };
             if (matched) {
                 logger.trace("File {} excluded by pattern: {}", filePath, cp.original());
@@ -261,6 +262,53 @@ public final class FileFilteringService {
             }
         }
         return false;
+    }
+
+    /**
+     * Convert a glob pattern to a regex Pattern for platform-independent matching.
+     * Uses Unix path separators (forward slashes) consistently.
+     *
+     * <p>Glob syntax:
+     * <ul>
+     *   <li>{@code **} matches any characters including path separators
+     *   <li>{@code *} matches any characters except path separator
+     *   <li>{@code ?} matches exactly one character except path separator
+     * </ul>
+     */
+    @VisibleForTesting
+    public static Pattern globToRegex(String glob) {
+        var regex = new StringBuilder();
+        int i = 0;
+        while (i < glob.length()) {
+            char c = glob.charAt(i);
+            if (c == '*') {
+                if (i + 1 < glob.length() && glob.charAt(i + 1) == '*') {
+                    // ** matches anything including path separators
+                    regex.append(".*");
+                    i += 2;
+                    // Skip trailing / after **
+                    if (i < glob.length() && glob.charAt(i) == '/') {
+                        regex.append("/?");
+                        i++;
+                    }
+                } else {
+                    // * matches anything except path separator
+                    regex.append("[^/]*");
+                    i++;
+                }
+            } else if (c == '?') {
+                regex.append("[^/]");
+                i++;
+            } else if (".^$+[]{}()|\\".indexOf(c) >= 0) {
+                // Escape regex metacharacters
+                regex.append('\\').append(c);
+                i++;
+            } else {
+                regex.append(c);
+                i++;
+            }
+        }
+        return Pattern.compile(regex.toString());
     }
 
     private Optional<Path> getGlobalGitignoreFile(GitRepo gitRepo) {
