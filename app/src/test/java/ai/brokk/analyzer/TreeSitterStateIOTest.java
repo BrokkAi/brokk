@@ -12,9 +12,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
+import org.junit.jupiter.api.io.TempDir;
 
 public class TreeSitterStateIOTest {
 
@@ -185,7 +185,9 @@ public class TreeSitterStateIOTest {
                 "DTO after save+load should equal the original");
     }
 
-    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "Flaky on Windows due to transient file locks; replacement behavior covered elsewhere")
+    @DisabledOnOs(
+            value = OS.WINDOWS,
+            disabledReason = "Flaky on Windows due to transient file locks; replacement behavior covered elsewhere")
     @Test
     void replacesExistingCorruptFileOnWindows(@TempDir Path tempDir) throws Exception {
         Path out = tempDir.resolve("state.smile.gz");
