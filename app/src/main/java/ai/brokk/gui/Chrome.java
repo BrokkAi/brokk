@@ -40,7 +40,6 @@ import ai.brokk.issues.IssueProviderType;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.*;
-import ai.brokk.util.DependencyUpdateScheduler;
 import com.formdev.flatlaf.util.SystemInfo;
 import com.formdev.flatlaf.util.UIScale;
 import dev.langchain4j.data.message.ChatMessage;
@@ -215,7 +214,6 @@ public class Chrome
     private final ProjectFilesPanel projectFilesPanel; // New panel for project files
     private final TestRunnerPanel testRunnerPanel;
     private final DependenciesPanel dependenciesPanel;
-    private final DependencyUpdateScheduler dependencyUpdateScheduler;
 
     // Git
     @Nullable
@@ -375,8 +373,15 @@ public class Chrome
         // Create workspace panel, dependencies panel, and project files panel
         workspacePanel = new WorkspacePanel(this, contextManager);
         dependenciesPanel = new DependenciesPanel(this);
-        dependencyUpdateScheduler = new DependencyUpdateScheduler(this);
         projectFilesPanel = new ProjectFilesPanel(this, contextManager, dependenciesPanel);
+
+        // Register analyzer callback to notify MainProject's dependency scheduler when ready
+        contextManager.addAnalyzerCallback(new IContextManager.AnalyzerCallback() {
+            @Override
+            public void onAnalyzerReady() {
+                getProject().getMainProject().getDependencyUpdateScheduler().onAnalyzerReady();
+            }
+        });
 
         // Register for dependency state changes to update badge and border title
         dependenciesPanel.addDependencyStateChangeListener(this::updateProjectFilesTabBadge);
@@ -1688,7 +1693,6 @@ public class Chrome
     public void close() {
         logger.info("Closing Chrome UI");
 
-        dependencyUpdateScheduler.close();
         contextManager.close();
         frame.dispose();
         // Unregister this instance

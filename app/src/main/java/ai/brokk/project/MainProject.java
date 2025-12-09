@@ -21,6 +21,7 @@ import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.AtomicWrites;
 import ai.brokk.util.BrokkConfigPaths;
+import ai.brokk.util.DependencyUpdateScheduler;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.PathNormalizer;
@@ -71,6 +72,8 @@ public final class MainProject extends AbstractProject {
 
     @Nullable
     private volatile DiskLruCache diskCache = null;
+
+    private final DependencyUpdateScheduler dependencyUpdateScheduler;
 
     private static final long DEFAULT_DISK_CACHE_SIZE = 10L * 1024L * 1024L; // 10 MB
 
@@ -204,6 +207,9 @@ public final class MainProject extends AbstractProject {
 
         // Initialize cache and trigger migration/defaulting if necessary
         this.issuesProviderCache = getIssuesProvider();
+
+        // Initialize dependency update scheduler
+        this.dependencyUpdateScheduler = new DependencyUpdateScheduler(this);
     }
 
     @Override
@@ -2236,6 +2242,9 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void close() {
+        // Close dependency update scheduler
+        dependencyUpdateScheduler.close();
+
         // Close disk cache if open
         try {
             if (diskCache != null) {
@@ -2250,6 +2259,14 @@ public final class MainProject extends AbstractProject {
         // Close session manager and other resources
         sessionManager.close();
         super.close();
+    }
+
+    /**
+     * Returns the dependency update scheduler for this project.
+     * Worktree projects delegate to the main project's scheduler.
+     */
+    public DependencyUpdateScheduler getDependencyUpdateScheduler() {
+        return dependencyUpdateScheduler;
     }
 
     public Path getWorktreeStoragePath() {
