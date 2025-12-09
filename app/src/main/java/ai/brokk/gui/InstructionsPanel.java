@@ -57,7 +57,6 @@ import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -288,6 +287,47 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         double b = background.getBlue() / 255.0;
         double lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
         return lum < 0.5 ? Color.WHITE : new Color(0x1E1E1E);
+    }
+
+    /**
+     * Extracts the completion token from the provided line text (from the line start up to the caret).
+     * - Splits on the last whitespace (space or tab) and considers the trailing segment as the token.
+     * - Skips leading punctuation such as backticks or parens before the token, but allows '.', '/', '\\'.
+     * - For a leading single '.' before an identifier (e.g. ".Chrome"), drops the dot so only the word is replaced.
+     * - Preserves relative path prefixes like "./", "../" and ".\" on Windows.
+     *
+     * @param lineTextBeforeCaret text from the start of the current line up to the caret
+     * @return sanitized token text to be used for both auto-complete prefix and insertion
+     */
+    public static String extractAlreadyEnteredText(String lineTextBeforeCaret) {
+        int space = lineTextBeforeCaret.lastIndexOf(' ');
+        int tab = lineTextBeforeCaret.lastIndexOf('\t');
+        int separator = Math.max(space, tab);
+        String token = lineTextBeforeCaret.substring(separator + 1);
+
+        int i = 0;
+        while (i < token.length()) {
+            char c = token.charAt(i);
+            if (Character.isWhitespace(c)) {
+                i++;
+                continue;
+            }
+            // Allow letters/digits and common token/path punctuation; skip other leading punctuation.
+            if (Character.isLetterOrDigit(c) || c == '_' || c == '$' || c == '.' || c == '/' || c == '\\') {
+                break;
+            }
+            i++;
+        }
+        String candidate = token.substring(Math.min(i, token.length()));
+
+        if (candidate.startsWith(".") && candidate.length() >= 2) {
+            char next = candidate.charAt(1);
+            boolean looksRelativePath = next == '/' || next == '\\' || next == '.';
+            if (!looksRelativePath && (Character.isLetterOrDigit(next) || next == '_')) {
+                candidate = candidate.substring(1);
+            }
+        }
+        return candidate;
     }
 
     private final OverlayPanel commandInputOverlay; // Overlay to initially disable command input
@@ -2837,9 +2877,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private class InstructionsCompletionProvider extends DefaultCompletionProvider {
-        private final Map<String, List<Completion>> completionCache = new ConcurrentHashMap<>();
-        private static final int CACHE_SIZE = 100;
-
         @Override
         public String getAlreadyEnteredText(JTextComponent comp) {
             Document doc = comp.getDocument();
@@ -2849,57 +2886,87 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             int lineStart = root.getElement(line).getStartOffset();
             try {
                 String lineText = doc.getText(lineStart, dot - lineStart);
-                int space = lineText.lastIndexOf(' ');
-                int tab = lineText.lastIndexOf('\t');
-                int separator = Math.max(space, tab);
-                return lineText.substring(separator + 1);
+                return InstructionsPanel.extractAlreadyEnteredText(lineText);
             } catch (BadLocationException e) {
                 logger.warn("BadLocationException in getAlreadyEnteredText", e);
                 return "";
             }
         }
 
+        /**
+         * Derives the raw token from the current line up to the caret position.
+         * Falls back to the provided value when the document positions cannot be resolved.
+         */
+        private String deriveRawToken(JTextComponent comp, String fallback) {
+            try {
+                Document doc = comp.getDocument();
+                int dot = comp.getCaretPosition();
+                Element root = doc.getDefaultRootElement();
+                int line = root.getElementIndex(dot);
+                int lineStart = root.getElement(line).getStartOffset();
+                String lineText = doc.getText(lineStart, dot - lineStart);
+                int space = lineText.lastIndexOf(' ');
+                int tab = lineText.lastIndexOf('\t');
+                int separator = Math.max(space, tab);
+                return lineText.substring(separator + 1);
+            } catch (BadLocationException e) {
+                logger.warn("BadLocationException while deriving raw token", e);
+                return fallback;
+            }
+        }
+
+        private String lastSegmentForQualifiedToken(String token) {
+            if (token.isEmpty()) return token;
+            int dot = token.lastIndexOf('.');
+            int dollar = token.lastIndexOf('$');
+            int sep = Math.max(dot, dollar);
+            if (sep >= 0 && sep + 1 < token.length()) {
+                return token.substring(sep + 1);
+            }
+            return token;
+        }
+
+        private static String formatCompletionText(String inputText) {
+            return "`" + inputText + "`";
+        }
+
         @Override
         public List<Completion> getCompletions(JTextComponent comp) {
-            String text = getAlreadyEnteredText(comp);
-            if (text.isEmpty()) {
+            String sanitizedText = getAlreadyEnteredText(comp);
+            if (sanitizedText.isEmpty()) {
                 return List.of();
             }
 
-            // Check cache first
-            List<Completion> cached = completionCache.get(text);
-            if (cached != null) {
-                return cached;
-            }
+            // Also compute the raw token (from last whitespace/tab) to use for matching/querying (keeps leading
+            // punctuation).
+            String rawText = deriveRawToken(comp, sanitizedText);
 
             List<Completion> completions;
-            if (text.contains("/") || text.contains("\\")) {
+            if (rawText.contains("/") || rawText.contains("\\")) {
                 var allFiles = contextManager.getProject().getAllFiles();
                 List<ShorthandCompletion> fileCompletions = Completions.scoreShortAndLong(
-                        text,
+                        rawText,
                         allFiles,
                         ProjectFile::getFileName,
                         ProjectFile::toString,
                         f -> 0,
-                        f -> new ShorthandCompletion(this, f.getFileName(), f.toString()));
+                        f -> new ShorthandCompletion(this, f.getFileName(), formatCompletionText(f.getFileName())));
                 completions = new ArrayList<>(fileCompletions.stream().limit(50).toList());
             } else {
                 var analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
                 if (analyzer == null) {
                     return List.of();
                 }
-                var symbols = Completions.completeSymbols(text, analyzer);
+
+                String queryToken = lastSegmentForQualifiedToken(sanitizedText);
+
+                var symbols = Completions.completeSymbols(queryToken, analyzer);
                 completions = symbols.stream()
                         .limit(50)
-                        .map(symbol -> (Completion) new ShorthandCompletion(this, symbol.shortName(), symbol.fqName()))
+                        .map(symbol -> (Completion) new ShorthandCompletion(
+                                this, symbol.shortName(), formatCompletionText(symbol.shortName())))
                         .toList();
             }
-
-            // Cache the result
-            if (completionCache.size() > CACHE_SIZE) {
-                completionCache.clear();
-            }
-            completionCache.put(text, completions);
 
             return completions;
         }
