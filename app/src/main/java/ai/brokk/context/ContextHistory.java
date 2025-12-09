@@ -232,7 +232,8 @@ public class ContextHistory {
             newAction = "Load external changes (%d)".formatted(newCount);
         }
 
-        var updatedLive = merged.withAction(CompletableFuture.completedFuture(newAction));
+        // parsedOutout == null indicated no AI result (render no icon in activity)
+        var updatedLive = merged.withParsedOutput(null, CompletableFuture.completedFuture(newAction));
 
         if (isContinuation) {
             replaceTopInternal(updatedLive);
