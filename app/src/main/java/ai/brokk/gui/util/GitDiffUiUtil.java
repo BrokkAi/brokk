@@ -14,7 +14,6 @@ import ai.brokk.git.IGitRepo.ModificationType;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.DiffWindowManager;
 import ai.brokk.gui.PrTitleFormatter;
-import ai.brokk.project.IProject;
 import ai.brokk.util.SyntaxDetector;
 import java.time.Duration;
 import java.time.Instant;

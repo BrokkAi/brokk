@@ -35,9 +35,6 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.io.InterruptedIOException;
-import java.net.ConnectException;
-import java.net.SocketTimeoutException;
-import java.net.UnknownHostException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -65,7 +62,6 @@ import org.kohsuke.github.GHIssueState;
 import org.kohsuke.github.GHLabel;
 import org.kohsuke.github.GHPullRequest;
 import org.kohsuke.github.GHUser;
-import org.kohsuke.github.HttpException;
 
 public class GitPullRequestsTab extends JPanel implements SettingsChangeListener, ai.brokk.gui.theme.ThemeAware {
     private static final Logger logger = LogManager.getLogger(GitPullRequestsTab.class);

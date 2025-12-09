@@ -1,8 +1,8 @@
 package ai.brokk.gui.util;
 
-import ai.brokk.IProject;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
+import ai.brokk.project.IProject;
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
 import org.apache.logging.log4j.LogManager;

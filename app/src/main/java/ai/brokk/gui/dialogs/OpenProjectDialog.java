@@ -9,7 +9,6 @@ import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.git.GitHubErrorUtil;
 import ai.brokk.gui.util.GitDiffUiUtil;
-import ai.brokk.gui.util.GitUiUtil;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.FileUtil;
 import ai.brokk.util.GlobalUiSettings;
