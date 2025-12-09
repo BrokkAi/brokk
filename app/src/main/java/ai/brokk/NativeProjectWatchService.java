@@ -301,12 +301,15 @@ public class NativeProjectWatchService implements IWatchService {
         logger.debug("Pausing native directory watcher");
         pauseCount++;
 
-        // Cancel any pending debounced flush to ensure no flush executes while paused.
+        // While paused, prevent any scheduled flush from executing.
+        // Acquire the debounceLock to synchronize with flush scheduling/cancellation.
         synchronized (debounceLock) {
             if (pendingFlush != null) {
+                // Cancel the scheduled flush but do NOT clear accumulatedBatch — events must be preserved
+                // so they can be flushed when resume() brings pauseCount back to zero.
                 pendingFlush.cancel(false);
                 pendingFlush = null;
-                logger.trace("Canceled pending flush due to pause");
+                logger.trace("Canceled pending flush due to pause; events will remain buffered");
             }
         }
     }
