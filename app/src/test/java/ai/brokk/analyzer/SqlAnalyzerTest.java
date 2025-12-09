@@ -184,10 +184,13 @@ class SqlAnalyzerTest {
         assertEquals(1, tblOneRanges.size());
         TreeSitterAnalyzer.Range r1 = tblOneRanges.get(0);
 
+        SourceContent scLine1 = SourceContent.of(line1);
+        SourceContent scSql = SourceContent.of(sqlContent);
+
         assertEquals(1, r1.startLine(), "tbl_one start line");
         assertEquals(1, r1.endLine(), "tbl_one end line");
         assertEquals(0, r1.startByte(), "tbl_one start byte");
-        assertEquals(line1.getBytes(StandardCharsets.UTF_8).length, r1.endByte(), "tbl_one end byte");
+        assertEquals(scLine1.byteLength(), r1.endByte(), "tbl_one end byte");
 
         Optional<CodeUnit> vTwoOpt = analyzer.getDefinitions("v_two").stream().findFirst();
         assertTrue(vTwoOpt.isPresent());
@@ -201,11 +204,9 @@ class SqlAnalyzerTest {
         assertEquals(2, r2.startLine(), "v_two start line");
         assertEquals(2, r2.endLine(), "v_two end line");
         // Start byte is after line1 and the newline character
-        assertEquals(
-                line1.getBytes(StandardCharsets.UTF_8).length + "\n".getBytes(StandardCharsets.UTF_8).length,
-                r2.startByte(),
-                "v_two start byte");
-        assertEquals(sqlContent.getBytes(StandardCharsets.UTF_8).length, r2.endByte(), "v_two end byte");
+        SourceContent scNewline = SourceContent.of("\n");
+        assertEquals(scLine1.byteLength() + scNewline.byteLength(), r2.startByte(), "v_two start byte");
+        assertEquals(scSql.byteLength(), r2.endByte(), "v_two end byte");
 
         // Test skeleton extraction based on these ranges
         Optional<String> skel1 = AnalyzerUtil.getSkeleton(analyzer, "tbl_one");

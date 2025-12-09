@@ -25,7 +25,7 @@ import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.gui.util.GitUiUtil;
+import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
@@ -3137,17 +3137,19 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         switch (baseline.mode()) {
                             case NON_DEFAULT_BRANCH -> {
                                 String defaultBranch = baseline.baselineRef();
+                                // Use fully-qualified ref to avoid ambiguity with tags
+                                String defaultBranchRef = "refs/heads/" + defaultBranch;
 
                                 // Get files changed between branches
                                 var branchChanges =
-                                        gitRepo.listFilesChangedBetweenBranches(currentBranch, defaultBranch);
+                                        gitRepo.listFilesChangedBetweenBranches(currentBranch, defaultBranchRef);
                                 fileSet.addAll(branchChanges);
 
                                 // Union with working tree changes
                                 fileSet.addAll(gitRepo.getModifiedFiles());
 
                                 // Get merge base for left content
-                                leftCommitSha = gitRepo.getMergeBase(currentBranch, defaultBranch);
+                                leftCommitSha = gitRepo.getMergeBase(currentBranch, defaultBranchRef);
                             }
                             case DEFAULT_WITH_UPSTREAM -> {
                                 String upstreamRef = baseline.baselineRef();
@@ -3794,7 +3796,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     private String formatModified(long modifiedMillis) {
         var instant = Instant.ofEpochMilli(modifiedMillis);
-        return GitUiUtil.formatRelativeDate(instant, LocalDate.now(ZoneId.systemDefault()));
+        return GitDiffUiUtil.formatRelativeDate(instant, LocalDate.now(ZoneId.systemDefault()));
     }
 
     /**

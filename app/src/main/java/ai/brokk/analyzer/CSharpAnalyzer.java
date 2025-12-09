@@ -138,7 +138,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String renderFunctionDeclaration(
             TSNode funcNode,
-            String src,
+            SourceContent sourceContent,
             String exportPrefix,
             String asyncPrefix,
             String functionName,
@@ -151,16 +151,22 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         String signature;
 
         if (body != null && !body.isNull()) {
-            signature =
-                    textSlice(funcNode.getStartByte(), body.getStartByte(), src).stripTrailing();
+            int startByte = funcNode.getStartByte();
+            int endByte = body.getStartByte();
+            signature = sourceContent.substringFromBytes(startByte, endByte).stripTrailing();
         } else {
             TSNode paramsNode = funcNode.getChildByFieldName("parameters");
             if (paramsNode != null && !paramsNode.isNull()) {
-                signature = textSlice(funcNode.getStartByte(), paramsNode.getEndByte(), src)
-                        .stripTrailing();
+                int startByte = funcNode.getStartByte();
+                int endByte = paramsNode.getEndByte();
+                signature = sourceContent.substringFromBytes(startByte, endByte).stripTrailing();
             } else {
-                signature =
-                        textSlice(funcNode, src).lines().findFirst().orElse("").stripTrailing();
+                signature = sourceContent
+                        .substringFrom(funcNode)
+                        .lines()
+                        .findFirst()
+                        .orElse("")
+                        .stripTrailing();
                 log.trace(
                         "renderFunctionDeclaration for C# (node type {}): body and params not found, using fallback signature '{}'",
                         funcNode.getType(),
@@ -172,7 +178,11 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String renderClassHeader(
-            TSNode classNode, String src, String exportPrefix, String signatureText, String baseIndent) {
+            TSNode classNode,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String signatureText,
+            String baseIndent) {
         return signatureText + " {";
     }
 
@@ -182,7 +192,8 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src) {
+    protected String determinePackageName(
+            ProjectFile file, TSNode definitionNode, TSNode rootNode, SourceContent sourceContent) {
         // C# namespaces are determined by traversing up from the definition node
         // to find enclosing namespace_declaration nodes.
         // The 'file' parameter is not used here as namespace is derived from AST content.
@@ -193,7 +204,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             if (NAMESPACE_DECLARATION.equals(current.getType())) {
                 TSNode nameNode = current.getChildByFieldName("name");
                 if (nameNode != null && !nameNode.isNull()) {
-                    String nsPart = textSlice(nameNode, src);
+                    String nsPart = sourceContent.substringFrom(nameNode);
                     namespaceParts.add(nsPart);
                 }
             }
@@ -211,7 +222,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String formatFieldSignature(
             TSNode fieldNode,
-            String src,
+            SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
             String baseIndent,

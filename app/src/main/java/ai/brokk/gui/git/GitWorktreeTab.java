@@ -20,7 +20,6 @@ import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -457,6 +456,12 @@ public class GitWorktreeTab extends JPanel {
         MainProject parentProject = (MainProject) contextManager.getProject().getParent();
 
         contextManager.submitContextTask(() -> {
+            // Calculate subdirectory path if parent project is in a subdirectory
+            Path relativeSubdir = null;
+            if (parentProject.getRepo() instanceof GitRepo gitRepo) {
+                relativeSubdir = computeRelativeSubdir(parentProject, gitRepo);
+            }
+
             for (Path worktreePath : worktreePaths) {
                 if (worktreePath.equals(parentProject.getRoot())) {
                     logger.debug("Attempted to open/focus main project from worktree tab, focusing current window.");
@@ -469,26 +474,29 @@ public class GitWorktreeTab extends JPanel {
                     continue;
                 }
 
+                // Determine the path to open: worktree root or corresponding subdirectory
+                final Path pathToOpen = resolveWorktreeOpenPath(worktreePath, relativeSubdir);
+
                 try {
-                    if (Brokk.isProjectOpen(worktreePath)) {
-                        logger.info("Worktree {} is already open, focusing window.", worktreePath);
-                        Brokk.focusProjectWindow(worktreePath);
+                    if (Brokk.isProjectOpen(pathToOpen)) {
+                        logger.info("Worktree {} is already open, focusing window.", pathToOpen);
+                        Brokk.focusProjectWindow(pathToOpen);
                     } else {
-                        logger.info("Opening worktree {}...", worktreePath);
-                        new Brokk.OpenProjectBuilder(worktreePath)
+                        logger.info("Opening worktree {}...", pathToOpen);
+                        new Brokk.OpenProjectBuilder(pathToOpen)
                                 .parent(parentProject)
                                 .open()
                                 .thenAccept(success -> {
                                     if (Boolean.FALSE.equals(success)) {
                                         chrome.toolError(
-                                                "Unable to open worktree " + worktreePath.getFileName(),
+                                                "Unable to open worktree " + pathToOpen.getFileName(),
                                                 "Error opening worktree");
                                     }
                                 });
                     }
                 } catch (Exception e) {
-                    logger.error("Error during open/focus for worktree {}: {}", worktreePath, e.getMessage(), e);
-                    final String pathName = worktreePath.getFileName().toString();
+                    logger.error("Error during open/focus for worktree {}: {}", pathToOpen, e.getMessage(), e);
+                    final String pathName = pathToOpen.getFileName().toString();
                     chrome.toolError(
                             "Error opening worktree " + pathName + ":\n" + e.getMessage(), "Worktree Open Error");
                 }
@@ -768,8 +776,11 @@ public class GitWorktreeTab extends JPanel {
                         project, gitRepo, branchForWorktree, isCreatingNewBranch, sourceBranchForNew);
                 Path newWorktreePath = setupResult.worktreePath();
 
-                Brokk.OpenProjectBuilder openProjectBuilder =
-                        new Brokk.OpenProjectBuilder(newWorktreePath).parent(project);
+                // If the current project is a subdirectory of the git repo, open the same subdirectory in the worktree
+                Path relativeSubdir = computeRelativeSubdir(project, gitRepo);
+                final Path pathToOpen = resolveWorktreeOpenPath(newWorktreePath, relativeSubdir);
+
+                Brokk.OpenProjectBuilder openProjectBuilder = new Brokk.OpenProjectBuilder(pathToOpen).parent(project);
                 if (copyWorkspace) {
                     logger.info("Copying current workspace to new worktree session for {}", newWorktreePath);
                     openProjectBuilder.sourceContextForSession(contextManager.liveContext());
@@ -780,10 +791,9 @@ public class GitWorktreeTab extends JPanel {
                     if (Boolean.TRUE.equals(success)) {
                         chrome.showNotification(
                                 IConsoleIO.NotificationRole.INFO,
-                                "Successfully opened worktree: " + newWorktreePath.getFileName());
+                                "Successfully opened worktree: " + pathToOpen.getFileName());
                     } else {
-                        chrome.toolError(
-                                "Error opening worktree " + newWorktreePath.getFileName(), "Worktree Open Error");
+                        chrome.toolError("Error opening worktree " + pathToOpen.getFileName(), "Worktree Open Error");
                     }
                     SwingUtilities.invokeLater(this::loadWorktrees);
                 });
@@ -1048,32 +1058,12 @@ public class GitWorktreeTab extends JPanel {
         logger.debug("Adding worktree for branch '{}' at path {}", branchForWorktree, newWorktreePath);
         gitRepo.addWorktree(branchForWorktree, newWorktreePath);
 
-        // Copy (prefer hard-link) existing language storage caches to the new worktree
-        var enabledLanguages = parentProject.getAnalyzerLanguages();
-        for (var lang : enabledLanguages) {
-            var sourceCache = lang.getStoragePath(parentProject);
-            if (!Files.exists(sourceCache)) {
-                continue;
-            }
-            try {
-                var relative = parentProject.getRoot().relativize(sourceCache);
-                var destCache = newWorktreePath.resolve(relative);
-                Files.createDirectories(destCache.getParent());
-                try {
-                    Files.createLink(destCache, sourceCache); // Try hard-link first
-                    logger.debug("Hard-linked analyzer storage cache from {} to {}", sourceCache, destCache);
-                } catch (UnsupportedOperationException | IOException linkEx) {
-                    Files.copy(sourceCache, destCache, StandardCopyOption.REPLACE_EXISTING);
-                    logger.debug("Copied analyzer storage cache from {} to {}", sourceCache, destCache);
-                }
-            } catch (IOException copyEx) {
-                logger.warn(
-                        "Failed to replicate analyzer storage cache for language {}: {}",
-                        lang.name(),
-                        copyEx.getMessage(),
-                        copyEx);
-            }
-        }
+        // Analyzer storage caches are intentionally not copied or linked to the new worktree.
+        // Reusing caches across different project roots or branches is unsafe because:
+        // - Cache contents often embed absolute paths and root-specific identifiers.
+        // - Hard-linking risks sharing inodes between sessions, which can cause cross-branch contamination
+        //   and corruption when multiple processes save concurrently.
+        // Each worktree must build and persist its own analyzer cache in isolation.
 
         return new WorktreeSetupResult(newWorktreePath, branchForWorktree);
     }
@@ -1248,5 +1238,44 @@ public class GitWorktreeTab extends JPanel {
             }
             return null;
         });
+    }
+
+    /**
+     * Computes the relative subdirectory path if the project is opened at a subdirectory of the git repo.
+     *
+     * @param project The project to check
+     * @param gitRepo The git repository
+     * @return The relative path from git root to project root, or null if project is at git root
+     */
+    @Nullable
+    private Path computeRelativeSubdir(MainProject project, GitRepo gitRepo) {
+        var relativeSubdir = gitRepo.getRelativeSubdir(project.getRoot());
+        if (relativeSubdir != null) {
+            logger.debug("Project is in subdirectory: {}", relativeSubdir);
+        }
+        return relativeSubdir;
+    }
+
+    /**
+     * Resolves the path to open in a worktree, accounting for subdirectory projects.
+     * If relativeSubdir is non-null, attempts to resolve that subdirectory in the worktree.
+     * Falls back to worktree root if the subdirectory doesn't exist.
+     *
+     * @param worktreePath The root path of the worktree
+     * @param relativeSubdir The relative subdirectory path, or null if project is at git root
+     * @return The path to open (either worktree root or subdirectory within it)
+     */
+    static Path resolveWorktreeOpenPath(Path worktreePath, @Nullable Path relativeSubdir) {
+        if (relativeSubdir == null) {
+            return worktreePath;
+        }
+        Path subdirPath = worktreePath.resolve(relativeSubdir);
+        if (Files.exists(subdirPath)) {
+            logger.debug("Opening worktree subdirectory: {} (relative: {})", subdirPath, relativeSubdir);
+            return subdirPath;
+        } else {
+            logger.warn("Subdirectory {} does not exist in worktree, falling back to root", relativeSubdir);
+            return worktreePath;
+        }
     }
 }

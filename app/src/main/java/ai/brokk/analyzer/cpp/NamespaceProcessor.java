@@ -7,7 +7,6 @@ import ai.brokk.analyzer.ASTTraversalUtils;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -19,7 +18,6 @@ import org.treesitter.TSParser;
 public class NamespaceProcessor {
     private static final Logger log = LogManager.getLogger(NamespaceProcessor.class);
 
-    private final Map<ProjectFile, String> fileContentCache = new ConcurrentHashMap<>();
     private final Supplier<String> bodyPlaceholderSupplier;
 
     public NamespaceProcessor(TSParser templateParser) {
@@ -40,6 +38,17 @@ public class NamespaceProcessor {
             TSNode rootNode,
             String fileContent,
             Function<String, CodeUnit> codeUnitFactory) {
+        return mergeNamespaceBlocks(
+                skeletons, signatures, file, rootNode, SourceContent.of(fileContent), codeUnitFactory);
+    }
+
+    public Map<CodeUnit, String> mergeNamespaceBlocks(
+            Map<CodeUnit, String> skeletons,
+            Map<CodeUnit, List<String>> signatures,
+            ProjectFile file,
+            TSNode rootNode,
+            SourceContent sourceContent,
+            Function<String, CodeUnit> codeUnitFactory) {
         var namespaceEntries = skeletons.entrySet().stream()
                 .filter(entry -> entry.getKey().isModule())
                 .toList();
@@ -57,7 +66,7 @@ public class NamespaceProcessor {
         if (filesWithNamespaces.contains(file)) {
             try {
                 var mergedNamespaces =
-                        reParseAndMergeNamespaces(file, signatures, rootNode, fileContent, codeUnitFactory);
+                        reParseAndMergeNamespaces(file, signatures, rootNode, sourceContent, codeUnitFactory);
 
                 result.entrySet()
                         .removeIf(entry -> entry.getKey().isModule()
@@ -76,10 +85,10 @@ public class NamespaceProcessor {
             ProjectFile file,
             Map<CodeUnit, List<String>> signatures,
             TSNode rootNode,
-            String fileContent,
+            SourceContent sourceContent,
             Function<String, CodeUnit> codeUnitFactory) {
 
-        var namespaceBlocks = findAllNamespaceBlocks(rootNode, fileContent);
+        var namespaceBlocks = findAllNamespaceBlocks(rootNode, sourceContent);
         var groupedNamespaces = new HashMap<String, List<NamespaceBlock>>();
         for (var block : namespaceBlocks) {
             groupedNamespaces
@@ -102,21 +111,21 @@ public class NamespaceProcessor {
             }
 
             var codeUnit = existingCodeUnit != null ? existingCodeUnit : codeUnitFactory.apply(namespaceName);
-            var mergedSkeleton = createMergedNamespaceSkeleton(namespaceName, blocks, fileContent);
+            var mergedSkeleton = createMergedNamespaceSkeleton(namespaceName, blocks, sourceContent);
             result.put(codeUnit, mergedSkeleton);
         }
 
         return result;
     }
 
-    private List<NamespaceBlock> findAllNamespaceBlocks(TSNode rootNode, String fileContent) {
+    private List<NamespaceBlock> findAllNamespaceBlocks(TSNode rootNode, SourceContent sourceContent) {
         var namespaceNodes = ASTTraversalUtils.findAllNodesByType(rootNode, NAMESPACE_DEFINITION);
         var namespaceBlocks = new ArrayList<NamespaceBlock>();
 
         for (var node : namespaceNodes) {
             var nameNode = node.getChildByFieldName("name");
             if (nameNode != null && !nameNode.isNull()) {
-                var namespaceName = ASTTraversalUtils.extractNodeText(nameNode, fileContent);
+                var namespaceName = ASTTraversalUtils.extractNodeText(nameNode, sourceContent);
                 namespaceBlocks.add(new NamespaceBlock(namespaceName, node, node.getStartByte(), node.getEndByte()));
             }
         }
@@ -125,14 +134,14 @@ public class NamespaceProcessor {
     }
 
     private String createMergedNamespaceSkeleton(
-            String namespaceName, List<NamespaceBlock> blocks, String fileContent) {
+            String namespaceName, List<NamespaceBlock> blocks, SourceContent sourceContent) {
         var mergedContent = new StringBuilder(512); // Pre-size for better performance
         mergedContent.append("namespace ").append(namespaceName).append(" {\n");
 
         for (var block : blocks) {
             var bodyNode = block.node.getChildByFieldName("body");
             if (bodyNode != null && !bodyNode.isNull()) {
-                var skeletonContent = extractNamespaceBodySkeletons(bodyNode, fileContent);
+                var skeletonContent = extractNamespaceBodySkeletons(bodyNode, sourceContent);
                 for (String line : skeletonContent) {
                     mergedContent.append("  ").append(line).append("\n");
                 }
@@ -143,7 +152,7 @@ public class NamespaceProcessor {
         return mergedContent.toString();
     }
 
-    private List<String> extractNamespaceBodySkeletons(TSNode bodyNode, String fileContent) {
+    private List<String> extractNamespaceBodySkeletons(TSNode bodyNode, SourceContent sourceContent) {
         var skeletons = new ArrayList<String>();
 
         for (int i = 0; i < bodyNode.getChildCount(); i++) {
@@ -153,29 +162,29 @@ public class NamespaceProcessor {
             String childType = child.getType();
 
             if (FUNCTION_DEFINITION.equals(childType)) {
-                var signature = extractFunctionSignature(child, fileContent);
+                var signature = extractFunctionSignature(child, sourceContent);
                 if (!signature.trim().isEmpty()) {
                     // Presentation-only marker: append a consistent placeholder for functions with bodies.
                     // NOTE: Duplicate handling uses the AST-derived hasBody flag, not this string.
                     skeletons.add(signature + "  " + bodyPlaceholderSupplier.get());
                 }
             } else if (ENUM_SPECIFIER.equals(childType)) {
-                var enumSkeleton = extractEnumSkeletonFromNode(child, fileContent);
+                var enumSkeleton = extractEnumSkeletonFromNode(child, sourceContent);
                 if (!enumSkeleton.isEmpty()) {
                     skeletons.add(enumSkeleton);
                 }
             } else if (CLASS_SPECIFIER.equals(childType) || STRUCT_SPECIFIER.equals(childType)) {
-                var classDecl = ASTTraversalUtils.extractNodeText(child, fileContent);
+                var classDecl = ASTTraversalUtils.extractNodeText(child, sourceContent);
                 if (!classDecl.isEmpty()) {
                     skeletons.add(classDecl);
                 }
             } else if (UNION_SPECIFIER.equals(childType)) {
-                var unionDecl = ASTTraversalUtils.extractNodeText(child, fileContent);
+                var unionDecl = ASTTraversalUtils.extractNodeText(child, sourceContent);
                 if (!unionDecl.isEmpty()) {
                     skeletons.add(unionDecl);
                 }
             } else if (TYPE_DEFINITION.equals(childType) || ALIAS_DECLARATION.equals(childType)) {
-                var typeDecl = ASTTraversalUtils.extractNodeText(child, fileContent);
+                var typeDecl = ASTTraversalUtils.extractNodeText(child, sourceContent);
                 if (!typeDecl.isEmpty()) {
                     skeletons.add(typeDecl);
                 }
@@ -183,7 +192,7 @@ public class NamespaceProcessor {
                     || FIELD_DECLARATION.equals(childType)
                     || USING_DECLARATION.equals(childType)
                     || TYPEDEF_DECLARATION.equals(childType)) {
-                var declaration = ASTTraversalUtils.extractNodeText(child, fileContent);
+                var declaration = ASTTraversalUtils.extractNodeText(child, sourceContent);
                 if (!declaration.isEmpty()) {
                     if (!declaration.endsWith(";") && !declaration.endsWith("}")) {
                         declaration += ";";
@@ -195,15 +204,15 @@ public class NamespaceProcessor {
         return skeletons;
     }
 
-    private String extractEnumSkeletonFromNode(TSNode enumNode, String fileContent) {
+    private String extractEnumSkeletonFromNode(TSNode enumNode, SourceContent sourceContent) {
         var nameNode = enumNode.getChildByFieldName("name");
         String enumName = "";
         if (nameNode != null && !nameNode.isNull()) {
-            enumName = ASTTraversalUtils.extractNodeText(nameNode, fileContent);
+            enumName = ASTTraversalUtils.extractNodeText(nameNode, sourceContent);
         }
 
         boolean isScopedEnum = false;
-        var enumText = ASTTraversalUtils.extractNodeText(enumNode, fileContent);
+        var enumText = ASTTraversalUtils.extractNodeText(enumNode, sourceContent);
         if (enumText.startsWith("enum class")) {
             isScopedEnum = true;
         }
@@ -224,7 +233,7 @@ public class NamespaceProcessor {
                 if (child != null && !child.isNull() && "enumerator".equals(child.getType())) {
                     var enumeratorNameNode = child.getChildByFieldName("name");
                     if (enumeratorNameNode != null && !enumeratorNameNode.isNull()) {
-                        var enumValueName = ASTTraversalUtils.extractNodeText(enumeratorNameNode, fileContent);
+                        var enumValueName = ASTTraversalUtils.extractNodeText(enumeratorNameNode, sourceContent);
                         if (!enumValueName.isEmpty()) {
                             enumValues.add(enumValueName);
                         }
@@ -245,7 +254,7 @@ public class NamespaceProcessor {
         return skeleton.toString();
     }
 
-    private String extractFunctionSignature(TSNode funcNode, String fileContent) {
+    private String extractFunctionSignature(TSNode funcNode, SourceContent sourceContent) {
         var declarator = funcNode.getChildByFieldName("declarator");
         if (declarator == null || declarator.isNull()) {
             return "";
@@ -254,10 +263,10 @@ public class NamespaceProcessor {
         String returnType = "";
         var typeNode = funcNode.getChildByFieldName("type");
         if (typeNode != null && !typeNode.isNull()) {
-            returnType = ASTTraversalUtils.extractNodeText(typeNode, fileContent) + " ";
+            returnType = ASTTraversalUtils.extractNodeText(typeNode, sourceContent) + " ";
         }
 
-        String signature = returnType + ASTTraversalUtils.extractNodeText(declarator, fileContent);
+        String signature = returnType + ASTTraversalUtils.extractNodeText(declarator, sourceContent);
 
         for (int i = 0; i < funcNode.getChildCount(); i++) {
             var child = funcNode.getChild(i);
@@ -267,18 +276,10 @@ public class NamespaceProcessor {
             if (NOEXCEPT_SPECIFIER.equals(childType)
                     || TRAILING_RETURN_TYPE.equals(childType)
                     || VIRTUAL_SPECIFIER.equals(childType)) {
-                signature += " " + ASTTraversalUtils.extractNodeText(child, fileContent);
+                signature += " " + ASTTraversalUtils.extractNodeText(child, sourceContent);
             }
         }
 
         return signature;
-    }
-
-    public void clearCache() {
-        fileContentCache.clear();
-    }
-
-    public int getCacheSize() {
-        return fileContentCache.size();
     }
 }
