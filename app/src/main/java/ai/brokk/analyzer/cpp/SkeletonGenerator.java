@@ -17,8 +17,6 @@ import org.treesitter.TSParser;
 public class SkeletonGenerator {
     private static final Logger log = LogManager.getLogger(SkeletonGenerator.class);
 
-    private final Map<ProjectFile, String> fileContentCache = new ConcurrentHashMap<>();
-
     public SkeletonGenerator(TSParser templateParser) {
         // No longer need separate parser - will use shared one from CppTreeSitterAnalyzer
     }
@@ -236,15 +234,5 @@ public class SkeletonGenerator {
 
         skeleton.append("    }");
         return skeleton.toString();
-    }
-
-    /** Clears the file content cache to free memory. Should be called periodically or when analysis is complete. */
-    public void clearCache() {
-        fileContentCache.clear();
-    }
-
-    /** Gets the size of the file content cache for monitoring. */
-    public int getCacheSize() {
-        return fileContentCache.size();
     }
 }

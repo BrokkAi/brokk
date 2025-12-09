@@ -19,7 +19,6 @@ import org.treesitter.TSParser;
 public class NamespaceProcessor {
     private static final Logger log = LogManager.getLogger(NamespaceProcessor.class);
 
-    private final Map<ProjectFile, String> fileContentCache = new ConcurrentHashMap<>();
     private final Supplier<String> bodyPlaceholderSupplier;
 
     public NamespaceProcessor(TSParser templateParser) {
@@ -283,13 +282,5 @@ public class NamespaceProcessor {
         }
 
         return signature;
-    }
-
-    public void clearCache() {
-        fileContentCache.clear();
-    }
-
-    public int getCacheSize() {
-        return fileContentCache.size();
     }
 }

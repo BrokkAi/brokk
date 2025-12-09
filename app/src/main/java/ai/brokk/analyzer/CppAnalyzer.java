@@ -1004,10 +1004,9 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                 .filter(fp -> fp.parsedTree() != null)
                 .count());
         return String.format(
-                "FileContent: %d, ParsedTrees: %d, SkeletonGen: %d, NamespaceProc: %d",
+                "FileContent: %d, ParsedTrees: %d",
                 fileContentCache.size(),
-                parsedTreeCount,
-                skeletonGenerator.getCacheSize(),
-                namespaceProcessor.getCacheSize());
+                parsedTreeCount
+);
     }
 }
