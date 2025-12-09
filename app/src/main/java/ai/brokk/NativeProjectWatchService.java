@@ -203,8 +203,8 @@ public class NativeProjectWatchService implements IWatchService {
     }
 
     private void handleEvent(DirectoryChangeEvent event) {
-        // Skip processing if paused or not running
-        if (pauseCount > 0 || !running) {
+        // If we're not running, ignore events.
+        if (!running) {
             return;
         }
 
@@ -215,7 +215,10 @@ public class NativeProjectWatchService implements IWatchService {
             logger.trace("File event: {} on {}", eventType, changedPath);
 
             synchronized (debounceLock) {
-                // Check if this is an untracked gitignore change
+                // Always record gitignore-related changes and accumulate file events.
+                // When the watcher is paused we intentionally continue buffering events
+                // in `accumulatedBatch` but we DO NOT schedule the debounced flush until
+                // we are resumed. This preserves events that occur during pauses.
                 if (shouldInvalidateForGitignoreChange(changedPath)) {
                     accumulatedBatch.untrackedGitignoreChanged = true;
                 }
@@ -227,6 +230,12 @@ public class NativeProjectWatchService implements IWatchService {
                 } catch (IllegalArgumentException e) {
                     // Path is outside root, skip it for now
                     logger.trace("Skipping event for path outside root: {}", changedPath);
+                    return;
+                }
+
+                // If paused, do not schedule a debounce flush; the events remain buffered.
+                if (pauseCount > 0) {
+                    logger.trace("Watcher is paused; buffering event for {}", changedPath);
                     return;
                 }
 
@@ -251,6 +260,14 @@ public class NativeProjectWatchService implements IWatchService {
         EventBatch batchToNotify;
 
         synchronized (debounceLock) {
+            // If we're paused, suppress the flush and keep accumulated events buffered.
+            // A pending flush should not run while paused; clear any reference so it won't be mistakenly reused.
+            if (pauseCount > 0) {
+                logger.trace("Flush suppressed because watcher is paused; keeping events buffered");
+                pendingFlush = null;
+                return;
+            }
+
             // If there's nothing to notify, return early
             if (accumulatedBatch.files.isEmpty() && !accumulatedBatch.untrackedGitignoreChanged) {
                 return;
@@ -283,13 +300,41 @@ public class NativeProjectWatchService implements IWatchService {
     public synchronized void pause() {
         logger.debug("Pausing native directory watcher");
         pauseCount++;
+
+        // Cancel any pending debounced flush to ensure no flush executes while paused.
+        synchronized (debounceLock) {
+            if (pendingFlush != null) {
+                pendingFlush.cancel(false);
+                pendingFlush = null;
+                logger.trace("Canceled pending flush due to pause");
+            }
+        }
     }
 
     @Override
-    public synchronized void resume() {
+    public void resume() {
         logger.debug("Resuming native directory watcher");
-        if (pauseCount > 0) {
-            pauseCount--;
+
+        boolean shouldFlush = false;
+        // Protect mutation of pauseCount with a synchronized block on 'this' (consistent with pause()).
+        synchronized (this) {
+            if (pauseCount > 0) {
+                pauseCount--;
+                if (pauseCount == 0) {
+                    shouldFlush = true;
+                }
+            }
+        }
+
+        if (shouldFlush) {
+            // Ensure no stray scheduled flush remains, then trigger an immediate flush on the debounce executor.
+            synchronized (debounceLock) {
+                if (pendingFlush != null) {
+                    pendingFlush.cancel(false);
+                    pendingFlush = null;
+                }
+            }
+            debounceExecutor.execute(this::flushAccumulatedEvents);
         }
     }
 
