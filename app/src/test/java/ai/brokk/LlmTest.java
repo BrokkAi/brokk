@@ -49,6 +49,16 @@ public class LlmTest {
         }
     }
 
+    // Tool with List<Record> parameter to test getInstructions handles JsonObjectSchema array items
+    public record ItemEntry(String id, String description) {}
+
+    static class RecordListTool {
+        @Tool(value = "Process a list of items")
+        public String processItems(@P("List of items to process") List<ItemEntry> items) {
+            return "Processed " + items.size() + " items.";
+        }
+    }
+
     // uncomment when you need it, this makes live API calls
     //    @Test
     void testModels() {
@@ -569,5 +579,19 @@ public class LlmTest {
         assertFalse(ai9.hasToolExecutionRequests(), "AI message should not contain native tool requests");
         assertEquals(Messages.getRepr(aiWithToolCalls), ai9.text());
         assertEquals(user2, result9.get(3));
+    }
+
+    @Test
+    void testGetInstructionsHandlesArrayOfObjects() {
+        // Create tool specifications for a tool with List<Record> parameter
+        var recordListTool = new RecordListTool();
+        var toolSpecs = ToolSpecifications.toolSpecificationsFrom(recordListTool);
+
+        // This should not throw - previously it threw IllegalArgumentException for JsonObjectSchema array items
+        var result = Llm.getInstructions(toolSpecs, t -> "");
+
+        assertNotNull(result);
+        assertTrue(result.contains("processItems"), "Should contain the tool name");
+        assertTrue(result.contains("array of object"), "Should describe parameter as array of object");
     }
 }
