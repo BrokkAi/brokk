@@ -27,6 +27,7 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
+import ai.brokk.util.Environment;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.tools.ToolExecutionResult;
@@ -84,6 +85,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
+import org.kohsuke.github.GHIssueState;
+import org.kohsuke.github.GHPullRequest;
 
 public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(HistoryOutputPanel.class);
@@ -3103,6 +3106,131 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
     }
 
+    /**
+     * Handles Create PR action from the Review tab header.
+     *
+     * <p>Checks for an existing remote pull request for the current branch before opening the
+     * Create Pull Request dialog. If an existing PR is found, offers to open it in the browser
+     * instead. All GitHub/network work is done off the EDT; UI is updated on the EDT.
+     */
+    private void handleCreatePrFromChangesTab() {
+        assert SwingUtilities.isEventDispatchThread() : "handleCreatePrFromChangesTab must be called on EDT";
+
+        var repoOpt = repo();
+        if (repoOpt.isEmpty()) {
+            // No repository available; fall back to the normal Create PR dialog.
+            CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager);
+            return;
+        }
+
+        var repo = repoOpt.get();
+        if (!(repo instanceof GitRepo gitRepo)) {
+            // Non-Git repository implementation; fall back to the normal dialog.
+            CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager);
+            return;
+        }
+
+        final String currentBranch;
+        try {
+            currentBranch = gitRepo.getCurrentBranch();
+        } catch (Exception e) {
+            logger.warn("Failed to determine current branch for Create PR; opening dialog without PR pre-check", e);
+            CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager);
+            return;
+        }
+
+        // If there is no GitHub token configured, skip the remote PR check entirely.
+        if (!GitHubAuth.tokenPresent()) {
+            CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager);
+            return;
+        }
+
+        contextManager.submitBackgroundTask("Check existing PR for " + currentBranch, () -> {
+            GHPullRequest matchingPr = null;
+            try {
+                var auth = GitHubAuth.getOrCreateInstance(contextManager.getProject());
+                var openPrs = auth.listOpenPullRequests(GHIssueState.OPEN);
+
+                String normalizedBranch = normalizeBranchName(currentBranch);
+                String expectedFullName = auth.getOwner() + "/" + auth.getRepoName();
+
+                for (var pr : openPrs) {
+                    try {
+                        String headRef = pr.getHead().getRef();
+                        String normalizedHead = normalizeBranchName(headRef);
+                        if (!normalizedBranch.equals(normalizedHead)) {
+                            continue;
+                        }
+
+                        var headRepo = pr.getHead().getRepository();
+                        if (headRepo != null) {
+                            String headFullName = headRepo.getOwnerName() + "/" + headRepo.getName();
+                            if (!expectedFullName.equals(headFullName)) {
+                                continue;
+                            }
+                        }
+
+                        matchingPr = pr;
+                        break;
+                    } catch (Exception inner) {
+                        logger.debug(
+                                "Skipping PR while checking existing PR for branch {}: {}",
+                                currentBranch,
+                                inner.getMessage());
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn(
+                        "Failed to check for existing PR for branch {}: {}",
+                        currentBranch,
+                        e.getMessage(),
+                        e);
+            }
+
+            GHPullRequest prToUse = matchingPr;
+            if (prToUse != null) {
+                SwingUtilities.invokeLater(() -> {
+                    String message = String.format(
+                            "A pull request already exists for branch '%s': #%d %s.%n%n"
+                                    + "Would you like to open it in your browser?",
+                            currentBranch,
+                            prToUse.getNumber(),
+                            prToUse.getTitle());
+                    int choice = chrome.showConfirmDialog(
+                            message,
+                            "Existing Pull Request",
+                            JOptionPane.YES_NO_OPTION,
+                            JOptionPane.QUESTION_MESSAGE);
+                    if (choice == JOptionPane.YES_OPTION) {
+                        String url = prToUse.getHtmlUrl().toString();
+                        Environment.openInBrowser(
+                                url, SwingUtilities.getWindowAncestor(chrome.getFrame()));
+                    } else {
+                        CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager);
+                    }
+                });
+            } else {
+                SwingUtilities.invokeLater(
+                        () -> CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager));
+            }
+            return null;
+        });
+    }
+
+    private static String normalizeBranchName(@Nullable String ref) {
+        if (ref == null) {
+            return "";
+        }
+        String result = ref;
+        if (result.startsWith("refs/heads/")) {
+            result = result.substring("refs/heads/".length());
+        }
+        if (result.startsWith("origin/")) {
+            result = result.substring("origin/".length());
+        }
+        return result;
+    }
+
     // Compute the branch-based changes in the background. Updates the "Changes" tab title and content on the EDT.
     // Shows changes relative to the baseline branch (or uncommitted changes on default branch).
     private CompletableFuture<CumulativeChanges> refreshCumulativeChangesAsync() {
@@ -3400,11 +3528,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             var createPRButton = new MaterialButton("Create PR");
             createPRButton.setToolTipText("Create a Pull Request for these changes");
             createPRButton.setEnabled(!hasUncommittedChanges);
-            createPRButton.addActionListener(e -> {
-                SwingUtilities.invokeLater(() -> {
-                    CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager);
-                });
-            });
+            createPRButton.addActionListener(e -> handleCreatePrFromChangesTab());
             buttonPanel.add(createPRButton);
         }
 
