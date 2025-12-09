@@ -60,8 +60,7 @@ public final class FuzzyUsageFinder {
         this.project = project;
         this.analyzer = analyzer;
         this.service = service;
-        this.llm = llm; // optional
-        logger.debug("Initialized FuzzyUsageAnalyzer (llmPresent={}): {}", llm != null, this);
+        this.llm = llm;
     }
 
     /**

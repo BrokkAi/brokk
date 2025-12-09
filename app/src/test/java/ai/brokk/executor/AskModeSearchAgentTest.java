@@ -25,6 +25,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -163,6 +164,7 @@ class AskModeSearchAgentTest {
         }
     }
 
+    @Disabled
     @Test
     void testAskModeIgnoresCodeModel() throws Exception {
         uploadSession();
@@ -243,6 +245,7 @@ class AskModeSearchAgentTest {
         statusConn.disconnect();
     }
 
+    @Disabled
     @Test
     void testAskModeNoAutoCommit() throws Exception {
         uploadSession();

@@ -12,6 +12,7 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.ImportDependencyDialog;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.Decompiler;
+import ai.brokk.util.DependencyUpdater;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
@@ -79,10 +80,12 @@ public final class DependenciesPanel extends JPanel {
     private final JTable table;
     private final Map<String, ProjectFile> dependencyProjectFileMap = new HashMap<>();
     private final List<DependencyStateChangeListener> stateChangeListeners = new ArrayList<>();
+    private final Set<String> updatesInProgress = new HashSet<>();
     private boolean isProgrammaticChange = false;
     private boolean isInitialized = false;
     private static final String LOADING = "Loading...";
     private static final String UNLOADING = "Unloading...";
+    private static final String UPDATING = "Updating...";
 
     // UI pieces used to align the bottom area with WorkspacePanel
     private JPanel southContainerPanel;
@@ -110,7 +113,7 @@ public final class DependenciesPanel extends JPanel {
     }
 
     private static boolean isTruthyLive(Object v) {
-        return v instanceof Boolean b ? b : (v instanceof String s && LOADING.equals(s));
+        return v instanceof Boolean b ? b : (v instanceof String s && (LOADING.equals(s) || UPDATING.equals(s)));
     }
 
     private class LiveCellRenderer extends DefaultTableCellRenderer {
@@ -480,7 +483,7 @@ public final class DependenciesPanel extends JPanel {
     private boolean anyRowLoading() {
         for (int i = 0; i < tableModel.getRowCount(); i++) {
             Object v = tableModel.getValueAt(i, 0);
-            if (LOADING.equals(v) || UNLOADING.equals(v)) {
+            if (LOADING.equals(v) || UNLOADING.equals(v) || UPDATING.equals(v)) {
                 return true;
             }
         }
@@ -523,6 +526,14 @@ public final class DependenciesPanel extends JPanel {
                 updateBottomSpacer();
             }
         });
+    }
+
+    /**
+     * Closes the panel and releases resources.
+     * Call this when the project is closing.
+     */
+    public void close() {
+        // Scheduler is now owned by Chrome, nothing to close here
     }
 
     @Override
@@ -696,7 +707,10 @@ public final class DependenciesPanel extends JPanel {
                 requireNonNull(pf);
 
                 try (var pathStream = Files.walk(pf.absPath())) {
-                    long fileCount = pathStream.filter(Files::isRegularFile).count();
+                    long fileCount = pathStream
+                            .filter(Files::isRegularFile)
+                            .filter(p -> !p.getFileName().toString().equals(DependencyUpdater.DEPENDENCY_METADATA_FILE))
+                            .count();
                     publish(new Object[] {i, fileCount});
                 } catch (IOException e) {
                     publish(new Object[] {i, 0L});
@@ -753,11 +767,34 @@ public final class DependenciesPanel extends JPanel {
 
         boolean isLive = Boolean.TRUE.equals(tableModel.getValueAt(modelRow, 0));
 
+        Object nameObj = tableModel.getValueAt(modelRow, 1);
+        String depName = nameObj instanceof String s ? s : null;
+        ProjectFile pf = depName != null ? dependencyProjectFileMap.get(depName) : null;
+
         var menu = new JPopupMenu();
+
+        var updateItem = new JMenuItem("Update from Source");
+        boolean hasUpdatableMetadata = false;
+        boolean updateInProgress = depName != null && updatesInProgress.contains(depName);
+        if (pf != null) {
+            var metadataOpt = DependencyUpdater.readDependencyMetadata(pf);
+            hasUpdatableMetadata = metadataOpt
+                    .map(m -> m.type() == DependencyUpdater.DependencySourceType.LOCAL_PATH
+                            || m.type() == DependencyUpdater.DependencySourceType.GITHUB)
+                    .orElse(false);
+        }
+        updateItem.setEnabled(hasUpdatableMetadata && !updateInProgress);
+        if (updateInProgress) {
+            updateItem.setText("Update in Progress...");
+        }
+        updateItem.addActionListener(ev -> updateDependencyForRow(modelRow));
+        menu.add(updateItem);
+
         var summarizeItem = new JMenuItem("Summarize All Files");
         summarizeItem.setEnabled(isLive);
         summarizeItem.addActionListener(ev -> summarizeDependencyForRow(modelRow));
         menu.add(summarizeItem);
+
         menu.show(e.getComponent(), e.getX(), e.getY());
     }
 
@@ -788,6 +825,70 @@ public final class DependenciesPanel extends JPanel {
         cm.submitContextTask(() -> {
             cm.addSummaries(dep.files(), Set.of());
         });
+    }
+
+    private void updateDependencyForRow(int modelRow) {
+        Object nameObj = tableModel.getValueAt(modelRow, 1);
+        if (!(nameObj instanceof String depName)) {
+            return;
+        }
+        var pf = dependencyProjectFileMap.get(depName);
+        if (pf == null) {
+            return;
+        }
+
+        // Prevent concurrent updates of the same dependency
+        if (updatesInProgress.contains(depName)) {
+            return;
+        }
+
+        var metadataOpt = DependencyUpdater.readDependencyMetadata(pf);
+        if (metadataOpt.isEmpty()) {
+            chrome.toolError(
+                    "This dependency does not have source metadata and cannot be updated automatically.",
+                    "Dependency Update");
+            return;
+        }
+
+        var metadata = metadataOpt.get();
+        CompletableFuture<Set<ProjectFile>> future;
+        if (metadata.type() == DependencyUpdater.DependencySourceType.GITHUB) {
+            future = DependencyUpdateHelper.updateGitDependency(chrome, pf, metadata);
+        } else if (metadata.type() == DependencyUpdater.DependencySourceType.LOCAL_PATH) {
+            future = DependencyUpdateHelper.updateLocalPathDependency(chrome, pf, metadata);
+        } else {
+            chrome.toolError(
+                    "Dependencies of type '" + metadata.type() + "' are not supported for automatic updates.",
+                    "Dependency Update");
+            return;
+        }
+
+        // Track this update as in-progress
+        updatesInProgress.add(depName);
+
+        // Show UI feedback: lock controls and display "Updating..." status
+        Object prevValue = tableModel.getValueAt(modelRow, 0);
+        setControlsLocked(true);
+        isProgrammaticChange = true;
+        tableModel.setValueAt(UPDATING, modelRow, 0);
+        isProgrammaticChange = false;
+
+        final int rowIndex = modelRow;
+        final Object prevVal = prevValue;
+        future.whenComplete((changed, ex) -> SwingUtilities.invokeLater(() -> {
+            updatesInProgress.remove(depName);
+
+            // Restore the previous live status and unlock controls
+            isProgrammaticChange = true;
+            tableModel.setValueAt(prevVal, rowIndex, 0);
+            isProgrammaticChange = false;
+            setControlsLocked(false);
+
+            if (ex == null) {
+                // Re-count files across dependencies after an update
+                new FileCountingWorker().execute();
+            }
+        }));
     }
 
     private void removeSelectedDependency() {

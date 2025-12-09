@@ -30,7 +30,7 @@ public class SummaryFragmentTest {
             var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
 
             var fragment = new SummaryFragment(cm, "Child", SummaryType.CODEUNIT_SKELETON);
-            String text = fragment.text();
+            String text = fragment.text().join();
 
             assertCodeEquals(
                     """
@@ -49,7 +49,7 @@ public class SummaryFragmentTest {
                     text);
 
             // sources() should include Child and its direct ancestor Base; no duplicates
-            var sources = fragment.sources();
+            var sources = fragment.sources().join();
             var fqns = sources.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
             assertEquals(Set.of("Child", "Base"), fqns, "sources() should include Child and Base");
             assertEquals(sources.size(), fqns.size(), "sources() should not contain duplicates");
@@ -59,7 +59,7 @@ public class SummaryFragmentTest {
                     .filter(pf -> pf.getFileName().equals("Test.java"))
                     .findFirst()
                     .orElseThrow();
-            var files = fragment.files();
+            var files = fragment.files().join();
             assertEquals(Set.of(expectedFile), files, "files() should include only Test.java");
         }
     }
@@ -84,7 +84,7 @@ public class SummaryFragmentTest {
                     .orElseThrow();
 
             var fragment = new SummaryFragment(cm, childrenFile.toString(), SummaryType.FILE_SKELETONS);
-            String text = fragment.text();
+            String text = fragment.text().join();
 
             assertCodeEquals(
                     """
@@ -102,7 +102,7 @@ public class SummaryFragmentTest {
                     text);
 
             // sources() should include Child1, Child2, and Base; no duplicates
-            var sources = fragment.sources();
+            var sources = fragment.sources().join();
             var fqns = sources.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
             assertEquals(Set.of("Child1", "Child2", "Base"), fqns, "sources() should include both children and Base");
             assertEquals(sources.size(), fqns.size(), "sources() should not contain duplicates");
@@ -116,7 +116,7 @@ public class SummaryFragmentTest {
                     .filter(pf -> pf.getFileName().equals("Base.java"))
                     .findFirst()
                     .orElseThrow();
-            var files = fragment.files();
+            var files = fragment.files().join();
             assertEquals(Set.of(children, base), files, "files() should include Children.java and Base.java");
         }
     }
@@ -147,7 +147,7 @@ public class SummaryFragmentTest {
                     .orElseThrow();
 
             var fragment = new SummaryFragment(cm, multiFile.toString(), SummaryType.FILE_SKELETONS);
-            String text = fragment.text();
+            String text = fragment.text().join();
 
             assertCodeEquals(
                     """
@@ -174,7 +174,7 @@ public class SummaryFragmentTest {
                     text);
 
             // sources() should include the 3 TLDs and their ancestors (Base, I1, I2); no duplicates
-            var sources = fragment.sources();
+            var sources = fragment.sources().join();
             var fqns = sources.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
             assertEquals(
                     Set.of("Child1", "Child2", "Standalone", "Base", "I1", "I2"),
@@ -191,7 +191,7 @@ public class SummaryFragmentTest {
                     .filter(pf -> pf.getFileName().equals("Base.java"))
                     .findFirst()
                     .orElseThrow();
-            var files = fragment.files();
+            var files = fragment.files().join();
             assertEquals(Set.of(multi, base), files, "files() should include Multi.java and Base.java");
         }
     }
@@ -213,7 +213,7 @@ public class SummaryFragmentTest {
             var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
 
             var fragment = new SummaryFragment(cm, "p2.Child", SummaryType.CODEUNIT_SKELETON);
-            String text = fragment.text();
+            String text = fragment.text().join();
 
             assertCodeEquals(
                     """
@@ -232,7 +232,7 @@ public class SummaryFragmentTest {
                     text);
 
             // sources() should include p2.Child and p1.Base; no duplicates
-            var sources = fragment.sources();
+            var sources = fragment.sources().join();
             var fqns = sources.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
             assertEquals(
                     Set.of("p2.Child", "p1.Base"), fqns, "sources() should include Child and Base across packages");
@@ -247,7 +247,7 @@ public class SummaryFragmentTest {
                     .filter(pf -> pf.getFileName().equals("Base.java"))
                     .findFirst()
                     .orElseThrow();
-            var files = fragment.files();
+            var files = fragment.files().join();
             assertEquals(Set.of(child, base), files, "files() should include Child.java and Base.java");
         }
     }
@@ -265,7 +265,7 @@ public class SummaryFragmentTest {
             var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
 
             var fragment = new SummaryFragment(cm, "MyClass.myMethod", SummaryType.CODEUNIT_SKELETON);
-            String text = fragment.text();
+            String text = fragment.text().join();
 
             assertCodeEquals("""
     package (default package);
@@ -274,7 +274,7 @@ public class SummaryFragmentTest {
     """, text);
 
             // sources() should include only the method; no ancestors for non-class targets
-            var sources = fragment.sources();
+            var sources = fragment.sources().join();
             var fqns = sources.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
             assertEquals(Set.of("MyClass.myMethod"), fqns, "sources() should include only the method");
             assertEquals(sources.size(), fqns.size(), "sources() should not contain duplicates");
@@ -284,7 +284,7 @@ public class SummaryFragmentTest {
                     .filter(pf -> pf.getFileName().equals("Test.java"))
                     .findFirst()
                     .orElseThrow();
-            var files = fragment.files();
+            var files = fragment.files().join();
             assertEquals(Set.of(expectedFile), files, "files() should include only Test.java");
         }
     }

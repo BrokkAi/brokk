@@ -273,6 +273,27 @@ public final class JobStore {
         return jobsDir.resolve(jobId);
     }
 
+    /**
+     * Return the last assigned sequence number for the given job, or -1 if no events
+     * have been appended for that job yet.
+     *
+     * This consults the in-memory sequence counter and lazily initializes it from
+     * the events file if necessary. The method is synchronized to ensure safe
+     * access to the internal `jobSequenceCounters` map.
+     *
+     * This is O(1) in the common case (counter already initialized) and avoids
+     * reading/parsing the entire events file merely to obtain the last seq.
+     */
+    public synchronized long getLastSeq(String jobId) {
+        var counter = jobSequenceCounters.get(jobId);
+        if (counter == null) {
+            counter = loadSequenceCounter(jobId);
+            jobSequenceCounters.put(jobId, counter);
+        }
+        long val = counter.get();
+        return val == 0 ? -1 : val;
+    }
+
     // ============================================================================
     // Private helpers
     // ============================================================================

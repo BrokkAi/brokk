@@ -777,17 +777,17 @@ class CodeAgentTest {
         var cannedPreprocessedOutput = "Error in file.java:10: syntax error";
         var countingModel = new CountingPreprocessorModel(cannedPreprocessedOutput);
 
-        // Configure the context manager to use the counting model for quickest model
-        cm.setQuickestModel(countingModel);
+        // Configure the context manager to use the counting model for GPT_5_NANO (used by preprocessor)
+        cm.setNanoModel(countingModel);
 
-        // Configure build to fail with output that exceeds threshold (> 200 lines)
+        // Configure build to fail with output that exceeds threshold (> 500 lines)
         var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of());
         project.setBuildDetails(bd);
         project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
-        // Generate long build output (> 200 lines to trigger LLM preprocessing)
+        // Generate long build output (> 500 lines to trigger LLM preprocessing)
         StringBuilder longOutput = new StringBuilder();
-        for (int i = 1; i <= 210; i++) {
+        for (int i = 1; i <= 510; i++) {
             longOutput.append("Error line ").append(i).append("\n");
         }
 
@@ -887,15 +887,72 @@ class CodeAgentTest {
         assertNull(continueStep.cs().nextRequest(), "nextRequest should be null after recording");
     }
 
+    // CTX-REFRESH-1: After edits are applied, context snapshots should be refreshed
+    @Test
+    void testContextRefreshAfterEdit_contextFragmentContainsUpdatedContent() throws IOException {
+        // Arrange: file with initial content
+        var file = cm.toFile("refresh.txt");
+        file.write("hello");
+        cm.addEditableFile(file);
+
+        // First response: apply edit hello -> goodbye
+        var firstResponse =
+                """
+                <block>
+                %s
+                <<<<<<< SEARCH
+                hello
+                =======
+                goodbye
+                >>>>>>> REPLACE
+                </block>
+                """
+                        .formatted(file.toString());
+
+        // Second response: no more edits
+        var secondResponse = "I cannot fix this build error.";
+
+        var model = new TestScriptedLanguageModel(firstResponse, secondResponse);
+        codeAgent = new CodeAgent(cm, model, consoleIO);
+
+        // Make build fail once to trigger a retry loop that exercises the context refresh
+        var buildAttempt = new AtomicInteger(0);
+        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
+            if (buildAttempt.getAndIncrement() == 0) {
+                throw new Environment.FailureException("Build failed", "Error: compilation failed", 1);
+            }
+            return "Build successful";
+        };
+
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of());
+        project.setBuildDetails(bd);
+        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+
+        // Act
+        codeAgent.runTask("change hello to goodbye", Set.of());
+
+        // Assert: verify the edit was applied to disk
+        assertEquals("goodbye", file.read().orElseThrow().strip(), "Edit should have been applied to disk");
+
+        // Assert: codeAgent's internal context should have refreshed fragments with updated content
+        var fragments = codeAgent.context.fileFragments().toList();
+
+        assertFalse(fragments.isEmpty(), "Context should contain a fragment for the modified file");
+
+        var fragmentContent = fragments.getFirst().format().join();
+        assertTrue(fragmentContent.contains("goodbye"), fragmentContent);
+        assertFalse(fragmentContent.contains("hello"), fragmentContent);
+    }
+
     // RO-1: Guardrail - edits to read-only files are blocked with clear error
     @Test
-    void testRunTask_blocksEditsToReadOnlyFile() throws IOException {
+    void testRunTask_blocksEditsToReadOnlyFile() throws IOException, InterruptedException {
         // Arrange: create a file and mark it as read-only in the workspace context
         var roFile = cm.toFile("ro.txt");
         roFile.write("hello");
         // Build a context with a ProjectPathFragment for the file, mark it read-only
         var roFrag = new ContextFragment.ProjectPathFragment(roFile, cm);
-        var ctx = newContext().addPathFragments(List.of(roFrag));
+        var ctx = newContext().addFragments(List.of(roFrag));
         ctx = ctx.setReadonly(roFrag, true);
 
         ctx.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
@@ -936,18 +993,18 @@ class CodeAgentTest {
     }
 
     private Context newContext() {
-        return new Context(cm, null);
+        return new Context(cm);
     }
 
     // RO-3: Guardrail precedence - editable ProjectPathFragment takes precedence over read-only virtual fragment
     @Test
-    void testRunTask_editablePrecedesReadOnlyVirtualFragment() throws IOException {
+    void testRunTask_editablePrecedesReadOnlyVirtualFragment() throws IOException, InterruptedException {
         // Arrange: create a file and add it as both an editable ProjectPathFragment
         // and a read-only virtual fragment (simulating a Code or Usage reference)
         var file = cm.toFile("file.txt");
         file.write("hello");
         var editFrag = new ContextFragment.ProjectPathFragment(file, cm);
-        var ctx = newContext().addPathFragments(List.of(editFrag));
+        var ctx = newContext().addFragments(List.of(editFrag));
 
         // Simulate a read-only virtual fragment by wrapping in a mock (this is a simplified test)
         // In practice, Code/Usage fragments would be read-only; here we just ensure the logic
@@ -1072,7 +1129,7 @@ class CodeAgentTest {
 
         var summarySummaryOnly = new ContextFragment.SummaryFragment(
                 cm, "com.example.SummaryOnly", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-        assertFalse(summarySummaryOnly.files().isEmpty());
+        assertFalse(summarySummaryOnly.files().join().isEmpty());
         var summaryPpfAndSummaryEditable = new ContextFragment.SummaryFragment(
                 cm, "com.example.PpfAndSummaryEditable", ContextFragment.SummaryType.CODEUNIT_SKELETON);
         var summaryPpfReadonly = new ContextFragment.SummaryFragment(
@@ -1106,9 +1163,9 @@ class CodeAgentTest {
                         .orElseThrow());
 
         // Compose a single Context with all of these fragments
-        var ctx = new Context(cm, null)
-                .addPathFragments(List.of(ppfAndSummaryEditablePpf, ppfReadonlyPpf))
-                .addVirtualFragments(List.of(
+        var ctx = new Context(cm)
+                .addFragments(List.of(ppfAndSummaryEditablePpf, ppfReadonlyPpf))
+                .addFragments(List.of(
                         summarySummaryOnly,
                         summaryPpfAndSummaryEditable,
                         summaryPpfReadonly,
@@ -1161,7 +1218,7 @@ class CodeAgentTest {
         ctx = ctx.removeFragments(Set.of(summaryPpfAndSummaryEditable));
         var summaryFilePpfAndSummaryEditable = new ContextFragment.SummaryFragment(
                 cm, ppfAndSummaryEditablePpf.toString(), ContextFragment.SummaryType.FILE_SKELETONS);
-        ctx = ctx.addVirtualFragment(summaryFilePpfAndSummaryEditable);
+        ctx = ctx.addFragments(summaryFilePpfAndSummaryEditable);
         readOnlyPaths = CodeAgent.computeReadOnlyPaths(ctx);
         assertFalse(
                 readOnlyPaths.contains(ppfAndSummaryEditablePpf.toString()),

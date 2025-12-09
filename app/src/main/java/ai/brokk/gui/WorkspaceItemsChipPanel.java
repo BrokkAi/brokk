@@ -337,19 +337,18 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
      */
     private boolean hasRenderableContent(ContextFragment f) {
         try {
-            if (f instanceof ContextFragment.ComputedFragment) {
-                return true;
-            }
+            // Always render output fragments (e.g., HISTORY, TASK, SEARCH) even while async text/desc is loading
             if (f.getType().isOutput()) {
                 return true;
             }
+
             if (f.isText()) {
-                String txt = f.text();
+                String txt = f.text().renderNowOr("(Loading text...)");
                 return !txt.trim().isEmpty();
             } else {
                 boolean hasImage = f instanceof ContextFragment.ImageFragment;
-                Set<ProjectFile> files = f.files();
-                String desc = f.description();
+                Set<ProjectFile> files = f.files().renderNowOr(Set.of());
+                String desc = f.description().renderNowOr("(Loading image...)");
                 return hasImage || !files.isEmpty() || !desc.trim().isEmpty();
             }
         } catch (Exception ex) {

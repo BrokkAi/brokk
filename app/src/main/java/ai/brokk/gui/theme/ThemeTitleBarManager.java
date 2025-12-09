@@ -15,61 +15,155 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Unified title bar manager that reads configuration from theme files.
  * Provides theme-driven title bar styling for macOS full window content.
+ * Supports both JFrame and JDialog windows with consistent theming.
  */
 public class ThemeTitleBarManager {
     private static final Logger logger = LogManager.getLogger(ThemeTitleBarManager.class);
-    private static final Set<JFrame> managedFrames = ConcurrentHashMap.newKeySet();
+    private static final Set<RootPaneContainer> managedWindows = ConcurrentHashMap.newKeySet();
 
     /**
      * Applies title bar styling to a frame based on current theme configuration.
+     * Backward-compatible entry point for frames.
      */
     public static void applyTitleBar(JFrame frame, String title) {
         if (!SystemInfo.isMacOS || !SystemInfo.isMacFullWindowContentSupported) {
             return;
         }
-
-        var config = loadTitleBarConfig();
-        var titleBar = createTitleBar(title, config, frame);
-        frame.add(titleBar, BorderLayout.NORTH);
-
-        // Store components for later updates
-        frame.getRootPane().putClientProperty("brokk.titleBar", titleBar);
-        frame.getRootPane().putClientProperty("brokk.titleLabel", ((JPanel) titleBar).getComponent(0));
-        frame.getRootPane().putClientProperty("brokk.titleBarConfig", config);
-
-        managedFrames.add(frame);
-
-        // Revalidate layout after dynamically adding title bar
-        frame.revalidate();
-        frame.repaint();
+        applyTitleBarInternal(frame, title);
     }
 
     /**
-     * Updates title bar styling for all managed frames when theme changes.
+     * Applies title bar styling to a dialog based on current theme configuration.
+     */
+    public static void applyTitleBar(JDialog dialog, String title) {
+        if (!SystemInfo.isMacOS || !SystemInfo.isMacFullWindowContentSupported) {
+            return;
+        }
+        applyTitleBarInternal(dialog, title);
+    }
+
+    /**
+     * Updates title bar styling for all managed windows (frames and dialogs) when theme changes.
      */
     public static void updateAllTitleBars() {
         var config = loadTitleBarConfig();
 
         SwingUtilities.invokeLater(() -> {
-            for (JFrame frame : managedFrames) {
-                updateTitleBarStyling(frame, config);
+            for (RootPaneContainer container : managedWindows) {
+                updateTitleBarStylingInternal(container, config);
             }
         });
     }
 
     /**
      * Updates title bar styling for a specific frame.
+     * Backward-compatible entry point for frames.
      */
     public static void updateTitleBarStyling(JFrame frame) {
         var config = loadTitleBarConfig();
-        updateTitleBarStyling(frame, config);
+        updateTitleBarStylingInternal(frame, config);
+    }
+
+    /**
+     * Updates title bar styling for a specific dialog.
+     */
+    public static void updateTitleBarStyling(JDialog dialog) {
+        var config = loadTitleBarConfig();
+        updateTitleBarStylingInternal(dialog, config);
+    }
+
+    /**
+     * Removes a window from management when it's disposed.
+     */
+    public static void removeWindow(Window window) {
+        managedWindows.removeIf(container -> (Window) container == window);
     }
 
     /**
      * Removes a frame from management when it's disposed.
+     * Backward-compatible entry point that delegates to removeWindow.
      */
     public static void removeFrame(JFrame frame) {
-        managedFrames.remove(frame);
+        removeWindow(frame);
+    }
+
+    /**
+     * Removes a dialog from management when it's disposed.
+     */
+    public static void removeDialog(JDialog dialog) {
+        removeWindow(dialog);
+    }
+
+    /**
+     * Internal implementation that applies title bar to any RootPaneContainer (JFrame or JDialog).
+     */
+    private static void applyTitleBarInternal(RootPaneContainer container, String title) {
+        Component windowComponent = (Component) container;
+        Window window = windowComponent instanceof Window w ? w : null;
+
+        var config = loadTitleBarConfig();
+        var titleBar = createTitleBar(title, config, window);
+
+        Container contentPane = container.getContentPane();
+        contentPane.add(titleBar, BorderLayout.NORTH);
+
+        // Store components for later updates
+        JRootPane rootPane = container.getRootPane();
+        rootPane.putClientProperty("brokk.titleBar", titleBar);
+        rootPane.putClientProperty("brokk.titleLabel", titleBar.getComponent(0));
+        rootPane.putClientProperty("brokk.titleBarConfig", config);
+
+        managedWindows.add(container);
+
+        // Revalidate layout after dynamically adding title bar
+        windowComponent.revalidate();
+        windowComponent.repaint();
+    }
+
+    /**
+     * Internal implementation that updates styling for an existing title bar.
+     */
+    private static void updateTitleBarStylingInternal(RootPaneContainer container, TitleBarConfig config) {
+        JRootPane rootPane = container.getRootPane();
+        var titleBar = (JPanel) rootPane.getClientProperty("brokk.titleBar");
+        var titleLabel = (JLabel) rootPane.getClientProperty("brokk.titleLabel");
+
+        if (titleBar != null && titleLabel != null) {
+            if (config.enabled()) {
+                // Custom themed title bar
+                // Update background color
+                if (config.backgroundColor() != null) {
+                    titleBar.setBackground(config.backgroundColor());
+                } else {
+                    titleBar.setBackground(UIManager.getColor("Panel.background"));
+                }
+
+                // Update foreground color
+                if (config.foregroundColor() != null) {
+                    titleLabel.setForeground(config.foregroundColor());
+                } else {
+                    titleLabel.setForeground(UIManager.getColor("Label.foreground"));
+                }
+
+                // Update padding
+                titleBar.setBorder(BorderFactory.createEmptyBorder(
+                        config.topPadding(), config.leftPadding(),
+                        config.bottomPadding(), config.rightPadding()));
+
+                // Ensure title bar is visible
+                titleBar.setVisible(true);
+            } else {
+                // Default macOS title bar styling (when disabled)
+                titleBar.setBackground(UIManager.getColor("Panel.background"));
+                titleLabel.setForeground(UIManager.getColor("Label.foreground"));
+                titleBar.setBorder(BorderFactory.createEmptyBorder(4, 80, 4, 0)); // Padding for window controls
+                titleBar.setVisible(true);
+            }
+
+            // Repaint to apply changes
+            titleBar.repaint();
+            titleLabel.repaint();
+        }
     }
 
     /**
@@ -111,8 +205,9 @@ public class ThemeTitleBarManager {
 
     /**
      * Creates a title bar component with the given configuration.
+     * Supports both frames and dialogs; double-click maximize/minimize only applies to frames.
      */
-    private static JPanel createTitleBar(String title, TitleBarConfig config, JFrame frame) {
+    private static JPanel createTitleBar(String title, TitleBarConfig config, @Nullable Window window) {
         var titleBar = new JPanel(new BorderLayout());
 
         if (config.enabled()) {
@@ -145,67 +240,21 @@ public class ThemeTitleBarManager {
             titleBar.add(label, BorderLayout.CENTER);
         }
 
-        // Add double-click to maximize/minimize
+        // Add double-click to maximize/minimize (frames only)
         titleBar.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                if (e.getClickCount() == 2) {
-                    if ((frame.getExtendedState() & Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH) {
-                        frame.setExtendedState(JFrame.NORMAL);
+                if (e.getClickCount() == 2 && window instanceof Frame frameWindow) {
+                    if ((frameWindow.getExtendedState() & Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH) {
+                        frameWindow.setExtendedState(Frame.NORMAL);
                     } else {
-                        frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+                        frameWindow.setExtendedState(Frame.MAXIMIZED_BOTH);
                     }
                 }
             }
         });
 
         return titleBar;
-    }
-
-    /**
-     * Updates styling for an existing title bar.
-     */
-    private static void updateTitleBarStyling(JFrame frame, TitleBarConfig config) {
-        var rootPane = frame.getRootPane();
-        var titleBar = (JPanel) rootPane.getClientProperty("brokk.titleBar");
-        var titleLabel = (JLabel) rootPane.getClientProperty("brokk.titleLabel");
-
-        if (titleBar != null && titleLabel != null) {
-            if (config.enabled()) {
-                // Custom themed title bar
-                // Update background color
-                if (config.backgroundColor() != null) {
-                    titleBar.setBackground(config.backgroundColor());
-                } else {
-                    titleBar.setBackground(UIManager.getColor("Panel.background"));
-                }
-
-                // Update foreground color
-                if (config.foregroundColor() != null) {
-                    titleLabel.setForeground(config.foregroundColor());
-                } else {
-                    titleLabel.setForeground(UIManager.getColor("Label.foreground"));
-                }
-
-                // Update padding
-                titleBar.setBorder(BorderFactory.createEmptyBorder(
-                        config.topPadding(), config.leftPadding(),
-                        config.bottomPadding(), config.rightPadding()));
-
-                // Ensure title bar is visible
-                titleBar.setVisible(true);
-            } else {
-                // Default macOS title bar styling (when disabled)
-                titleBar.setBackground(UIManager.getColor("Panel.background"));
-                titleLabel.setForeground(UIManager.getColor("Label.foreground"));
-                titleBar.setBorder(BorderFactory.createEmptyBorder(4, 80, 4, 0)); // Padding for window controls
-                titleBar.setVisible(true);
-            }
-
-            // Repaint to apply changes
-            titleBar.repaint();
-            titleLabel.repaint();
-        }
     }
 
     /**

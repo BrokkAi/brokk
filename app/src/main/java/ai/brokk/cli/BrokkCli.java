@@ -67,6 +67,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import picocli.CommandLine;
 
@@ -217,6 +218,7 @@ public final class BrokkCli implements Callable<Integer> {
     }
 
     @Override
+    @Blocking
     public Integer call() throws Exception {
 
         // Handle --list-models early exit
@@ -444,7 +446,7 @@ public final class BrokkCli implements Callable<Integer> {
         for (var readFile : resolvedReadFiles) {
             var pf = cm.toFile(readFile);
             var fragment = new ContextFragment.ProjectPathFragment(pf, cm);
-            context = context.addPathFragments(List.of(fragment));
+            context = context.addFragments(fragment);
             context = context.setReadonly(fragment, true);
         }
 
@@ -468,15 +470,15 @@ public final class BrokkCli implements Callable<Integer> {
         // Add usages, callers, callees (simple fragment creation)
         for (var symbol : addUsages) {
             var fragment = new ContextFragment.UsageFragment(cm, symbol);
-            context = context.addVirtualFragment(fragment);
+            context = context.addFragments(fragment);
         }
         for (var entry : addCallers.entrySet()) {
             var fragment = new ContextFragment.CallGraphFragment(cm, entry.getKey(), entry.getValue(), false);
-            context = context.addVirtualFragment(fragment);
+            context = context.addFragments(fragment);
         }
         for (var entry : addCallees.entrySet()) {
             var fragment = new ContextFragment.CallGraphFragment(cm, entry.getKey(), entry.getValue(), true);
-            context = context.addVirtualFragment(fragment);
+            context = context.addFragments(fragment);
         }
 
         // Push accumulated context changes back to ContextManager
@@ -526,7 +528,7 @@ public final class BrokkCli implements Callable<Integer> {
                 io.showNotification(
                         IConsoleIO.NotificationRole.INFO, "Deep Scan token usage: " + recommendations.metadata());
                 // Persist successful results to cache; failures are not cached.
-                if (recommendations.success() && getCacheMode() == CacheMode.WRITE || getCacheMode() == CacheMode.RW) {
+                if (recommendations.success() && getCacheMode().canWrite()) {
                     writeRecommendationToCache(cacheKey, recommendations);
                 }
             }
@@ -541,10 +543,10 @@ public final class BrokkCli implements Callable<Integer> {
                 for (var fragment : recommendations.fragments()) {
                     switch (fragment.getType()) {
                         case SKELETON -> {
-                            cm.addVirtualFragment((ContextFragment.VirtualFragment) fragment);
+                            cm.addFragments(fragment);
                             io.showNotification(IConsoleIO.NotificationRole.INFO, "Added " + fragment);
                         }
-                        default -> cm.addSummaries(fragment.files(), Set.of());
+                        default -> cm.addSummaries(fragment.files().renderNowOr(Set.of()), Set.of());
                     }
                 }
             } else {
@@ -688,7 +690,7 @@ public final class BrokkCli implements Callable<Integer> {
                     var task = new TaskList.TaskItem("", taskText, false);
 
                     io.showNotification(IConsoleIO.NotificationRole.INFO, "Executing task...");
-                    var taskResult = cm.executeTask(task, planModel, codeModel, true, true);
+                    var taskResult = cm.executeTask(task, planModel, codeModel);
                     context = scope.append(taskResult);
                     result = taskResult;
                 } else { // lutzPrompt != null
@@ -724,7 +726,7 @@ public final class BrokkCli implements Callable<Integer> {
                         for (var task : pendingTasks) {
                             io.showNotification(IConsoleIO.NotificationRole.INFO, "Running task: " + task.text());
 
-                            var taskResult = cm.executeTask(task, planModel, codeModel, true, true);
+                            var taskResult = cm.executeTask(task, planModel, codeModel);
                             context = scope.append(taskResult);
                             result = taskResult; // Track last result for final status check
 
@@ -960,10 +962,27 @@ public final class BrokkCli implements Callable<Integer> {
      *  - "OFF": neither read from nor write to the cache.
      */
     private enum CacheMode {
-        RW,
-        READ,
-        WRITE,
-        OFF
+        OFF(0),
+        READ(1),
+        WRITE(2),
+        RW(1 | 2);
+
+        private static final int READ_BIT = 1;
+        private static final int WRITE_BIT = 2;
+
+        private final int mask;
+
+        CacheMode(int mask) {
+            this.mask = mask;
+        }
+
+        boolean canRead() {
+            return (mask & READ_BIT) != 0;
+        }
+
+        boolean canWrite() {
+            return (mask & WRITE_BIT) != 0;
+        }
     }
 
     private static CacheMode getCacheMode() {
@@ -982,7 +1001,7 @@ public final class BrokkCli implements Callable<Integer> {
 
     static Optional<ContextAgent.RecommendationResult> readRecommendationFromCache(String key, IContextManager mgr) {
         CacheMode mode = getCacheMode();
-        if (mode == CacheMode.WRITE || mode == CacheMode.OFF) {
+        if (!mode.canRead()) {
             logger.debug(
                     "Context cache mode {}: skipping read for key {} (BRK_CONTEXT_CACHE={})",
                     mode,
@@ -1088,7 +1107,7 @@ public final class BrokkCli implements Callable<Integer> {
 
     static void writeRecommendationToCache(String key, ContextAgent.RecommendationResult rec) throws IOException {
         CacheMode mode = getCacheMode();
-        if (mode == CacheMode.READ || mode == CacheMode.OFF) {
+        if (!mode.canWrite()) {
             logger.debug(
                     "Context cache mode {}: skipping write for key {} (BRK_CONTEXT_CACHE={})",
                     mode,
@@ -1112,10 +1131,9 @@ public final class BrokkCli implements Callable<Integer> {
         for (ContextFragment fragment : rec.fragments()) {
             if (fragment instanceof ContextFragment.ProjectPathFragment) {
                 collectedReferencedDtos.put(fragment.id(), DtoMapper.toReferencedFragmentDto(fragment, writer));
-            } else if (fragment instanceof ContextFragment.VirtualFragment vf) {
-                if (!collectedVirtualDtos.containsKey(vf.id())) {
-                    collectedVirtualDtos.put(vf.id(), DtoMapper.toVirtualFragmentDto(vf, writer));
-                }
+            } else if (!collectedVirtualDtos.containsKey(fragment.id())) {
+                var fragmentDto = DtoMapper.toVirtualFragmentDto(fragment, writer);
+                if (fragmentDto != null) collectedVirtualDtos.put(fragment.id(), fragmentDto);
             } else {
                 throw new IllegalArgumentException(
                         "Unhandled ContextFragment type for cache serialization: " + fragment.getClass());

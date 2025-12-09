@@ -27,6 +27,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 
 /** Interface for context manager functionality */
 public interface IContextManager {
@@ -129,14 +130,19 @@ public interface IContextManager {
         return new ProjectFile(project.getRoot(), trimmed);
     }
 
+    @Blocking
     default Set<ProjectFile> getFilesInContext() {
-        throw new UnsupportedOperationException();
+        return liveContext()
+                .fileFragments()
+                .flatMap(cf -> cf.files().join().stream())
+                .collect(Collectors.toSet());
     }
 
     default Context appendTasksToTaskList(Context context, List<String> tasks) {
         throw new UnsupportedOperationException();
     }
 
+    @Blocking
     default Context createOrReplaceTaskList(Context context, List<String> tasks) {
         throw new UnsupportedOperationException();
     }
@@ -244,16 +250,16 @@ public interface IContextManager {
     }
 
     /** Adds any virtual fragment directly to the live context. */
-    default void addVirtualFragments(Collection<? extends ContextFragment.VirtualFragment> fragments) {
+    default void addFragments(Collection<? extends ContextFragment> fragments) {
         if (fragments.isEmpty()) {
             return;
         }
-        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragments(fragments));
+        pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragments));
     }
 
     /** Adds any virtual fragment directly to the live context. */
-    default void addVirtualFragment(ContextFragment.VirtualFragment fragment) {
-        addVirtualFragments(List.of(fragment));
+    default void addFragments(ContextFragment fragment) {
+        addFragments(List.of(fragment));
     }
 
     /** Create a new LLM instance for the given model and description */
@@ -275,4 +281,6 @@ public interface IContextManager {
         return Llm.create(
                 options, this, getProject().getDataRetentionPolicy() == MainProject.DataRetentionPolicy.IMPROVE_BROKK);
     }
+
+    default void compressHistory() throws InterruptedException {}
 }

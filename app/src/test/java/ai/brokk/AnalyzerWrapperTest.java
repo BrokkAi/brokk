@@ -34,11 +34,12 @@ class AnalyzerWrapperTest {
 
     @AfterEach
     void tearDown() {
-        if (analyzerWrapper != null) {
-            analyzerWrapper.close();
-        }
+        // Close watchService first to release directory handles (required for Windows)
         if (watchService != null) {
             watchService.close();
+        }
+        if (analyzerWrapper != null) {
+            analyzerWrapper.close();
         }
     }
 
@@ -123,6 +124,7 @@ class AnalyzerWrapperTest {
 
         // Create AnalyzerWrapper
         analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), watchService);
+        analyzerWrapper.get(); // wait for async tasks so they don't race w/ tempdir cleanup
 
         // Verify getWatchService returns the same instance
         var returnedWatchService = analyzerWrapper.getWatchService();

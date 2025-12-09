@@ -60,6 +60,9 @@ public class ThemeColors {
     public static final String MODE_LUTZ_BG = "mode_lutz_bg";
     public static final String MODE_LUTZ_FG = "mode_lutz_fg";
     public static final String MODE_LUTZ_ACCENT = "mode_lutz_accent";
+    public static final String MODE_PLAN_BG = "mode_plan_bg";
+    public static final String MODE_PLAN_FG = "mode_plan_fg";
+    public static final String MODE_PLAN_ACCENT = "mode_plan_accent";
 
     // File reference badge colors
     public static final String BADGE_BORDER = "badge_border";

@@ -58,7 +58,7 @@ public final class LoadingTextBox extends JPanel {
     private void showPlaceholder() {
         internalChange = true;
         textField.setText(placeholder);
-        textField.setForeground(hintColor);
+        textField.setForeground(isEnabled() ? hintColor : resolveDisabledForeground());
         showingHint = true;
         internalChange = false;
     }
@@ -66,9 +66,36 @@ public final class LoadingTextBox extends JPanel {
     private void hidePlaceholder() {
         internalChange = true;
         textField.setText("");
-        textField.setForeground(defaultColor);
+        textField.setForeground(isEnabled() ? defaultColor : resolveDisabledForeground());
         showingHint = false;
         internalChange = false;
+    }
+
+    @Override
+    public void setEnabled(boolean enabled) {
+        super.setEnabled(enabled);
+        textField.setEnabled(enabled);
+        spinner.setEnabled(enabled);
+
+        if (enabled) {
+            if (showingHint) {
+                textField.setForeground(hintColor);
+            } else {
+                textField.setForeground(defaultColor);
+            }
+        } else {
+            textField.setForeground(resolveDisabledForeground());
+        }
+
+        repaint();
+    }
+
+    private Color resolveDisabledForeground() {
+        var disabledFg = UIManager.getColor("TextField.inactiveForeground");
+        if (disabledFg == null) disabledFg = textField.getDisabledTextColor();
+        if (disabledFg == null) disabledFg = UIManager.getColor("Label.disabledForeground");
+        if (disabledFg == null) disabledFg = textField.getForeground().darker();
+        return disabledFg;
     }
 
     public void setLoading(boolean loading, String busyTooltip) {

@@ -25,6 +25,12 @@ export type BrokkEvent =
       compressed: boolean;
       summary?: string;
       messages?: { text: string; msgType: 'USER' | 'AI' | 'SYSTEM'; reasoning?: boolean }[];
+    }
+  | {
+      type: 'live-summary';
+      epoch: number;
+      compressed: boolean;
+      summary: string;
     };
 
 export type Bubble = {
@@ -62,9 +68,15 @@ export type BubbleState = Bubble & {
   isCollapsed?: boolean;        // for UI state
 };
 
+/**
+ * Represents a historical task/conversation entry.
+ * When compressed=true, the backend may provide both a summary and full messages.
+ * The frontend displays full messages by default and can toggle to the summary view.
+ */
 export type HistoryTask = {
   threadId: number;
   taskSequence: number;
   compressed: boolean;
+  summary?: string;
   entries: BubbleState[];
 };

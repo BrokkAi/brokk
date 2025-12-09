@@ -39,7 +39,7 @@ import org.jetbrains.annotations.Nullable;
  * <p>New UI: - Queued table (1 column: File) - In-progress table (2 columns: File, Progress (per-file progress bar)) -
  * Completed table (2 columns: File, Lines changed)
  */
-public final class BlitzForgeProgressDialog extends JDialog implements BlitzForge.Listener {
+public final class BlitzForgeProgressDialog extends BaseThemedDialog implements BlitzForge.Listener {
 
     /** Optional capability: allow producers to override the total "work units" for the per-file progress bar. */
     public interface ProgressAware {
@@ -80,7 +80,7 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
     private final Map<ProjectFile, String> updatedContentByFile = new ConcurrentHashMap<>();
 
     public BlitzForgeProgressDialog(Chrome chrome, Runnable cancelCallback) {
-        super(chrome.getFrame(), "BlitzForge Progress", false);
+        super(chrome.getFrame(), "BlitzForge Progress", Dialog.ModalityType.MODELESS);
         assert SwingUtilities.isEventDispatchThread() : "Must construct dialog on EDT";
 
         this.chrome = chrome;
@@ -88,8 +88,11 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
 
         chrome.disableActionButtons();
 
-        setLayout(new BorderLayout(10, 10));
         setPreferredSize(new Dimension(900, 600));
+
+        // Get the content root and set its layout
+        JPanel root = getContentRoot();
+        root.setLayout(new BorderLayout(10, 10));
 
         // In-progress table with progress bar renderer
         inProgressTable = new JTable(inProgressModel);
@@ -131,7 +134,7 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
         centerPanel.add(Box.createVerticalStrut(8));
         centerPanel.add(completedPanel);
 
-        add(centerPanel, BorderLayout.CENTER);
+        root.add(centerPanel, BorderLayout.CENTER);
 
         // Buttons
         var cancelButton = new MaterialButton("Cancel");
@@ -154,7 +157,7 @@ public final class BlitzForgeProgressDialog extends JDialog implements BlitzForg
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         buttonPanel.add(cancelButton);
         buttonPanel.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
-        add(buttonPanel, BorderLayout.SOUTH);
+        root.add(buttonPanel, BorderLayout.SOUTH);
 
         setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
