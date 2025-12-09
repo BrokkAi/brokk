@@ -108,14 +108,18 @@ public class MaterialButton extends JButton {
         updateTooltip();
     }
 
+    private void applyBorderless() {
+        putClientProperty("JButton.buttonType", "borderless");
+        setBorder(null);
+        setBorderPainted(false);
+    }
+
     @Override
     public void setText(@Nullable String text) {
         super.setText(text);
 
         if (isForceBorderless()) {
-            putClientProperty("JButton.buttonType", "borderless");
-            setBorder(null);
-            setBorderPainted(false);
+            applyBorderless();
             return;
         }
 
@@ -138,9 +142,7 @@ public class MaterialButton extends JButton {
         updateCursorForEnabledState();
         updateTooltip();
         if (isForceBorderless()) {
-            putClientProperty("JButton.buttonType", "borderless");
-            setBorder(null);
-            setBorderPainted(false);
+            applyBorderless();
         } else {
             applyBorderlessIfIconOnly();
         }
@@ -224,14 +226,15 @@ public class MaterialButton extends JButton {
 
     private boolean isForceBorderless() {
         Object v = getClientProperty("MaterialButton.forceBorderless");
-        return v instanceof Boolean && (Boolean) v;
+        if (v instanceof Boolean b) {
+            return b;
+        }
+        return false;
     }
 
     private void applyBorderlessIfIconOnly() {
         if (isIconOnly()) {
-            putClientProperty("JButton.buttonType", "borderless");
-            setBorder(null);
-            setBorderPainted(false);
+            applyBorderless();
         }
     }
 

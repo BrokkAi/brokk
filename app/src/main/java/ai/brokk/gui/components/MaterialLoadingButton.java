@@ -75,10 +75,14 @@ public class MaterialLoadingButton extends MaterialButton {
     }
 
     @Override
-    public void setText(String text) {
+    public void setText(@Nullable String text) {
         super.setText(text);
         if (isEnabled()) { // Only update idleText if not in loading state (isEnabled is false during loading)
-            this.idleText = text;
+            if (text == null) {
+                this.idleText = "";
+            } else {
+                this.idleText = text;
+            }
         }
     }
 
