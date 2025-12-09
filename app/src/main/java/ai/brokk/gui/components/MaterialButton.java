@@ -46,11 +46,17 @@ public class MaterialButton extends JButton {
         setFocusable(true);
         setOpaque(false);
 
-        var borderColor = UIManager.getColor("Component.borderColor");
-        setBorder(BorderFactory.createCompoundBorder(
-                new LineBorder(borderColor != null ? borderColor : Color.GRAY, 1, true),
-                BorderFactory.createEmptyBorder(4, 8, 4, 8)));
-        setMargin(new Insets(4, 8, 4, 8));
+        if (isForceBorderless()) {
+            putClientProperty("JButton.buttonType", "borderless");
+            setBorder(null);
+            setBorderPainted(false);
+        } else {
+            var borderColor = UIManager.getColor("Component.borderColor");
+            setBorder(BorderFactory.createCompoundBorder(
+                    new LineBorder(borderColor != null ? borderColor : Color.GRAY, 1, true),
+                    BorderFactory.createEmptyBorder(4, 8, 4, 8)));
+            setMargin(new Insets(4, 8, 4, 8));
+        }
         // Allow the Look-and-Feel to render rollover effects by keeping the content area filled
         // and enabling rollover support on the button model.
         setContentAreaFilled(true);
@@ -105,6 +111,14 @@ public class MaterialButton extends JButton {
     @Override
     public void setText(@Nullable String text) {
         super.setText(text);
+
+        if (isForceBorderless()) {
+            putClientProperty("JButton.buttonType", "borderless");
+            setBorder(null);
+            setBorderPainted(false);
+            return;
+        }
+
         if (text == null || text.isBlank()) {
             applyBorderlessIfIconOnly();
         } else {
@@ -124,6 +138,11 @@ public class MaterialButton extends JButton {
         updateCursorForEnabledState();
         updateTooltip();
         applyBorderlessIfIconOnly();
+        if (isForceBorderless()) {
+            putClientProperty("JButton.buttonType", "borderless");
+            setBorder(null);
+            setBorderPainted(false);
+        }
     }
 
     private void updateTooltip() {
@@ -200,6 +219,11 @@ public class MaterialButton extends JButton {
         Icon icon = originalIcon != null ? originalIcon : getIcon();
         String text = getText();
         return icon != null && (text == null || text.isBlank());
+    }
+
+    private boolean isForceBorderless() {
+        Object v = getClientProperty("MaterialButton.forceBorderless");
+        return v instanceof Boolean && (Boolean) v;
     }
 
     private void applyBorderlessIfIconOnly() {

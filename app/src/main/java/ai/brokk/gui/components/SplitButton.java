@@ -193,6 +193,7 @@ public class SplitButton extends JComponent {
     private static void applyCompactStyling(MaterialButton b) {
         // Maximum compactness: zero margins, zero padding, no border, no minimum width
         b.putClientProperty("JButton.buttonType", "borderless");
+        b.putClientProperty("MaterialButton.forceBorderless", Boolean.TRUE);
         b.putClientProperty("JButton.minimumWidth", 0);
         b.putClientProperty("Button.padding", new Insets(0, 0, 0, 0));
         b.setMargin(new Insets(0, 0, 0, 0));
