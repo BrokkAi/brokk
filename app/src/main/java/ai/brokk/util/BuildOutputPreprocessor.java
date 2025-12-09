@@ -1,5 +1,8 @@
 package ai.brokk.util;
 
+import static java.util.Objects.requireNonNull;
+
+import ai.brokk.AbstractService;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import com.google.common.base.Splitter;
@@ -33,7 +36,7 @@ public class BuildOutputPreprocessor {
      * Maximum number of errors to extract from the build output. This limits context size while ensuring we capture
      * multiple related issues.
      */
-    public static final int MAX_EXTRACTED_ERRORS = 10;
+    public static final int MAX_EXTRACTED_ERRORS = 5;
 
     /**
      * Lightweight path sanitization without LLM processing. Converts absolute paths to relative paths for cleaner
@@ -93,7 +96,7 @@ public class BuildOutputPreprocessor {
         }
 
         // Limit build output to fit within token constraints
-        var model = cm.getService().quickestModel();
+        var model = requireNonNull(cm.getService().getModel(AbstractService.GPT_5_NANO));
         var llm = cm.getLlm(model, "BuildOutputPreprocessor");
         String truncatedOutput = truncateToTokenLimit(buildOutput, model, cm);
         return preprocessOutput(truncatedOutput, cm, llm);
@@ -111,17 +114,17 @@ public class BuildOutputPreprocessor {
             Compilers: javac, tsc (TypeScript), rustc, gcc
             Linters: eslint, pylint, spotless, checkstyle
 
-            Focus on up to %d actionable errors that developers need to fix:
+            Focus on the %d most important, actionable errors that developers need to fix:
             1. Compilation errors (syntax errors, type errors, missing imports)
             2. Test failures with specific failure reasons
             3. Dependency resolution failures
             4. Build configuration errors
 
             For each error, include:
-            - File path and line number when available
             - Specific error message
-            - 2-3 lines of context when helpful
-            - Relevant stack trace snippets (not full traces)
+            - File path and line number when available
+            - Full stack trace when available
+            - Relevant debug output
 
             WARNINGS AND ERRORS IN THE SAME FILE:
             Include ALL errors AND warnings from the same file. Warnings often indicate
