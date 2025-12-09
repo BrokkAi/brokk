@@ -259,15 +259,18 @@ public class NativeProjectWatchService implements IWatchService {
     private void flushAccumulatedEvents() {
         EventBatch batchToNotify;
 
-        synchronized (debounceLock) {
-            // If we're paused, suppress the flush and keep accumulated events buffered.
-            // A pending flush should not run while paused; clear any reference so it won't be mistakenly reused.
-            if (pauseCount > 0) {
-                logger.trace("Flush suppressed because watcher is paused; keeping events buffered");
+        // First, check paused state BEFORE swapping batches. Call isPaused() outside of debounceLock
+        // to avoid deadlock with pause(), which synchronizes on 'this' then on debounceLock.
+        if (isPaused()) {
+            // Ensure pendingFlush is cleared while holding debounceLock to avoid races.
+            synchronized (debounceLock) {
                 pendingFlush = null;
-                return;
             }
+            logger.trace("Flush suppressed because watcher is paused; keeping events buffered");
+            return;
+        }
 
+        synchronized (debounceLock) {
             // If there's nothing to notify, return early
             if (accumulatedBatch.files.isEmpty() && !accumulatedBatch.untrackedGitignoreChanged) {
                 return;
