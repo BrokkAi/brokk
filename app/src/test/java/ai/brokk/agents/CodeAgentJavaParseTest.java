@@ -781,4 +781,32 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
                 res.step().es().javaLintDiagnostics().isEmpty(),
                 res.step().es().javaLintDiagnostics().toString());
     }
+
+    // PJ-22: method reference with incompatible return type should be ignored (classpath inference)
+    // ECJ can't verify method reference compatibility without full classpath/generic resolution
+    @Test
+    void testParseJavaPhase_incompatibleMethodReference_ignored_continue() throws IOException {
+        var src =
+                """
+                import java.util.function.Function;
+                class MethodRefIncompat {
+                    // Simulates a method that returns a type ECJ can't fully resolve
+                    static MissingType parse(String s) { return null; }
+
+                    void m() {
+                        // Method ref where return type doesn't match descriptor exactly
+                        // (ECJ reports IncompatibleMethodReference without full type info)
+                        Function<String, Object> f = MethodRefIncompat::parse;
+                    }
+                }
+                """;
+        var res = runParseJava("MethodRefIncompat.java", src);
+
+        // The IncompatibleMethodReference error should be suppressed because it's
+        // a cross-file inference issue (ECJ can't verify without MissingType on classpath)
+        assertTrue(
+                res.step().es().javaLintDiagnostics().isEmpty(),
+                "IncompatibleMethodReference should be ignored: "
+                        + res.step().es().javaLintDiagnostics());
+    }
 }

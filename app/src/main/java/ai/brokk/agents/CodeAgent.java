@@ -920,8 +920,10 @@ public class CodeAgent {
             IProblem.CannotInferElidedTypes,
             IProblem.CannotInferInvocationType,
             IProblem.GenericInferenceError,
-            IProblem.MissingTypeForInference
+            IProblem.MissingTypeForInference,
             // Verified by PJ-19 (missing external type via var inference ignored)
+            IProblem.IncompatibleMethodReference
+            // PJ-22: method ref return type vs generic descriptor mismatch without full classpath
             );
 
     /**
