@@ -182,6 +182,7 @@ public class TreeSitterStateIOTest {
                 TreeSitterStateIO.toDto(after.get()),
                 "DTO after save+load should equal the original");
     }
+
     @Test
     void replacesExistingCorruptFileOnWindows(@TempDir Path tempDir) throws Exception {
         Path out = tempDir.resolve("state.smile.gz");
