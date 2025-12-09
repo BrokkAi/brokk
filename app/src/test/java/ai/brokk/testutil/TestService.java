@@ -18,7 +18,8 @@ import org.jetbrains.annotations.Nullable;
 
 public final class TestService extends AbstractService {
 
-    private StreamingChatModel customQuickestModel;
+    private @Nullable StreamingChatModel customQuickestModel;
+    private @Nullable StreamingChatModel customNanoModel;
 
     public TestService(IProject project) {
         super(project);
@@ -26,6 +27,10 @@ public final class TestService extends AbstractService {
 
     public void setQuickestModel(StreamingChatModel model) {
         this.customQuickestModel = model;
+    }
+
+    public void setNanoModel(StreamingChatModel model) {
+        this.customNanoModel = model;
     }
 
     @Override
@@ -64,6 +69,14 @@ public final class TestService extends AbstractService {
                         .build());
             }
         };
+    }
+
+    @Override
+    public @Nullable StreamingChatModel getModel(String modelName) {
+        if (GPT_5_NANO.equals(modelName) && customNanoModel != null) {
+            return customNanoModel;
+        }
+        return super.getModel(modelName);
     }
 
     @Override
