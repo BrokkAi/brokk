@@ -492,7 +492,10 @@ public class MonorepoSubdirectoryTest {
         try (Git git = Git.open(repoRoot.toFile())) {
             git.add().addFilepattern("package.json").call();
             git.add().addFilepattern("subproject/package.json").call();
-            git.commit().setSign(false).setMessage("Add build configs at root and subdir").call();
+            git.commit()
+                    .setSign(false)
+                    .setMessage("Add build configs at root and subdir")
+                    .call();
         }
 
         // Open the subdirectory as a project

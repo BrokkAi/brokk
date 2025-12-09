@@ -1,5 +1,7 @@
 package ai.brokk.gui.git;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.TestGitRepo;
 import ai.brokk.testutil.TestLanguage;
@@ -10,8 +12,6 @@ import java.util.Set;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests for GitWorktreeTab helper methods.
