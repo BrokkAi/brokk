@@ -224,4 +224,94 @@ public class NativeProjectWatchServiceTest {
         assertTrue(batch.files.contains(expected1), "EventBatch should contain the first file: " + f1);
         assertTrue(batch.files.contains(expected2), "EventBatch should contain the second file: " + f2);
     }
+
+    @Test
+    public void testPausedDebounceCoalescing() throws Exception {
+        tempDir = Files.createTempDirectory("native-watcher-test-debounce");
+        service = new NativeProjectWatchService(
+                tempDir, /*gitRepoRoot=*/ null, /*globalGitignorePath=*/ null, List.of());
+
+        // Listener state
+        CountDownLatch warmup = new CountDownLatch(1);
+        AtomicBoolean acceptAfterPause = new AtomicBoolean(false);
+        AtomicReference<CountDownLatch> postResumeLatchRef = new AtomicReference<>();
+        AtomicReference<IWatchService.EventBatch> received = new AtomicReference<>();
+        AtomicInteger filesChangedCount = new AtomicInteger(0);
+
+        service.addListener(new IWatchService.Listener() {
+            @Override
+            public void onFilesChanged(IWatchService.EventBatch batch) {
+                if (!acceptAfterPause.get()) {
+                    warmup.countDown();
+                    return;
+                }
+                filesChangedCount.incrementAndGet();
+                received.set(batch);
+                CountDownLatch l = postResumeLatchRef.get();
+                if (l != null) {
+                    l.countDown();
+                }
+            }
+
+            @Override
+            public void onNoFilesChangedDuringPollInterval() {}
+        });
+
+        service.start(CompletableFuture.completedFuture(null));
+
+        // Warm up to ensure watcher is ready
+        Path warmupFile = tempDir.resolve("warmup-debounce.txt");
+        Files.writeString(warmupFile, "warmup");
+        boolean warmupDelivered = warmup.await(5, TimeUnit.SECONDS);
+        assertTrue(warmupDelivered, "Watcher should deliver a warmup event before debounce coalescing test");
+
+        // Prepare to accept post-pause events
+        CountDownLatch notified = new CountDownLatch(1);
+        postResumeLatchRef.set(notified);
+        received.set(null);
+        acceptAfterPause.set(true);
+        filesChangedCount.set(0);
+
+        // Pause and allow registration to settle
+        Thread.sleep(500);
+        service.pause();
+
+        // Generate multiple rapid file changes that collectively exceed debounce window while paused
+        int fileCount = 4;
+        Path[] createdFiles = new Path[fileCount];
+        for (int i = 0; i < fileCount; i++) {
+            createdFiles[i] = tempDir.resolve("debounce_" + i + ".txt");
+            Files.writeString(createdFiles[i], "data-" + i);
+            // small gap to create distinct events but still rapid
+            Thread.sleep(100);
+            // append to create an additional MODIFY event
+            Files.writeString(createdFiles[i], "-more", StandardOpenOption.APPEND);
+        }
+
+        // Wait longer than debounce delay to simulate that debounce would have fired if not paused
+        Thread.sleep(800);
+
+        // Ensure no notification was delivered while paused
+        boolean deliveredWhilePaused = notified.await(1200, TimeUnit.MILLISECONDS);
+        assertFalse(deliveredWhilePaused, "No notification should be delivered while watcher is paused (debounce coalescing)");
+
+        // Resume and expect a single aggregated batch containing all created files
+        service.resume();
+
+        boolean deliveredAfterResume = notified.await(5, TimeUnit.SECONDS);
+        assertTrue(deliveredAfterResume, "Buffered events should be delivered after resume (debounce coalescing)");
+
+        // Exactly one delivery after resume
+        assertEquals(1, filesChangedCount.get(), "Exactly one onFilesChanged delivery should occur after resume (debounce coalescing)");
+
+        IWatchService.EventBatch batch = received.get();
+        assertNotNull(batch, "EventBatch should be non-null after resume (debounce coalescing)");
+        assertFalse(batch.files.isEmpty(), "EventBatch should contain files after resume (debounce coalescing)");
+        assertEquals(fileCount, batch.files.size(), "EventBatch should contain all created files");
+
+        for (Path p : createdFiles) {
+            ProjectFile expected = new ProjectFile(tempDir, tempDir.relativize(p));
+            assertTrue(batch.files.contains(expected), "EventBatch should contain file: " + p);
+        }
+    }
 }
