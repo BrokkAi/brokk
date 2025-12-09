@@ -30,7 +30,7 @@ public class BuildOutputPreprocessor {
      * Minimum number of lines in build output to trigger preprocessing. Below this threshold, the original output is
      * returned unchanged.
      */
-    public static final int THRESHOLD_LINES = 200;
+    public static final int THRESHOLD_LINES = 500;
 
     /**
      * Maximum number of errors to extract from the build output. This limits context size while ensuring we capture
