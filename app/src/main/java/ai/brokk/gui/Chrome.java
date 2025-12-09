@@ -366,6 +366,10 @@ public class Chrome
                 NotificationRole.INFO, "Opening project at " + getProject().getRoot());
 
         // Test runner persistence and panel
+        // Note: test_runs.json is intentionally workspace-specific (using getRoot()) rather than shared
+        // at the master root. Each subdirectory in a monorepo may have distinct test suites, and test
+        // runs are local metrics tied to specific code execution. Unlike sessions (shared collaborative
+        // conversations), test history should remain isolated between different projects/modules.
         var brokkDir = getProject().getRoot().resolve(AbstractProject.BROKK_DIR);
         var testRunsStore = new FileBasedTestRunsStore(brokkDir.resolve("test_runs.json"));
         this.testRunnerPanel = new TestRunnerPanel(this, testRunsStore);
@@ -493,6 +497,7 @@ public class Chrome
                 projectFilesPanel.updatePanel();
                 return null;
             });
+
         } else {
             gitCommitTab = null;
             gitLogTab = null;
@@ -826,8 +831,10 @@ public class Chrome
 
         // Clean up any orphaned clone operations from previous sessions
         if (getProject() instanceof MainProject) {
-            Path dependenciesRoot =
-                    getProject().getRoot().resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
+            Path dependenciesRoot = getProject()
+                    .getMasterRootPathForConfig()
+                    .resolve(AbstractProject.BROKK_DIR)
+                    .resolve(AbstractProject.DEPENDENCIES_DIR);
             CloneOperationTracker.cleanupOrphanedClones(dependenciesRoot);
         }
 
@@ -1233,7 +1240,7 @@ public class Chrome
                 if (idx != -1) leftTabbedPanel.remove(idx);
             }
             issuesPanel = new GitIssuesTab(this, contextManager);
-            var icon = Icons.ASSIGNMENT;
+            var icon = Icons.ADJUST;
             leftTabbedPanel.addTab(null, icon, issuesPanel);
             var tabIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
             var recreateShortcut =
@@ -3023,28 +3030,38 @@ public class Chrome
         }
 
         public void updateEnabledState() {
-            if (lastRelevantFocusOwner == null) {
+            var focusOwner = lastRelevantFocusOwner;
+            if (focusOwner == null) {
                 setEnabled(false);
                 return;
             }
 
-            boolean canCopyNow = false;
-            if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
+            // Instructions area: enable if there's either a selection or any text
+            if (focusOwner == instructionsPanel.getInstructionsArea()) {
                 var field = instructionsPanel.getInstructionsArea();
-                canCopyNow = (field.getSelectedText() != null
-                                && !field.getSelectedText().isEmpty())
-                        || !field.getText().isEmpty();
-            } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, historyOutputPanel.getLlmStreamArea())) {
-                var llmArea = historyOutputPanel.getLlmStreamArea();
-                String selectedText = llmArea.getSelectedText();
-                canCopyNow =
-                        !selectedText.isEmpty() || !llmArea.getDisplayedText().isEmpty();
-            } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, workspacePanel)
-                    || SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, historyOutputPanel.getHistoryTable())) {
-                // Focus is in a context area, context copy is always available
-                canCopyNow = true;
+                boolean hasSelection = field.getSelectedText() != null
+                        && !field.getSelectedText().isEmpty();
+                boolean hasText = !field.getText().isEmpty();
+                setEnabled(hasSelection || hasText);
+                return;
             }
-            setEnabled(canCopyNow);
+
+            // If focus is in the MarkdownOutputPanel (LLM output), always enable Copy.
+            // The copy handler will choose selection vs full content.
+            if (SwingUtilities.isDescendingFrom(focusOwner, historyOutputPanel.getLlmStreamArea())) {
+                setEnabled(true);
+                return;
+            }
+
+            // Focus is in a context area (Workspace panel or History table): Copy is available.
+            if (SwingUtilities.isDescendingFrom(focusOwner, workspacePanel)
+                    || SwingUtilities.isDescendingFrom(focusOwner, historyOutputPanel.getHistoryTable())) {
+                setEnabled(true);
+                return;
+            }
+
+            // Default: disabled
+            setEnabled(false);
         }
     }
 
@@ -3194,24 +3211,51 @@ public class Chrome
     public static JFrame newFrame(String title, boolean initializeTitleBar) {
         JFrame frame = new JFrame(title);
         applyIcon(frame);
-        // macOS  (see https://www.formdev.com/flatlaf/macos/)
-        if (SystemInfo.isMacOS) {
-            if (SystemInfo.isMacFullWindowContentSupported) {
-                frame.getRootPane().putClientProperty("apple.awt.fullWindowContent", true);
-                frame.getRootPane().putClientProperty("apple.awt.transparentTitleBar", true);
-
-                // hide window title
-                if (SystemInfo.isJava_17_orLater)
-                    frame.getRootPane().putClientProperty("apple.awt.windowTitleVisible", false);
-                else frame.setTitle(null);
-            }
-        }
+        applyMacOSFullWindowContent(frame);
         if (initializeTitleBar) applyTitleBar(frame, title);
         return frame;
     }
 
+    /**
+     * Applies macOS full-window-content styling to a window.
+     * Sets transparent title bar and hides the native window title.
+     * No-op on non-macOS platforms.
+     *
+     * @param window A JFrame or JDialog (any RootPaneContainer)
+     */
+    public static void applyMacOSFullWindowContent(RootPaneContainer window) {
+        if (!SystemInfo.isMacOS || !SystemInfo.isMacFullWindowContentSupported) {
+            return;
+        }
+        var rootPane = window.getRootPane();
+        rootPane.putClientProperty("apple.awt.fullWindowContent", true);
+        rootPane.putClientProperty("apple.awt.transparentTitleBar", true);
+        if (SystemInfo.isJava_17_orLater) {
+            rootPane.putClientProperty("apple.awt.windowTitleVisible", false);
+        } else if (window instanceof Window w) {
+            // For older Java, hide title by setting it to null
+            if (w instanceof Frame f) f.setTitle(null);
+            else if (w instanceof Dialog d) d.setTitle(null);
+        }
+    }
+
     public static JFrame newFrame(String title) {
         return newFrame(title, true);
+    }
+
+    /** Applies macOS title bar styling to an existing dialog. No-op on other platforms. */
+    public static void applyDialogTitleBar(JDialog dialog, String title) {
+        if (!SystemInfo.isMacOS || !SystemInfo.isMacFullWindowContentSupported) {
+            return;
+        }
+        dialog.getRootPane().putClientProperty("apple.awt.fullWindowContent", true);
+        dialog.getRootPane().putClientProperty("apple.awt.transparentTitleBar", true);
+
+        // hide window title
+        if (SystemInfo.isJava_17_orLater) dialog.getRootPane().putClientProperty("apple.awt.windowTitleVisible", false);
+        else dialog.setTitle(null);
+
+        ThemeTitleBarManager.applyTitleBar(dialog, title);
     }
 
     /**

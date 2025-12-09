@@ -1644,6 +1644,11 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
         }
 
         @Override
+        public Path getMasterRootPathForConfig() {
+            return root;
+        }
+
+        @Override
         public Set<Language> getAnalyzerLanguages() {
             return Set.of(language);
         }

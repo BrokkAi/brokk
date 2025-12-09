@@ -94,12 +94,12 @@ public class FragmentDtos {
         }
     }
 
-    /** DTO for TaskEntry - represents a task history entry. */
+    /** DTO for TaskEntry - represents a task history entry with optional log and summary. */
     public record TaskEntryDto(int sequence, @Nullable TaskFragmentDto log, @Nullable String summaryContentId) {
         public TaskEntryDto {
-            // Exactly one of log or summary must be non-null (same constraint as TaskEntry)
-            if ((log == null) == (summaryContentId == null)) {
-                throw new IllegalArgumentException("Exactly one of log or summary must be non-null");
+            // At least one of log or summary must be non-null
+            if ((log == null) && (summaryContentId == null)) {
+                throw new IllegalArgumentException("At least one of log or summary must be non-null");
             }
             if (summaryContentId != null && summaryContentId.isEmpty()) {
                 throw new IllegalArgumentException("summaryContentId cannot be empty when present");
@@ -349,9 +349,9 @@ public class FragmentDtos {
             @Nullable String primaryModelName,
             @Nullable String primaryModelReasoning) {
         public TaskEntryRefDto {
-            // Preserve existing invariant: exactly one of logId or summaryContentId must be non-null
-            if ((logId == null) == (summaryContentId == null)) {
-                throw new IllegalArgumentException("Exactly one of logId or summary must be non-null");
+            // At least one of logId or summaryContentId must be non-null (both can coexist)
+            if ((logId == null) && (summaryContentId == null)) {
+                throw new IllegalArgumentException("At least one of logId or summary must be non-null");
             }
             if (summaryContentId != null && summaryContentId.isEmpty()) {
                 throw new IllegalArgumentException("summaryContentId cannot be empty when present");

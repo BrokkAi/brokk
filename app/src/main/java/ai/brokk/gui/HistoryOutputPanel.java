@@ -18,13 +18,14 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.components.SplitButton;
+import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.dialogs.CreatePullRequestDialog;
 import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.gui.util.GitUiUtil;
+import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
@@ -74,7 +75,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import javax.swing.*;
-import javax.swing.JDialog;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
@@ -1860,8 +1860,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     private void showFullNotificationMessage(NotificationEntry notification) {
-        var dialog = new JDialog(notificationsDialog, "Notification Details", true);
-        dialog.setLayout(new BorderLayout());
+        var dialog = new BaseThemedDialog(notificationsDialog, "Notification Details");
+        var root = dialog.getContentRoot();
+        root.setLayout(new BorderLayout());
 
         var textArea = new JTextArea(notification.message);
         textArea.setWrapStyleWord(true);
@@ -1882,8 +1883,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         buttonPanel.add(okButton);
         buttonPanel.setBorder(new EmptyBorder(5, 10, 5, 10));
 
-        dialog.add(scrollPane, BorderLayout.CENTER);
-        dialog.add(buttonPanel, BorderLayout.SOUTH);
+        root.add(scrollPane, BorderLayout.CENTER);
+        root.add(buttonPanel, BorderLayout.SOUTH);
 
         dialog.pack();
         dialog.setLocationRelativeTo(notificationsDialog);
@@ -3136,17 +3137,19 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         switch (baseline.mode()) {
                             case NON_DEFAULT_BRANCH -> {
                                 String defaultBranch = baseline.baselineRef();
+                                // Use fully-qualified ref to avoid ambiguity with tags
+                                String defaultBranchRef = "refs/heads/" + defaultBranch;
 
                                 // Get files changed between branches
                                 var branchChanges =
-                                        gitRepo.listFilesChangedBetweenBranches(currentBranch, defaultBranch);
+                                        gitRepo.listFilesChangedBetweenBranches(currentBranch, defaultBranchRef);
                                 fileSet.addAll(branchChanges);
 
                                 // Union with working tree changes
                                 fileSet.addAll(gitRepo.getModifiedFiles());
 
                                 // Get merge base for left content
-                                leftCommitSha = gitRepo.getMergeBase(currentBranch, defaultBranch);
+                                leftCommitSha = gitRepo.getMergeBase(currentBranch, defaultBranchRef);
                             }
                             case DEFAULT_WITH_UPSTREAM -> {
                                 String upstreamRef = baseline.baselineRef();
@@ -3336,9 +3339,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     var content = new GitCommitTab(chrome, contextManager);
                     content.updateCommitPanel();
 
-                    var dialog = new JDialog(chrome.getFrame(), "Changes", true);
-                    dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-                    dialog.getContentPane().add(content);
+                    var dialog = new BaseThemedDialog(chrome.getFrame(), "Changes");
+                    dialog.setDefaultCloseOperation(BaseThemedDialog.DISPOSE_ON_CLOSE);
+                    dialog.getContentRoot().add(content);
 
                     Dimension prefSize = content.getPreferredSize();
                     int width = Math.max(prefSize.width, 800);
@@ -3793,7 +3796,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     private String formatModified(long modifiedMillis) {
         var instant = Instant.ofEpochMilli(modifiedMillis);
-        return GitUiUtil.formatRelativeDate(instant, LocalDate.now(ZoneId.systemDefault()));
+        return GitDiffUiUtil.formatRelativeDate(instant, LocalDate.now(ZoneId.systemDefault()));
     }
 
     /**

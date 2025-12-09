@@ -8,7 +8,7 @@ import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.git.GitHubErrorUtil;
-import ai.brokk.gui.util.GitUiUtil;
+import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.FileUtil;
 import ai.brokk.util.GlobalUiSettings;
@@ -46,7 +46,7 @@ import org.kohsuke.github.HttpException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class OpenProjectDialog extends JDialog {
+public class OpenProjectDialog extends BaseThemedDialog {
     private static final Logger logger = LoggerFactory.getLogger(OpenProjectDialog.class);
 
     private static record GitHubRepoInfo(
@@ -94,15 +94,17 @@ public class OpenProjectDialog extends JDialog {
     private volatile boolean cloneCancelled;
 
     public OpenProjectDialog(@Nullable Frame parent) {
-        super(parent, "Open Project", true);
+        super(parent, "Open Project", Dialog.ModalityType.APPLICATION_MODAL);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+
         initComponents();
         pack();
         setLocationRelativeTo(parent);
     }
 
     private void initComponents() {
-        var mainPanel = new JPanel(new BorderLayout());
+        var mainPanel = getContentRoot();
+        mainPanel.setLayout(new BorderLayout());
 
         var leftPanel = new JPanel();
         leftPanel.setLayout(new BoxLayout(leftPanel, BoxLayout.Y_AXIS));
@@ -155,8 +157,6 @@ public class OpenProjectDialog extends JDialog {
 
         // Create clone progress panel (will be added to tabs, not main panel)
         cloneProgressPanel = createCloneProgressPanel();
-
-        setContentPane(mainPanel);
 
         // Handle window close during clone
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
@@ -299,7 +299,7 @@ public class OpenProjectDialog extends JDialog {
         var table = new JTable(tableModel);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.getColumnModel().getColumn(1).setCellRenderer((table1, value, isSelected, hasFocus, row, column) -> {
-            var label = new JLabel(GitUiUtil.formatRelativeDate((Instant) value, today));
+            var label = new JLabel(GitDiffUiUtil.formatRelativeDate((Instant) value, today));
             label.setOpaque(true);
             if (isSelected) {
                 label.setBackground(table1.getSelectionBackground());
@@ -696,7 +696,7 @@ public class OpenProjectDialog extends JDialog {
 
     private Component renderDateColumn(
             JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-        var dateText = GitUiUtil.formatRelativeDate((Instant) value, LocalDate.now(ZoneId.systemDefault()));
+        var dateText = GitDiffUiUtil.formatRelativeDate((Instant) value, LocalDate.now(ZoneId.systemDefault()));
         return createStyledLabel(dateText, table, isSelected);
     }
 

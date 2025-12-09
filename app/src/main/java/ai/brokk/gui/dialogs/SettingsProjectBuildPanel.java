@@ -432,7 +432,7 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     private void verifyBuildConfiguration() {
-        var verifyDialog = new JDialog(parentDialog, "Verifying Build Configuration", true);
+        var verifyDialog = new BaseThemedDialog(parentDialog, "Verifying Build Configuration");
         verifyDialog.setSize(600, 400);
         verifyDialog.setLocationRelativeTo(parentDialog);
 
@@ -453,9 +453,10 @@ public class SettingsProjectBuildPanel extends JPanel {
         bottomPanel.add(closeButton, BorderLayout.EAST);
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
 
-        verifyDialog.setLayout(new BorderLayout(5, 5));
-        verifyDialog.add(scrollPane, BorderLayout.CENTER);
-        verifyDialog.add(bottomPanel, BorderLayout.SOUTH);
+        var root = verifyDialog.getContentRoot();
+        root.setLayout(new BorderLayout(5, 5));
+        root.add(scrollPane, BorderLayout.CENTER);
+        root.add(bottomPanel, BorderLayout.SOUTH);
 
         SwingWorker<String, String> worker = new SwingWorker<>() {
             @Override

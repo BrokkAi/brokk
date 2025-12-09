@@ -61,17 +61,17 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     public AbstractProject(Path root) {
         assert root.isAbsolute() : root;
         this.root = root.toAbsolutePath().normalize();
-        this.repo = GitRepoFactory.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root);
+        boolean hasGit = GitRepoFactory.hasGitRepo(this.root);
+        this.repo = hasGit ? new GitRepo(this.root) : new LocalFileRepo(this.root);
 
         this.workspacePropertiesFile = this.root.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
         this.workspaceProps = new Properties();
 
         // Determine masterRootPathForConfig based on this.root and this.repo
-        if (this.repo instanceof GitRepo gitRepoInstance && gitRepoInstance.isWorktree()) {
-            this.masterRootPathForConfig =
-                    gitRepoInstance.getGitTopLevel().toAbsolutePath().normalize();
+        if (this.repo instanceof GitRepo gitRepoInstance) {
+            this.masterRootPathForConfig = determineMasterRootPath(this.root, gitRepoInstance);
         } else {
-            this.masterRootPathForConfig = this.root; // Already absolute and normalized by caller
+            this.masterRootPathForConfig = this.root;
         }
         logger.debug("Project root: {}, Master root for config/sessions: {}", this.root, this.masterRootPathForConfig);
 
@@ -95,6 +95,39 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     public Path getMasterRootPathForConfig() {
         return masterRootPathForConfig;
+    }
+
+    /**
+     * Returns the .brokk configuration directory path.
+     * This directory contains project configuration, sessions, and llm-history.
+     * Uses masterRootPathForConfig, so may be shared across worktrees.
+     */
+    public final Path getConfigDir() {
+        return masterRootPathForConfig.resolve(BROKK_DIR);
+    }
+
+    /**
+     * Returns the sessions directory path.
+     * Sessions are stored under the shared config location.
+     */
+    public final Path getSessionsDir() {
+        return getConfigDir().resolve(SESSIONS_DIR);
+    }
+
+    /**
+     * Returns the dependencies directory path.
+     * Dependencies are stored under the shared config location.
+     */
+    public final Path getDependenciesDir() {
+        return getConfigDir().resolve(DEPENDENCIES_DIR);
+    }
+
+    /**
+     * Returns the LLM history directory path.
+     * LLM history is stored under the shared config location.
+     */
+    public final Path getLlmHistoryDir() {
+        return getConfigDir().resolve("llm-history");
     }
 
     @Override
@@ -567,7 +600,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
     @Override
     public Set<ProjectFile> getAllOnDiskDependencies() {
-        var dependenciesPath = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
+        var dependenciesPath = getDependenciesDir();
         if (!Files.exists(dependenciesPath) || !Files.isDirectory(dependenciesPath)) {
             return Set.of();
         }
@@ -637,7 +670,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     private Set<ProjectFile> getAllFilesRaw() {
         var trackedFiles = repo.getTrackedFiles();
 
-        var dependenciesPath = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
+        var dependenciesPath = getDependenciesDir();
         if (!Files.exists(dependenciesPath) || !Files.isDirectory(dependenciesPath)) {
             return trackedFiles;
         }
@@ -701,7 +734,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         var exclusions = new HashSet<String>();
         exclusions.addAll(loadBuildDetails().excludedDirectories());
 
-        var dependenciesDir = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
+        var dependenciesDir = getDependenciesDir();
         if (!Files.exists(dependenciesDir) || !Files.isDirectory(dependenciesDir)) {
             return exclusions;
         }
@@ -722,5 +755,22 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
 
         return exclusions;
+    }
+
+    /**
+     * Determines the master root path for configuration based on project root.
+     * This is the canonical location for .brokk config, sessions, and llm-history.
+     *
+     * <p>Each project (including worktrees) uses its own projectRoot for config storage.
+     * This provides clear isolation - worktrees don't share config with main repos via
+     * path inference. The parent/child relationship is established explicitly via
+     * WorktreeProject, not via shared config paths.
+     *
+     * @param projectRoot The project root path (must be absolute and normalized)
+     * @param gitRepo The git repository instance (unused, kept for API compatibility)
+     * @return The path where config should be stored (always projectRoot)
+     */
+    public static Path determineMasterRootPath(Path projectRoot, GitRepo gitRepo) {
+        return projectRoot;
     }
 }

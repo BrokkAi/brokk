@@ -30,6 +30,7 @@ import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -37,6 +38,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import javax.swing.Action;
 import javax.swing.Icon;
 import javax.swing.ImageIcon;
@@ -1257,8 +1259,19 @@ public class WorkspaceChip extends JPanel {
                 combinedText.append(txt).append("\n\n");
             }
 
+            // Use the most common syntax style among fragments
+            var syntaxStyle = summaryFragments.stream()
+                    .map(f -> f.syntaxStyle().renderNowOrNull())
+                    .filter(s -> s != null)
+                    .collect(Collectors.groupingBy(s -> s, Collectors.counting()))
+                    .entrySet()
+                    .stream()
+                    .max(Map.Entry.comparingByValue())
+                    .map(Map.Entry::getKey)
+                    .orElse(SyntaxConstants.SYNTAX_STYLE_NONE);
+
             var syntheticFragment = new ContextFragment.StringFragment(
-                    chrome.getContextManager(), combinedText.toString(), title, SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+                    chrome.getContextManager(), combinedText.toString(), title, syntaxStyle);
             chrome.openFragmentPreview(syntheticFragment);
         }
 

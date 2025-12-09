@@ -34,8 +34,9 @@ public class PreviewFrame extends JFrame implements ThemeAware {
         this.chrome = chrome;
         this.guiTheme = guiTheme;
 
-        // Apply icon and title bar
+        // Apply icon, macOS full-window-content, and title bar
         Chrome.applyIcon(this);
+        Chrome.applyMacOSFullWindowContent(this);
         Chrome.applyTitleBar(this, "Preview");
 
         // Create tabbed pane
@@ -113,6 +114,11 @@ public class PreviewFrame extends JFrame implements ThemeAware {
             }
             if (fragmentKey != null) {
                 tabToFragmentMap.put(panel, fragmentKey);
+            }
+
+            // Apply theme to new tab content
+            if (panel instanceof ThemeAware themeAware) {
+                themeAware.applyTheme(guiTheme);
             }
 
             // Select the new tab
