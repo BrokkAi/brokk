@@ -19,12 +19,10 @@ public final class SourceContent {
 
     private final String text;
     private final byte[] utf8Bytes;
-    private final int byteLength;
 
-    private SourceContent(String text, byte[] utf8Bytes, int byteLength) {
+    private SourceContent(String text, byte[] utf8Bytes) {
         this.text = text;
         this.utf8Bytes = utf8Bytes;
-        this.byteLength = byteLength;
     }
 
     public static Optional<SourceContent> read(ProjectFile file) {
@@ -38,7 +36,7 @@ public final class SourceContent {
     public static SourceContent of(String src) {
         String stripped = TextCanonicalizer.stripUtf8Bom(src);
         byte[] bytes = stripped.getBytes(StandardCharsets.UTF_8);
-        return new SourceContent(stripped, bytes, bytes.length);
+        return new SourceContent(stripped, bytes);
     }
 
     /**
@@ -53,6 +51,7 @@ public final class SourceContent {
      * The returned String is constructed directly from the UTF-8 byte slice to avoid re-encoding/parsing errors.
      */
     public String substringFromBytes(int startByte, int endByte) {
+        int byteLength = utf8Bytes.length;
         if (startByte < 0 || endByte < startByte) {
             log.warn(
                     "Requested bytes outside valid range for source text (length: {} bytes): startByte={}, endByte={}",
@@ -84,7 +83,7 @@ public final class SourceContent {
      */
     public int byteOffsetToCharPosition(int byteOffset) {
         if (byteOffset <= 0) return 0;
-        if (byteOffset >= byteLength) return text.length();
+        if (byteOffset >= utf8Bytes.length) return text.length();
 
         // Reconstruct prefix string from bytes and return its length in code units.
         String prefix = new String(utf8Bytes, 0, byteOffset, StandardCharsets.UTF_8);
@@ -98,7 +97,7 @@ public final class SourceContent {
      */
     public int charPositionToByteOffset(int charPosition) {
         if (charPosition <= 0) return 0;
-        if (charPosition >= text.length()) return byteLength;
+        if (charPosition >= text.length()) return utf8Bytes.length;
 
         // Build prefix substring and measure UTF-8 byte length.
         String prefix = text.substring(0, charPosition);
@@ -114,7 +113,7 @@ public final class SourceContent {
     }
 
     public int byteLength() {
-        return byteLength;
+        return utf8Bytes.length;
     }
 
     @Override
@@ -122,19 +121,17 @@ public final class SourceContent {
         if (obj == this) return true;
         if (obj == null || obj.getClass() != this.getClass()) return false;
         var that = (SourceContent) obj;
-        return Objects.equals(this.text, that.text)
-                && Arrays.equals(this.utf8Bytes, that.utf8Bytes)
-                && this.byteLength == that.byteLength;
+        return Objects.equals(this.text, that.text) && Arrays.equals(this.utf8Bytes, that.utf8Bytes);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(text, Arrays.hashCode(utf8Bytes), byteLength);
+        return Objects.hash(text, Arrays.hashCode(utf8Bytes));
     }
 
     @Override
     public String toString() {
-        return "SourceContent[" + "text=" + text + ", " + "byteLength=" + byteLength + ']';
+        return "SourceContent[" + "text=" + text + ", " + "byteLength=" + utf8Bytes.length + ']';
     }
 
     /**
