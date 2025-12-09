@@ -30,8 +30,7 @@ public class InstructionsPanelSearchExecutionTest {
                 new TaskList.TaskItem(null, "Task A", false),
                 new TaskList.TaskItem(null, "Task B", true),
                 new TaskList.TaskItem(null, "Task C", false),
-                new TaskList.TaskItem(null, "Task D", true)
-        );
+                new TaskList.TaskItem(null, "Task D", true));
         var taskListData = new TaskList.TaskListData(tasks);
 
         // Act: Capture incomplete tasks using the same logic as InstructionsPanel.executeSearchInternal
@@ -58,8 +57,7 @@ public class InstructionsPanelSearchExecutionTest {
         // Arrange: Initial task list with 2 incomplete tasks (represents state BEFORE SearchAgent runs)
         var initialTasks = List.of(
                 new TaskList.TaskItem(null, "Original Task 1", false),
-                new TaskList.TaskItem(null, "Original Task 2", false)
-        );
+                new TaskList.TaskItem(null, "Original Task 2", false));
         var taskListData = new TaskList.TaskListData(initialTasks);
 
         // Act: Capture incomplete tasks BEFORE any modification (this is the fix)
@@ -81,11 +79,13 @@ public class InstructionsPanelSearchExecutionTest {
 
         // Assert: Pre-modification capture excludes the agent-created task
         assertEquals(Set.of("Original Task 1", "Original Task 2"), capturedBeforeModification);
-        assertFalse(capturedBeforeModification.contains("Agent-Created Task"),
+        assertFalse(
+                capturedBeforeModification.contains("Agent-Created Task"),
                 "Capture BEFORE modification should NOT include agent-created tasks");
 
         // Assert: Post-modification capture would incorrectly include the agent-created task
-        assertTrue(capturedAfterModification.contains("Agent-Created Task"),
+        assertTrue(
+                capturedAfterModification.contains("Agent-Created Task"),
                 "Capture AFTER modification would incorrectly include newly-added tasks (old buggy behavior)");
         assertEquals(3, capturedAfterModification.size());
     }
@@ -110,10 +110,8 @@ public class InstructionsPanelSearchExecutionTest {
      */
     @Test
     void testCaptureFromAllCompletedTasksReturnsEmptySet() {
-        var allCompletedTasks = List.of(
-                new TaskList.TaskItem(null, "Done 1", true),
-                new TaskList.TaskItem(null, "Done 2", true)
-        );
+        var allCompletedTasks =
+                List.of(new TaskList.TaskItem(null, "Done 1", true), new TaskList.TaskItem(null, "Done 2", true));
         var taskListData = new TaskList.TaskListData(allCompletedTasks);
 
         Set<String> captured = taskListData.tasks().stream()
@@ -133,9 +131,8 @@ public class InstructionsPanelSearchExecutionTest {
     void testCaptureDeduplicatesDuplicateTaskTexts() {
         var tasksWithDuplicates = List.of(
                 new TaskList.TaskItem(null, "Same Task", false),
-                new TaskList.TaskItem(null, "Same Task", false),  // duplicate text
-                new TaskList.TaskItem(null, "Different Task", false)
-        );
+                new TaskList.TaskItem(null, "Same Task", false), // duplicate text
+                new TaskList.TaskItem(null, "Different Task", false));
         var taskListData = new TaskList.TaskListData(tasksWithDuplicates);
 
         Set<String> captured = taskListData.tasks().stream()
@@ -162,7 +159,7 @@ public class InstructionsPanelSearchExecutionTest {
                 new TaskList.TaskItem(null, "Fix authentication bug", false),
                 new TaskList.TaskItem(null, "Add unit tests", false),
                 new TaskList.TaskItem(null, "Update documentation", true) // completed
-        );
+                );
         var taskListData = new TaskList.TaskListData(initialTasks);
 
         // Act: Capture pre-existing incomplete tasks (this must happen BEFORE submitAction)
@@ -190,7 +187,6 @@ public class InstructionsPanelSearchExecutionTest {
                 preExistingIncompleteTasks.contains("Refactor database layer"),
                 "Should not include tasks created by SearchAgent");
         assertFalse(
-                preExistingIncompleteTasks.contains("Add caching"),
-                "Should not include tasks created by SearchAgent");
+                preExistingIncompleteTasks.contains("Add caching"), "Should not include tasks created by SearchAgent");
     }
 }

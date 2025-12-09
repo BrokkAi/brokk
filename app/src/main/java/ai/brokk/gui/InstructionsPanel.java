@@ -1841,11 +1841,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // CRITICAL: Capture pre-existing incomplete tasks BEFORE submitAction to avoid race condition.
         // SearchAgent will modify the task list, so we must capture the state before that happens.
-        final var preExistingIncompleteTasks =
-                contextManager.liveContext().getTaskListDataOrEmpty().tasks().stream()
-                        .filter(t -> !t.done())
-                        .map(TaskList.TaskItem::text)
-                        .collect(Collectors.toSet());
+        final var preExistingIncompleteTasks = contextManager.liveContext().getTaskListDataOrEmpty().tasks().stream()
+                .filter(t -> !t.done())
+                .map(TaskList.TaskItem::text)
+                .collect(Collectors.toSet());
 
         submitAction(action, query, scope -> {
                     assert !query.isBlank();
