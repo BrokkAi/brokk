@@ -10,11 +10,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.CountDownLatch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -158,7 +158,10 @@ public class NativeProjectWatchService implements IWatchService {
                 // Signal that the watcher thread is about to start watching.
                 watcherStarted.countDown();
                 try {
-                    watcher.watch();
+                    final DirectoryWatcher watcher = this.watcher;
+                    if (watcher != null) {
+                        watcher.watch();
+                    }
                 } catch (Exception e) {
                     logger.error("Error in directory watcher loop", e);
                 }
@@ -177,13 +180,16 @@ public class NativeProjectWatchService implements IWatchService {
 
             // Schedule a short delayed warmup notification so listeners know the watcher is active.
             // This runs on the debounce executor and will not interfere with the normal debounce logic.
-            debounceExecutor.schedule(() -> {
-                try {
-                    notifyFilesChanged(new EventBatch());
-                } catch (Exception e) {
-                    logger.debug("Error delivering warmup notification: {}", e.getMessage());
-                }
-            }, 200, TimeUnit.MILLISECONDS);
+            debounceExecutor.schedule(
+                    () -> {
+                        try {
+                            notifyFilesChanged(new EventBatch());
+                        } catch (Exception e) {
+                            logger.debug("Error delivering warmup notification: {}", e.getMessage());
+                        }
+                    },
+                    200,
+                    TimeUnit.MILLISECONDS);
 
             // Block this thread until the inner watcher thread completes so shutdown semantics remain the same.
             try {

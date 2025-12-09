@@ -1,5 +1,7 @@
 package ai.brokk;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import ai.brokk.analyzer.ProjectFile;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -14,8 +16,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 public class NativeProjectWatchServiceTest {
     private NativeProjectWatchService service;
@@ -45,8 +45,8 @@ public class NativeProjectWatchServiceTest {
     public void testPauseResumeQueuesEvents() throws Exception {
         tempDir = Files.createTempDirectory("native-watcher-test");
         // Create service but DO NOT start it yet so we can register listeners before warmup.
-        service = new NativeProjectWatchService(
-                tempDir, /*gitRepoRoot=*/ null, /*globalGitignorePath=*/ null, List.of());
+        service =
+                new NativeProjectWatchService(tempDir, /*gitRepoRoot=*/ null, /*globalGitignorePath=*/ null, List.of());
 
         // Listener state
         CountDownLatch warmup = new CountDownLatch(1);
@@ -133,8 +133,8 @@ public class NativeProjectWatchServiceTest {
     @Test
     public void testNestedPauseQueuesEvents() throws Exception {
         tempDir = Files.createTempDirectory("native-watcher-test-nested");
-        service = new NativeProjectWatchService(
-                tempDir, /*gitRepoRoot=*/ null, /*globalGitignorePath=*/ null, List.of());
+        service =
+                new NativeProjectWatchService(tempDir, /*gitRepoRoot=*/ null, /*globalGitignorePath=*/ null, List.of());
 
         // Listener state
         CountDownLatch warmup = new CountDownLatch(1);
@@ -204,7 +204,9 @@ public class NativeProjectWatchServiceTest {
 
         // Still should not deliver
         boolean firedAfterOneResume = notified.await(1200, TimeUnit.MILLISECONDS);
-        assertFalse(firedAfterOneResume, "No notification should be delivered after a single resume when nested pause remains");
+        assertFalse(
+                firedAfterOneResume,
+                "No notification should be delivered after a single resume when nested pause remains");
 
         // Resume again: now pauseCount reaches 0 and queued events should flush
         service.resume();
@@ -213,7 +215,8 @@ public class NativeProjectWatchServiceTest {
         assertTrue(deliveredAfterSecondResume, "Buffered events should be delivered after final resume");
 
         // Exactly one delivery after fully resuming
-        assertEquals(1, filesChangedCount.get(), "Exactly one onFilesChanged delivery should occur after fully resuming");
+        assertEquals(
+                1, filesChangedCount.get(), "Exactly one onFilesChanged delivery should occur after fully resuming");
 
         IWatchService.EventBatch batch = received.get();
         assertNotNull(batch, "EventBatch should be non-null after fully resuming");
@@ -228,8 +231,8 @@ public class NativeProjectWatchServiceTest {
     @Test
     public void testPausedDebounceCoalescing() throws Exception {
         tempDir = Files.createTempDirectory("native-watcher-test-debounce");
-        service = new NativeProjectWatchService(
-                tempDir, /*gitRepoRoot=*/ null, /*globalGitignorePath=*/ null, List.of());
+        service =
+                new NativeProjectWatchService(tempDir, /*gitRepoRoot=*/ null, /*globalGitignorePath=*/ null, List.of());
 
         // Listener state
         CountDownLatch warmup = new CountDownLatch(1);
@@ -293,7 +296,9 @@ public class NativeProjectWatchServiceTest {
 
         // Ensure no notification was delivered while paused
         boolean deliveredWhilePaused = notified.await(1200, TimeUnit.MILLISECONDS);
-        assertFalse(deliveredWhilePaused, "No notification should be delivered while watcher is paused (debounce coalescing)");
+        assertFalse(
+                deliveredWhilePaused,
+                "No notification should be delivered while watcher is paused (debounce coalescing)");
 
         // Resume and expect a single aggregated batch containing all created files
         service.resume();
@@ -302,7 +307,10 @@ public class NativeProjectWatchServiceTest {
         assertTrue(deliveredAfterResume, "Buffered events should be delivered after resume (debounce coalescing)");
 
         // Exactly one delivery after resume
-        assertEquals(1, filesChangedCount.get(), "Exactly one onFilesChanged delivery should occur after resume (debounce coalescing)");
+        assertEquals(
+                1,
+                filesChangedCount.get(),
+                "Exactly one onFilesChanged delivery should occur after resume (debounce coalescing)");
 
         IWatchService.EventBatch batch = received.get();
         assertNotNull(batch, "EventBatch should be non-null after resume (debounce coalescing)");
