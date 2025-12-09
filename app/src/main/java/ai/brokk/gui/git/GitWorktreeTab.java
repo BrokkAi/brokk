@@ -20,7 +20,6 @@ import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -1059,32 +1058,12 @@ public class GitWorktreeTab extends JPanel {
         logger.debug("Adding worktree for branch '{}' at path {}", branchForWorktree, newWorktreePath);
         gitRepo.addWorktree(branchForWorktree, newWorktreePath);
 
-        // Copy (prefer hard-link) existing language storage caches to the new worktree
-        var enabledLanguages = parentProject.getAnalyzerLanguages();
-        for (var lang : enabledLanguages) {
-            var sourceCache = lang.getStoragePath(parentProject);
-            if (!Files.exists(sourceCache)) {
-                continue;
-            }
-            try {
-                var relative = parentProject.getRoot().relativize(sourceCache);
-                var destCache = newWorktreePath.resolve(relative);
-                Files.createDirectories(destCache.getParent());
-                try {
-                    Files.createLink(destCache, sourceCache); // Try hard-link first
-                    logger.debug("Hard-linked analyzer storage cache from {} to {}", sourceCache, destCache);
-                } catch (UnsupportedOperationException | IOException linkEx) {
-                    Files.copy(sourceCache, destCache, StandardCopyOption.REPLACE_EXISTING);
-                    logger.debug("Copied analyzer storage cache from {} to {}", sourceCache, destCache);
-                }
-            } catch (IOException copyEx) {
-                logger.warn(
-                        "Failed to replicate analyzer storage cache for language {}: {}",
-                        lang.name(),
-                        copyEx.getMessage(),
-                        copyEx);
-            }
-        }
+        // Analyzer storage caches are intentionally not copied or linked to the new worktree.
+        // Reusing caches across different project roots or branches is unsafe because:
+        // - Cache contents often embed absolute paths and root-specific identifiers.
+        // - Hard-linking risks sharing inodes between sessions, which can cause cross-branch contamination
+        //   and corruption when multiple processes save concurrently.
+        // Each worktree must build and persist its own analyzer cache in isolation.
 
         return new WorktreeSetupResult(newWorktreePath, branchForWorktree);
     }
