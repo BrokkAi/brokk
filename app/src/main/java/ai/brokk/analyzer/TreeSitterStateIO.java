@@ -24,6 +24,7 @@ import java.util.*;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 import java.util.zip.ZipException;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.pcollections.HashTreePMap;
 import org.pcollections.PMap;
@@ -245,6 +246,7 @@ public final class TreeSitterStateIO {
      * Save the given AnalyzerState to the provided file in Smile format.
      * Creates parent directories if necessary. Writes to a temp file and then moves into place.
      */
+    @Blocking
     public static void save(TreeSitterAnalyzer.AnalyzerState state, Path file) {
         long startMs = System.currentTimeMillis();
         Path temp = null;
@@ -289,6 +291,7 @@ public final class TreeSitterStateIO {
      * Load an AnalyzerState from the provided file in Smile format.
      * Returns Optional.empty() if file is missing or deserialization fails.
      */
+    @Blocking
     public static Optional<TreeSitterAnalyzer.AnalyzerState> load(Path file) {
         if (!Files.exists(file)) {
             log.debug("Analyzer state file does not exist: {}", file);
