@@ -229,7 +229,11 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         });
     }
 
+    @Override
     public abstract Set<Dependency> getLiveDependencies();
+
+    @Override
+    public abstract void saveLiveDependencies(Set<Path> dependencyTopLevelDirs);
 
     @Override
     public CompletableFuture<Void> addLiveDependency(
@@ -272,7 +276,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
         var history = new ArrayList<>(loadTextHistory());
         history.removeIf(i -> i.equals(item));
-        history.addFirst(item);
+        history.add(0, item);
         if (history.size() > maxItems) {
             history = new ArrayList<>(history.subList(0, maxItems));
         }

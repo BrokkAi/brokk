@@ -888,7 +888,7 @@ public final class DependenciesPanel extends JPanel {
         Object prevValue = tableModel.getValueAt(modelRow, 0);
         setControlsLocked(true);
         isProgrammaticChange = true;
-        tableModel.setValueAt(UPDATING, modelRow, 0);
+        tableModel.setValueAt(LiveState.ENABLING, modelRow, 0);
         isProgrammaticChange = false;
 
         final int rowIndex = modelRow;

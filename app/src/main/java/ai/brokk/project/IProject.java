@@ -434,10 +434,6 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-    default Set<Dependency> getLiveDependencies() {
-        return Set.of();
-    }
-
     default void saveLiveDependencies(Set<Path> dependencyTopLevelDirs) {
         throw new UnsupportedOperationException();
     }
