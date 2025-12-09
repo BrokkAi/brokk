@@ -1801,7 +1801,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
         // Lutz Mode: should auto-execute tasks in EZ mode
-        executeSearchInternal(input, SearchAgent.Objective.LUTZ, true);
+        executeSearchInternal(input, ACTION_LUTZ);
     }
 
     public void runPlanCommand() {
@@ -1814,10 +1814,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
         // Plan Mode: generates tasks but does NOT auto-execute them
-        executeSearchInternal(input, SearchAgent.Objective.TASKS_ONLY, false);
+        executeSearchInternal(input, ACTION_PLAN);
     }
 
-    private void executeSearchInternal(String query, SearchAgent.Objective objective, boolean shouldAutoExecuteTasks) {
+    private void executeSearchInternal(String query, String action) {
         final var modelToUse = selectDropdownModelOrShowError("Search");
         if (modelToUse == null) {
             logger.debug("Model selection failed for Search action: contextHasImages={}", contextHasImages());
@@ -1827,7 +1827,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         autoClearCompletedTasks();
 
-        submitAction(ACTION_LUTZ, query, scope -> {
+        // Derive objective and auto-execute behavior from action
+        SearchAgent.Objective objective;
+        boolean shouldAutoExecuteTasks;
+        if (ACTION_PLAN.equals(action)) {
+            objective = SearchAgent.Objective.TASKS_ONLY;
+            shouldAutoExecuteTasks = false;
+        } else {
+            // Default to Lutz for ACTION_LUTZ and any other value
+            objective = SearchAgent.Objective.LUTZ;
+            shouldAutoExecuteTasks = true;
+        }
+
+        submitAction(action, query, scope -> {
                     assert !query.isBlank();
 
                     var cm = chrome.getContextManager();
