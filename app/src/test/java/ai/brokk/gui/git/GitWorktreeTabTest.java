@@ -1,8 +1,5 @@
 package ai.brokk.gui.git;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.TestGitRepo;
 import ai.brokk.testutil.TestLanguage;
@@ -13,6 +10,8 @@ import java.util.Set;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests for GitWorktreeTab helper methods.
@@ -37,6 +36,7 @@ public class GitWorktreeTabTest {
     /**
      * Test that resolveWorktreeOpenPath returns the subdirectory path when it exists.
      */
+    @Test
     void testResolveWorktreeOpenPath_SubdirExists() throws IOException {
         Path worktreePath = tempDir.resolve("worktree");
         Path subdir = Path.of("subproject");
