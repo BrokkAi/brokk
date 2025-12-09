@@ -185,6 +185,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             JPanel commitSearchInputPanel = new JPanel(new BorderLayout(5, 0));
             commitSearchInputPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 5, 0));
             commitSearchTextField = new JTextField();
+            commitSearchTextField.putClientProperty("JTextField.placeholderText", "Search commits...");
             commitSearchInputPanel.add(commitSearchTextField, BorderLayout.CENTER);
 
             // Enter key triggers immediate search using centralized performSearch
