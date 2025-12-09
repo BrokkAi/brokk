@@ -88,6 +88,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
 
         initializeDialog();
         buildLayout();
+        setLocationRelativeTo(chrome.getFrame()); // Center after layout is built
     }
 
     @Nullable
@@ -99,10 +100,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
 
     private void initializeDialog() {
         setSize(1000, 1000);
-        // Center relative to parent window; fall back to chrome frame if owner is null
-        var owner = getOwner();
-        setLocationRelativeTo(owner != null ? owner : chrome.getFrame());
-        setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE); // Use WindowConstants
+        setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
     }
 
     @Override
