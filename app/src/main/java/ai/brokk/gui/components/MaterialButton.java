@@ -137,11 +137,12 @@ public class MaterialButton extends JButton {
         updateIconForEnabledState();
         updateCursorForEnabledState();
         updateTooltip();
-        applyBorderlessIfIconOnly();
         if (isForceBorderless()) {
             putClientProperty("JButton.buttonType", "borderless");
             setBorder(null);
             setBorderPainted(false);
+        } else {
+            applyBorderlessIfIconOnly();
         }
     }
 
