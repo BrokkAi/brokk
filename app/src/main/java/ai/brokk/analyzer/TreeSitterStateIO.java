@@ -289,9 +289,7 @@ public final class TreeSitterStateIO {
                         Files.copy(temp, file, StandardCopyOption.REPLACE_EXISTING);
                         moved = true;
                     } catch (IOException copyEx) {
-                        if (lastMoveEx != null) {
-                            copyEx.addSuppressed(lastMoveEx);
-                        }
+                        copyEx.addSuppressed(lastMoveEx);
                         throw copyEx;
                     } finally {
                         try {
