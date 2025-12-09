@@ -36,8 +36,9 @@ public final class SourceContent {
      * Creates a SourceContent wrapper for the provided source text.
      */
     public static SourceContent of(String src) {
-        byte[] bytes = TextCanonicalizer.stripUtf8Bom(src).getBytes(StandardCharsets.UTF_8);
-        return new SourceContent(src, bytes, bytes.length);
+        String stripped = TextCanonicalizer.stripUtf8Bom(src);
+        byte[] bytes = stripped.getBytes(StandardCharsets.UTF_8);
+        return new SourceContent(stripped, bytes, bytes.length);
     }
 
     /**
