@@ -281,4 +281,6 @@ public interface IContextManager {
         return Llm.create(
                 options, this, getProject().getDataRetentionPolicy() == MainProject.DataRetentionPolicy.IMPROVE_BROKK);
     }
+
+    default void compressHistory() throws InterruptedException {}
 }

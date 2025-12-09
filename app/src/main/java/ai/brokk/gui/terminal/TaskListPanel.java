@@ -21,7 +21,6 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.BadgedIcon;
 import ai.brokk.gui.util.Icons;
-import ai.brokk.project.MainProject;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.GlobalUiSettings;
 import com.google.common.base.Splitter;
@@ -1126,17 +1125,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.repaint();
 
         var cm = chrome.getContextManager();
-        if (MainProject.getHistoryAutoCompress()) {
-            chrome.showOutputSpinner("Compressing history...");
-            var cf = cm.compressHistoryAsync();
-            cf.whenComplete((v, ex) -> SwingUtilities.invokeLater(() -> {
-                chrome.hideOutputSpinner();
-                startRunForIndex(first);
-            }));
-        } else {
-            // Start the first task immediately when auto-compress is disabled
+        chrome.showOutputSpinner("Compressing history...");
+        var cf = cm.compressHistoryAsync();
+        cf.whenComplete((v, ex) -> SwingUtilities.invokeLater(() -> {
+            chrome.hideOutputSpinner();
             startRunForIndex(first);
-        }
+        }));
     }
 
     private void startRunForIndex(int idx) {
@@ -1276,7 +1270,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             chrome.showOutputSpinner("Executing Task command...");
             final TaskResult result;
             try {
-                result = cm.executeTask(cm.getTaskList().tasks().get(idx), queueActive, queueActive);
+                result = cm.executeTask(cm.getTaskList().tasks().get(idx));
             } catch (InterruptedException e) {
                 // User clicked Stop - this is expected, not an error
                 logger.debug("Task execution interrupted by user");

@@ -161,7 +161,7 @@ public class Llm {
         this.echo = echo;
         this.MAX_ATTEMPTS = determineMaxAttempts();
         logger.trace("MAX_ATTEMPTS configured to {}", this.MAX_ATTEMPTS);
-        var historyBaseDir = getHistoryBaseDir(contextManager.getProject().getRoot());
+        var historyBaseDir = getHistoryBaseDir(contextManager.getProject().getMasterRootPathForConfig());
 
         // Create task directory name for this specific LLM interaction
         var timestamp =
@@ -544,6 +544,18 @@ public class Llm {
      */
     public StreamingResult sendRequest(List<ChatMessage> messages) throws InterruptedException {
         return sendMessageWithRetry(messages, ToolContext.empty(), MAX_ATTEMPTS);
+    }
+
+    /**
+     * Sends messages to the model with a custom max retry count. Useful for non-critical tasks
+     * like history compression where we don't want to block for too long on failures.
+     *
+     * @param messages The messages to send
+     * @param maxAttempts Maximum number of attempts (1 = no retries)
+     * @return The final response from the LLM
+     */
+    public StreamingResult sendRequest(List<ChatMessage> messages, int maxAttempts) throws InterruptedException {
+        return sendMessageWithRetry(messages, ToolContext.empty(), maxAttempts);
     }
 
     /** Sends messages to a model with possible tools and a chosen tool usage policy. */

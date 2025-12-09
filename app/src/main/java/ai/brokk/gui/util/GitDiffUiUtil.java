@@ -14,9 +14,7 @@ import ai.brokk.git.IGitRepo.ModificationType;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.DiffWindowManager;
 import ai.brokk.gui.PrTitleFormatter;
-import ai.brokk.project.IProject;
 import ai.brokk.util.SyntaxDetector;
-import com.google.common.base.Splitter;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -25,37 +23,89 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.*;
-import javax.swing.JOptionPane;
-import javax.swing.border.TitledBorder;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.eclipse.jgit.errors.MissingObjectException;
-import org.eclipse.jgit.lib.ObjectId;
-import org.eclipse.jgit.revwalk.RevWalk;
-import org.eclipse.jgit.transport.RefSpec;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 import org.kohsuke.github.GHPullRequest;
 
 /**
- * Static utilities for showing diffs, capturing diffs, or editing files in the Git UI, removing duplicated code across
- * multiple panels.
+ * Static utilities for showing diffs, capturing diffs to context, and other diff-related UI operations.
  */
-public final class GitUiUtil {
-    private static final Logger logger = LogManager.getLogger(GitUiUtil.class);
+public interface GitDiffUiUtil {
+    Logger logger = LogManager.getLogger(GitDiffUiUtil.class);
 
-    private GitUiUtil() {}
+    /**
+     * Creates a real-time validation listener for a JTextField that provides feedback
+     * via tooltip as the user types.
+     *
+     * <p>The listener validates input with a 200ms debounce using javax.swing.Timer. On validation
+     * failure, a tooltip is set with the error message. On validation success, the tooltip is cleared.
+     *
+     * @param textField The JTextField to attach validation feedback to
+     * @param validator A function that validates the text field's content and returns
+     *     Optional.empty() if valid, or Optional.of(errorMessage) if invalid
+     * @return A DocumentListener that can be attached to the text field's document
+     */
+    static DocumentListener createRealtimeValidationListener(
+            JTextField textField, Function<String, Optional<String>> validator) {
+        AtomicReference<Timer> debounceTimer = new AtomicReference<>(null);
+
+        return new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                scheduleValidation();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                scheduleValidation();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                scheduleValidation();
+            }
+
+            private void scheduleValidation() {
+                // Cancel any pending validation
+                Timer existing = debounceTimer.get();
+                if (existing != null) {
+                    existing.stop();
+                }
+
+                // Schedule new validation after 200ms debounce
+                Timer newTimer = new Timer(200, evt -> {
+                    String text = textField.getText().trim();
+                    Optional<String> validationError = validator.apply(text);
+
+                    if (validationError.isPresent()) {
+                        textField.setToolTipText(validationError.get());
+                    } else {
+                        textField.setToolTipText(null);
+                    }
+                });
+                newTimer.setRepeats(false);
+                newTimer.start();
+                debounceTimer.set(newTimer);
+            }
+        };
+    }
 
     /**
      * Capture uncommitted diffs for the specified files, adding the result to the context. `selectedFiles` must not be
      * empty.
      */
-    public static void captureUncommittedDiff(
-            ContextManager contextManager, Chrome chrome, List<ProjectFile> selectedFiles) {
+    static void captureUncommittedDiff(ContextManager contextManager, Chrome chrome, List<ProjectFile> selectedFiles) {
         assert !selectedFiles.isEmpty();
         var repo = contextManager.getProject().getRepo();
 
@@ -82,16 +132,16 @@ public final class GitUiUtil {
         });
     }
 
-    /** Open a file in the project’s editor. */
-    public static void editFile(ContextManager contextManager, String filePath) {
+    /** Open a file in the project's editor. */
+    static void editFile(ContextManager contextManager, String filePath) {
         contextManager.submitContextTask(() -> {
             var file = contextManager.toFile(filePath);
             contextManager.addFiles(List.of(file));
         });
     }
 
-    /** Capture a single file’s historical changes into the context (HEAD vs commitId). */
-    public static void addFileChangeToContext(
+    /** Capture a single file's historical changes into the context (HEAD vs commitId). */
+    static void addFileChangeToContext(
             ContextManager contextManager, Chrome chrome, String commitId, ProjectFile file) {
         var repo = contextManager.getProject().getRepo();
 
@@ -117,11 +167,7 @@ public final class GitUiUtil {
     }
 
     /** Show the diff for a single file at a specific commit. */
-    public static void showFileHistoryDiff(
-            ContextManager cm,
-            Chrome chrome, // Pass Chrome for theme access
-            String commitId,
-            ProjectFile file) {
+    static void showFileHistoryDiff(ContextManager cm, Chrome chrome, String commitId, ProjectFile file) {
         var repo = cm.getProject().getRepo();
 
         String shortCommitId = ((GitRepo) repo).shortHash(commitId);
@@ -150,7 +196,7 @@ public final class GitUiUtil {
     }
 
     /** View the file content at a specific commit (opens it in a preview window). */
-    public static void viewFileAtRevision(ContextManager cm, Chrome chrome, String commitId, String filePath) {
+    static void viewFileAtRevision(ContextManager cm, Chrome chrome, String commitId, String filePath) {
         var repo = cm.getProject().getRepo();
 
         cm.submitBackgroundTask("View file at revision", () -> {
@@ -180,7 +226,7 @@ public final class GitUiUtil {
      * @param newestCommitInSelection The ICommitInfo for the newest commit in the selected range.
      * @param oldestCommitInSelection The ICommitInfo for the oldest commit in the selected range.
      */
-    public static void addCommitRangeToContext(
+    static void addCommitRangeToContext(
             ContextManager contextManager,
             Chrome chrome,
             ICommitInfo newestCommitInSelection,
@@ -235,7 +281,7 @@ public final class GitUiUtil {
      * @param sortedRows A sorted array of integers.
      * @return A list of lists, where each inner list contains a sequence of contiguous integers.
      */
-    public static List<List<Integer>> groupContiguous(int[] sortedRows) {
+    static List<List<Integer>> groupContiguous(int[] sortedRows) {
         if (sortedRows.length == 0) return List.of();
 
         var groups = new ArrayList<List<Integer>>();
@@ -256,7 +302,7 @@ public final class GitUiUtil {
     }
 
     /** Add file changes (a subset of the commits range) to the context. */
-    public static void addFilesChangeToContext(
+    static void addFilesChangeToContext(
             ContextManager contextManager,
             Chrome chrome,
             String newestCommitId,
@@ -313,18 +359,13 @@ public final class GitUiUtil {
      * Compare a single file from a specific commit to the local (working directory) version. If useParent=true,
      * compares the file's parent commit to local.
      */
-    public static void showDiffVsLocal(
-            ContextManager cm,
-            Chrome chrome, // Pass Chrome for theme access
-            String commitId,
-            String filePath,
-            boolean useParent) {
+    static void showDiffVsLocal(ContextManager cm, Chrome chrome, String commitId, String filePath, boolean useParent) {
         var repo = cm.getProject().getRepo();
         var file = new ProjectFile(cm.getRoot(), filePath);
 
         cm.submitBackgroundTask("Loading compare-with-local for " + file.getFileName(), () -> {
             try {
-                // 2) Figure out the base commit ID and title components
+                // Figure out the base commit ID and title components
                 String baseCommitId = commitId;
                 String baseCommitTitle = commitId;
                 String baseCommitShort = ((GitRepo) repo).shortHash(commitId);
@@ -335,13 +376,13 @@ public final class GitUiUtil {
                     baseCommitShort = ((GitRepo) repo).shortHash(commitId) + "^";
                 }
 
-                // 3) Read old content from the base commit
+                // Read old content from the base commit
                 var oldContent = repo.getFileContent(baseCommitId, file);
 
-                // 4) Create panel on Swing thread
-                String finalOldContent = oldContent; // effectively final for lambda
+                // Create panel on Swing thread
+                String finalOldContent = oldContent;
                 String finalBaseCommitTitle = baseCommitTitle;
-                String finalBaseCommitId = baseCommitId; // effectively final for lambda
+                String finalBaseCommitId = baseCommitId;
                 String finalDialogTitle = "Diff: %s [Local vs %s]".formatted(file.getFileName(), baseCommitShort);
 
                 SwingUtilities.invokeLater(() -> {
@@ -369,24 +410,24 @@ public final class GitUiUtil {
     }
 
     /** Format commit date to show e.g. "HH:MM:SS today" if it is today's date. */
-    public static String formatRelativeDate(Instant commitInstant, LocalDate today) {
+    static String formatRelativeDate(Instant commitInstant, LocalDate today) {
         try {
             var now = Instant.now();
             var duration = Duration.between(commitInstant, now);
-            // 1) seconds ago
+            // seconds ago
             long seconds = duration.toSeconds();
             if (seconds < 60) {
                 return "seconds ago";
             }
 
-            // 2) minutes ago
+            // minutes ago
             long minutes = duration.toMinutes();
             if (minutes < 60) {
-                long n = Math.max(1, minutes); // avoid "0 minutes ago"
+                long n = Math.max(1, minutes);
                 return n + " minute" + (n == 1 ? "" : "s") + " ago";
             }
 
-            // 2) hours ago (same calendar day)
+            // hours ago (same calendar day)
             long hours = duration.toHours();
             var commitDate = commitInstant.atZone(ZoneId.systemDefault()).toLocalDate();
             if (hours < 24 && commitDate.equals(today)) {
@@ -394,18 +435,18 @@ public final class GitUiUtil {
                 return n + " hour" + (n == 1 ? "" : "s") + " ago";
             }
 
-            // 3) yesterday
+            // yesterday
             if (commitDate.equals(today.minusDays(1))) {
                 return "Yesterday";
             }
 
             var zdt = commitInstant.atZone(ZoneId.systemDefault());
             if (zdt.getYear() == today.getYear()) {
-                // 4) older, same year: "d MMM" (e.g., 7 Apr)
+                // older, same year: "d MMM" (e.g., 7 Apr)
                 return zdt.format(DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()));
             }
 
-            // 5) previous years: "MMM yy" (e.g., Apr 23)
+            // previous years: "MMM yy" (e.g., Apr 23)
             return zdt.format(DateTimeFormatter.ofPattern("MMM yy", Locale.getDefault()));
         } catch (Exception e) {
             logger.debug("Could not format date: {}", commitInstant, e);
@@ -413,71 +454,8 @@ public final class GitUiUtil {
         }
     }
 
-    /** Holds a parsed "owner" and "repo" from a Git remote URL. */
-    public record OwnerRepo(String owner, String repo) {}
-
-    /**
-     * Parse a Git remote URL of form: - https://github.com/OWNER/REPO.git - git@github.com:OWNER/REPO.git -
-     * ssh://github.com/OWNER/REPO - or any variant that ends with OWNER/REPO(.git) This attempts to extract the last
-     * two path segments as "owner" and "repo". Returns null if it cannot.
-     */
-    public static @Nullable OwnerRepo parseOwnerRepoFromUrl(String remoteUrl) {
-        if (remoteUrl.isBlank()) {
-            logger.warn("Remote URL is blank for parsing owner/repo.");
-            return null;
-        }
-
-        // Strip trailing ".git" if present
-        String cleaned = remoteUrl.endsWith(".git") ? remoteUrl.substring(0, remoteUrl.length() - 4) : remoteUrl;
-
-        cleaned = cleaned.replace('\\', '/'); // Normalize path separators
-
-        // Remove protocol part (e.g., "https://", "ssh://")
-        int protocolIndex = cleaned.indexOf("://");
-        if (protocolIndex >= 0) {
-            cleaned = cleaned.substring(protocolIndex + 3);
-        }
-
-        // Remove user@ part (e.g., "git@")
-        int atIndex = cleaned.indexOf('@');
-        if (atIndex >= 0) {
-            cleaned = cleaned.substring(atIndex + 1);
-        }
-
-        // Split by '/' or ':' treating multiple delimiters as one
-        var segments = Splitter.on(Pattern.compile("[/:]+"))
-                .omitEmptyStrings() // Important to handle cases like "host:/path" or "host//path"
-                .splitToList(cleaned);
-
-        if (segments.size() < 2) {
-            logger.warn("Unable to parse owner/repo from cleaned remote URL: {} (original: {})", cleaned, remoteUrl);
-            return null;
-        }
-
-        // The repository name is the last segment
-        String repo = segments.getLast();
-        // The owner is the second to last segment
-        String owner = segments.get(segments.size() - 2);
-
-        if (owner.isBlank() || repo.isBlank()) {
-            logger.warn(
-                    "Parsed blank owner or repo from remote URL: {} (owner: '{}', repo: '{}')", remoteUrl, owner, repo);
-            return null;
-        }
-        logger.debug("Parsed owner '{}' and repo '{}' from URL '{}'", owner, repo, remoteUrl);
-        return new OwnerRepo(owner, repo);
-    }
-
-    /**
-     * Capture the diff between two branches (e.g., HEAD vs. a selected feature branch) and add it to the context.
-     *
-     * @param cm The ContextManager instance.
-     * @param chrome The Chrome instance for UI feedback.
-     * @param baseBranchName The name of the base branch for comparison (e.g., "HEAD", or a specific branch name).
-     * @param compareBranchName The name of the branch to compare against the base.
-     */
     /** Open a BrokkDiffPanel showing all file changes in the specified commit. */
-    public static void openCommitDiffPanel(ContextManager cm, Chrome chrome, ICommitInfo commitInfo) {
+    static void openCommitDiffPanel(ContextManager cm, Chrome chrome, ICommitInfo commitInfo) {
         var repo = cm.getProject().getRepo();
 
         cm.submitBackgroundTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
@@ -508,7 +486,7 @@ public final class GitUiUtil {
                 SwingUtilities.invokeLater(() -> {
                     // Check if we already have a window showing this diff
                     if (DiffWindowManager.tryRaiseExistingWindow(leftSources, rightSources)) {
-                        return; // Existing window raised, don't create new one
+                        return;
                     }
 
                     // No existing window found, create new one
@@ -525,8 +503,7 @@ public final class GitUiUtil {
     }
 
     /** Open a BrokkDiffPanel showing all file changes in the specified commit with a specific file pre-selected. */
-    public static void openCommitDiffPanel(
-            ContextManager cm, Chrome chrome, ICommitInfo commitInfo, String targetFileName) {
+    static void openCommitDiffPanel(ContextManager cm, Chrome chrome, ICommitInfo commitInfo, String targetFileName) {
         var repo = cm.getProject().getRepo();
 
         cm.submitBackgroundTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
@@ -583,7 +560,7 @@ public final class GitUiUtil {
         }
     }
 
-    public static void compareCommitToLocal(ContextManager contextManager, Chrome chrome, ICommitInfo commitInfo) {
+    static void compareCommitToLocal(ContextManager contextManager, Chrome chrome, ICommitInfo commitInfo) {
         contextManager.submitBackgroundTask("Comparing commit to local", () -> {
             try {
                 var changedFiles = commitInfo.changedFiles();
@@ -607,7 +584,7 @@ public final class GitUiUtil {
                 SwingUtilities.invokeLater(() -> {
                     // Check if we already have a window showing this diff
                     if (DiffWindowManager.tryRaiseExistingWindow(leftSources, rightSources)) {
-                        return; // Existing window raised, don't create new one
+                        return;
                     }
 
                     // No existing window found, create new one
@@ -624,7 +601,7 @@ public final class GitUiUtil {
         });
     }
 
-    public static void captureDiffBetweenBranches(
+    static void captureDiffBetweenBranches(
             ContextManager cm, Chrome chrome, String baseBranchName, String compareBranchName) {
         var repo = cm.getProject().getRepo();
 
@@ -662,7 +639,7 @@ public final class GitUiUtil {
      * Rollback selected files to their state at a specific commit. This will overwrite the current working directory
      * versions of these files.
      */
-    public static void rollbackFilesToCommit(
+    static void rollbackFilesToCommit(
             ContextManager contextManager, Chrome chrome, String commitId, List<ProjectFile> files) {
         if (files.isEmpty()) {
             chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No files selected for rollback");
@@ -697,7 +674,7 @@ public final class GitUiUtil {
      * @param files List of ProjectFile objects
      * @return A formatted string like "file1.java, file2.java" or "5 files"
      */
-    public static String formatFileList(List<ProjectFile> files) {
+    static String formatFileList(List<ProjectFile> files) {
         if (files.isEmpty()) {
             return "no files";
         }
@@ -713,7 +690,7 @@ public final class GitUiUtil {
      * @param modifiedFiles The list of modified files to filter.
      * @return A list containing only the text files.
      */
-    public static List<ProjectFile> filterTextFiles(List<GitRepo.ModifiedFile> modifiedFiles) {
+    static List<ProjectFile> filterTextFiles(List<GitRepo.ModifiedFile> modifiedFiles) {
         return modifiedFiles.stream()
                 .map(GitRepo.ModifiedFile::file)
                 .filter(BrokkFile::isText)
@@ -731,7 +708,7 @@ public final class GitUiUtil {
      * @param prBaseSha The SHA of the base commit of the pull request (as recorded by GitHub).
      * @param repo The GitRepo instance.
      */
-    public static void capturePrDiffToContext(
+    static void capturePrDiffToContext(
             ContextManager cm,
             Chrome chrome,
             String prTitle,
@@ -794,51 +771,8 @@ public final class GitUiUtil {
         });
     }
 
-    /**
-     * Gets the current branch name from a project's Git repository.
-     *
-     * @param project The project to get the branch name from
-     * @return The current branch name, or empty string if unable to retrieve
-     */
-    public static String getCurrentBranchName(IProject project) {
-        try {
-            if (!project.hasGit()) {
-                return "";
-            }
-            IGitRepo repo = project.getRepo();
-            if (repo instanceof GitRepo gitRepo) {
-                return gitRepo.getCurrentBranch();
-            }
-        } catch (Exception e) {
-            logger.warn("Could not get current branch name", e);
-        }
-        return "";
-    }
-
-    /**
-     * Updates a panel's titled border to include the current branch name.
-     *
-     * @param panel The panel to update
-     * @param baseTitle The base title (e.g., "Git", "Project Files")
-     * @param branchName The current branch name (may be empty)
-     */
-    public static void updatePanelBorderWithBranch(@Nullable JPanel panel, String baseTitle, String branchName) {
-        if (panel == null) {
-            return;
-        }
-        SwingUtilities.invokeLater(() -> {
-            var border = panel.getBorder();
-            if (border instanceof TitledBorder titledBorder) {
-                String newTitle = !branchName.isBlank() ? baseTitle + " (" + branchName + ")" : baseTitle;
-                titledBorder.setTitle(newTitle);
-                panel.revalidate();
-                panel.repaint();
-            }
-        });
-    }
-
     /** Extract file path from display format "filename - full/path" to just "full/path". */
-    public static String extractFilePathFromDisplay(String displayText) {
+    static String extractFilePathFromDisplay(String displayText) {
         int dashIndex = displayText.indexOf(" - ");
         if (dashIndex != -1 && dashIndex < displayText.length() - 3) {
             return displayText.substring(dashIndex + 3);
@@ -847,8 +781,7 @@ public final class GitUiUtil {
     }
 
     /** Open a BrokkDiffPanel showing all file changes in a PR with a specific file pre-selected. */
-    public static void openPrDiffPanel(
-            ContextManager contextManager, Chrome chrome, GHPullRequest pr, String targetFileName) {
+    static void openPrDiffPanel(ContextManager contextManager, Chrome chrome, GHPullRequest pr, String targetFileName) {
         String targetFilePath = extractFilePathFromDisplay(targetFileName);
 
         contextManager.submitBackgroundTask("Opening PR diff", () -> {
@@ -863,13 +796,13 @@ public final class GitUiUtil {
                 String prBaseFetchRef =
                         String.format("+refs/heads/%s:refs/remotes/origin/%s", prBaseBranchName, prBaseBranchName);
 
-                if (!ensureShaIsLocal(repo, prHeadSha, prHeadFetchRef, "origin")) {
+                if (!GitHostUtil.ensureShaIsLocal(repo, prHeadSha, prHeadFetchRef, "origin")) {
                     chrome.toolError(
                             "Could not make PR head commit " + repo.shortHash(prHeadSha) + " available locally.",
                             "Diff Error");
                     return null;
                 }
-                if (!ensureShaIsLocal(repo, prBaseSha, prBaseFetchRef, "origin")) {
+                if (!GitHostUtil.ensureShaIsLocal(repo, prBaseSha, prBaseFetchRef, "origin")) {
                     logger.warn(
                             "PR base commit {} might not be available locally after fetching {}. Diff might be based on a different merge-base.",
                             repo.shortHash(prBaseSha),
@@ -901,8 +834,6 @@ public final class GitUiUtil {
                     BufferSource leftSource, rightSource;
 
                     if (status == ModificationType.DELETED) {
-                        // Deleted: left side has content from base, right side is empty (but still track head SHA for
-                        // context)
                         leftSource = new BufferSource.StringSource(
                                 repo.getFileContent(prBaseSha, projectFile),
                                 prBaseSha,
@@ -911,8 +842,6 @@ public final class GitUiUtil {
                         rightSource = new BufferSource.StringSource(
                                 "", prHeadSha + " (Deleted)", projectFile.toString(), prHeadSha);
                     } else if (status == ModificationType.NEW) {
-                        // New: left side is empty (but still track base SHA for context), right side has content from
-                        // head
                         leftSource = new BufferSource.StringSource(
                                 "", prBaseSha + " (New)", projectFile.toString(), prBaseSha);
                         rightSource = new BufferSource.StringSource(
@@ -961,71 +890,13 @@ public final class GitUiUtil {
         });
     }
 
-    /** Helper method to check if a commit is locally available. */
-    private static boolean isCommitLocallyAvailable(GitRepo repo, String sha) {
-        ObjectId objectId = null;
-        try {
-            objectId = repo.resolveToCommit(sha);
-            // Try to parse the commit to ensure its data is present
-            try (RevWalk revWalk = new RevWalk(repo.getGit().getRepository())) {
-                revWalk.parseCommit(objectId);
-                return true; // Resolvable and parsable
-            }
-        } catch (MissingObjectException e) {
-            logger.debug(
-                    "Commit object for SHA {} (resolved to {}) is missing locally.",
-                    repo.shortHash(sha),
-                    objectId.name());
-            return false;
-        } catch (Exception e) {
-            logger.debug("Cannot resolve or parse SHA {}: {}", repo.shortHash(sha), e.getMessage());
-            return false;
-        }
-    }
-
-    /** Helper method to ensure a SHA is available locally by fetching if needed. */
-    private static boolean ensureShaIsLocal(GitRepo repo, String sha, String refSpec, String remoteName) {
-        if (isCommitLocallyAvailable(repo, sha)) {
-            return true;
-        }
-
-        // If not available or missing, try to fetch
-        logger.debug(
-                "SHA {} not fully available locally - fetching {} from {}", repo.shortHash(sha), refSpec, remoteName);
-        try {
-            var fetchCommand = repo.getGit().fetch().setRemote(remoteName).setRefSpecs(new RefSpec(refSpec));
-            repo.applyGitHubAuthentication(fetchCommand, repo.remote().getUrl(remoteName));
-            fetchCommand.call();
-            // After fetch, verify again
-            if (isCommitLocallyAvailable(repo, sha)) {
-                logger.debug("Successfully fetched and verified SHA {}", repo.shortHash(sha));
-                return true;
-            } else {
-                logger.warn(
-                        "Failed to make SHA {} fully available locally even after fetching {} from {}",
-                        repo.shortHash(sha),
-                        refSpec,
-                        remoteName);
-                return false;
-            }
-        } catch (Exception e) {
-            // Includes GitAPIException, IOException, etc.
-            logger.warn(
-                    "Error during fetch operation in ensureShaIsLocal for SHA {}: {}",
-                    repo.shortHash(sha),
-                    e.getMessage(),
-                    e);
-            return false;
-        }
-    }
-
     /**
      * Builds a concise commit label such as<br>
      * 'First line …' [abcdef1] <br>
      * If {@code rawTitle} is just a hash, we try to look up the commit message from {@code repo}. When the lookup fails
      * we fall back to the hash only.
      */
-    public static String friendlyCommitLabel(@Nullable String rawTitle, @Nullable GitRepo repo) {
+    static String friendlyCommitLabel(@Nullable String rawTitle, @Nullable GitRepo repo) {
         if (rawTitle == null || rawTitle.isBlank()) {
             return "";
         }

@@ -8,7 +8,7 @@ import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.executor.io.HeadlessHttpConsole;
-import ai.brokk.gui.util.GitUiUtil;
+import ai.brokk.gui.util.GitRepoIdUtil;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Json;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -242,9 +242,7 @@ public final class JobRunner {
                                                             "plannerModel required for ARCHITECT jobs"),
                                                     Objects.requireNonNull(
                                                             architectCodeModel,
-                                                            "code model unavailable for ARCHITECT jobs"),
-                                                    spec.autoCommit(),
-                                                    spec.autoCompress());
+                                                            "code model unavailable for ARCHITECT jobs"));
                                         }
                                         case LUTZ -> {
                                             // Phase 1: Use SearchAgent to generate a task list from the initial task
@@ -307,9 +305,7 @@ public final class JobRunner {
                                                         cm.executeTask(
                                                                 generatedTask,
                                                                 architectPlannerModel,
-                                                                Objects.requireNonNull(architectCodeModel),
-                                                                spec.autoCommit(),
-                                                                spec.autoCompress());
+                                                                Objects.requireNonNull(architectCodeModel));
                                                     } catch (Exception e) {
                                                         logger.warn(
                                                                 "Generated task execution failed for job {}: {}",
@@ -404,15 +400,9 @@ public final class JobRunner {
 
                 // Optional compress after execution:
                 // - For ARCHITECT/LUTZ: per-task compression already honored via spec.autoCompress().
-                // - For CODE: run a single compression pass if requested.
-                // - For ASK: no compression (read-only mode).
                 if (mode != Mode.ARCHITECT && mode != Mode.LUTZ && spec.autoCompress()) {
                     logger.info("Job {} auto-compressing history", jobId);
-                    try {
-                        cm.compressHistoryAsync().join();
-                    } catch (Exception e) {
-                        logger.warn("Auto-compress failed for job {}", jobId, e);
-                    }
+                    cm.compressHistory();
                 }
 
                 // Determine final status: completed or cancelled
@@ -606,7 +596,7 @@ public final class JobRunner {
      * @throws IllegalArgumentException If the repository URL is invalid
      */
     private String managePRContext(int prNumber, String repoUrl, JobSpec spec) throws IOException {
-        var ownerRepo = GitUiUtil.parseOwnerRepoFromUrl(repoUrl);
+        var ownerRepo = GitRepoIdUtil.parseOwnerRepoFromUrl(repoUrl);
         if (ownerRepo == null) {
             throw new IllegalArgumentException("Invalid GitHub URL: " + repoUrl);
         }
