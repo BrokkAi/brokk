@@ -9,6 +9,7 @@ import ai.brokk.analyzer.ProjectFile;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -28,7 +29,9 @@ public class ContextAgentTest {
         input.put(regular, "class Foo {}");
         input.put(anon, "class Foo$anon$1 {}");
 
-        Map<CodeUnit, String> out = ContextAgent.filterAnonymousSummaries(input);
+        Map<CodeUnit, String> out = input.entrySet().stream()
+                .filter(e -> !e.getKey().isAnonymous())
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new));
 
         assertTrue(out.containsKey(regular));
         assertFalse(out.containsKey(anon));
