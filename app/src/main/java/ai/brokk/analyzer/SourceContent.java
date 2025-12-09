@@ -20,9 +20,7 @@ public final class SourceContent {
     private final byte[] utf8Bytes;
     private final int byteLength;
 
-    /**
-     */
-    public SourceContent(String text, byte[] utf8Bytes, int byteLength) {
+    private SourceContent(String text, byte[] utf8Bytes, int byteLength) {
         this.text = text;
         this.utf8Bytes = utf8Bytes;
         this.byteLength = byteLength;
