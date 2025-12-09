@@ -195,11 +195,6 @@ class ExecutorConfigTest {
         }
 
         @Override
-        public Path getMasterRootPathForConfig() {
-            return Path.of(".");
-        }
-
-        @Override
         public void close() {
             // No-op for testing
         }

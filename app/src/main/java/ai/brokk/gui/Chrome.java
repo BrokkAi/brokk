@@ -366,10 +366,6 @@ public class Chrome
                 NotificationRole.INFO, "Opening project at " + getProject().getRoot());
 
         // Test runner persistence and panel
-        // Note: test_runs.json is intentionally workspace-specific (using getRoot()) rather than shared
-        // at the master root. Each subdirectory in a monorepo may have distinct test suites, and test
-        // runs are local metrics tied to specific code execution. Unlike sessions (shared collaborative
-        // conversations), test history should remain isolated between different projects/modules.
         var brokkDir = getProject().getRoot().resolve(AbstractProject.BROKK_DIR);
         var testRunsStore = new FileBasedTestRunsStore(brokkDir.resolve("test_runs.json"));
         this.testRunnerPanel = new TestRunnerPanel(this, testRunsStore);
@@ -497,7 +493,6 @@ public class Chrome
                 projectFilesPanel.updatePanel();
                 return null;
             });
-
         } else {
             gitCommitTab = null;
             gitLogTab = null;
@@ -831,10 +826,8 @@ public class Chrome
 
         // Clean up any orphaned clone operations from previous sessions
         if (getProject() instanceof MainProject) {
-            Path dependenciesRoot = getProject()
-                    .getMasterRootPathForConfig()
-                    .resolve(AbstractProject.BROKK_DIR)
-                    .resolve(AbstractProject.DEPENDENCIES_DIR);
+            Path dependenciesRoot =
+                    getProject().getRoot().resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
             CloneOperationTracker.cleanupOrphanedClones(dependenciesRoot);
         }
 
