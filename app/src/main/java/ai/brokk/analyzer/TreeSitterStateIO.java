@@ -242,10 +242,6 @@ public final class TreeSitterStateIO {
     public record FilePropertiesDto(
             List<CodeUnitDto> topLevelCodeUnits, List<String> importStatements, Set<CodeUnitDto> resolvedImports) {}
 
-    /**
-     * Save the given AnalyzerState to the provided file in Smile format.
-     * Creates parent directories if necessary. Writes to a temp file and then moves into place.
-     */
     @Blocking
     public static void save(TreeSitterAnalyzer.AnalyzerState state, Path file) {
         long startMs = System.currentTimeMillis();
@@ -269,8 +265,42 @@ public final class TreeSitterStateIO {
             try {
                 Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
             } catch (AtomicMoveNotSupportedException amnse) {
-                log.debug("Atomic move not supported for {}; falling back to non-atomic replace", file);
-                Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+                log.debug("Atomic move not supported for {}; falling back to non-atomic replace with retries", file);
+                boolean moved = false;
+                IOException lastMoveEx = null;
+                for (int attempt = 1; attempt <= 3 && !moved; attempt++) {
+                    try {
+                        Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+                        moved = true;
+                    } catch (IOException ioe) {
+                        lastMoveEx = ioe;
+                        log.debug("Non-atomic move attempt {}/3 failed for {}: {}", attempt, file, ioe.getMessage());
+                        try {
+                            Thread.sleep(75L);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            break;
+                        }
+                    }
+                }
+                if (!moved) {
+                    log.debug("Falling back to copy(REPLACE_EXISTING) for {} after move failures", file);
+                    try {
+                        Files.copy(temp, file, StandardCopyOption.REPLACE_EXISTING);
+                        moved = true;
+                    } catch (IOException copyEx) {
+                        if (lastMoveEx != null) {
+                            copyEx.addSuppressed(lastMoveEx);
+                        }
+                        throw copyEx;
+                    } finally {
+                        try {
+                            Files.deleteIfExists(temp);
+                        } catch (IOException ex) {
+                            log.debug("Failed to delete temp file {} after copy fallback: {}", temp, ex.getMessage());
+                        }
+                    }
+                }
             }
 
             long durMs = System.currentTimeMillis() - startMs;
