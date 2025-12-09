@@ -578,12 +578,13 @@ public class ContextAgent {
     }
 
     static Map<CodeUnit, String> filterAnonymousSummaries(Map<CodeUnit, String> summaries) {
-        return summaries.entrySet().stream()
-                .filter(e -> {
-                    var cu = e.getKey();
-                    return !(cu.fqName().contains("$anon$") || cu.identifier().contains("$anon$"));
-                })
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new));
+            return summaries.entrySet().stream()
+                            .filter(e -> !e.getKey().isAnonymous())
+                            .collect(Collectors.toMap(
+                                            Map.Entry::getKey,
+                                            Map.Entry::getValue,
+                                            (v1, v2) -> v1,
+                                            LinkedHashMap::new));
     }
 
     // --- Files-pruning utilities (budget-capped at 100k) ---

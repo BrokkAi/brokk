@@ -151,6 +151,11 @@ public class Context {
         var prefix = "  ".repeat(Math.max(0, indent));
         var sb = new StringBuilder();
         for (var cu : units) {
+            // Skip anonymous/lambda artifacts
+            if (cu.isAnonymous()) {
+                continue;
+            }
+
             // Use FQN for top-level entries, simple identifier for nested entries
             String name = indent == 0 ? cu.fqName() : cu.identifier();
             sb.append(prefix).append("- ").append(name);
