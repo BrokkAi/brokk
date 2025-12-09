@@ -160,7 +160,8 @@ public class MaterialButton extends JButton {
     }
 
     private void updateBorderForContent() {
-        boolean hasText = getText() != null && !getText().isBlank();
+        String text = getText();
+        boolean hasText = text != null && !text.isBlank();
         boolean hasIcon = originalIcon != null;
         boolean iconOnly = hasIcon && !hasText;
 
