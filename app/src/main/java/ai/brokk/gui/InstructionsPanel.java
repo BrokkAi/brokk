@@ -1841,7 +1841,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
         // Lutz Mode: should auto-execute tasks in EZ mode
-        executeSearchInternal(input, SearchAgent.Objective.LUTZ, true);
+        executeSearchInternal(input, ACTION_LUTZ);
     }
 
     public void runPlanCommand() {
@@ -1854,10 +1854,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
         // Plan Mode: generates tasks but does NOT auto-execute them
-        executeSearchInternal(input, SearchAgent.Objective.TASKS_ONLY, false);
+        executeSearchInternal(input, ACTION_PLAN);
     }
 
-    private void executeSearchInternal(String query, SearchAgent.Objective objective, boolean shouldAutoExecuteTasks) {
+    private void executeSearchInternal(String query, String action) {
         final var modelToUse = selectDropdownModelOrShowError("Search");
         if (modelToUse == null) {
             logger.debug("Model selection failed for Search action: contextHasImages={}", contextHasImages());
@@ -1867,7 +1867,26 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         autoClearCompletedTasks();
 
-        submitAction(ACTION_LUTZ, query, scope -> {
+        // Derive objective and auto-execute behavior from action
+        SearchAgent.Objective objective;
+        boolean shouldAutoExecuteTasks;
+        if (ACTION_PLAN.equals(action)) {
+            objective = SearchAgent.Objective.TASKS_ONLY;
+            shouldAutoExecuteTasks = false;
+        } else {
+            // Default to Lutz for ACTION_LUTZ and any other value
+            objective = SearchAgent.Objective.LUTZ;
+            shouldAutoExecuteTasks = true;
+        }
+
+        // CRITICAL: Capture pre-existing incomplete tasks BEFORE submitAction to avoid race condition.
+        // SearchAgent will modify the task list, so we must capture the state before that happens.
+        final var preExistingIncompleteTasks = contextManager.liveContext().getTaskListDataOrEmpty().tasks().stream()
+                .filter(t -> !t.done())
+                .map(TaskList.TaskItem::text)
+                .collect(Collectors.toSet());
+
+        submitAction(action, query, scope -> {
                     assert !query.isBlank();
 
                     var cm = chrome.getContextManager();
@@ -1893,12 +1912,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     // Lutz Mode (shouldAutoExecuteTasks=true) auto-executes in EZ mode
                     // Plan Mode (shouldAutoExecuteTasks=false) shows tasks but does not execute
                     if (shouldAutoExecuteTasks && !GlobalUiSettings.isAdvancedMode()) {
-                        // Capture pre-existing incomplete tasks for the gate dialog
-                        var preExistingIncompleteTasks =
-                                contextManager.liveContext().getTaskListDataOrEmpty().tasks().stream()
-                                        .filter(t -> !t.done())
-                                        .map(TaskList.TaskItem::text)
-                                        .collect(Collectors.toSet());
+                        logger.debug("EZ-mode: start aut play");
                         SwingUtilities.invokeLater(() ->
                                 chrome.getTaskListPanel().showAutoPlayGateDialogAndAct(preExistingIncompleteTasks));
                     }
