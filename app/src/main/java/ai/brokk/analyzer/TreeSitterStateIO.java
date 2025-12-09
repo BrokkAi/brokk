@@ -266,39 +266,7 @@ public final class TreeSitterStateIO {
                 Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
             } catch (AtomicMoveNotSupportedException amnse) {
                 log.debug("Atomic move not supported for {}; falling back to non-atomic replace with retries", file);
-                boolean moved = false;
-                IOException lastMoveEx = null;
-                for (int attempt = 1; attempt <= 3 && !moved; attempt++) {
-                    try {
-                        Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
-                        moved = true;
-                    } catch (IOException ioe) {
-                        lastMoveEx = ioe;
-                        log.debug("Non-atomic move attempt {}/3 failed for {}: {}", attempt, file, ioe.getMessage());
-                        try {
-                            Thread.sleep(75L);
-                        } catch (InterruptedException ie) {
-                            Thread.currentThread().interrupt();
-                            break;
-                        }
-                    }
-                }
-                if (!moved) {
-                    log.debug("Falling back to copy(REPLACE_EXISTING) for {} after move failures", file);
-                    try {
-                        Files.copy(temp, file, StandardCopyOption.REPLACE_EXISTING);
-                        moved = true;
-                    } catch (IOException copyEx) {
-                        copyEx.addSuppressed(lastMoveEx);
-                        throw copyEx;
-                    } finally {
-                        try {
-                            Files.deleteIfExists(temp);
-                        } catch (IOException ex) {
-                            log.debug("Failed to delete temp file {} after copy fallback: {}", temp, ex.getMessage());
-                        }
-                    }
-                }
+                moveWithRetriesOrCopyFallback(temp, file);
             }
 
             long durMs = System.currentTimeMillis() - startMs;
@@ -528,5 +496,40 @@ public final class TreeSitterStateIO {
         }
 
         return new ProjectFile(root, rel);
+    }
+
+    private static void moveWithRetriesOrCopyFallback(Path temp, Path file) throws IOException {
+        boolean moved = false;
+        IOException lastMoveEx = null;
+        for (int attempt = 1; attempt <= 3 && !moved; attempt++) {
+            try {
+                Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+                moved = true;
+            } catch (IOException ioe) {
+                lastMoveEx = ioe;
+                log.debug("Non-atomic move attempt {}/3 failed for {}: {}", attempt, file, ioe.getMessage());
+                try {
+                    Thread.sleep(75L);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        if (!moved) {
+            log.debug("Falling back to copy(REPLACE_EXISTING) for {} after move failures", file);
+            try {
+                Files.copy(temp, file, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException copyEx) {
+                copyEx.addSuppressed(lastMoveEx);
+                throw copyEx;
+            } finally {
+                try {
+                    Files.deleteIfExists(temp);
+                } catch (IOException ex) {
+                    log.debug("Failed to delete temp file {} after copy fallback: {}", temp, ex.getMessage());
+                }
+            }
+        }
     }
 }
