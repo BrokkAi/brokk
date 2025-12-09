@@ -110,7 +110,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
         runList = new JList<>(runListModel) {
             @Override
-            public String getToolTipText(java.awt.event.MouseEvent e) {
+            public @Nullable String getToolTipText(java.awt.event.MouseEvent e) {
                 int index = locationToIndex(e.getPoint());
                 if (index < 0) return null;
                 java.awt.Rectangle cellBounds = getCellBounds(index, index);
@@ -826,35 +826,36 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Starting fix for failed tests...");
 
         String output = run.getOutput();
-        String sessionName = "Fix: " + (run.command.length() > 40
-                ? run.command.substring(0, 37) + "..."
-                : run.command);
+        String sessionName = "Fix: " + (run.command.length() > 40 ? run.command.substring(0, 37) + "..." : run.command);
 
         var cm = chrome.getContextManager();
 
         // Create a new session and then perform the fix workflow
-        cm.createSessionAsync(sessionName).thenRun(() -> {
-            SwingUtilities.invokeLater(() -> {
-                // Switch to Instructions tab in the right tabbed panel
-                JTabbedPane rightTabs = chrome.getRightTabbedPanel();
-                int idx = rightTabs.indexOfTab("Instructions");
-                if (idx != -1) {
-                    rightTabs.setSelectedIndex(idx);
-                }
+        cm.createSessionAsync(sessionName)
+                .thenRun(() -> {
+                    SwingUtilities.invokeLater(() -> {
+                        // Switch to Instructions tab in the right tabbed panel
+                        JTabbedPane rightTabs = chrome.getRightTabbedPanel();
+                        int idx = rightTabs.indexOfTab("Instructions");
+                        if (idx != -1) {
+                            rightTabs.setSelectedIndex(idx);
+                        }
 
-                // Add the failed test output to the workspace
-                cm.addPastedTextFragment(output);
+                        // Add the failed test output to the workspace
+                        cm.addPastedTextFragment(output);
 
-                // Set the instruction and run Lutz Mode when text is ready
-                InstructionsPanel instructionsPanel = chrome.getInstructionsPanel();
-                String instruction = "Analyze the failing test output and fix the issue. The problem may be in the test code or the tested code. Explain what's wrong before making changes.";
-                instructionsPanel.populateInstructionsArea(instruction, 
-                    () -> instructionsPanel.runSearchCommand());
-            });
-        }).exceptionally(ex -> {
-            logger.error("Failed to create session for fix workflow", ex);
-            return null;
-        });
+                        // Set the instruction and run Lutz Mode when text is ready
+                        InstructionsPanel instructionsPanel = chrome.getInstructionsPanel();
+                        String instruction =
+                                "Analyze the failing test output and fix the issue. The problem may be in the test code or the tested code. Explain what's wrong before making changes.";
+                        instructionsPanel.populateInstructionsArea(
+                                instruction, () -> instructionsPanel.runSearchCommand());
+                    });
+                })
+                .exceptionally(ex -> {
+                    logger.error("Failed to create session for fix workflow", ex);
+                    return null;
+                });
     }
 
     private void scrollToBottom() {
