@@ -166,6 +166,12 @@ public class ImportDependencyDialog {
 
             tabbedPane.addChangeListener(e -> updateImportButtonState());
 
+            // Select the tab for the project's primary language if available
+            var buildLanguage = project.getBuildLanguage();
+            if (languagePanels.containsKey(buildLanguage)) {
+                tabbedPane.setSelectedComponent(languagePanels.get(buildLanguage));
+            }
+
             mainPanel.add(tabbedPane, BorderLayout.CENTER);
 
             // Buttons
