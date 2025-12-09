@@ -95,6 +95,13 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     // Limit stored output size to avoid unbounded JSON growth
     private static final int MAX_SNAPSHOT_OUTPUT_CHARS = 200_000;
 
+    // Fix button width in the run list renderer
+    private static final int FIX_BUTTON_WIDTH_PX = 30;
+
+    // Session name truncation constants
+    private static final int MAX_COMMAND_LABEL_LEN = 40; // max length for command segment before ellipsis
+    private static final int ELLIPSIS_LEN = 3;
+
     public TestRunnerPanel(TestRunsStore runsStore) {
         this(null, runsStore);
     }
@@ -117,10 +124,8 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 if (cellBounds == null) return null;
 
                 RunEntry run = runListModel.get(index);
-                boolean isFailed = !run.isQueued() && !run.isRunning() && !run.isSuccess();
-                if (isFailed) {
-                    int buttonWidth = 30;
-                    int buttonX = cellBounds.x + cellBounds.width - buttonWidth;
+                if (run.isFailed()) {
+                    int buttonX = cellBounds.x + cellBounds.width - FIX_BUTTON_WIDTH_PX;
                     if (e.getX() >= buttonX) {
                         return "Fix this failing test with Lutz Mode";
                     }
@@ -144,16 +149,14 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 if (index < 0) return;
 
                 RunEntry run = runListModel.get(index);
-                boolean isFailed = !run.isQueued() && !run.isRunning() && !run.isSuccess();
-                if (!isFailed || chrome == null) return;
+                if (!run.isFailed() || chrome == null) return;
 
                 // Check if click is in the button area (right side of the cell)
                 java.awt.Rectangle cellBounds = runList.getCellBounds(index, index);
                 if (cellBounds == null) return;
 
-                // Button is approximately 24-30px wide on the right
-                int buttonWidth = 30;
-                int buttonX = cellBounds.x + cellBounds.width - buttonWidth;
+                // Button is approximately 30px wide on the right (see FIX_BUTTON_WIDTH_PX)
+                int buttonX = cellBounds.x + cellBounds.width - FIX_BUTTON_WIDTH_PX;
                 if (e.getX() >= buttonX) {
                     fixFailedRun(run);
                 }
@@ -826,7 +829,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Starting fix for failed tests...");
 
         String output = run.getOutput();
-        String sessionName = "Fix: " + (run.command.length() > 40 ? run.command.substring(0, 37) + "..." : run.command);
+        String sessionName = "Fix: " + withEllipsis(run.command, MAX_COMMAND_LABEL_LEN);
 
         var cm = chrome.getContextManager();
 
@@ -860,6 +863,12 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
     private void scrollToBottom() {
         outputArea.setCaretPosition(outputArea.getDocument().getLength());
+    }
+
+    private static String withEllipsis(String s, int maxLen) {
+        if (s.length() <= maxLen) return s;
+        int cut = Math.max(0, maxLen - ELLIPSIS_LEN);
+        return s.substring(0, cut) + "...";
     }
 
     /**
@@ -960,6 +969,10 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             return state == RunState.COMPLETED && exitCode == 0;
         }
 
+        boolean isFailed() {
+            return state == RunState.COMPLETED && exitCode != 0;
+        }
+
         long getDurationSeconds() {
             if (state == RunState.QUEUED) {
                 return 0L;
@@ -1007,8 +1020,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             }
 
             // For failed runs (completed but not successful), add a Fix button
-            boolean isFailed = !run.isQueued() && !run.isRunning() && !run.isSuccess();
-            if (isFailed && chrome != null) {
+            if (run.isFailed() && chrome != null) {
                 JPanel panel = new JPanel(new BorderLayout(4, 0));
                 panel.setOpaque(true);
                 panel.setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
