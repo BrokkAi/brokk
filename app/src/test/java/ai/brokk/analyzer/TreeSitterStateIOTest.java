@@ -180,4 +180,24 @@ public class TreeSitterStateIOTest {
                 TreeSitterStateIO.toDto(after.get()),
                 "DTO after save+load should equal the original");
     }
+    @Test
+    void replacesExistingCorruptFileOnWindows(@TempDir Path tempDir) throws Exception {
+        Path out = tempDir.resolve("state.smile.gz");
+
+        Files.writeString(out, "this is corrupt gzip content");
+
+        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of("win"), 42L);
+        var original = TreeSitterStateIO.fromDto(dto);
+
+        TreeSitterStateIO.save(original, out);
+
+        var loadedOpt = TreeSitterStateIO.load(out);
+        assertTrue(loadedOpt.isPresent(), "Expected save to replace existing corrupt file");
+        var loaded = loadedOpt.get();
+
+        assertEquals(
+                TreeSitterStateIO.toDto(original),
+                TreeSitterStateIO.toDto(loaded),
+                "DTO after replacing corrupt file should equal the original DTO");
+    }
 }
