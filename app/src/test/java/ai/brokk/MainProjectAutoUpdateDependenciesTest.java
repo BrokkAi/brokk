@@ -1,10 +1,13 @@
 package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.WorktreeProject;
 import ai.brokk.util.FileUtil;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -53,5 +56,45 @@ class MainProjectAutoUpdateDependenciesTest {
         var reloadedAgain = new MainProject(tempRoot);
         assertFalse(reloadedAgain.getAutoUpdateLocalDependencies(), "Local auto-update should persist as false");
         assertFalse(reloadedAgain.getAutoUpdateGitDependencies(), "Git auto-update should persist as false");
+    }
+
+    @Test
+    void worktreeProject_shouldShareParentScheduler() throws IOException {
+        var mainProject = new MainProject(tempRoot);
+
+        // Create a "worktree" directory (simulated - doesn't need actual git worktree for this test)
+        var worktreePath = Files.createTempDirectory("brokk-worktree-");
+        Files.createDirectories(worktreePath.resolve(AbstractProject.BROKK_DIR));
+
+        try {
+            var worktreeProject = new WorktreeProject(worktreePath, mainProject);
+
+            // Worktree should delegate to parent's scheduler (same instance)
+            assertSame(
+                    mainProject.getDependencyUpdateScheduler(),
+                    worktreeProject.getMainProject().getDependencyUpdateScheduler(),
+                    "WorktreeProject should use parent MainProject's scheduler");
+        } finally {
+            FileUtil.deleteRecursively(worktreePath);
+        }
+    }
+
+    @Test
+    void separateMainProjects_shouldHaveSeparateSchedulers() throws IOException {
+        var project1 = new MainProject(tempRoot);
+
+        var tempRoot2 = Files.createTempDirectory("brokk-main-project-2-");
+        Files.createDirectories(tempRoot2.resolve(AbstractProject.BROKK_DIR));
+
+        try {
+            var project2 = new MainProject(tempRoot2);
+
+            assertNotSame(
+                    project1.getDependencyUpdateScheduler(),
+                    project2.getDependencyUpdateScheduler(),
+                    "Separate MainProjects should have separate schedulers");
+        } finally {
+            FileUtil.deleteRecursively(tempRoot2);
+        }
     }
 }
