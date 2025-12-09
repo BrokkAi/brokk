@@ -1872,6 +1872,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     // Lutz Mode (shouldAutoExecuteTasks=true) auto-executes in EZ mode
                     // Plan Mode (shouldAutoExecuteTasks=false) shows tasks but does not execute
                     if (shouldAutoExecuteTasks && !GlobalUiSettings.isAdvancedMode()) {
+                        logger.debug("EZ-mode: start aut play");
                         SwingUtilities.invokeLater(() ->
                                 chrome.getTaskListPanel().showAutoPlayGateDialogAndAct(preExistingIncompleteTasks));
                     }

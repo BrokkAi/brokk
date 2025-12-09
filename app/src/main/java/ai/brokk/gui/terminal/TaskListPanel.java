@@ -2749,6 +2749,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
+        // Ensure model is up-to-date before checking it.
+        // This fixes a race condition where the model update from setTaskList
+        // may not have completed yet due to nested invokeLater calls.
+        loadTasksForCurrentSession();
+
         try {
             if (model.isEmpty()) {
                 return;
