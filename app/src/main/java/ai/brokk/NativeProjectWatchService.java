@@ -410,6 +410,14 @@ public class NativeProjectWatchService implements IWatchService {
         running = false;
         pauseCount = 0;
 
+        // Cancel any pending flush to avoid it running while we are shutting down.
+        synchronized (debounceLock) {
+            if (pendingFlush != null) {
+                pendingFlush.cancel(false);
+                pendingFlush = null;
+            }
+        }
+
         // Shutdown debounce executor
         debounceExecutor.shutdown();
         try {
