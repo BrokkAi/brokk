@@ -14,6 +14,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CountDownLatch;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -149,7 +150,47 @@ public class NativeProjectWatchService implements IWatchService {
             }
 
             logger.info("Starting native directory watcher for: {}", root);
-            watcher.watch(); // This blocks until watcher is closed
+
+            // Start the DirectoryWatcher in an inner thread so we can schedule a warmup
+            // notification after the watcher has been started (reduces races in tests).
+            final CountDownLatch watcherStarted = new CountDownLatch(1);
+            Thread innerWatcher = new Thread(() -> {
+                // Signal that the watcher thread is about to start watching.
+                watcherStarted.countDown();
+                try {
+                    watcher.watch();
+                } catch (Exception e) {
+                    logger.error("Error in directory watcher loop", e);
+                }
+            });
+            innerWatcher.setName("NativeDirectoryWatcherLoop@" + Long.toHexString(innerWatcher.threadId()));
+            innerWatcher.setDaemon(true);
+            innerWatcher.start();
+
+            // Wait briefly for the inner watcher thread to reach the watching point. If interrupted,
+            // proceed anyway since we will still attempt to schedule the warmup.
+            try {
+                watcherStarted.await(1, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+
+            // Schedule a short delayed warmup notification so listeners know the watcher is active.
+            // This runs on the debounce executor and will not interfere with the normal debounce logic.
+            debounceExecutor.schedule(() -> {
+                try {
+                    notifyFilesChanged(new EventBatch());
+                } catch (Exception e) {
+                    logger.debug("Error delivering warmup notification: {}", e.getMessage());
+                }
+            }, 200, TimeUnit.MILLISECONDS);
+
+            // Block this thread until the inner watcher thread completes so shutdown semantics remain the same.
+            try {
+                innerWatcher.join();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
 
         } catch (IOException e) {
             logger.error("Error setting up native directory watcher", e);
