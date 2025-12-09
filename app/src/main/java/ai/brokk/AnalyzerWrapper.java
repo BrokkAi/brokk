@@ -67,7 +67,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
     public AnalyzerWrapper(IProject project, AnalyzerListener analyzerListener, @NotNull IWatchService watchService) {
         this.project = project;
         this.root = project.getRoot();
-        this.gitRepoRoot = project.hasGit() ? project.getRepo().getWorkTreeRoot() : null;
+        this.gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
         this.listener = analyzerListener;
 
         // Use provided watch service or create stub for headless mode

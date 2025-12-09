@@ -818,7 +818,16 @@ public class BuildAgent {
     }
 
     private static String getOriginRepositoryName(IContextManager cm) {
-        return cm.getRepo().getRepositoryName();
+        var url = cm.getRepo().getRemoteUrl();
+        if (url == null || url.isBlank()) {
+            return cm.getRepo().getGitTopLevel().getFileName().toString();
+        }
+        if (url.endsWith(".git")) url = url.substring(0, url.length() - 4);
+        int idx = Math.max(url.lastIndexOf('/'), url.lastIndexOf(':'));
+        if (idx >= 0 && idx < url.length() - 1) {
+            return url.substring(idx + 1);
+        }
+        throw new IllegalArgumentException("Unable to parse git repo url " + url);
     }
 
     /** Context-based internal variant: returns a new Context with the updated build results, streams output via IO. */

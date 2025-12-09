@@ -659,7 +659,7 @@ public class SessionManager implements AutoCloseable {
         Path masterRootPath;
         if (GitRepoFactory.hasGitRepo(worktreeRoot)) {
             try (var tempRepo = new GitRepo(worktreeRoot)) {
-                masterRootPath = AbstractProject.determineMasterRootPath(worktreeRoot, tempRepo);
+                masterRootPath = tempRepo.getGitTopLevel();
             } catch (Exception e) {
                 logger.warn("Error determining git top level for {}: {}", worktreeRoot, e.getMessage());
                 return Optional.empty();
