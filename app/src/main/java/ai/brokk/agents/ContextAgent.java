@@ -557,22 +557,19 @@ public class ContextAgent {
     }
 
     private Map<CodeUnit, String> getSummaries(Collection<CodeUnit> classes) {
-            var coalescedClasses = AnalyzerUtil.coalesceInnerClasses(Set.copyOf(classes));
-            logger.debug("Found {} classes", coalescedClasses.size());
+        var coalescedClasses = AnalyzerUtil.coalesceInnerClasses(Set.copyOf(classes));
+        logger.debug("Found {} classes", coalescedClasses.size());
 
-            Map<CodeUnit, String> summaries = coalescedClasses.parallelStream()
-                            .map(cu -> {
-                                    final String skeleton = analyzer.as(SkeletonProvider.class)
-                                                    .flatMap(skp -> skp.getSkeleton(cu))
-                                                    .orElse("");
-                                    return Map.entry(cu, skeleton);
-                            })
-                            .filter(entry -> !entry.getValue().isEmpty())
-                            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
-
-            return summaries;
+        return coalescedClasses.parallelStream()
+                .map(cu -> {
+                    final String skeleton = analyzer.as(SkeletonProvider.class)
+                            .flatMap(skp -> skp.getSkeleton(cu))
+                            .orElse("");
+                    return Map.entry(cu, skeleton);
+                })
+                .filter(entry -> !entry.getValue().isEmpty())
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
     }
-
 
     // --- Files-pruning utilities (budget-capped at 100k) ---
 
