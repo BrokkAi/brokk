@@ -1264,7 +1264,8 @@ public class Llm {
         return new NullSafeResponse("", mergedReasoning, toolExecutionRequests, result.originalResponse());
     }
 
-    private static String getInstructions(
+    // package-private for testing
+    static String getInstructions(
             List<ToolSpecification> tools, Function<@Nullable Throwable, String> retryInstructionsProvider) {
         String toolsDescription = tools.stream()
                 .map(tool -> {
@@ -1293,6 +1294,7 @@ public class Llm {
                                                     case JsonIntegerSchema __ -> "integer";
                                                     case JsonNumberSchema __ -> "number";
                                                     case JsonBooleanSchema __ -> "boolean";
+                                                    case JsonObjectSchema __ -> "object";
                                                     default ->
                                                         throw new IllegalArgumentException(
                                                                 "Unsupported array item type: " + itemSchema);
