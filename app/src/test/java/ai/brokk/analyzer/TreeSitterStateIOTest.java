@@ -162,6 +162,9 @@ public class TreeSitterStateIOTest {
         assertEquals(dtoOriginal, dtoLoaded, "DTO after save+load should match original DTO");
     }
 
+    @DisabledOnOs(
+            value = OS.WINDOWS,
+            disabledReason = "Flaky on Windows due to transient file locks; replacement behavior covered elsewhere")
     @Test
     void loadReturnsEmptyOnCorruptGzip(@TempDir Path tempDir) throws Exception {
         Path out = tempDir.resolve("state.smile.gz");
