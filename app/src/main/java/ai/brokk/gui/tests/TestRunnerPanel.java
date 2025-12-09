@@ -70,6 +70,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     private final @Nullable Chrome chrome;
     private final MaterialButton runAllButton = new MaterialButton();
     private final MaterialButton stopButton = new MaterialButton();
+    private final MaterialButton clearAllButton = new MaterialButton();
     private final AtomicBoolean testProcessRunning = new AtomicBoolean(false);
     private volatile @Nullable Process activeTestProcess;
 
@@ -158,6 +159,12 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         stopButton.setEnabled(false);
         stopButton.setVisible(false);
         leftToolbar.add(stopButton);
+
+        clearAllButton.setIcon(Icons.CLEAR_ALL);
+        clearAllButton.setMargin(new Insets(0, 0, 0, 0));
+        clearAllButton.setToolTipText("Clear all test runs.");
+        clearAllButton.addActionListener(e -> clearAllRuns());
+        leftToolbar.add(clearAllButton);
 
         topToolbar.add(leftToolbar, BorderLayout.WEST);
 
