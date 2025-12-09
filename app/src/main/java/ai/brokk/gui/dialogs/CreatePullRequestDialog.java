@@ -530,11 +530,15 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     private JPanel createButtonPanel() {
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
 
-        this.createPrButton = new MaterialLoadingButton("Create PR", null, chrome, null); // Assign to field
+        // Initialize with longer text to calculate preferred size, then lock it
+        this.createPrButton = new MaterialLoadingButton("Push and Create PR", null, chrome, null);
         this.createPrButton.addActionListener(e -> createPullRequest());
 
         // Style Create PR button as primary action (bright blue with white text)
         SwingUtil.applyPrimaryButtonStyle(this.createPrButton);
+
+        // Lock preferred size to accommodate the longer text variant
+        this.createPrButton.setPreferredSize(this.createPrButton.getPreferredSize());
         buttonPanel.add(this.createPrButton);
 
         var cancelButton = new MaterialButton("Cancel");
