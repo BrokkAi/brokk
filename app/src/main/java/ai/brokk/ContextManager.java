@@ -62,6 +62,7 @@ import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 /**
  * Manages the current and previous context, along with other state like prompts and message history.
@@ -2869,5 +2870,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
             return summary;
         }
+    }
+
+    @TestOnly
+    public void setAnalyzerWrapper(IAnalyzerWrapper analyzerWrapper) {
+        this.analyzerWrapper = analyzerWrapper;
     }
 }
