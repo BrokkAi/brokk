@@ -103,12 +103,27 @@ public class MaterialButton extends JButton {
     }
 
     @Override
+    public void setText(@Nullable String text) {
+        super.setText(text);
+        if (text == null || text.isBlank()) {
+            applyBorderlessIfIconOnly();
+        } else {
+            var borderColor = UIManager.getColor("Component.borderColor");
+            setBorder(BorderFactory.createCompoundBorder(
+                    new LineBorder(borderColor != null ? borderColor : Color.GRAY, 1, true),
+                    BorderFactory.createEmptyBorder(4, 8, 4, 8)));
+            setBorderPainted(true);
+        }
+    }
+
+    @Override
     public void updateUI() {
         super.updateUI();
         applyStyling();
         updateIconForEnabledState();
         updateCursorForEnabledState();
         updateTooltip();
+        applyBorderlessIfIconOnly();
     }
 
     private void updateTooltip() {
@@ -179,6 +194,20 @@ public class MaterialButton extends JButton {
 
         // Fallback for non-FlatSVG icons - return as-is
         return icon;
+    }
+
+    private boolean isIconOnly() {
+        Icon icon = originalIcon != null ? originalIcon : getIcon();
+        String text = getText();
+        return icon != null && (text == null || text.isBlank());
+    }
+
+    private void applyBorderlessIfIconOnly() {
+        if (isIconOnly()) {
+            putClientProperty("JButton.buttonType", "borderless");
+            setBorder(null);
+            setBorderPainted(false);
+        }
     }
 
     @Override
