@@ -129,4 +129,99 @@ public class NativeProjectWatchServiceTest {
         ProjectFile expected = new ProjectFile(tempDir, tempDir.relativize(created));
         assertTrue(batch.files.contains(expected), "EventBatch should contain the created file: " + created);
     }
+
+    @Test
+    public void testNestedPauseQueuesEvents() throws Exception {
+        tempDir = Files.createTempDirectory("native-watcher-test-nested");
+        service = new NativeProjectWatchService(
+                tempDir, /*gitRepoRoot=*/ null, /*globalGitignorePath=*/ null, List.of());
+
+        // Listener state
+        CountDownLatch warmup = new CountDownLatch(1);
+        AtomicBoolean acceptAfterPause = new AtomicBoolean(false);
+        AtomicReference<CountDownLatch> postResumeLatchRef = new AtomicReference<>();
+        AtomicReference<IWatchService.EventBatch> received = new AtomicReference<>();
+        AtomicInteger filesChangedCount = new AtomicInteger(0);
+
+        service.addListener(new IWatchService.Listener() {
+            @Override
+            public void onFilesChanged(IWatchService.EventBatch batch) {
+                if (!acceptAfterPause.get()) {
+                    warmup.countDown();
+                    return;
+                }
+                filesChangedCount.incrementAndGet();
+                received.set(batch);
+                CountDownLatch l = postResumeLatchRef.get();
+                if (l != null) {
+                    l.countDown();
+                }
+            }
+
+            @Override
+            public void onNoFilesChangedDuringPollInterval() {}
+        });
+
+        service.start(CompletableFuture.completedFuture(null));
+
+        // Warm up to ensure watcher is ready
+        Path warmupFile = tempDir.resolve("warmup-nested.txt");
+        Files.writeString(warmupFile, "warmup");
+        boolean warmupDelivered = warmup.await(5, TimeUnit.SECONDS);
+        assertTrue(warmupDelivered, "Watcher should deliver a warmup event before nested pause test");
+
+        // Prepare to accept post-pause events
+        CountDownLatch notified = new CountDownLatch(1);
+        postResumeLatchRef.set(notified);
+        received.set(null);
+        acceptAfterPause.set(true);
+        filesChangedCount.set(0);
+
+        // Nested pause: call pause twice
+        Thread.sleep(500);
+        service.pause();
+        // allow the pause to take effect
+        Thread.sleep(100);
+        service.pause();
+
+        // Make multiple file changes while fully paused
+        Path f1 = tempDir.resolve("a.txt");
+        Path f2 = tempDir.resolve("b.txt");
+        Files.writeString(f1, "first");
+        Thread.sleep(100);
+        Files.writeString(f2, "second");
+        Thread.sleep(100);
+        // append to both to generate additional modify events
+        Files.writeString(f1, "more", StandardOpenOption.APPEND);
+        Files.writeString(f2, "more", StandardOpenOption.APPEND);
+
+        // Wait longer than debounce delay to ensure no notification while paused
+        boolean firedWhilePaused = notified.await(1200, TimeUnit.MILLISECONDS);
+        assertFalse(firedWhilePaused, "No notification should be delivered while watcher is paused (nested)");
+
+        // Resume once: still paused because pauseCount was 2 -> 1
+        service.resume();
+
+        // Still should not deliver
+        boolean firedAfterOneResume = notified.await(1200, TimeUnit.MILLISECONDS);
+        assertFalse(firedAfterOneResume, "No notification should be delivered after a single resume when nested pause remains");
+
+        // Resume again: now pauseCount reaches 0 and queued events should flush
+        service.resume();
+
+        boolean deliveredAfterSecondResume = notified.await(5, TimeUnit.SECONDS);
+        assertTrue(deliveredAfterSecondResume, "Buffered events should be delivered after final resume");
+
+        // Exactly one delivery after fully resuming
+        assertEquals(1, filesChangedCount.get(), "Exactly one onFilesChanged delivery should occur after fully resuming");
+
+        IWatchService.EventBatch batch = received.get();
+        assertNotNull(batch, "EventBatch should be non-null after fully resuming");
+        assertFalse(batch.files.isEmpty(), "EventBatch should contain files after nested resume");
+
+        ProjectFile expected1 = new ProjectFile(tempDir, tempDir.relativize(f1));
+        ProjectFile expected2 = new ProjectFile(tempDir, tempDir.relativize(f2));
+        assertTrue(batch.files.contains(expected1), "EventBatch should contain the first file: " + f1);
+        assertTrue(batch.files.contains(expected2), "EventBatch should contain the second file: " + f2);
+    }
 }
