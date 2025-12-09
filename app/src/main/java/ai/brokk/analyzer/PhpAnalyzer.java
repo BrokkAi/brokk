@@ -176,7 +176,9 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                 if ("nsname".equals(currentPhpNamespaceQuery.getCaptureNameForId(capture.getIndex()))) {
                     TSNode nameNode = capture.getNode();
                     if (nameNode != null) {
-                        return textSlice(nameNode, sourceContent).replace('\\', '.');
+                        return sourceContent
+                                .substringFromBytes(nameNode.getStartByte(), nameNode.getEndByte())
+                                .replace('\\', '.');
                     }
                 }
             }
@@ -187,7 +189,9 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             if (current != null && NAMESPACE_DEFINITION.equals(current.getType())) {
                 TSNode nameNode = current.getChildByFieldName("name");
                 if (nameNode != null) {
-                    return textSlice(nameNode, sourceContent).replace('\\', '.');
+                    return sourceContent
+                            .substringFromBytes(nameNode.getStartByte(), nameNode.getEndByte())
+                            .replace('\\', '.');
                 }
             }
             if (current != null
@@ -246,9 +250,11 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             String type = child.getType();
 
             if (PHP_SYNTAX_PROFILE.decoratorNodeTypes().contains(type)) { // This is an attribute
-                sb.append(textSlice(child, sourceContent)).append("\n");
+                sb.append(sourceContent.substringFromBytes(child.getStartByte(), child.getEndByte()))
+                        .append("\n");
             } else if (PHP_SYNTAX_PROFILE.modifierNodeTypes().contains(type)) { // This is a keyword modifier
-                sb.append(textSlice(child, sourceContent)).append(" ");
+                sb.append(sourceContent.substringFromBytes(child.getStartByte(), child.getEndByte()))
+                        .append(" ");
             } else if (type.equals("function")) { // Stop when the 'function' keyword token itself is encountered
                 break;
             }
@@ -301,7 +307,9 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         }
 
         if (referenceModifierNode != null) { // No need for !referenceModifierNode.isNull()
-            ampersand = textSlice(referenceModifierNode, sourceContent).trim();
+            ampersand = sourceContent
+                    .substringFromBytes(referenceModifierNode.getStartByte(), referenceModifierNode.getEndByte())
+                    .trim();
         }
 
         String formattedReturnType = "";

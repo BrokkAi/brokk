@@ -8,6 +8,7 @@ import java.util.Optional;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.treesitter.TSNode;
 
 /**
  * Wrapper for a source text and its UTF-8 bytes. Provides safe substring extraction by UTF-8 byte offsets
@@ -50,7 +51,7 @@ public final class SourceContent {
      *
      * The returned String is constructed directly from the UTF-8 byte slice to avoid re-encoding/parsing errors.
      */
-    public String substringFromByteOffsets(int startByte, int endByte) {
+    public String substringFromBytes(int startByte, int endByte) {
         if (startByte < 0 || endByte < startByte) {
             log.warn(
                     "Requested bytes outside valid range for source text (length: {} bytes): startByte={}, endByte={}",
@@ -133,5 +134,15 @@ public final class SourceContent {
     @Override
     public String toString() {
         return "SourceContent[" + "text=" + text + ", " + "byteLength=" + byteLength + ']';
+    }
+
+    /**
+     * Extracts a substring from the source code based on node boundaries using a cached SourceContent.
+     */
+    public String substringFrom(TSNode node) {
+        if (node.isNull()) {
+            return "";
+        }
+        return substringFromBytes(node.getStartByte(), node.getEndByte());
     }
 }

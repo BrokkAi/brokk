@@ -66,7 +66,7 @@ public class UTF8ByteOffsetTest {
         });
 
         // NEW APPROACH (fixed): Using proper byte-to-character conversion
-        String extractedText = content.substringFromByteOffsets(startByte, endByte);
+        String extractedText = content.substringFromBytes(startByte, endByte);
 
         // Verify the fix works correctly
         assertTrue(
@@ -77,7 +77,7 @@ public class UTF8ByteOffsetTest {
         assertTrue(extractedText.contains("public void method()"), "Fixed approach should extract method declaration");
 
         // Also test SourceContent for node text extraction
-        String nodeText = content.substringFromByteOffsets(classNode.getStartByte(), classNode.getEndByte());
+        String nodeText = content.substringFromBytes(classNode.getStartByte(), classNode.getEndByte());
         assertTrue(nodeText.contains("public class TestClass"), "SourceContent should correctly extract node text");
     }
 
@@ -125,7 +125,7 @@ public class UTF8ByteOffsetTest {
         }
 
         // New approach should work
-        String newResult = content.substringFromByteOffsets(startByte, endByte);
+        String newResult = content.substringFromBytes(startByte, endByte);
         assertTrue(newResult.contains("public class UnicodeTest"), "New approach should extract class correctly");
     }
 

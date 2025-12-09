@@ -226,7 +226,9 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
         for (int i = 0; i < node.getChildCount(); i++) {
             TSNode child = node.getChild(i);
             if (!child.isNull() && VISIBILITY_MODIFIER.equals(child.getType())) {
-                String text = textSlice(child, sourceContent).strip();
+                String text = sourceContent
+                        .substringFromBytes(child.getStartByte(), child.getEndByte())
+                        .strip();
                 return text + " ";
             }
         }
@@ -294,17 +296,21 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             if (typeNode != null && !typeNode.isNull()) {
                 String typeNodeType = typeNode.getType();
                 return switch (typeNodeType) {
-                    case TYPE_IDENTIFIER -> Optional.of(textSlice(typeNode, sourceContent));
+                    case TYPE_IDENTIFIER ->
+                        Optional.of(sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte()));
                     case GENERIC_TYPE -> {
                         TSNode genericTypeNameNode = typeNode.getChildByFieldName("type");
                         if (!genericTypeNameNode.isNull() && TYPE_IDENTIFIER.equals(genericTypeNameNode.getType())) {
-                            yield Optional.of(textSlice(genericTypeNameNode, sourceContent));
+                            yield Optional.of(sourceContent.substringFromBytes(
+                                    genericTypeNameNode.getStartByte(), genericTypeNameNode.getEndByte()));
                         }
-                        String fullGenericTypeNodeText = textSlice(typeNode, sourceContent);
+                        String fullGenericTypeNodeText =
+                                sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte());
                         log.warn(
                                 "RustAnalyzer.extractSimpleName for impl_item (generic_type): Could not extract specific name. Using full text '{}'. Node: {}",
                                 fullGenericTypeNodeText,
-                                textSlice(decl, sourceContent)
+                                sourceContent
+                                        .substringFromBytes(decl.getStartByte(), decl.getEndByte())
                                         .lines()
                                         .findFirst()
                                         .orElse(""));
@@ -313,25 +319,30 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                     case SCOPED_TYPE_IDENTIFIER -> {
                         TSNode scopedNameNode = typeNode.getChildByFieldName("name");
                         if (!scopedNameNode.isNull() && TYPE_IDENTIFIER.equals(scopedNameNode.getType())) {
-                            yield Optional.of(textSlice(scopedNameNode, sourceContent));
+                            yield Optional.of(sourceContent.substringFromBytes(
+                                    scopedNameNode.getStartByte(), scopedNameNode.getEndByte()));
                         }
-                        String fullScopedTypeNodeText = textSlice(typeNode, sourceContent);
+                        String fullScopedTypeNodeText =
+                                sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte());
                         log.warn(
                                 "RustAnalyzer.extractSimpleName for impl_item (scoped_type_identifier): Could not extract specific name. Using full text '{}'. Node: {}",
                                 fullScopedTypeNodeText,
-                                textSlice(decl, sourceContent)
+                                sourceContent
+                                        .substringFromBytes(decl.getStartByte(), decl.getEndByte())
                                         .lines()
                                         .findFirst()
                                         .orElse(""));
                         yield Optional.of(fullScopedTypeNodeText);
                     }
                     default -> {
-                        String fullTypeNodeText = textSlice(typeNode, sourceContent);
+                        String fullTypeNodeText =
+                                sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte());
                         log.warn(
                                 "RustAnalyzer.extractSimpleName for impl_item: Unhandled type node structure '{}'. Using full text '{}'. Node: {}",
                                 typeNodeType,
                                 fullTypeNodeText,
-                                textSlice(decl, sourceContent)
+                                sourceContent
+                                        .substringFromBytes(decl.getStartByte(), decl.getEndByte())
                                         .lines()
                                         .findFirst()
                                         .orElse(""));
@@ -342,7 +353,8 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             String errorContext = String.format(
                     "Node type %s (text: '%s')",
                     decl.getType(),
-                    textSlice(decl, sourceContent)
+                    sourceContent
+                            .substringFromBytes(decl.getStartByte(), decl.getEndByte())
                             .lines()
                             .findFirst()
                             .orElse("")
@@ -359,7 +371,8 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             String errorContext = String.format(
                     "Node type %s (text: '%s')",
                     decl.getType(),
-                    textSlice(decl, sourceContent)
+                    sourceContent
+                            .substringFromBytes(decl.getStartByte(), decl.getEndByte())
                             .lines()
                             .findFirst()
                             .orElse("")

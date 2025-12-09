@@ -138,7 +138,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
                 if ("name".equals(currentPackageQuery.getCaptureNameForId(capture.getIndex()))) {
                     TSNode nameNode = capture.getNode();
                     if (nameNode != null && !nameNode.isNull()) {
-                        return textSlice(nameNode, sourceContent).trim();
+                        return sourceContent.substringFrom(nameNode).trim();
                     }
                 }
             }
@@ -276,7 +276,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
             TSNode receiverNode = funcNode.getChildByFieldName("receiver");
             String receiverText = "";
             if (receiverNode != null && !receiverNode.isNull()) {
-                receiverText = textSlice(receiverNode, sourceContent).trim();
+                receiverText = sourceContent.substringFrom(receiverNode).trim();
             }
             // paramsText from formatParameterList already includes parentheses for regular functions
             // For methods, paramsText is for the method's own parameters, not the receiver.
@@ -318,7 +318,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
         if (typeSpecNode == null || typeSpecNode.isNull()) {
             log.warn(
                     "renderClassHeader for Go: type_spec child not found in classNode (type_declaration {}). Falling back to potentially incorrect signatureTextParam.",
-                    textSlice(classNode, sourceContent).lines().findFirst().orElse(""));
+                    sourceContent.substringFrom(classNode).lines().findFirst().orElse(""));
             return signatureTextParam + " {";
         }
 
@@ -328,11 +328,11 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
         if (nameNode == null || nameNode.isNull() || kindNode == null || kindNode.isNull()) {
             log.warn(
                     "renderClassHeader for Go: name or kind node not found in type_spec for classNode {}. Falling back.",
-                    textSlice(classNode, sourceContent).lines().findFirst().orElse(""));
+                    sourceContent.substringFrom(classNode).lines().findFirst().orElse(""));
             return signatureTextParam + " {";
         }
 
-        String nameText = textSlice(nameNode, sourceContent);
+        String nameText = sourceContent.substringFromBytes(nameNode.getStartByte(), nameNode.getEndByte());
         String kindText;
         String kindNodeType = kindNode.getType();
 
@@ -344,7 +344,11 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
             log.warn(
                     "renderClassHeader for Go: Unhandled kind node type '{}' for classNode {}. Falling back.",
                     kindNodeType,
-                    textSlice(classNode, sourceContent).lines().findFirst().orElse(""));
+                    sourceContent
+                            .substringFromBytes(classNode.getStartByte(), classNode.getEndByte())
+                            .lines()
+                            .findFirst()
+                            .orElse(""));
             return signatureTextParam + " {";
         }
 
@@ -353,7 +357,11 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
                 String.format("type %s %s", nameText, kindText).strip();
         log.trace(
                 "GoAnalyzer.renderClassHeader for node {}. Constructed signature: '{}'",
-                textSlice(classNode, sourceContent).lines().findFirst().orElse(""),
+                sourceContent
+                        .substringFromBytes(classNode.getStartByte(), classNode.getEndByte())
+                        .lines()
+                        .findFirst()
+                        .orElse(""),
                 actualSignatureText);
         return actualSignatureText + " {";
     }
@@ -391,7 +399,9 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
 
         TSNode receiverNode = localCaptures.get("method.receiver.type");
         if (receiverNode != null && !receiverNode.isNull()) {
-            String receiverTypeText = textSlice(receiverNode, sourceContent).trim();
+            String receiverTypeText = sourceContent
+                    .substringFromBytes(receiverNode.getStartByte(), receiverNode.getEndByte())
+                    .trim();
             // Remove leading * for pointer receivers
             if (receiverTypeText.startsWith("*")) {
                 receiverTypeText = receiverTypeText.substring(1).trim();
@@ -401,7 +411,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
             } else {
                 log.warn(
                         "Go method: Receiver type text was empty for node {}. FQN might be incorrect.",
-                        textSlice(receiverNode, sourceContent));
+                        sourceContent.substringFromBytes(receiverNode.getStartByte(), receiverNode.getEndByte()));
             }
         } else {
             log.warn("Go method: Could not find capture for @method.receiver.type. FQN might be incorrect.");

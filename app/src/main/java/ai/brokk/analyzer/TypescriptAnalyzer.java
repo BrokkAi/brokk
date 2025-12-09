@@ -136,10 +136,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         return new TypescriptAnalyzer(getProject(), state, listener);
     }
 
-    private String cachedTextSliceStripped(TSNode node, SourceContent sc) {
-        return textSlice(node, sc).strip();
-    }
-
     @Override
     protected TSLanguage getTSLanguage() {
         return TS_LANGUAGE;
@@ -252,7 +248,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         if (returnTypeNode == null || returnTypeNode.isNull()) {
             return "";
         }
-        String text = cachedTextSliceStripped(returnTypeNode, sourceContent);
+        String text = sourceContent.substringFrom(returnTypeNode).strip();
         // A type_annotation node in TS is typically ": type"
         // We only want the "type" part for the suffix.
         if (text.startsWith(":")) {
@@ -299,7 +295,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             if ("internal_module".equals(nodeType)) {
                 TSNode nameNode = current.getChildByFieldName("name");
                 if (nameNode != null && !nameNode.isNull()) {
-                    String name = cachedTextSliceStripped(nameNode, sourceContent);
+                    String name = sourceContent.substringFrom(nameNode).strip();
                     // Manual dot-splitting instead of Splitter (faster, less overhead)
                     // Handles dotted namespace names: "A.B.C" -> ["A", "B", "C"]
                     // Parse dot-separated parts in order, then prepend entire list to deque
@@ -381,8 +377,10 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         }
 
         if (hasBody) {
-            String signature = textSlice(funcNode.getStartByte(), bodyNode.getStartByte(), sourceContent)
-                    .strip();
+            int startByte = funcNode.getStartByte();
+            int endByte = bodyNode.getStartByte();
+            String signature =
+                    sourceContent.substringFromBytes(startByte, endByte).strip();
 
             String prefix = exportAndModifierPrefix.stripTrailing();
             if (!prefix.isEmpty() && !signature.startsWith(prefix)) {
@@ -498,8 +496,10 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         TSNode bodyNode =
                 classNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
         if (bodyNode != null && !bodyNode.isNull()) {
-            String signature = textSlice(classNode.getStartByte(), bodyNode.getStartByte(), sourceContent)
-                    .strip();
+            int startByte = classNode.getStartByte();
+            int endByte = bodyNode.getStartByte();
+            String signature =
+                    sourceContent.substringFromBytes(startByte, endByte).strip();
 
             // Prepend export and other modifiers if not already present
             String prefix = exportAndModifierPrefix.stripTrailing();
@@ -556,7 +556,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         for (int i = 0; i < Math.min(nodeToCheck.getChildCount(), 6); i++) {
             TSNode child = nodeToCheck.getChild(i);
             if (child != null && !child.isNull()) {
-                String childText = cachedTextSliceStripped(child, sourceContent);
+                String childText = sourceContent.substringFrom(child).strip();
                 if (Set.of("abstract", "static", "readonly", "async", "const", "let", "var")
                         .contains(childText)) {
                     modifiers.append(childText).append(" ");
@@ -964,13 +964,15 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             TSNode valueNode = funcNode.getChildByFieldName("value");
             if (valueNode != null && !valueNode.isNull() && "arrow_function".equals(valueNode.getType())) {
                 // Build the const/let declaration with arrow function
-                String fullDeclaration = textSlice(funcNode, sourceContent).strip();
+                String fullDeclaration = sourceContent.substringFrom(funcNode).strip();
 
                 // Replace function body with placeholder
                 TSNode bodyNode = valueNode.getChildByFieldName("body");
                 if (bodyNode != null && !bodyNode.isNull()) {
-                    String beforeBody = textSlice(funcNode.getStartByte(), bodyNode.getStartByte(), sourceContent)
-                            .strip();
+                    int startByte = funcNode.getStartByte();
+                    int endByte = bodyNode.getStartByte();
+                    String beforeBody =
+                            sourceContent.substringFromBytes(startByte, endByte).strip();
                     String signature = exportPrefix.stripTrailing() + " " + beforeBody + " " + bodyPlaceholder();
                     lines.add(indent + signature.stripLeading());
                 } else {
@@ -984,7 +986,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         if ("construct_signature".equals(funcNode.getType())) {
             TSNode typeNode = funcNode.getChildByFieldName("type");
             if (typeNode != null && !typeNode.isNull()) {
-                String typeText = textSlice(typeNode, sourceContent);
+                String typeText = sourceContent.substringFrom(typeNode);
                 String returnTypeText =
                         typeText.startsWith(":") ? typeText.substring(1).strip() : typeText;
 
@@ -996,7 +998,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 String typeParamsText = "";
                 TSNode typeParamsNode = funcNode.getChildByFieldName(profile.typeParametersFieldName());
                 if (typeParamsNode != null && !typeParamsNode.isNull()) {
-                    typeParamsText = textSlice(typeParamsNode, sourceContent);
+                    typeParamsText = sourceContent.substringFrom(typeParamsNode);
                 }
 
                 String signature = renderFunctionDeclaration(

@@ -253,8 +253,9 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                     TSNode decoratorChild = child.getNamedChild(0);
                     if (decoratorChild != null && ATTRIBUTE.equals(decoratorChild.getType())) {
                         // Get the decorator text using the inherited textSlice method
-                        String decoratorText =
-                                textSlice(decoratorChild, sourceContent).trim();
+                        String decoratorText = sourceContent
+                                .substringFromBytes(decoratorChild.getStartByte(), decoratorChild.getEndByte())
+                                .trim();
                         // Skip property setters/deleters: match "<name>.(setter|deleter)" only
                         if (decoratorText.matches("[^.]+\\.(setter|deleter)")) {
                             log.trace("Skipping property setter/deleter with decorator: {}", decoratorText);
@@ -291,7 +292,9 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         for (int i = 0; i < decoratedNode.getNamedChildCount(); i++) {
             TSNode child = decoratedNode.getNamedChild(i);
             if (profile.decoratorNodeTypes().contains(child.getType())) {
-                outDecoratorLines.add(textSlice(child, sourceContent).stripLeading());
+                outDecoratorLines.add(sourceContent
+                        .substringFromBytes(child.getStartByte(), child.getEndByte())
+                        .stripLeading());
             } else if (profile.functionLikeNodeTypes().contains(child.getType())
                     || profile.classLikeNodeTypes().contains(child.getType())) {
                 nodeForContent = child;
@@ -531,7 +534,9 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
         List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
         for (var s : aggregateSuperNodes) {
-            var text = textSlice(s, sourceContent).strip();
+            var text = sourceContent
+                    .substringFromBytes(s.getStartByte(), s.getEndByte())
+                    .strip();
             if (!text.isEmpty()) {
                 supers.add(text);
             }
@@ -661,7 +666,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                     var node = cap.getNode();
                     if (node == null || node.isNull()) continue;
 
-                    var text = textSlice(node, importSc);
+                    var text = importSc.substringFromBytes(node.getStartByte(), node.getEndByte());
 
                     switch (capName) {
                         case IMPORT_MODULE -> currentModule = text;

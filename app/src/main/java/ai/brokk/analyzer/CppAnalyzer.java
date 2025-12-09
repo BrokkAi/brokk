@@ -210,7 +210,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             if (NAMESPACE_DEFINITION.equals(current.getType())) {
                 var nameNode = current.getChildByFieldName("name");
                 if (nameNode != null && !nameNode.isNull()) {
-                    namespaceParts.add(textSlice(nameNode, sourceContent));
+                    namespaceParts.add(sourceContent.substringFrom(nameNode));
                 }
             }
         }
@@ -253,7 +253,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         if (declaratorNode != null && "function_declarator".equals(declaratorNode.getType())) {
             TSNode paramsNode = declaratorNode.getChildByFieldName("parameters");
             if (paramsNode != null && !paramsNode.isNull()) {
-                actualParamsText = textSlice(paramsNode, sourceContent);
+                actualParamsText = sourceContent.substringFrom(paramsNode);
             }
         }
 
@@ -262,7 +262,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             if (fallbackDeclaratorNode != null && "function_declarator".equals(fallbackDeclaratorNode.getType())) {
                 TSNode innerDeclaratorNode = fallbackDeclaratorNode.getChildByFieldName("declarator");
                 if (innerDeclaratorNode != null) {
-                    String extractedName = textSlice(innerDeclaratorNode, sourceContent);
+                    String extractedName = sourceContent.substringFrom(innerDeclaratorNode);
                     if (!extractedName.isBlank()) {
                         functionName = extractedName;
                     }
@@ -279,7 +279,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
         var throwsNode = funcNode.getChildByFieldName("noexcept_specifier");
         if (throwsNode != null) {
-            signature += " " + textSlice(throwsNode, sourceContent);
+            signature += " " + sourceContent.substringFrom(throwsNode);
         }
 
         // Presentation-only marker: we still append bodyPlaceholder() to the rendered signature for UI clarity.
@@ -479,7 +479,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             TSNode paramNode = paramsNode.getNamedChild(i);
             if (paramNode == null || paramNode.isNull()) continue;
 
-            String raw = textSlice(paramNode, sourceContent).strip();
+            String raw = sourceContent.substringFrom(paramNode).strip();
             if (raw.isEmpty()) continue;
             if (raw.equals("...")) {
                 paramTypes.add("...");
@@ -503,7 +503,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             }
 
             if (nameNode != null && !nameNode.isNull()) {
-                String nameText = textSlice(nameNode, sourceContent).strip();
+                String nameText = sourceContent.substringFrom(nameNode).strip();
                 if (!nameText.isEmpty()) {
                     // Remove the identifier token (token-boundary) to avoid clobbering template names
                     raw = raw.replaceAll("\\b" + java.util.regex.Pattern.quote(nameText) + "\\b", "")
@@ -576,7 +576,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             if (nameNode == null || nameNode.isNull()) {
                 return Optional.of("(anonymous)");
             }
-            String name = textSlice(nameNode, sourceContent);
+            String name = sourceContent.substringFrom(nameNode);
             return Optional.of(name);
         }
 
@@ -590,7 +590,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                 // Anonymous struct/class/union/enum (e.g., anonymous struct in union)
                 return Optional.of("(anonymous)");
             }
-            String name = textSlice(nameNode, sourceContent);
+            String name = sourceContent.substringFrom(nameNode);
             if (name.isBlank()) {
                 // Name exists but is blank - likely parsing edge case
                 return Optional.of("(anonymous)");
@@ -603,7 +603,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             if (declaratorNode != null && "function_declarator".equals(declaratorNode.getType())) {
                 TSNode innerDeclaratorNode = declaratorNode.getChildByFieldName("declarator");
                 if (innerDeclaratorNode != null) {
-                    String name = textSlice(innerDeclaratorNode, sourceContent);
+                    String name = sourceContent.substringFrom(innerDeclaratorNode);
                     if (!name.isBlank()) {
                         return Optional.of(name);
                     }
@@ -621,13 +621,13 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                 if ("function_declarator".equals(declaratorNode.getType())) {
                     TSNode innerDeclaratorNode = declaratorNode.getChildByFieldName("declarator");
                     if (innerDeclaratorNode != null) {
-                        String name = textSlice(innerDeclaratorNode, sourceContent);
+                        String name = sourceContent.substringFrom(innerDeclaratorNode);
                         if (!name.isBlank()) {
                             return Optional.of(name);
                         }
                     }
                 } else {
-                    String name = textSlice(declaratorNode, sourceContent);
+                    String name = sourceContent.substringFrom(declaratorNode);
                     if (!name.isBlank()) {
                         return Optional.of(name);
                     }
@@ -761,7 +761,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         int tailEnd = outerTailEnd;
         if (tailStart >= tailEnd) return "";
 
-        String tail = sourceContent.substringFromByteOffsets(tailStart, tailEnd).strip();
+        String tail = sourceContent.substringFromBytes(tailStart, tailEnd).strip();
 
         // Augment textual detection with AST-based scanning for robust qualifier extraction
         boolean nodeHasConst;
@@ -923,7 +923,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             if (sb < tailStart || sb >= tailEnd) continue;
             String t = child.getType();
             if (TYPE_QUALIFIER.equals(t)) {
-                String q = textSlice(child, sourceContent).strip();
+                String q = sourceContent.substringFrom(child).strip();
                 if (q.contains(qualifier)) {
                     return true;
                 }

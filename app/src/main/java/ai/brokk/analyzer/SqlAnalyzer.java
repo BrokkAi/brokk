@@ -225,7 +225,7 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
                         sc.byteLength());
                 return Optional.empty();
             }
-            String statementText = sc.substringFromByteOffsets(range.startByte(), range.endByte());
+            String statementText = sc.substringFromBytes(range.startByte(), range.endByte());
             return Optional.of(statementText);
         } catch (IOException e) {
             logger.warn(

@@ -294,7 +294,8 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             for (TSQueryCapture capture : match.getCaptures()) {
                 String captureName = mutationQuery.getCaptureNameForId(capture.getIndex());
                 if ("mutated.id".equals(captureName)) {
-                    mutatedIdentifiers.add(textSlice(capture.getNode(), sourceContent));
+                    TSNode node = capture.getNode();
+                    mutatedIdentifiers.add(sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte()));
                 }
             }
         }
@@ -324,7 +325,8 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
                 // The first child of lexical/variable_declaration is the keyword (const, let, var)
                 TSNode keywordNode = declarationNode.getChild(0);
                 if (keywordNode != null && !keywordNode.isNull()) {
-                    keyword = textSlice(keywordNode, sourceContent); // "const", "let", or "var"
+                    keyword = sourceContent.substringFromBytes(
+                            keywordNode.getStartByte(), keywordNode.getEndByte()); // "const", "let", or "var"
                 }
 
                 String exportStr = "";

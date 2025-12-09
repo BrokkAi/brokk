@@ -151,15 +151,18 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         String signature;
 
         if (body != null && !body.isNull()) {
-            signature = textSlice(funcNode.getStartByte(), body.getStartByte(), sourceContent)
-                    .stripTrailing();
+            int startByte = funcNode.getStartByte();
+            int endByte = body.getStartByte();
+            signature = sourceContent.substringFromBytes(startByte, endByte).stripTrailing();
         } else {
             TSNode paramsNode = funcNode.getChildByFieldName("parameters");
             if (paramsNode != null && !paramsNode.isNull()) {
-                signature = textSlice(funcNode.getStartByte(), paramsNode.getEndByte(), sourceContent)
-                        .stripTrailing();
+                int startByte = funcNode.getStartByte();
+                int endByte = paramsNode.getEndByte();
+                signature = sourceContent.substringFromBytes(startByte, endByte).stripTrailing();
             } else {
-                signature = textSlice(funcNode, sourceContent)
+                signature = sourceContent
+                        .substringFrom(funcNode)
                         .lines()
                         .findFirst()
                         .orElse("")
@@ -201,7 +204,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             if (NAMESPACE_DECLARATION.equals(current.getType())) {
                 TSNode nameNode = current.getChildByFieldName("name");
                 if (nameNode != null && !nameNode.isNull()) {
-                    String nsPart = textSlice(nameNode, sourceContent);
+                    String nsPart = sourceContent.substringFrom(nameNode);
                     namespaceParts.add(nsPart);
                 }
             }

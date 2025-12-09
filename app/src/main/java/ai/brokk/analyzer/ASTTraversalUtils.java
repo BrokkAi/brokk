@@ -94,7 +94,7 @@ public class ASTTraversalUtils {
             return "";
         }
 
-        String result = sourceContent.substringFromByteOffsets(startByte, endByte);
+        String result = sourceContent.substringFromBytes(startByte, endByte);
         return result.trim();
     }
 

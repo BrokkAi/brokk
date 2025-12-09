@@ -129,7 +129,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                 sourceContent,
                 PACKAGE_DECLARATION,
                 JAVA_SYNTAX_PROFILE.classLikeNodeTypes(),
-                this::textSlice);
+                (node, sourceContent1) -> sourceContent1.substringFrom(node));
     }
 
     protected static String determineJvmPackageName(
@@ -206,7 +206,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
 
         var throwsNode = funcNode.getChildByFieldName("throws");
         if (throwsNode != null) {
-            signature += " " + textSlice(throwsNode, sourceContent);
+            signature += " " + sourceContent.substringFrom(throwsNode);
         }
 
         return signature;
@@ -348,7 +348,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             if (METHOD_DECLARATION.equals(type) || CONSTRUCTOR_DECLARATION.equals(type)) {
                 TSNode nameNode = current.getChildByFieldName("name");
                 if (nameNode != null && !nameNode.isNull()) {
-                    String name = textSlice(nameNode, sourceContent).strip();
+                    String name = sourceContent.substringFrom(nameNode).strip();
                     if (!name.isEmpty()) {
                         return Optional.of(name);
                     }
@@ -364,7 +364,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             if (isClassLike(current)) {
                 TSNode nameNode = current.getChildByFieldName("name");
                 if (nameNode != null && !nameNode.isNull()) {
-                    String cls = textSlice(nameNode, sourceContent).strip();
+                    String cls = sourceContent.substringFrom(nameNode).strip();
                     if (!cls.isEmpty()) {
                         return Optional.of(cls);
                     }
@@ -621,7 +621,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
 
         List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
         for (TSNode s : aggregateSuperNodes) {
-            String text = textSlice(s, sourceContent).strip();
+            String text = sourceContent.substringFrom(s).strip();
             if (!text.isEmpty()) {
                 supers.add(text);
             }

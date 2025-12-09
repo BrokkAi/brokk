@@ -104,7 +104,11 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
     protected String determinePackageName(
             ProjectFile file, TSNode definitionNode, TSNode rootNode, SourceContent sourceContent) {
         return JavaAnalyzer.determineJvmPackageName(
-                rootNode, sourceContent, PACKAGE_CLAUSE, SCALA_SYNTAX_PROFILE.classLikeNodeTypes(), this::textSlice);
+                rootNode,
+                sourceContent,
+                PACKAGE_CLAUSE,
+                SCALA_SYNTAX_PROFILE.classLikeNodeTypes(),
+                (node, sourceContent1) -> sourceContent1.substringFromBytes(node.getStartByte(), node.getEndByte()));
     }
 
     @Override
@@ -143,7 +147,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
             var nodeKind = funcNode.getFieldNameForChild(i);
             var child = funcNode.getChild(i);
             if ("parameters".equals(nodeKind)) {
-                paramSb.append(textSlice(child, sourceContent));
+                paramSb.append(sourceContent.substringFromBytes(child.getStartByte(), child.getEndByte()));
             }
         }
         var allParamsText = paramSb.toString();
