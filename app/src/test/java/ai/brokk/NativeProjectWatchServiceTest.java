@@ -11,7 +11,6 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
@@ -44,27 +43,17 @@ public class NativeProjectWatchServiceTest {
     @Test
     public void testPauseResumeQueuesEvents() throws Exception {
         tempDir = Files.createTempDirectory("native-watcher-test");
-        // Create service but DO NOT start it yet so we can register listeners before warmup.
         service =
                 new NativeProjectWatchService(tempDir, /*gitRepoRoot=*/ null, /*globalGitignorePath=*/ null, List.of());
 
         // Listener state
-        CountDownLatch warmup = new CountDownLatch(1);
-        AtomicBoolean acceptAfterPause = new AtomicBoolean(false);
         AtomicReference<CountDownLatch> postResumeLatchRef = new AtomicReference<>();
         AtomicReference<IWatchService.EventBatch> received = new AtomicReference<>();
         AtomicInteger filesChangedCount = new AtomicInteger(0);
 
-        // Add listener BEFORE starting the service so warmup notification can't be missed.
         service.addListener(new IWatchService.Listener() {
             @Override
             public void onFilesChanged(IWatchService.EventBatch batch) {
-                if (!acceptAfterPause.get()) {
-                    // Warmup phase: ensure watcher is active
-                    warmup.countDown();
-                    return;
-                }
-                // Count deliveries that occur after we start accepting post-pause events.
                 filesChangedCount.incrementAndGet();
                 received.set(batch);
                 CountDownLatch l = postResumeLatchRef.get();
@@ -80,17 +69,10 @@ public class NativeProjectWatchServiceTest {
         // Start service with an already-completed future so watcher begins immediately
         service.start(CompletableFuture.completedFuture(null));
 
-        // Warm up: create a file to confirm watcher is fully registered and delivering events
-        Path warmupFile = tempDir.resolve("warmup.txt");
-        Files.writeString(warmupFile, "warmup");
-        boolean warmupDelivered = warmup.await(5, TimeUnit.SECONDS);
-        assertTrue(warmupDelivered, "Watcher should deliver a warmup event before pause");
-
-        // Prepare for the real test phase
+        // Prepare for the test
         CountDownLatch notified = new CountDownLatch(1);
         postResumeLatchRef.set(notified);
         received.set(null);
-        acceptAfterPause.set(true);
         filesChangedCount.set(0);
 
         // Pause the watcher. Wait briefly to allow the native DirectoryWatcher to complete registration
@@ -137,8 +119,6 @@ public class NativeProjectWatchServiceTest {
                 new NativeProjectWatchService(tempDir, /*gitRepoRoot=*/ null, /*globalGitignorePath=*/ null, List.of());
 
         // Listener state
-        CountDownLatch warmup = new CountDownLatch(1);
-        AtomicBoolean acceptAfterPause = new AtomicBoolean(false);
         AtomicReference<CountDownLatch> postResumeLatchRef = new AtomicReference<>();
         AtomicReference<IWatchService.EventBatch> received = new AtomicReference<>();
         AtomicInteger filesChangedCount = new AtomicInteger(0);
@@ -146,10 +126,6 @@ public class NativeProjectWatchServiceTest {
         service.addListener(new IWatchService.Listener() {
             @Override
             public void onFilesChanged(IWatchService.EventBatch batch) {
-                if (!acceptAfterPause.get()) {
-                    warmup.countDown();
-                    return;
-                }
                 filesChangedCount.incrementAndGet();
                 received.set(batch);
                 CountDownLatch l = postResumeLatchRef.get();
@@ -164,17 +140,10 @@ public class NativeProjectWatchServiceTest {
 
         service.start(CompletableFuture.completedFuture(null));
 
-        // Warm up to ensure watcher is ready
-        Path warmupFile = tempDir.resolve("warmup-nested.txt");
-        Files.writeString(warmupFile, "warmup");
-        boolean warmupDelivered = warmup.await(5, TimeUnit.SECONDS);
-        assertTrue(warmupDelivered, "Watcher should deliver a warmup event before nested pause test");
-
-        // Prepare to accept post-pause events
+        // Prepare for the test
         CountDownLatch notified = new CountDownLatch(1);
         postResumeLatchRef.set(notified);
         received.set(null);
-        acceptAfterPause.set(true);
         filesChangedCount.set(0);
 
         // Nested pause: call pause twice
@@ -235,8 +204,6 @@ public class NativeProjectWatchServiceTest {
                 new NativeProjectWatchService(tempDir, /*gitRepoRoot=*/ null, /*globalGitignorePath=*/ null, List.of());
 
         // Listener state
-        CountDownLatch warmup = new CountDownLatch(1);
-        AtomicBoolean acceptAfterPause = new AtomicBoolean(false);
         AtomicReference<CountDownLatch> postResumeLatchRef = new AtomicReference<>();
         AtomicReference<IWatchService.EventBatch> received = new AtomicReference<>();
         AtomicInteger filesChangedCount = new AtomicInteger(0);
@@ -244,10 +211,6 @@ public class NativeProjectWatchServiceTest {
         service.addListener(new IWatchService.Listener() {
             @Override
             public void onFilesChanged(IWatchService.EventBatch batch) {
-                if (!acceptAfterPause.get()) {
-                    warmup.countDown();
-                    return;
-                }
                 filesChangedCount.incrementAndGet();
                 received.set(batch);
                 CountDownLatch l = postResumeLatchRef.get();
@@ -262,17 +225,10 @@ public class NativeProjectWatchServiceTest {
 
         service.start(CompletableFuture.completedFuture(null));
 
-        // Warm up to ensure watcher is ready
-        Path warmupFile = tempDir.resolve("warmup-debounce.txt");
-        Files.writeString(warmupFile, "warmup");
-        boolean warmupDelivered = warmup.await(5, TimeUnit.SECONDS);
-        assertTrue(warmupDelivered, "Watcher should deliver a warmup event before debounce coalescing test");
-
-        // Prepare to accept post-pause events
+        // Prepare for the test
         CountDownLatch notified = new CountDownLatch(1);
         postResumeLatchRef.set(notified);
         received.set(null);
-        acceptAfterPause.set(true);
         filesChangedCount.set(0);
 
         // Pause and allow registration to settle

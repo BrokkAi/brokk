@@ -10,7 +10,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -53,14 +52,15 @@ public class NativeProjectWatchService implements IWatchService {
     private volatile DirectoryWatcher watcher;
 
     private volatile boolean running = true;
-    private volatile int pauseCount = 0;
 
     @Nullable
     private volatile Thread watcherThread;
 
-    // Debouncing fields
+    // Debouncing fields - all guarded by 'lock'
     private final ScheduledExecutorService debounceExecutor;
-    private final Object debounceLock = new Object();
+    private final Object lock = new Object();
+    private int pauseCount = 0;
+    private boolean flushing = false;
     private EventBatch accumulatedBatch = new EventBatch();
 
     @Nullable
@@ -151,52 +151,8 @@ public class NativeProjectWatchService implements IWatchService {
 
             logger.info("Starting native directory watcher for: {}", root);
 
-            // Start the DirectoryWatcher in an inner thread so we can schedule a warmup
-            // notification after the watcher has been started (reduces races in tests).
-            final CountDownLatch watcherStarted = new CountDownLatch(1);
-            Thread innerWatcher = new Thread(() -> {
-                // Signal that the watcher thread is about to start watching.
-                watcherStarted.countDown();
-                try {
-                    final DirectoryWatcher watcher = this.watcher;
-                    if (watcher != null) {
-                        watcher.watch();
-                    }
-                } catch (Exception e) {
-                    logger.error("Error in directory watcher loop", e);
-                }
-            });
-            innerWatcher.setName("NativeDirectoryWatcherLoop@" + Long.toHexString(innerWatcher.threadId()));
-            innerWatcher.setDaemon(true);
-            innerWatcher.start();
-
-            // Wait briefly for the inner watcher thread to reach the watching point. If interrupted,
-            // proceed anyway since we will still attempt to schedule the warmup.
-            try {
-                watcherStarted.await(1, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-
-            // Schedule a short delayed warmup notification so listeners know the watcher is active.
-            // This runs on the debounce executor and will not interfere with the normal debounce logic.
-            debounceExecutor.schedule(
-                    () -> {
-                        try {
-                            notifyFilesChanged(new EventBatch());
-                        } catch (Exception e) {
-                            logger.debug("Error delivering warmup notification: {}", e.getMessage());
-                        }
-                    },
-                    200,
-                    TimeUnit.MILLISECONDS);
-
-            // Block this thread until the inner watcher thread completes so shutdown semantics remain the same.
-            try {
-                innerWatcher.join();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            // Start watching (blocks until watcher is closed)
+            watcher.watch();
 
         } catch (IOException e) {
             logger.error("Error setting up native directory watcher", e);
@@ -261,11 +217,8 @@ public class NativeProjectWatchService implements IWatchService {
 
             logger.trace("File event: {} on {}", eventType, changedPath);
 
-            synchronized (debounceLock) {
-                // Always record gitignore-related changes and accumulate file events.
-                // When the watcher is paused we intentionally continue buffering events
-                // in `accumulatedBatch` but we DO NOT schedule the debounced flush until
-                // we are resumed. This preserves events that occur during pauses.
+            synchronized (lock) {
+                // Always buffer events under lock
                 if (shouldInvalidateForGitignoreChange(changedPath)) {
                     accumulatedBatch.untrackedGitignoreChanged = true;
                 }
@@ -280,18 +233,17 @@ public class NativeProjectWatchService implements IWatchService {
                     return;
                 }
 
-                // If paused, do not schedule a debounce flush; the events remain buffered.
-                if (pauseCount > 0) {
+                // Conditionally schedule flush only if not paused
+                if (pauseCount == 0) {
+                    // Cancel existing flush and schedule new one
+                    if (pendingFlush != null) {
+                        pendingFlush.cancel(false);
+                    }
+                    pendingFlush = debounceExecutor.schedule(
+                            this::flushAccumulatedEvents, DEBOUNCE_DELAY_MS, TimeUnit.MILLISECONDS);
+                } else {
                     logger.trace("Watcher is paused; buffering event for {}", changedPath);
-                    return;
                 }
-
-                // Cancel existing flush and schedule new one
-                if (pendingFlush != null) {
-                    pendingFlush.cancel(false);
-                }
-                pendingFlush = debounceExecutor.schedule(
-                        this::flushAccumulatedEvents, DEBOUNCE_DELAY_MS, TimeUnit.MILLISECONDS);
             }
 
         } catch (Exception e) {
@@ -306,22 +258,22 @@ public class NativeProjectWatchService implements IWatchService {
     private void flushAccumulatedEvents() {
         EventBatch batchToNotify;
 
-        // First, check paused state BEFORE swapping batches. Call isPaused() outside of debounceLock
-        // to avoid deadlock with pause(), which synchronizes on 'this' then on debounceLock.
-        if (isPaused()) {
-            // Ensure pendingFlush is cleared while holding debounceLock to avoid races.
-            synchronized (debounceLock) {
+        synchronized (lock) {
+            // If paused, don't flush
+            if (pauseCount > 0) {
                 pendingFlush = null;
-            }
-            logger.trace("Flush suppressed because watcher is paused; keeping events buffered");
-            return;
-        }
-
-        synchronized (debounceLock) {
-            // If there's nothing to notify, return early
-            if (accumulatedBatch.files.isEmpty() && !accumulatedBatch.untrackedGitignoreChanged) {
+                logger.trace("Flush suppressed because watcher is paused; keeping events buffered");
                 return;
             }
+
+            // If there's nothing to notify, return early
+            if (accumulatedBatch.files.isEmpty() && !accumulatedBatch.untrackedGitignoreChanged) {
+                pendingFlush = null;
+                return;
+            }
+
+            // Mark that we're starting a flush
+            flushing = true;
 
             // Swap out the batch and reset
             batchToNotify = accumulatedBatch;
@@ -329,8 +281,15 @@ public class NativeProjectWatchService implements IWatchService {
             pendingFlush = null;
         }
 
-        logger.debug("Flushing {} accumulated file events", batchToNotify.files.size());
-        notifyFilesChanged(batchToNotify);
+        try {
+            logger.debug("Flushing {} accumulated file events", batchToNotify.files.size());
+            notifyFilesChanged(batchToNotify);
+        } finally {
+            synchronized (lock) {
+                flushing = false;
+                lock.notifyAll(); // Wake up any threads waiting in pause()
+            }
+        }
     }
 
     private void notifyFilesChanged(EventBatch batch) {
@@ -347,19 +306,29 @@ public class NativeProjectWatchService implements IWatchService {
     }
 
     @Override
-    public synchronized void pause() {
+    public void pause() {
         logger.debug("Pausing native directory watcher");
-        pauseCount++;
 
-        // While paused, prevent any scheduled flush from executing.
-        // Acquire the debounceLock to synchronize with flush scheduling/cancellation.
-        synchronized (debounceLock) {
+        synchronized (lock) {
+            pauseCount++;
+
+            // Cancel any pending flush
             if (pendingFlush != null) {
-                // Cancel the scheduled flush but do NOT clear accumulatedBatch — events must be preserved
-                // so they can be flushed when resume() brings pauseCount back to zero.
                 pendingFlush.cancel(false);
                 pendingFlush = null;
                 logger.trace("Canceled pending flush due to pause; events will remain buffered");
+            }
+
+            // Wait for any in-flight flush to complete (barrier mechanism)
+            while (flushing) {
+                try {
+                    logger.trace("Waiting for in-flight flush to complete before pause returns");
+                    lock.wait();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    logger.warn("Interrupted while waiting for flush to complete during pause");
+                    break;
+                }
             }
         }
     }
@@ -368,35 +337,27 @@ public class NativeProjectWatchService implements IWatchService {
     public void resume() {
         logger.debug("Resuming native directory watcher");
 
-        boolean shouldFlush = false;
-        // Protect mutation of pauseCount with a synchronized block on 'this' (consistent with pause()).
-        synchronized (this) {
+        synchronized (lock) {
             if (pauseCount > 0) {
                 pauseCount--;
+                // Atomically check if we should trigger flush
                 if (pauseCount == 0) {
-                    shouldFlush = true;
+                    // Cancel any existing scheduled flush
+                    if (pendingFlush != null) {
+                        pendingFlush.cancel(false);
+                    }
+                    // Schedule immediate flush on the debounce executor thread
+                    pendingFlush = debounceExecutor.schedule(this::flushAccumulatedEvents, 0, TimeUnit.MILLISECONDS);
                 }
-            }
-        }
-
-        if (shouldFlush) {
-            // Acquire debounceLock to coordinate with handleEvent/pendingFlush management.
-            // Cancel any existing scheduled flush and schedule an immediate (0ms) flush on the debounce executor.
-            // Storing the ScheduledFuture in pendingFlush prevents duplicate scheduling races.
-            synchronized (debounceLock) {
-                if (pendingFlush != null) {
-                    pendingFlush.cancel(false);
-                    pendingFlush = null;
-                }
-                // Schedule a zero-delay flush so the work runs on the debounce executor thread.
-                pendingFlush = debounceExecutor.schedule(this::flushAccumulatedEvents, 0, TimeUnit.MILLISECONDS);
             }
         }
     }
 
     @Override
-    public synchronized boolean isPaused() {
-        return pauseCount > 0;
+    public boolean isPaused() {
+        synchronized (lock) {
+            return pauseCount > 0;
+        }
     }
 
     @Override
@@ -412,12 +373,12 @@ public class NativeProjectWatchService implements IWatchService {
     }
 
     @Override
-    public synchronized void close() {
+    public void close() {
         running = false;
-        pauseCount = 0;
 
         // Cancel any pending flush to avoid it running while we are shutting down.
-        synchronized (debounceLock) {
+        synchronized (lock) {
+            pauseCount = 0;
             if (pendingFlush != null) {
                 pendingFlush.cancel(false);
                 pendingFlush = null;
