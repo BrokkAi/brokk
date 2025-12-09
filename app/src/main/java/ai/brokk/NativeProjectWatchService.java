@@ -333,14 +333,17 @@ public class NativeProjectWatchService implements IWatchService {
         }
 
         if (shouldFlush) {
-            // Ensure no stray scheduled flush remains, then trigger an immediate flush on the debounce executor.
+            // Acquire debounceLock to coordinate with handleEvent/pendingFlush management.
+            // Cancel any existing scheduled flush and schedule an immediate (0ms) flush on the debounce executor.
+            // Storing the ScheduledFuture in pendingFlush prevents duplicate scheduling races.
             synchronized (debounceLock) {
                 if (pendingFlush != null) {
                     pendingFlush.cancel(false);
                     pendingFlush = null;
                 }
+                // Schedule a zero-delay flush so the work runs on the debounce executor thread.
+                pendingFlush = debounceExecutor.schedule(this::flushAccumulatedEvents, 0, TimeUnit.MILLISECONDS);
             }
-            debounceExecutor.execute(this::flushAccumulatedEvents);
         }
     }
 
