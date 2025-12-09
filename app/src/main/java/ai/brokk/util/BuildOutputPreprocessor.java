@@ -124,7 +124,7 @@ public class BuildOutputPreprocessor {
             - Specific error message
             - File path and line number when available
             - Full stack trace when available
-            - Relevant debug output: you may CROP the output to the most relevant portions, but you
+            - Relevant debug output: you may TRIM the output to the most relevant portions, but you
               MUST NOT CHANGE the parts you include
 
             WARNINGS AND ERRORS IN THE SAME FILE:
@@ -140,6 +140,36 @@ public class BuildOutputPreprocessor {
               general startup/shutdown logs
 
             Return the extracted errors in a clean, readable format.
+
+            EXAMPLE showing trimming of framework (junit/jupiter) boilerplate and irrelevant log output, while
+            preserving the most relevant original lines exactly:
+            [ORIGINAL]
+            ```
+            ai.brokk.analyzer.TypeInferenceTest.gtd_fieldDeclaration_returnsFieldRange()
+               GTD on field declaration should find the field ==> expected: <true> but was: <false>
+                  at app//org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:158)
+                  at app//org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:139)
+                  at app//org.junit.jupiter.api.AssertTrue.failNotTrue(AssertTrue.java:69)
+                  at app//org.junit.jupiter.api.AssertTrue.assertTrue(AssertTrue.java:41)
+                  at app//org.junit.jupiter.api.Assertions.assertTrue(Assertions.java:228)
+                  at app//ai.brokk.analyzer.TypeInferenceTest.gtd_fieldDeclaration_returnsFieldRange(TypeInferenceTest.java:960)
+            23:23:15.128 [Test worker] INFO  Environment - Adaptive IO cap from FD limits: maxFD=1048576, openFD=228, freeFD=1048348, cap=16
+            23:23:15.131 [Test worker] DEBUG TreeSitterAnalyzer - Initializing TreeSitterAnalyzer for language: Java, query resource: treesitter/java.scm
+            23:23:15.191 [Test worker] INFO  TreeSitterAnalyzer - File processing summary: 1 files processed successfully
+            23:23:15.192 [Test worker] DEBUG TreeSitterAnalyzer - [Java] Stage timing (wall clock coverage; stages overlap): Read Files=0s 1ms, Parse Files=0s 0ms, Process Files=0s 29ms, Merge Results=0s 0ms, Total=0s 47ms
+            23:23:15.193 [Test worker] DEBUG TreeSitterAnalyzer - [Java] Snapshot TreeSitterAnalyzer created - codeUnits: 5, files: 1
+            23:23:15.195 [Test worker] DEBUG TreeSitterAnalyzer - [Java] Snapshot TreeSitterAnalyzer created - codeUnits: 5, files: 1
+            23:23:15.197 [Test worker] DEBUG TreeSitterAnalyzer - [Java] TreeSitter analysis complete - codeUnits: 5, files: 1
+            23:23:15.198 [Test worker] DEBUG TreeSitterAnalyzer - getDefinitionLocation: file=Test.java, offset=53
+            ```
+            [EXTRACTED]
+            ```
+            ai.brokk.analyzer.TypeInferenceTest.gtd_fieldDeclaration_returnsFieldRange()
+               GTD on field declaration should find the field ==> expected: <true> but was: <false>
+                  at app//ai.brokk.analyzer.TypeInferenceTest.gtd_fieldDeclaration_returnsFieldRange(TypeInferenceTest.java:960)
+            23:23:15.197 [Test worker] DEBUG TreeSitterAnalyzer - [Java] TreeSitter analysis complete - codeUnits: 5, files: 1
+            23:23:15.198 [Test worker] DEBUG TreeSitterAnalyzer - getDefinitionLocation: file=Test.java, offset=53
+            ```
             """
                         .formatted(MAX_EXTRACTED_ERRORS));
 
