@@ -232,8 +232,8 @@ public class SearchAgent {
             // Beast mode triggers
             var inputLimit = cm.getService().getMaxInputTokens(model);
             // Determine viewing policy based on search objective
-            boolean isLutz = objective == Objective.LUTZ;
-            var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, isLutz);
+            boolean useTaskList = objective == Objective.LUTZ || objective == Objective.TASKS_ONLY;
+            var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, useTaskList);
             // Build workspace messages in insertion order with viewing policy applied
             var workspaceMessages =
                     new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(context, viewingPolicy));

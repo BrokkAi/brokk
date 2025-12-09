@@ -7,7 +7,6 @@ import ai.brokk.analyzer.ASTTraversalUtils;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -17,14 +16,17 @@ import org.treesitter.TSParser;
 public class SkeletonGenerator {
     private static final Logger log = LogManager.getLogger(SkeletonGenerator.class);
 
-    private final Map<ProjectFile, String> fileContentCache = new ConcurrentHashMap<>();
-
     public SkeletonGenerator(TSParser templateParser) {
         // No longer need separate parser - will use shared one from CppTreeSitterAnalyzer
     }
 
     public Map<CodeUnit, String> fixGlobalEnumSkeletons(
             Map<CodeUnit, String> skeletons, ProjectFile file, TSNode rootNode, String fileContent) {
+        return fixGlobalEnumSkeletons(skeletons, file, rootNode, SourceContent.of(fileContent));
+    }
+
+    public Map<CodeUnit, String> fixGlobalEnumSkeletons(
+            Map<CodeUnit, String> skeletons, ProjectFile file, TSNode rootNode, SourceContent sourceContent) {
         var result = new HashMap<>(skeletons);
 
         try {
@@ -40,9 +42,10 @@ public class SkeletonGenerator {
                 var enumCodeUnit = enumEntry.getKey();
                 var enumName = enumCodeUnit.fqName();
 
-                var enumNode = ASTTraversalUtils.findNodeByTypeAndName(rootNode, ENUM_SPECIFIER, enumName, fileContent);
+                var enumNode =
+                        ASTTraversalUtils.findNodeByTypeAndName(rootNode, ENUM_SPECIFIER, enumName, sourceContent);
                 if (enumNode != null) {
-                    var enumSkeleton = extractEnumSkeleton(enumNode, enumName, fileContent);
+                    var enumSkeleton = extractEnumSkeleton(enumNode, enumName, sourceContent);
                     if (!enumSkeleton.isEmpty()) {
                         result.put(enumCodeUnit, enumSkeleton);
                     }
@@ -57,6 +60,11 @@ public class SkeletonGenerator {
 
     public Map<CodeUnit, String> fixGlobalUnionSkeletons(
             Map<CodeUnit, String> skeletons, ProjectFile file, TSNode rootNode, String fileContent) {
+        return fixGlobalUnionSkeletons(skeletons, file, rootNode, SourceContent.of(fileContent));
+    }
+
+    public Map<CodeUnit, String> fixGlobalUnionSkeletons(
+            Map<CodeUnit, String> skeletons, ProjectFile file, TSNode rootNode, SourceContent sourceContent) {
         var result = new HashMap<>(skeletons);
 
         try {
@@ -75,10 +83,10 @@ public class SkeletonGenerator {
 
                 // Find the union_specifier node in the AST
                 var unionNode =
-                        ASTTraversalUtils.findNodeByTypeAndName(rootNode, UNION_SPECIFIER, unionName, fileContent);
+                        ASTTraversalUtils.findNodeByTypeAndName(rootNode, UNION_SPECIFIER, unionName, sourceContent);
                 if (unionNode != null) {
                     // Extract full union content
-                    var unionSkeleton = extractUnionSkeleton(unionNode, unionName, fileContent);
+                    var unionSkeleton = extractUnionSkeleton(unionNode, unionName, sourceContent);
                     if (!unionSkeleton.isEmpty()) {
                         result.put(unionCodeUnit, unionSkeleton);
                     }
@@ -92,7 +100,7 @@ public class SkeletonGenerator {
     }
 
     /** Extracts union skeleton with all field declarations. */
-    private String extractUnionSkeleton(TSNode unionNode, String unionName, String fileContent) {
+    private String extractUnionSkeleton(TSNode unionNode, String unionName, SourceContent sourceContent) {
         var skeleton = new StringBuilder(256); // Pre-size for better performance
         skeleton.append("union ").append(unionName).append(" {\n");
 
@@ -104,7 +112,7 @@ public class SkeletonGenerator {
                 var child = bodyNode.getChild(i);
                 if (child != null && !child.isNull() && FIELD_DECLARATION.equals(child.getType())) {
                     // Get the full field declaration text
-                    var fieldText = ASTTraversalUtils.extractNodeText(child, fileContent);
+                    var fieldText = ASTTraversalUtils.extractNodeText(child, sourceContent);
                     if (!fieldText.isEmpty()) {
                         skeleton.append("    ").append(fieldText);
                         if (!fieldText.endsWith(";")) {
@@ -121,7 +129,7 @@ public class SkeletonGenerator {
     }
 
     /** Extracts enum skeleton with only enum value names (no assigned values). */
-    private String extractEnumSkeleton(TSNode enumNode, String enumName, String fileContent) {
+    private String extractEnumSkeleton(TSNode enumNode, String enumName, SourceContent sourceContent) {
         var skeleton = new StringBuilder(256); // Pre-size for better performance
         skeleton.append("enum ").append(enumName).append(" {\n");
 
@@ -137,7 +145,7 @@ public class SkeletonGenerator {
                     // Get the name of the enumerator (before any '=' assignment)
                     var nameNode = child.getChildByFieldName("name");
                     if (nameNode != null && !nameNode.isNull()) {
-                        var enumValueName = ASTTraversalUtils.extractNodeText(nameNode, fileContent);
+                        var enumValueName = ASTTraversalUtils.extractNodeText(nameNode, sourceContent);
                         if (!enumValueName.isEmpty()) {
                             enumValues.add(enumValueName);
                         }
@@ -164,16 +172,24 @@ public class SkeletonGenerator {
      * scoped enums (enum class).
      */
     public String extractEnumSkeletonFromNode(TSNode enumNode, String fileContent) {
+        return extractEnumSkeletonFromNode(enumNode, SourceContent.of(fileContent));
+    }
+
+    /**
+     * Extracts enum skeleton from an enum node, showing only names without values. Handles both regular enums and
+     * scoped enums (enum class).
+     */
+    public String extractEnumSkeletonFromNode(TSNode enumNode, SourceContent sourceContent) {
         // Get enum name
         var nameNode = enumNode.getChildByFieldName("name");
         String enumName = "";
         if (nameNode != null && !nameNode.isNull()) {
-            enumName = ASTTraversalUtils.extractNodeText(nameNode, fileContent);
+            enumName = ASTTraversalUtils.extractNodeText(nameNode, sourceContent);
         }
 
         // Determine if it's a scoped enum (enum class)
         boolean isScopedEnum = false;
-        var enumText = ASTTraversalUtils.extractNodeText(enumNode, fileContent);
+        var enumText = ASTTraversalUtils.extractNodeText(enumNode, sourceContent);
         if (enumText.startsWith("enum class")) {
             isScopedEnum = true;
         }
@@ -197,7 +213,7 @@ public class SkeletonGenerator {
                     // Get the name of the enumerator (before any '=' assignment)
                     var enumeratorNameNode = child.getChildByFieldName("name");
                     if (enumeratorNameNode != null && !enumeratorNameNode.isNull()) {
-                        var enumValueName = ASTTraversalUtils.extractNodeText(enumeratorNameNode, fileContent);
+                        var enumValueName = ASTTraversalUtils.extractNodeText(enumeratorNameNode, sourceContent);
                         if (!enumValueName.isEmpty()) {
                             enumValues.add(enumValueName);
                         }
@@ -217,15 +233,5 @@ public class SkeletonGenerator {
 
         skeleton.append("    }");
         return skeleton.toString();
-    }
-
-    /** Clears the file content cache to free memory. Should be called periodically or when analysis is complete. */
-    public void clearCache() {
-        fileContentCache.clear();
-    }
-
-    /** Gets the size of the file content cache for monitoring. */
-    public int getCacheSize() {
-        return fileContentCache.size();
     }
 }

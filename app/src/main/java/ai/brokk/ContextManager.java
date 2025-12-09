@@ -62,6 +62,7 @@ import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 /**
  * Manages the current and previous context, along with other state like prompts and message history.
@@ -941,26 +942,34 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public boolean undoContext() {
-        UndoResult result = contextHistory.undo(1, io, (AbstractProject) project);
-        if (result.wasUndone()) {
-            notifyContextListeners(liveContext());
-            project.getSessionManager()
-                    .saveHistory(contextHistory, currentSessionId); // Save history of frozen contexts
-            return true;
-        }
-
-        return false;
+        return withFileChangeNotificationsPaused(() -> {
+            UndoResult result = contextHistory.undo(1, io, project);
+            if (result.wasUndone()) {
+                notifyContextListeners(liveContext());
+                project.getSessionManager()
+                        .saveHistory(contextHistory, currentSessionId); // Save history of frozen contexts
+                if (!result.changedFiles().isEmpty()) {
+                    analyzerWrapper.updateFiles(result.changedFiles());
+                }
+                return true;
+            }
+            return false;
+        });
     }
 
     /** undo changes until we reach the target FROZEN context */
     public Future<?> undoContextUntilAsync(Context targetFrozenContext) {
         return submitExclusiveAction(() -> {
-            UndoResult result = contextHistory.undoUntil(targetFrozenContext, io, (AbstractProject) project);
+            UndoResult result =
+                    withFileChangeNotificationsPaused(() -> contextHistory.undoUntil(targetFrozenContext, io, project));
             if (result.wasUndone()) {
                 notifyContextListeners(liveContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
                 String message = "Undid " + result.steps() + " step" + (result.steps() > 1 ? "s" : "") + "!";
                 io.showNotification(IConsoleIO.NotificationRole.INFO, message);
+                if (!result.changedFiles().isEmpty()) {
+                    analyzerWrapper.updateFiles(result.changedFiles());
+                }
             } else {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Context not found or already at that point");
             }
@@ -970,11 +979,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** redo last undone context */
     public Future<?> redoContextAsync() {
         return submitExclusiveAction(() -> {
-            boolean wasRedone = contextHistory.redo(io, (AbstractProject) project);
-            if (wasRedone) {
+            ContextHistory.RedoResult redoResult =
+                    withFileChangeNotificationsPaused(() -> contextHistory.redo(io, project));
+            if (redoResult.wasRedone()) {
                 notifyContextListeners(liveContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Redo!");
+                if (!redoResult.changedFiles().isEmpty()) {
+                    analyzerWrapper.updateFiles(redoResult.changedFiles());
+                }
             } else {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "no redo state available");
             }
@@ -2870,5 +2883,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
             return summary;
         }
+    }
+
+    @TestOnly
+    public void setAnalyzerWrapper(IAnalyzerWrapper analyzerWrapper) {
+        this.analyzerWrapper = analyzerWrapper;
     }
 }

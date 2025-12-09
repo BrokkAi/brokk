@@ -701,7 +701,8 @@ public class TreeSitterAnalyzerRustTest {
     @Test
     void testDeterminePackageName_RustSpecificLayouts() throws IOException {
         // Helper to call determinePackageName, as its other params are not used by RustAnalyzer's impl
-        Function<ProjectFile, String> getPkgName = (pf) -> rsAnalyzer.determinePackageName(pf, null, null, "");
+        Function<ProjectFile, String> getPkgName =
+                (pf) -> rsAnalyzer.determinePackageName(pf, null, null, SourceContent.of(""));
 
         // 1. File at project root (like Point.rs)
         ProjectFile pointFile = new ProjectFile(rsTestProject.getRoot(), "Point.rs");
