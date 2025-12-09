@@ -25,7 +25,7 @@ import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.gui.util.GitUiUtil;
+import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
@@ -3796,7 +3796,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     private String formatModified(long modifiedMillis) {
         var instant = Instant.ofEpochMilli(modifiedMillis);
-        return GitUiUtil.formatRelativeDate(instant, LocalDate.now(ZoneId.systemDefault()));
+        return GitDiffUiUtil.formatRelativeDate(instant, LocalDate.now(ZoneId.systemDefault()));
     }
 
     /**

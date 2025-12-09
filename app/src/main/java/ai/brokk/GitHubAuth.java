@@ -3,7 +3,7 @@ package ai.brokk;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.git.GitRepo;
-import ai.brokk.gui.util.GitUiUtil;
+import ai.brokk.gui.util.GitRepoIdUtil;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.issues.IssuesProviderConfig;
 import ai.brokk.project.IProject;
@@ -110,7 +110,7 @@ public class GitHubAuth {
 
             var remoteUrl = repo.getOriginRemoteUrl();
             // Use GitUiUtil for parsing owner/repo from URL
-            var parsedOwnerRepoDetails = GitUiUtil.parseOwnerRepoFromUrl(Objects.requireNonNullElse(remoteUrl, ""));
+            var parsedOwnerRepoDetails = GitRepoIdUtil.parseOwnerRepoFromUrl(Objects.requireNonNullElse(remoteUrl, ""));
 
             if (parsedOwnerRepoDetails != null) {
                 effectiveOwner = parsedOwnerRepoDetails.owner();
@@ -132,6 +132,25 @@ public class GitHubAuth {
             }
         }
 
+        if (effectiveHost != null && !effectiveHost.isBlank()) {
+            var normalizedHostOpt = GitRepoIdUtil.normalizeGitHubHost(effectiveHost);
+            if (normalizedHostOpt.isPresent()) {
+                var hostValidationError = GitRepoIdUtil.validateGitHubHost(normalizedHostOpt.get());
+                if (hostValidationError.isPresent()) {
+                    logger.warn(
+                            "Invalid GitHub host for project '{}': '{}'. Validation error: {}",
+                            project.getRoot().getFileName().toString(),
+                            effectiveHost,
+                            hostValidationError.get());
+                    throw new IOException("Invalid GitHub Enterprise host for project '"
+                            + project.getRoot().getFileName().toString()
+                            + "': "
+                            + hostValidationError.get());
+                }
+                effectiveHost = normalizedHostOpt.get();
+            }
+        }
+
         if (effectiveOwner == null
                 || effectiveOwner.isBlank()
                 || effectiveRepoName == null
@@ -148,6 +167,23 @@ public class GitHubAuth {
             throw new IOException("Could not determine effective 'owner/repo' for GitHubAuth (project: "
                     + project.getRoot().getFileName().toString()
                     + "). Check git remote or GitHub override settings for owner/repo.");
+        }
+
+        try {
+            GitRepoIdUtil.buildRepoSlug(effectiveOwner, effectiveRepoName);
+        } catch (IllegalArgumentException e) {
+            String source = usingOverride ? "GitHub config override" : "git remote URL";
+            logger.warn(
+                    "Invalid owner/repo format for project '{}': owner='{}', repo='{}' (from {}). Error: {}",
+                    project.getRoot().getFileName().toString(),
+                    effectiveOwner,
+                    effectiveRepoName,
+                    source,
+                    e.getMessage());
+            throw new IOException("Invalid GitHub repository identifier for project '"
+                    + project.getRoot().getFileName().toString()
+                    + "': "
+                    + e.getMessage());
         }
 
         // Compare all three: owner, repo, and host
@@ -459,9 +495,11 @@ public class GitHubAuth {
         for (JsonNode installation : installations) {
             var appSlug = installation.path("app_slug").asText("");
             if ("brokkai".equals(appSlug) || "brokk".equals(appSlug)) {
-                var repositoriesUrl = installation.path("repositories_url").asText("");
-                if (!repositoriesUrl.isBlank()) {
-                    repoUrls.add(repositoriesUrl);
+                // Use user-scoped endpoint to avoid HTTP 403 with user token
+                var installationId = installation.path("id").asText("");
+                if (!installationId.isBlank()) {
+                    var userScopedUrl = "https://api.github.com/user/installations/" + installationId + "/repositories";
+                    repoUrls.add(userScopedUrl);
                 }
             }
         }
@@ -609,16 +647,27 @@ public class GitHubAuth {
             return; // Already connected
         }
 
+        String slug;
+        try {
+            slug = GitRepoIdUtil.buildRepoSlug(owner, repoName);
+        } catch (IllegalArgumentException e) {
+            logger.warn(
+                    "Validation failed for repository identifier: owner='{}', repo='{}'. Error: {}",
+                    owner,
+                    repoName,
+                    e.getMessage());
+            throw new IOException("Invalid GitHub repository identifier: " + e.getMessage());
+        }
+
         // Try with token
         var token = getStoredToken();
         var builder = createBaseBuilder();
         String targetHostDisplay = (this.host == null || this.host.isBlank()) ? "api.github.com" : this.host;
 
         if (this.host != null && !this.host.isBlank()) {
-            // Ensure host does not have scheme, GitHubBuilder wants just the hostname for enterprise.
-            // It will construct https://{host}/api/v3 or similar internally.
-            String enterpriseHost = this.host.replaceFirst("^https?://", "").replaceFirst("/$", "");
-            builder.withEndpoint("https://" + enterpriseHost + "/api/v3"); // Explicitly set scheme and path for clarity
+            var normalizedHostOpt = GitRepoIdUtil.normalizeGitHubHost(this.host);
+            String enterpriseHost = normalizedHostOpt.orElse(this.host);
+            builder.withEndpoint("https://" + enterpriseHost + "/api/v3");
             logger.debug("Configuring GitHub client for enterprise host: {}", enterpriseHost);
         }
 
@@ -631,7 +680,9 @@ public class GitHubAuth {
                         targetHostDisplay);
                 builder.withOAuthToken(token);
                 this.githubClient = builder.build();
-                this.ghRepository = this.githubClient.getRepository(owner + "/" + repoName);
+                logger.debug(
+                        "Calling getRepository with slug '{}' on host '{}' (authenticated)", slug, targetHostDisplay);
+                this.ghRepository = getRepositoryWithValidation(this.githubClient, slug);
                 if (this.ghRepository != null) {
                     logger.info(
                             "Successfully connected to GitHub repository {}/{} on host {} with token",
@@ -659,21 +710,16 @@ public class GitHubAuth {
         }
 
         // Try anonymous (if token failed or no token)
-        // Re-initialize builder if it was modified by token attempt and failed, or if no token.
-        // If host was set, it's already in builder. If not, builder is fresh or uses default endpoint.
-        // GitHubBuilder is stateful for endpoint, so if it was set above, it persists.
-        // If builder.withOAuthToken(token) failed, the endpoint setting is still there for anonymous.
-        if (this.githubClient == null) { // only if token attempt failed or no token was present
-            // builder already has endpoint if host was specified.
-            // builder.build() will now be anonymous.
+        if (this.githubClient == null) {
             try {
                 logger.debug(
                         "Attempting anonymous GitHub connection for {}/{} on host {}",
                         owner,
                         repoName,
                         targetHostDisplay);
-                this.githubClient = builder.build(); // Will use default endpoint or the one set for GHES
-                this.ghRepository = this.githubClient.getRepository(owner + "/" + repoName);
+                this.githubClient = builder.build();
+                logger.debug("Calling getRepository with slug '{}' on host '{}' (anonymous)", slug, targetHostDisplay);
+                this.ghRepository = getRepositoryWithValidation(this.githubClient, slug);
                 if (this.ghRepository != null) {
                     logger.info(
                             "Successfully connected to GitHub repository {}/{} on host {} anonymously",
@@ -701,6 +747,18 @@ public class GitHubAuth {
     public GHRepository getGhRepository() throws IOException {
         connect(); // Ensures ghRepository is initialized or throws
         return requireNonNull(this.ghRepository, "ghRepository should be non-null after successful connect()");
+    }
+
+    private GHRepository getRepositoryWithValidation(GitHub client, String slug) throws IOException {
+        try {
+            return client.getRepository(slug);
+        } catch (IllegalArgumentException iae) {
+            logger.warn("Illegal repository identifier {}/{}: {}", owner, repoName, iae.getMessage());
+            throw new IOException(
+                    "Owner/Repo must be 'owner/repo' – fix Settings → Project → Issues → GitHub or your git remote. Details: "
+                            + iae.getMessage(),
+                    iae);
+        }
     }
 
     /**

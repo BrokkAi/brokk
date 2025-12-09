@@ -1232,7 +1232,7 @@ public class Chrome
                 if (idx != -1) leftTabbedPanel.remove(idx);
             }
             issuesPanel = new GitIssuesTab(this, contextManager);
-            var icon = Icons.ASSIGNMENT;
+            var icon = Icons.ADJUST;
             leftTabbedPanel.addTab(null, icon, issuesPanel);
             var tabIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
             var recreateShortcut =

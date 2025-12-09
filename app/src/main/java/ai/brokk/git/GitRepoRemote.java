@@ -595,4 +595,51 @@ public class GitRepoRemote {
         // Remote branch exists, check if local has unpushed commits
         return !getUnpushedCommitIds(branch).isEmpty();
     }
+
+    /**
+     * Ensures a commit SHA is available locally by fetching a specific refSpec from a remote.
+     *
+     * @param sha The commit SHA that must be present locally
+     * @param refSpec The refSpec to fetch (e.g. "+refs/pull/123/head:refs/remotes/origin/pr/123/head")
+     * @param remoteName The remote to fetch from
+     * @return true if the SHA is now available locally, false otherwise
+     */
+    public boolean ensureShaIsLocal(String sha, String refSpec, String remoteName) {
+        if (repo.isCommitLocallyAvailable(sha)) {
+            return true;
+        }
+
+        logger.debug("SHA {} not available locally - fetching {} from {}", sha, refSpec, remoteName);
+        try {
+            var fetchCommand =
+                    git.fetch().setRemote(remoteName).setRefSpecs(new org.eclipse.jgit.transport.RefSpec(refSpec));
+            repo.applyGitHubAuthentication(fetchCommand, getUrl(remoteName));
+            fetchCommand.call();
+            if (repo.isCommitLocallyAvailable(sha)) {
+                logger.debug("Successfully fetched and verified SHA {}", sha);
+                repo.invalidateCaches();
+                return true;
+            } else {
+                logger.warn(
+                        "Failed to make SHA {} available locally even after fetching {} from {}",
+                        sha,
+                        refSpec,
+                        remoteName);
+                return false;
+            }
+        } catch (Exception e) {
+            logger.warn("Error during fetch operation for SHA {}: {}", sha, e.getMessage(), e);
+            return false;
+        }
+    }
+
+    /**
+     * Checks if a commit's data is fully available and parsable in the local repository.
+     *
+     * @param sha The commit SHA to check
+     * @return true if the commit is resolvable and its object data is parsable, false otherwise
+     */
+    public boolean isCommitLocallyAvailable(String sha) {
+        return repo.isCommitLocallyAvailable(sha);
+    }
 }

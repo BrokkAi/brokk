@@ -17,7 +17,7 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.FontSizeAware;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.gui.util.GitUiUtil;
+import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.util.ContentDiffUtils;
@@ -791,8 +791,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             }
             var description = "Captured Diff: %s vs %s"
                     .formatted(
-                            GitUiUtil.friendlyCommitLabel(currentLeftSource.title(), repo),
-                            GitUiUtil.friendlyCommitLabel(currentRightSource.title(), repo));
+                            GitDiffUiUtil.friendlyCommitLabel(currentLeftSource.title(), repo),
+                            GitDiffUiUtil.friendlyCommitLabel(currentRightSource.title(), repo));
 
             var patch = DiffUtils.diff(leftLines, rightLines, (DiffAlgorithmListener) null);
             var unifiedDiff = UnifiedDiffUtils.generateUnifiedDiff(
