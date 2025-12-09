@@ -46,11 +46,17 @@ public class MaterialButton extends JButton {
         setFocusable(true);
         setOpaque(false);
 
-        var borderColor = UIManager.getColor("Component.borderColor");
-        setBorder(BorderFactory.createCompoundBorder(
-                new LineBorder(borderColor != null ? borderColor : Color.GRAY, 1, true),
-                BorderFactory.createEmptyBorder(4, 8, 4, 8)));
-        setMargin(new Insets(4, 8, 4, 8));
+        if (isForceBorderless()) {
+            putClientProperty("JButton.buttonType", "borderless");
+            setBorder(null);
+            setBorderPainted(false);
+        } else {
+            var borderColor = UIManager.getColor("Component.borderColor");
+            setBorder(BorderFactory.createCompoundBorder(
+                    new LineBorder(borderColor != null ? borderColor : Color.GRAY, 1, true),
+                    BorderFactory.createEmptyBorder(4, 8, 4, 8)));
+            setMargin(new Insets(4, 8, 4, 8));
+        }
         // Allow the Look-and-Feel to render rollover effects by keeping the content area filled
         // and enabling rollover support on the button model.
         setContentAreaFilled(true);
@@ -102,6 +108,32 @@ public class MaterialButton extends JButton {
         updateTooltip();
     }
 
+    private void applyBorderless() {
+        putClientProperty("JButton.buttonType", "borderless");
+        setBorder(null);
+        setBorderPainted(false);
+    }
+
+    @Override
+    public void setText(@Nullable String text) {
+        super.setText(text);
+
+        if (isForceBorderless()) {
+            applyBorderless();
+            return;
+        }
+
+        if (text == null || text.isBlank()) {
+            applyBorderlessIfIconOnly();
+        } else {
+            var borderColor = UIManager.getColor("Component.borderColor");
+            setBorder(BorderFactory.createCompoundBorder(
+                    new LineBorder(borderColor != null ? borderColor : Color.GRAY, 1, true),
+                    BorderFactory.createEmptyBorder(4, 8, 4, 8)));
+            setBorderPainted(true);
+        }
+    }
+
     @Override
     public void updateUI() {
         super.updateUI();
@@ -109,6 +141,11 @@ public class MaterialButton extends JButton {
         updateIconForEnabledState();
         updateCursorForEnabledState();
         updateTooltip();
+        if (isForceBorderless()) {
+            applyBorderless();
+        } else {
+            applyBorderlessIfIconOnly();
+        }
     }
 
     private void updateTooltip() {
@@ -179,6 +216,26 @@ public class MaterialButton extends JButton {
 
         // Fallback for non-FlatSVG icons - return as-is
         return icon;
+    }
+
+    private boolean isIconOnly() {
+        Icon icon = originalIcon != null ? originalIcon : getIcon();
+        String text = getText();
+        return icon != null && (text == null || text.isBlank());
+    }
+
+    private boolean isForceBorderless() {
+        Object v = getClientProperty("MaterialButton.forceBorderless");
+        if (v instanceof Boolean b) {
+            return b;
+        }
+        return false;
+    }
+
+    private void applyBorderlessIfIconOnly() {
+        if (isIconOnly()) {
+            applyBorderless();
+        }
     }
 
     @Override
