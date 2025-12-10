@@ -415,6 +415,8 @@ public class HeadlessExecCli {
         System.out.println("  --auto-compress          Enable auto-compress of context");
         System.out.println("  --help                   Show this help message");
         System.out.println();
+        System.out.println("Note: In SEARCH mode, --code-model is ignored (SearchAgent is read-only and does not generate code).");
+        System.out.println();
         System.out.println("Example:");
         System.out.println("  java HeadlessExecCli --planner-model gpt-5 --mode SEARCH --scan-model gpt-5-mini 'Describe the project layout'");
     }
