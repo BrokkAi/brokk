@@ -747,7 +747,9 @@ public final class HeadlessExecutorMain {
                 requestedJobContextTexts.addAll(contextObj.text());
             }
             int requestedTopLevelCount = topLevelTexts != null ? topLevelTexts.size() : 0;
-            int requestedNestedCount = (contextObj != null && contextObj.text() != null) ? contextObj.text().size() : 0;
+            int requestedNestedCount = (contextObj != null && contextObj.text() != null)
+                    ? contextObj.text().size()
+                    : 0;
             logger.info(
                     "Job {} context text presence: topLevel={}, nested={}, total={}",
                     idempotencyKey,
@@ -756,7 +758,7 @@ public final class HeadlessExecutorMain {
                     requestedJobContextTexts.size());
 
             // Validate context text entries if any were supplied
-            final int MAX_BYTES = 64 * 1024; // 64 KiB
+            final int MAX_BYTES = 1024 * 1024; // 1 MiB
             var validJobContextTexts = new ArrayList<String>();
             var invalidContextEntries = new ArrayList<String>();
             if (!requestedJobContextTexts.isEmpty()) {
@@ -856,7 +858,9 @@ public final class HeadlessExecutorMain {
                                 }
                             }
                         }
-                        int totalChars = validJobContextTexts.stream().mapToInt(String::length).sum();
+                        int totalChars = validJobContextTexts.stream()
+                                .mapToInt(String::length)
+                                .sum();
                         logger.info(
                                 "Added {} job-scoped context text fragments (totalChars={})",
                                 contextTextFragmentIds.size(),
@@ -1013,118 +1017,118 @@ public final class HeadlessExecutorMain {
     }
 
     void handlePostContextFiles(HttpExchange exchange) throws IOException {
-         if (!ensureMethod(exchange, "POST")) {
-              return;
-         }
+        if (!ensureMethod(exchange, "POST")) {
+            return;
+        }
 
-         try {
-              var request = parseJsonOr400(exchange, AddContextFilesRequest.class, "/v1/context/files");
-              if (request == null) {
-                   return;
-              }
+        try {
+            var request = parseJsonOr400(exchange, AddContextFilesRequest.class, "/v1/context/files");
+            if (request == null) {
+                return;
+            }
 
-              if (request.relativePaths() == null || request.relativePaths().isEmpty()) {
-                   sendValidationError(exchange, "relativePaths must not be empty");
-                   return;
-              }
+            if (request.relativePaths() == null || request.relativePaths().isEmpty()) {
+                sendValidationError(exchange, "relativePaths must not be empty");
+                return;
+            }
 
-              var root = contextManager.getProject().getRoot();
-              var validProjectFiles = new HashSet<ProjectFile>();
-              var invalidPaths = new ArrayList<String>();
+            var root = contextManager.getProject().getRoot();
+            var validProjectFiles = new HashSet<ProjectFile>();
+            var invalidPaths = new ArrayList<String>();
 
-              for (var pathStr : request.relativePaths()) {
-                   if (pathStr == null || pathStr.isBlank()) {
-                        invalidPaths.add("(blank path)");
-                        continue;
-                   }
+            for (var pathStr : request.relativePaths()) {
+                if (pathStr == null || pathStr.isBlank()) {
+                    invalidPaths.add("(blank path)");
+                    continue;
+                }
 
-                   var pathObj = Path.of(pathStr);
+                var pathObj = Path.of(pathStr);
 
-                   if (pathObj.isAbsolute()) {
-                        invalidPaths.add(pathStr + " (absolute path not allowed)");
-                        continue;
-                   }
+                if (pathObj.isAbsolute()) {
+                    invalidPaths.add(pathStr + " (absolute path not allowed)");
+                    continue;
+                }
 
-                   var absolutePath = root.resolve(pathObj).normalize();
+                var absolutePath = root.resolve(pathObj).normalize();
 
-                   if (!absolutePath.startsWith(root)) {
-                        invalidPaths.add(pathStr + " (escapes workspace)");
-                        continue;
-                   }
+                if (!absolutePath.startsWith(root)) {
+                    invalidPaths.add(pathStr + " (escapes workspace)");
+                    continue;
+                }
 
-                   if (!Files.isRegularFile(absolutePath)) {
-                        invalidPaths.add(pathStr + " (not a regular file or does not exist)");
-                        continue;
-                   }
+                if (!Files.isRegularFile(absolutePath)) {
+                    invalidPaths.add(pathStr + " (not a regular file or does not exist)");
+                    continue;
+                }
 
-                   var normalizedRelPath = root.relativize(absolutePath).toString();
+                var normalizedRelPath = root.relativize(absolutePath).toString();
 
-                   try {
-                        var projectFile = contextManager.toFile(normalizedRelPath);
-                        validProjectFiles.add(projectFile);
-                   } catch (Exception e) {
-                        logger.warn("Failed to convert path to ProjectFile: {}", normalizedRelPath, e);
-                        invalidPaths.add(normalizedRelPath + " (conversion error)");
-                   }
-              }
+                try {
+                    var projectFile = contextManager.toFile(normalizedRelPath);
+                    validProjectFiles.add(projectFile);
+                } catch (Exception e) {
+                    logger.warn("Failed to convert path to ProjectFile: {}", normalizedRelPath, e);
+                    invalidPaths.add(normalizedRelPath + " (conversion error)");
+                }
+            }
 
-              if (validProjectFiles.isEmpty()) {
-                   var msg = "No valid relative paths provided";
-                   if (!invalidPaths.isEmpty()) {
-                        msg += "; invalid: " + String.join(", ", invalidPaths);
-                   }
-                   sendValidationError(exchange, msg);
-                   return;
-              }
+            if (validProjectFiles.isEmpty()) {
+                var msg = "No valid relative paths provided";
+                if (!invalidPaths.isEmpty()) {
+                    msg += "; invalid: " + String.join(", ", invalidPaths);
+                }
+                sendValidationError(exchange, msg);
+                return;
+            }
 
-              var before = contextManager.getFilesInContext();
+            var before = contextManager.getFilesInContext();
 
-              contextManager.addFiles(validProjectFiles);
+            contextManager.addFiles(validProjectFiles);
 
-              var after = contextManager.getFilesInContext();
+            var after = contextManager.getFilesInContext();
 
-              var addedFiles = after.stream().filter(pf -> !before.contains(pf)).collect(Collectors.toList());
+            var addedFiles = after.stream().filter(pf -> !before.contains(pf)).collect(Collectors.toList());
 
-              var addedContextFiles = new ArrayList<AddedContextFile>();
-              var liveContext = contextManager.liveContext();
+            var addedContextFiles = new ArrayList<AddedContextFile>();
+            var liveContext = contextManager.liveContext();
 
-              for (var projectFile : addedFiles) {
-                   var fragId = liveContext
-                             .fileFragments()
-                             .filter(f -> f instanceof ai.brokk.context.ContextFragment.PathFragment)
-                             .map(f -> (ai.brokk.context.ContextFragment.PathFragment) f)
-                             .filter(p -> {
-                                  var bf = p.file();
-                                  if (!(bf instanceof ai.brokk.analyzer.ProjectFile)) {
-                                       return false;
-                                  }
-                                  var a = bf.absPath();
-                                  var b = projectFile.absPath();
-                                  return a.equals(b);
-                             })
-                             .map(ai.brokk.context.ContextFragment::id)
-                             .findFirst()
-                             .orElse("");
+            for (var projectFile : addedFiles) {
+                var fragId = liveContext
+                        .fileFragments()
+                        .filter(f -> f instanceof ai.brokk.context.ContextFragment.PathFragment)
+                        .map(f -> (ai.brokk.context.ContextFragment.PathFragment) f)
+                        .filter(p -> {
+                            var bf = p.file();
+                            if (!(bf instanceof ai.brokk.analyzer.ProjectFile)) {
+                                return false;
+                            }
+                            var a = bf.absPath();
+                            var b = projectFile.absPath();
+                            return a.equals(b);
+                        })
+                        .map(ai.brokk.context.ContextFragment::id)
+                        .findFirst()
+                        .orElse("");
 
-                   var relPath = root.relativize(projectFile.absPath()).toString();
-                   addedContextFiles.add(new AddedContextFile(fragId, relPath));
-              }
+                var relPath = root.relativize(projectFile.absPath()).toString();
+                addedContextFiles.add(new AddedContextFile(fragId, relPath));
+            }
 
-              var response = new AddContextFilesResponse(addedContextFiles);
-              logger.info(
-                        "Added {} files to context (session={}): {}",
-                        addedContextFiles.size(),
-                        contextManager.getCurrentSessionId(),
-                        addedContextFiles.stream()
-                                  .map(AddedContextFile::relativePath)
-                                  .collect(Collectors.joining(", ")));
+            var response = new AddContextFilesResponse(addedContextFiles);
+            logger.info(
+                    "Added {} files to context (session={}): {}",
+                    addedContextFiles.size(),
+                    contextManager.getCurrentSessionId(),
+                    addedContextFiles.stream()
+                            .map(AddedContextFile::relativePath)
+                            .collect(Collectors.joining(", ")));
 
-              SimpleHttpServer.sendJsonResponse(exchange, 200, response);
-         } catch (Exception e) {
-              logger.error("Error handling POST /v1/context/files", e);
-              var error = ErrorPayload.internalError("Failed to add files to context", e);
-              SimpleHttpServer.sendJsonResponse(exchange, 500, error);
-         }
+            SimpleHttpServer.sendJsonResponse(exchange, 200, response);
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/context/files", e);
+            var error = ErrorPayload.internalError("Failed to add files to context", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
     }
 
     private record CreateSessionRequest(String name) {}
@@ -1257,7 +1261,8 @@ public final class HeadlessExecutorMain {
             contextManager.addSummaries(
                     Set.of(),
                     validClassNames.stream()
-                            .flatMap(name -> analyzer.getDefinitions(name).stream().filter(CodeUnit::isClass))
+                            .flatMap(name ->
+                                    analyzer.getDefinitions(name).stream().filter(CodeUnit::isClass))
                             .collect(Collectors.toSet()));
 
             var addedClasses = new ArrayList<AddedContextClass>();
@@ -1403,54 +1408,54 @@ public final class HeadlessExecutorMain {
     }
 
     void handlePostContextText(HttpExchange exchange) throws IOException {
-         if (!ensureMethod(exchange, "POST")) {
-              return;
-         }
+        if (!ensureMethod(exchange, "POST")) {
+            return;
+        }
 
-         try {
-              var request = parseJsonOr400(exchange, AddContextTextRequest.class, "/v1/context/text");
-              if (request == null) {
-                   return;
-              }
+        try {
+            var request = parseJsonOr400(exchange, AddContextTextRequest.class, "/v1/context/text");
+            if (request == null) {
+                return;
+            }
 
-              var text = request.text();
-              if (text == null || text.isBlank()) {
-                   logger.info("Rejected pasted text: blank");
-                   sendValidationError(exchange, "text must not be blank");
-                   return;
-              }
+            var text = request.text();
+            if (text == null || text.isBlank()) {
+                logger.info("Rejected pasted text: blank");
+                sendValidationError(exchange, "text must not be blank");
+                return;
+            }
 
-              final int MAX_BYTES = 64 * 1024; // 64 KiB
-              int byteLen = text.getBytes(UTF_8).length;
-              if (byteLen > MAX_BYTES) {
-                   logger.info("Rejected pasted text: bytes={} exceeds limit", byteLen);
-                   sendValidationError(exchange, "text exceeds maximum size of " + MAX_BYTES + " bytes");
-                   return;
-              }
+            final int MAX_BYTES = 64 * 1024; // 64 KiB
+            int byteLen = text.getBytes(UTF_8).length;
+            if (byteLen > MAX_BYTES) {
+                logger.info("Rejected pasted text: bytes={} exceeds limit", byteLen);
+                sendValidationError(exchange, "text exceeds maximum size of " + MAX_BYTES + " bytes");
+                return;
+            }
 
-              contextManager.addPastedTextFragment(text);
+            contextManager.addPastedTextFragment(text);
 
-              var live = contextManager.liveContext();
-              var fragments = live.getAllFragmentsInDisplayOrder();
-              String fragmentId = "";
-              for (int i = fragments.size() - 1; i >= 0; i--) {
-                   var f = fragments.get(i);
-                   if (f.getType() == ContextFragment.FragmentType.PASTE_TEXT) {
-                        fragmentId = f.id();
-                        break;
-                   }
-              }
+            var live = contextManager.liveContext();
+            var fragments = live.getAllFragmentsInDisplayOrder();
+            String fragmentId = "";
+            for (int i = fragments.size() - 1; i >= 0; i--) {
+                var f = fragments.get(i);
+                if (f.getType() == ContextFragment.FragmentType.PASTE_TEXT) {
+                    fragmentId = f.id();
+                    break;
+                }
+            }
 
-              var chars = text.length();
-              logger.info("Added pasted text to context: chars={}", chars);
+            var chars = text.length();
+            logger.info("Added pasted text to context: chars={}", chars);
 
-              var response = new AddContextTextResponse(fragmentId, chars);
-              SimpleHttpServer.sendJsonResponse(exchange, 200, response);
-         } catch (Exception e) {
-              logger.error("Error handling POST /v1/context/text", e);
-              var error = ErrorPayload.internalError("Failed to add text to context", e);
-              SimpleHttpServer.sendJsonResponse(exchange, 500, error);
-         }
+            var response = new AddContextTextResponse(fragmentId, chars);
+            SimpleHttpServer.sendJsonResponse(exchange, 200, response);
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/context/text", e);
+            var error = ErrorPayload.internalError("Failed to add text to context", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
     }
 
     public static void main(String[] args) {

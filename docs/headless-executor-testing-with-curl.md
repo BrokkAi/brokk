@@ -165,7 +165,7 @@ Response (200 OK):
 ```
 
 Behavior notes:
-- Size limit: Up to 64 KiB (UTF-8 bytes). Larger payloads are rejected with HTTP 400.
+- Size limit: Up to 1 MiB (UTF-8 bytes). Larger payloads are rejected with HTTP 400.
 - Logging: Only the size is logged; the text content is never logged.
 - Blank text is rejected with HTTP 400.
 - Fragments added via this endpoint are not auto-removed; if you need job-scoped text that is automatically cleaned up, use inline job seeding in POST /v1/jobs (see below).
@@ -219,7 +219,7 @@ Two equivalent payload shapes are supported:
 - Nested object: `context: { text: [ "...", "..." ] }`
 
 Notes:
-- Each entry must be non-blank and at most 64 KiB (UTF-8 bytes); invalid entries cause a 400 error.
+- Each entry must be non-blank and at most 1 MiB (UTF-8 bytes); invalid entries cause a 400 error.
 - Only the sizes are logged; text content is never logged.
 - Omitting these fields leaves behavior unchanged.
 
@@ -603,5 +603,5 @@ curl -sS -X POST "${BASE}/v1/jobs/<job-id>/cancel" \
 - Missing `plannerModel` triggers `HTTP 400` with a validation error (`plannerModel is required`).
 - Providing an unknown `plannerModel` yields a job that transitions to `FAILED` with an error containing `MODEL_UNAVAILABLE`.
 - In CODE mode, changing `plannerModel` does not alter execution, but it must still be supplied; `codeModel` selects the LLM used for code actions.
-- Free-form text that exceeds 64 KiB (UTF-8 bytes) is rejected with `HTTP 400`.
+- Free-form text that exceeds 1 MiB (UTF-8 bytes) is rejected with `HTTP 400`.
 - Blank free-form text is rejected with `HTTP 400`.
