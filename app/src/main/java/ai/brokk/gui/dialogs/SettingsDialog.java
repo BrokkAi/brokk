@@ -32,6 +32,7 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
     private final Chrome chrome;
     private final JTabbedPane tabbedPane;
     private SettingsGlobalPanel globalSettingsPanel;
+    private SettingsAdvancedPanel advancedSettingsPanel;
     private SettingsProjectPanel projectSettingsPanel;
 
     private final MaterialButton okButton;
@@ -64,6 +65,9 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
 
         projectSettingsPanel = new SettingsProjectPanel(chrome, this, okButton, cancelButton, applyButton);
         tabbedPane.addTab("Project", null, projectSettingsPanel, "Settings specific to the current project");
+
+        advancedSettingsPanel = new SettingsAdvancedPanel(chrome, this);
+        tabbedPane.addTab("Advanced", null, advancedSettingsPanel, "Advanced global settings");
 
         // Buttons Panel
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
