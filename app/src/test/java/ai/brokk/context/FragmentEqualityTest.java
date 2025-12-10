@@ -21,8 +21,8 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -507,10 +507,7 @@ class FragmentEqualityTest {
                     """;
 
             var sf = new ContextFragment.StringFragment(
-                    contextManager,
-                    diffText,
-                    "Git diff for GitDiffSingle.java",
-                    SyntaxConstants.SYNTAX_STYLE_NONE);
+                    contextManager, diffText, "Git diff for GitDiffSingle.java", SyntaxConstants.SYNTAX_STYLE_NONE);
 
             var expectedPaths = Set.of(file.absPath().toString());
             var actualPaths = sf.files().join().stream()
@@ -548,7 +545,8 @@ class FragmentEqualityTest {
                     "Unified diff for UnifiedA.java and UnifiedB.java",
                     SyntaxConstants.SYNTAX_STYLE_NONE);
 
-            var expectedPaths = Set.of(fileA.absPath().toString(), fileB.absPath().toString());
+            var expectedPaths =
+                    Set.of(fileA.absPath().toString(), fileB.absPath().toString());
             var actualPaths = sf.files().join().stream()
                     .map(pf -> pf.absPath().toString())
                     .collect(Collectors.toSet());
@@ -573,10 +571,7 @@ class FragmentEqualityTest {
                     """;
 
             var sf = new ContextFragment.StringFragment(
-                    contextManager,
-                    diffText,
-                    "Deletion diff for Deleted.java",
-                    SyntaxConstants.SYNTAX_STYLE_NONE);
+                    contextManager, diffText, "Deletion diff for Deleted.java", SyntaxConstants.SYNTAX_STYLE_NONE);
 
             var expectedPaths = Set.of(file.absPath().toString());
             var actualPaths = sf.files().join().stream()

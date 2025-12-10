@@ -1015,7 +1015,8 @@ public interface ContextFragment {
 
     class StringFragment extends AbstractStaticFragment {
         // Pattern to match git diff file headers: "diff --git a/path b/path"
-        private static final Pattern DIFF_GIT_PATTERN = Pattern.compile("^diff --git a/(.+?) b/(.+?)$", Pattern.MULTILINE);
+        private static final Pattern DIFF_GIT_PATTERN =
+                Pattern.compile("^diff --git a/(.+?) b/(.+?)$", Pattern.MULTILINE);
         // Pattern to match unified diff headers: "+++ b/path" (preferred over --- a/ which may be /dev/null)
         private static final Pattern DIFF_PLUS_PATTERN = Pattern.compile("^\\+\\+\\+ b/(.+?)$", Pattern.MULTILINE);
 
@@ -1036,8 +1037,13 @@ public interface ContextFragment {
                     id,
                     contextManager,
                     new FragmentSnapshot(
-                            description, description, text, syntaxStyle, Set.of(),
-                            extractFilesFromDiff(text, contextManager), (List<Byte>) null));
+                            description,
+                            description,
+                            text,
+                            syntaxStyle,
+                            Set.of(),
+                            extractFilesFromDiff(text, contextManager),
+                            (List<Byte>) null));
         }
 
         /**

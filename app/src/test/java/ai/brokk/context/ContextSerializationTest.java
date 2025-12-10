@@ -1822,10 +1822,7 @@ public class ContextSerializationTest {
                 """;
 
         var fragment = new ContextFragment.StringFragment(
-                mockContextManager,
-                diffText,
-                "Git diff for GitDiffSingle.java",
-                SyntaxConstants.SYNTAX_STYLE_NONE);
+                mockContextManager, diffText, "Git diff for GitDiffSingle.java", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var expectedPaths = Set.of(projectFile.absPath().toString());
         var beforePaths = fragment.files().join().stream()
@@ -1883,9 +1880,8 @@ public class ContextSerializationTest {
                 "Unified diff for UnifiedA.java and UnifiedB.java",
                 SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        var expectedPaths = Set.of(
-                projectFileA.absPath().toString(),
-                projectFileB.absPath().toString());
+        var expectedPaths =
+                Set.of(projectFileA.absPath().toString(), projectFileB.absPath().toString());
         var beforePaths = fragment.files().join().stream()
                 .map(pf -> pf.absPath().toString())
                 .collect(Collectors.toSet());
@@ -1930,10 +1926,7 @@ public class ContextSerializationTest {
                 """;
 
         var fragment = new ContextFragment.StringFragment(
-                mockContextManager,
-                diffText,
-                "Deletion diff for Deleted.java",
-                SyntaxConstants.SYNTAX_STYLE_NONE);
+                mockContextManager, diffText, "Deletion diff for Deleted.java", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var expectedPaths = Set.of(projectFile.absPath().toString());
         var beforePaths = fragment.files().join().stream()
