@@ -1931,8 +1931,66 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     /**
+     * Formats metrics as plain text, handling special baseline cases.
+     * Returns a string suitable for display in tooltips or non-HTML contexts.
+     *
+     * @param res The cumulative changes to format
+     * @param baseline The baseline label (may be null or empty)
+     * @return Plain text metrics (e.g., "Review (0) vs master" or "Review (8, +1234/-5) vs master")
+     */
+    private String formatReviewMetricsPlain(CumulativeChanges res, @Nullable String baseline) {
+        boolean isSpecialState = "detached HEAD".equals(baseline) || "No repository".equals(baseline);
+        String baselineSuffix = (!isSpecialState && baseline != null && !baseline.isEmpty())
+                ? " vs " + baseline
+                : "";
+
+        if (res.filesChanged() == 0) {
+            return "Review (0)" + baselineSuffix;
+        } else {
+            return String.format(
+                    "Review (%d, +%d/-%d)%s",
+                    res.filesChanged(),
+                    res.totalAdded(),
+                    res.totalDeleted(),
+                    baselineSuffix);
+        }
+    }
+
+    /**
+     * Formats metrics as HTML with theme-aware colors, handling special baseline cases.
+     * Returns HTML suitable for display in tab titles and styled labels.
+     *
+     * @param res The cumulative changes to format
+     * @param baseline The baseline label (may be null or empty)
+     * @return HTML-formatted metrics with colored +/- counts
+     */
+    private String formatReviewMetricsHtml(CumulativeChanges res, @Nullable String baseline) {
+        boolean isSpecialState = "detached HEAD".equals(baseline) || "No repository".equals(baseline);
+        String baselineSuffix = (!isSpecialState && baseline != null && !baseline.isEmpty())
+                ? " vs " + baseline
+                : "";
+
+        if (res.filesChanged() == 0) {
+            return "Review (0)" + baselineSuffix;
+        } else {
+            boolean isDark = chrome.getTheme().isDarkTheme();
+            Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
+            Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
+            return String.format(
+                    "<html>Review (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)%s</html>",
+                    res.filesChanged(),
+                    toHex(plusColor),
+                    res.totalAdded(),
+                    toHex(minusColor),
+                    res.totalDeleted(),
+                    escapeHtml(baselineSuffix));
+        }
+    }
+
+    /**
      * Sets the Changes tab title and tooltip based on the provided cumulative changes result,
      * using theme-appropriate + / - colors. Safe if the tab lineup changes while updating.
+     * Also updates custom tab component labels if present.
      */
     private void setChangesTabTitleAndTooltip(CumulativeChanges res) {
         var tabs = outputTabs;
@@ -1953,16 +2011,27 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
         if (idx < 0) return;
 
-        // For special baseline states (detached HEAD or no repository), omit the suffix
-        boolean isSpecialState = "detached HEAD".equals(lastBaselineLabel) || "No repository".equals(lastBaselineLabel);
-        String baselineSuffix = (!isSpecialState && lastBaselineLabel != null && !lastBaselineLabel.isEmpty())
-                ? " vs " + lastBaselineLabel
-                : "";
-
         try {
+            String htmlMetrics = formatReviewMetricsHtml(res, lastBaselineLabel);
+            String plainMetrics = formatReviewMetricsPlain(res, lastBaselineLabel);
+
+            tabs.setTitleAt(idx, htmlMetrics);
+
+            // Update custom tab component label if present
+            try {
+                Component tabComponent = tabs.getTabComponentAt(idx);
+                if (tabComponent instanceof JLabel lbl) {
+                    lbl.setText(plainMetrics);
+                }
+            } catch (IndexOutOfBoundsException ignore) {
+                // Safe guard; tab lineup may have changed
+            }
+
+            // Set tooltip based on baseline state
+            String tooltipMsg;
+            boolean isSpecialState = "detached HEAD".equals(lastBaselineLabel) || "No repository".equals(lastBaselineLabel);
+
             if (res.filesChanged() == 0) {
-                tabs.setTitleAt(idx, "Review (0)" + baselineSuffix);
-                String tooltipMsg;
                 if (isSpecialState) {
                     tooltipMsg = "No baseline to compare";
                 } else if ("HEAD".equals(lastBaselineLabel)) {
@@ -1972,27 +2041,17 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 } else {
                     tooltipMsg = "No changes to review";
                 }
-                tabs.setToolTipTextAt(idx, tooltipMsg + ".");
             } else {
-                boolean isDark = chrome.getTheme().isDarkTheme();
-                Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
-                Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
-                String htmlTitle = String.format(
-                        "<html>Review (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)%s</html>",
-                        res.filesChanged(),
-                        toHex(plusColor),
-                        res.totalAdded(),
-                        toHex(minusColor),
-                        res.totalDeleted(),
-                        escapeHtml(baselineSuffix));
-                tabs.setTitleAt(idx, htmlTitle);
-                String tooltip = "Cumulative changes: "
+                String baselineSuffix = (!isSpecialState && lastBaselineLabel != null && !lastBaselineLabel.isEmpty())
+                        ? " vs " + lastBaselineLabel
+                        : "";
+                tooltipMsg = "Cumulative changes: "
                         + res.filesChanged()
                         + " files, +" + res.totalAdded()
                         + "/-" + res.totalDeleted()
                         + baselineSuffix;
-                tabs.setToolTipTextAt(idx, tooltip);
             }
+            tabs.setToolTipTextAt(idx, tooltipMsg + ".");
         } catch (IndexOutOfBoundsException ignore) {
             // Tab lineup changed; ignore safely
         }
