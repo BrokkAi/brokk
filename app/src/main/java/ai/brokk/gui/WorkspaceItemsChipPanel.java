@@ -229,13 +229,6 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
             newOthersById.put(f.id(), f);
         }
 
-        var toRemoveIds = chipById.keySet().stream()
-                .filter(oldId -> !newOthersById.containsKey(oldId))
-                .toList();
-
-        var toAddFrags =
-                updateFrags.stream().filter(f -> !chipById.containsKey(f.id())).toList();
-
         var orderIds = updateFrags.stream().map(ContextFragment::id).toList();
 
         boolean anyRenderableSummary = summaries.stream().anyMatch(f -> force || hasRenderableContent(f));
@@ -246,6 +239,10 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
                 : java.util.List.<ContextFragment>of();
 
         SwingUtilities.invokeLater(() -> {
+            var toRemoveIds = chipById.keySet().stream()
+                    .filter(oldId -> !newOthersById.containsKey(oldId))
+                    .toList();
+
             for (var id : toRemoveIds) {
                 var chip = chipById.remove(id);
                 if (chip != null) {
@@ -253,7 +250,7 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
                 }
             }
 
-            for (var frag : toAddFrags) {
+            for (var frag : updateFrags) {
                 if (!chipById.containsKey(frag.id())) {
                     var chip = createChip(frag);
                     if (chip != null) {
