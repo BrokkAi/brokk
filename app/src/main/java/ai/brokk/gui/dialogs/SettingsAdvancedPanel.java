@@ -10,7 +10,13 @@ import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.JDeploySettingsUtil;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.GlobalUiSettings;
-import java.awt.*;
+import java.awt.BorderLayout;
+import java.awt.Component;
+import java.awt.Cursor;
+import java.awt.FlowLayout;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
 import java.util.ArrayList;
 import java.util.EventObject;
 import java.util.List;
@@ -131,10 +137,12 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         setEnabledRecursive(this, enabled);
     }
 
-    private void setEnabledRecursive(Container container, boolean enabled) {
-        for (Component comp : container.getComponents()) {
-            comp.setEnabled(enabled);
-            if (comp instanceof Container c) setEnabledRecursive(c, enabled);
+    private void setEnabledRecursive(Component c, boolean enabled) {
+        c.setEnabled(enabled);
+        if (c instanceof JPanel panel) {
+            for (Component child : panel.getComponents()) {
+                setEnabledRecursive(child, enabled);
+            }
         }
     }
 
@@ -209,6 +217,12 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
     public boolean applySettings() {
         AdvancedValues values = collectAdvancedValues();
 
+        boolean previousAdvancedMode = GlobalUiSettings.isAdvancedMode();
+
+        String previousVendorPref = MainProject.getOtherModelsVendorPreference();
+        String previousVendorSelection =
+                (previousVendorPref == null || previousVendorPref.isBlank()) ? "Default" : previousVendorPref;
+
         // JVM memory
         MainProject.setJvmMemorySettings(values.jvmMemorySettings());
         JDeploySettingsUtil.updateJvmMemorySettings(values.jvmMemorySettings());
@@ -221,6 +235,14 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         GlobalUiSettings.saveInstructionsTabInsertIndentation(values.instructionsTabInsertIndentation());
         GlobalUiSettings.saveAdvancedMode(values.advancedMode());
         GlobalUiSettings.saveSkipCommitGateInEzMode(values.skipCommitGateEzMode());
+
+        if (values.advancedMode() != previousAdvancedMode) {
+            try {
+                chrome.applyAdvancedModeVisibility();
+            } catch (Exception ex) {
+                logger.debug("Failed to apply advanced mode visibility (non-fatal)", ex);
+            }
+        }
 
         // Notifications
         GlobalUiSettings.saveShowCostNotifications(values.showCostNotifications());
@@ -239,14 +261,48 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         }
         if (values.selectedPrimaryFavorite() != null) {
             mainProject.setArchitectModelConfig(values.selectedPrimaryFavorite().config());
+            chrome.getInstructionsPanel()
+                    .selectPlannerModelConfig(values.selectedPrimaryFavorite().config());
         }
 
-        // Vendor preference for other models
-        String vendor = values.otherModelsVendor();
-        if (vendor == null || vendor.isBlank() || "Default".equalsIgnoreCase(vendor)) {
-            MainProject.setOtherModelsVendorPreference("");
+        // Vendor preference and Quick/Scan mappings for other models
+        String selectedVendor = values.otherModelsVendor();
+        if (selectedVendor == null || selectedVendor.isBlank()) {
+            selectedVendor = "Default";
+        }
+
+        String normalizedVendorPref;
+        if ("Default".equalsIgnoreCase(selectedVendor)) {
+            normalizedVendorPref = "";
         } else {
-            MainProject.setOtherModelsVendorPreference(vendor.trim());
+            normalizedVendorPref = selectedVendor.trim();
+        }
+        MainProject.setOtherModelsVendorPreference(normalizedVendorPref);
+
+        if ("OpenAI".equals(selectedVendor)) {
+            mainProject.setQuickModelConfig(new Service.ModelConfig(Service.GPT_5_NANO));
+            mainProject.setQuickEditModelConfig(new Service.ModelConfig(Service.GPT_5_NANO));
+            mainProject.setQuickestModelConfig(new Service.ModelConfig(Service.GPT_5_NANO));
+            mainProject.setScanModelConfig(new Service.ModelConfig(Service.GPT_5_MINI));
+        } else if ("Anthropic".equals(selectedVendor)) {
+            mainProject.setQuickModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
+            mainProject.setQuickEditModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
+            mainProject.setQuickestModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
+            mainProject.setScanModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
+        } else {
+            mainProject.setQuickModelConfig(MainProject.getDefaultQuickModelConfig());
+            mainProject.setQuickEditModelConfig(MainProject.getDefaultQuickEditModelConfig());
+            mainProject.setQuickestModelConfig(MainProject.getDefaultQuickestModelConfig());
+            mainProject.setScanModelConfig(MainProject.getDefaultScanModelConfig());
+        }
+
+        String currentVendorSelection = normalizedVendorPref.isBlank() ? "Default" : normalizedVendorPref;
+        if (!previousVendorSelection.equals(currentVendorSelection)) {
+            try {
+                chrome.getContextManager().reloadService();
+            } catch (Exception ex) {
+                logger.debug("Service reload after vendor change failed (non-fatal)", ex);
+            }
         }
 
         // Watch service implementation preference
