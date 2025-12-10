@@ -72,13 +72,9 @@ jobs:
             echo "should_skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Set up Java 25
+      - name: Set up JBR 21
         if: steps.check_commits.outputs.should_skip == 'false'
-        uses: actions/setup-java@v4
-        with:
-          java-version: '25'
-          distribution: 'temurin'
-          cache: gradle
+        uses: jansorg/github-actions-jbr-setup/setup_jbr21@main
 
       - name: Set up Python
         if: steps.check_commits.outputs.should_skip == 'false'
