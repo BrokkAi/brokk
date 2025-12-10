@@ -146,15 +146,9 @@ public class EditBlock {
                 }
             }
 
-            // Pre-resolve BRK_CLASS/BRK_*_FUNCTION so analyzer offsets are from the original file content
+            // Pre-resolve BRK_CLASS/BRK_FUNCTION so analyzer offsets are from the original file content
             String effectiveBefore = block.beforeText();
-            IAnalyzer analyzer;
-            try {
-                analyzer = ctx.getContextManager().getAnalyzer();
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                throw ie;
-            }
+            IAnalyzer analyzer = ctx.getContextManager().getAnalyzer();
 
             // Detect BRK_NEXT_OFFSET upfront; handled during apply
             String trimmed = effectiveBefore.strip();
@@ -867,14 +861,8 @@ public class EditBlock {
 
         var kind = markerMatcher.group(1);
         var fqName = markerMatcher.group(2).trim();
-        // Temporary aliases (deprecated):
-        // - BRK_REPLACE_FUNCTION -> BRK_FUNCTION
-        // - BRK_INSERT_FUNCTION / BRK_NEW_FUNCTION -> BRK_NEXT_OFFSET
-        if ("REPLACE_FUNCTION".equals(kind)) {
-            kind = "FUNCTION";
-        }
-        if ("INSERT_FUNCTION".equals(kind) || "NEW_FUNCTION".equals(kind) || "NEXT_OFFSET".equals(kind)) {
-            // NEXT_OFFSET and its aliases are handled in apply() by computing a language-aware insertion point
+        if ("NEXT_OFFSET".equals(kind)) {
+            // NEXT_OFFSET is handled in apply() by computing a language-aware insertion point
             return null;
         }
 
@@ -1030,18 +1018,6 @@ public class EditBlock {
             throws InterruptedException {
         var analyzer = ctx.getContextManager().getAnalyzer();
         var parentCuOpt = analyzer.getDefinitions(parentFqName).stream().findFirst();
-        if (parentCuOpt.isEmpty()) {
-            return Optional.empty();
-        }
-        return analyzer.computeInsertionPointForNewMember(parentCuOpt.get());
-    }
-
-    /**
-     * Deprecated: use computeInsertionPointForNewMember(Context, String).
-     * Retained for temporary compatibility while migrating from BRK_NEW_FUNCTION to BRK_NEXT_OFFSET.
-     */
-    public static Optional<IAnalyzer.InsertionPoint> computeInsertionPointForNewMethod(Context ctx, String classFqName)
-            throws InterruptedException {
-        return computeInsertionPointForNewMember(ctx, classFqName);
+        return parentCuOpt.flatMap(analyzer::computeInsertionPointForNewMember);
     }
 }

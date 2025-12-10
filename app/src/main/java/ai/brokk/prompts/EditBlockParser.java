@@ -5,6 +5,7 @@ import static ai.brokk.prompts.EditBlockUtils.*;
 import ai.brokk.EditBlock;
 import ai.brokk.analyzer.ProjectFile;
 import java.util.*;
+import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -79,8 +80,8 @@ public class EditBlockParser {
     // Migration note:
     // - BRK_REPLACE_FUNCTION -> BRK_FUNCTION
     // - BRK_NEW_FUNCTION / BRK_INSERT_FUNCTION -> BRK_NEXT_OFFSET
-    private static final java.util.regex.Pattern BRK_MARKER_IN_REPLACE_PATTERN =
-            java.util.regex.Pattern.compile("(?m)^BRK_(CLASS|FUNCTION|NEXT_OFFSET|ENTIRE_FILE|CONFLICT)");
+    private static final Pattern BRK_MARKER_IN_REPLACE_PATTERN =
+            Pattern.compile("(?m)^BRK_(CLASS|FUNCTION|NEXT_OFFSET|ENTIRE_FILE|CONFLICT)");
 
     private static boolean containsBrkMarkerInReplace(String text) {
         return BRK_MARKER_IN_REPLACE_PATTERN.matcher(text).find();

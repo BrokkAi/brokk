@@ -35,9 +35,6 @@ import org.jetbrains.annotations.Nullable;
 public abstract class CodePrompts {
     private static final Logger logger = LogManager.getLogger(CodePrompts.class);
     public static final CodePrompts instance = new CodePrompts() {};
-    // Migration note:
-    // - BRK_REPLACE_FUNCTION -> BRK_FUNCTION
-    // - BRK_NEW_FUNCTION / BRK_INSERT_FUNCTION -> BRK_NEXT_OFFSET
     private static final Pattern BRK_MARKER_PATTERN =
             Pattern.compile("^BRK_(CLASS|FUNCTION|NEXT_OFFSET)\\s+(.+)$", Pattern.MULTILINE);
 
