@@ -410,7 +410,7 @@ public abstract class CodePrompts {
                                  ask for the file so you can relax the visibility instead.
                                - If you could preserve DRY by editing a data structure or a function instead of substantially duplicating
                                  its functionality.
-                           If you need to propose changes to code you can't see, 
+                           If you need to propose changes to code you can't see,
                            tell the user their full class or file names and ask them to *add them to the Workspace*;
                            end your reply and wait for their approval.
 
