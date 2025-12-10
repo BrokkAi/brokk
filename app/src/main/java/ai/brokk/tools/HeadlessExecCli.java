@@ -425,9 +425,11 @@ public class HeadlessExecCli {
         System.out.println(
                 "  --mode MODE              Execution mode: ASK, CODE, ARCHITECT, LUTZ, or SEARCH (default: ARCHITECT)");
         System.out.println("  --planner-model MODEL    Planner model name (required)");
-        System.out.println("  --scan-model MODEL       Scan model name (optional; used by SEARCH mode; used by ASK only when --pre-scan is enabled)");
+        System.out.println(
+                "  --scan-model MODEL       Scan model name (optional; used by SEARCH mode; used by ASK only when --pre-scan is enabled)");
         System.out.println("  --code-model MODEL       Code model name (optional)");
-        System.out.println("  --pre-scan               Enable repository prescan before ASK (uses --scan-model if provided)");
+        System.out.println(
+                "  --pre-scan               Enable repository prescan before ASK (uses --scan-model if provided)");
         System.out.println("  --token TOKEN            Auth token (default: random UUID)");
         System.out.println("  --auto-commit            Enable auto-commit of changes");
         System.out.println("  --auto-compress          Enable auto-compress of context");

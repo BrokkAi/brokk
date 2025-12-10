@@ -4,15 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
-import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.project.MainProject;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
-import java.net.HttpURLConnection;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import okhttp3.MediaType;
@@ -117,7 +114,8 @@ public class AskModeSearchAgentTest {
         body.put("name", "test-session-" + System.currentTimeMillis());
         var req = new Request.Builder()
                 .url(uri)
-                .post(RequestBody.create(mapper.writeValueAsString(body), MediaType.get("application/json; charset=utf-8")))
+                .post(RequestBody.create(
+                        mapper.writeValueAsString(body), MediaType.get("application/json; charset=utf-8")))
                 .header("Authorization", "Bearer " + authToken)
                 .build();
         try (var resp = httpClient.newCall(req).execute()) {
@@ -133,10 +131,13 @@ public class AskModeSearchAgentTest {
         var uri = baseUrl() + "/v1/jobs";
         var json = mapper.createObjectNode();
         json.put("sessionId", sessionId);
-        json.put("taskInput", jobPayload.getOrDefault("taskInput", "Ask pre-scan test").toString());
+        json.put(
+                "taskInput",
+                jobPayload.getOrDefault("taskInput", "Ask pre-scan test").toString());
         json.put("autoCommit", (Boolean) jobPayload.getOrDefault("autoCommit", false));
         json.put("autoCompress", (Boolean) jobPayload.getOrDefault("autoCompress", false));
-        json.put("plannerModel", jobPayload.getOrDefault("plannerModel", "gpt-5").toString());
+        json.put(
+                "plannerModel", jobPayload.getOrDefault("plannerModel", "gpt-5").toString());
         if (jobPayload.containsKey("scanModel")) {
             json.put("scanModel", jobPayload.get("scanModel").toString());
         }
@@ -155,7 +156,8 @@ public class AskModeSearchAgentTest {
 
         var req = new Request.Builder()
                 .url(uri)
-                .post(RequestBody.create(mapper.writeValueAsString(json), MediaType.get("application/json; charset=utf-8")))
+                .post(RequestBody.create(
+                        mapper.writeValueAsString(json), MediaType.get("application/json; charset=utf-8")))
                 .header("Authorization", "Bearer " + authToken)
                 .header("Idempotency-Key", UUID.randomUUID().toString())
                 .build();
@@ -169,12 +171,17 @@ public class AskModeSearchAgentTest {
         }
     }
 
-    private String pollEventsUntilContains(String jobId, String matchText, Duration timeout) throws IOException, InterruptedException {
+    private String pollEventsUntilContains(String jobId, String matchText, Duration timeout)
+            throws IOException, InterruptedException {
         long deadline = System.currentTimeMillis() + timeout.toMillis();
         long after = -1;
         while (System.currentTimeMillis() < deadline) {
             var eventsUrl = baseUrl() + "/v1/jobs/" + jobId + "/events?after=" + after + "&limit=100";
-            var req = new Request.Builder().url(eventsUrl).get().header("Authorization", "Bearer " + authToken).build();
+            var req = new Request.Builder()
+                    .url(eventsUrl)
+                    .get()
+                    .header("Authorization", "Bearer " + authToken)
+                    .build();
             try (var resp = httpClient.newCall(req).execute()) {
                 if (resp.code() == 200 && resp.body() != null) {
                     var tree = mapper.readTree(resp.body().string());
@@ -205,7 +212,8 @@ public class AskModeSearchAgentTest {
         return null;
     }
 
-    private boolean eventsContain(String jobId, String matchText, Duration timeout) throws IOException, InterruptedException {
+    private boolean eventsContain(String jobId, String matchText, Duration timeout)
+            throws IOException, InterruptedException {
         return pollEventsUntilContains(jobId, matchText, timeout) != null;
     }
 
@@ -218,14 +226,20 @@ public class AskModeSearchAgentTest {
         String sessionId = createSession();
 
         var payload = Map.<String, Object>of(
-                "taskInput", "Summarize repository structure for pre-scan test",
-                "plannerModel", "gpt-5",
-                "scanModel", "gpt-5-mini",
-                "preScan", true,
-                "autoCommit", false,
-                "autoCompress", false,
-                "tags", Map.of("mode", "ASK")
-        );
+                "taskInput",
+                "Summarize repository structure for pre-scan test",
+                "plannerModel",
+                "gpt-5",
+                "scanModel",
+                "gpt-5-mini",
+                "preScan",
+                true,
+                "autoCommit",
+                false,
+                "autoCompress",
+                false,
+                "tags",
+                Map.of("mode", "ASK"));
 
         String jobId = submitJob(sessionId, payload);
 
@@ -250,20 +264,27 @@ public class AskModeSearchAgentTest {
         String sessionId = createSession();
 
         var payload = Map.<String, Object>of(
-                "taskInput", "Find references to AuthenticationManager across repo",
-                "plannerModel", "gpt-5",
+                "taskInput",
+                "Find references to AuthenticationManager across repo",
+                "plannerModel",
+                "gpt-5",
                 // scanModel omitted to exercise project default
-                "preScan", true,
-                "autoCommit", false,
-                "autoCompress", false,
-                "tags", Map.of("mode", "ASK")
-        );
+                "preScan",
+                true,
+                "autoCommit",
+                false,
+                "autoCompress",
+                false,
+                "tags",
+                Map.of("mode", "ASK"));
 
         String jobId = submitJob(sessionId, payload);
 
         // Wait for Context Engine pre-scan message
         boolean sawPreScan = eventsContain(jobId, "Brokk Context Engine", Duration.ofSeconds(60));
-        assertTrue(sawPreScan, "Expected pre-scan Context Engine message when scanModel omitted (defaults to project scan model)");
+        assertTrue(
+                sawPreScan,
+                "Expected pre-scan Context Engine message when scanModel omitted (defaults to project scan model)");
     }
 
     /**
@@ -274,15 +295,22 @@ public class AskModeSearchAgentTest {
         String sessionId = createSession();
 
         var payload = Map.<String, Object>of(
-                "taskInput", "Explain UserService responsibilities",
-                "plannerModel", "gpt-5",
-                "scanModel", "gpt-5-mini",
-                "codeModel", "gpt-5-mini", // intentionally provided; should be ignored for ASK
-                "preScan", true,
-                "autoCommit", false,
-                "autoCompress", false,
-                "tags", Map.of("mode", "ASK")
-        );
+                "taskInput",
+                "Explain UserService responsibilities",
+                "plannerModel",
+                "gpt-5",
+                "scanModel",
+                "gpt-5-mini",
+                "codeModel",
+                "gpt-5-mini", // intentionally provided; should be ignored for ASK
+                "preScan",
+                true,
+                "autoCommit",
+                false,
+                "autoCompress",
+                false,
+                "tags",
+                Map.of("mode", "ASK"));
 
         String jobId = submitJob(sessionId, payload);
 

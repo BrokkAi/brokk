@@ -359,28 +359,34 @@ public final class JobRunner {
                                                 if (spec.preScan()) {
                                                     try {
                                                         String rawScanModel = spec.scanModel();
-                                                        String trimmedScanModel = rawScanModel == null ? "" : rawScanModel.trim();
+                                                        String trimmedScanModel =
+                                                                rawScanModel == null ? "" : rawScanModel.trim();
                                                         final StreamingChatModel scanModelToUse =
                                                                 !trimmedScanModel.isEmpty()
                                                                         ? resolveModelOrThrow(trimmedScanModel)
-                                                                        : cm.getService().getScanModel();
+                                                                        : cm.getService()
+                                                                                .getScanModel();
 
                                                         // Ensure a scan model is available
                                                         if (scanModelToUse == null) {
-                                                            throw new IllegalArgumentException("scan model unavailable for ASK pre-scan");
+                                                            throw new IllegalArgumentException(
+                                                                    "scan model unavailable for ASK pre-scan");
                                                         }
 
                                                         // Perform the prescan using the resolved scan model only.
-                                                        // This seeds the Workspace; reasoning will still use plannerModel.
+                                                        // This seeds the Workspace; reasoning will still use
+                                                        // plannerModel.
                                                         try {
                                                             searchAgent.scanInitialContext(scanModelToUse);
                                                         } catch (InterruptedException ie) {
                                                             // Preserve interruption status and propagate to caller.
-                                                            Thread.currentThread().interrupt();
+                                                            Thread.currentThread()
+                                                                    .interrupt();
                                                             throw ie;
                                                         }
                                                     } catch (IllegalArgumentException iae) {
-                                                        // Bubble up model resolution errors so job runner can fail fast.
+                                                        // Bubble up model resolution errors so job runner can fail
+                                                        // fast.
                                                         throw iae;
                                                     }
                                                 }
