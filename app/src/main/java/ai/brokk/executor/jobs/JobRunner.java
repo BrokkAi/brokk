@@ -7,6 +7,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.gui.util.GitRepoIdUtil;
 import ai.brokk.tasks.TaskList;
@@ -16,6 +17,7 @@ import com.google.common.base.Splitter;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -777,15 +779,26 @@ public final class JobRunner {
 
         try {
             StringBuilder diff = new StringBuilder();
+            Set<ProjectFile> changedFiles = new LinkedHashSet<>();
 
             for (GHPullRequestFileDetail file : pr.listFiles()) {
+                String filename = file.getFilename();
+                if (filename != null && !filename.isBlank()) {
+                    try {
+                        var projectFile = cm.toFile(filename);
+                        changedFiles.add(projectFile);
+                    } catch (Exception ex) {
+                        logger.warn("Unable to resolve ProjectFile for PR file '{}'", filename, ex);
+                    }
+                }
+
                 String patch = file.getPatch();
 
-                if (patch != null) {
+                if (patch != null && filename != null && !filename.isBlank()) {
                     diff.append("diff --git a/")
-                            .append(file.getFilename())
+                            .append(filename)
                             .append(" b/")
-                            .append(file.getFilename())
+                            .append(filename)
                             .append("\n")
                             .append(patch)
                             .append("\n");
@@ -795,7 +808,8 @@ public final class JobRunner {
             String fullDiff = diff.toString();
             String description = pr.getBody();
 
-            var fragment = new ContextFragment.StringFragment(cm, fullDiff, description, "text/x-diff");
+            var fragment = new ContextFragment.StringFragment(
+                    cm, fullDiff, description, "text/x-diff", Set.copyOf(changedFiles));
             cm.addFragments(fragment);
 
             String reviewGuide = cm.getProject().getReviewGuide();
