@@ -665,7 +665,8 @@ public class AttachContextDialog extends BaseThemedDialog {
 
             var matcher = new FuzzyMatcher(pattern);
             record ScoredFolder(String path, String shortName, int shortScore, int longScore) {}
-            List<ShorthandCompletion> scored = folders.stream()
+
+            var scored = folders.stream()
                     .map(s -> {
                         var p = Path.of(s);
                         var fn = p.getFileName();
@@ -675,6 +676,19 @@ public class AttachContextDialog extends BaseThemedDialog {
                         return new ScoredFolder(s, shortName, shortScore, longScore);
                     })
                     .filter(sf -> sf.shortScore() != Integer.MAX_VALUE || sf.longScore() != Integer.MAX_VALUE)
+                    .toList();
+
+            int bestShortScore = scored.stream()
+                    .mapToInt(ScoredFolder::shortScore)
+                    .min()
+                    .orElse(Integer.MAX_VALUE);
+            final int SHORT_TOLERANCE = 300;
+            int shortThreshold = bestShortScore == Integer.MAX_VALUE
+                    ? Integer.MAX_VALUE
+                    : bestShortScore + SHORT_TOLERANCE;
+
+            List<ShorthandCompletion> ranked = scored.stream()
+                    .filter(sf -> (sf.shortScore() <= shortThreshold) || (sf.longScore() < bestShortScore))
                     .sorted(java.util.Comparator
                             .comparingInt((ScoredFolder sf) -> Math.min(sf.shortScore(), sf.longScore()))
                             .thenComparing(ScoredFolder::shortName))
@@ -682,8 +696,8 @@ public class AttachContextDialog extends BaseThemedDialog {
                     .map(sf -> new ShorthandCompletion(this, sf.shortName(), sf.path(), sf.path()))
                     .toList();
 
-            AutoCompleteUtil.sizePopupWindows(ac, searchField, scored);
-            return scored.stream().map(c -> (Completion) c).toList();
+            AutoCompleteUtil.sizePopupWindows(ac, searchField, ranked);
+            return ranked.stream().map(c -> (Completion) c).toList();
         }
     }
 
