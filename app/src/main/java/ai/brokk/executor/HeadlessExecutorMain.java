@@ -219,19 +219,67 @@ public final class HeadlessExecutorMain {
 
     /**
      * Asynchronously execute a job. Called after a new job is created.
-     * Delegates to JobRunner and manages currentJobId lifecycle.
+     * Delegates to JobRunner and handles per-job cleanup and reservation lifecycle.
+     *
+     * @param jobId the job identifier
+     * @param jobSpec the job specification
+     * @param seededTextFragmentIds IDs of any pasted text fragments seeded for this job
      */
-    private void executeJobAsync(String jobId, JobSpec jobSpec) {
+    private void executeJobAsync(String jobId, JobSpec jobSpec, List<String> seededTextFragmentIds) {
         logger.info("Starting job execution: {}, session={}", jobId, contextManager.getCurrentSessionId());
+        final List<String> fragmentIds = seededTextFragmentIds == null ? List.of() : List.copyOf(seededTextFragmentIds);
+
         jobRunner.runAsync(jobId, jobSpec).whenComplete((unused, throwable) -> {
-            if (throwable != null) {
-                logger.error(
-                        "Job {} execution failed (session={})", jobId, contextManager.getCurrentSessionId(), throwable);
-            } else {
-                logger.info("Job {} execution finished (session={})", jobId, contextManager.getCurrentSessionId());
+            try {
+                if (!fragmentIds.isEmpty()) {
+                    var idSet = new java.util.HashSet<>(fragmentIds);
+                    var live = contextManager.liveContext();
+                    var toDrop = live.allFragments()
+                            .filter(f -> idSet.contains(f.id()))
+                            .collect(Collectors.toList());
+
+                    if (!toDrop.isEmpty()) {
+                        try {
+                            contextManager.drop(toDrop);
+                            logger.info(
+                                    "Cleaned up job-scoped text fragments: requested={}, foundAndDropped={}, session={}",
+                                    fragmentIds.size(),
+                                    toDrop.size(),
+                                    contextManager.getCurrentSessionId());
+                        } catch (Exception dropEx) {
+                            logger.warn(
+                                    "Cleanup failed for job-scoped text fragments: requested={}, found={}, session={}, error={}",
+                                    fragmentIds.size(),
+                                    toDrop.size(),
+                                    contextManager.getCurrentSessionId(),
+                                    dropEx.toString());
+                        }
+                    } else {
+                        logger.info(
+                                "No job-scoped text fragments found to clean up: requested={}, session={}",
+                                fragmentIds.size(),
+                                contextManager.getCurrentSessionId());
+                    }
+                }
+            } catch (Exception cleanupEx) {
+                logger.warn(
+                        "Unexpected error during cleanup for job {}: requestedFragments={}, error={}",
+                        jobId,
+                        fragmentIds.size(),
+                        cleanupEx.toString());
+            } finally {
+                if (throwable != null) {
+                    logger.error(
+                            "Job {} execution failed (session={})",
+                            jobId,
+                            contextManager.getCurrentSessionId(),
+                            throwable);
+                } else {
+                    logger.info("Job {} execution finished (session={})", jobId, contextManager.getCurrentSessionId());
+                }
+                // Release reservation only if we still own it; CAS avoids clearing another job's reservation.
+                jobReservation.releaseIfOwner(jobId);
             }
-            // Release reservation only if we still own it; CAS avoids clearing another job's reservation.
-            jobReservation.releaseIfOwner(jobId);
         });
     }
 
@@ -803,8 +851,8 @@ public final class HeadlessExecutorMain {
                         response.put("contextTextFragmentIds", contextTextFragmentIds);
                     }
 
-                    // Start execution asynchronously; release reservation in callback or on failure
-                    executeJobAsync(jobId, jobSpec);
+                    // Start execution asynchronously; release reservation and cleanup in callback or on failure
+                    executeJobAsync(jobId, jobSpec, contextTextFragmentIds);
                 } catch (Exception ex) {
                     // Release reservation if scheduling failed before the async pipeline was established
                     var rolledBack = jobReservation.releaseIfOwner(jobId);
