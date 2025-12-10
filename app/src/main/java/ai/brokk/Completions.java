@@ -21,7 +21,12 @@ import org.fife.ui.autocomplete.ShorthandCompletion;
 public class Completions {
     private static final Logger logger = LogManager.getLogger(Completions.class);
     private static final int SHORT_TOLERANCE = 300;
-    // Prefer analyzer-supported file extensions more strongly when scoring ProjectFile completions.
+    /**
+     * Bonus applied to preferred extensions when ranking ProjectFile completions.
+     * Lower composite scores indicate better matches; subtracting this bonus for preferred extensions
+     * ensures analyzer-supported file types (e.g., .java) sort ahead of unrelated ones (e.g., .svg)
+     * when fuzzy scores are close.
+     */
     private static final int PREFERRED_EXTENSION_PRIORITY_BONUS = 300;
 
     public static List<CodeUnit> completeSymbols(String input, IAnalyzer analyzer) {
@@ -375,6 +380,7 @@ public class Completions {
                 scoredCandidates.stream().mapToInt(ScoredPF::shortScore).min().orElse(Integer.MAX_VALUE);
         int shortThreshold = bestShortScore == Integer.MAX_VALUE ? Integer.MAX_VALUE : bestShortScore + SHORT_TOLERANCE;
 
+        // Lower scores are better; subtracting the bonus for preferred extensions ensures they sort first.
         Comparator<ScoredPF> cmp = Comparator.<ScoredPF>comparingInt(sc -> Math.min(sc.shortScore(), sc.longScore())
                         + (sc.preferred() ? -PREFERRED_EXTENSION_PRIORITY_BONUS : 0))
                 .thenComparing(sc -> extractShort.apply(sc.pf()));
