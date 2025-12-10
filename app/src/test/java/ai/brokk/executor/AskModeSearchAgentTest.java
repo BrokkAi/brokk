@@ -188,6 +188,10 @@ public class AskModeSearchAgentTest {
             throws IOException, InterruptedException {
         long deadline = System.currentTimeMillis() + timeout.toMillis();
         long after = -1;
+
+        // keep a small ring of recent events for debug output on timeout
+        var recentEvents = new java.util.ArrayDeque<com.fasterxml.jackson.databind.JsonNode>(32);
+
         while (System.currentTimeMillis() < deadline) {
             var eventsUrl = baseUrl() + "/v1/jobs/" + jobId + "/events?after=" + after + "&limit=100";
             var req = new Request.Builder()
@@ -197,28 +201,54 @@ public class AskModeSearchAgentTest {
                     .build();
             try (var resp = httpClient.newCall(req).execute()) {
                 if (resp.code() == 200 && resp.body() != null) {
-                    var tree = mapper.readTree(resp.body().string());
+                    var bodyStr = resp.body().string();
+                    var tree = mapper.readTree(bodyStr);
                     var events = tree.get("events");
                     if (events != null && events.isArray()) {
                         for (var ev : events) {
-                            var data = ev.get("data");
-                            if (data != null) {
-                                String text = null;
-                                if (data.isTextual()) {
-                                    text = data.asText();
-                                } else if (data.has("token")) {
-                                    text = data.get("token").asText();
-                                } else {
-                                    // fallback: stringify
-                                    text = data.toString();
-                                }
+                            // keep recent events for debugging
+                            recentEvents.addLast(ev);
+                            if (recentEvents.size() > 32) recentEvents.removeFirst();
 
-                                if (text != null && text.contains(matchText)) {
-                                    return text;
+                            // Prefer NOTIFICATION events (string payloads) for deterministic checks
+                            String type = ev.has("type") && ev.get("type").isTextual()
+                                    ? ev.get("type").asText()
+                                    : "";
+
+                            var data = ev.get("data");
+                            String text = null;
+
+                            if ("NOTIFICATION".equals(type)) {
+                                // For NOTIFICATION we expect a string payload; prefer asText()
+                                if (data != null) {
+                                    if (data.isTextual()) {
+                                        text = data.asText();
+                                    } else {
+                                        // fallback to JSON string representation if not textual
+                                        text = data.toString();
+                                    }
+                                }
+                            } else {
+                                // Other event types (e.g., LLM_TOKEN) may have object payloads.
+                                if (data != null) {
+                                    if (data.isTextual()) {
+                                        text = data.asText();
+                                    } else if (data.has("token") && data.get("token").isTextual()) {
+                                        text = data.get("token").asText();
+                                    } else if (data.has("message") && data.get("message").isTextual()) {
+                                        text = data.get("message").asText();
+                                    } else {
+                                        text = data.toString();
+                                    }
                                 }
                             }
+
+                            if (text != null && text.contains(matchText)) {
+                                return text;
+                            }
+
                             var seq = ev.get("seq");
-                            if (seq != null) {
+                            if (seq != null && seq.isNumber()) {
                                 after = seq.asLong();
                             }
                         }
@@ -227,10 +257,25 @@ public class AskModeSearchAgentTest {
                     throw new IOException("Job not found: " + jobId);
                 }
             } catch (IOException ioe) {
-                // ignore transient and retry until deadline
+                // transient network/read error: ignore and retry until deadline
             }
             Thread.sleep(500L);
         }
+
+        // Timeout reached: dump recent events to stderr to aid debugging
+        try {
+            var list = new java.util.ArrayList<com.fasterxml.jackson.databind.JsonNode>(recentEvents);
+            System.err.println("[AskModeSearchAgentTest] Timeout waiting for '" + matchText + "' for job " + jobId);
+            try {
+                System.err.println("[AskModeSearchAgentTest] Last events: " + mapper.writerWithDefaultPrettyPrinter().writeValueAsString(list));
+            } catch (Exception e) {
+                System.err.println("[AskModeSearchAgentTest] Unable to serialize recent events: " + e.getMessage());
+            }
+        } catch (Throwable t) {
+            // best-effort debug output; never fail the test method from here
+            System.err.println("[AskModeSearchAgentTest] Timeout and failed to record recent events: " + t.getMessage());
+        }
+
         return null;
     }
 
