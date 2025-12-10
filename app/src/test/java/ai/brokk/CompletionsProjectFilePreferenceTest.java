@@ -120,12 +120,12 @@ public class CompletionsProjectFilePreferenceTest {
                 pf -> new ShorthandCompletion(
                         null,
                         pf.getRelPath().getFileName().toString(),
-                        pf.getRelPath().getFileName().toString())
-        );
+                        pf.getRelPath().getFileName().toString()));
 
         Assertions.assertFalse(results.isEmpty(), "No completions returned");
 
-        var ordered = results.stream().map(ShorthandCompletion::getReplacementText).toList();
+        var ordered =
+                results.stream().map(ShorthandCompletion::getReplacementText).toList();
 
         int idxJava = ordered.indexOf("BuildTool.java");
         int idxSvg = ordered.indexOf("BuildTool.svg");
