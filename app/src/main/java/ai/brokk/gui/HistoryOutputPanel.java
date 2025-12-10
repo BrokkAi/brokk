@@ -1140,39 +1140,38 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Adds a closable auxiliary tab to the Output tabs with a custom header.
-     * - Applies theme to content if it implements ThemeAware
-     * - Selects the new tab
-     * - On close: removes the tab and invokes onClose if provided; otherwise attempts best-effort disposal
-     *
-     * @param title   The tab title
-     * @param content The component to add as the tab content
-     * @param onClose Optional cleanup action to run when the tab is closed
+     * Builds a small theme-aware tab header with a title and a close button.
+     * The close button removes the associated tab and invokes the provided onClose runnable if present.
      */
-    public void openAuxTab(String title, JComponent content, @Nullable Runnable onClose) {
-        Runnable task = () -> {
-            var tabs = outputTabs;
-            if (tabs == null) {
-                return;
-            }
+    private JComponent createClosableTabHeader(JTabbedPane tabs, JComponent content, String title, @Nullable Runnable onClose) {
+        return new ClosableTabHeader(tabs, content, title, onClose);
+    }
 
-            if (content instanceof ThemeAware ta) {
-                ta.applyTheme(chrome.getTheme());
-            }
+    private final class ClosableTabHeader extends JPanel implements ThemeAware {
+        private final JTabbedPane tabs;
+        private final JComponent content;
+        private final @Nullable Runnable onClose;
+        private final JLabel titleLabel = new JLabel();
+        private final MaterialButton closeBtn = new MaterialButton();
 
-            tabs.addTab(title, content);
-            int index = tabs.indexOfComponent(content);
+        ClosableTabHeader(JTabbedPane tabs, JComponent content, String title, @Nullable Runnable onClose) {
+            super(new FlowLayout(FlowLayout.LEFT, 5, 0));
+            this.tabs = tabs;
+            this.content = content;
+            this.onClose = onClose;
 
-            var tabHeader = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-            tabHeader.setOpaque(false);
+            setOpaque(false);
 
-            var titleLabel = new JLabel(title);
-            var closeBtn = new MaterialButton();
+            titleLabel.setText(title);
+            titleLabel.setToolTipText(title);
+            add(titleLabel);
+
             closeBtn.setToolTipText("Close");
+            // Use a compact size for the close icon
             SwingUtilities.invokeLater(() -> {
                 var icon = Icons.CLOSE;
                 if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
-                    closeBtn.setIcon(themedIcon.withSize(12));
+                    closeBtn.setIcon(themedIcon.withSize(14));
                 } else {
                     closeBtn.setIcon(icon);
                 }
@@ -1187,7 +1186,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     if (idx != -1) {
                         tabs.removeTabAt(idx);
                     }
-
+                    // Run provided cleanup first; otherwise best-effort disposal
                     if (onClose != null) {
                         onClose.run();
                     } else {
@@ -1205,18 +1204,68 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 } catch (Throwable ignored) {
                 }
             });
+            add(closeBtn);
 
-            tabHeader.add(titleLabel);
-            tabHeader.add(closeBtn);
-            tabs.setTabComponentAt(index, tabHeader);
-            tabs.setSelectedIndex(index);
-        };
-
-        if (SwingUtilities.isEventDispatchThread()) {
-            task.run();
-        } else {
-            SwingUtilities.invokeLater(task);
+            updateColors();
         }
+
+        private void updateColors() {
+            boolean enabled = isEnabled();
+            Color fg = UIManager.getColor(enabled ? "Label.foreground" : "Label.disabledForeground");
+            if (fg == null) {
+                fg = enabled ? Color.DARK_GRAY : Color.GRAY;
+            }
+            titleLabel.setForeground(fg);
+        }
+
+        @Override
+        public void setEnabled(boolean enabled) {
+            super.setEnabled(enabled);
+            updateColors();
+        }
+
+        @Override
+        public void applyTheme(GuiTheme guiTheme) {
+            updateColors();
+            revalidate();
+            repaint();
+        }
+    }
+
+    /**
+         * Adds a closable auxiliary tab to the Output tabs with a custom header.
+         * - Applies theme to content if it implements ThemeAware
+         * - Selects the new tab
+         * - On close: removes the tab and invokes onClose if provided; otherwise attempts best-effort disposal
+         *
+         * @param title   The tab title
+         * @param content The component to add as the tab content
+         * @param onClose Optional cleanup action to run when the tab is closed
+         */
+    public void openAuxTab(String title, JComponent content, @Nullable Runnable onClose) {
+                        Runnable task = () -> {
+                                            var tabs = outputTabs;
+                                            if (tabs == null) {
+                                                                return;
+                                            }
+
+                                            if (content instanceof ThemeAware ta) {
+                                                                ta.applyTheme(chrome.getTheme());
+                                            }
+
+                                            tabs.addTab(title, content);
+                                            int index = tabs.indexOfComponent(content);
+
+                                            var header = createClosableTabHeader(tabs, content, title, onClose);
+                                            tabs.setTabComponentAt(index, header);
+                                            tabs.setSelectedIndex(index);
+                        };
+
+                        if (SwingUtilities.isEventDispatchThread()) {
+                                            task.run();
+                        } else {
+                                            SwingUtilities.invokeLater(task);
+                        }
     }
 
     /**
@@ -2983,6 +3032,16 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Propagate to aggregated Changes panel (BrokkDiffPanel implements ThemeAware)
         if (aggregatedChangesPanel instanceof ThemeAware ta) {
             ta.applyTheme(guiTheme);
+        }
+        // Propagate to any custom tab headers that are theme-aware
+        var tabs = outputTabs;
+        if (tabs != null) {
+            for (int i = 0; i < tabs.getTabCount(); i++) {
+                var tabComp = tabs.getTabComponentAt(i);
+                if (tabComp instanceof ThemeAware ta) {
+                    ta.applyTheme(guiTheme);
+                }
+            }
         }
 
         // Recompute the Changes tab title colors to match the new theme if we have a computed summary
