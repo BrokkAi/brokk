@@ -2248,6 +2248,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     public void populateInstructionsArea(String text) {
+        populateInstructionsArea(text, null);
+    }
+
+    public void populateInstructionsArea(String text, @Nullable Runnable onComplete) {
         SwingUtilities.invokeLater(() -> {
             // Check if WandButton captured the original text (before streaming modified the area)
             String capturedOldText = wandButton.getCapturedOriginalText();
@@ -2270,6 +2274,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 setTextWithUndo(text, finalOldText); // Use undo-preserving helper with captured old text
                 instructionsArea.requestFocusInWindow(); // Ensure focus after text set
                 instructionsArea.setCaretPosition(text.length()); // Move caret to end
+                if (onComplete != null) {
+                    onComplete.run();
+                }
             });
         });
     }
