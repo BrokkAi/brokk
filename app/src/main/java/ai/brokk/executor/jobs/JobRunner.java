@@ -185,7 +185,8 @@ public final class JobRunner {
 
                 var service = cm.getService();
 
-                // Resolve a scan model for SEARCH mode if needed (prefer explicit spec.scanModel() if provided; otherwise project default)
+                // Resolve a scan model for SEARCH mode if needed (prefer explicit spec.scanModel() if provided;
+                // otherwise project default)
                 final StreamingChatModel searchPlannerModel = mode == Mode.SEARCH
                         ? (spec.scanModel() != null && !spec.scanModel().trim().isEmpty()
                                 ? resolveModelOrThrow(spec.scanModel().trim())
@@ -353,23 +354,28 @@ public final class JobRunner {
                                             }
                                         }
                                         case SEARCH -> {
-                                            // Read-only repository search using a scan model (spec.scanModel preferred, otherwise project default)
+                                            // Read-only repository search using a scan model (spec.scanModel preferred,
+                                            // otherwise project default)
                                             try (var scope = cm.beginTask(task.text(), false)) {
                                                 var context = cm.liveContext();
 
-                                                // Determine scan model: prefer explicit spec.scanModel() if provided, otherwise use project default
+                                                // Determine scan model: prefer explicit spec.scanModel() if provided,
+                                                // otherwise use project default
                                                 String rawScanModel = spec.scanModel();
-                                                String trimmedScanModel = rawScanModel == null ? null : rawScanModel.trim();
+                                                String trimmedScanModel =
+                                                        rawScanModel == null ? null : rawScanModel.trim();
                                                 final dev.langchain4j.model.chat.StreamingChatModel scanModelToUse =
                                                         (trimmedScanModel != null && !trimmedScanModel.isEmpty())
                                                                 ? resolveModelOrThrow(trimmedScanModel)
-                                                                : cm.getService().getScanModel();
+                                                                : cm.getService()
+                                                                        .getScanModel();
 
                                                 var searchAgent = new SearchAgent(
                                                         context,
                                                         task.text(),
                                                         Objects.requireNonNull(
-                                                                scanModelToUse, "scan model unavailable for SEARCH jobs"),
+                                                                scanModelToUse,
+                                                                "scan model unavailable for SEARCH jobs"),
                                                         SearchAgent.Objective.ANSWER_ONLY,
                                                         scope);
                                                 var result = searchAgent.execute();

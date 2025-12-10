@@ -231,11 +231,15 @@ class SearchModeSearchAgentTest {
 
         try {
             var statusCode = diffConn.getResponseCode();
-            assertTrue(statusCode == 200 || statusCode == 409, "Diff endpoint should succeed or report no git; got: " + statusCode);
+            assertTrue(
+                    statusCode == 200 || statusCode == 409,
+                    "Diff endpoint should succeed or report no git; got: " + statusCode);
             if (statusCode == 200) {
                 try (InputStream is = diffConn.getInputStream()) {
                     var diffText = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-                    assertTrue(diffText.isEmpty() || diffText.isBlank(), "SEARCH should produce no diff; got: " + diffText);
+                    assertTrue(
+                            diffText.isEmpty() || diffText.isBlank(),
+                            "SEARCH should produce no diff; got: " + diffText);
                 }
             }
         } finally {
@@ -287,8 +291,8 @@ class SearchModeSearchAgentTest {
     }
 
     // ============================================================================
-// Helpers
-// ============================================================================
+    // Helpers
+    // ============================================================================
 
     private byte[] createEmptyZip() throws IOException {
         var out = new java.io.ByteArrayOutputStream();

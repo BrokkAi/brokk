@@ -415,10 +415,12 @@ public class HeadlessExecCli {
         System.out.println("  --auto-compress          Enable auto-compress of context");
         System.out.println("  --help                   Show this help message");
         System.out.println();
-        System.out.println("Note: In SEARCH mode, --code-model is ignored (SearchAgent is read-only and does not generate code).");
+        System.out.println(
+                "Note: In SEARCH mode, --code-model is ignored (SearchAgent is read-only and does not generate code).");
         System.out.println();
         System.out.println("Example:");
-        System.out.println("  java HeadlessExecCli --planner-model gpt-5 --mode SEARCH --scan-model gpt-5-mini 'Describe the project layout'");
+        System.out.println(
+                "  java HeadlessExecCli --planner-model gpt-5 --mode SEARCH --scan-model gpt-5-mini 'Describe the project layout'");
     }
 
     private boolean parseArgs(String[] args) {
@@ -482,7 +484,8 @@ public class HeadlessExecCli {
                 }
                 mode = Ascii.toUpperCase(value);
                 if (!mode.matches("^(ASK|CODE|ARCHITECT|LUTZ|SEARCH)$")) {
-                    System.err.println("ERROR: Invalid mode: " + value + ". Must be ASK, CODE, ARCHITECT, LUTZ, or SEARCH");
+                    System.err.println(
+                            "ERROR: Invalid mode: " + value + ". Must be ASK, CODE, ARCHITECT, LUTZ, or SEARCH");
                     return false;
                 }
             }
