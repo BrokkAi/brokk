@@ -777,17 +777,17 @@ class CodeAgentTest {
         var cannedPreprocessedOutput = "Error in file.java:10: syntax error";
         var countingModel = new CountingPreprocessorModel(cannedPreprocessedOutput);
 
-        // Configure the context manager to use the counting model for quickest model
-        cm.setQuickestModel(countingModel);
+        // Configure the context manager to use the counting model for GPT_5_NANO (used by preprocessor)
+        cm.setNanoModel(countingModel);
 
-        // Configure build to fail with output that exceeds threshold (> 200 lines)
+        // Configure build to fail with output that exceeds threshold (> 500 lines)
         var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of());
         project.setBuildDetails(bd);
         project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
-        // Generate long build output (> 200 lines to trigger LLM preprocessing)
+        // Generate long build output (> 500 lines to trigger LLM preprocessing)
         StringBuilder longOutput = new StringBuilder();
-        for (int i = 1; i <= 210; i++) {
+        for (int i = 1; i <= 510; i++) {
             longOutput.append("Error line ").append(i).append("\n");
         }
 
@@ -885,6 +885,63 @@ class CodeAgentTest {
 
         // nextRequest should be null after sending (Task 3 semantics)
         assertNull(continueStep.cs().nextRequest(), "nextRequest should be null after recording");
+    }
+
+    // CTX-REFRESH-1: After edits are applied, context snapshots should be refreshed
+    @Test
+    void testContextRefreshAfterEdit_contextFragmentContainsUpdatedContent() throws IOException {
+        // Arrange: file with initial content
+        var file = cm.toFile("refresh.txt");
+        file.write("hello");
+        cm.addEditableFile(file);
+
+        // First response: apply edit hello -> goodbye
+        var firstResponse =
+                """
+                <block>
+                %s
+                <<<<<<< SEARCH
+                hello
+                =======
+                goodbye
+                >>>>>>> REPLACE
+                </block>
+                """
+                        .formatted(file.toString());
+
+        // Second response: no more edits
+        var secondResponse = "I cannot fix this build error.";
+
+        var model = new TestScriptedLanguageModel(firstResponse, secondResponse);
+        codeAgent = new CodeAgent(cm, model, consoleIO);
+
+        // Make build fail once to trigger a retry loop that exercises the context refresh
+        var buildAttempt = new AtomicInteger(0);
+        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
+            if (buildAttempt.getAndIncrement() == 0) {
+                throw new Environment.FailureException("Build failed", "Error: compilation failed", 1);
+            }
+            return "Build successful";
+        };
+
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of());
+        project.setBuildDetails(bd);
+        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+
+        // Act
+        codeAgent.runTask("change hello to goodbye", Set.of());
+
+        // Assert: verify the edit was applied to disk
+        assertEquals("goodbye", file.read().orElseThrow().strip(), "Edit should have been applied to disk");
+
+        // Assert: codeAgent's internal context should have refreshed fragments with updated content
+        var fragments = codeAgent.context.fileFragments().toList();
+
+        assertFalse(fragments.isEmpty(), "Context should contain a fragment for the modified file");
+
+        var fragmentContent = fragments.getFirst().format().join();
+        assertTrue(fragmentContent.contains("goodbye"), fragmentContent);
+        assertFalse(fragmentContent.contains("hello"), fragmentContent);
     }
 
     // RO-1: Guardrail - edits to read-only files are blocked with clear error

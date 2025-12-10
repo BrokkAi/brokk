@@ -369,7 +369,7 @@ public interface ContextFragment {
     abstract class AbstractComputedFragment implements ContextFragment {
         protected final String id;
         protected final IContextManager contextManager;
-        private final ComputedValue<FragmentSnapshot> snapshotCv;
+        final ComputedValue<FragmentSnapshot> snapshotCv;
         private final ConcurrentMap<String, ComputedValue<?>> derivedCvs = new ConcurrentHashMap<>();
 
         protected AbstractComputedFragment(

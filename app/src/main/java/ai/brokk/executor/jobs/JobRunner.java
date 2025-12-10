@@ -8,7 +8,7 @@ import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.executor.io.HeadlessHttpConsole;
-import ai.brokk.gui.util.GitUiUtil;
+import ai.brokk.gui.util.GitRepoIdUtil;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Json;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -59,6 +59,7 @@ public final class JobRunner {
         ARCHITECT,
         CODE,
         ASK,
+        SEARCH,
         REVIEW,
         LUTZ
     }
@@ -183,10 +184,20 @@ public final class JobRunner {
                         : null;
 
                 var service = cm.getService();
+
+                // Resolve a scan model for SEARCH mode if needed (prefer explicit spec.scanModel() if provided;
+                // otherwise project default)
+                final StreamingChatModel searchPlannerModel = mode == Mode.SEARCH
+                        ? (spec.scanModel() != null && !spec.scanModel().trim().isEmpty()
+                                ? resolveModelOrThrow(spec.scanModel().trim())
+                                : cm.getService().getScanModel())
+                        : null;
+
                 String plannerModelNameForLog =
                         switch (mode) {
                             case ARCHITECT, LUTZ -> service.nameOf(Objects.requireNonNull(architectPlannerModel));
                             case ASK -> service.nameOf(Objects.requireNonNull(askPlannerModel));
+                            case SEARCH -> service.nameOf(Objects.requireNonNull(searchPlannerModel));
                             case CODE -> {
                                 var plannerName = spec.plannerModel();
                                 yield plannerName.isBlank() ? "(unused)" : plannerName.trim();
@@ -197,22 +208,22 @@ public final class JobRunner {
                         switch (mode) {
                             case ARCHITECT, LUTZ -> service.nameOf(Objects.requireNonNull(architectCodeModel));
                             case ASK -> "(default, ignored for ASK)";
+                            case SEARCH -> "(default, ignored for SEARCH)";
                             case CODE -> service.nameOf(Objects.requireNonNull(codeModeModel));
                             case REVIEW -> service.nameOf(Objects.requireNonNull(reviewCodeModel));
                         };
                 boolean usesDefaultCodeModel =
                         switch (mode) {
                             case ARCHITECT, LUTZ -> !hasCodeModelOverride;
-                            case ASK -> true;
-                            case CODE -> !hasCodeModelOverride;
-                            case REVIEW -> !hasCodeModelOverride;
+                            case ASK, SEARCH -> true;
+                            case CODE, REVIEW -> !hasCodeModelOverride;
                         };
                 if (plannerModelNameForLog == null || plannerModelNameForLog.isBlank()) {
-                    plannerModelNameForLog = mode == Mode.CODE ? "(unused)" : "(unknown)";
+                    plannerModelNameForLog = (mode == Mode.CODE) ? "(unused)" : "(unknown)";
                 }
                 if (codeModelNameForLog == null || codeModelNameForLog.isBlank()) {
                     codeModelNameForLog = usesDefaultCodeModel ? "(default)" : "(unknown)";
-                } else if (usesDefaultCodeModel && mode != Mode.ASK) {
+                } else if (usesDefaultCodeModel && mode != Mode.ASK && mode != Mode.SEARCH) {
                     codeModelNameForLog = codeModelNameForLog + " (default)";
                 }
 
@@ -242,9 +253,7 @@ public final class JobRunner {
                                                             "plannerModel required for ARCHITECT jobs"),
                                                     Objects.requireNonNull(
                                                             architectCodeModel,
-                                                            "code model unavailable for ARCHITECT jobs"),
-                                                    spec.autoCommit(),
-                                                    spec.autoCompress());
+                                                            "code model unavailable for ARCHITECT jobs"));
                                         }
                                         case LUTZ -> {
                                             // Phase 1: Use SearchAgent to generate a task list from the initial task
@@ -295,8 +304,8 @@ public final class JobRunner {
                                                         logger.info(
                                                                 "LUTZ job {} execution cancelled during task iteration",
                                                                 jobId);
-                                                        return; // Exit submitLlmAction to avoid outer completion
-                                                        // increment
+                                                        return; // Cancelled: exit submitLlmAction early to prevent
+                                                        // further job completion handling in the outer loop
                                                     }
 
                                                     logger.info(
@@ -307,9 +316,7 @@ public final class JobRunner {
                                                         cm.executeTask(
                                                                 generatedTask,
                                                                 architectPlannerModel,
-                                                                Objects.requireNonNull(architectCodeModel),
-                                                                spec.autoCommit(),
-                                                                spec.autoCompress());
+                                                                Objects.requireNonNull(architectCodeModel));
                                                     } catch (Exception e) {
                                                         logger.warn(
                                                                 "Generated task execution failed for job {}: {}",
@@ -347,6 +354,35 @@ public final class JobRunner {
                                                 scope.append(result);
                                             }
                                         }
+                                        case SEARCH -> {
+                                            // Read-only repository search using a scan model (spec.scanModel preferred,
+                                            // otherwise project default)
+                                            try (var scope = cm.beginTask(task.text(), false)) {
+                                                var context = cm.liveContext();
+
+                                                // Determine scan model: prefer explicit spec.scanModel() if provided,
+                                                // otherwise use project default
+                                                String rawScanModel = spec.scanModel();
+                                                String trimmedScanModel =
+                                                        rawScanModel == null ? null : rawScanModel.trim();
+                                                final dev.langchain4j.model.chat.StreamingChatModel scanModelToUse =
+                                                        (trimmedScanModel != null && !trimmedScanModel.isEmpty())
+                                                                ? resolveModelOrThrow(trimmedScanModel)
+                                                                : cm.getService()
+                                                                        .getScanModel();
+
+                                                var searchAgent = new SearchAgent(
+                                                        context,
+                                                        task.text(),
+                                                        Objects.requireNonNull(
+                                                                scanModelToUse,
+                                                                "scan model unavailable for SEARCH jobs"),
+                                                        SearchAgent.Objective.ANSWER_ONLY,
+                                                        scope);
+                                                var result = searchAgent.execute();
+                                                scope.append(result);
+                                            }
+                                        }
                                         case REVIEW -> {
                                             var prData = Json.getMapper().readTree(spec.taskInput());
                                             int prNumber =
@@ -377,6 +413,7 @@ public final class JobRunner {
                                                 completionResultRef.set(parsed);
                                             }
                                         }
+                                        default -> throw new IllegalStateException("Unhandled job mode: " + mode);
                                     }
 
                                     completed.incrementAndGet();
@@ -404,15 +441,9 @@ public final class JobRunner {
 
                 // Optional compress after execution:
                 // - For ARCHITECT/LUTZ: per-task compression already honored via spec.autoCompress().
-                // - For CODE: run a single compression pass if requested.
-                // - For ASK: no compression (read-only mode).
                 if (mode != Mode.ARCHITECT && mode != Mode.LUTZ && spec.autoCompress()) {
                     logger.info("Job {} auto-compressing history", jobId);
-                    try {
-                        cm.compressHistoryAsync().join();
-                    } catch (Exception e) {
-                        logger.warn("Auto-compress failed for job {}", jobId, e);
-                    }
+                    cm.compressHistory();
                 }
 
                 // Determine final status: completed or cancelled
@@ -469,7 +500,7 @@ public final class JobRunner {
                 // Clean up
                 if (console != null) {
                     try {
-                        console.shutdown(5);
+                        // No-op: events are written synchronously, so nothing to await.
                     } catch (Throwable ignore) {
                         // Non-critical: shutdown failed
                     }
@@ -606,7 +637,7 @@ public final class JobRunner {
      * @throws IllegalArgumentException If the repository URL is invalid
      */
     private String managePRContext(int prNumber, String repoUrl, JobSpec spec) throws IOException {
-        var ownerRepo = GitUiUtil.parseOwnerRepoFromUrl(repoUrl);
+        var ownerRepo = GitRepoIdUtil.parseOwnerRepoFromUrl(repoUrl);
         if (ownerRepo == null) {
             throw new IllegalArgumentException("Invalid GitHub URL: " + repoUrl);
         }

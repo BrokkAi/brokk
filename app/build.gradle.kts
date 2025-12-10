@@ -27,7 +27,11 @@ application {
         // enable feature flags; JavaExec baseline supplies other args
         "-Dbrokk.servicetiers=true",
         "-Dbrokk.architectshell=true",
-        "-Dwatch.service.polling=true"
+        "-Dwatch.service.polling=true",
+        // suppress JavaFX Marlin renderer Unsafe warning (JDK 23+)
+        "--sun-misc-unsafe-memory-access=allow",
+        // enable native access for JavaFX modules
+        "--enable-native-access=javafx.graphics,javafx.media,javafx.web,ALL-UNNAMED"
     )
 }
 
@@ -580,7 +584,7 @@ tasks.register<JavaExec>("runHeadlessExecutor") {
     description = "Runs the Brokk Headless Executor"
     mainClass.set("ai.brokk.executor.HeadlessExecutorMain")
     classpath = sourceSets.main.get().runtimeClasspath
-    
+
     // Configuration via environment variables:
     // EXEC_ID, LISTEN_ADDR, AUTH_TOKEN, WORKSPACE_DIR, SESSIONS_DIR (optional)
     systemProperty("brokk.devmode", "false")

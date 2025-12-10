@@ -61,7 +61,7 @@ public class GoAnalyzerTest {
         tree = parser.parseString(null, code);
         TSNode rootNode = tree.getRootNode();
         // Pass null for definitionNode as it's not used by Go's determinePackageName for package clauses
-        return analyzer.determinePackageName(null, null, rootNode, code);
+        return analyzer.determinePackageName(null, null, rootNode, SourceContent.of(code));
     }
 
     @Test
@@ -103,7 +103,7 @@ public class GoAnalyzerTest {
         parser.setLanguage(GO_LANGUAGE);
         tree = parser.parseString(null, content);
         TSNode rootNode = tree.getRootNode();
-        assertEquals("main", analyzer.determinePackageName(packagesGoFile, null, rootNode, content));
+        assertEquals("main", analyzer.determinePackageName(packagesGoFile, null, rootNode, SourceContent.of(content)));
     }
 
     @Test
@@ -114,7 +114,8 @@ public class GoAnalyzerTest {
         parser.setLanguage(GO_LANGUAGE);
         tree = parser.parseString(null, content);
         TSNode rootNode = tree.getRootNode();
-        assertEquals("anotherpkg", analyzer.determinePackageName(anotherGoFile, null, rootNode, content));
+        assertEquals(
+                "anotherpkg", analyzer.determinePackageName(anotherGoFile, null, rootNode, SourceContent.of(content)));
     }
 
     @Test
@@ -125,7 +126,7 @@ public class GoAnalyzerTest {
         parser.setLanguage(GO_LANGUAGE);
         tree = parser.parseString(null, content);
         TSNode rootNode = tree.getRootNode();
-        assertEquals("", analyzer.determinePackageName(noPkgGoFile, null, rootNode, content));
+        assertEquals("", analyzer.determinePackageName(noPkgGoFile, null, rootNode, SourceContent.of(content)));
     }
 
     @Test
@@ -139,7 +140,7 @@ public class GoAnalyzerTest {
         // or a specific "source_file" node that is empty or contains only EOF.
         // The query for package clause will simply not match.
         TSNode rootNode = tree.getRootNode();
-        assertEquals("", analyzer.determinePackageName(emptyGoFile, null, rootNode, content));
+        assertEquals("", analyzer.determinePackageName(emptyGoFile, null, rootNode, SourceContent.of(content)));
     }
 
     @Test

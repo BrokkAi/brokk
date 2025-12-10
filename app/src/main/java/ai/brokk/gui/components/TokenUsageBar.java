@@ -2,15 +2,14 @@ package ai.brokk.gui.components;
 
 import ai.brokk.Service;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.FragmentColorUtils;
-import ai.brokk.gui.dialogs.PreviewTextPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.util.ComputedSubscription;
 import ai.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
@@ -105,7 +104,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                     Segment seg = findSegmentAt(e.getX());
                     if (seg != null && !seg.fragments.isEmpty()) {
                         if (seg.isSummaryGroup) {
-                            // Open combined preview for all summaries (mirrors synthetic chip behavior)
+                            // Open combined preview for all summaries via Chrome::openFragmentPreview
                             int totalFiles = (int) seg.fragments.stream()
                                     .flatMap(f ->
                                             // Fast, non-blocking
@@ -125,14 +124,13 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                                     logger.debug("Failed reading summary text for preview", ex);
                                 }
                             }
-                            var previewPanel = new PreviewTextPanel(
+
+                            var syntheticFragment = new ContextFragment.StringFragment(
                                     chrome.getContextManager(),
-                                    null,
                                     combinedText.toString(),
-                                    SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                                    chrome.getTheme(),
-                                    null);
-                            chrome.showPreviewFrame(chrome.getContextManager(), title, previewPanel);
+                                    title,
+                                    SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+                            chrome.openFragmentPreview(syntheticFragment);
                         } else if (seg.fragments.size() == 1) {
                             // Single fragment: open its preview
                             chrome.openFragmentPreview(seg.fragments.iterator().next());

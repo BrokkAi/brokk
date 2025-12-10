@@ -15,6 +15,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ViewingPolicy;
+import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.mcp.McpUtils;
 import ai.brokk.metrics.SearchMetrics;
@@ -231,8 +232,8 @@ public class SearchAgent {
             // Beast mode triggers
             var inputLimit = cm.getService().getMaxInputTokens(model);
             // Determine viewing policy based on search objective
-            boolean isLutz = objective == Objective.LUTZ;
-            var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, isLutz);
+            boolean useTaskList = objective == Objective.LUTZ || objective == Objective.TASKS_ONLY;
+            var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, useTaskList);
             // Build workspace messages in insertion order with viewing policy applied
             var workspaceMessages =
                     new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(context, viewingPolicy));
@@ -435,6 +436,7 @@ public class SearchAgent {
                 .collect(Collectors.joining(", "));
 
         var nonDroppableSection = buildNonDroppableSection();
+        var workspaceToc = CodePrompts.formatWorkspaceToc(context);
 
         var sys = new SystemMessage(
                 """
@@ -478,8 +480,11 @@ public class SearchAgent {
                 %s
                 %s
                 </instructions>
+                <workspace-toc>
+                %s
+                </workspace-toc>
                 """
-                        .formatted(supportedTypes, reminder, nonDroppableSection));
+                        .formatted(supportedTypes, reminder, nonDroppableSection, workspaceToc));
         messages.add(sys);
 
         // Describe available MCP tools
@@ -809,7 +814,7 @@ public class SearchAgent {
         var janitorOpts = new Llm.Options(model, "Janitor: " + goal).withEcho();
         var jLlm = cm.getLlm(janitorOpts);
         jLlm.setOutput(this.io);
-        var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.AUTO, tr));
+        var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
         if (result.error() != null || result.isEmpty()) {
             return;
         }
@@ -832,13 +837,31 @@ public class SearchAgent {
 
         var sys = new SystemMessage(
                 """
-                You are the Janitor Agent cleaning the Workspace. It is critically important to remove irrelevant
-                fragments before proceeding; they are highly distracting to the other Agents.
+                You are the Janitor Agent (Workspace Reviewer). Single-shot cleanup: one response, then done.
 
-                Your task:
-                  - Evaluate the current workspace contents.
-                  - Call dropWorkspaceFragments to remove irrelevant fragments.
-                  - ONLY if all fragments are relevant, do nothing (skip the tool call).
+                Scope:
+                - Workspace curation ONLY. No code, no answers, no plans.
+
+                Tools (exactly one):
+                - performedInitialReview(): use ONLY when ALL fragments are short, focused, clean, and directly relevant.
+                - dropWorkspaceFragments(fragments: {fragmentId, explanation}[]): batch ALL drops in a single call.
+
+                Default behavior:
+                - If a fragment is large, noisy, or mixed → write a short summary in the drop explanation → DROP it.
+                  Large/noisy/mixed = long, multi-file, logs/traces/issues, big diffs, UI/test noise, unfocused content.
+
+                Keep rule:
+                - KEEP only if it is short, focused, directly relevant, AND keeping it is clearer than summarizing.
+
+                fragment.explanation (string) format:
+                - Summary: 2–4 identifier-first bullets (files/methods and why they matter).
+                - Reason: one short sentence why dropped.
+                - No implementation instructions.
+
+                Response rule:
+                - Tool call only; return exactly ONE tool call (performedInitialReview OR a single batched dropWorkspaceFragments).
+
+                Do NOT drop non-droppable fragments (listed below).
 
                 %s
                 """
@@ -1124,12 +1147,13 @@ public class SearchAgent {
         boolean didChange = !context.getChangedFiles(contextBefore).isEmpty();
 
         if (reason == TaskResult.StopReason.SUCCESS) {
-            // CodeAgent appended its own result; output concise success
-            io.llmOutput("# Code Agent\n\nFinished with a successful build!", ChatMessageType.AI);
-            var resultString = "CodeAgent finished with a successful build!";
+            // housekeeping
+            new GitWorkflow(cm).performAutoCommit(instructions);
+            cm.compressHistory();
+            // CodeAgent appended its own result; we don't need to llmOutput anything redundant
             logger.debug("SearchAgent.callCodeAgent finished successfully");
             codeAgentJustSucceeded = true;
-            return resultString;
+            return "CodeAgent finished with a successful build!";
         }
 
         // propagate critical failures

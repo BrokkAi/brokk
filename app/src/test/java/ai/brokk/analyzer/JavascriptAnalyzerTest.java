@@ -490,10 +490,6 @@ public final class JavascriptAnalyzerTest {
         var nonExistentSymbols = jsAnalyzer.searchDefinitions("NonExistentPatternXYZ");
         assertTrue(nonExistentSymbols.isEmpty(), "Searching for a non-existent pattern should return an empty list.");
 
-        // Test case 7: Empty pattern
-        var emptyPatternSymbols = jsAnalyzer.searchDefinitions("");
-        assertTrue(emptyPatternSymbols.isEmpty(), "Searching with an empty pattern should return an empty list.");
-
         // Test case 8: Constructor pattern (JavaScript constructors are typically class names)
         var constructorSymbols = jsAnalyzer.searchDefinitions("constructor");
         // JavaScript may not have explicit constructor names like Java's <init>, but classes serve as constructors

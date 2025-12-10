@@ -13,7 +13,7 @@ import ai.brokk.gui.components.MaterialLoadingButton;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.gui.util.GitUiUtil;
+import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.MergeDialogUtil;
 import java.awt.*;
@@ -474,7 +474,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 }
                 if (selectedBranch.equals(currentActualBranch)) return;
 
-                GitUiUtil.captureDiffBetweenBranches(contextManager, chrome, currentActualBranch, selectedBranch);
+                GitDiffUiUtil.captureDiffBetweenBranches(contextManager, chrome, currentActualBranch, selectedBranch);
             }
         });
         renameItem.addActionListener(e -> {
@@ -1277,7 +1277,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
     private void captureDiffVsRemoteBranch(String selectedRemoteBranch) {
         try {
             String currentActualBranch = getRepo().getCurrentBranch();
-            GitUiUtil.captureDiffBetweenBranches(contextManager, chrome, currentActualBranch, selectedRemoteBranch);
+            GitDiffUiUtil.captureDiffBetweenBranches(contextManager, chrome, currentActualBranch, selectedRemoteBranch);
         } catch (Exception ex) {
             logger.error("Could not get current branch for diff operation", ex);
             chrome.toolError(

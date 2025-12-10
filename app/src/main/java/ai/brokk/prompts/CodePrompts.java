@@ -631,7 +631,7 @@ public abstract class CodePrompts {
     /**
      * Internal implementation of getWorkspaceReadOnlyMessages that applies the viewing policy.
      */
-    private final Collection<ChatMessage> getWorkspaceReadOnlyMessagesInternal(
+    private Collection<ChatMessage> getWorkspaceReadOnlyMessagesInternal(
             Context ctx, boolean combineSummaries, ViewingPolicy vp) {
         // --- Partition Read-Only Fragments ---
         var readOnlyFragments = ctx.getReadonlyFragments().toList();
@@ -916,29 +916,6 @@ public abstract class CodePrompts {
 
         var workspaceUserMessage = UserMessage.from(allContents);
         return List.of(workspaceUserMessage, new AiMessage("Thank you for providing these Workspace contents."));
-    }
-
-    /**
-     * @return a summary of each fragment in the workspace; for most fragment types this is just the description, but
-     *     for some (SearchFragment) it's the full text and for others (files, skeletons) it's the class summaries.
-     */
-    public final Collection<ChatMessage> getWorkspaceSummaryMessages(Context ctx) {
-        var summaries = ContextFragment.describe(ctx.getAllFragmentsInDisplayOrder());
-        if (summaries.isEmpty()) {
-            return List.of();
-        }
-
-        String summaryText =
-                """
-                        <workspace-summary>
-                        %s
-                        </workspace-summary>
-                        """
-                        .formatted(summaries)
-                        .trim();
-
-        var summaryUserMessage = new UserMessage(summaryText);
-        return List.of(summaryUserMessage, new AiMessage("Okay, I have the workspace summary."));
     }
 
     public List<ChatMessage> getHistoryMessages(Context ctx) {

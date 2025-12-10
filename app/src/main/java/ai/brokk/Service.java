@@ -277,7 +277,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             }
 
             String responseBody = responseBodyObj.string();
-            LogManager.getLogger(Service.class).debug("Models info: {}", responseBody);
+            LogManager.getLogger(Service.class).trace("Models response: {}", responseBody);
             JsonNode rootNode = objectMapper.readTree(responseBody);
             JsonNode dataNode = rootNode.path("data");
 
@@ -384,7 +384,10 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                 }
             }
 
-            LogManager.getLogger(Service.class).info("Discovered {} models eligible for use.", locationsTarget.size());
+            LogManager.getLogger(Service.class)
+                    .info(
+                            "Discovered models {}",
+                            locationsTarget.keySet().stream().sorted().toList());
         }
     }
 
