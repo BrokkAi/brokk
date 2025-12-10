@@ -10,8 +10,13 @@ import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.JDeploySettingsUtil;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.GlobalUiSettings;
-
-import java.awt.*;
+import java.awt.BorderLayout;
+import java.awt.Component;
+import java.awt.Cursor;
+import java.awt.FlowLayout;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
 import java.util.ArrayList;
 import java.util.EventObject;
 import java.util.List;
@@ -132,10 +137,12 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         setEnabledRecursive(this, enabled);
     }
 
-    private void setEnabledRecursive(Container container, boolean enabled) {
-        for (Component comp : container.getComponents()) {
-            comp.setEnabled(enabled);
-            if (comp instanceof Container c) setEnabledRecursive(c, enabled);
+    private void setEnabledRecursive(Component c, boolean enabled) {
+        c.setEnabled(enabled);
+        if (c instanceof JPanel panel) {
+            for (Component child : panel.getComponents()) {
+                setEnabledRecursive(child, enabled);
+            }
         }
     }
 
