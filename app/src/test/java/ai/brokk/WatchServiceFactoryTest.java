@@ -15,7 +15,7 @@ class WatchServiceFactoryTest {
 
     @Test
     void testConfigurationForcesLegacy() throws Exception {
-        var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "legacy", "linux");
+        var service = IWatchService.WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "legacy", "linux");
 
         assertNotNull(service);
         assertTrue(
@@ -25,7 +25,7 @@ class WatchServiceFactoryTest {
 
     @Test
     void testConfigurationForcesNative() throws Exception {
-        var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "native", "linux");
+        var service = IWatchService.WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "native", "linux");
 
         assertNotNull(service);
         assertTrue(
@@ -35,12 +35,12 @@ class WatchServiceFactoryTest {
 
     @Test
     void testConfigurationCaseInsensitive() throws Exception {
-        var legacyService = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "LEGACY", "linux");
+        var legacyService = IWatchService.WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "LEGACY", "linux");
         assertTrue(
                 legacyService instanceof LegacyProjectWatchService,
                 "Should handle case-insensitive configuration values");
 
-        var nativeService = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "NATIVE", "linux");
+        var nativeService = IWatchService.WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "NATIVE", "linux");
         assertTrue(
                 nativeService instanceof NativeProjectWatchService,
                 "Should handle case-insensitive configuration values");
@@ -48,7 +48,7 @@ class WatchServiceFactoryTest {
 
     @Test
     void testPlatformDetectionMacOS() throws Exception {
-        var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "unknown", "mac os x");
+        var service = IWatchService.WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "unknown", "mac os x");
 
         assertNotNull(service);
         assertTrue(service instanceof NativeProjectWatchService, "Should create NativeProjectWatchService for macOS");
@@ -56,7 +56,7 @@ class WatchServiceFactoryTest {
 
     @Test
     void testPlatformDetectionLinux() throws Exception {
-        var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "unknown", "linux");
+        var service = IWatchService.WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "unknown", "linux");
 
         assertNotNull(service);
         assertTrue(service instanceof NativeProjectWatchService, "Should create NativeProjectWatchService for Linux");
@@ -64,7 +64,7 @@ class WatchServiceFactoryTest {
 
     @Test
     void testPlatformDetectionWindows() throws Exception {
-        var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "unknown", "windows 10");
+        var service = IWatchService.WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "unknown", "windows 10");
 
         assertNotNull(service);
         assertTrue(service instanceof NativeProjectWatchService, "Should create NativeProjectWatchService for Windows");
@@ -73,7 +73,7 @@ class WatchServiceFactoryTest {
     @Test
     void testDefaultBehaviorUnknownOS() throws Exception {
         // When OS is unknown and no configuration is set, should default to native
-        var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "unknown", "unknown-os");
+        var service = IWatchService.WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "unknown", "unknown-os");
 
         assertNotNull(service);
         assertTrue(
@@ -84,7 +84,7 @@ class WatchServiceFactoryTest {
     @Test
     void testDefaultBehaviorNoConfiguration() throws Exception {
         // When configuration defaults to "legacy" (as per current implementation)
-        var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "legacy", "linux");
+        var service = IWatchService.WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "legacy", "linux");
 
         assertNotNull(service);
         assertTrue(
@@ -103,7 +103,7 @@ class WatchServiceFactoryTest {
         Files.writeString(globalGitignore, "*.log\n");
 
         var service =
-                WatchServiceFactory.createInternal(gitRepo, gitRepo, globalGitignore, List.of(), "legacy", "linux");
+                IWatchService.WatchServiceFactory.createInternal(gitRepo, gitRepo, globalGitignore, List.of(), "legacy", "linux");
 
         assertNotNull(service);
         assertTrue(service instanceof LegacyProjectWatchService);
@@ -114,7 +114,7 @@ class WatchServiceFactoryTest {
         var listener1 = new TestListener();
         var listener2 = new TestListener();
 
-        var service = WatchServiceFactory.createInternal(
+        var service = IWatchService.WatchServiceFactory.createInternal(
                 tempDir, null, null, List.of(listener1, listener2), "native", "linux");
 
         assertNotNull(service);
@@ -123,7 +123,7 @@ class WatchServiceFactoryTest {
 
     @Test
     void testNullGitRepoRoot() throws Exception {
-        var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "legacy", "linux");
+        var service = IWatchService.WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "legacy", "linux");
 
         assertNotNull(service);
         assertTrue(service instanceof LegacyProjectWatchService);
@@ -134,7 +134,7 @@ class WatchServiceFactoryTest {
         var gitRepo = tempDir.resolve("repo");
         Files.createDirectories(gitRepo.resolve(".git"));
 
-        var service = WatchServiceFactory.createInternal(gitRepo, gitRepo, null, List.of(), "native", "linux");
+        var service = IWatchService.WatchServiceFactory.createInternal(gitRepo, gitRepo, null, List.of(), "native", "linux");
 
         assertNotNull(service);
         assertTrue(service instanceof NativeProjectWatchService);
@@ -143,7 +143,7 @@ class WatchServiceFactoryTest {
     @Test
     void testConfigurationOverridesPlatform() throws Exception {
         // Even on macOS (which prefers native), "legacy" configuration should override
-        var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "legacy", "mac os x");
+        var service = IWatchService.WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "legacy", "mac os x");
 
         assertNotNull(service);
         assertTrue(
@@ -171,7 +171,7 @@ class WatchServiceFactoryTest {
         String previous = System.getProperty(propName);
         try {
             System.setProperty(propName, "legacy");
-            String pref = WatchServiceFactory.getImplementationPreference();
+            String pref = IWatchService.WatchServiceFactory.getImplementationPreference();
             assertNotNull(pref, "Preference should not be null when system property is set");
             assertTrue(pref.equalsIgnoreCase("legacy"), "System property should take precedence and return 'legacy'");
         } finally {

@@ -376,7 +376,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             globalGitignorePath = abstractProject.getGlobalGitignorePath().orElse(null);
         }
         // Create watch service using factory (selects best implementation for platform)
-        var watchService = WatchServiceFactory.create(
+        var watchService = IWatchService.WatchServiceFactory.create(
                 project.getRoot(),
                 project.hasGit() ? project.getRepo().getGitTopLevel() : null,
                 globalGitignorePath,
