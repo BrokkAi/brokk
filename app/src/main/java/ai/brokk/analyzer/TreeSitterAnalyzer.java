@@ -3850,12 +3850,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             return Optional.empty();
         }
         var file = classUnit.source();
-        var srcOpt = file.read();
-        if (srcOpt.isEmpty()) {
+        var scOpt = SourceContent.read(file);
+        if (scOpt.isEmpty()) {
             return Optional.empty();
         }
-        String src = TextCanonicalizer.stripUtf8Bom(srcOpt.get());
-        byte[] bytes = src.getBytes(StandardCharsets.UTF_8);
+        var sc = scOpt.get();
+        byte[] bytes = sc.utf8Bytes();
 
         var classRanges = rangesOf(classUnit);
         if (classRanges.isEmpty()) {
