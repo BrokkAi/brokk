@@ -21,8 +21,12 @@ import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.util.*;
+import com.github.difflib.unifieddiff.UnifiedDiff;
+import com.github.difflib.unifieddiff.UnifiedDiffFile;
+import com.github.difflib.unifieddiff.UnifiedDiffReader;
 import dev.langchain4j.data.message.ChatMessage;
 import java.awt.*;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -1037,16 +1041,27 @@ public interface ContextFragment {
         }
 
         /**
-         * Extracts ProjectFile references from diff content by parsing git diff headers.
-         * Returns empty set if content doesn't look like a diff or no valid files are found.
+         * Extracts ProjectFile references from diff content.
+         * <p>
+         * First attempts unified diff parsing via java-diff-utils; if that yields no files, falls back to
+         * regex-based parsing of common git/unified diff headers. Returns an empty set if content doesn't
+         * look like a diff or no valid files are found.
          */
         private static Set<ProjectFile> extractFilesFromDiff(String text, IContextManager contextManager) {
-            var files = new LinkedHashSet<ProjectFile>();
+            Set<ProjectFile> files = extractFilesFromUnifiedDiff(text, contextManager);
+            if (!files.isEmpty()) {
+                return files;
+            }
+
+            files = new LinkedHashSet<>();
 
             // Try "diff --git a/path b/path" format first
             var gitMatcher = DIFF_GIT_PATTERN.matcher(text);
             while (gitMatcher.find()) {
-                var path = gitMatcher.group(2); // use b/ path (new file)
+                var path = normalizeDiffPath(gitMatcher.group(2)); // use b/ path (new file)
+                if (path == null) {
+                    continue;
+                }
                 var file = contextManager.toFile(path);
                 if (file != null && file.exists()) {
                     files.add(file);
@@ -1057,17 +1072,79 @@ public interface ContextFragment {
             if (files.isEmpty()) {
                 var plusMatcher = DIFF_PLUS_PATTERN.matcher(text);
                 while (plusMatcher.find()) {
-                    var path = plusMatcher.group(1);
-                    if (!path.equals("/dev/null")) {
-                        var file = contextManager.toFile(path);
-                        if (file != null && file.exists()) {
-                            files.add(file);
-                        }
+                    var path = normalizeDiffPath(plusMatcher.group(1));
+                    if (path == null) {
+                        continue;
+                    }
+                    var file = contextManager.toFile(path);
+                    if (file != null && file.exists()) {
+                        files.add(file);
                     }
                 }
             }
 
             return files;
+        }
+
+        /**
+         * Extracts ProjectFile references using java-diff-utils UnifiedDiffReader.
+         * Returns an empty set if parsing fails or yields no recognizable file paths.
+         */
+        private static Set<ProjectFile> extractFilesFromUnifiedDiff(String text, IContextManager contextManager) {
+            if (text.isBlank()) {
+                return Set.of();
+            }
+
+            try (ByteArrayInputStream in = new ByteArrayInputStream(text.getBytes(StandardCharsets.UTF_8))) {
+                UnifiedDiff diff = UnifiedDiffReader.parseUnifiedDiff(in);
+                if (diff == null) {
+                    return Set.of();
+                }
+
+                Set<ProjectFile> files = new LinkedHashSet<>();
+                for (UnifiedDiffFile udf : diff.getFiles()) {
+                    String rawPath = primaryPathFromUnifiedDiffFile(udf);
+                    String normalized = normalizeDiffPath(rawPath);
+                    if (normalized == null) {
+                        continue;
+                    }
+                    ProjectFile projectFile = contextManager.toFile(normalized);
+                    if (projectFile != null && projectFile.exists()) {
+                        files.add(projectFile);
+                    }
+                }
+                return files;
+            } catch (Exception e) {
+                return Set.of();
+            }
+        }
+
+        /**
+         * Picks the most appropriate path from a UnifiedDiffFile, preferring the "to" path and
+         * falling back to the "from" path (for deletions/renames).
+         */
+        private static @Nullable String primaryPathFromUnifiedDiffFile(UnifiedDiffFile file) {
+            String path = file.getToFile();
+            if (path == null || path.isBlank() || "/dev/null".equals(path.trim())) {
+                path = file.getFromFile();
+            }
+            return path;
+        }
+
+        /**
+         * Normalizes a diff path by trimming, stripping leading a/ or b/ prefixes and ignoring /dev/null.
+         */
+        private static @Nullable String normalizeDiffPath(@Nullable String rawPath) {
+            if (rawPath == null) return null;
+
+            String path = rawPath.trim();
+            if (path.isEmpty() || "/dev/null".equals(path)) {
+                return null;
+            }
+            if (path.startsWith("a/") || path.startsWith("b/")) {
+                path = path.substring(2);
+            }
+            return path;
         }
 
         public StringFragment(
