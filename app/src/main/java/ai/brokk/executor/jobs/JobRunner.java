@@ -350,6 +350,28 @@ public final class JobRunner {
                                                                 askPlannerModel, "plannerModel required for ASK jobs"),
                                                         SearchAgent.Objective.ANSWER_ONLY,
                                                         scope);
+
+                                                // Optional pre-scan: seed workspace using a scan model if requested in JobSpec
+                                                try {
+                                                    if (spec.preScan()) {
+                                                        String rawScanModel = spec.scanModel();
+                                                        String trimmedScanModel = rawScanModel == null ? null : rawScanModel.trim();
+                                                        final StreamingChatModel scanModelToUse =
+                                                                (trimmedScanModel != null && !trimmedScanModel.isEmpty())
+                                                                        ? resolveModelOrThrow(trimmedScanModel)
+                                                                        : cm.getService().getScanModel();
+                                                        // Perform the prescan; append-to-scope default (true)
+                                                        searchAgent.scanInitialContext(
+                                                                Objects.requireNonNull(
+                                                                        scanModelToUse,
+                                                                        "scan model unavailable for ASK pre-scan"));
+                                                    }
+                                                } catch (InterruptedException ie) {
+                                                    // Preserve interruption status and propagate
+                                                    Thread.currentThread().interrupt();
+                                                    throw ie;
+                                                }
+
                                                 var result = searchAgent.execute();
                                                 scope.append(result);
                                             }
