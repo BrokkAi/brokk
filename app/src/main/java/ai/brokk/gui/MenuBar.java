@@ -62,6 +62,11 @@ public class MenuBar {
      * @param onClose optional callback to run when the dialog is closed
      */
     private static void showDialog(Chrome chrome, String title, JComponent content, @Nullable Runnable onClose) {
+        if (!GlobalUiSettings.isAdvancedMode()) {
+            // Route tools to a closable tab in the HistoryOutputPanel when not in Advanced Mode
+            chrome.getHistoryOutputPanel().openAuxTab(title, content, onClose);
+            return;
+        }
         Runnable task = () -> {
             // Create new modeless dialog
             var dialog = new BaseThemedDialog(chrome.getFrame(), title, Dialog.ModalityType.MODELESS);
