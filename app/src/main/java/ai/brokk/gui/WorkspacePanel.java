@@ -444,26 +444,6 @@ public class WorkspacePanel extends JPanel {
                                             "Fragments action not implemented: " + WorkspaceAction.this);
                             };
                     panel.performContextActionAsync(contextAction, fragments);
-
-                    // Apply enable/disable logic for specific actions
-                    if (WorkspaceAction.this == EDIT_ALL_REFS) {
-                        if (!panel.allTrackedProjectFiles(fragments)) {
-                            var hasFiles = panel.hasFiles(fragments);
-                            setEnabled(false);
-                            if (!hasFiles) {
-                                putValue(Action.SHORT_DESCRIPTION, "No files associated with the selection to edit.");
-                            } else {
-                                putValue(
-                                        Action.SHORT_DESCRIPTION,
-                                        "Cannot edit because selection includes untracked or external files.");
-                            }
-                        }
-                    } else if (WorkspaceAction.this == SUMMARIZE_ALL_REFS) {
-                        if (!panel.hasFiles(fragments)) {
-                            setEnabled(false);
-                            putValue(Action.SHORT_DESCRIPTION, "No files associated with the selection to summarize.");
-                        }
-                    }
                 }
             };
         }
@@ -1841,6 +1821,11 @@ public class WorkspacePanel extends JPanel {
         var files = selectedFragments.stream()
                 .flatMap(fragment -> fragment.files().join().stream())
                 .collect(Collectors.toSet());
+        if (files.isEmpty()) {
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO,
+                                    "No files associated with the selection to edit.");
+            return;
+        }
         contextManager.addFiles(files);
     }
 
