@@ -687,6 +687,46 @@ public final class HeadlessExecutorMain {
 
             Map<String, String> safeTags = tags != null ? Map.copyOf(tags) : Map.of();
             boolean preScanFlag = Objects.requireNonNullElse(jobSpecRequest.preScan(), false);
+
+            // Optional job-scoped context text: accept from either top-level contextText or nested context.text
+            var requestedJobContextTexts = new ArrayList<String>();
+            var topLevelTexts = jobSpecRequest.contextText();
+            if (topLevelTexts != null) {
+                requestedJobContextTexts.addAll(topLevelTexts);
+            }
+            var contextObj = jobSpecRequest.context();
+            if (contextObj != null && contextObj.text() != null) {
+                requestedJobContextTexts.addAll(contextObj.text());
+            }
+
+            // Validate context text entries if any were supplied
+            final int MAX_BYTES = 64 * 1024; // 64 KiB
+            var validJobContextTexts = new ArrayList<String>();
+            var invalidContextEntries = new ArrayList<String>();
+            if (!requestedJobContextTexts.isEmpty()) {
+                for (int i = 0; i < requestedJobContextTexts.size(); i++) {
+                    var t = requestedJobContextTexts.get(i);
+                    if (t == null || t.isBlank()) {
+                        invalidContextEntries.add("index " + i + " (blank)");
+                        continue;
+                    }
+                    int byteLen = t.getBytes(UTF_8).length;
+                    if (byteLen > MAX_BYTES) {
+                        invalidContextEntries.add("index " + i + " (exceeds " + MAX_BYTES + " bytes)");
+                        continue;
+                    }
+                    validJobContextTexts.add(t);
+                }
+                if (validJobContextTexts.isEmpty()) {
+                    var msg = "No valid context text provided";
+                    if (!invalidContextEntries.isEmpty()) {
+                        msg += "; invalid: " + String.join(", ", invalidContextEntries);
+                    }
+                    sendValidationError(exchange, msg);
+                    return;
+                }
+            }
+
             var jobSpec = JobSpec.of(
                     jobSpecRequest.taskInput(),
                     jobSpecRequest.autoCommit(),
@@ -714,9 +754,9 @@ public final class HeadlessExecutorMain {
             var status = jobStore.loadStatus(jobId);
             var state = status != null ? status.state() : "queued";
 
-            var response = Map.of(
-                    "jobId", jobId,
-                    "state", state);
+            var response = new HashMap<String, Object>();
+            response.put("jobId", jobId);
+            response.put("state", state);
 
             if (isNewJob) {
                 // Atomically reserve the job slot; fail fast if another job is in progress
@@ -737,6 +777,32 @@ public final class HeadlessExecutorMain {
                         idempotencyKey,
                         contextManager.getCurrentSessionId());
                 try {
+                    // Add any validated job-scoped context text fragments before starting execution
+                    var contextTextFragmentIds = new ArrayList<String>();
+                    if (!validJobContextTexts.isEmpty()) {
+                        for (var txt : validJobContextTexts) {
+                            contextManager.addPastedTextFragment(txt);
+                            var live = contextManager.liveContext();
+                            var fragments = live.getAllFragmentsInDisplayOrder();
+                            for (int i = fragments.size() - 1; i >= 0; i--) {
+                                var f = fragments.get(i);
+                                if (f.getType() == ContextFragment.FragmentType.PASTE_TEXT) {
+                                    var id = f.id();
+                                    if (!contextTextFragmentIds.contains(id)) {
+                                        contextTextFragmentIds.add(id);
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                        int totalChars = validJobContextTexts.stream().mapToInt(String::length).sum();
+                        logger.info(
+                                "Added {} job-scoped context text fragments (totalChars={})",
+                                contextTextFragmentIds.size(),
+                                totalChars);
+                        response.put("contextTextFragmentIds", contextTextFragmentIds);
+                    }
+
                     // Start execution asynchronously; release reservation in callback or on failure
                     executeJobAsync(jobId, jobSpec);
                 } catch (Exception ex) {
@@ -1011,7 +1077,11 @@ public final class HeadlessExecutorMain {
             @Nullable String scanModel,
             @Nullable String codeModel,
             @Nullable Boolean preScan,
-            @Nullable Map<String, String> tags) {}
+            @Nullable Map<String, String> tags,
+            @Nullable List<String> contextText,
+            @Nullable ContextPayload context) {}
+
+    private record ContextPayload(@Nullable List<String> text) {}
 
     private record AddContextFilesRequest(List<String> relativePaths) {}
 
