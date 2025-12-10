@@ -169,6 +169,7 @@ class DependencyAutoUpdateCoordinatorTest {
                 .commit()
                 .setMessage("add file2")
                 .setAuthor("Test", "test@example.com")
+                .setSign(false)
                 .call();
 
         var result = DependencyUpdater.autoUpdateDependenciesOnce(project, true, false);
@@ -230,6 +231,7 @@ class DependencyAutoUpdateCoordinatorTest {
                 .commit()
                 .setMessage("add file2")
                 .setAuthor("Test", "test@example.com")
+                .setSign(false)
                 .call();
 
         var result = DependencyUpdater.autoUpdateDependenciesOnce(project, false, true);

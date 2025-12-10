@@ -94,6 +94,7 @@ class GitDependencyAutoUpdateTest {
                 .commit()
                 .setMessage("add file2")
                 .setAuthor("Test", "test@example.com")
+                .setSign(false)
                 .call();
 
         // Build the ProjectFile for the on-disk dependency root.
