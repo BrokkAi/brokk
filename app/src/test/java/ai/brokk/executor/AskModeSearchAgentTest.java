@@ -231,7 +231,7 @@ public class AskModeSearchAgentTest {
                 "plannerModel",
                 "gemini-2.0-flash",
                 "scanModel",
-                "gpt-5-mini",
+                "gemini-2.0-flash",
                 "preScan",
                 true,
                 "autoCommit",
@@ -300,9 +300,9 @@ public class AskModeSearchAgentTest {
                 "plannerModel",
                 "gemini-2.0-flash",
                 "scanModel",
-                "gpt-5-mini",
+                "gemini-2.0-flash",
                 "codeModel",
-                "gpt-5-mini", // intentionally provided; should be ignored for ASK
+                "gemini-2.0-flash", // intentionally provided; should be ignored for ASK
                 "preScan",
                 true,
                 "autoCommit",
