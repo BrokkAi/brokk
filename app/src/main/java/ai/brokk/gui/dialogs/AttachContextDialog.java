@@ -621,12 +621,12 @@ public class AttachContextDialog extends BaseThemedDialog {
             if (pattern.isEmpty() || !cm.getProject().hasGit()) return List.of();
 
             Set<ProjectFile> candidates = cm.getProject().getAllFiles();
-            var scored = Completions.scoreShortAndLong(
+            var scored = Completions.scoreProjectFiles(
                     pattern,
+                    cm.getProject(),
                     candidates,
                     ProjectFile::getFileName,
                     pf -> pf.getRelPath().toString(),
-                    pf -> 0,
                     this::create);
 
             AutoCompleteUtil.sizePopupWindows(ac, searchField, scored);
