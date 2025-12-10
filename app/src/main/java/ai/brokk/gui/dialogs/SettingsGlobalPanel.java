@@ -12,7 +12,6 @@ import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.Icons;
-import ai.brokk.gui.util.JDeploySettingsUtil;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.mcp.HttpMcpServer;
 import ai.brokk.mcp.McpConfig;
@@ -989,117 +988,145 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     /**
-     * Apply only the settings managed by this panel (Service + Appearance + Keybindings + MCP + GitHub).
-     * To avoid introducing a dependency on the new advanced panel for saving, we combine the values we manage
-     * with the current persisted values for the settings that moved to the advanced panel and write them in one
-     * atomic save call to MainProject.saveAllGlobalSettings().
-     */
+         * Apply the global settings managed by this panel (service, appearance, layout, diff view, etc).
+         */
     public boolean applySettings() {
-        // Validate API key
-        String currentBrokkKeyInSettings = MainProject.getBrokkKey();
-        String newBrokkKeyFromField = brokkKeyField.getText().trim();
-        boolean keyStateChangedInUI = !newBrokkKeyFromField.equals(currentBrokkKeyInSettings);
+                        // Validate API key
+                        String currentBrokkKeyInSettings = MainProject.getBrokkKey();
+                        String newBrokkKeyFromField = brokkKeyField.getText().trim();
+                        boolean keyStateChangedInUI = !newBrokkKeyFromField.equals(currentBrokkKeyInSettings);
 
-        if (keyStateChangedInUI && !newBrokkKeyFromField.isEmpty()) {
-            try {
-                Service.validateKey(newBrokkKeyFromField);
-            } catch (IllegalArgumentException ex) {
-                JOptionPane.showMessageDialog(this, "Invalid Brokk Key", "Invalid Key", JOptionPane.ERROR_MESSAGE);
-                return false;
-            } catch (IOException ex) {
-                JOptionPane.showMessageDialog(
-                        this,
-                        "Network error: " + ex.getMessage() + ". Key saved, but validation failed.",
-                        "Network Error",
-                        JOptionPane.WARNING_MESSAGE);
-            }
-        }
+                        if (keyStateChangedInUI && !newBrokkKeyFromField.isEmpty()) {
+                                            try {
+                                                                Service.validateKey(newBrokkKeyFromField);
+                                            } catch (IllegalArgumentException ex) {
+                                                                JOptionPane.showMessageDialog(
+                                                                                                        this, "Invalid Brokk Key", "Invalid Key", JOptionPane.ERROR_MESSAGE);
+                                                                return false;
+                                            } catch (IOException ex) {
+                                                                JOptionPane.showMessageDialog(
+                                                                                                        this,
+                                                                                                        "Network error: " + ex.getMessage() + ". Key saved, but validation failed.",
+                                                                                                        "Network Error",
+                                                                                                        JOptionPane.WARNING_MESSAGE);
+                                                                // fall through: we still persist the key
+                                            }
+                        }
 
-        // Service settings
-        MainProject.LlmProxySetting proxySetting;
-        if (brokkProxyRadio == null) {
-            proxySetting = MainProject.getProxySetting();
-        } else {
-            proxySetting = brokkProxyRadio.isSelected()
-                    ? MainProject.LlmProxySetting.BROKK
-                    : MainProject.LlmProxySetting.LOCALHOST;
-        }
-        var forceToolEmulation = (forceToolEmulationCheckbox != null) && forceToolEmulationCheckbox.isSelected();
+                        // Service settings
+                        MainProject.LlmProxySetting proxySetting;
+                        if (brokkProxyRadio == null) {
+                                            proxySetting = MainProject.getProxySetting();
+                        } else {
+                                            proxySetting = brokkProxyRadio.isSelected()
+                                                                                    ? MainProject.LlmProxySetting.BROKK
+                                                                                    : MainProject.LlmProxySetting.LOCALHOST;
+                        }
+                        boolean forceToolEmulation =
+                                                                (forceToolEmulationCheckbox != null) && forceToolEmulationCheckbox.isSelected();
 
-        // Appearance
-        String newTheme = GuiTheme.THEME_LIGHT;
-        if (lightThemeRadio.isSelected()) {
-            newTheme = (String) lightThemeRadio.getClientProperty("theme");
-        } else if (lightPlusThemeRadio.isSelected()) {
-            newTheme = (String) lightPlusThemeRadio.getClientProperty("theme");
-        } else if (darkThemeRadio.isSelected()) {
-            newTheme = (String) darkThemeRadio.getClientProperty("theme");
-        } else if (darkPlusThemeRadio.isSelected()) {
-            newTheme = (String) darkPlusThemeRadio.getClientProperty("theme");
-        } else if (highContrastThemeRadio.isSelected()) {
-            newTheme = (String) highContrastThemeRadio.getClientProperty("theme");
-        }
-        boolean newWrapMode = wordWrapCheckbox.isSelected();
-        float terminalFontSize = ((Double) terminalFontSizeSpinner.getValue()).floatValue();
+                        // Persist Brokk key and proxy / tool emulation
+                        MainProject.setBrokkKey(newBrokkKeyFromField);
+                        MainProject.setLlmProxySetting(proxySetting);
+                        MainProject.setForceToolEmulation(forceToolEmulation);
 
-        // UI Scale
-        String uiScale;
-        if (uiScaleAutoRadio != null && uiScaleCustomRadio != null && uiScaleCombo != null) {
-            if (uiScaleAutoRadio.isSelected()) {
-                uiScale = "auto";
-            } else {
-                String txt = String.valueOf(uiScaleCombo.getSelectedItem()).trim();
-                var allowed = Set.of("1.0", "2.0", "3.0", "4.0", "5.0");
-                if (!allowed.contains(txt)) {
-                    JOptionPane.showMessageDialog(
-                            this,
-                            "Select a scale from 1.0, 2.0, 3.0, 4.0, or 5.0.",
-                            "Invalid UI Scale",
-                            JOptionPane.ERROR_MESSAGE);
-                    return false;
-                }
-                uiScale = txt;
-            }
-        } else {
-            uiScale = MainProject.getUiScalePref();
-        }
+                        // Appearance: theme
+                        String newTheme;
+                        if (lightThemeRadio.isSelected()) {
+                                            newTheme = (String) lightThemeRadio.getClientProperty("theme");
+                        } else if (lightPlusThemeRadio.isSelected()) {
+                                            newTheme = (String) lightPlusThemeRadio.getClientProperty("theme");
+                        } else if (darkThemeRadio.isSelected()) {
+                                            newTheme = (String) darkThemeRadio.getClientProperty("theme");
+                        } else if (darkPlusThemeRadio.isSelected()) {
+                                            newTheme = (String) darkPlusThemeRadio.getClientProperty("theme");
+                        } else if (highContrastThemeRadio.isSelected()) {
+                                            newTheme = (String) highContrastThemeRadio.getClientProperty("theme");
+                        } else {
+                                            newTheme = GuiTheme.THEME_LIGHT;
+                        }
+                        String oldTheme = MainProject.getTheme();
+                        MainProject.setTheme(newTheme);
 
-        // Build the grouped settings records we control
-        var serviceSettings = new MainProject.ServiceSettings(newBrokkKeyFromField, proxySetting, forceToolEmulation);
-        var appearanceSettings = new MainProject.AppearanceSettings(newTheme, newWrapMode, uiScale, terminalFontSize);
+                        // Appearance: word wrap
+                        boolean newWrapMode = wordWrapCheckbox.isSelected();
+                        boolean oldWrapMode = MainProject.getCodeBlockWrapMode();
+                        MainProject.setCodeBlockWrapMode(newWrapMode);
 
-        // For settings that were moved to Advanced, read current persisted values so we can perform an atomic save
-        var startupSettings = new MainProject.StartupSettings(MainProject.getStartupOpenMode());
-        var generalSettings = new MainProject.GeneralSettings(MainProject.getJvmMemorySettings());
-        var favoriteModels = MainProject.loadFavoriteModels();
-        var mcpConfig = chrome.getProject().getMainProject().getMcpConfig();
-        var modelSettings = new MainProject.ModelSettings(favoriteModels, mcpConfig);
+                        // UI Scale
+                        String oldUiScalePref = MainProject.getUiScalePref();
+                        String newUiScalePref = oldUiScalePref;
 
-        // Save all (this writes all global settings atomically)
-        MainProject.saveAllGlobalSettings(serviceSettings, appearanceSettings, startupSettings, generalSettings, modelSettings);
+                        if (uiScaleAutoRadio != null && uiScaleCustomRadio != null && uiScaleCombo != null) {
+                                            if (uiScaleAutoRadio.isSelected()) {
+                                                                newUiScalePref = "auto";
+                                            } else {
+                                                                String txt = String.valueOf(uiScaleCombo.getSelectedItem()).trim();
+                                                                var allowed = Set.of("1.0", "2.0", "3.0", "4.0", "5.0");
+                                                                if (!allowed.contains(txt)) {
+                                                                                    JOptionPane.showMessageDialog(
+                                                                                                                            this,
+                                                                                                                            "Select a scale from 1.0, 2.0, 3.0, 4.0, or 5.0.",
+                                                                                                                            "Invalid UI Scale",
+                                                                                                                            JOptionPane.ERROR_MESSAGE);
+                                                                                    return false;
+                                                                }
+                                                                newUiScalePref = txt;
+                                            }
+                        }
 
-        // Persist force tool emulation immediately
-        MainProject.setForceToolEmulation(forceToolEmulation);
+                        if (!newUiScalePref.equals(oldUiScalePref)) {
+                                            if ("auto".equalsIgnoreCase(newUiScalePref)) {
+                                                                MainProject.setUiScalePrefAuto();
+                                            } else {
+                                                                try {
+                                                                                    double scale = Double.parseDouble(newUiScalePref);
+                                                                                    MainProject.setUiScalePrefCustom(scale);
+                                                                } catch (NumberFormatException e) {
+                                                                                    JOptionPane.showMessageDialog(
+                                                                                                                            this,
+                                                                                                                            "Select a scale from 1.0, 2.0, 3.0, 4.0, or 5.0.",
+                                                                                                                            "Invalid UI Scale",
+                                                                                                                            JOptionPane.ERROR_MESSAGE);
+                                                                                    return false;
+                                                                }
+                                            }
+                                            parentDialog.markRestartNeededForUiScale();
+                        }
 
-        // Side effects
-        if (keyStateChangedInUI) {
-            refreshBalanceDisplay();
-            updateSignupLabelVisibility();
-            parentDialog.triggerDataRetentionPolicyRefresh();
-            chrome.getContextManager().reloadService();
-        }
+                        // Terminal font size
+                        float terminalFontSize = ((Double) terminalFontSizeSpinner.getValue()).floatValue();
+                        MainProject.setTerminalFontSize(terminalFontSize);
 
-        boolean themeChanged = !newTheme.equals(MainProject.getTheme());
-        boolean wrapChanged = newWrapMode != MainProject.getCodeBlockWrapMode();
-        if (themeChanged || wrapChanged) {
-            chrome.switchThemeAndWrapMode(newTheme, newWrapMode);
-        }
+                        // Layout and diff preferences
+                        boolean verticalLayout = !classicBrokkViewCheckbox.isSelected();
+                        GlobalUiSettings.saveVerticalActivityLayout(verticalLayout);
 
-        JDeploySettingsUtil.updateJvmMemorySettings(generalSettings.jvmMemory());
-        chrome.updateTerminalFontSize();
+                        boolean diffUnified = diffUnifiedRadio.isSelected();
+                        GlobalUiSettings.saveDiffUnifiedView(diffUnified);
 
-        logger.debug("Applied global settings (service+appearance) successfully");
-        return true;
+                        // GitHub-related notifications / listeners
+                        if (keyStateChangedInUI) {
+                                            refreshBalanceDisplay();
+                                            updateSignupLabelVisibility();
+                                            parentDialog.triggerDataRetentionPolicyRefresh();
+                                            try {
+                                                                chrome.getContextManager().reloadService();
+                                            } catch (Exception e) {
+                                                                logger.debug("Failed to reload service after Brokk key change (non-fatal)", e);
+                                            }
+                        }
+
+                        boolean themeChanged = !newTheme.equals(oldTheme);
+                        boolean wrapChanged = newWrapMode != oldWrapMode;
+                        if (themeChanged || wrapChanged) {
+                                            chrome.switchThemeAndWrapMode(newTheme, newWrapMode);
+                        }
+
+                        chrome.updateTerminalFontSize();
+
+                        logger.debug("Applied global settings (service + appearance) successfully");
+                        return true;
     }
 
     private void refreshBalanceDisplay() {

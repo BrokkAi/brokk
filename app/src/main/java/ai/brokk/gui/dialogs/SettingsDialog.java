@@ -169,6 +169,7 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
 
         // Populate panels with data (this also enables them)
         globalSettingsPanel.populateFromData(data);
+        advancedSettingsPanel.populateFromData(data);
         projectSettingsPanel.populateFromData(data);
 
         // Enable buttons now that data is loaded
@@ -185,23 +186,27 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
     }
 
     private boolean applySettings() {
-        MainProject.LlmProxySetting oldProxySetting = MainProject.getProxySetting();
+            MainProject.LlmProxySetting oldProxySetting = MainProject.getProxySetting();
 
-        if (!globalSettingsPanel.applySettings()) {
-            return false; // Global settings failed validation
-        }
+            if (!globalSettingsPanel.applySettings()) {
+                    return false; // Global settings failed validation
+            }
 
-        if (!projectSettingsPanel.applySettings()) {
-            return false; // Project settings failed validation
-        }
+            if (!advancedSettingsPanel.applySettings()) {
+                    return false; // Advanced settings failed validation
+            }
 
-        MainProject.LlmProxySetting newProxySetting = MainProject.getProxySetting();
-        if (oldProxySetting != newProxySetting
-                && newProxySetting != MainProject.LlmProxySetting.STAGING) { // STAGING is non-interactive
-            proxySettingsChanged = true;
-        }
+            if (!projectSettingsPanel.applySettings()) {
+                    return false; // Project settings failed validation
+            }
 
-        return true;
+            MainProject.LlmProxySetting newProxySetting = MainProject.getProxySetting();
+            if (oldProxySetting != newProxySetting
+                            && newProxySetting != MainProject.LlmProxySetting.STAGING) { // STAGING is non-interactive
+                    proxySettingsChanged = true;
+            }
+
+            return true;
     }
 
     private void handleProxyRestartIfNeeded() {

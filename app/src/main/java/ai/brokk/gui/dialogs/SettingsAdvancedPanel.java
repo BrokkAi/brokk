@@ -7,6 +7,7 @@ import ai.brokk.gui.dialogs.SettingsDialog.SettingsData;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.gui.util.JDeploySettingsUtil;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.mcp.McpServer;
 import ai.brokk.project.MainProject;
@@ -228,6 +229,59 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 showConfirmNotificationsCheckbox.isSelected(),
                 showInfoNotificationsCheckbox.isSelected(),
                 watchPrefSelected);
+    }
+
+    /**
+     * Apply advanced/global settings managed by this panel (JVM memory, startup behavior,
+     * notifications, advanced mode, favorite models, model roles, etc).
+     */
+    public boolean applySettings() {
+        AdvancedValues values = collectAdvancedValues();
+
+        // JVM memory
+        MainProject.setJvmMemorySettings(values.jvmMemorySettings());
+        JDeploySettingsUtil.updateJvmMemorySettings(values.jvmMemorySettings());
+
+        // Startup behavior
+        MainProject.setStartupOpenMode(values.startupOpenMode());
+
+        // UI / instructions behavior
+        GlobalUiSettings.savePersistPerProjectBounds(values.persistPerProjectBounds());
+        GlobalUiSettings.saveInstructionsTabInsertIndentation(values.instructionsTabInsertIndentation());
+        GlobalUiSettings.saveAdvancedMode(values.advancedMode());
+        GlobalUiSettings.saveSkipCommitGateInEzMode(values.skipCommitGateEzMode());
+
+        // Notifications
+        GlobalUiSettings.saveShowCostNotifications(values.showCostNotifications());
+        GlobalUiSettings.saveShowFreeInternalLLMCostNotifications(values.showFreeInternalLLMCostNotifications());
+        GlobalUiSettings.saveShowErrorNotifications(values.showErrorNotifications());
+        GlobalUiSettings.saveShowConfirmNotifications(values.showConfirmNotifications());
+        GlobalUiSettings.saveShowInfoNotifications(values.showInfoNotifications());
+
+        // Favorite models
+        MainProject.saveFavoriteModels(values.favoriteModels());
+
+        // Model roles (code / architect)
+        var mainProject = chrome.getProject().getMainProject();
+        if (values.selectedCodeFavorite() != null) {
+            mainProject.setCodeModelConfig(values.selectedCodeFavorite().config());
+        }
+        if (values.selectedPrimaryFavorite() != null) {
+            mainProject.setArchitectModelConfig(values.selectedPrimaryFavorite().config());
+        }
+
+        // Vendor preference for other models
+        String vendor = values.otherModelsVendor();
+        if (vendor == null || vendor.isBlank() || "Default".equalsIgnoreCase(vendor)) {
+            MainProject.setOtherModelsVendorPreference("");
+        } else {
+            MainProject.setOtherModelsVendorPreference(vendor.trim());
+        }
+
+        // Watch service implementation preference
+        MainProject.setWatchServiceImplPreference(values.watchServiceImplPreference());
+
+        return true;
     }
 
     public JTabbedPane getAdvancedSubTabbedPane() {
