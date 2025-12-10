@@ -233,9 +233,11 @@ public class AskModeSearchAgentTest {
                                 if (data != null) {
                                     if (data.isTextual()) {
                                         text = data.asText();
-                                    } else if (data.has("token") && data.get("token").isTextual()) {
+                                    } else if (data.has("token")
+                                            && data.get("token").isTextual()) {
                                         text = data.get("token").asText();
-                                    } else if (data.has("message") && data.get("message").isTextual()) {
+                                    } else if (data.has("message")
+                                            && data.get("message").isTextual()) {
                                         text = data.get("message").asText();
                                     } else {
                                         text = data.toString();
@@ -267,13 +269,15 @@ public class AskModeSearchAgentTest {
             var list = new java.util.ArrayList<com.fasterxml.jackson.databind.JsonNode>(recentEvents);
             System.err.println("[AskModeSearchAgentTest] Timeout waiting for '" + matchText + "' for job " + jobId);
             try {
-                System.err.println("[AskModeSearchAgentTest] Last events: " + mapper.writerWithDefaultPrettyPrinter().writeValueAsString(list));
+                System.err.println("[AskModeSearchAgentTest] Last events: "
+                        + mapper.writerWithDefaultPrettyPrinter().writeValueAsString(list));
             } catch (Exception e) {
                 System.err.println("[AskModeSearchAgentTest] Unable to serialize recent events: " + e.getMessage());
             }
         } catch (Throwable t) {
             // best-effort debug output; never fail the test method from here
-            System.err.println("[AskModeSearchAgentTest] Timeout and failed to record recent events: " + t.getMessage());
+            System.err.println(
+                    "[AskModeSearchAgentTest] Timeout and failed to record recent events: " + t.getMessage());
         }
 
         return null;
