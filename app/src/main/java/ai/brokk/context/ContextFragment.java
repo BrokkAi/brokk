@@ -1025,6 +1025,42 @@ public interface ContextFragment {
             super(id, contextManager, new FragmentSnapshot(description, description, text, syntaxStyle));
         }
 
+        public StringFragment(
+                IContextManager contextManager,
+                String text,
+                String description,
+                String syntaxStyle,
+                Set<ProjectFile> files) {
+            this(
+                    FragmentUtils.calculateContentHash(
+                            FragmentType.STRING, description, text, syntaxStyle, StringFragment.class.getName()),
+                    contextManager,
+                    text,
+                    description,
+                    syntaxStyle,
+                    files);
+        }
+
+        public StringFragment(
+                String id,
+                IContextManager contextManager,
+                String text,
+                String description,
+                String syntaxStyle,
+                Set<ProjectFile> files) {
+            super(
+                    id,
+                    contextManager,
+                    new FragmentSnapshot(
+                            description,
+                            description,
+                            text,
+                            syntaxStyle,
+                            Set.of(),
+                            Set.copyOf(files),
+                            (List<Byte>) null));
+        }
+
         @Override
         public FragmentType getType() {
             return FragmentType.STRING;
