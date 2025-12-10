@@ -304,7 +304,8 @@ public final class JobRunner {
                                                         logger.info(
                                                                 "LUTZ job {} execution cancelled during task iteration",
                                                                 jobId);
-                                                        return; // Cancelled: exit submitLlmAction early to prevent further job completion handling in the outer loop
+                                                        return; // Cancelled: exit submitLlmAction early to prevent
+                                                        // further job completion handling in the outer loop
                                                     }
 
                                                     logger.info(
