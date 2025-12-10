@@ -131,6 +131,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     @Nullable
     private MaterialButton reviewTabHeaderButton;
 
+    @Nullable
+    private Integer reviewTabIndex;
+
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
     private JPanel activityTabsContainer;
 
@@ -1046,15 +1049,22 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 if (changesTabPlaceholder != null) {
                     idx = tabs.indexOfComponent(changesTabPlaceholder);
                 }
+                if (idx < 0 && reviewTabIndex != null) {
+                    idx = reviewTabIndex;
+                }
                 if (idx < 0 && tabs.getTabCount() >= 2) {
-                    idx = 1; // Fallback: assume second tab is "Changes"
+                    idx = 1; // Fallback
                 }
                 if (idx >= 0) {
                     try {
                         tabs.setTitleAt(idx, "Review (...)");
                         tabs.setToolTipTextAt(idx, "Computing branch-based changes...");
-                    } catch (IndexOutOfBoundsException ignore) {
-                        // Tab might have changed; ignore safely
+                    } catch (IndexOutOfBoundsException ex) {
+                        logger.debug("Failed to set Review tab title during history update", ex);
+                    }
+                    if (reviewTabHeaderLabel != null) {
+                        reviewTabHeaderLabel.setText("Review (...)");
+                        reviewTabHeaderLabel.setToolTipText("Computing branch-based changes...");
                     }
                 }
 
@@ -1938,6 +1948,19 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      * The button opens the Review content in a separate window while preventing tab activation.
      */
     private void setupReviewTabHeader(JTabbedPane tabs) {
+        // Resolve the Review tab index by component to avoid brittle ordering assumptions
+        int idx = -1;
+        if (changesTabPlaceholder != null) {
+            idx = tabs.indexOfComponent(changesTabPlaceholder);
+        }
+        if (idx < 0 && tabs.getTabCount() >= 2) {
+            idx = 1;
+        }
+        if (idx < 0) {
+            return;
+        }
+        reviewTabIndex = idx;
+
         // Create the custom tab header panel with horizontal layout
         var headerPanel = new JPanel(new BorderLayout(5, 0));
         headerPanel.setOpaque(false);
@@ -1946,25 +1969,35 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         reviewTabHeaderLabel = new JLabel("Review (0)");
         headerPanel.add(reviewTabHeaderLabel, BorderLayout.CENTER);
 
-        // Right: pop-out button (fixed size, non-focusable)
+        // Right: pop-out button (fixed size, focusable for accessibility)
         reviewTabHeaderButton = new MaterialButton();
-        reviewTabHeaderButton.setFocusable(false);
+        reviewTabHeaderButton.setFocusable(true);
+        reviewTabHeaderButton.setMnemonic(KeyEvent.VK_R);
         reviewTabHeaderButton.setPreferredSize(new Dimension(24, 24));
         reviewTabHeaderButton.setMinimumSize(new Dimension(24, 24));
         reviewTabHeaderButton.setMaximumSize(new Dimension(24, 24));
         reviewTabHeaderButton.setToolTipText("Open Review in a new window");
+        try {
+            reviewTabHeaderButton.getAccessibleContext().setAccessibleName("Open Review in a new window");
+        } catch (Throwable ignored) {
+            // best-effort; ignore if LAF or button doesn't expose accessible context
+        }
 
         // Set the icon asynchronously to keep EDT responsive
         SwingUtilities.invokeLater(() -> {
             var icon = Icons.OPEN_NEW_WINDOW;
+            var btn = reviewTabHeaderButton;
+            if (btn == null) {
+                return;
+            }
             if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
-                reviewTabHeaderButton.setIcon(themedIcon.withSize(16));
+                btn.setIcon(themedIcon.withSize(16));
             } else {
-                reviewTabHeaderButton.setIcon(icon);
+                btn.setIcon(icon);
             }
         });
 
-        // Add MouseAdapter to consume mouse events (prevent tab selection on click)
+        // Consume mouse events (prevent tab selection on click) but keep keyboard accessible
         reviewTabHeaderButton.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
@@ -1986,7 +2019,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         reviewTabHeaderButton.addActionListener(e -> {
             int cachedIndex = tabs.getSelectedIndex();
             openReviewInNewWindow();
-            // Restore the previous tab selection on the EDT after the window is created
             SwingUtilities.invokeLater(() -> {
                 if (cachedIndex >= 0 && cachedIndex < tabs.getTabCount()) {
                     tabs.setSelectedIndex(cachedIndex);
@@ -1999,11 +2031,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         buttonPanel.add(reviewTabHeaderButton);
         headerPanel.add(buttonPanel, BorderLayout.EAST);
 
-        // Set the custom component for the Review tab (index 1)
         try {
-            tabs.setTabComponentAt(1, headerPanel);
-        } catch (IndexOutOfBoundsException ignore) {
-            // Safeguard if tab count is unexpected
+            tabs.setTabComponentAt(idx, headerPanel);
+        } catch (IndexOutOfBoundsException ex) {
+            logger.debug("Failed to set custom Review tab header", ex);
         }
     }
 
@@ -2024,8 +2055,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
             // Create new singleton instance
             if (lastCumulativeChanges == null) {
-                chrome.showNotification(
-                        IConsoleIO.NotificationRole.INFO, "Computing branch-based changes...");
+                chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Computing branch-based changes...");
                 return;
             }
 
@@ -2059,19 +2089,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      */
     private String formatReviewMetricsPlain(CumulativeChanges res, @Nullable String baseline) {
         boolean isSpecialState = "detached HEAD".equals(baseline) || "No repository".equals(baseline);
-        String baselineSuffix = (!isSpecialState && baseline != null && !baseline.isEmpty())
-                ? " vs " + baseline
-                : "";
+        String baselineSuffix = (!isSpecialState && baseline != null && !baseline.isEmpty()) ? " vs " + baseline : "";
 
         if (res.filesChanged() == 0) {
             return "Review (0)" + baselineSuffix;
         } else {
             return String.format(
-                    "Review (%d, +%d/-%d)%s",
-                    res.filesChanged(),
-                    res.totalAdded(),
-                    res.totalDeleted(),
-                    baselineSuffix);
+                    "Review (%d, +%d/-%d)%s", res.filesChanged(), res.totalAdded(), res.totalDeleted(), baselineSuffix);
         }
     }
 
@@ -2085,9 +2109,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      */
     private String formatReviewMetricsHtml(CumulativeChanges res, @Nullable String baseline) {
         boolean isSpecialState = "detached HEAD".equals(baseline) || "No repository".equals(baseline);
-        String baselineSuffix = (!isSpecialState && baseline != null && !baseline.isEmpty())
-                ? " vs " + baseline
-                : "";
+        String baselineSuffix = (!isSpecialState && baseline != null && !baseline.isEmpty()) ? " vs " + baseline : "";
 
         if (res.filesChanged() == 0) {
             return "Review (0)" + baselineSuffix;
@@ -2132,26 +2154,25 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         try {
             String htmlMetrics = formatReviewMetricsHtml(res, lastBaselineLabel);
-            String plainMetrics = formatReviewMetricsPlain(res, lastBaselineLabel);
 
             tabs.setTitleAt(idx, htmlMetrics);
 
             // Update custom tab component label if present
             try {
                 Component tabComponent = tabs.getTabComponentAt(idx);
-                if (tabComponent instanceof JPanel headerPanel) {
-                    // Update the metrics label in the custom header
+                if (tabComponent instanceof JPanel) {
                     if (reviewTabHeaderLabel != null) {
-                        reviewTabHeaderLabel.setText(plainMetrics);
+                        reviewTabHeaderLabel.setText(htmlMetrics);
                     }
                 }
-            } catch (IndexOutOfBoundsException ignore) {
-                // Safe guard; tab lineup may have changed
+            } catch (IndexOutOfBoundsException ex) {
+                logger.debug("Failed to update Review tab component label; tab index may be out of bounds", ex);
             }
 
             // Set tooltip based on baseline state
             String tooltipMsg;
-            boolean isSpecialState = "detached HEAD".equals(lastBaselineLabel) || "No repository".equals(lastBaselineLabel);
+            boolean isSpecialState =
+                    "detached HEAD".equals(lastBaselineLabel) || "No repository".equals(lastBaselineLabel);
 
             if (res.filesChanged() == 0) {
                 if (isSpecialState) {
@@ -2174,8 +2195,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         + baselineSuffix;
             }
             tabs.setToolTipTextAt(idx, tooltipMsg + ".");
-        } catch (IndexOutOfBoundsException ignore) {
-            // Tab lineup changed; ignore safely
+            if (reviewTabHeaderLabel != null) {
+                reviewTabHeaderLabel.setToolTipText(tooltipMsg + ".");
+            }
+        } catch (IndexOutOfBoundsException ex) {
+            logger.debug("Failed to set Changes tab title or tooltip; tab lineup may have changed", ex);
         }
     }
 
@@ -2355,15 +2379,22 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 if (changesTabPlaceholder != null) {
                     idx = outputTabs.indexOfComponent(changesTabPlaceholder);
                 }
+                if (idx < 0 && reviewTabIndex != null) {
+                    idx = reviewTabIndex;
+                }
                 if (idx < 0 && outputTabs.getTabCount() >= 2) {
-                    idx = 1; // Fallback: assume second tab is "Changes"
+                    idx = 1;
                 }
                 if (idx >= 0) {
                     try {
-                        outputTabs.setTitleAt(idx, "(...)");
+                        outputTabs.setTitleAt(idx, "Review (...)");
                         outputTabs.setToolTipTextAt(idx, "Computing branch-based changes...");
-                    } catch (IndexOutOfBoundsException ignore) {
-                        // Safe-guard: tab lineup may have changed
+                    } catch (IndexOutOfBoundsException ex) {
+                        logger.debug("Failed to set Review tab title during session switch", ex);
+                    }
+                    if (reviewTabHeaderLabel != null) {
+                        reviewTabHeaderLabel.setText("Review (...)");
+                        reviewTabHeaderLabel.setToolTipText("Computing branch-based changes...");
                     }
                 }
             }
@@ -2412,6 +2443,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             // Show loading state in Changes tab before triggering refresh
             if (outputTabs != null && changesTabPlaceholder != null) {
                 int idx = outputTabs.indexOfComponent(changesTabPlaceholder);
+                if (idx < 0 && reviewTabIndex != null) {
+                    idx = reviewTabIndex;
+                }
                 if (idx < 0 && outputTabs.getTabCount() >= 2) {
                     idx = 1;
                 }
@@ -2419,8 +2453,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     try {
                         outputTabs.setTitleAt(idx, "Review (...)");
                         outputTabs.setToolTipTextAt(idx, "Computing branch-based changes...");
-                    } catch (IndexOutOfBoundsException ignore) {
-                        // Safe-guard
+                    } catch (IndexOutOfBoundsException ex) {
+                        logger.debug("Failed to set Review tab title after session switched", ex);
+                    }
+                    if (reviewTabHeaderLabel != null) {
+                        reviewTabHeaderLabel.setText("Review (...)");
+                        reviewTabHeaderLabel.setToolTipText("Computing branch-based changes...");
                     }
                 }
 
@@ -2465,15 +2503,22 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             // Put the Changes tab into a loading state with spinner
             if (outputTabs != null && changesTabPlaceholder != null) {
                 int idx = outputTabs.indexOfComponent(changesTabPlaceholder);
+                if (idx < 0 && reviewTabIndex != null) {
+                    idx = reviewTabIndex;
+                }
                 if (idx < 0 && outputTabs.getTabCount() >= 2) {
-                    idx = 1; // Fallback: assume second tab is "Changes"
+                    idx = 1; // Fallback
                 }
                 if (idx >= 0) {
                     try {
                         outputTabs.setTitleAt(idx, "Review (...)");
                         outputTabs.setToolTipTextAt(idx, "Computing branch-based changes...");
-                    } catch (IndexOutOfBoundsException ignore) {
-                        // Tab lineup might have changed; ignore safely
+                    } catch (IndexOutOfBoundsException ex) {
+                        logger.debug("Failed to set Review tab title during refresh", ex);
+                    }
+                    if (reviewTabHeaderLabel != null) {
+                        reviewTabHeaderLabel.setText("Review (...)");
+                        reviewTabHeaderLabel.setToolTipText("Computing branch-based changes...");
                     }
                 }
 
@@ -2876,7 +2921,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      * Inner class representing a Review window with aggregated diff panel and live-update support.
      */
     private class ReviewWindow extends JFrame {
-        private final BrokkDiffPanel diffPanel;
+        private BrokkDiffPanel diffPanel;
 
         /**
          * Creates a new Review window with the given cumulative changes.
@@ -2960,13 +3005,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             var newDiffPanel = reviewView.diff();
 
             // Update the field reference to the new diff panel for lifecycle management
-            try {
-                var f = ReviewWindow.class.getDeclaredField("diffPanel");
-                f.setAccessible(true);
-                f.set(this, newDiffPanel);
-            } catch (ReflectiveOperationException e) {
-                logger.warn("Failed to update diffPanel reference in ReviewWindow", e);
-            }
+            this.diffPanel = newDiffPanel;
 
             // Add the new container
             add(containerPanel);
@@ -2975,6 +3014,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             newDiffPanel.applyTheme(chrome.getTheme());
 
             // Refresh the UI
+            revalidate();
+            repaint();
+        }
+
+        public void applyTheme(GuiTheme theme) {
+            diffPanel.applyTheme(theme);
+            SwingUtilities.updateComponentTreeUI(this);
             revalidate();
             repaint();
         }
@@ -3206,18 +3252,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         // Propagate theme to Review window if it exists: apply to diff panel and refresh title
         if (reviewWindow != null && reviewWindow.isDisplayable()) {
-            try {
-                var f = ReviewWindow.class.getDeclaredField("diffPanel");
-                f.setAccessible(true);
-                var dp = (BrokkDiffPanel) f.get(reviewWindow);
-                if (dp != null && dp instanceof ThemeAware ta) {
-                    ta.applyTheme(guiTheme);
-                }
-            } catch (ReflectiveOperationException e) {
-                logger.debug("Failed to apply theme to ReviewWindow diffPanel", e);
-            }
-            
-            // Refresh the Review window title to reflect any color changes in metrics
+            reviewWindow.applyTheme(guiTheme);
             if (lastCumulativeChanges != null) {
                 reviewWindow.setTitle("Review: " + formatReviewMetricsPlain(lastCumulativeChanges, lastBaselineLabel));
             }
@@ -3427,14 +3462,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 .submitBackgroundTask("Compute branch-based changes", () -> {
                     var repoOpt = repo();
                     if (repoOpt.isEmpty()) {
-                        return new CumulativeChanges(0, 0, 0, List.of(), null);
+                        return new CumulativeChanges(0, 0, 0, List.of(), false, null);
                     }
 
                     var repo = repoOpt.get();
 
                     // Branch-specific methods require GitRepo, not just IGitRepo
                     if (!(repo instanceof GitRepo gitRepo)) {
-                        return new CumulativeChanges(0, 0, 0, List.of(), null);
+                        return new CumulativeChanges(0, 0, 0, List.of(), false, null);
                     }
 
                     var baseline = computeBaselineForChanges();
@@ -3443,13 +3478,15 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
                     // Handle cases with no baseline
                     if (baseline.mode() == BaselineMode.DETACHED || baseline.mode() == BaselineMode.NO_BASELINE) {
-                        return new CumulativeChanges(0, 0, 0, List.of(), null);
+                        return new CumulativeChanges(0, 0, 0, List.of(), false, null);
                     }
 
                     try {
                         Set<IGitRepo.ModifiedFile> fileSet = new HashSet<>();
                         String leftCommitSha = null;
                         String currentBranch = gitRepo.getCurrentBranch();
+                        var workingChanges = gitRepo.getModifiedFiles();
+                        boolean hasUncommittedChanges = !workingChanges.isEmpty();
 
                         switch (baseline.mode()) {
                             case NON_DEFAULT_BRANCH -> {
@@ -3463,7 +3500,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 fileSet.addAll(branchChanges);
 
                                 // Union with working tree changes
-                                fileSet.addAll(gitRepo.getModifiedFiles());
+                                fileSet.addAll(workingChanges);
 
                                 // Get merge base for left content
                                 leftCommitSha = gitRepo.getMergeBase(currentBranch, defaultBranchRef);
@@ -3478,11 +3515,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 fileSet.addAll(upstreamChanges);
 
                                 // Union with working tree changes
-                                fileSet.addAll(gitRepo.getModifiedFiles());
+                                fileSet.addAll(workingChanges);
                             }
                             case DEFAULT_LOCAL_ONLY -> {
                                 // Only working tree changes
-                                fileSet.addAll(gitRepo.getModifiedFiles());
+                                fileSet.addAll(workingChanges);
                                 leftCommitSha = "HEAD";
                             }
                             case DETACHED, NO_BASELINE -> {
@@ -3535,11 +3572,16 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         }
 
                         return new CumulativeChanges(
-                                perFileChanges.size(), totalAdded, totalDeleted, perFileChanges, pushPullState);
+                                perFileChanges.size(),
+                                totalAdded,
+                                totalDeleted,
+                                perFileChanges,
+                                hasUncommittedChanges,
+                                pushPullState);
 
                     } catch (Exception e) {
                         logger.warn("Failed to compute branch-based changes", e);
-                        return new CumulativeChanges(0, 0, 0, List.of(), null);
+                        return new CumulativeChanges(0, 0, 0, List.of(), false, null);
                     }
                 })
                 .thenApply(result -> {
@@ -3548,7 +3590,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         lastCumulativeChanges = result;
                         setChangesTabTitleAndTooltip(result);
                         updateChangesTabContent(result);
-                        
+
                         // Live update: refresh Review window if open
                         if (reviewWindow != null && reviewWindow.isDisplayable()) {
                             reviewWindow.updateContent(result, lastBaselineLabel);
@@ -3645,17 +3687,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
         buttonPanel.setOpaque(false);
 
-        // Determine if there are uncommitted working tree changes
-        boolean hasUncommittedChanges = false;
-        try {
-            var repoOpt = repo();
-            if (repoOpt.isPresent()) {
-                hasUncommittedChanges = !repoOpt.get().getModifiedFiles().isEmpty();
-            }
-        } catch (Exception e) {
-            logger.debug("Unable to determine uncommitted changes state", e);
-            hasUncommittedChanges = false; // default safe behavior
-        }
+        // Determine if there are uncommitted working tree changes (computed off-EDT)
+        boolean hasUncommittedChanges = res.hasUncommittedChanges();
 
         // Add "Changes to Commit" primary button when uncommitted changes exist
         if (hasUncommittedChanges) {
@@ -3852,6 +3885,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             int totalAdded,
             int totalDeleted,
             List<PerFileChange> perFileChanges,
+            boolean hasUncommittedChanges,
             @Nullable GitWorkflow.PushPullState pushPullState) {}
 
     /**
