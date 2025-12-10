@@ -3982,8 +3982,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             TSNode child = node.getNamedChild(i);
             if (child == null || child.isNull()) continue;
 
-            // Prune branches that cannot contain the range
-            if (child.getEndByte() < target.endByte() || child.getStartByte() > target.startByte()) continue;
+            // Prune branches that cannot contain (overlap) the target range
+            if (child.getEndByte() < target.startByte() || child.getStartByte() > target.endByte()) continue;
 
             TSNode found = findClassNodeByRange(child, target, classTypes);
             if (found != null) return found;
