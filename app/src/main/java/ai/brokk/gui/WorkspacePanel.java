@@ -232,8 +232,23 @@ public class WorkspacePanel extends JPanel {
                 });
             } else {
                 var selectedFragments = List.of(fragment);
-                actions.add(WorkspaceAction.EDIT_ALL_REFS.createFragmentsAction(panel, selectedFragments));
-                actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createFragmentsAction(panel, selectedFragments));
+
+                boolean hasFiles = panel.hasFiles(selectedFragments);
+                boolean allTracked = hasFiles && panel.allTrackedProjectFiles(selectedFragments);
+
+                if (!hasFiles) {
+                    actions.add(WorkspaceAction.EDIT_ALL_REFS.createDisabledAction(
+                            "No files associated with the selection to edit."));
+                    actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createDisabledAction(
+                            "No files associated with the selection to summarize."));
+                } else if (!allTracked) {
+                    actions.add(WorkspaceAction.EDIT_ALL_REFS.createDisabledAction(
+                            "Cannot edit because selection includes untracked or external files."));
+                    actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createFragmentsAction(panel, selectedFragments));
+                } else {
+                    actions.add(WorkspaceAction.EDIT_ALL_REFS.createFragmentsAction(panel, selectedFragments));
+                    actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createFragmentsAction(panel, selectedFragments));
+                }
             }
 
             actions.add(null); // Separator
@@ -279,8 +294,22 @@ public class WorkspacePanel extends JPanel {
 
             actions.add(null); // Separator
 
-            actions.add(WorkspaceAction.EDIT_ALL_REFS.createFragmentsAction(panel, fragments));
-            actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createFragmentsAction(panel, fragments));
+            boolean hasFiles = panel.hasFiles(fragments);
+            boolean allTracked = hasFiles && panel.allTrackedProjectFiles(fragments);
+
+            if (!hasFiles) {
+                actions.add(WorkspaceAction.EDIT_ALL_REFS.createDisabledAction(
+                        "No files associated with the selection to edit."));
+                actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createDisabledAction(
+                        "No files associated with the selection to summarize."));
+            } else if (!allTracked) {
+                actions.add(WorkspaceAction.EDIT_ALL_REFS.createDisabledAction(
+                        "Cannot edit because selection includes untracked or external files."));
+                actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createFragmentsAction(panel, fragments));
+            } else {
+                actions.add(WorkspaceAction.EDIT_ALL_REFS.createFragmentsAction(panel, fragments));
+                actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createFragmentsAction(panel, fragments));
+            }
 
             actions.add(null); // Separator
             actions.add(WorkspaceAction.COPY.createFragmentsAction(panel, fragments));
