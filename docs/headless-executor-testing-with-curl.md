@@ -494,21 +494,21 @@ to fall back to the project's default code model.
 
 ```bash
 curl -sS "${BASE}/v1/jobs/<job-id>" \
-  -H "Authorization: Bearer <AUTH_TOKEN>"
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
 ```
 
 ## Job Events
 
 ```bash
 curl -sS "${BASE}/v1/jobs/<job-id>/events?after=0" \
-  -H "Authorization: Bearer <AUTH_TOKEN>"
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
 ```
 
 ## Cancel Job
 
 ```bash
 curl -sS -X POST "${BASE}/v1/jobs/<job-id>/cancel" \
-  -H "Authorization: Bearer <AUTH_TOKEN>"
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
 ```
 
 ## Troubleshooting
