@@ -80,4 +80,34 @@ public class SkeletonFragmentFormatterTest {
         assertFalse(out.contains("$anon$"));
         assertFalse(out.contains("class C1$anon$1 {}"));
     }
+
+    @Test
+    void anonymousPrimary_suppressesAncestorHeader_butRendersAncestors() {
+        ProjectFile file = new ProjectFile(tempDir, "src/pkg/Foo.java");
+
+        CodeUnit primaryAnon = CodeUnit.cls(file, "pkg", "Foo$anon$1");
+        CodeUnit ancestor1 = CodeUnit.cls(file, "pkg", "Base");
+        CodeUnit ancestor2 = CodeUnit.cls(file, "pkg", "Util");
+
+        Map<CodeUnit, String> skeletons = new LinkedHashMap<>();
+        skeletons.put(primaryAnon, "class Foo$anon$1 {}");
+        skeletons.put(ancestor1, "class Base {}");
+        skeletons.put(ancestor2, "class Util {}");
+
+        List<CodeUnit> ancestors = List.of(ancestor1, ancestor2);
+
+        SkeletonFragmentFormatter formatter = new SkeletonFragmentFormatter();
+        SkeletonFragmentFormatter.Request request =
+                new SkeletonFragmentFormatter.Request(primaryAnon, ancestors, skeletons, SummaryType.CODEUNIT_SKELETON);
+
+        String out = formatter.format(request);
+
+        assertTrue(out.contains("package pkg;"));
+        assertTrue(out.contains("class Base {}"));
+        assertTrue(out.contains("class Util {}"));
+
+        assertFalse(out.contains("// Direct ancestors of"));
+        assertFalse(out.contains("$anon$"));
+        assertFalse(out.contains("class Foo$anon$1 {}"));
+    }
 }
