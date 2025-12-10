@@ -736,7 +736,7 @@ class EditBlockTest {
                 ```
                 A.java
                 <<<<<<< SEARCH
-                BRK_REPLACE_FUNCTION A.method1
+                BRK_FUNCTION A.method1
                 =======
                 public int method1() { return 2; }
                 >>>>>>> REPLACE
@@ -777,7 +777,7 @@ class EditBlockTest {
                 ```
                 B.java
                 <<<<<<< SEARCH
-                BRK_REPLACE_FUNCTION B.foo
+                BRK_FUNCTION B.foo
                 =======
                 public int foo(int x) { return x + 1; }
                 >>>>>>> REPLACE
@@ -939,7 +939,7 @@ class EditBlockTest {
                 ```
                 A.java
                 <<<<<<< SEARCH
-                BRK_REPLACE_FUNCTION A.missingMethod
+                BRK_FUNCTION A.missingMethod
                 =======
                 public int missingMethod() { return -1; }
                 >>>>>>> REPLACE
@@ -977,7 +977,7 @@ class EditBlockTest {
         var editable = Set.of(new ProjectFile(rootDir, "A.java"));
         var ctx = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);
 
-        var ipOpt = EditBlock.computeInsertionPointForNewMethod(ctx.liveContext(), "A");
+        var ipOpt = EditBlock.computeInsertionPointForNewMember(ctx.liveContext(), "A");
         assertTrue(ipOpt.isPresent(), "Expected insertion point to be present for class A");
 
         var ip = ipOpt.get();
@@ -1026,7 +1026,7 @@ class EditBlockTest {
                 ```
                 A.java
                 <<<<<<< SEARCH
-                BRK_NEW_FUNCTION A
+                BRK_NEXT_OFFSET A
                 =======
                 public int newMethod() { return 99; }
                 >>>>>>> REPLACE
@@ -1082,7 +1082,7 @@ class EditBlockTest {
                 ```
                 A.java
                 <<<<<<< SEARCH
-                BRK_NEW_FUNCTION A.Inner
+                BRK_NEXT_OFFSET A.Inner
                 =======
                 public int y() { return 2; }
                 >>>>>>> REPLACE
