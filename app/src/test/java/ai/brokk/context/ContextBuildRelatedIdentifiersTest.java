@@ -5,18 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.IAnalyzer.Range;
-import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.TestAnalyzer;
-import ai.brokk.project.IProject;
 import java.nio.file.Path;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
-import java.util.SequencedSet;
-import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 public class ContextBuildRelatedIdentifiersTest {
@@ -37,8 +30,7 @@ public class ContextBuildRelatedIdentifiersTest {
         IAnalyzer analyzer = new TestAnalyzer(List.of(foo, anonTop), Map.of()) {
             private final Map<CodeUnit, List<CodeUnit>> children = Map.of(
                     foo, List.of(bar, anonChild),
-                    bar, List.of(baz, anonGrand)
-            );
+                    bar, List.of(baz, anonGrand));
 
             @Override
             public List<CodeUnit> getDirectChildren(CodeUnit cu) {
@@ -53,5 +45,4 @@ public class ContextBuildRelatedIdentifiersTest {
         assertTrue(out.contains("    - baz"), "should include grandchild baz");
         assertFalse(out.contains("$anon$"), "must not contain any $anon$ entries");
     }
-
 }
