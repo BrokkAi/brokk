@@ -1803,4 +1803,244 @@ public class ContextSerializationTest {
                 "Diff of DiffFile1.java and DiffFile2.java",
                 loadedFragment.description().join());
     }
+
+    @Test
+    void testRoundTripGitDiffSingleFileFilesPreserved() throws Exception {
+        var projectFile = new ProjectFile(tempDir, "src/GitDiffSingle.java");
+        Files.createDirectories(projectFile.absPath().getParent());
+        Files.writeString(projectFile.absPath(), "class GitDiffSingle {}");
+
+        String diffText =
+                """
+                diff --git a/src/GitDiffSingle.java b/src/GitDiffSingle.java
+                index e69de29..4b825dc 100644
+                --- a/src/GitDiffSingle.java
+                +++ b/src/GitDiffSingle.java
+                @@ -1 +1 @@
+                -class GitDiffSingle {}
+                +class GitDiffSingle { }
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager,
+                diffText,
+                "Git diff for GitDiffSingle.java",
+                SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var expectedPaths = Set.of(projectFile.absPath().toString());
+        var beforePaths = fragment.files().join().stream()
+                .map(pf -> pf.absPath().toString())
+                .collect(Collectors.toSet());
+        assertEquals(expectedPaths, beforePaths);
+
+        var context = new Context(mockContextManager).addFragments(fragment);
+        ContextHistory originalHistory = new ContextHistory(context);
+
+        Path zipFile = tempDir.resolve("gitdiff_single_roundtrip.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+        var loadedFragment = loadedCtx
+                .virtualFragments()
+                .filter(f -> f instanceof ContextFragment.StringFragment)
+                .map(f -> (ContextFragment.StringFragment) f)
+                .findFirst()
+                .orElseThrow();
+
+        var afterPaths = loadedFragment.files().join().stream()
+                .map(pf -> pf.absPath().toString())
+                .collect(Collectors.toSet());
+        assertEquals(expectedPaths, afterPaths);
+    }
+
+    @Test
+    void testRoundTripMultiFileUnifiedDiffFilesPreserved() throws Exception {
+        var projectFileA = new ProjectFile(tempDir, "src/UnifiedA.java");
+        var projectFileB = new ProjectFile(tempDir, "src/UnifiedB.java");
+        Files.createDirectories(projectFileA.absPath().getParent());
+        Files.writeString(projectFileA.absPath(), "class UnifiedA {}");
+        Files.writeString(projectFileB.absPath(), "class UnifiedB {}");
+
+        String diffText =
+                """
+                --- src/UnifiedA.java
+                +++ src/UnifiedA.java
+                @@ -1 +1 @@
+                -class UnifiedA {}
+                +class UnifiedA { }
+
+                --- src/UnifiedB.java
+                +++ src/UnifiedB.java
+                @@ -1 +1 @@
+                -class UnifiedB {}
+                +class UnifiedB { }
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager,
+                diffText,
+                "Unified diff for UnifiedA.java and UnifiedB.java",
+                SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var expectedPaths = Set.of(
+                projectFileA.absPath().toString(),
+                projectFileB.absPath().toString());
+        var beforePaths = fragment.files().join().stream()
+                .map(pf -> pf.absPath().toString())
+                .collect(Collectors.toSet());
+        assertEquals(expectedPaths, beforePaths);
+
+        var context = new Context(mockContextManager).addFragments(fragment);
+        ContextHistory originalHistory = new ContextHistory(context);
+
+        Path zipFile = tempDir.resolve("unified_multi_roundtrip.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+        var loadedFragment = loadedCtx
+                .virtualFragments()
+                .filter(f -> f instanceof ContextFragment.StringFragment)
+                .map(f -> (ContextFragment.StringFragment) f)
+                .findFirst()
+                .orElseThrow();
+
+        var afterPaths = loadedFragment.files().join().stream()
+                .map(pf -> pf.absPath().toString())
+                .collect(Collectors.toSet());
+        assertEquals(expectedPaths, afterPaths);
+    }
+
+    @Test
+    void testRoundTripDeletionDiffWithDevNullFilesPreserved() throws Exception {
+        var projectFile = new ProjectFile(tempDir, "src/Deleted.java");
+        Files.createDirectories(projectFile.absPath().getParent());
+        Files.writeString(projectFile.absPath(), "class Deleted {}");
+
+        String diffText =
+                """
+                diff --git a/src/Deleted.java b/src/Deleted.java
+                deleted file mode 100644
+                index e69de29..0000000
+                --- a/src/Deleted.java
+                +++ /dev/null
+                @@ -1 +0,0 @@
+                -class Deleted {}
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager,
+                diffText,
+                "Deletion diff for Deleted.java",
+                SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var expectedPaths = Set.of(projectFile.absPath().toString());
+        var beforePaths = fragment.files().join().stream()
+                .map(pf -> pf.absPath().toString())
+                .collect(Collectors.toSet());
+        assertEquals(expectedPaths, beforePaths);
+
+        var context = new Context(mockContextManager).addFragments(fragment);
+        ContextHistory originalHistory = new ContextHistory(context);
+
+        Path zipFile = tempDir.resolve("deletion_roundtrip.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+        var loadedFragment = loadedCtx
+                .virtualFragments()
+                .filter(f -> f instanceof ContextFragment.StringFragment)
+                .map(f -> (ContextFragment.StringFragment) f)
+                .findFirst()
+                .orElseThrow();
+
+        var afterPaths = loadedFragment.files().join().stream()
+                .map(pf -> pf.absPath().toString())
+                .collect(Collectors.toSet());
+        assertEquals(expectedPaths, afterPaths);
+    }
+
+    @Test
+    void testRoundTripRenameDiffFilesPreserved() throws Exception {
+        var oldFile = new ProjectFile(tempDir, "src/RenamedOld.java");
+        var newFile = new ProjectFile(tempDir, "src/RenamedNew.java");
+        Files.createDirectories(oldFile.absPath().getParent());
+        Files.writeString(oldFile.absPath(), "class RenamedOld {}");
+        Files.writeString(newFile.absPath(), "class RenamedNew {}");
+
+        String diffText =
+                """
+                diff --git a/src/RenamedOld.java b/src/RenamedNew.java
+                similarity index 100%
+                rename from src/RenamedOld.java
+                rename to src/RenamedNew.java
+                --- a/src/RenamedOld.java
+                +++ b/src/RenamedNew.java
+                @@ -1 +1 @@
+                -class RenamedOld {}
+                +class RenamedNew {}
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager,
+                diffText,
+                "Rename diff from RenamedOld.java to RenamedNew.java",
+                SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var expectedPaths = Set.of(newFile.absPath().toString());
+        var beforePaths = fragment.files().join().stream()
+                .map(pf -> pf.absPath().toString())
+                .collect(Collectors.toSet());
+        assertEquals(expectedPaths, beforePaths);
+
+        var context = new Context(mockContextManager).addFragments(fragment);
+        ContextHistory originalHistory = new ContextHistory(context);
+
+        Path zipFile = tempDir.resolve("rename_roundtrip.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+        var loadedFragment = loadedCtx
+                .virtualFragments()
+                .filter(f -> f instanceof ContextFragment.StringFragment)
+                .map(f -> (ContextFragment.StringFragment) f)
+                .findFirst()
+                .orElseThrow();
+
+        var afterPaths = loadedFragment.files().join().stream()
+                .map(pf -> pf.absPath().toString())
+                .collect(Collectors.toSet());
+        assertEquals(expectedPaths, afterPaths);
+    }
+
+    @Test
+    void testRoundTripNonDiffTextHasNoFiles() throws Exception {
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager,
+                "This is not a diff\nJust some plain text.",
+                "Plain text",
+                SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        assertTrue(fragment.files().join().isEmpty());
+
+        var context = new Context(mockContextManager).addFragments(fragment);
+        ContextHistory originalHistory = new ContextHistory(context);
+
+        Path zipFile = tempDir.resolve("nondiff_roundtrip.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+        var loadedFragment = loadedCtx
+                .virtualFragments()
+                .filter(f -> f instanceof ContextFragment.StringFragment)
+                .map(f -> (ContextFragment.StringFragment) f)
+                .findFirst()
+                .orElseThrow();
+
+        assertTrue(loadedFragment.files().join().isEmpty());
+    }
 }
