@@ -227,7 +227,7 @@ public final class HeadlessExecutorMain {
      */
     private void executeJobAsync(String jobId, JobSpec jobSpec, List<String> seededTextFragmentIds) {
         logger.info("Starting job execution: {}, session={}", jobId, contextManager.getCurrentSessionId());
-        final List<String> fragmentIds = seededTextFragmentIds == null ? List.of() : List.copyOf(seededTextFragmentIds);
+        final List<String> fragmentIds = List.copyOf(seededTextFragmentIds);
 
         jobRunner.runAsync(jobId, jobSpec).whenComplete((unused, throwable) -> {
             try {
@@ -1015,7 +1015,43 @@ public final class HeadlessExecutorMain {
             SimpleHttpServer.sendJsonResponse(exchange, 500, error);
         }
     }
-
+    /**
+     * POST /v1/context/files - Add files to the current session context.
+     * <p>
+     * <b>Authentication:</b> Required (via Authorization header)
+     * <p>
+     * <b>Request Body (JSON):</b>
+     * <pre>
+     * {
+     *   "relativePaths": ["src/main/java/com/example/Foo.java", "src/test/java/com/example/FooTest.java"]
+     * }
+     * </pre>
+     * <p>
+     * <b>Response (200 OK):</b>
+     * <pre>
+     * {
+     *   "added": [
+     *     { "id": "1", "relativePath": "src/main/java/com/example/Foo.java" },
+     *     { "id": "2", "relativePath": "src/test/java/com/example/FooTest.java" }
+     *   ]
+     * }
+     * </pre>
+     * <p>
+     * <b>Validation:</b>
+     * <ul>
+     *   <li>Paths must be relative (not absolute)</li>
+     *   <li>Paths must not escape the workspace (no "../.." attacks)</li>
+     *   <li>Paths must refer to regular files that exist</li>
+     *   <li>At least one valid path must be provided</li>
+     * </ul>
+     * <p>
+     * <b>Side Effects:</b>
+     * <ul>
+     *   <li>Adds valid files to the current session's live context</li>
+     *   <li>Emits a notification via IConsoleIO</li>
+     *   <li>Pushes a new frozen context to history</li>
+     * </ul>
+     */
     void handlePostContextFiles(HttpExchange exchange) throws IOException {
         if (!ensureMethod(exchange, "POST")) {
             return;
@@ -1027,7 +1063,7 @@ public final class HeadlessExecutorMain {
                 return;
             }
 
-            if (request.relativePaths() == null || request.relativePaths().isEmpty()) {
+            if (request.relativePaths().isEmpty()) {
                 sendValidationError(exchange, "relativePaths must not be empty");
                 return;
             }
@@ -1217,7 +1253,7 @@ public final class HeadlessExecutorMain {
                 return;
             }
 
-            if (request.classNames() == null || request.classNames().isEmpty()) {
+            if (request.classNames().isEmpty()) {
                 sendValidationError(exchange, "classNames must not be empty");
                 return;
             }
@@ -1343,7 +1379,7 @@ public final class HeadlessExecutorMain {
                 return;
             }
 
-            if (request.methodNames() == null || request.methodNames().isEmpty()) {
+            if (request.methodNames().isEmpty()) {
                 sendValidationError(exchange, "methodNames must not be empty");
                 return;
             }
@@ -1419,7 +1455,7 @@ public final class HeadlessExecutorMain {
             }
 
             var text = request.text();
-            if (text == null || text.isBlank()) {
+            if (text.isBlank()) {
                 logger.info("Rejected pasted text: blank");
                 sendValidationError(exchange, "text must not be blank");
                 return;
