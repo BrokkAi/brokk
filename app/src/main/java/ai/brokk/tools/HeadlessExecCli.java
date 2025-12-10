@@ -42,6 +42,7 @@ public class HeadlessExecCli {
     private String mode = "ARCHITECT";
     private String plannerModel = "claude-opus-4-5";
     private String codeModel = "claude-sonnet-4-5";
+    private String scanModel = "";
     private String authToken = "";
     private boolean autoCommit = false;
     private boolean autoCompress = false;
@@ -196,6 +197,9 @@ public class HeadlessExecCli {
         jobSpec.put("autoCommit", autoCommit);
         jobSpec.put("autoCompress", autoCompress);
         jobSpec.put("plannerModel", plannerModel);
+        if (!scanModel.isBlank()) {
+            jobSpec.put("scanModel", scanModel);
+        }
         if (!codeModel.isBlank()) {
             jobSpec.put("codeModel", codeModel);
         }
@@ -402,8 +406,9 @@ public class HeadlessExecCli {
         System.out.println();
         System.out.println("Options:");
         System.out.println(
-                "  --mode MODE              Execution mode: ASK, CODE, ARCHITECT, LUTZ (default: ARCHITECT)");
+                "  --mode MODE              Execution mode: ASK, CODE, ARCHITECT, LUTZ, or SEARCH (default: ARCHITECT)");
         System.out.println("  --planner-model MODEL    Planner model name (required)");
+        System.out.println("  --scan-model MODEL       Scan model name (optional; used by SEARCH mode)");
         System.out.println("  --code-model MODEL       Code model name (optional)");
         System.out.println("  --token TOKEN            Auth token (default: random UUID)");
         System.out.println("  --auto-commit            Enable auto-commit of changes");
@@ -411,7 +416,7 @@ public class HeadlessExecCli {
         System.out.println("  --help                   Show this help message");
         System.out.println();
         System.out.println("Example:");
-        System.out.println("  java HeadlessExecCli --planner-model gpt-5 --mode ASK 'Find the UserService class'");
+        System.out.println("  java HeadlessExecCli --planner-model gpt-5 --mode SEARCH --scan-model gpt-5-mini 'Describe the project layout'");
     }
 
     private boolean parseArgs(String[] args) {
@@ -474,12 +479,13 @@ public class HeadlessExecCli {
                     return false;
                 }
                 mode = Ascii.toUpperCase(value);
-                if (!mode.matches("^(ASK|CODE|ARCHITECT|LUTZ)$")) {
-                    System.err.println("ERROR: Invalid mode: " + value + ". Must be ASK, CODE, ARCHITECT, or LUTZ");
+                if (!mode.matches("^(ASK|CODE|ARCHITECT|LUTZ|SEARCH)$")) {
+                    System.err.println("ERROR: Invalid mode: " + value + ". Must be ASK, CODE, ARCHITECT, LUTZ, or SEARCH");
                     return false;
                 }
             }
             case "planner-model" -> plannerModel = value;
+            case "scan-model" -> scanModel = value;
             case "code-model" -> codeModel = value;
             case "token" -> authToken = value;
             case "auto-commit" -> autoCommit = true;

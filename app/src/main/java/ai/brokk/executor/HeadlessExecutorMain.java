@@ -661,6 +661,7 @@ public final class HeadlessExecutorMain {
                     jobSpecRequest.autoCommit(),
                     jobSpecRequest.autoCompress(),
                     plannerModel,
+                    jobSpecRequest.scanModel(),
                     jobSpecRequest.codeModel(),
                     safeTags);
 
@@ -1032,6 +1033,7 @@ public final class HeadlessExecutorMain {
             boolean autoCommit,
             boolean autoCompress,
             @Nullable String plannerModel,
+            @Nullable String scanModel,
             @Nullable String codeModel,
             @Nullable Map<String, String> tags) {}
 

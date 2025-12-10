@@ -59,6 +59,7 @@ public final class JobRunner {
         ARCHITECT,
         CODE,
         ASK,
+        SEARCH,
         REVIEW,
         LUTZ
     }
@@ -183,10 +184,19 @@ public final class JobRunner {
                         : null;
 
                 var service = cm.getService();
+
+                // Resolve a scan model for SEARCH mode if needed (prefer explicit spec.scanModel() if provided; otherwise project default)
+                final StreamingChatModel searchPlannerModel = mode == Mode.SEARCH
+                        ? (spec.scanModel() != null && !spec.scanModel().trim().isEmpty()
+                                ? resolveModelOrThrow(spec.scanModel().trim())
+                                : cm.getService().getScanModel())
+                        : null;
+
                 String plannerModelNameForLog =
                         switch (mode) {
                             case ARCHITECT, LUTZ -> service.nameOf(Objects.requireNonNull(architectPlannerModel));
                             case ASK -> service.nameOf(Objects.requireNonNull(askPlannerModel));
+                            case SEARCH -> service.nameOf(Objects.requireNonNull(searchPlannerModel));
                             case CODE -> {
                                 var plannerName = spec.plannerModel();
                                 yield plannerName.isBlank() ? "(unused)" : plannerName.trim();
@@ -197,22 +207,22 @@ public final class JobRunner {
                         switch (mode) {
                             case ARCHITECT, LUTZ -> service.nameOf(Objects.requireNonNull(architectCodeModel));
                             case ASK -> "(default, ignored for ASK)";
+                            case SEARCH -> "(default, ignored for SEARCH)";
                             case CODE -> service.nameOf(Objects.requireNonNull(codeModeModel));
                             case REVIEW -> service.nameOf(Objects.requireNonNull(reviewCodeModel));
                         };
                 boolean usesDefaultCodeModel =
                         switch (mode) {
                             case ARCHITECT, LUTZ -> !hasCodeModelOverride;
-                            case ASK -> true;
-                            case CODE -> !hasCodeModelOverride;
-                            case REVIEW -> !hasCodeModelOverride;
+                            case ASK, SEARCH -> true;
+                            case CODE, REVIEW -> !hasCodeModelOverride;
                         };
                 if (plannerModelNameForLog == null || plannerModelNameForLog.isBlank()) {
-                    plannerModelNameForLog = mode == Mode.CODE ? "(unused)" : "(unknown)";
+                    plannerModelNameForLog = (mode == Mode.CODE) ? "(unused)" : "(unknown)";
                 }
                 if (codeModelNameForLog == null || codeModelNameForLog.isBlank()) {
                     codeModelNameForLog = usesDefaultCodeModel ? "(default)" : "(unknown)";
-                } else if (usesDefaultCodeModel && mode != Mode.ASK) {
+                } else if (usesDefaultCodeModel && mode != Mode.ASK && mode != Mode.SEARCH) {
                     codeModelNameForLog = codeModelNameForLog + " (default)";
                 }
 
@@ -294,7 +304,6 @@ public final class JobRunner {
                                                                 "LUTZ job {} execution cancelled during task iteration",
                                                                 jobId);
                                                         return; // Exit submitLlmAction to avoid outer completion
-                                                        // increment
                                                     }
 
                                                     logger.info(
@@ -343,6 +352,30 @@ public final class JobRunner {
                                                 scope.append(result);
                                             }
                                         }
+                                        case SEARCH -> {
+                                            // Read-only repository search using a scan model (spec.scanModel preferred, otherwise project default)
+                                            try (var scope = cm.beginTask(task.text(), false)) {
+                                                var context = cm.liveContext();
+
+                                                // Determine scan model: prefer explicit spec.scanModel() if provided, otherwise use project default
+                                                String rawScanModel = spec.scanModel();
+                                                String trimmedScanModel = rawScanModel == null ? null : rawScanModel.trim();
+                                                final dev.langchain4j.model.chat.StreamingChatModel scanModelToUse =
+                                                        (trimmedScanModel != null && !trimmedScanModel.isEmpty())
+                                                                ? resolveModelOrThrow(trimmedScanModel)
+                                                                : cm.getService().getScanModel();
+
+                                                var searchAgent = new SearchAgent(
+                                                        context,
+                                                        task.text(),
+                                                        Objects.requireNonNull(
+                                                                scanModelToUse, "scan model unavailable for SEARCH jobs"),
+                                                        SearchAgent.Objective.ANSWER_ONLY,
+                                                        scope);
+                                                var result = searchAgent.execute();
+                                                scope.append(result);
+                                            }
+                                        }
                                         case REVIEW -> {
                                             var prData = Json.getMapper().readTree(spec.taskInput());
                                             int prNumber =
@@ -373,6 +406,7 @@ public final class JobRunner {
                                                 completionResultRef.set(parsed);
                                             }
                                         }
+                                        default -> throw new IllegalStateException("Unhandled job mode: " + mode);
                                     }
 
                                     completed.incrementAndGet();
