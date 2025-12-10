@@ -99,4 +99,40 @@ public class CompletionsProjectFilePreferenceTest {
             Assertions.assertTrue(idxPy < idxMd, ".py should be ranked before .md");
         }
     }
+
+    @Test
+    public void unrelatedExtensionWithCamelCaseDoesNotOutrankPreferredExtension() {
+        IProject project = projectWithJava();
+
+        Path root = Path.of("/tmp/proj");
+        ProjectFile javaFile = new ProjectFile(root, "BuildTool.java");
+        ProjectFile svgFile = new ProjectFile(root, "BuildTool.svg");
+
+        // Place .svg first to ensure scoring reorders them
+        List<ProjectFile> candidates = List.of(svgFile, javaFile);
+
+        var results = Completions.scoreProjectFiles(
+                "build",
+                project,
+                candidates,
+                pf -> pf.getRelPath().getFileName().toString(),
+                pf -> pf.getRelPath().toString(),
+                pf -> new ShorthandCompletion(
+                        null,
+                        pf.getRelPath().getFileName().toString(),
+                        pf.getRelPath().getFileName().toString())
+        );
+
+        Assertions.assertFalse(results.isEmpty(), "No completions returned");
+
+        var ordered = results.stream().map(ShorthandCompletion::getReplacementText).toList();
+
+        int idxJava = ordered.indexOf("BuildTool.java");
+        int idxSvg = ordered.indexOf("BuildTool.svg");
+
+        Assertions.assertTrue(idxJava >= 0, "Missing .java candidate");
+        Assertions.assertTrue(idxSvg >= 0, "Missing .svg candidate");
+
+        Assertions.assertTrue(idxJava < idxSvg, ".java should be ranked before .svg");
+    }
 }

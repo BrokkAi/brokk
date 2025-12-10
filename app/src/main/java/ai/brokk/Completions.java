@@ -345,14 +345,44 @@ public class Completions {
             Function<ProjectFile, String> extractLong,
             Function<ProjectFile, ShorthandCompletion> toCompletion,
             int minLength) {
+        String trimmed = pattern.trim();
+        if (trimmed.length() < minLength) {
+            return List.of();
+        }
+
         Set<String> preferredExts = project.getAnalyzerLanguages().stream()
                 .flatMap(lang -> lang.getExtensions().stream())
                 .map(s -> s.toLowerCase(Locale.ROOT))
                 .collect(Collectors.toSet());
 
-        Function<ProjectFile, Integer> tiebreaker =
-                pf -> preferredExts.contains(pf.extension().toLowerCase(Locale.ROOT)) ? 0 : 1;
+        var matcher = new FuzzyMatcher(trimmed);
 
-        return scoreShortAndLong(pattern, candidates, extractShort, extractLong, tiebreaker, toCompletion, minLength);
+        record ScoredPF(ProjectFile pf, int shortScore, int longScore, boolean preferred) {}
+
+        var scoredCandidates = candidates.stream()
+                .map(pf -> {
+                    int shortScore = matcher.score(extractShort.apply(pf));
+                    int longScore = matcher.score(extractLong.apply(pf));
+                    boolean preferred = preferredExts.contains(pf.extension().toLowerCase(Locale.ROOT));
+                    return new ScoredPF(pf, shortScore, longScore, preferred);
+                })
+                .filter(sc -> sc.shortScore() != Integer.MAX_VALUE || sc.longScore() != Integer.MAX_VALUE)
+                .toList();
+
+        int bestShortScore =
+                scoredCandidates.stream().mapToInt(ScoredPF::shortScore).min().orElse(Integer.MAX_VALUE);
+        int shortThreshold = bestShortScore == Integer.MAX_VALUE ? Integer.MAX_VALUE : bestShortScore + SHORT_TOLERANCE;
+
+        Comparator<ScoredPF> cmp = Comparator
+                .<ScoredPF>comparingInt(sc -> Math.min(sc.shortScore(), sc.longScore())
+                        + (sc.preferred() ? -50 : 0))
+                .thenComparing(sc -> extractShort.apply(sc.pf()));
+
+        return scoredCandidates.stream()
+                .filter(sc -> (sc.shortScore() <= shortThreshold) || (sc.longScore() < bestShortScore))
+                .sorted(cmp)
+                .limit(100)
+                .map(sc -> toCompletion.apply(sc.pf()))
+                .toList();
     }
 }
