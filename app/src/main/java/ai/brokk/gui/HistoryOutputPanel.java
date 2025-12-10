@@ -147,6 +147,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private JComponent aggregatedChangesPanel;
 
     @Nullable
+    private ReviewWindow reviewWindow;
+
+    @Nullable
     private JTextArea captureDescriptionArea;
 
     // Capture/notification bar container for fixed sizing in vertical layout
@@ -2006,59 +2009,33 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     /**
      * Opens the Review (Changes) tab content in a new, resizable window.
-     * If cumulative changes have been computed, displays the aggregated diff panel.
-     * Otherwise, shows a loading/empty state.
+     * Maintains a single instance: if the window is already open, brings it to front.
+     * Otherwise, creates a new ReviewWindow and registers a listener to clear the field on close.
      */
     private void openReviewInNewWindow() {
         SwingUtilities.invokeLater(() -> {
+            // Reuse existing window if it's still open
+            if (reviewWindow != null && reviewWindow.isDisplayable()) {
+                reviewWindow.toFront();
+                reviewWindow.requestFocus();
+                reviewWindow.setState(JFrame.NORMAL);
+                return;
+            }
+
+            // Create new singleton instance
             if (lastCumulativeChanges == null) {
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO, "Computing branch-based changes...");
                 return;
             }
 
-            // Build the aggregated Review view using the side-effect-free builder
-            var reviewView = buildAggregatedReviewView(lastCumulativeChanges);
-            var containerPanel = reviewView.container();
-            var diffPanel = reviewView.diff();
-
-            // Create a new JFrame to host the Review content
-            JFrame reviewWindow = new JFrame("Review: " + formatReviewMetricsPlain(lastCumulativeChanges, lastBaselineLabel));
-            reviewWindow.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-
-            // Set icon
-            try {
-                var iconUrl = Chrome.class.getResource(Brokk.ICON_RESOURCE);
-                if (iconUrl != null) {
-                    var icon = new ImageIcon(iconUrl);
-                    reviewWindow.setIconImage(icon.getImage());
-                }
-            } catch (Exception ex) {
-                logger.debug("Failed to set Review window icon", ex);
-            }
-
-            // Add the container panel to the window
-            reviewWindow.add(containerPanel);
-
-            // Apply current theme to the diff panel
-            diffPanel.applyTheme(chrome.getTheme());
-
-            // Set initial size and position
-            reviewWindow.setSize(900, 700);
-            reviewWindow.setLocationRelativeTo(chrome.getFrame());
-
-            // Add a window listener to dispose the diff panel when closed
+            reviewWindow = new ReviewWindow(lastCumulativeChanges, lastBaselineLabel);
             reviewWindow.addWindowListener(new WindowAdapter() {
                 @Override
                 public void windowClosed(WindowEvent e) {
-                    try {
-                        diffPanel.dispose();
-                    } catch (Throwable t) {
-                        logger.debug("Ignoring error disposing Review window BrokkDiffPanel", t);
-                    }
+                    reviewWindow = null;
                 }
             });
-
             reviewWindow.setVisible(true);
         });
     }
@@ -2896,6 +2873,112 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     /**
+     * Inner class representing a Review window with aggregated diff panel and live-update support.
+     */
+    private class ReviewWindow extends JFrame {
+        private final BrokkDiffPanel diffPanel;
+
+        /**
+         * Creates a new Review window with the given cumulative changes.
+         *
+         * @param changes  The cumulative changes to display
+         * @param baseline The baseline label (may be null)
+         */
+        public ReviewWindow(CumulativeChanges changes, @Nullable String baseline) {
+            super("Review: " + formatReviewMetricsPlain(changes, baseline));
+
+            // Set icon from Chrome.newFrame
+            try {
+                var iconUrl = Chrome.class.getResource(Brokk.ICON_RESOURCE);
+                if (iconUrl != null) {
+                    var icon = new ImageIcon(iconUrl);
+                    setIconImage(icon.getImage());
+                }
+            } catch (Exception e) {
+                logger.debug("Failed to set ReviewWindow icon", e);
+            }
+
+            setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+
+            // Build the aggregated Review view
+            var reviewView = buildAggregatedReviewView(changes);
+            var containerPanel = reviewView.container();
+            this.diffPanel = reviewView.diff();
+
+            // Add the container panel to the window
+            add(containerPanel);
+
+            // Apply current theme to the diff panel
+            diffPanel.applyTheme(chrome.getTheme());
+
+            // Set initial size and position
+            setSize(900, 700);
+            setLocationRelativeTo(chrome.getFrame());
+
+            // Add a window listener to dispose the diff panel when closed
+            addWindowListener(new WindowAdapter() {
+                @Override
+                public void windowClosed(WindowEvent e) {
+                    try {
+                        diffPanel.dispose();
+                    } catch (Throwable t) {
+                        logger.debug("Ignoring error disposing ReviewWindow BrokkDiffPanel", t);
+                    }
+                }
+            });
+        }
+
+        /**
+         * Updates the Review window content with new cumulative changes.
+         * Rebuilds the diff panel and retitle the window.
+         * Must be called on the EDT.
+         *
+         * @param changes  The new cumulative changes to display
+         * @param baseline The baseline label (may be null)
+         */
+        public void updateContent(CumulativeChanges changes, @Nullable String baseline) {
+            assert SwingUtilities.isEventDispatchThread() : "updateContent must be called on EDT";
+
+            // Dispose the old diff panel
+            try {
+                diffPanel.dispose();
+            } catch (Throwable t) {
+                logger.debug("Ignoring error disposing old ReviewWindow BrokkDiffPanel", t);
+            }
+
+            // Remove the old content
+            getContentPane().removeAll();
+
+            // Build new Review view
+            var reviewView = buildAggregatedReviewView(changes);
+            var containerPanel = reviewView.container();
+            var newDiffPanel = reviewView.diff();
+
+            // Update the field reference to the new diff panel for lifecycle management
+            try {
+                var f = ReviewWindow.class.getDeclaredField("diffPanel");
+                f.setAccessible(true);
+                f.set(this, newDiffPanel);
+            } catch (ReflectiveOperationException e) {
+                logger.warn("Failed to update diffPanel reference in ReviewWindow", e);
+            }
+
+            // Add the new container
+            add(containerPanel);
+
+            // Apply current theme to the new diff panel
+            newDiffPanel.applyTheme(chrome.getTheme());
+
+            // Update window title
+            setTitle("Review: " + formatReviewMetricsPlain(changes, baseline));
+
+            // Refresh the UI
+            revalidate();
+            repaint();
+        }
+    }
+
+    /**
      * Disables the history panel components.
      */
     public void disableHistory() {
@@ -3114,6 +3197,20 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             ta.applyTheme(guiTheme);
         }
 
+        // Propagate theme to Review window if it exists
+        if (reviewWindow != null && reviewWindow.isDisplayable()) {
+            try {
+                var f = ReviewWindow.class.getDeclaredField("diffPanel");
+                f.setAccessible(true);
+                var dp = (BrokkDiffPanel) f.get(reviewWindow);
+                if (dp != null) {
+                    dp.applyTheme(guiTheme);
+                }
+            } catch (ReflectiveOperationException e) {
+                logger.debug("Failed to apply theme to ReviewWindow diffPanel", e);
+            }
+        }
+
         // Recompute the Changes tab title colors to match the new theme if we have a computed summary
         if (lastCumulativeChanges != null) {
             setChangesTabTitleAndTooltip(lastCumulativeChanges);
@@ -3228,6 +3325,15 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         } else {
             aggregatedChangesPanel = null;
         }
+        // Dispose the Review window if it exists
+        if (reviewWindow != null && reviewWindow.isDisplayable()) {
+            try {
+                reviewWindow.dispose();
+            } catch (Throwable t) {
+                logger.debug("Ignoring error disposing ReviewWindow during HistoryOutputPanel.dispose()", t);
+            }
+        }
+        reviewWindow = null;
         // Dispose the web-based markdown output panel
         try {
             llmStreamArea.dispose();
