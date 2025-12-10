@@ -500,7 +500,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         installAuxTabDnD(tabs);
 
         // Apply any saved auxiliary tab order
-        SwingUtilities.invokeLater(this::loadAuxTabOrder);
+        SwingUtilities.invokeLater(this::applySavedAuxTabOrder);
 
         // Toggle Output/Changes with Space from Output area or tabs
         Runnable toggleTabs = () -> {
@@ -1505,7 +1505,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 }
 
                 // Apply saved order (if any) after adding a new aux tab, without changing current selection
-                loadAuxTabOrder();
+                applySavedAuxTabOrder();
             } else {
                 logger.debug(
                         "openAuxTab: computed tab index {} out of range (tabCount={}); lineup may have changed",
@@ -1519,6 +1519,16 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         } else {
             SwingUtilities.invokeLater(task);
         }
+    }
+
+    /**
+     * Applies the saved auxiliary tab order to the current Output/Review tab strip.
+     * This keeps the first two tabs ("Output" and "Review") pinned and reorders
+     * any remaining tabs to match the saved sequence. Unknown titles are left in
+     * their current relative order at the end.
+     */
+    private void applySavedAuxTabOrder() {
+        loadAuxTabOrder();
     }
 
     /**
