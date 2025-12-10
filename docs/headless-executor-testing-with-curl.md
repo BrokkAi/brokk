@@ -169,7 +169,7 @@ curl -sS -X POST "${BASE}/v1/jobs" \
   "sessionId": "replace-with-session-id",
   "taskInput": "Based on the code I just added, explain the UserService class structure and its key responsibilities.",
   "autoCommit": false,
-  "autoCompress": true,
+  "autoCompress": false,
   "plannerModel": "gpt-5",
   "tags": {
     "mode": "ASK"
