@@ -503,9 +503,7 @@ public class SearchAgent {
         } catch (Throwable t) {
             // Protect agent flow from repository/analysis issues (e.g., unexpected repo impls causing casts).
             // Log and continue without related-file hints.
-            logger.warn(
-                    "Unable to compute related identifiers for workspace; continuing without related files.",
-                    t);
+            logger.warn("Unable to compute related identifiers for workspace; continuing without related files.", t);
         }
         if (!related.isEmpty()) {
             var relatedBlock = ArchitectPrompts.formatRelatedFiles(related);
