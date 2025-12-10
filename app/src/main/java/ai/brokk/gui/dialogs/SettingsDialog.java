@@ -201,8 +201,7 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
         }
 
         MainProject.LlmProxySetting newProxySetting = MainProject.getProxySetting();
-        if (oldProxySetting != newProxySetting
-                && newProxySetting != MainProject.LlmProxySetting.STAGING) {
+        if (oldProxySetting != newProxySetting && newProxySetting != MainProject.LlmProxySetting.STAGING) {
             proxySettingsChanged = true;
         }
 
@@ -260,96 +259,90 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
     }
 
     public static SettingsDialog showSettingsDialog(Chrome chrome, String targetTabName) {
-            var dialog = new SettingsDialog(chrome.getFrame(), chrome);
+        var dialog = new SettingsDialog(chrome.getFrame(), chrome);
 
-            boolean tabSelected = false;
-            // Top-level tabs: "Global", "Project", "Advanced"
-            // Global sub-tabs: "Service", "Appearance", SettingsGlobalPanel.MODELS_TAB_TITLE, "GitHub", "MCP Servers",
-            // "Keybindings"
-            // Project sub-tabs: "General", "Build", "Data Retention"
-            // Advanced sub-tabs: "General", SettingsAdvancedPanel.MODELS_TAB_TITLE, "Startup", "Notifications"
+        boolean tabSelected = false;
+        // Top-level tabs: "Global", "Project", "Advanced"
+        // Global sub-tabs: "Service", "Appearance", SettingsGlobalPanel.MODELS_TAB_TITLE, "GitHub", "MCP Servers",
+        // "Keybindings"
+        // Project sub-tabs: "General", "Build", "Data Retention"
+        // Advanced sub-tabs: "General", SettingsAdvancedPanel.MODELS_TAB_TITLE, "Startup", "Notifications"
 
-            // Try to select top-level tab first
-            int globalTabIndex = -1, projectTabIndex = -1, advancedTabIndex = -1;
-            for (int i = 0; i < dialog.tabbedPane.getTabCount(); i++) {
-                    String title = dialog.tabbedPane.getTitleAt(i);
-                    if ("Global".equals(title)) globalTabIndex = i;
-                    if ("Project".equals(title)) projectTabIndex = i;
-                    if ("Advanced".equals(title)) advancedTabIndex = i;
+        // Try to select top-level tab first
+        int globalTabIndex = -1, projectTabIndex = -1, advancedTabIndex = -1;
+        for (int i = 0; i < dialog.tabbedPane.getTabCount(); i++) {
+            String title = dialog.tabbedPane.getTitleAt(i);
+            if ("Global".equals(title)) globalTabIndex = i;
+            if ("Project".equals(title)) projectTabIndex = i;
+            if ("Advanced".equals(title)) advancedTabIndex = i;
+        }
+
+        if (targetTabName.equals("Global") && globalTabIndex != -1 && dialog.tabbedPane.isEnabledAt(globalTabIndex)) {
+            dialog.tabbedPane.setSelectedIndex(globalTabIndex);
+            tabSelected = true;
+        } else if (targetTabName.equals("Project")
+                && projectTabIndex != -1
+                && dialog.tabbedPane.isEnabledAt(projectTabIndex)) {
+            dialog.tabbedPane.setSelectedIndex(projectTabIndex);
+            tabSelected = true;
+        } else if (targetTabName.equals("Advanced")
+                && advancedTabIndex != -1
+                && dialog.tabbedPane.isEnabledAt(advancedTabIndex)) {
+            dialog.tabbedPane.setSelectedIndex(advancedTabIndex);
+            tabSelected = true;
+        } else {
+            // Check Global sub-tabs
+            JTabbedPane globalSubTabs = dialog.globalSettingsPanel.getGlobalSubTabbedPane();
+            for (int i = 0; i < globalSubTabs.getTabCount(); i++) {
+                if (targetTabName.equals(globalSubTabs.getTitleAt(i))) {
+                    if (globalTabIndex != -1 && dialog.tabbedPane.isEnabledAt(globalTabIndex)) {
+                        dialog.tabbedPane.setSelectedIndex(globalTabIndex); // Select "Global" parent
+                        if (globalSubTabs.isEnabledAt(i)
+                                || targetTabName.equals(SettingsGlobalPanel.MODELS_TAB_TITLE)) {
+                            globalSubTabs.setSelectedIndex(i);
+                            tabSelected = true;
+                        }
+                    }
+                    break;
+                }
             }
 
-            if (targetTabName.equals("Global")
-                            && globalTabIndex != -1
-                            && dialog.tabbedPane.isEnabledAt(globalTabIndex)) {
-                    dialog.tabbedPane.setSelectedIndex(globalTabIndex);
-                    tabSelected = true;
-            } else if (targetTabName.equals("Project")
-                            && projectTabIndex != -1
-                            && dialog.tabbedPane.isEnabledAt(projectTabIndex)) {
-                    dialog.tabbedPane.setSelectedIndex(projectTabIndex);
-                    tabSelected = true;
-            } else if (targetTabName.equals("Advanced")
-                            && advancedTabIndex != -1
-                            && dialog.tabbedPane.isEnabledAt(advancedTabIndex)) {
-                    dialog.tabbedPane.setSelectedIndex(advancedTabIndex);
-                    tabSelected = true;
-            } else {
-                    // Check Global sub-tabs
-                    JTabbedPane globalSubTabs = dialog.globalSettingsPanel.getGlobalSubTabbedPane();
-                    for (int i = 0; i < globalSubTabs.getTabCount(); i++) {
-                            if (targetTabName.equals(globalSubTabs.getTitleAt(i))) {
-                                    if (globalTabIndex != -1 && dialog.tabbedPane.isEnabledAt(globalTabIndex)) {
-                                            dialog.tabbedPane.setSelectedIndex(globalTabIndex); // Select "Global" parent
-                                            if (globalSubTabs.isEnabledAt(i)
-                                                            || targetTabName.equals(SettingsGlobalPanel.MODELS_TAB_TITLE)) {
-                                                    globalSubTabs.setSelectedIndex(i);
-                                                    tabSelected = true;
-                                            }
-                                    }
-                                    break;
-                            }
+            // If not found in Global, check Project sub-tabs (only if project is open)
+            if (!tabSelected && projectTabIndex != -1 && dialog.tabbedPane.isEnabledAt(projectTabIndex)) {
+                JTabbedPane projectSubTabs = dialog.projectSettingsPanel.getProjectSubTabbedPane();
+                for (int i = 0; i < projectSubTabs.getTabCount(); i++) {
+                    if (targetTabName.equals(projectSubTabs.getTitleAt(i))) {
+                        dialog.tabbedPane.setSelectedIndex(projectTabIndex); // Select "Project" parent
+                        if (projectSubTabs.isEnabledAt(i)) {
+                            projectSubTabs.setSelectedIndex(i);
+                            tabSelected = true;
+                        }
+                        break;
                     }
-
-                    // If not found in Global, check Project sub-tabs (only if project is open)
-                    if (!tabSelected
-                                    && projectTabIndex != -1
-                                    && dialog.tabbedPane.isEnabledAt(projectTabIndex)) {
-                            JTabbedPane projectSubTabs = dialog.projectSettingsPanel.getProjectSubTabbedPane();
-                            for (int i = 0; i < projectSubTabs.getTabCount(); i++) {
-                                    if (targetTabName.equals(projectSubTabs.getTitleAt(i))) {
-                                            dialog.tabbedPane.setSelectedIndex(projectTabIndex); // Select "Project" parent
-                                            if (projectSubTabs.isEnabledAt(i)) {
-                                                    projectSubTabs.setSelectedIndex(i);
-                                                    tabSelected = true;
-                                            }
-                                            break;
-                                    }
-                            }
-                    }
-
-                    // If still not found, check Advanced sub-tabs
-                    if (!tabSelected
-                                    && advancedTabIndex != -1
-                                    && dialog.tabbedPane.isEnabledAt(advancedTabIndex)) {
-                            JTabbedPane advancedSubTabs = dialog.advancedSettingsPanel.getAdvancedSubTabbedPane();
-                            for (int i = 0; i < advancedSubTabs.getTabCount(); i++) {
-                                    if (targetTabName.equals(advancedSubTabs.getTitleAt(i))) {
-                                            dialog.tabbedPane.setSelectedIndex(advancedTabIndex); // Select "Advanced" parent
-                                            if (advancedSubTabs.isEnabledAt(i)
-                                                            || targetTabName.equals(SettingsAdvancedPanel.MODELS_TAB_TITLE)) {
-                                                    advancedSubTabs.setSelectedIndex(i);
-                                                    tabSelected = true;
-                                            }
-                                            break;
-                                    }
-                            }
-                    }
+                }
             }
-            if (!tabSelected) {
-                    logger.warn("Could not find or select target settings tab: {}", targetTabName);
+
+            // If still not found, check Advanced sub-tabs
+            if (!tabSelected && advancedTabIndex != -1 && dialog.tabbedPane.isEnabledAt(advancedTabIndex)) {
+                JTabbedPane advancedSubTabs = dialog.advancedSettingsPanel.getAdvancedSubTabbedPane();
+                for (int i = 0; i < advancedSubTabs.getTabCount(); i++) {
+                    if (targetTabName.equals(advancedSubTabs.getTitleAt(i))) {
+                        dialog.tabbedPane.setSelectedIndex(advancedTabIndex); // Select "Advanced" parent
+                        if (advancedSubTabs.isEnabledAt(i)
+                                || targetTabName.equals(SettingsAdvancedPanel.MODELS_TAB_TITLE)) {
+                            advancedSubTabs.setSelectedIndex(i);
+                            tabSelected = true;
+                        }
+                        break;
+                    }
+                }
             }
-            dialog.setVisible(true);
-            return dialog;
+        }
+        if (!tabSelected) {
+            logger.warn("Could not find or select target settings tab: {}", targetTabName);
+        }
+        dialog.setVisible(true);
+        return dialog;
     }
 
     public static boolean showStandaloneDataRetentionDialog(IProject project, Frame owner) {

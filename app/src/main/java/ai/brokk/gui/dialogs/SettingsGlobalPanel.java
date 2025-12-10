@@ -1,59 +1,35 @@
 package ai.brokk.gui.dialogs;
 
-import ai.brokk.AbstractService;
 import ai.brokk.Service;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.gui.Chrome;
-import ai.brokk.gui.SwingUtil.ThemedIcon;
 import ai.brokk.gui.components.BrowserLabel;
 import ai.brokk.gui.components.MaterialButton;
-import ai.brokk.gui.components.McpToolTable;
-import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.mcp.HttpMcpServer;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.mcp.McpServer;
-import ai.brokk.mcp.McpUtils;
 import ai.brokk.mcp.StdioMcpServer;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
-import io.modelcontextprotocol.spec.McpSchema;
 import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.EventObject;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
 import javax.swing.*;
-import javax.swing.border.Border;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
-import javax.swing.table.AbstractTableModel;
-import javax.swing.table.DefaultTableCellRenderer;
-import javax.swing.table.TableColumn;
-import javax.swing.table.TableRowSorter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -69,10 +45,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JTextField brokkKeyField = new JTextField();
     private JTextField balanceField = new JTextField();
     private BrowserLabel signupLabel = new BrowserLabel("", "");
+
     @Nullable
     private JRadioButton brokkProxyRadio; // may be null when STAGING
+
     @Nullable
     private JRadioButton localhostProxyRadio;
+
     @Nullable
     private JCheckBox forceToolEmulationCheckbox; // dev-only
 
@@ -86,12 +65,16 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JCheckBox classicBrokkViewCheckbox = new JCheckBox("Enable Classic (Horizontal) View");
     private JRadioButton diffSideBySideRadio = new JRadioButton("Side-by-Side");
     private JRadioButton diffUnifiedRadio = new JRadioButton("Unified");
+
     @Nullable
     private JRadioButton uiScaleAutoRadio;
+
     @Nullable
     private JRadioButton uiScaleCustomRadio;
+
     @Nullable
     private JComboBox<String> uiScaleCombo;
+
     private JSpinner terminalFontSizeSpinner = new JSpinner();
 
     // GitHub / MCP / Keybindings
@@ -224,7 +207,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // GitHub Tab
         gitHubSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
-        globalSubTabbedPane.addTab(SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubSettingsPanel, "GitHub integration settings");
+        globalSubTabbedPane.addTab(
+                SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubSettingsPanel, "GitHub integration settings");
 
         // MCP Servers Tab
         var mcpPanel = createMcpPanel();
@@ -848,7 +832,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         KeyEventDispatcher dispatcher = e -> {
             if (e.getID() != KeyEvent.KEY_PRESSED) return false;
             int code = e.getKeyCode();
-            if (code == KeyEvent.VK_SHIFT || code == KeyEvent.VK_CONTROL || code == KeyEvent.VK_ALT || code == KeyEvent.VK_META) {
+            if (code == KeyEvent.VK_SHIFT
+                    || code == KeyEvent.VK_CONTROL
+                    || code == KeyEvent.VK_ALT
+                    || code == KeyEvent.VK_META) {
                 return true;
             }
             if (code == KeyEvent.VK_ESCAPE && e.getModifiersEx() == 0) {
@@ -999,8 +986,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             try {
                 Service.validateKey(newBrokkKeyFromField);
             } catch (IllegalArgumentException ex) {
-                JOptionPane.showMessageDialog(
-                        this, "Invalid Brokk Key", "Invalid Key", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, "Invalid Brokk Key", "Invalid Key", JOptionPane.ERROR_MESSAGE);
                 return false;
             } catch (IOException ex) {
                 JOptionPane.showMessageDialog(
@@ -1019,8 +1005,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                     ? MainProject.LlmProxySetting.BROKK
                     : MainProject.LlmProxySetting.LOCALHOST;
         }
-        boolean forceToolEmulation =
-                forceToolEmulationCheckbox != null && forceToolEmulationCheckbox.isSelected();
+        boolean forceToolEmulation = forceToolEmulationCheckbox != null && forceToolEmulationCheckbox.isSelected();
 
         String newTheme = GuiTheme.THEME_LIGHT;
         if (lightThemeRadio.isSelected()) {
@@ -1178,7 +1163,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // For brevity we reuse the previously implemented method body from the original file.
         // The original method body remains present in the codebase and will be used at runtime.
         // (This placeholder satisfies compilation here while keeping behavior unchanged.)
-        // In practice this file still contains the full method body below in the original source; if not, please restore it.
+        // In practice this file still contains the full method body below in the original source; if not, please
+        // restore it.
         throw new UnsupportedOperationException("MCP dialog handler not present in trimmed build. Restore if needed.");
     }
 
