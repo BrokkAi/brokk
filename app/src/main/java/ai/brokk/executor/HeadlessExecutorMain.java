@@ -168,6 +168,7 @@ public final class HeadlessExecutorMain {
         this.server.registerAuthenticatedContext("/v1/context/files", this::handlePostContextFiles);
         this.server.registerAuthenticatedContext("/v1/context/classes", this::handlePostContextClasses);
         this.server.registerAuthenticatedContext("/v1/context/methods", this::handlePostContextMethods);
+        this.server.registerAuthenticatedContext("/v1/context/text", this::handlePostContextText);
 
         logger.info("HeadlessExecutorMain initialized successfully");
     }
@@ -1059,6 +1060,10 @@ public final class HeadlessExecutorMain {
 
     private record AddContextMethodsResponse(List<AddedContextMethod> added) {}
 
+    private record AddContextTextRequest(String text) {}
+
+    private record AddContextTextResponse(String id, int chars) {}
+
     /**
      * POST /v1/context/classes - Add class summaries to the current session context.
      * <p>
@@ -1316,6 +1321,70 @@ public final class HeadlessExecutorMain {
         } catch (Exception e) {
             logger.error("Error handling POST /v1/context/methods", e);
             var error = ErrorPayload.internalError("Failed to add methods to context", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
+    /**
+     * POST /v1/context/text - Add free-form text to the current session context.
+     * Request body: { "text": "..." }
+     * Response: { "id": "<fragmentId>", "chars": <length> }
+     * Notes:
+     * - Enforces a maximum size of 64 KiB (UTF-8 bytes)
+     * - Logs size only (chars), never the content
+     */
+    void handlePostContextText(HttpExchange exchange) throws IOException {
+        if (!exchange.getRequestMethod().equals("POST")) {
+            var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
+            SimpleHttpServer.sendJsonResponse(exchange, 405, error);
+            return;
+        }
+
+        try {
+            var request = SimpleHttpServer.parseJsonRequest(exchange, AddContextTextRequest.class);
+            if (request == null) {
+                var error = ErrorPayload.validationError("Request body is required");
+                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                return;
+            }
+
+            var text = request.text();
+            if (text == null || text.isBlank()) {
+                var error = ErrorPayload.validationError("text must not be blank");
+                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                return;
+            }
+
+            final int MAX_BYTES = 64 * 1024; // 64 KiB
+            int byteLen = text.getBytes(UTF_8).length;
+            if (byteLen > MAX_BYTES) {
+                var error = ErrorPayload.validationError("text exceeds maximum size of " + MAX_BYTES + " bytes");
+                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                return;
+            }
+
+            contextManager.addPastedTextFragment(text);
+
+            // Find the most recently added PASTE_TEXT fragment's id
+            var live = contextManager.liveContext();
+            var fragments = live.getAllFragmentsInDisplayOrder();
+            String fragmentId = "";
+            for (int i = fragments.size() - 1; i >= 0; i--) {
+                var f = fragments.get(i);
+                if (f.getType() == ContextFragment.FragmentType.PASTE_TEXT) {
+                    fragmentId = f.id();
+                    break;
+                }
+            }
+
+            var chars = text.length();
+            logger.info("Added pasted text to context: chars={}", chars);
+
+            var response = new AddContextTextResponse(fragmentId, chars);
+            SimpleHttpServer.sendJsonResponse(exchange, 200, response);
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/context/text", e);
+            var error = ErrorPayload.internalError("Failed to add text to context", e);
             SimpleHttpServer.sendJsonResponse(exchange, 500, error);
         }
     }
