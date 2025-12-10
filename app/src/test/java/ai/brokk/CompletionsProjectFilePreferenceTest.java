@@ -27,7 +27,9 @@ public class CompletionsProjectFilePreferenceTest {
     public void javaExtensionPreferredOverMd() {
         IProject project = projectWithJava();
 
-        Path root = Path.of("/tmp/proj");
+        Path root = Path.of(System.getProperty("java.io.tmpdir"), "proj")
+                .toAbsolutePath()
+                .normalize();
         ProjectFile javaFile = new ProjectFile(root, "BuildTool.java");
         ProjectFile mdFile = new ProjectFile(root, "baseline-testing.md");
 
@@ -104,7 +106,9 @@ public class CompletionsProjectFilePreferenceTest {
     public void unrelatedExtensionWithCamelCaseDoesNotOutrankPreferredExtension() {
         IProject project = projectWithJava();
 
-        Path root = Path.of("/tmp/proj");
+        Path root = Path.of(System.getProperty("java.io.tmpdir"), "proj")
+                .toAbsolutePath()
+                .normalize();
         ProjectFile javaFile = new ProjectFile(root, "BuildTool.java");
         ProjectFile svgFile = new ProjectFile(root, "BuildTool.svg");
 
