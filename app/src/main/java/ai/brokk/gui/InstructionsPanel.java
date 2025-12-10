@@ -2965,13 +2965,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             List<Completion> completions;
             if (rawText.contains("/") || rawText.contains("\\")) {
                 var allFiles = contextManager.getProject().getAllFiles();
-                List<ShorthandCompletion> fileCompletions = Completions.scoreShortAndLong(
+                var project = contextManager.getProject();
+                List<ShorthandCompletion> fileCompletions = Completions.scoreProjectFiles(
                         rawText,
+                        project,
                         allFiles,
                         ProjectFile::getFileName,
                         ProjectFile::toString,
-                        f -> 0,
-                        f -> new ShorthandCompletion(this, f.getFileName(), formatCompletionText(f.getFileName())));
+                        f -> new ShorthandCompletion(this, f.getFileName(), formatCompletionText(f.getFileName())),
+                        1);
                 completions = new ArrayList<>(fileCompletions.stream().limit(50).toList());
             } else {
                 var analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
