@@ -314,4 +314,45 @@ public class Completions {
                 .map(sc -> toCompletion.apply(sc.source()))
                 .toList();
     }
+
+    /**
+     * Rank-and-filter ProjectFile candidates with a preference for files whose extensions are
+     * supported by the project's active analyzers. Uses the default minimum pattern length of 1.
+     */
+    public static List<ShorthandCompletion> scoreProjectFiles(
+            String pattern,
+            IProject project,
+            Collection<ProjectFile> candidates,
+            Function<ProjectFile, String> extractShort,
+            Function<ProjectFile, String> extractLong,
+            Function<ProjectFile, ShorthandCompletion> toCompletion) {
+        return scoreProjectFiles(pattern, project, candidates, extractShort, extractLong, toCompletion, 1);
+    }
+
+    /**
+     * Rank-and-filter ProjectFile candidates with a preference for files whose extensions are
+     * supported by the project's active analyzers.
+     *
+     * Prefers candidates whose {@code ProjectFile.extension()} (lowercased) is present in the union
+     * of {@code Language.getExtensions()} from {@code project.getAnalyzerLanguages()} by using a
+     * lower tiebreak score for those candidates.
+     */
+    public static List<ShorthandCompletion> scoreProjectFiles(
+            String pattern,
+            IProject project,
+            Collection<ProjectFile> candidates,
+            Function<ProjectFile, String> extractShort,
+            Function<ProjectFile, String> extractLong,
+            Function<ProjectFile, ShorthandCompletion> toCompletion,
+            int minLength) {
+        Set<String> preferredExts = project.getAnalyzerLanguages().stream()
+                .flatMap(lang -> lang.getExtensions().stream())
+                .map(s -> s.toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+
+        Function<ProjectFile, Integer> tiebreaker =
+                pf -> preferredExts.contains(pf.extension().toLowerCase(Locale.ROOT)) ? 0 : 1;
+
+        return scoreShortAndLong(pattern, candidates, extractShort, extractLong, tiebreaker, toCompletion, minLength);
+    }
 }
