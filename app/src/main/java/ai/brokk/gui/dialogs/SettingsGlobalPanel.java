@@ -12,6 +12,7 @@ import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.Icons;
+import ai.brokk.gui.util.JDeploySettingsUtil;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.mcp.HttpMcpServer;
 import ai.brokk.mcp.McpConfig;
