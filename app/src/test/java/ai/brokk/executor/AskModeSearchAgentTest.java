@@ -137,7 +137,8 @@ public class AskModeSearchAgentTest {
         json.put("autoCommit", (Boolean) jobPayload.getOrDefault("autoCommit", false));
         json.put("autoCompress", (Boolean) jobPayload.getOrDefault("autoCompress", false));
         json.put(
-                "plannerModel", jobPayload.getOrDefault("plannerModel", "gemini-2.0-flash").toString());
+                "plannerModel",
+                jobPayload.getOrDefault("plannerModel", "gemini-2.0-flash").toString());
         if (jobPayload.containsKey("scanModel")) {
             json.put("scanModel", jobPayload.get("scanModel").toString());
         }
