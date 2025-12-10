@@ -1233,39 +1233,51 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     /**
-         * Adds a closable auxiliary tab to the Output tabs with a custom header.
-         * - Applies theme to content if it implements ThemeAware
-         * - Selects the new tab
-         * - On close: removes the tab and invokes onClose if provided; otherwise attempts best-effort disposal
-         *
-         * @param title   The tab title
-         * @param content The component to add as the tab content
-         * @param onClose Optional cleanup action to run when the tab is closed
-         */
+             * Adds a closable auxiliary tab to the Output tabs with a custom header.
+             * - Applies theme to content if it implements ThemeAware
+             * - Selects the new tab
+             * - On close: removes the tab and invokes onClose if provided; otherwise attempts best-effort disposal
+             *
+             * @param title   The tab title
+             * @param content The component to add as the tab content
+             * @param onClose Optional cleanup action to run when the tab is closed
+             */
     public void openAuxTab(String title, JComponent content, @Nullable Runnable onClose) {
-                        Runnable task = () -> {
-                                            var tabs = outputTabs;
-                                            if (tabs == null) {
-                                                                return;
-                                            }
+        Runnable task = () -> {
+            var tabs = outputTabs;
+            if (tabs == null) {
+                return;
+            }
 
-                                            if (content instanceof ThemeAware ta) {
-                                                                ta.applyTheme(chrome.getTheme());
-                                            }
+            // Prevent duplicate tabs by plain-text title (strip any HTML from existing titles)
+            String needle = title.replaceAll("<[^>]*>", "").trim();
+            for (int i = 0; i < tabs.getTabCount(); i++) {
+                String existing = tabs.getTitleAt(i);
+                if (existing == null) existing = "";
+                String plain = existing.replaceAll("<[^>]*>", "").trim();
+                if (plain.equalsIgnoreCase(needle)) {
+                    tabs.setSelectedIndex(i);
+                    return;
+                }
+            }
 
-                                            tabs.addTab(title, content);
-                                            int index = tabs.indexOfComponent(content);
+            if (content instanceof ThemeAware ta) {
+                ta.applyTheme(chrome.getTheme());
+            }
 
-                                            var header = createClosableTabHeader(tabs, content, title, onClose);
-                                            tabs.setTabComponentAt(index, header);
-                                            tabs.setSelectedIndex(index);
-                        };
+            tabs.addTab(title, content);
+            int index = tabs.indexOfComponent(content);
 
-                        if (SwingUtilities.isEventDispatchThread()) {
-                                            task.run();
-                        } else {
-                                            SwingUtilities.invokeLater(task);
-                        }
+            var header = createClosableTabHeader(tabs, content, title, onClose);
+            tabs.setTabComponentAt(index, header);
+            tabs.setSelectedIndex(index);
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
     }
 
     /**
