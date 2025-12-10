@@ -1010,6 +1010,11 @@ public interface ContextFragment {
     }
 
     class StringFragment extends AbstractStaticFragment {
+        // Pattern to match git diff file headers: "diff --git a/path b/path"
+        private static final Pattern DIFF_GIT_PATTERN = Pattern.compile("^diff --git a/(.+?) b/(.+?)$", Pattern.MULTILINE);
+        // Pattern to match unified diff headers: "+++ b/path" (preferred over --- a/ which may be /dev/null)
+        private static final Pattern DIFF_PLUS_PATTERN = Pattern.compile("^\\+\\+\\+ b/(.+?)$", Pattern.MULTILINE);
+
         public StringFragment(IContextManager contextManager, String text, String description, String syntaxStyle) {
             this(
                     FragmentUtils.calculateContentHash(
@@ -1017,12 +1022,52 @@ public interface ContextFragment {
                     contextManager,
                     text,
                     description,
-                    syntaxStyle);
+                    syntaxStyle,
+                    extractFilesFromDiff(text, contextManager));
         }
 
         public StringFragment(
                 String id, IContextManager contextManager, String text, String description, String syntaxStyle) {
-            super(id, contextManager, new FragmentSnapshot(description, description, text, syntaxStyle));
+            super(
+                    id,
+                    contextManager,
+                    new FragmentSnapshot(
+                            description, description, text, syntaxStyle, Set.of(),
+                            extractFilesFromDiff(text, contextManager), (List<Byte>) null));
+        }
+
+        /**
+         * Extracts ProjectFile references from diff content by parsing git diff headers.
+         * Returns empty set if content doesn't look like a diff or no valid files are found.
+         */
+        private static Set<ProjectFile> extractFilesFromDiff(String text, IContextManager contextManager) {
+            var files = new LinkedHashSet<ProjectFile>();
+
+            // Try "diff --git a/path b/path" format first
+            var gitMatcher = DIFF_GIT_PATTERN.matcher(text);
+            while (gitMatcher.find()) {
+                var path = gitMatcher.group(2); // use b/ path (new file)
+                var file = contextManager.toFile(path);
+                if (file != null && file.exists()) {
+                    files.add(file);
+                }
+            }
+
+            // Fallback to "+++ b/path" if no git headers found
+            if (files.isEmpty()) {
+                var plusMatcher = DIFF_PLUS_PATTERN.matcher(text);
+                while (plusMatcher.find()) {
+                    var path = plusMatcher.group(1);
+                    if (!path.equals("/dev/null")) {
+                        var file = contextManager.toFile(path);
+                        if (file != null && file.exists()) {
+                            files.add(file);
+                        }
+                    }
+                }
+            }
+
+            return files;
         }
 
         public StringFragment(
