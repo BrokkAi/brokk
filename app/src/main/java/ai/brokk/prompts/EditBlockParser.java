@@ -67,8 +67,20 @@ public class EditBlockParser {
     }
 
     // Detect forbidden BRK markers in REPLACE blocks.
+    //
+    // BRK_* tokens are SEARCH-only entity locators and must NEVER appear in REPLACE payloads.
+    // We explicitly ban the following families when they appear at the start of a line:
+    // - BRK_CLASS
+    // - BRK_FUNCTION
+    // - BRK_NEXT_OFFSET
+    // - BRK_ENTIRE_FILE
+    // - BRK_CONFLICT_n
+    //
+    // Migration note:
+    // - BRK_REPLACE_FUNCTION -> BRK_FUNCTION
+    // - BRK_NEW_FUNCTION / BRK_INSERT_FUNCTION -> BRK_NEXT_OFFSET
     private static final java.util.regex.Pattern BRK_MARKER_IN_REPLACE_PATTERN =
-            java.util.regex.Pattern.compile("(?m)^BRK_(CLASS|FUNCTION|ENTIRE_FILE|CONFLICT)");
+            java.util.regex.Pattern.compile("(?m)^BRK_(CLASS|FUNCTION|NEXT_OFFSET|ENTIRE_FILE|CONFLICT)");
 
     private static boolean containsBrkMarkerInReplace(String text) {
         return BRK_MARKER_IN_REPLACE_PATTERN.matcher(text).find();
