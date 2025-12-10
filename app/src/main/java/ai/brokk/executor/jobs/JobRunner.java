@@ -340,9 +340,13 @@ public final class JobRunner {
                                             }
                                         }
                                         case ASK -> {
-                                            // Read-only execution via SearchAgent with ANSWER_ONLY objective
+                                            // Read-only execution via SearchAgent with ANSWER_ONLY objective.
+                                            // Use 'plannerModel' for reasoning and, if requested, use an explicit
+                                            // 'scanModel' only for the prescan step (fallback to project default).
                                             try (var scope = cm.beginTask(task.text(), false)) {
                                                 var context = cm.liveContext();
+
+                                                // Construct SearchAgent with the planner model (required for ASK)
                                                 var searchAgent = new SearchAgent(
                                                         context,
                                                         task.text(),
@@ -350,6 +354,110 @@ public final class JobRunner {
                                                                 askPlannerModel, "plannerModel required for ASK jobs"),
                                                         SearchAgent.Objective.ANSWER_ONLY,
                                                         scope);
+
+                                                // Optional pre-scan: resolve scan model the same way SEARCH mode does.
+                                                if (spec.preScan()) {
+                                                    String rawScanModel = spec.scanModel();
+                                                    String trimmedScanModel =
+                                                            rawScanModel == null ? "" : rawScanModel.trim();
+
+                                                    // Emit deterministic start NOTIFICATION so headless clients/tests
+                                                    // can observe the pre-scan start.
+                                                    try {
+                                                        store.appendEvent(
+                                                                jobId,
+                                                                JobEvent.of(
+                                                                        "NOTIFICATION",
+                                                                        "Brokk Context Engine: analyzing repository context..."));
+                                                    } catch (IOException ioe) {
+                                                        logger.warn(
+                                                                "Failed to append pre-scan start notification event for job {}: {}",
+                                                                jobId,
+                                                                ioe.getMessage(),
+                                                                ioe);
+                                                    }
+
+                                                    StreamingChatModel scanModelToUse = null;
+                                                    try {
+                                                        scanModelToUse = !trimmedScanModel.isEmpty()
+                                                                ? resolveModelOrThrow(trimmedScanModel)
+                                                                : cm.getService()
+                                                                        .getScanModel();
+                                                    } catch (IllegalArgumentException iae) {
+                                                        // resolveModelOrThrow may throw; log and continue without
+                                                        // failing job.
+                                                        logger.warn(
+                                                                "Pre-scan model unavailable for job {}: {}",
+                                                                jobId,
+                                                                iae.getMessage());
+                                                        scanModelToUse = null;
+                                                    } catch (Exception e) {
+                                                        logger.warn(
+                                                                "Unexpected error during pre-scan model resolution for job {}: {}",
+                                                                jobId,
+                                                                e.getMessage(),
+                                                                e);
+                                                        scanModelToUse = null;
+                                                    }
+
+                                                    if (scanModelToUse == null) {
+                                                        // No scan model available; log and skip pre-scan but still emit
+                                                        // completion below.
+                                                        logger.warn(
+                                                                "ASK pre-scan requested but no scan model is available (spec.scanModel='{}'). Skipping pre-scan for job {}.",
+                                                                trimmedScanModel,
+                                                                jobId);
+                                                    } else {
+                                                        // Attempt the pre-scan, but do not allow failures to abort the
+                                                        // job.
+                                                        try {
+                                                            searchAgent.scanInitialContext(scanModelToUse);
+                                                        } catch (InterruptedException ie) {
+                                                            // Preserve interruption status but continue with the job.
+                                                            Thread.currentThread()
+                                                                    .interrupt();
+                                                            logger.warn(
+                                                                    "Pre-scan interrupted for job {}: {}",
+                                                                    jobId,
+                                                                    ie.getMessage(),
+                                                                    ie);
+                                                        } catch (IllegalArgumentException iae) {
+                                                            // Model resolution or argument problems: log and continue.
+                                                            logger.warn(
+                                                                    "Pre-scan skipped due to model error for job {}: {}",
+                                                                    jobId,
+                                                                    iae.getMessage());
+                                                        } catch (Exception ex) {
+                                                            // Any other exception during pre-scan should not fail the
+                                                            // job.
+                                                            logger.warn(
+                                                                    "Pre-scan failed for job {}: {}",
+                                                                    jobId,
+                                                                    ex.getMessage(),
+                                                                    ex);
+                                                        }
+                                                    }
+
+                                                    // Emit deterministic completion NOTIFICATION so headless
+                                                    // clients/tests
+                                                    // can reliably observe that the Context Engine pre-scan phase
+                                                    // finished.
+                                                    try {
+                                                        store.appendEvent(
+                                                                jobId,
+                                                                JobEvent.of(
+                                                                        "NOTIFICATION",
+                                                                        "Brokk Context Engine: complete — contextual insights added to Workspace."));
+                                                    } catch (IOException ioe) {
+                                                        logger.warn(
+                                                                "Failed to append pre-scan completion event for job {}: {}",
+                                                                jobId,
+                                                                ioe.getMessage(),
+                                                                ioe);
+                                                    }
+                                                }
+
+                                                // Execute ASK reasoning using the planner model (unchanged).
                                                 var result = searchAgent.execute();
                                                 scope.append(result);
                                             }
