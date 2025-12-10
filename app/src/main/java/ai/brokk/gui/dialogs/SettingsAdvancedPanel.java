@@ -10,6 +10,7 @@ import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.JDeploySettingsUtil;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.GlobalUiSettings;
+
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.EventObject;
