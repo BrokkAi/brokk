@@ -3,14 +3,17 @@ package ai.brokk.gui.dialogs;
 import ai.brokk.AbstractService;
 import ai.brokk.Service;
 import ai.brokk.gui.Chrome;
-import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.SettingsDialog.SettingsData;
+import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.gui.util.JDeploySettingsUtil;
+import ai.brokk.mcp.McpConfig;
+import ai.brokk.mcp.McpServer;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.GlobalUiSettings;
+import ai.brokk.gui.util.JDeploySettingsUtil;
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.FlowLayout;
@@ -20,11 +23,16 @@ import java.awt.Insets;
 import java.util.ArrayList;
 import java.util.EventObject;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
 import javax.swing.DefaultListCellRenderer;
-import javax.swing.JCheckBox;
+import javax.swing.DefaultListModel;
 import javax.swing.JComboBox;
+import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JOptionPane;
@@ -38,6 +46,8 @@ import javax.swing.ListSelectionModel;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
+import javax.swing.event.TableModelEvent;
+import javax.swing.event.TableModelListener;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableColumn;
@@ -62,37 +72,45 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
     private final JSpinner memorySpinner = new JSpinner();
     private final JCheckBox instructionsTabInsertIndentationCheckbox =
             new JCheckBox("Tab inserts indentation in Instructions (Code-style)");
-    private final JCheckBox advancedModeCheckbox = new JCheckBox("Enable Advanced Mode (show all UI)");
-    private final JCheckBox skipCommitGateEzCheckbox = new JCheckBox("Skip commit gate in EZ mode");
+    private final JCheckBox advancedModeCheckbox =
+            new JCheckBox("Enable Advanced Mode (show all UI)");
+    private final JCheckBox skipCommitGateEzCheckbox =
+            new JCheckBox("Skip commit gate in EZ mode");
     private final JComboBox<String> watchServiceImplCombo =
             new JComboBox<>(new String[] {"Default (auto)", "Legacy", "Native"});
 
     // Startup tab
-    private final JRadioButton startupOpenLastRadio = new JRadioButton("Open last project (recommended)");
-    private final JRadioButton startupOpenAllRadio = new JRadioButton("Reopen all previously open projects");
+    private final JRadioButton startupOpenLastRadio =
+            new JRadioButton("Open last project (recommended)");
+    private final JRadioButton startupOpenAllRadio =
+            new JRadioButton("Reopen all previously open projects");
     private final JCheckBox persistPerProjectWindowCheckbox =
             new JCheckBox("Save window position per project (recommended)");
 
     // Notifications tab
-    private final JCheckBox showCostNotificationsCheckbox = new JCheckBox("Show LLM cost notifications");
-    private final JCheckBox showFreeInternalLLMCheckbox = new JCheckBox("Show free internal LLM calls");
-    private final JCheckBox showErrorNotificationsCheckbox = new JCheckBox("Show error notifications");
-    private final JCheckBox showConfirmNotificationsCheckbox = new JCheckBox("Show confirmation notifications");
-    private final JCheckBox showInfoNotificationsCheckbox = new JCheckBox("Show info notifications");
+    private final JCheckBox showCostNotificationsCheckbox =
+            new JCheckBox("Show LLM cost notifications");
+    private final JCheckBox showFreeInternalLLMCheckbox =
+            new JCheckBox("Show free internal LLM calls");
+    private final JCheckBox showErrorNotificationsCheckbox =
+            new JCheckBox("Show error notifications");
+    private final JCheckBox showConfirmNotificationsCheckbox =
+            new JCheckBox("Show confirmation notifications");
+    private final JCheckBox showInfoNotificationsCheckbox =
+            new JCheckBox("Show info notifications");
 
     // Models tab
     private JTable quickModelsTable = new JTable();
-    private FavoriteModelsTableModel quickModelsTableModel = new FavoriteModelsTableModel(new ArrayList<>());
+    private FavoriteModelsTableModel quickModelsTableModel =
+            new FavoriteModelsTableModel(new ArrayList<>());
     private JComboBox<Service.FavoriteModel> preferredCodeModelCombo = new JComboBox<>();
     private JComboBox<Service.FavoriteModel> primaryModelCombo = new JComboBox<>();
-    private JComboBox<String> otherModelsVendorCombo = new JComboBox<>(new String[] {"Default"});
-
+    private JComboBox<String> otherModelsVendorCombo =
+            new JComboBox<>(new String[] {"Default"});
     @Nullable
     private JLabel otherModelsVendorLabel;
-
     @Nullable
     private JPanel otherModelsVendorHolder;
-
     private boolean plannerModelSyncListenerRegistered = false;
 
     public record AdvancedValues(
@@ -151,8 +169,9 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         int jvmMb = ((Number) memorySpinner.getValue()).intValue();
         var jvmSettings = new MainProject.JvmMemorySettings(jvmAutomatic, jvmMb);
 
-        MainProject.StartupOpenMode startupMode =
-                startupOpenAllRadio.isSelected() ? MainProject.StartupOpenMode.ALL : MainProject.StartupOpenMode.LAST;
+        MainProject.StartupOpenMode startupMode = startupOpenAllRadio.isSelected()
+                ? MainProject.StartupOpenMode.ALL
+                : MainProject.StartupOpenMode.LAST;
 
         boolean persistPerProject = persistPerProjectWindowCheckbox.isSelected();
         boolean instructionsIndent = instructionsTabInsertIndentationCheckbox.isSelected();
@@ -183,8 +202,10 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             quickModelsTableModel.setFavorites(favoriteModels);
         }
 
-        Service.FavoriteModel selectedCodeFavorite = (Service.FavoriteModel) preferredCodeModelCombo.getSelectedItem();
-        Service.FavoriteModel selectedPrimaryFavorite = (Service.FavoriteModel) primaryModelCombo.getSelectedItem();
+        Service.FavoriteModel selectedCodeFavorite =
+                (Service.FavoriteModel) preferredCodeModelCombo.getSelectedItem();
+        Service.FavoriteModel selectedPrimaryFavorite =
+                (Service.FavoriteModel) primaryModelCombo.getSelectedItem();
         String vendor = (String) otherModelsVendorCombo.getSelectedItem();
         if (vendor == null) {
             vendor = "Default";
@@ -243,7 +264,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
 
         GlobalUiSettings.saveAdvancedMode(advancedValues.advancedMode());
         GlobalUiSettings.savePersistPerProjectBounds(advancedValues.persistPerProjectBounds());
-        GlobalUiSettings.saveInstructionsTabInsertIndentation(advancedValues.instructionsTabInsertIndentation());
+        GlobalUiSettings.saveInstructionsTabInsertIndentation(
+                advancedValues.instructionsTabInsertIndentation());
         GlobalUiSettings.saveSkipCommitGateInEzMode(advancedValues.skipCommitGateEzMode());
 
         return true;
@@ -300,7 +322,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         advancedModeCheckbox.setSelected(GlobalUiSettings.isAdvancedMode());
         skipCommitGateEzCheckbox.setSelected(GlobalUiSettings.isSkipCommitGateInEzMode());
         skipCommitGateEzCheckbox.setVisible(!GlobalUiSettings.isAdvancedMode());
-        instructionsTabInsertIndentationCheckbox.setSelected(GlobalUiSettings.isInstructionsTabInsertIndentation());
+        instructionsTabInsertIndentationCheckbox.setSelected(
+                GlobalUiSettings.isInstructionsTabInsertIndentation());
 
         String pref = MainProject.getWatchServiceImplPreference();
         String selection;
@@ -321,15 +344,21 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         } else {
             startupOpenLastRadio.setSelected(true);
         }
-        persistPerProjectWindowCheckbox.setSelected(GlobalUiSettings.isPersistPerProjectBounds());
+        persistPerProjectWindowCheckbox.setSelected(
+                GlobalUiSettings.isPersistPerProjectBounds());
     }
 
     private void populateNotificationsTab() {
-        showCostNotificationsCheckbox.setSelected(GlobalUiSettings.isShowCostNotifications());
-        showFreeInternalLLMCheckbox.setSelected(GlobalUiSettings.isShowFreeInternalLLMCostNotifications());
-        showErrorNotificationsCheckbox.setSelected(GlobalUiSettings.isShowErrorNotifications());
-        showConfirmNotificationsCheckbox.setSelected(GlobalUiSettings.isShowConfirmNotifications());
-        showInfoNotificationsCheckbox.setSelected(GlobalUiSettings.isShowInfoNotifications());
+        showCostNotificationsCheckbox.setSelected(
+                GlobalUiSettings.isShowCostNotifications());
+        showFreeInternalLLMCheckbox.setSelected(
+                GlobalUiSettings.isShowFreeInternalLLMCostNotifications());
+        showErrorNotificationsCheckbox.setSelected(
+                GlobalUiSettings.isShowErrorNotifications());
+        showConfirmNotificationsCheckbox.setSelected(
+                GlobalUiSettings.isShowConfirmNotifications());
+        showInfoNotificationsCheckbox.setSelected(
+                GlobalUiSettings.isShowInfoNotifications());
     }
 
     private void populateQuickModelsTab(SettingsData data) {
@@ -341,7 +370,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             @Override
             public Component getListCellRendererComponent(
                     JList<?> list, @Nullable Object value, int index, boolean isSelected, boolean cellHasFocus) {
-                JLabel lbl = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                JLabel lbl = (JLabel) super.getListCellRendererComponent(
+                        list, value, index, isSelected, cellHasFocus);
                 if (value instanceof Service.FavoriteModel fm) {
                     String name = fm.config().name();
                     String alias = fm.alias();
@@ -395,11 +425,13 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         if (availableNames.contains(Service.HAIKU_4_5)) {
             vendors.add("Anthropic");
         }
-        if (availableNames.contains(Service.GPT_5_NANO) && availableNames.contains(Service.GPT_5_MINI)) {
+        if (availableNames.contains(Service.GPT_5_NANO)
+                && availableNames.contains(Service.GPT_5_MINI)) {
             vendors.add("OpenAI");
         }
 
-        otherModelsVendorCombo.setModel(new javax.swing.DefaultComboBoxModel<>(vendors.toArray(new String[0])));
+        otherModelsVendorCombo.setModel(
+                new javax.swing.DefaultComboBoxModel<>(vendors.toArray(new String[0])));
 
         String persistedVendor = MainProject.getOtherModelsVendorPreference();
         String vendorToSelect;
@@ -430,13 +462,15 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                         Service.FavoriteModel fm = primaryModelCombo.getItemAt(i);
                         if (fm != null && fm.config().equals(cfg)) {
                             int idx = i;
-                            SwingUtilities.invokeLater(() -> primaryModelCombo.setSelectedIndex(idx));
+                            SwingUtilities.invokeLater(
+                                    () -> primaryModelCombo.setSelectedIndex(idx));
                             found = true;
                             break;
                         }
                     }
                     if (!found && primaryModelCombo.getItemCount() > 0) {
-                        SwingUtilities.invokeLater(() -> primaryModelCombo.setSelectedIndex(0));
+                        SwingUtilities.invokeLater(
+                                () -> primaryModelCombo.setSelectedIndex(0));
                     }
                 } catch (Exception ex) {
                     logger.debug("Planner model sync listener failed (non-fatal)", ex);
@@ -494,10 +528,14 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         var manualPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         manualPanel.add(memoryManualRadio);
         manualPanel.add(new javax.swing.Box.Filler(
-                new java.awt.Dimension(5, 0), new java.awt.Dimension(5, 0), new java.awt.Dimension(5, 0)));
+                new java.awt.Dimension(5, 0),
+                new java.awt.Dimension(5, 0),
+                new java.awt.Dimension(5, 0)));
         manualPanel.add(memorySpinner);
         manualPanel.add(new javax.swing.Box.Filler(
-                new java.awt.Dimension(5, 0), new java.awt.Dimension(5, 0), new java.awt.Dimension(5, 0)));
+                new java.awt.Dimension(5, 0),
+                new java.awt.Dimension(5, 0),
+                new java.awt.Dimension(5, 0)));
         manualPanel.add(new JLabel("MB"));
 
         gbc.gridy = row++;
@@ -509,7 +547,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         memoryAutoRadio.setSelected(true);
         memorySpinner.setEnabled(false);
 
-        var restartLabel = new JLabel("Restart required after changing memory settings");
+        var restartLabel = new JLabel(
+                "Restart required after changing memory settings");
         restartLabel.setFont(restartLabel.getFont().deriveFont(java.awt.Font.ITALIC));
         gbc.gridy = row++;
         gbc.insets = new Insets(0, 25, 2, 5);
@@ -573,8 +612,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         watchPanel.add(watchServiceImplCombo);
         panel.add(watchPanel, gbc);
 
-        var watchNote =
-                new JLabel("<html><i>Changing this will require restarting Brokk to fully take effect.</i></html>");
+        var watchNote = new JLabel(
+                "<html><i>Changing this will require restarting Brokk to fully take effect.</i></html>");
         gbc.gridy = row++;
         gbc.insets = new Insets(0, 25, 2, 5);
         gbc.gridx = 1;
@@ -703,7 +742,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         sorter.setComparator(2, java.util.Comparator.comparingInt(Service.ReasoningLevel::ordinal));
         boolean showServiceTiers = Boolean.getBoolean("brokk.servicetiers");
         if (showServiceTiers) {
-            sorter.setComparator(3, java.util.Comparator.comparingInt(Service.ProcessingTier::ordinal));
+            sorter.setComparator(
+                    3, java.util.Comparator.comparingInt(Service.ProcessingTier::ordinal));
         }
         quickModelsTable.setRowSorter(sorter);
 
@@ -717,19 +757,23 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
 
         TableColumn reasoningColumn = quickModelsTable.getColumnModel().getColumn(2);
         var reasoningComboBoxEditor = new JComboBox<>(reasoningLevels);
-        reasoningColumn.setCellEditor(new ReasoningCellEditor(reasoningComboBoxEditor, service, quickModelsTable));
+        reasoningColumn.setCellEditor(
+                new ReasoningCellEditor(reasoningComboBoxEditor, service, quickModelsTable));
         reasoningColumn.setCellRenderer(new ReasoningCellRenderer(service));
         reasoningColumn.setPreferredWidth(100);
 
         if (showServiceTiers) {
             TableColumn processingColumn = quickModelsTable.getColumnModel().getColumn(3);
-            var processingComboBoxEditor = new JComboBox<>(Service.ProcessingTier.values());
+            var processingComboBoxEditor =
+                    new JComboBox<>(Service.ProcessingTier.values());
             processingColumn.setCellEditor(
-                    new ProcessingTierCellEditor(processingComboBoxEditor, service, quickModelsTable));
+                    new ProcessingTierCellEditor(
+                            processingComboBoxEditor, service, quickModelsTable));
             processingColumn.setCellRenderer(new ProcessingTierCellRenderer(service));
             processingColumn.setPreferredWidth(120);
         } else {
-            quickModelsTable.removeColumn(quickModelsTable.getColumnModel().getColumn(3));
+            quickModelsTable.removeColumn(
+                    quickModelsTable.getColumnModel().getColumn(3));
         }
 
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
@@ -751,13 +795,17 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             }
             String defaultModel = availableModelNames.length > 0 ? availableModelNames[0] : "";
             quickModelsTableModel.addFavorite(
-                    new Service.FavoriteModel("new-alias", new Service.ModelConfig(defaultModel)));
+                    new Service.FavoriteModel(
+                            "new-alias", new Service.ModelConfig(defaultModel)));
             int modelRowIndex = quickModelsTableModel.getRowCount() - 1;
-            int viewRowIndex = quickModelsTable.convertRowIndexToView(modelRowIndex);
+            int viewRowIndex =
+                    quickModelsTable.convertRowIndexToView(modelRowIndex);
             quickModelsTable.setRowSelectionInterval(viewRowIndex, viewRowIndex);
-            quickModelsTable.scrollRectToVisible(quickModelsTable.getCellRect(viewRowIndex, 0, true));
+            quickModelsTable.scrollRectToVisible(
+                    quickModelsTable.getCellRect(viewRowIndex, 0, true));
             quickModelsTable.editCellAt(viewRowIndex, 0);
-            Component editorComponent = quickModelsTable.getEditorComponent();
+            Component editorComponent =
+                    quickModelsTable.getEditorComponent();
             if (editorComponent != null) {
                 editorComponent.requestFocusInWindow();
             }
@@ -767,7 +815,10 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             int rowCount = quickModelsTableModel.getRowCount();
             if (rowCount <= 1) {
                 JOptionPane.showMessageDialog(
-                        this, "At least one favorite model is required.", "Cannot Remove", JOptionPane.WARNING_MESSAGE);
+                        this,
+                        "At least one favorite model is required.",
+                        "Cannot Remove",
+                        JOptionPane.WARNING_MESSAGE);
                 return;
             }
             int viewRow = quickModelsTable.getSelectedRow();
@@ -775,7 +826,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 if (quickModelsTable.isEditing()) {
                     quickModelsTable.getCellEditor().stopCellEditing();
                 }
-                int modelRow = quickModelsTable.convertRowIndexToModel(viewRow);
+                int modelRow =
+                        quickModelsTable.convertRowIndexToModel(viewRow);
                 quickModelsTableModel.removeFavorite(modelRow);
             }
         });
@@ -796,12 +848,15 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 quickModelsTable.getCellEditor().stopCellEditing();
             }
 
-            var defaultFavorites = new ArrayList<>(MainProject.DEFAULT_FAVORITE_MODELS);
+            var defaultFavorites =
+                    new ArrayList<>(MainProject.DEFAULT_FAVORITE_MODELS);
 
             quickModelsTableModel.setFavorites(defaultFavorites);
             if (!defaultFavorites.isEmpty()) {
-                int viewRowIndex = quickModelsTable.convertRowIndexToView(0);
-                quickModelsTable.setRowSelectionInterval(viewRowIndex, viewRowIndex);
+                int viewRowIndex =
+                        quickModelsTable.convertRowIndexToView(0);
+                quickModelsTable.setRowSelectionInterval(
+                        viewRowIndex, viewRowIndex);
             }
 
             JOptionPane.showMessageDialog(
@@ -812,7 +867,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         });
 
         Runnable updateRemoveButtonEnabled = () -> {
-            boolean hasSelection = quickModelsTable.getSelectedRow() != -1;
+            boolean hasSelection =
+                    quickModelsTable.getSelectedRow() != -1;
             int rowCount = quickModelsTableModel.getRowCount();
             removeButton.setEnabled(hasSelection && rowCount > 1);
         };
@@ -823,7 +879,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         });
         quickModelsTableModel.addTableModelListener(e -> updateRemoveButtonEnabled.run());
         quickModelsTableModel.addTableModelListener(
-                e -> SwingUtilities.invokeLater(this::refreshFavoriteModelCombosPreservingSelection));
+                e -> SwingUtilities.invokeLater(
+                        this::refreshFavoriteModelCombosPreservingSelection));
         updateRemoveButtonEnabled.run();
 
         var rolesPanel = new JPanel(new GridBagLayout());
@@ -867,7 +924,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         codeComboHolder.add(preferredCodeModelCombo, BorderLayout.CENTER);
         var codeHelpButton = new MaterialButton();
         codeHelpButton.setIcon(ai.brokk.gui.util.Icons.HELP);
-        codeHelpButton.setToolTipText("This model is used by Lutz mode to implement tasks.");
+        codeHelpButton.setToolTipText(
+                "This model is used by Lutz mode to implement tasks.");
         codeHelpButton.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
         codeHelpButton.setContentAreaFilled(false);
         codeHelpButton.setFocusPainted(false);
@@ -886,30 +944,34 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         otherModelsVendorLabel = new JLabel("Vendor for Other Models:");
         rolesPanel.add(otherModelsVendorLabel, gbcRoles);
 
-        otherModelsVendorCombo = new JComboBox<>(new String[] {"Anthropic", "Default", "OpenAI"});
+        otherModelsVendorCombo =
+                new JComboBox<>(new String[] {"Anthropic", "Default", "OpenAI"});
         otherModelsVendorCombo.setToolTipText(
                 "Selects the default models for Quick, Quick Edit, Quickest, and Scan operations.");
         otherModelsVendorHolder = new JPanel(new BorderLayout(0, 0));
         otherModelsVendorHolder.add(otherModelsVendorCombo, BorderLayout.CENTER);
 
         String defaultQuick = MainProject.getDefaultQuickModelConfig().name();
-        String defaultQuickEdit = MainProject.getDefaultQuickEditModelConfig().name();
-        String defaultQuickest = MainProject.getDefaultQuickestModelConfig().name();
+        String defaultQuickEdit =
+                MainProject.getDefaultQuickEditModelConfig().name();
+        String defaultQuickest =
+                MainProject.getDefaultQuickestModelConfig().name();
         String defaultScan = MainProject.getDefaultScanModelConfig().name();
 
-        String vendorTooltip = "<html><div style='width: 340px;'>"
-                + "Selecting a vendor sets Quick, Quick Edit, Quickest, and Scan to vendor defaults.<br/><br/>"
-                + "<b>OpenAI:</b> Quick=gpt-5-nano; Quick Edit=gpt-5-nano; Quickest=gpt-5-nano; Scan=gpt-5-mini<br/>"
-                + "<b>Anthropic:</b> Quick=claude-haiku-4-5; Quick Edit=claude-haiku-4-5; Quickest=claude-haiku-4-5; Scan=claude-haiku-4-5<br/>"
-                + "<b>Default:</b> Quick="
-                + defaultQuick
-                + "; Quick Edit="
-                + defaultQuickEdit
-                + "; Quickest="
-                + defaultQuickest
-                + "; Scan="
-                + defaultScan
-                + "</div></html>";
+        String vendorTooltip =
+                "<html><div style='width: 340px;'>"
+                        + "Selecting a vendor sets Quick, Quick Edit, Quickest, and Scan to vendor defaults.<br/><br/>"
+                        + "<b>OpenAI:</b> Quick=gpt-5-nano; Quick Edit=gpt-5-nano; Quickest=gpt-5-nano; Scan=gpt-5-mini<br/>"
+                        + "<b>Anthropic:</b> Quick=claude-haiku-4-5; Quick Edit=claude-haiku-4-5; Quickest=claude-haiku-4-5; Scan=claude-haiku-4-5<br/>"
+                        + "<b>Default:</b> Quick="
+                        + defaultQuick
+                        + "; Quick Edit="
+                        + defaultQuickEdit
+                        + "; Quickest="
+                        + defaultQuickest
+                        + "; Scan="
+                        + defaultScan
+                        + "</div></html>";
 
         var vendorHelpButton = new MaterialButton();
         vendorHelpButton.setIcon(ai.brokk.gui.util.Icons.HELP);
@@ -935,7 +997,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
 
         var rolesButtonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         var defaultsRolesButton = new MaterialButton("Defaults");
-        defaultsRolesButton.setToolTipText("Restore default model role selections.");
+        defaultsRolesButton.setToolTipText(
+                "Restore default model role selections.");
         rolesButtonsPanel.add(defaultsRolesButton);
 
         gbcRoles.gridx = 0;
@@ -997,7 +1060,11 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         favoritesPanel.add(buttonPanel, BorderLayout.SOUTH);
 
         var modelsTabbed = new JTabbedPane(JTabbedPane.TOP);
-        modelsTabbed.addTab("Favorites", null, favoritesPanel, "Manage favorite model aliases");
+        modelsTabbed.addTab(
+                "Favorites",
+                null,
+                favoritesPanel,
+                "Manage favorite model aliases");
         modelsTabbed.addTab(
                 "Model Roles",
                 null,
@@ -1043,7 +1110,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             boolean codeSelected = false;
             if (prevCodeCfg != null) {
                 for (int i = 0; i < preferredCodeModelCombo.getItemCount(); i++) {
-                    Service.FavoriteModel fav = preferredCodeModelCombo.getItemAt(i);
+                    Service.FavoriteModel fav =
+                            preferredCodeModelCombo.getItemAt(i);
                     if (fav != null && prevCodeCfg.equals(fav.config())) {
                         preferredCodeModelCombo.setSelectedIndex(i);
                         codeSelected = true;
@@ -1062,7 +1130,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             boolean primarySelected = false;
             if (prevPrimaryCfg != null) {
                 for (int i = 0; i < primaryModelCombo.getItemCount(); i++) {
-                    Service.FavoriteModel fav = primaryModelCombo.getItemAt(i);
+                    Service.FavoriteModel fav =
+                            primaryModelCombo.getItemAt(i);
                     if (fav != null && prevPrimaryCfg.equals(fav.config())) {
                         primaryModelCombo.setSelectedIndex(i);
                         primarySelected = true;
@@ -1216,7 +1285,12 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                     default -> oldFavorite;
                 };
             } catch (Exception e) {
-                logger.error("Error setting value at ({}, {}) to {}", rowIndex, columnIndex, aValue, e);
+                logger.error(
+                        "Error setting value at ({}, {}) to {}",
+                        rowIndex,
+                        columnIndex,
+                        aValue,
+                        e);
                 return;
             }
             if (!newFavorite.equals(oldFavorite)) {
@@ -1241,13 +1315,16 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         public Component getTableCellRendererComponent(
                 JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
             JLabel label =
-                    (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                    (JLabel) super.getTableCellRendererComponent(
+                            table, value, isSelected, hasFocus, row, column);
             int modelRow = table.convertRowIndexToModel(row);
-            String modelName = (String) table.getModel().getValueAt(modelRow, 1);
+            String modelName =
+                    (String) table.getModel().getValueAt(modelRow, 1);
             if (modelName != null && !service.supportsReasoningEffort(modelName)) {
                 label.setText("Off");
                 label.setEnabled(false);
-                label.setToolTipText("Reasoning effort not supported by " + modelName);
+                label.setToolTipText(
+                        "Reasoning effort not supported by " + modelName);
             } else if (value instanceof Service.ReasoningLevel level) {
                 label.setText(level.toString());
                 label.setEnabled(true);
@@ -1260,7 +1337,9 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             if (!isSelected) {
                 label.setBackground(table.getBackground());
                 label.setForeground(
-                        label.isEnabled() ? table.getForeground() : UIManager.getColor("Label.disabledForeground"));
+                        label.isEnabled()
+                                ? table.getForeground()
+                                : UIManager.getColor("Label.disabledForeground"));
             } else {
                 label.setBackground(table.getSelectionBackground());
                 label.setForeground(
@@ -1277,7 +1356,10 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         private final JTable table;
         private final JComboBox<Service.ReasoningLevel> comboBox;
 
-        ReasoningCellEditor(JComboBox<Service.ReasoningLevel> comboBox, AbstractService service, JTable table) {
+        ReasoningCellEditor(
+                JComboBox<Service.ReasoningLevel> comboBox,
+                AbstractService service,
+                JTable table) {
             super(comboBox);
             this.comboBox = comboBox;
             this.service = service;
@@ -1289,22 +1371,35 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         public Component getTableCellEditorComponent(
                 JTable table, Object value, boolean isSelected, int row, int column) {
             int modelRow = table.convertRowIndexToModel(row);
-            String modelName = (String) table.getModel().getValueAt(modelRow, 1);
-            boolean supports = modelName != null && service.supportsReasoningEffort(modelName);
-            Component editorComponent = super.getTableCellEditorComponent(table, value, isSelected, row, column);
+            String modelName =
+                    (String) table.getModel().getValueAt(modelRow, 1);
+            boolean supports = modelName != null
+                    && service.supportsReasoningEffort(modelName);
+            Component editorComponent =
+                    super.getTableCellEditorComponent(
+                            table, value, isSelected, row, column);
             editorComponent.setEnabled(supports);
             comboBox.setEnabled(supports);
             if (!supports) {
                 comboBox.setSelectedItem(Service.ReasoningLevel.DEFAULT);
-                comboBox.setToolTipText("Reasoning effort not supported by " + modelName);
+                comboBox.setToolTipText(
+                        "Reasoning effort not supported by " + modelName);
                 comboBox.setRenderer(new DefaultListCellRenderer() {
                     @Override
                     public Component getListCellRendererComponent(
-                            JList<?> list, @Nullable Object val, int i, boolean sel, boolean foc) {
-                        JLabel label = (JLabel) super.getListCellRendererComponent(list, val, i, sel, foc);
+                            JList<?> list,
+                            @Nullable Object val,
+                            int i,
+                            boolean sel,
+                            boolean foc) {
+                        JLabel label =
+                                (JLabel) super.getListCellRendererComponent(
+                                        list, val, i, sel, foc);
                         if (i == -1) {
                             label.setText("Off");
-                            label.setForeground(UIManager.getColor("ComboBox.disabledForeground"));
+                            label.setForeground(
+                                    UIManager.getColor(
+                                            "ComboBox.disabledForeground"));
                         } else if (val instanceof Service.ReasoningLevel lvl) {
                             label.setText(lvl.toString());
                         } else {
@@ -1326,15 +1421,19 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             int editingRow = table.getEditingRow();
             if (editingRow != -1) {
                 int modelRow = table.convertRowIndexToModel(editingRow);
-                String modelName = (String) table.getModel().getValueAt(modelRow, 1);
-                return modelName != null && service.supportsReasoningEffort(modelName);
+                String modelName =
+                        (String) table.getModel().getValueAt(modelRow, 1);
+                return modelName != null
+                        && service.supportsReasoningEffort(modelName);
             }
             return super.isCellEditable(anEvent);
         }
 
         @Override
         public Object getCellEditorValue() {
-            return comboBox.isEnabled() ? super.getCellEditorValue() : Service.ReasoningLevel.DEFAULT;
+            return comboBox.isEnabled()
+                    ? super.getCellEditorValue()
+                    : Service.ReasoningLevel.DEFAULT;
         }
     }
 
@@ -1349,13 +1448,16 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         public Component getTableCellRendererComponent(
                 JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
             JLabel label =
-                    (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                    (JLabel) super.getTableCellRendererComponent(
+                            table, value, isSelected, hasFocus, row, column);
             int modelRow = table.convertRowIndexToModel(row);
-            String modelName = (String) table.getModel().getValueAt(modelRow, 1);
+            String modelName =
+                    (String) table.getModel().getValueAt(modelRow, 1);
             if (modelName != null && !service.supportsProcessingTier(modelName)) {
                 label.setText("Off");
                 label.setEnabled(false);
-                label.setToolTipText("Processing tiers not supported by " + modelName);
+                label.setToolTipText(
+                        "Processing tiers not supported by " + modelName);
             } else if (value instanceof Service.ProcessingTier tier) {
                 label.setText(tier.toString());
                 label.setEnabled(true);
@@ -1368,7 +1470,9 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             if (!isSelected) {
                 label.setBackground(table.getBackground());
                 label.setForeground(
-                        label.isEnabled() ? table.getForeground() : UIManager.getColor("Label.disabledForeground"));
+                        label.isEnabled()
+                                ? table.getForeground()
+                                : UIManager.getColor("Label.disabledForeground"));
             } else {
                 label.setBackground(table.getSelectionBackground());
                 label.setForeground(
@@ -1385,7 +1489,10 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         private final JTable table;
         private final JComboBox<Service.ProcessingTier> comboBox;
 
-        ProcessingTierCellEditor(JComboBox<Service.ProcessingTier> comboBox, AbstractService service, JTable table) {
+        ProcessingTierCellEditor(
+                JComboBox<Service.ProcessingTier> comboBox,
+                AbstractService service,
+                JTable table) {
             super(comboBox);
             this.comboBox = comboBox;
             this.service = service;
@@ -1397,22 +1504,35 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         public Component getTableCellEditorComponent(
                 JTable table, Object value, boolean isSelected, int row, int column) {
             int modelRow = table.convertRowIndexToModel(row);
-            String modelName = (String) table.getModel().getValueAt(modelRow, 1);
-            boolean supports = modelName != null && service.supportsProcessingTier(modelName);
-            Component editorComponent = super.getTableCellEditorComponent(table, value, isSelected, row, column);
+            String modelName =
+                    (String) table.getModel().getValueAt(modelRow, 1);
+            boolean supports = modelName != null
+                    && service.supportsProcessingTier(modelName);
+            Component editorComponent =
+                    super.getTableCellEditorComponent(
+                            table, value, isSelected, row, column);
             editorComponent.setEnabled(supports);
             comboBox.setEnabled(supports);
             if (!supports) {
                 comboBox.setSelectedItem(Service.ProcessingTier.DEFAULT);
-                comboBox.setToolTipText("Processing tiers not supported by " + modelName);
+                comboBox.setToolTipText(
+                        "Processing tiers not supported by " + modelName);
                 comboBox.setRenderer(new DefaultListCellRenderer() {
                     @Override
                     public Component getListCellRendererComponent(
-                            JList<?> list, @Nullable Object val, int i, boolean sel, boolean foc) {
-                        JLabel label = (JLabel) super.getListCellRendererComponent(list, val, i, sel, foc);
+                            JList<?> list,
+                            @Nullable Object val,
+                            int i,
+                            boolean sel,
+                            boolean foc) {
+                        JLabel label =
+                                (JLabel) super.getListCellRendererComponent(
+                                        list, val, i, sel, foc);
                         if (i == -1) {
                             label.setText("Off");
-                            label.setForeground(UIManager.getColor("ComboBox.disabledForeground"));
+                            label.setForeground(
+                                    UIManager.getColor(
+                                            "ComboBox.disabledForeground"));
                         } else if (val instanceof Service.ProcessingTier p) {
                             label.setText(p.toString());
                         } else {
@@ -1434,15 +1554,19 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             int editingRow = table.getEditingRow();
             if (editingRow != -1) {
                 int modelRow = table.convertRowIndexToModel(editingRow);
-                String modelName = (String) table.getModel().getValueAt(modelRow, 1);
-                return modelName != null && service.supportsProcessingTier(modelName);
+                String modelName =
+                        (String) table.getModel().getValueAt(modelRow, 1);
+                return modelName != null
+                        && service.supportsProcessingTier(modelName);
             }
             return super.isCellEditable(anEvent);
         }
 
         @Override
         public Object getCellEditorValue() {
-            return comboBox.isEnabled() ? super.getCellEditorValue() : Service.ProcessingTier.DEFAULT;
+            return comboBox.isEnabled()
+                    ? super.getCellEditorValue()
+                    : Service.ProcessingTier.DEFAULT;
         }
     }
 }
