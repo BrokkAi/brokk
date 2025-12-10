@@ -11,7 +11,6 @@ import ai.brokk.mcp.McpConfig;
 import ai.brokk.mcp.McpServer;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.GlobalUiSettings;
-import ai.brokk.gui.util.JDeploySettingsUtil;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -178,6 +177,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         boolean advancedMode = advancedModeCheckbox.isSelected();
         boolean skipEzGate = skipCommitGateEzCheckbox.isSelected();
 
+        // Watch service implementation preference (no persistence here)
         String watchPrefSelected;
         try {
             String raw = String.valueOf(watchServiceImplCombo.getSelectedItem());
@@ -228,47 +228,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 showConfirmNotificationsCheckbox.isSelected(),
                 showInfoNotificationsCheckbox.isSelected(),
                 watchPrefSelected);
-    }
-
-    public boolean applySettings() {
-        var advancedValues = collectAdvancedValues();
-
-        var previousJvmSettings = MainProject.getJvmMemorySettings();
-        if (!previousJvmSettings.equals(advancedValues.jvmMemorySettings())) {
-            MainProject.setJvmMemorySettings(advancedValues.jvmMemorySettings());
-            JDeploySettingsUtil.updateJvmMemorySettings(advancedValues.jvmMemorySettings());
-        }
-
-        MainProject.setStartupOpenMode(advancedValues.startupOpenMode());
-
-        MainProject.saveFavoriteModels(advancedValues.favoriteModels());
-        MainProject.setOtherModelsVendorPreference(advancedValues.otherModelsVendor());
-        MainProject.setWatchServiceImplPreference(advancedValues.watchServiceImplPreference());
-
-        var mainProject = chrome.getProject().getMainProject();
-        Service.FavoriteModel selectedCodeFavorite = advancedValues.selectedCodeFavorite();
-        if (selectedCodeFavorite != null) {
-            mainProject.setCodeModelConfig(selectedCodeFavorite.config());
-        }
-        Service.FavoriteModel selectedPrimaryFavorite = advancedValues.selectedPrimaryFavorite();
-        if (selectedPrimaryFavorite != null) {
-            mainProject.setArchitectModelConfig(selectedPrimaryFavorite.config());
-        }
-
-        GlobalUiSettings.saveShowCostNotifications(advancedValues.showCostNotifications());
-        GlobalUiSettings.saveShowFreeInternalLLMCostNotifications(
-                advancedValues.showFreeInternalLLMCostNotifications());
-        GlobalUiSettings.saveShowErrorNotifications(advancedValues.showErrorNotifications());
-        GlobalUiSettings.saveShowConfirmNotifications(advancedValues.showConfirmNotifications());
-        GlobalUiSettings.saveShowInfoNotifications(advancedValues.showInfoNotifications());
-
-        GlobalUiSettings.saveAdvancedMode(advancedValues.advancedMode());
-        GlobalUiSettings.savePersistPerProjectBounds(advancedValues.persistPerProjectBounds());
-        GlobalUiSettings.saveInstructionsTabInsertIndentation(
-                advancedValues.instructionsTabInsertIndentation());
-        GlobalUiSettings.saveSkipCommitGateInEzMode(advancedValues.skipCommitGateEzMode());
-
-        return true;
     }
 
     public JTabbedPane getAdvancedSubTabbedPane() {
