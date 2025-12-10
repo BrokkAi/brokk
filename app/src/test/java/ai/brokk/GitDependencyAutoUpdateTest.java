@@ -48,6 +48,7 @@ class GitDependencyAutoUpdateTest {
                 .commit()
                 .setMessage("initial")
                 .setAuthor("Test", "test@example.com")
+                .setSign(false)
                 .call();
     }
 
