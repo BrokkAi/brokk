@@ -411,8 +411,7 @@ public class FileSelectionPanel extends JPanel {
                             matcher.score(p.toString()),
                             p.startsWith(project.getRoot()) ? 0 : 1))
                     .filter(sc -> sc.shortScore() != Integer.MAX_VALUE || sc.longScore() != Integer.MAX_VALUE)
-                    .sorted(Comparator
-                            .comparingInt((ScoredPath sc) -> Math.min(sc.shortScore(), sc.longScore()))
+                    .sorted(Comparator.comparingInt((ScoredPath sc) -> Math.min(sc.shortScore(), sc.longScore()))
                             .thenComparingInt(ScoredPath::tie)
                             .thenComparing(sc -> sc.p().getFileName().toString()))
                     .limit(100)

@@ -250,7 +250,6 @@ public class Completions {
                 && (s.charAt(2) == '\\' || s.charAt(2) == '/');
     }
 
-
     /**
      * Rank-and-filter ProjectFile candidates with a preference for files whose extensions are
      * supported by the project's active analyzers. Uses the default minimum pattern length of 1.

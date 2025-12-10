@@ -678,19 +678,16 @@ public class AttachContextDialog extends BaseThemedDialog {
                     .filter(sf -> sf.shortScore() != Integer.MAX_VALUE || sf.longScore() != Integer.MAX_VALUE)
                     .toList();
 
-            int bestShortScore = scored.stream()
-                    .mapToInt(ScoredFolder::shortScore)
-                    .min()
-                    .orElse(Integer.MAX_VALUE);
+            int bestShortScore =
+                    scored.stream().mapToInt(ScoredFolder::shortScore).min().orElse(Integer.MAX_VALUE);
             final int SHORT_TOLERANCE = 300;
-            int shortThreshold = bestShortScore == Integer.MAX_VALUE
-                    ? Integer.MAX_VALUE
-                    : bestShortScore + SHORT_TOLERANCE;
+            int shortThreshold =
+                    bestShortScore == Integer.MAX_VALUE ? Integer.MAX_VALUE : bestShortScore + SHORT_TOLERANCE;
 
             List<ShorthandCompletion> ranked = scored.stream()
                     .filter(sf -> (sf.shortScore() <= shortThreshold) || (sf.longScore() < bestShortScore))
-                    .sorted(java.util.Comparator
-                            .comparingInt((ScoredFolder sf) -> Math.min(sf.shortScore(), sf.longScore()))
+                    .sorted(java.util.Comparator.comparingInt(
+                                    (ScoredFolder sf) -> Math.min(sf.shortScore(), sf.longScore()))
                             .thenComparing(ScoredFolder::shortName))
                     .limit(100)
                     .map(sf -> new ShorthandCompletion(this, sf.shortName(), sf.path(), sf.path()))
@@ -733,7 +730,8 @@ public class AttachContextDialog extends BaseThemedDialog {
             var filtered =
                     switch (mode) {
                         case CLASSES -> cands.stream().filter(CodeUnit::isClass).toList();
-                        case METHODS -> cands.stream().filter(CodeUnit::isFunction).toList();
+                        case METHODS ->
+                            cands.stream().filter(CodeUnit::isFunction).toList();
                         case ALL -> cands;
                     };
 
