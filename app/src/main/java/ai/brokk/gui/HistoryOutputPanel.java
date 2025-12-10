@@ -125,6 +125,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     @Nullable
     private JTabbedPane outputTabs;
 
+    @Nullable
+    private JLabel reviewTabHeaderLabel;
+
+    @Nullable
+    private MaterialButton reviewTabHeaderButton;
+
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
     private JPanel activityTabsContainer;
 
@@ -485,6 +491,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         tabs.addTab("Output", outputPanel);
         tabs.addTab("Review", placeholder);
         this.outputTabs = tabs;
+
+        // Set custom tab header for Review tab with pop-out button
+        setupReviewTabHeader(tabs);
 
         // Toggle Output/Changes with Space from Output area or tabs
         Runnable toggleTabs = () -> {
@@ -1921,6 +1930,139 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
     }
 
+    /**
+     * Sets up a custom tab header for the Review tab with a metrics label and a pop-out button.
+     * The button opens the Review content in a separate window while preventing tab activation.
+     */
+    private void setupReviewTabHeader(JTabbedPane tabs) {
+        // Create the custom tab header panel with horizontal layout
+        var headerPanel = new JPanel(new BorderLayout(5, 0));
+        headerPanel.setOpaque(false);
+
+        // Left: metrics label (will be updated by setChangesTabTitleAndTooltip)
+        reviewTabHeaderLabel = new JLabel("Review (0)");
+        headerPanel.add(reviewTabHeaderLabel, BorderLayout.CENTER);
+
+        // Right: pop-out button (fixed size, non-focusable)
+        reviewTabHeaderButton = new MaterialButton();
+        reviewTabHeaderButton.setFocusable(false);
+        reviewTabHeaderButton.setPreferredSize(new Dimension(24, 24));
+        reviewTabHeaderButton.setMinimumSize(new Dimension(24, 24));
+        reviewTabHeaderButton.setMaximumSize(new Dimension(24, 24));
+        reviewTabHeaderButton.setToolTipText("Open Review in a new window");
+
+        // Set the icon asynchronously to keep EDT responsive
+        SwingUtilities.invokeLater(() -> {
+            var icon = Icons.OPEN_NEW_WINDOW;
+            if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
+                reviewTabHeaderButton.setIcon(themedIcon.withSize(16));
+            } else {
+                reviewTabHeaderButton.setIcon(icon);
+            }
+        });
+
+        // Add MouseAdapter to consume mouse events (prevent tab selection on click)
+        reviewTabHeaderButton.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                e.consume();
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                e.consume();
+            }
+
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                e.consume();
+            }
+        });
+
+        // Add ActionListener that caches tab index, opens window, and restores selection
+        reviewTabHeaderButton.addActionListener(e -> {
+            int cachedIndex = tabs.getSelectedIndex();
+            openReviewInNewWindow();
+            // Restore the previous tab selection on the EDT after the window is created
+            SwingUtilities.invokeLater(() -> {
+                if (cachedIndex >= 0 && cachedIndex < tabs.getTabCount()) {
+                    tabs.setSelectedIndex(cachedIndex);
+                }
+            });
+        });
+
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        buttonPanel.setOpaque(false);
+        buttonPanel.add(reviewTabHeaderButton);
+        headerPanel.add(buttonPanel, BorderLayout.EAST);
+
+        // Set the custom component for the Review tab (index 1)
+        try {
+            tabs.setTabComponentAt(1, headerPanel);
+        } catch (IndexOutOfBoundsException ignore) {
+            // Safeguard if tab count is unexpected
+        }
+    }
+
+    /**
+     * Opens the Review (Changes) tab content in a new, resizable window.
+     * If cumulative changes have been computed, displays the aggregated diff panel.
+     * Otherwise, shows a loading/empty state.
+     */
+    private void openReviewInNewWindow() {
+        SwingUtilities.invokeLater(() -> {
+            if (lastCumulativeChanges == null) {
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "Computing branch-based changes...");
+                return;
+            }
+
+            // Build the aggregated Review view using the side-effect-free builder
+            var reviewView = buildAggregatedReviewView(lastCumulativeChanges);
+            var containerPanel = reviewView.container();
+            var diffPanel = reviewView.diff();
+
+            // Create a new JFrame to host the Review content
+            JFrame reviewWindow = new JFrame("Review: " + formatReviewMetricsPlain(lastCumulativeChanges, lastBaselineLabel));
+            reviewWindow.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+
+            // Set icon
+            try {
+                var iconUrl = Chrome.class.getResource(Brokk.ICON_RESOURCE);
+                if (iconUrl != null) {
+                    var icon = new ImageIcon(iconUrl);
+                    reviewWindow.setIconImage(icon.getImage());
+                }
+            } catch (Exception ex) {
+                logger.debug("Failed to set Review window icon", ex);
+            }
+
+            // Add the container panel to the window
+            reviewWindow.add(containerPanel);
+
+            // Apply current theme to the diff panel
+            diffPanel.applyTheme(chrome.getTheme());
+
+            // Set initial size and position
+            reviewWindow.setSize(900, 700);
+            reviewWindow.setLocationRelativeTo(chrome.getFrame());
+
+            // Add a window listener to dispose the diff panel when closed
+            reviewWindow.addWindowListener(new WindowAdapter() {
+                @Override
+                public void windowClosed(WindowEvent e) {
+                    try {
+                        diffPanel.dispose();
+                    } catch (Throwable t) {
+                        logger.debug("Ignoring error disposing Review window BrokkDiffPanel", t);
+                    }
+                }
+            });
+
+            reviewWindow.setVisible(true);
+        });
+    }
+
     private static String escapeHtml(String s) {
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
@@ -2020,8 +2162,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             // Update custom tab component label if present
             try {
                 Component tabComponent = tabs.getTabComponentAt(idx);
-                if (tabComponent instanceof JLabel lbl) {
-                    lbl.setText(plainMetrics);
+                if (tabComponent instanceof JPanel headerPanel) {
+                    // Update the metrics label in the custom header
+                    if (reviewTabHeaderLabel != null) {
+                        reviewTabHeaderLabel.setText(plainMetrics);
+                    }
                 }
             } catch (IndexOutOfBoundsException ignore) {
                 // Safe guard; tab lineup may have changed
