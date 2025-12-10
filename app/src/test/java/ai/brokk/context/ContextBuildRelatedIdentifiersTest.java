@@ -16,7 +16,10 @@ public class ContextBuildRelatedIdentifiersTest {
 
     @Test
     void excludesAnonymousUnits() {
-        var file = new ProjectFile(Path.of("/root"), "src/Foo.java");
+        Path root = Path.of(System.getProperty("java.io.tmpdir"), "context-test-root")
+                .toAbsolutePath()
+                .normalize();
+        var file = new ProjectFile(root, "src/Foo.java");
 
         var foo = CodeUnit.cls(file, "com.acme", "Foo");
         var anonTop = CodeUnit.cls(file, "com.acme", "$anon$1");
