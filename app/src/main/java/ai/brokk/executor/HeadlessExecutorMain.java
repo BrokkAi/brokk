@@ -746,6 +746,14 @@ public final class HeadlessExecutorMain {
             if (contextObj != null && contextObj.text() != null) {
                 requestedJobContextTexts.addAll(contextObj.text());
             }
+            int requestedTopLevelCount = topLevelTexts != null ? topLevelTexts.size() : 0;
+            int requestedNestedCount = (contextObj != null && contextObj.text() != null) ? contextObj.text().size() : 0;
+            logger.info(
+                    "Job {} context text presence: topLevel={}, nested={}, total={}",
+                    idempotencyKey,
+                    requestedTopLevelCount,
+                    requestedNestedCount,
+                    requestedJobContextTexts.size());
 
             // Validate context text entries if any were supplied
             final int MAX_BYTES = 64 * 1024; // 64 KiB
@@ -765,6 +773,11 @@ public final class HeadlessExecutorMain {
                     }
                     validJobContextTexts.add(t);
                 }
+                logger.info(
+                        "Job {} context text validation: valid={}, invalid={}",
+                        idempotencyKey,
+                        validJobContextTexts.size(),
+                        invalidContextEntries.size());
                 if (validJobContextTexts.isEmpty()) {
                     var msg = "No valid context text provided";
                     if (!invalidContextEntries.isEmpty()) {
@@ -1402,6 +1415,7 @@ public final class HeadlessExecutorMain {
 
               var text = request.text();
               if (text == null || text.isBlank()) {
+                   logger.info("Rejected pasted text: blank");
                    sendValidationError(exchange, "text must not be blank");
                    return;
               }
@@ -1409,6 +1423,7 @@ public final class HeadlessExecutorMain {
               final int MAX_BYTES = 64 * 1024; // 64 KiB
               int byteLen = text.getBytes(UTF_8).length;
               if (byteLen > MAX_BYTES) {
+                   logger.info("Rejected pasted text: bytes={} exceeds limit", byteLen);
                    sendValidationError(exchange, "text exceeds maximum size of " + MAX_BYTES + " bytes");
                    return;
               }
