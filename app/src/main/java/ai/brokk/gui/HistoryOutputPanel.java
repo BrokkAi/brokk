@@ -1207,6 +1207,29 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             add(closeBtn);
 
             updateColors();
+
+            // Ensure clicking the header selects this tab
+            MouseAdapter selectOnClick = new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    int idx = tabs.indexOfComponent(content);
+                    if (idx != -1) {
+                        try {
+                            tabs.setSelectedIndex(idx);
+                        } catch (IndexOutOfBoundsException ignore) {
+                            // Tab lineup may have changed; ignore safely
+                        }
+                        tabs.requestFocusInWindow();
+                    }
+                }
+            };
+            // Install on the header panel and title label (not on the close button)
+            this.addMouseListener(selectOnClick);
+            titleLabel.addMouseListener(selectOnClick);
+
+            // Optional: avoid trapping focus on header components
+            this.setFocusable(false);
+            titleLabel.setFocusable(false);
         }
 
         private void updateColors() {
