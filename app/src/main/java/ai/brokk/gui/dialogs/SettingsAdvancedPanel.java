@@ -10,7 +10,6 @@ import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.JDeploySettingsUtil;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.GlobalUiSettings;
-
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.EventObject;
@@ -37,17 +36,12 @@ import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableColumn;
 import javax.swing.table.TableRowSorter;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
-    private static final Logger logger = LogManager.getLogger(SettingsAdvancedPanel.class);
-
     public static final String MODELS_TAB_TITLE = "Models";
 
     private final Chrome chrome;
-    private final SettingsDialog parentDialog;
 
     private final JTabbedPane advancedSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
@@ -111,7 +105,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
     public SettingsAdvancedPanel(Chrome chrome, SettingsDialog parentDialog) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         this.chrome = chrome;
-        this.parentDialog = parentDialog;
         setLayout(new BorderLayout());
         initComponents();
         setEnabled(false);
@@ -213,8 +206,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         boolean previousAdvancedMode = GlobalUiSettings.isAdvancedMode();
 
         String previousVendorPref = MainProject.getOtherModelsVendorPreference();
-        String previousVendorSelection =
-                (previousVendorPref == null || previousVendorPref.isBlank()) ? "Default" : previousVendorPref;
+        String previousVendorSelection = previousVendorPref.isBlank() ? "Default" : previousVendorPref;
 
         // JVM memory
         MainProject.setJvmMemorySettings(values.jvmMemorySettings());
@@ -230,11 +222,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         GlobalUiSettings.saveSkipCommitGateInEzMode(values.skipCommitGateEzMode());
 
         if (values.advancedMode() != previousAdvancedMode) {
-            try {
-                chrome.applyAdvancedModeVisibility();
-            } catch (Exception ex) {
-                logger.debug("Failed to apply advanced mode visibility (non-fatal)", ex);
-            }
+            chrome.applyAdvancedModeVisibility();
         }
 
         // Notifications
@@ -291,11 +279,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
 
         String currentVendorSelection = normalizedVendorPref.isBlank() ? "Default" : normalizedVendorPref;
         if (!previousVendorSelection.equals(currentVendorSelection)) {
-            try {
-                chrome.getContextManager().reloadService();
-            } catch (Exception ex) {
-                logger.debug("Service reload after vendor change failed (non-fatal)", ex);
-            }
+            chrome.getContextManager().reloadService();
         }
 
         // Watch service implementation preference
@@ -325,31 +309,25 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
     }
 
     private void populateGeneralTab(SettingsData data) {
-        try {
-            var mem = data.jvmMemorySettings();
-            if (mem.automatic()) {
-                memoryAutoRadio.setSelected(true);
-                memorySpinner.setEnabled(false);
-            } else {
-                memoryManualRadio.setSelected(true);
-                memorySpinner.setEnabled(true);
-                try {
-                    int v = mem.manualMb();
-                    SpinnerNumberModel model = (SpinnerNumberModel) memorySpinner.getModel();
-                    int min = ((Number) model.getMinimum()).intValue();
-                    int max = ((Number) model.getMaximum()).intValue();
-                    if (v < min) v = min;
-                    if (v > max) v = max;
-                    int step = model.getStepSize().intValue();
-                    if (step > 0) {
-                        int rem = v % step;
-                        if (rem != 0) v = v - rem + (rem >= step / 2 ? step : 0);
-                    }
-                    memorySpinner.setValue(v);
-                } catch (Exception ignore) {
-                }
+        var mem = data.jvmMemorySettings();
+        if (mem.automatic()) {
+            memoryAutoRadio.setSelected(true);
+            memorySpinner.setEnabled(false);
+        } else {
+            memoryManualRadio.setSelected(true);
+            memorySpinner.setEnabled(true);
+            int v = mem.manualMb();
+            SpinnerNumberModel model = (SpinnerNumberModel) memorySpinner.getModel();
+            int min = ((Number) model.getMinimum()).intValue();
+            int max = ((Number) model.getMaximum()).intValue();
+            if (v < min) v = min;
+            if (v > max) v = max;
+            int step = model.getStepSize().intValue();
+            if (step > 0) {
+                int rem = v % step;
+                if (rem != 0) v = v - rem + (rem >= step / 2 ? step : 0);
             }
-        } catch (Exception ignore) {
+            memorySpinner.setValue(v);
         }
 
         advancedModeCheckbox.setSelected(GlobalUiSettings.isAdvancedMode());
@@ -479,22 +457,18 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
 
         if (!plannerModelSyncListenerRegistered) {
             chrome.getInstructionsPanel().addModelSelectionListener(cfg -> {
-                try {
-                    boolean found = false;
-                    for (int i = 0; i < primaryModelCombo.getItemCount(); i++) {
-                        Service.FavoriteModel fm = primaryModelCombo.getItemAt(i);
-                        if (fm != null && fm.config().equals(cfg)) {
-                            int idx = i;
-                            SwingUtilities.invokeLater(() -> primaryModelCombo.setSelectedIndex(idx));
-                            found = true;
-                            break;
-                        }
+                boolean found = false;
+                for (int i = 0; i < primaryModelCombo.getItemCount(); i++) {
+                    Service.FavoriteModel fm = primaryModelCombo.getItemAt(i);
+                    if (fm != null && fm.config().equals(cfg)) {
+                        int idx = i;
+                        SwingUtilities.invokeLater(() -> primaryModelCombo.setSelectedIndex(idx));
+                        found = true;
+                        break;
                     }
-                    if (!found && primaryModelCombo.getItemCount() > 0) {
-                        SwingUtilities.invokeLater(() -> primaryModelCombo.setSelectedIndex(0));
-                    }
-                } catch (Exception ex) {
-                    logger.debug("Planner model sync listener failed (non-fatal)", ex);
+                }
+                if (!found && primaryModelCombo.getItemCount() > 0) {
+                    SwingUtilities.invokeLater(() -> primaryModelCombo.setSelectedIndex(0));
                 }
             });
             plannerModelSyncListenerRegistered = true;
@@ -528,21 +502,17 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         panel.add(autoPanel, gbc);
 
         var spinnerModel = new SpinnerNumberModel(4096, 512, 16384, 128);
-        try {
-            long maxBytes = Runtime.getRuntime().maxMemory();
-            int detectedMb;
-            if (maxBytes <= 0 || maxBytes == Long.MAX_VALUE) {
-                detectedMb = 4096;
-            } else {
-                detectedMb = (int) Math.round(maxBytes / 1024.0 / 1024.0);
-                if (detectedMb < 512) detectedMb = 512;
-                if (detectedMb > 16384) detectedMb = 16384;
-                detectedMb = ((detectedMb + 64) / 128) * 128;
-            }
-            spinnerModel.setValue(detectedMb);
-        } catch (Exception ignored) {
-            spinnerModel.setValue(4096);
+        long maxBytes = Runtime.getRuntime().maxMemory();
+        int detectedMb;
+        if (maxBytes <= 0 || maxBytes == Long.MAX_VALUE) {
+            detectedMb = 4096;
+        } else {
+            detectedMb = (int) Math.round(maxBytes / 1024.0 / 1024.0);
+            if (detectedMb < 512) detectedMb = 512;
+            if (detectedMb > 16384) detectedMb = 16384;
+            detectedMb = ((detectedMb + 64) / 128) * 128;
         }
+        spinnerModel.setValue(detectedMb);
         memorySpinner.setModel(spinnerModel);
         memorySpinner.setEditor(new JSpinner.NumberEditor(memorySpinner, "#0"));
 
@@ -1077,65 +1047,61 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             SwingUtilities.invokeLater(this::refreshFavoriteModelCombosPreservingSelection);
             return;
         }
-        try {
-            Service.ModelConfig prevCodeCfg = null;
-            Service.ModelConfig prevPrimaryCfg = null;
-            Object selCode = preferredCodeModelCombo.getSelectedItem();
-            if (selCode instanceof Service.FavoriteModel fmCode) {
-                prevCodeCfg = fmCode.config();
-            }
-            Object selPrimary = primaryModelCombo.getSelectedItem();
-            if (selPrimary instanceof Service.FavoriteModel fmPrimary) {
-                prevPrimaryCfg = fmPrimary.config();
-            }
-
-            var favorites = quickModelsTableModel.getFavorites();
-
-            preferredCodeModelCombo.removeAllItems();
-            for (Service.FavoriteModel fav : favorites) {
-                preferredCodeModelCombo.addItem(fav);
-            }
-            boolean codeSelected = false;
-            if (prevCodeCfg != null) {
-                for (int i = 0; i < preferredCodeModelCombo.getItemCount(); i++) {
-                    Service.FavoriteModel fav = preferredCodeModelCombo.getItemAt(i);
-                    if (fav != null && prevCodeCfg.equals(fav.config())) {
-                        preferredCodeModelCombo.setSelectedIndex(i);
-                        codeSelected = true;
-                        break;
-                    }
-                }
-            }
-            if (!codeSelected && preferredCodeModelCombo.getItemCount() > 0) {
-                preferredCodeModelCombo.setSelectedIndex(0);
-            }
-
-            primaryModelCombo.removeAllItems();
-            for (Service.FavoriteModel fav : favorites) {
-                primaryModelCombo.addItem(fav);
-            }
-            boolean primarySelected = false;
-            if (prevPrimaryCfg != null) {
-                for (int i = 0; i < primaryModelCombo.getItemCount(); i++) {
-                    Service.FavoriteModel fav = primaryModelCombo.getItemAt(i);
-                    if (fav != null && prevPrimaryCfg.equals(fav.config())) {
-                        primaryModelCombo.setSelectedIndex(i);
-                        primarySelected = true;
-                        break;
-                    }
-                }
-            }
-            if (!primarySelected && primaryModelCombo.getItemCount() > 0) {
-                primaryModelCombo.setSelectedIndex(0);
-            }
-
-            preferredCodeModelCombo.revalidate();
-            preferredCodeModelCombo.repaint();
-            primaryModelCombo.revalidate();
-            primaryModelCombo.repaint();
-        } catch (Exception e) {
-            logger.warn("Failed to refresh favorite model combos", e);
+        Service.ModelConfig prevCodeCfg = null;
+        Service.ModelConfig prevPrimaryCfg = null;
+        Object selCode = preferredCodeModelCombo.getSelectedItem();
+        if (selCode instanceof Service.FavoriteModel fmCode) {
+            prevCodeCfg = fmCode.config();
         }
+        Object selPrimary = primaryModelCombo.getSelectedItem();
+        if (selPrimary instanceof Service.FavoriteModel fmPrimary) {
+            prevPrimaryCfg = fmPrimary.config();
+        }
+
+        var favorites = quickModelsTableModel.getFavorites();
+
+        preferredCodeModelCombo.removeAllItems();
+        for (Service.FavoriteModel fav : favorites) {
+            preferredCodeModelCombo.addItem(fav);
+        }
+        boolean codeSelected = false;
+        if (prevCodeCfg != null) {
+            for (int i = 0; i < preferredCodeModelCombo.getItemCount(); i++) {
+                Service.FavoriteModel fav = preferredCodeModelCombo.getItemAt(i);
+                if (fav != null && prevCodeCfg.equals(fav.config())) {
+                    preferredCodeModelCombo.setSelectedIndex(i);
+                    codeSelected = true;
+                    break;
+                }
+            }
+        }
+        if (!codeSelected && preferredCodeModelCombo.getItemCount() > 0) {
+            preferredCodeModelCombo.setSelectedIndex(0);
+        }
+
+        primaryModelCombo.removeAllItems();
+        for (Service.FavoriteModel fav : favorites) {
+            primaryModelCombo.addItem(fav);
+        }
+        boolean primarySelected = false;
+        if (prevPrimaryCfg != null) {
+            for (int i = 0; i < primaryModelCombo.getItemCount(); i++) {
+                Service.FavoriteModel fav = primaryModelCombo.getItemAt(i);
+                if (fav != null && prevPrimaryCfg.equals(fav.config())) {
+                    primaryModelCombo.setSelectedIndex(i);
+                    primarySelected = true;
+                    break;
+                }
+            }
+        }
+        if (!primarySelected && primaryModelCombo.getItemCount() > 0) {
+            primaryModelCombo.setSelectedIndex(0);
+        }
+
+        preferredCodeModelCombo.revalidate();
+        preferredCodeModelCombo.repaint();
+        primaryModelCombo.revalidate();
+        primaryModelCombo.repaint();
     }
 
     @Override
@@ -1227,53 +1193,48 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             if (rowIndex < 0 || rowIndex >= favorites.size()) return;
             Service.FavoriteModel oldFavorite = favorites.get(rowIndex);
             Service.FavoriteModel newFavorite;
-            try {
-                newFavorite = switch (columnIndex) {
-                    case 0 -> {
-                        if (aValue instanceof String alias) {
-                            yield new Service.FavoriteModel(alias.trim(), oldFavorite.config());
-                        }
-                        yield oldFavorite;
+            newFavorite = switch (columnIndex) {
+                case 0 -> {
+                    if (aValue instanceof String alias) {
+                        yield new Service.FavoriteModel(alias.trim(), oldFavorite.config());
                     }
-                    case 1 -> {
-                        if (aValue instanceof String modelName) {
-                            yield new Service.FavoriteModel(
-                                    oldFavorite.alias(),
-                                    new Service.ModelConfig(
-                                            modelName,
-                                            oldFavorite.config().reasoning(),
-                                            oldFavorite.config().tier()));
-                        }
-                        yield oldFavorite;
+                    yield oldFavorite;
+                }
+                case 1 -> {
+                    if (aValue instanceof String modelName) {
+                        yield new Service.FavoriteModel(
+                                oldFavorite.alias(),
+                                new Service.ModelConfig(
+                                        modelName,
+                                        oldFavorite.config().reasoning(),
+                                        oldFavorite.config().tier()));
                     }
-                    case 2 -> {
-                        if (aValue instanceof Service.ReasoningLevel reasoning) {
-                            yield new Service.FavoriteModel(
-                                    oldFavorite.alias(),
-                                    new Service.ModelConfig(
-                                            oldFavorite.config().name(),
-                                            reasoning,
-                                            oldFavorite.config().tier()));
-                        }
-                        yield oldFavorite;
+                    yield oldFavorite;
+                }
+                case 2 -> {
+                    if (aValue instanceof Service.ReasoningLevel reasoning) {
+                        yield new Service.FavoriteModel(
+                                oldFavorite.alias(),
+                                new Service.ModelConfig(
+                                        oldFavorite.config().name(),
+                                        reasoning,
+                                        oldFavorite.config().tier()));
                     }
-                    case 3 -> {
-                        if (aValue instanceof Service.ProcessingTier tier) {
-                            yield new Service.FavoriteModel(
-                                    oldFavorite.alias(),
-                                    new Service.ModelConfig(
-                                            oldFavorite.config().name(),
-                                            oldFavorite.config().reasoning(),
-                                            tier));
-                        }
-                        yield oldFavorite;
+                    yield oldFavorite;
+                }
+                case 3 -> {
+                    if (aValue instanceof Service.ProcessingTier tier) {
+                        yield new Service.FavoriteModel(
+                                oldFavorite.alias(),
+                                new Service.ModelConfig(
+                                        oldFavorite.config().name(),
+                                        oldFavorite.config().reasoning(),
+                                        tier));
                     }
-                    default -> oldFavorite;
-                };
-            } catch (Exception e) {
-                logger.error("Error setting value at ({}, {}) to {}", rowIndex, columnIndex, aValue, e);
-                return;
-            }
+                    yield oldFavorite;
+                }
+                default -> oldFavorite;
+            };
             if (!newFavorite.equals(oldFavorite)) {
                 favorites.set(rowIndex, newFavorite);
                 fireTableCellUpdated(rowIndex, columnIndex);

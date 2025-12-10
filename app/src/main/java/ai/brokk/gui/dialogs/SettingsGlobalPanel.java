@@ -1,5 +1,7 @@
 package ai.brokk.gui.dialogs;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.Service;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.gui.Chrome;
@@ -471,8 +473,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             uiScaleCombo.setModel(uiScaleModel);
             uiScaleCombo.setEnabled(false);
 
-            uiScaleAutoRadio.addActionListener(e -> uiScaleCombo.setEnabled(false));
-            uiScaleCustomRadio.addActionListener(e -> uiScaleCombo.setEnabled(true));
+            uiScaleAutoRadio.addActionListener(e -> requireNonNull(uiScaleCombo).setEnabled(false));
+            uiScaleCustomRadio.addActionListener(
+                    e -> requireNonNull(uiScaleCombo).setEnabled(true));
 
             gbc.gridx = 1;
             gbc.gridy = row++;
