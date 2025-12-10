@@ -1755,9 +1755,8 @@ public interface ContextFragment {
                 }
             }
 
-            var filteredAncestors = ancestorList.stream()
-                    .filter(anc -> !anc.isAnonymous())
-                    .toList();
+            var filteredAncestors =
+                    ancestorList.stream().filter(anc -> !anc.isAnonymous()).toList();
 
             if (!filteredAncestors.isEmpty()) {
                 if (!isCuAnonymous) {

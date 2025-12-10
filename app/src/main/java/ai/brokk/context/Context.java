@@ -163,7 +163,7 @@ public class Context {
             var children = analyzer.getDirectChildren(cu);
             if (!children.isEmpty()) {
                 sb.append("\n");
-                sb.append(buildRelatedIdentifiers(analyzer, children, indent + 2));
+                sb.append(buildRelatedIdentifiers(analyzer, children, indent + 1));
             }
             sb.append("\n");
         }
