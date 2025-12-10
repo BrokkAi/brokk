@@ -357,76 +357,92 @@ public final class JobRunner {
 
                                                 // Optional pre-scan: resolve scan model the same way SEARCH mode does.
                                                 if (spec.preScan()) {
-                                                    try {
-                                                        String rawScanModel = spec.scanModel();
-                                                        String trimmedScanModel = rawScanModel == null ? "" : rawScanModel.trim();
-
-                                                        final StreamingChatModel scanModelToUse = !trimmedScanModel.isEmpty()
-                                                                ? resolveModelOrThrow(trimmedScanModel)
-                                                                : cm.getService().getScanModel();
-
-                                                        if (scanModelToUse == null) {
-                                                            // No scan model available; log and skip pre-scan.
-                                                            logger.warn(
-                                                                    "ASK pre-scan requested but no scan model is available (spec.scanModel='{}'). Skipping pre-scan for job {}.",
-                                                                    trimmedScanModel,
-                                                                    jobId);
-                                                        } else {
-                                                            // Emit deterministic NOTIFICATION event for headless clients/tests.
-                                                            try {
-                                                                store.appendEvent(
-                                                                        jobId,
-                                                                        JobEvent.of(
-                                                                                "NOTIFICATION",
-                                                                                "Brokk Context Engine: analyzing repository context..."));
-                                                            } catch (IOException ioe) {
-                                                                logger.warn(
-                                                                        "Failed to append pre-scan notification event for job {}: {}",
-                                                                        jobId,
-                                                                        ioe.getMessage(),
-                                                                        ioe);
-                                                            }
-
-                                                            // Attempt the pre-scan, but do not allow failures to abort the job.
-                                                            try {
-                                                                searchAgent.scanInitialContext(scanModelToUse);
-                                                            } catch (InterruptedException ie) {
-                                                                // Preserve interruption status but continue with the job.
-                                                                Thread.currentThread().interrupt();
-                                                                logger.warn(
-                                                                        "Pre-scan interrupted for job {}: {}",
-                                                                        jobId,
-                                                                        ie.getMessage(),
-                                                                        ie);
-                                                            } catch (IllegalArgumentException iae) {
-                                                                // Model resolution or argument problems: log and continue.
-                                                                logger.warn(
-                                                                        "Pre-scan skipped due to model error for job {}: {}",
-                                                                        jobId,
-                                                                        iae.getMessage());
-                                                            } catch (Exception ex) {
-                                                                // Any other exception during pre-scan should not fail the job.
-                                                                logger.warn(
-                                                                        "Pre-scan failed for job {}: {}",
-                                                                        jobId,
-                                                                        ex.getMessage(),
-                                                                        ex);
-                                                            }
-                                                        }
-                                                    } catch (IllegalArgumentException iae) {
-                                                        // resolveModelOrThrow may throw; log and continue without failing job.
-                                                        logger.warn(
-                                                                "Pre-scan model unavailable for job {}: {}",
-                                                                jobId,
-                                                                iae.getMessage());
-                                                    } catch (Exception e) {
-                                                        // Unexpected resolution error: log and continue.
-                                                        logger.warn(
-                                                                "Unexpected error during pre-scan resolution for job {}: {}",
-                                                                jobId,
-                                                                e.getMessage(),
-                                                                e);
-                                                    }
+                                                try {
+                                                String rawScanModel = spec.scanModel();
+                                                String trimmedScanModel = rawScanModel == null ? "" : rawScanModel.trim();
+                                                
+                                                final StreamingChatModel scanModelToUse = !trimmedScanModel.isEmpty()
+                                                ? resolveModelOrThrow(trimmedScanModel)
+                                                : cm.getService().getScanModel();
+                                                
+                                                if (scanModelToUse == null) {
+                                                // No scan model available; log and skip pre-scan.
+                                                logger.warn(
+                                                "ASK pre-scan requested but no scan model is available (spec.scanModel='{}'). Skipping pre-scan for job {}.",
+                                                trimmedScanModel,
+                                                jobId);
+                                                } else {
+                                                // Emit deterministic NOTIFICATION event for headless clients/tests.
+                                                try {
+                                                store.appendEvent(
+                                                jobId,
+                                                JobEvent.of(
+                                                "NOTIFICATION",
+                                                "Brokk Context Engine: analyzing repository context..."));
+                                                } catch (IOException ioe) {
+                                                logger.warn(
+                                                "Failed to append pre-scan notification event for job {}: {}",
+                                                jobId,
+                                                ioe.getMessage(),
+                                                ioe);
+                                                }
+                                                
+                                                // Attempt the pre-scan, but do not allow failures to abort the job.
+                                                try {
+                                                searchAgent.scanInitialContext(scanModelToUse);
+                                                } catch (InterruptedException ie) {
+                                                // Preserve interruption status but continue with the job.
+                                                Thread.currentThread().interrupt();
+                                                logger.warn(
+                                                "Pre-scan interrupted for job {}: {}",
+                                                jobId,
+                                                ie.getMessage(),
+                                                ie);
+                                                } catch (IllegalArgumentException iae) {
+                                                // Model resolution or argument problems: log and continue.
+                                                logger.warn(
+                                                "Pre-scan skipped due to model error for job {}: {}",
+                                                jobId,
+                                                iae.getMessage());
+                                                } catch (Exception ex) {
+                                                // Any other exception during pre-scan should not fail the job.
+                                                logger.warn(
+                                                "Pre-scan failed for job {}: {}",
+                                                jobId,
+                                                ex.getMessage(),
+                                                ex);
+                                                }
+                                                
+                                                // Emit deterministic completion NOTIFICATION so headless clients/tests
+                                                // can reliably observe that the Context Engine pre-scan phase finished.
+                                                try {
+                                                store.appendEvent(
+                                                jobId,
+                                                JobEvent.of(
+                                                "NOTIFICATION",
+                                                "Brokk Context Engine: complete — contextual insights added to Workspace."));
+                                                } catch (IOException ioe) {
+                                                logger.warn(
+                                                "Failed to append pre-scan completion event for job {}: {}",
+                                                jobId,
+                                                ioe.getMessage(),
+                                                ioe);
+                                                }
+                                                }
+                                                } catch (IllegalArgumentException iae) {
+                                                // resolveModelOrThrow may throw; log and continue without failing job.
+                                                logger.warn(
+                                                "Pre-scan model unavailable for job {}: {}",
+                                                jobId,
+                                                iae.getMessage());
+                                                } catch (Exception e) {
+                                                // Unexpected resolution error: log and continue.
+                                                logger.warn(
+                                                "Unexpected error during pre-scan resolution for job {}: {}",
+                                                jobId,
+                                                e.getMessage(),
+                                                e);
+                                                }
                                                 }
 
                                                 // Execute ASK reasoning using the planner model (unchanged).
