@@ -1595,10 +1595,8 @@ public class WorkspacePanel extends JPanel {
         var allFiles =
                 fragments.stream().flatMap(frag -> frag.files().join().stream()).collect(Collectors.toSet());
 
-        return !allFiles.isEmpty()
-                && allFiles.stream()
-                        .allMatch(pf -> pf.exists()
-                                && project.getRepo().getTrackedFiles().contains(pf));
+        var trackedFiles = project.getRepo().getTrackedFiles();
+        return !allFiles.isEmpty() && allFiles.stream().allMatch(pf -> pf.exists() && trackedFiles.contains(pf));
     }
 
     /** Adds Edit All Refs and Summarize All Refs actions based on file availability and tracking status */
