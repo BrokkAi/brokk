@@ -376,20 +376,35 @@ public final class JobRunner {
                                                         // Perform the prescan using the resolved scan model only.
                                                         // This seeds the Workspace; reasoning will still use
                                                         // plannerModel.
+                                                        
+                                                        // Emit a deterministic NOTIFICATION event so headless clients/tests
+                                                        // that inspect event.data.asText() can detect the prescan start.
                                                         try {
-                                                            searchAgent.scanInitialContext(scanModelToUse);
-                                                        } catch (InterruptedException ie) {
-                                                            // Preserve interruption status and propagate to caller.
-                                                            Thread.currentThread()
-                                                                    .interrupt();
-                                                            throw ie;
+                                                        store.appendEvent(jobId, JobEvent.of(
+                                                        "NOTIFICATION",
+                                                        "Brokk Context Engine: analyzing repository context..."));
+                                                        } catch (IOException ioe) {
+                                                        logger.warn(
+                                                        "Failed to append pre-scan notification event for job {}: {}",
+                                                        jobId,
+                                                        ioe.getMessage(),
+                                                        ioe);
                                                         }
-                                                    } catch (IllegalArgumentException iae) {
+                                                        
+                                                        try {
+                                                        searchAgent.scanInitialContext(scanModelToUse);
+                                                        } catch (InterruptedException ie) {
+                                                        // Preserve interruption status and propagate to caller.
+                                                        Thread.currentThread()
+                                                        .interrupt();
+                                                        throw ie;
+                                                        }
+                                                        } catch (IllegalArgumentException iae) {
                                                         // Bubble up model resolution errors so job runner can fail
                                                         // fast.
                                                         throw iae;
-                                                    }
-                                                }
+                                                        }
+                                                        }
 
                                                 // Execute ASK reasoning using the planner model (unchanged).
                                                 var result = searchAgent.execute();
