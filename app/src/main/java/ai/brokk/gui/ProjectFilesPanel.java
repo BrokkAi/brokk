@@ -403,6 +403,11 @@ public class ProjectFilesPanel extends JPanel {
         }
 
         @Override
+        public List<Completion> getCompletions(JTextComponent comp) {
+            return getCompletionsImpl(comp);
+        }
+
+        @Override
         protected List<Completion> getCompletionsImpl(JTextComponent comp) {
             String pattern = getAlreadyEnteredText(comp);
             var minLength = 2;
