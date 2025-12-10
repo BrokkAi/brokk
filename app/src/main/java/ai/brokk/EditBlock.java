@@ -156,10 +156,10 @@ public class EditBlock {
                 throw ie;
             }
 
-            // Detect BRK_NEXT_OFFSET (and deprecated aliases) upfront; handled during apply
+            // Detect BRK_NEXT_OFFSET upfront; handled during apply
             String trimmed = effectiveBefore.strip();
-            Matcher nextOffsetMatcher =
-                    Pattern.compile("^BRK_(NEXT_OFFSET|INSERT_FUNCTION|NEW_FUNCTION)\\s+(.+)$").matcher(trimmed);
+            Matcher nextOffsetMatcher = Pattern.compile("^BRK_NEXT_OFFSET\\s+(.+)$")
+                    .matcher(trimmed);
             if (nextOffsetMatcher.matches()) {
                 String parentFqName = nextOffsetMatcher.group(2).trim();
                 plans.add(new ApplyPlan(file, block, effectiveBefore, parentFqName));
@@ -859,7 +859,8 @@ public class EditBlock {
             throws NoMatchException, AmbiguousMatchException, InterruptedException {
         identifier = identifier.strip();
         // Resolve BRK markers to source snippets (NEXT_OFFSET handled upstream)
-        var markerMatcher = Pattern.compile("^BRK_(CLASS|FUNCTION|NEXT_OFFSET|REPLACE_FUNCTION|INSERT_FUNCTION|NEW_FUNCTION)\\s+(.+)$")
+        var markerMatcher = Pattern.compile(
+                        "^BRK_(CLASS|FUNCTION|NEXT_OFFSET|)\\s+(.+)$")
                 .matcher(identifier);
         if (!markerMatcher.matches()) {
             return null;

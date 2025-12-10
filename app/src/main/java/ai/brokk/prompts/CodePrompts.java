@@ -590,8 +590,7 @@ public abstract class CodePrompts {
             }
             case AMBIGUOUS_MATCH -> {
                 if ("FUNCTION".equals(kind)) {
-                    hints.add(
-                            "- The function appears to be overloaded; BRK_FUNCTION cannot disambiguate overloads.");
+                    hints.add("- The function appears to be overloaded; BRK_FUNCTION cannot disambiguate overloads.");
                     hints.add(
                             "- Use a line-based SEARCH that includes enough unique lines from the target method body.");
                     hints.add(
@@ -1128,7 +1127,8 @@ public abstract class CodePrompts {
         if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
             rows.add("| " + priority++
                     + " | `BRK_FUNCTION` | Replacing a complete, non-overloaded method (signature + body) |");
-            rows.add("| " + priority++ + " | `BRK_NEXT_OFFSET` | Inserting a new member (typically a method) into an existing class |");
+            rows.add("| " + priority++
+                    + " | `BRK_NEXT_OFFSET` | Inserting a new member (typically a method) into an existing class |");
             rows.add("| " + priority++ + " | `BRK_CLASS` | Replacing the entire body of a class-like declaration |");
         }
 
@@ -1325,7 +1325,8 @@ public abstract class CodePrompts {
                             ```
                             """
                             .formatted(ex++));
-            // BRK_NEXT_OFFSET: insert a new member (typically a method) into an existing class (include docs/annotations if needed)
+            // BRK_NEXT_OFFSET: insert a new member (typically a method) into an existing class (include
+            // docs/annotations if needed)
             parts.add(
                     """
                             ### Example %d — Syntax-aware SEARCH to add a new member (BRK_NEXT_OFFSET)

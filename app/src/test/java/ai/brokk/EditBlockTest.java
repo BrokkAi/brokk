@@ -1167,8 +1167,10 @@ class EditBlockTest {
         assertTrue(innerClose > methodIdx, "Method should appear before the inner class closing brace");
 
         // Indentation: method should be exactly one indent level inside the inner class
-        int innerIndent = AssertionHelperUtil.findIndentOfLineIgnoringLeadingWhitespace(updated, "public class Inner {");
-        int methodIndent = AssertionHelperUtil.findIndentOfLineIgnoringLeadingWhitespace(updated, "public int y() { return 2; }");
+        int innerIndent =
+                AssertionHelperUtil.findIndentOfLineIgnoringLeadingWhitespace(updated, "public class Inner {");
+        int methodIndent =
+                AssertionHelperUtil.findIndentOfLineIgnoringLeadingWhitespace(updated, "public int y() { return 2; }");
         assertEquals(innerIndent + 2, methodIndent, "New method should be one indent level inside the inner class");
     }
 
