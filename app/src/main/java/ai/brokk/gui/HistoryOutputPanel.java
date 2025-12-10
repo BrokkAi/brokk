@@ -84,6 +84,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
+import java.util.prefs.Preferences;
 
 public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(HistoryOutputPanel.class);
@@ -232,6 +233,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     @Nullable
     private BaselineMode lastBaselineMode;
+
+    // Preferences keys and constants for auxiliary tab order persistence
+    private static final String PREFS_ROOT = "io.github.jbellis.brokk";
+    private static final String PREFS_PROJECTS = "projects";
+    private static final int PREFS_NODE_NAME_MAX = 80;
+    private static final String AUX_TABS_ORDER_KEY = "ui.auxTabs.order";
 
     /**
      * Constructs a new HistoryOutputPane.
@@ -491,6 +498,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         tabs.addTab("Review", placeholder);
         this.outputTabs = tabs;
         installAuxTabDnD(tabs);
+
+        // Apply any saved auxiliary tab order
+        SwingUtilities.invokeLater(this::loadAuxTabOrder);
 
         // Toggle Output/Changes with Space from Output area or tabs
         Runnable toggleTabs = () -> {
@@ -1420,6 +1430,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         selectIndexSafe(tabs, dest);
         tabs.revalidate();
         tabs.repaint();
+
+        // Persist updated order after DnD reordering
+        saveAuxTabOrder();
     }
 
     /**
@@ -1490,6 +1503,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 } catch (IndexOutOfBoundsException ignore) {
                     // Tab lineup changed; skip selection safely.
                 }
+
+                // Apply saved order (if any) after adding a new aux tab, without changing current selection
+                loadAuxTabOrder();
             } else {
                 logger.debug(
                         "openAuxTab: computed tab index {} out of range (tabCount={}); lineup may have changed",
@@ -2289,6 +2305,223 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     private static String escapeHtml(String s) {
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    /**
+     * Save the current auxiliary tab order (indices >= 2) to Preferences.
+     * Uses per-project node when GlobalUiSettings.isPersistPerProjectBounds() is true;
+     * otherwise uses the global node.
+     */
+    public void saveAuxTabOrder() {
+        Runnable task = () -> {
+            var tabs = outputTabs;
+            if (tabs == null) return;
+
+            StringBuilder sb = new StringBuilder();
+            for (int i = 2; i < tabs.getTabCount(); i++) {
+                String title = safeGetTitleAt(tabs, i);
+                // strip HTML, trim, and persist plain text
+                String plain = title.replaceAll("<[^>]*>", "").trim();
+                if (!plain.isEmpty()) {
+                    if (sb.length() > 0) sb.append(',');
+                    sb.append(plain);
+                }
+            }
+            String csv = sb.toString();
+
+            try {
+                if (GlobalUiSettings.isPersistPerProjectBounds()) {
+                    projectPrefsNode().put(AUX_TABS_ORDER_KEY, csv);
+                    try {
+                        projectPrefsNode().flush();
+                    } catch (Exception ignore) {
+                    }
+                } else {
+                    globalPrefsNode().put(AUX_TABS_ORDER_KEY, csv);
+                    try {
+                        globalPrefsNode().flush();
+                    } catch (Exception ignore) {
+                    }
+                }
+            } catch (Throwable t) {
+                logger.debug("Failed to save auxiliary tab order", t);
+            }
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
+    }
+
+    /**
+     * Load and apply the saved auxiliary tab order, if available.
+     * When per-project persistence is enabled, project-specific order is used if present,
+     * otherwise falls back to the global order. The current tab selection is preserved.
+     */
+    public void loadAuxTabOrder() {
+        Runnable task = () -> {
+            var tabs = outputTabs;
+            if (tabs == null) return;
+
+            String csv = null;
+            try {
+                if (GlobalUiSettings.isPersistPerProjectBounds()) {
+                    csv = projectPrefsNode().get(AUX_TABS_ORDER_KEY, null);
+                    if (csv == null || csv.isBlank()) {
+                        csv = globalPrefsNode().get(AUX_TABS_ORDER_KEY, null);
+                    }
+                } else {
+                    csv = globalPrefsNode().get(AUX_TABS_ORDER_KEY, null);
+                }
+            } catch (Throwable t) {
+                logger.debug("Failed to load auxiliary tab order", t);
+                csv = null;
+            }
+
+            if (csv == null || csv.isBlank()) return;
+
+            List<String> order = parseCsv(csv);
+            if (order.isEmpty()) return;
+
+            applyAuxOrder(order);
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
+    }
+
+    private static List<String> parseCsv(String csv) {
+        String[] parts = csv.split(",");
+        List<String> out = new ArrayList<>(parts.length);
+        for (String p : parts) {
+            String s = p == null ? "" : p.trim();
+            if (!s.isEmpty()) out.add(s);
+        }
+        return out;
+    }
+
+    private void applyAuxOrder(List<String> order) {
+        var tabs = outputTabs;
+        if (tabs == null) return;
+
+        Component originallySelected = tabs.getSelectedComponent();
+        int insertPos = 2;
+
+        for (String wantedTitle : order) {
+            int idx = findAuxTabIndexByPlainTitle(tabs, wantedTitle, insertPos);
+            if (idx >= 2 && idx != insertPos) {
+                moveAuxTabSilently(tabs, idx, insertPos);
+            }
+            if (insertPos < tabs.getTabCount()) {
+                insertPos++;
+            }
+        }
+
+        // Restore selection if possible
+        if (originallySelected != null) {
+            try {
+                tabs.setSelectedComponent(originallySelected);
+            } catch (IllegalArgumentException ignored) {
+                // Selected component no longer present; ignore
+            }
+        }
+        tabs.revalidate();
+        tabs.repaint();
+    }
+
+    private static String plainTitleAt(JTabbedPane tabs, int index) {
+        String title = safeGetTitleAt(tabs, index);
+        return title.replaceAll("<[^>]*>", "").trim();
+    }
+
+    private int findAuxTabIndexByPlainTitle(JTabbedPane tabs, String title, int startAt) {
+        String needle = title.trim();
+        for (int i = Math.max(2, startAt); i < tabs.getTabCount(); i++) {
+            String plain = plainTitleAt(tabs, i);
+            if (plain.equalsIgnoreCase(needle)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private void moveAuxTabSilently(JTabbedPane tabs, int src, int target) {
+        if (src < 2 || target < 2) return;
+        if (src == target) return;
+
+        int tabCount = tabs.getTabCount();
+        if (src < 0 || src >= tabCount) return;
+        if (target < 0 || target > tabCount) return;
+
+        Component comp;
+        try {
+            comp = tabs.getComponentAt(src);
+        } catch (IndexOutOfBoundsException ex) {
+            return;
+        }
+
+        Component header = null;
+        try {
+            header = tabs.getTabComponentAt(src);
+        } catch (IndexOutOfBoundsException ignore) {
+        }
+
+        String title = safeGetTitleAt(tabs, src);
+        Icon icon = safeGetIconAt(tabs, src);
+        String tip = safeGetToolTipAt(tabs, src);
+
+        try {
+            tabs.removeTabAt(src);
+        } catch (IndexOutOfBoundsException ex) {
+            return;
+        }
+
+        int dest = target;
+        if (target > src) {
+            dest = target - 1;
+        }
+        dest = Math.max(2, Math.min(dest, tabs.getTabCount()));
+
+        try {
+            tabs.insertTab(title, icon, comp, tip, dest);
+        } catch (IndexOutOfBoundsException ex) {
+            return;
+        }
+
+        try {
+            if (header != null) {
+                tabs.setTabComponentAt(dest, header);
+            }
+        } catch (IndexOutOfBoundsException ignore) {
+        }
+    }
+
+    private static String sanitizeNodeName(String s) {
+        String cleaned = s.replace('\\', '/');
+        cleaned = cleaned.replaceAll("[^a-zA-Z0-9._-]", "_");
+        if (cleaned.length() > PREFS_NODE_NAME_MAX) {
+            // keep the tail where path uniqueness tends to differ
+            cleaned = cleaned.substring(cleaned.length() - PREFS_NODE_NAME_MAX);
+        }
+        return cleaned;
+    }
+
+    private Preferences globalPrefsNode() {
+        return Preferences.userRoot().node(PREFS_ROOT);
+    }
+
+    private Preferences projectPrefsNode() {
+        String nodeName;
+        try {
+            Path root = contextManager.getProject().getRoot();
+            nodeName = sanitizeNodeName(root.toString());
+        } catch (Throwable t) {
+            nodeName = "unknown";
+        }
+        return Preferences.userRoot().node(PREFS_ROOT).node(PREFS_PROJECTS).node(nodeName);
     }
 
     /**
