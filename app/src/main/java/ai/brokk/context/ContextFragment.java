@@ -1052,13 +1052,8 @@ public interface ContextFragment {
                     id,
                     contextManager,
                     new FragmentSnapshot(
-                            description,
-                            description,
-                            text,
-                            syntaxStyle,
-                            Set.of(),
-                            Set.copyOf(files),
-                            (List<Byte>) null));
+                            description, description, text, syntaxStyle, Set.of(), Set.copyOf(files), (List<Byte>)
+                                    null));
         }
 
         @Override

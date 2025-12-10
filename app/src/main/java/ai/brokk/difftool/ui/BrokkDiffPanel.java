@@ -815,8 +815,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
             var filesForFragment = collectProjectFilesForSources(currentLeftSource, currentRightSource);
 
-            var fragment =
-                    new ContextFragment.StringFragment(contextManager, diffText, description, syntaxStyle, filesForFragment);
+            var fragment = new ContextFragment.StringFragment(
+                    contextManager, diffText, description, syntaxStyle, filesForFragment);
             contextManager.submitContextTask(() -> {
                 contextManager.addFragments(fragment);
                 IConsoleIO iConsoleIO = contextManager.getIo();
@@ -1623,7 +1623,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             }
         } else if (source instanceof BufferSource.FileSource fs) {
             var file = fs.file();
-            var rootPath = contextManager.getProject().getRoot().toAbsolutePath().normalize();
+            var rootPath =
+                    contextManager.getProject().getRoot().toAbsolutePath().normalize();
             var filePath = file.toPath().toAbsolutePath().normalize();
             if (!filePath.startsWith(rootPath)) {
                 return;

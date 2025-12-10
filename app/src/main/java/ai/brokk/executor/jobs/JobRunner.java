@@ -6,8 +6,8 @@ import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.SearchAgent;
-import ai.brokk.context.ContextFragment;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.gui.util.GitRepoIdUtil;
 import ai.brokk.tasks.TaskList;
@@ -788,7 +788,9 @@ public final class JobRunner {
                         var projectFile = cm.toFile(filename);
                         changedFiles.add(projectFile);
                     } catch (Exception ex) {
-                        logger.warn("Unable to resolve ProjectFile for PR file '{}'", filename, ex);
+                        if (logger.isDebugEnabled()) {
+                            logger.debug("Unable to resolve ProjectFile for PR file '{}'", filename, ex);
+                        }
                     }
                 }
 

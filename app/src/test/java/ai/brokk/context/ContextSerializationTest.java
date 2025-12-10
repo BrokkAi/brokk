@@ -1776,12 +1776,9 @@ public class ContextSerializationTest {
                 associatedFiles);
 
         // Live fragment exposes associated files for Edit All Refs
-        var liveFiles = fragment.files().join().stream()
-                .map(ProjectFile::toString)
-                .collect(Collectors.toSet());
-        var expectedFiles = associatedFiles.stream()
-                .map(ProjectFile::toString)
-                .collect(Collectors.toSet());
+        var liveFiles =
+                fragment.files().join().stream().map(ProjectFile::toString).collect(Collectors.toSet());
+        var expectedFiles = associatedFiles.stream().map(ProjectFile::toString).collect(Collectors.toSet());
         assertEquals(expectedFiles, liveFiles);
 
         var context = new Context(mockContextManager).addFragments(fragment);

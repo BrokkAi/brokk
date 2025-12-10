@@ -608,7 +608,10 @@ public interface GitDiffUiUtil {
 
     static void captureDiffBetweenBranches(
             ContextManager cm, Chrome chrome, String baseBranchName, String compareBranchName) {
-        var repo = (GitRepo) cm.getProject().getRepo();
+        if (!(cm.getProject().getRepo() instanceof GitRepo repo)) {
+            chrome.showNotification(IConsoleIO.NotificationRole.ERROR, "Not a Git repository");
+            return;
+        }
 
         cm.submitContextTask(() -> {
             try {
@@ -619,18 +622,13 @@ public interface GitDiffUiUtil {
                             String.format("No differences found between %s and %s", compareBranchName, baseBranchName));
                     return;
                 }
-                List<ProjectFile> changedFiles = repo
-                        .listFilesChangedBetweenBranches(compareBranchName, baseBranchName)
-                        .stream()
-                        .map(IGitRepo.ModifiedFile::file)
-                        .collect(Collectors.toList());
+                List<ProjectFile> changedFiles =
+                        repo.listFilesChangedBetweenBranches(compareBranchName, baseBranchName).stream()
+                                .map(IGitRepo.ModifiedFile::file)
+                                .collect(Collectors.toList());
                 var description = "Diff of %s vs %s".formatted(compareBranchName, baseBranchName);
                 var fragment = new ContextFragment.StringFragment(
-                        cm,
-                        diff,
-                        description,
-                        SyntaxConstants.SYNTAX_STYLE_NONE,
-                        Set.copyOf(changedFiles));
+                        cm, diff, description, SyntaxConstants.SYNTAX_STYLE_NONE, Set.copyOf(changedFiles));
                 cm.addFragments(fragment);
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO,
