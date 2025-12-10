@@ -188,10 +188,14 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
     }
 
     private void updateChips(List<ContextFragment> fragments) {
-        if (SwingUtilities.isEventDispatchThread()) {
+        updateChips(fragments, false);
+    }
+
+    private void updateChips(List<ContextFragment> fragments, boolean fromBackground) {
+        if (!fromBackground && SwingUtilities.isEventDispatchThread()) {
             var fragmentsCopy = List.copyOf(fragments);
             contextManager.submitBackgroundTask(
-                    "WorkspaceItemsChipPanel.updateChips", () -> updateChips(fragmentsCopy));
+                    "WorkspaceItemsChipPanel.updateChips", () -> updateChips(fragmentsCopy, true));
             return;
         }
 
