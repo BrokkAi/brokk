@@ -213,7 +213,7 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
         var summaries = visibleFragments.stream()
                 .filter(f -> classify(f) == WorkspaceChip.ChipKind.SUMMARY)
                 .toList();
-        var updateFrags = visibleFragments.stream()
+        var nonSummaryFragments = visibleFragments.stream()
                 .filter(f -> classify(f) != WorkspaceChip.ChipKind.SUMMARY)
                 .toList();
 
@@ -221,15 +221,15 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
                 "updateChips: {} visible ({} summaries, {} others) out of {}",
                 visibleFragments.size(),
                 summaries.size(),
-                updateFrags.size(),
+                nonSummaryFragments.size(),
                 fragments.size());
 
         Map<String, ContextFragment> newOthersById = new LinkedHashMap<>();
-        for (var f : updateFrags) {
+        for (var f : nonSummaryFragments) {
             newOthersById.put(f.id(), f);
         }
 
-        var orderIds = updateFrags.stream().map(ContextFragment::id).toList();
+        var orderIds = nonSummaryFragments.stream().map(ContextFragment::id).toList();
 
         boolean anyRenderableSummary = summaries.stream().anyMatch(f -> force || hasRenderableContent(f));
         var renderableSummaries = anyRenderableSummary
@@ -253,7 +253,7 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
                 }
             }
 
-            var toAddFrags = updateFrags.stream()
+            var toAddFrags = nonSummaryFragments.stream()
                     .filter(f -> !currentIds.contains(f.id()))
                     .toList();
 
@@ -277,7 +277,7 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
                 }
             }
 
-            for (var f : updateFrags) {
+            for (var f : nonSummaryFragments) {
                 var chip = chipById.get(f.id());
                 if (chip != null) {
                     chip.updateFragment(f);
