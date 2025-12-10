@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.regex.Pattern;
@@ -121,7 +122,8 @@ public interface GitDiffUiUtil {
                 var syntaxStyle = selectedFiles.isEmpty()
                         ? SyntaxConstants.SYNTAX_STYLE_NONE
                         : SyntaxDetector.fromExtension(selectedFiles.getFirst().extension());
-                var fragment = new ContextFragment.StringFragment(contextManager, diff, description, syntaxStyle);
+                var fragment = new ContextFragment.StringFragment(
+                        contextManager, diff, description, syntaxStyle, Set.copyOf(selectedFiles));
                 contextManager.addFragments(fragment);
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO,
@@ -156,7 +158,8 @@ public interface GitDiffUiUtil {
                 String shortHash = ((GitRepo) repo).shortHash(commitId);
                 var description = "Diff of %s [%s]".formatted(file.getFileName(), shortHash);
                 var syntaxStyle = SyntaxDetector.fromExtension(file.extension());
-                var fragment = new ContextFragment.StringFragment(contextManager, diff, description, syntaxStyle);
+                var fragment = new ContextFragment.StringFragment(
+                        contextManager, diff, description, syntaxStyle, Set.of(file));
                 contextManager.addFragments(fragment);
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO, "Added changes for " + file.getFileName() + " to context");
@@ -266,7 +269,8 @@ public interface GitDiffUiUtil {
                 var syntaxStyle = changedFiles.isEmpty()
                         ? SyntaxConstants.SYNTAX_STYLE_NONE
                         : SyntaxDetector.fromExtension(changedFiles.getFirst().extension());
-                var fragment = new ContextFragment.StringFragment(contextManager, diff, description, syntaxStyle);
+                var fragment = new ContextFragment.StringFragment(
+                        contextManager, diff, description, syntaxStyle, Set.copyOf(changedFiles));
                 contextManager.addFragments(fragment);
                 chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Added changes for commit range to context");
             } catch (Exception ex) {
@@ -344,7 +348,8 @@ public interface GitDiffUiUtil {
                 var syntaxStyle = files.isEmpty()
                         ? SyntaxConstants.SYNTAX_STYLE_NONE
                         : SyntaxDetector.fromExtension(files.getFirst().extension());
-                var fragment = new ContextFragment.StringFragment(contextManager, diffs, description, syntaxStyle);
+                var fragment = new ContextFragment.StringFragment(
+                        contextManager, diffs, description, syntaxStyle, Set.copyOf(files));
                 contextManager.addFragments(fragment);
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO,
@@ -603,7 +608,7 @@ public interface GitDiffUiUtil {
 
     static void captureDiffBetweenBranches(
             ContextManager cm, Chrome chrome, String baseBranchName, String compareBranchName) {
-        var repo = cm.getProject().getRepo();
+        var repo = (GitRepo) cm.getProject().getRepo();
 
         cm.submitContextTask(() -> {
             try {
@@ -614,9 +619,18 @@ public interface GitDiffUiUtil {
                             String.format("No differences found between %s and %s", compareBranchName, baseBranchName));
                     return;
                 }
+                List<ProjectFile> changedFiles = repo
+                        .listFilesChangedBetweenBranches(compareBranchName, baseBranchName)
+                        .stream()
+                        .map(IGitRepo.ModifiedFile::file)
+                        .collect(Collectors.toList());
                 var description = "Diff of %s vs %s".formatted(compareBranchName, baseBranchName);
-                var fragment =
-                        new ContextFragment.StringFragment(cm, diff, description, SyntaxConstants.SYNTAX_STYLE_NONE);
+                var fragment = new ContextFragment.StringFragment(
+                        cm,
+                        diff,
+                        description,
+                        SyntaxConstants.SYNTAX_STYLE_NONE,
+                        Set.copyOf(changedFiles));
                 cm.addFragments(fragment);
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO,
@@ -758,7 +772,8 @@ public interface GitDiffUiUtil {
                             SyntaxDetector.fromExtension(changedFiles.getFirst().extension());
                 }
 
-                var fragment = new ContextFragment.StringFragment(cm, diff, description, syntaxStyle);
+                var fragment = new ContextFragment.StringFragment(
+                        cm, diff, description, syntaxStyle, Set.copyOf(changedFiles));
                 cm.addFragments(fragment);
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO,
