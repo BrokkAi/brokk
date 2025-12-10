@@ -362,21 +362,22 @@ public class NativeProjectWatchService implements IWatchService {
             Thread.currentThread().interrupt();
         }
 
-        if (watcherThread != null) {
-            try {
-                watcherThread.join(1000); // Wait up to 1 second for clean shutdown
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                logger.warn("Interrupted while waiting for watcher thread to stop");
-            }
-        }
-
+        // calling close() signals watcher thread to stop
         if (watcher != null) {
             try {
                 logger.info("Closing native directory watcher for: {}", root);
                 watcher.close();
             } catch (IOException e) {
                 logger.error("Error closing native directory watcher", e);
+            }
+        }
+
+        if (watcherThread != null) {
+            try {
+                watcherThread.join(1000); // Wait up to 1 second for clean shutdown
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.warn("Interrupted while waiting for watcher thread to stop");
             }
         }
     }
