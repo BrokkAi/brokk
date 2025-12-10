@@ -2930,7 +2930,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         /**
          * Updates the Review window content with new cumulative changes.
-         * Rebuilds the diff panel and retitle the window.
+         * Rebuilds the diff panel and retitle the window, reusing the same builder pattern
+         * as the tab for consistency (no duplication of spinner/placeholder logic).
          * Must be called on the EDT.
          *
          * @param changes  The new cumulative changes to display
@@ -2949,7 +2950,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             // Remove the old content
             getContentPane().removeAll();
 
-            // Build new Review view
+            // Update window title first
+            setTitle("Review: " + formatReviewMetricsPlain(changes, baseline));
+
+            // Build new Review view using the same builder pattern as the tab
+            // This ensures spinner/placeholder behavior is identical
             var reviewView = buildAggregatedReviewView(changes);
             var containerPanel = reviewView.container();
             var newDiffPanel = reviewView.diff();
@@ -2968,9 +2973,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
             // Apply current theme to the new diff panel
             newDiffPanel.applyTheme(chrome.getTheme());
-
-            // Update window title
-            setTitle("Review: " + formatReviewMetricsPlain(changes, baseline));
 
             // Refresh the UI
             revalidate();
@@ -3197,23 +3199,28 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             ta.applyTheme(guiTheme);
         }
 
-        // Propagate theme to Review window if it exists
+        // Recompute the Changes tab title colors to match the new theme if we have a computed summary
+        if (lastCumulativeChanges != null) {
+            setChangesTabTitleAndTooltip(lastCumulativeChanges);
+        }
+
+        // Propagate theme to Review window if it exists: apply to diff panel and refresh title
         if (reviewWindow != null && reviewWindow.isDisplayable()) {
             try {
                 var f = ReviewWindow.class.getDeclaredField("diffPanel");
                 f.setAccessible(true);
                 var dp = (BrokkDiffPanel) f.get(reviewWindow);
-                if (dp != null) {
-                    dp.applyTheme(guiTheme);
+                if (dp != null && dp instanceof ThemeAware ta) {
+                    ta.applyTheme(guiTheme);
                 }
             } catch (ReflectiveOperationException e) {
                 logger.debug("Failed to apply theme to ReviewWindow diffPanel", e);
             }
-        }
-
-        // Recompute the Changes tab title colors to match the new theme if we have a computed summary
-        if (lastCumulativeChanges != null) {
-            setChangesTabTitleAndTooltip(lastCumulativeChanges);
+            
+            // Refresh the Review window title to reflect any color changes in metrics
+            if (lastCumulativeChanges != null) {
+                reviewWindow.setTitle("Review: " + formatReviewMetricsPlain(lastCumulativeChanges, lastBaselineLabel));
+            }
         }
 
         SwingUtilities.updateComponentTreeUI(this);
@@ -3541,6 +3548,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         lastCumulativeChanges = result;
                         setChangesTabTitleAndTooltip(result);
                         updateChangesTabContent(result);
+                        
+                        // Live update: refresh Review window if open
+                        if (reviewWindow != null && reviewWindow.isDisplayable()) {
+                            reviewWindow.updateContent(result, lastBaselineLabel);
+                        }
                     });
                     return result;
                 });
