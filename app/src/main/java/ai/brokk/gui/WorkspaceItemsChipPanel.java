@@ -17,11 +17,7 @@ import java.awt.Insets;
 import java.awt.Rectangle;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.util.Collection;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -239,7 +235,10 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
                 : java.util.List.<ContextFragment>of();
 
         SwingUtilities.invokeLater(() -> {
-            var toRemoveIds = chipById.keySet().stream()
+            // Snapshot current ids to avoid races and inconsistent views during add/remove planning.
+            var currentIds = new HashSet<>(chipById.keySet());
+
+            var toRemoveIds = currentIds.stream()
                     .filter(oldId -> !newOthersById.containsKey(oldId))
                     .toList();
 
@@ -250,13 +249,15 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
                 }
             }
 
-            for (var frag : updateFrags) {
-                if (!chipById.containsKey(frag.id())) {
-                    var chip = createChip(frag);
-                    if (chip != null) {
-                        add(chip);
-                        chipById.put(frag.id(), chip);
-                    }
+            var toAddFrags = updateFrags.stream()
+                    .filter(f -> !currentIds.contains(f.id()))
+                    .toList();
+
+            for (var frag : toAddFrags) {
+                var chip = createChip(frag);
+                if (chip != null) {
+                    add(chip);
+                    chipById.put(frag.id(), chip);
                 }
             }
 
