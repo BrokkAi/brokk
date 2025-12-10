@@ -3829,6 +3829,21 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         return false;
     }
 
+    /**
+     * Computes a language-aware insertion point for adding a new member under the given parent.
+     *
+     * Contract for NEXT_OFFSET:
+     * - The parent is the class-like {@link CodeUnit} identified by the fully-qualified name used with the
+     *   BRK_NEXT_OFFSET search marker.
+     * - If the parent has existing members, the returned offset should be immediately after the last member;
+     *   if the body is empty, it should be the first valid location inside the body, generally on a fresh line right
+     *   after the opening of the body.
+     * - {@code indent} is the recommended indentation for the first line of the inserted member (e.g., one level
+     *   deeper than the class header for brace-based languages).
+     * - {@code line} and {@code column} are 0-based, and {@code byteOffset} is an absolute UTF-8 byte offset.
+     *
+     * Returns empty if the provided {@code classUnit} is not class-like or its source cannot be read.
+     */
     @Override
     public Optional<IAnalyzer.InsertionPoint> computeInsertionPointForNewMember(CodeUnit classUnit) {
         if (!classUnit.isClass()) {

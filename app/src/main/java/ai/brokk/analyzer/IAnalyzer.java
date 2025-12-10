@@ -418,11 +418,22 @@ public interface IAnalyzer {
     }
 
     /**
-     * Computes the best-effort insertion point for a new member inside the given class CodeUnit.
-     * Default implementation returns empty; TreeSitter-based analyzers should override.
+     * Computes a language-aware insertion point for adding a new member under the given parent declaration.
      *
-     * @param classUnit a CodeUnit representing a class-like declaration
-     * @return Optional insertion point with file, byte offset, line/column, and recommended indentation
+     * Semantics for NEXT_OFFSET:
+     * - The parent is the class-like or module-like {@link CodeUnit} identified by the fully-qualified name
+     *   provided with the BRK_NEXT_OFFSET marker.
+     * - If the parent already has members, the returned position should be immediately after the last existing member.
+     *   If the body is empty, the position should be the first valid insertion point inside the body (typically the
+     *   line after the opening brace/colon), on a fresh line.
+     * - The {@code indent} string is the recommended indentation for the first line of the new member (e.g., one level
+     *   deeper than the class/module header in brace-based languages).
+     *
+     * Implementations must ensure the returned location is inside the parent's body and respects language-specific
+     * formatting conventions. The default implementation returns empty; TreeSitter-based analyzers should override.
+     *
+     * @param classUnit a CodeUnit representing the parent class-like/module-like declaration
+     * @return Optional insertion point with file, byte offset, 0-based line/column, and recommended indentation
      */
     default Optional<InsertionPoint> computeInsertionPointForNewMember(CodeUnit classUnit) {
         return Optional.empty();
