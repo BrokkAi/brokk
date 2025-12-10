@@ -186,25 +186,27 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
     }
 
     private boolean applySettings() {
-            MainProject.LlmProxySetting oldProxySetting = MainProject.getProxySetting();
+        MainProject.LlmProxySetting oldProxySetting = MainProject.getProxySetting();
 
-            var advancedValues = advancedSettingsPanel.collectAdvancedValues();
+        if (!advancedSettingsPanel.applySettings()) {
+            return false;
+        }
 
-            if (!globalSettingsPanel.applySettings(advancedValues)) {
-                    return false; // Global + advanced settings failed validation
-            }
+        if (!globalSettingsPanel.applySettings()) {
+            return false;
+        }
 
-            if (!projectSettingsPanel.applySettings()) {
-                    return false; // Project settings failed validation
-            }
+        if (!projectSettingsPanel.applySettings()) {
+            return false;
+        }
 
-            MainProject.LlmProxySetting newProxySetting = MainProject.getProxySetting();
-            if (oldProxySetting != newProxySetting
-                            && newProxySetting != MainProject.LlmProxySetting.STAGING) { // STAGING is non-interactive
-                    proxySettingsChanged = true;
-            }
+        MainProject.LlmProxySetting newProxySetting = MainProject.getProxySetting();
+        if (oldProxySetting != newProxySetting
+                && newProxySetting != MainProject.LlmProxySetting.STAGING) {
+            proxySettingsChanged = true;
+        }
 
-            return true;
+        return true;
     }
 
     private void handleProxyRestartIfNeeded() {
