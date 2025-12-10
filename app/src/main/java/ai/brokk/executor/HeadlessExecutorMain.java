@@ -1461,7 +1461,7 @@ public final class HeadlessExecutorMain {
                 return;
             }
 
-            final int MAX_BYTES = 64 * 1024; // 64 KiB
+            final int MAX_BYTES = 1024 * 1024; // 1 MiB
             int byteLen = text.getBytes(UTF_8).length;
             if (byteLen > MAX_BYTES) {
                 logger.info("Rejected pasted text: bytes={} exceeds limit", byteLen);
