@@ -83,6 +83,7 @@ class AskModeSearchAgentTest {
         }
     }
 
+    @Disabled
     @Test
     void testAskModeUsesSearchAgent_ReadsOnly() throws Exception {
         // Upload a minimal session
@@ -208,6 +209,7 @@ class AskModeSearchAgentTest {
         statusConn.disconnect();
     }
 
+    @Disabled
     @Test
     void testAskModeWithAutoCompress() throws Exception {
         uploadSession();

@@ -403,16 +403,23 @@ public abstract class CodePrompts {
                         Once you understand the request you MUST:
 
                         1. Decide if you need to propose *SEARCH/REPLACE* edits for any code whose source is not available.
-                           You can create new files without asking!
-                           But if you need to propose changes to code you can't see,
-                           you *MUST* tell the user their full filename names and ask them to *add the files to the chat*;
+                           1a. You can create new files without asking!
+                           1b. If you only need to change individual functions whose code you CAN see,
+                               you may do so without having the entire file in the Workspace.
+                           1c. Ask for additional files if having them would enable a cleaner solution,
+                               even if you could hack around it without them.
+                               For example,
+                               - If a field or method is private and you would need reflection to access it,
+                                 ask for the file so you can relax the visibility instead.
+                               - If you could preserve DRY by editing a data structure or a function instead of substantially duplicating
+                                 its functionality.
+                           If you need to propose changes to code you can't see,
+                           tell the user their full class or file names and ask them to *add them to the Workspace*;
                            end your reply and wait for their approval.
-                           But if you only need to change individual functions whose code you can see,
-                           you may do so without having the entire file in the Workspace.
 
-                        2. Explain the needed changes in a few short sentences.
+                        3. Explain the needed changes in a few short sentences.
 
-                        3. Give each change as a *SEARCH/REPLACE* block.
+                        4. Give each change as a *SEARCH/REPLACE* block.
 
                         All changes to files must use this *SEARCH/REPLACE* block format.
 

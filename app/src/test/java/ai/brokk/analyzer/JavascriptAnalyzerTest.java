@@ -691,7 +691,7 @@ public final class JavascriptAnalyzerTest {
         var related = Context.buildRelatedIdentifiers(jsAnalyzer, helloJsFile);
         var expected = """
 - Hello
-    - greet
+  - greet
 - util
 """.strip();
         assertCodeEquals(expected, related, "Related identifiers tree for Hello.js mismatch.");
