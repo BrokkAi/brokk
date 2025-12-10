@@ -3296,9 +3296,15 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         container.repaint();
     }
 
-    // Constructs a panel containing a summary header and a BrokkDiffPanel with per-file comparisons.
-    // Sets aggregatedChangesPanel to the created BrokkDiffPanel for lifecycle management.
-    private JPanel buildAggregatedChangesPanel(CumulativeChanges res) {
+    /**
+     * Builds the aggregated Review view (header + diff panel) as a side-effect-free operation.
+     * Returns both the container and the diff panel so the caller can manage lifecycle
+     * (dispose, applyTheme, etc.).
+     *
+     * @param res The cumulative changes to display
+     * @return AggregatedReviewView containing the container panel and the BrokkDiffPanel
+     */
+    private AggregatedReviewView buildAggregatedReviewView(CumulativeChanges res) {
         var wrapper = new JPanel(new BorderLayout());
 
         // Build header with baseline label and buttons
@@ -3428,7 +3434,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 projectName = root.getFileName().toString();
             }
         } catch (Exception e) {
-            logger.debug("Unable to resolve project name for aggregated Changes panel; using default", e);
+            logger.debug("Unable to resolve project name for aggregated Review view; using default", e);
         }
 
         var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
@@ -3455,12 +3461,26 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Callers must not enforce unified/side-by-side globally; BrokkDiffPanel reads and persists the user's choice
         // when they toggle view (Fixes #1679)
         var diffPanel = builder.build();
-        aggregatedChangesPanel = diffPanel;
-        // Ensure the embedded diff reflects the current theme immediately
-        diffPanel.applyTheme(chrome.getTheme());
 
         topContainer.add(diffPanel, BorderLayout.CENTER);
         wrapper.add(topContainer, BorderLayout.CENTER);
+        return new AggregatedReviewView(wrapper, diffPanel);
+    }
+
+    // Constructs a panel containing a summary header and a BrokkDiffPanel with per-file comparisons.
+    // Delegates to buildAggregatedReviewView for the core view construction, then handles lifecycle.
+    private JPanel buildAggregatedChangesPanel(CumulativeChanges res) {
+        // Build the Review view using the side-effect-free builder
+        var reviewView = buildAggregatedReviewView(res);
+        var wrapper = reviewView.container();
+        var diffPanel = reviewView.diff();
+
+        // Assign the diff panel to the class field for lifecycle management
+        aggregatedChangesPanel = diffPanel;
+
+        // Ensure the embedded diff reflects the current theme immediately
+        diffPanel.applyTheme(chrome.getTheme());
+
         return wrapper;
     }
 
@@ -3511,6 +3531,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             int totalDeleted,
             List<PerFileChange> perFileChanges,
             @Nullable GitWorkflow.PushPullState pushPullState) {}
+
+    /**
+     * Return type for the side-effect-free Review view builder.
+     * Holds both the container panel (with header and buttons) and the embedded diff panel
+     * for lifecycle management by the caller.
+     */
+    private record AggregatedReviewView(JPanel container, BrokkDiffPanel diff) {}
 
     /**
      * A LayerUI that paints reset-from-history arrows over the history table.
