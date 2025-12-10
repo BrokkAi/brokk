@@ -370,7 +370,7 @@ public final class JobRunner {
                                                         // Ensure a scan model is available
                                                         if (scanModelToUse == null) {
                                                             throw new IllegalArgumentException(
-                                                                    "scan model unavailable for ASK pre-scan");
+                                                                    "ASK pre-scan requires a scan model, but none was configured. Please provide a scanModel in the job specification or configure a default scan model for the project.");
                                                         }
 
                                                         // Perform the prescan using the resolved scan model only.
