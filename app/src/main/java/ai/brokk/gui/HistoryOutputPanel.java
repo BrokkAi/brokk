@@ -19,6 +19,7 @@ import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.dialogs.CreatePullRequestDialog;
+import ai.brokk.gui.terminal.TerminalPanel;
 import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
@@ -1136,6 +1137,86 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     public JPanel getSessionHeaderPanel() {
         return sessionHeaderPanel;
+    }
+
+    /**
+     * Adds a closable auxiliary tab to the Output tabs with a custom header.
+     * - Applies theme to content if it implements ThemeAware
+     * - Selects the new tab
+     * - On close: removes the tab and invokes onClose if provided; otherwise attempts best-effort disposal
+     *
+     * @param title   The tab title
+     * @param content The component to add as the tab content
+     * @param onClose Optional cleanup action to run when the tab is closed
+     */
+    public void openAuxTab(String title, JComponent content, @Nullable Runnable onClose) {
+        Runnable task = () -> {
+            var tabs = outputTabs;
+            if (tabs == null) {
+                return;
+            }
+
+            if (content instanceof ThemeAware ta) {
+                ta.applyTheme(chrome.getTheme());
+            }
+
+            tabs.addTab(title, content);
+            int index = tabs.indexOfComponent(content);
+
+            var tabHeader = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+            tabHeader.setOpaque(false);
+
+            var titleLabel = new JLabel(title);
+            var closeBtn = new MaterialButton();
+            closeBtn.setToolTipText("Close");
+            SwingUtilities.invokeLater(() -> {
+                var icon = Icons.CLOSE;
+                if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
+                    closeBtn.setIcon(themedIcon.withSize(12));
+                } else {
+                    closeBtn.setIcon(icon);
+                }
+                Dimension d = new Dimension(18, 18);
+                closeBtn.setPreferredSize(d);
+                closeBtn.setMinimumSize(d);
+                closeBtn.setMaximumSize(d);
+            });
+            closeBtn.addActionListener(e -> {
+                try {
+                    int idx = tabs.indexOfComponent(content);
+                    if (idx != -1) {
+                        tabs.removeTabAt(idx);
+                    }
+
+                    if (onClose != null) {
+                        onClose.run();
+                    } else {
+                        try {
+                            if (content instanceof TerminalPanel tp) {
+                                tp.dispose();
+                            } else if (content instanceof BrokkDiffPanel dp) {
+                                dp.dispose();
+                            } else if (content instanceof AutoCloseable ac) {
+                                ac.close();
+                            }
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                } catch (Throwable ignored) {
+                }
+            });
+
+            tabHeader.add(titleLabel);
+            tabHeader.add(closeBtn);
+            tabs.setTabComponentAt(index, tabHeader);
+            tabs.setSelectedIndex(index);
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
     }
 
     /**
