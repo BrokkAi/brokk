@@ -340,9 +340,13 @@ public final class JobRunner {
                                             }
                                         }
                                         case ASK -> {
-                                            // Read-only execution via SearchAgent with ANSWER_ONLY objective
+                                            // Read-only execution via SearchAgent with ANSWER_ONLY objective.
+                                            // Use 'plannerModel' for reasoning and, if requested, use an explicit
+                                            // 'scanModel' only for the prescan step (fallback to project default).
                                             try (var scope = cm.beginTask(task.text(), false)) {
                                                 var context = cm.liveContext();
+
+                                                // Construct SearchAgent with the planner model (required for ASK)
                                                 var searchAgent = new SearchAgent(
                                                         context,
                                                         task.text(),
@@ -351,27 +355,37 @@ public final class JobRunner {
                                                         SearchAgent.Objective.ANSWER_ONLY,
                                                         scope);
 
-                                                // Optional pre-scan: seed workspace using a scan model if requested in JobSpec
-                                                try {
-                                                    if (spec.preScan()) {
+                                                // Optional pre-scan: resolve scan model the same way SEARCH mode does.
+                                                if (spec.preScan()) {
+                                                    try {
                                                         String rawScanModel = spec.scanModel();
-                                                        String trimmedScanModel = rawScanModel == null ? null : rawScanModel.trim();
+                                                        String trimmedScanModel = rawScanModel == null ? "" : rawScanModel.trim();
                                                         final StreamingChatModel scanModelToUse =
-                                                                (trimmedScanModel != null && !trimmedScanModel.isEmpty())
+                                                                !trimmedScanModel.isEmpty()
                                                                         ? resolveModelOrThrow(trimmedScanModel)
                                                                         : cm.getService().getScanModel();
-                                                        // Perform the prescan; append-to-scope default (true)
-                                                        searchAgent.scanInitialContext(
-                                                                Objects.requireNonNull(
-                                                                        scanModelToUse,
-                                                                        "scan model unavailable for ASK pre-scan"));
+
+                                                        // Ensure a scan model is available
+                                                        if (scanModelToUse == null) {
+                                                            throw new IllegalArgumentException("scan model unavailable for ASK pre-scan");
+                                                        }
+
+                                                        // Perform the prescan using the resolved scan model only.
+                                                        // This seeds the Workspace; reasoning will still use plannerModel.
+                                                        try {
+                                                            searchAgent.scanInitialContext(scanModelToUse);
+                                                        } catch (InterruptedException ie) {
+                                                            // Preserve interruption status and propagate to caller.
+                                                            Thread.currentThread().interrupt();
+                                                            throw ie;
+                                                        }
+                                                    } catch (IllegalArgumentException iae) {
+                                                        // Bubble up model resolution errors so job runner can fail fast.
+                                                        throw iae;
                                                     }
-                                                } catch (InterruptedException ie) {
-                                                    // Preserve interruption status and propagate
-                                                    Thread.currentThread().interrupt();
-                                                    throw ie;
                                                 }
 
+                                                // Execute ASK reasoning using the planner model (unchanged).
                                                 var result = searchAgent.execute();
                                                 scope.append(result);
                                             }
