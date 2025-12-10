@@ -46,6 +46,20 @@ When you submit an ASK job, the system:
 4. Streams results back as events (no UI prompts needed in headless mode)
 5. Provides findings without making any commits or code changes
 
+### Optional pre-scan (seed workspace)
+
+ASK supports an optional repository pre-scan that can be used to seed the Workspace with additional context before the ASK reasoning runs. To enable this behavior, include the boolean flag `"preScan": true` in the job payload. When `preScan` is true the executor will run a lightweight repository scan prior to reasoning; this can improve recall for large repos or vague queries.
+
+Model selection semantics for the pre-scan:
+- The ASK reasoning always uses `plannerModel` (this remains required).
+- The pre-scan uses the `scanModel` if provided in the job payload (string). If `scanModel` is omitted, the executor falls back to the project's default scan model (Service.getScanModel()).
+- `codeModel` is ignored for ASK (ASK is read-only).
+
+Example job fields for pre-scan behavior:
+- `"plannerModel": "gpt-5"`  — required for ASK reasoning
+- `"preScan": true`         — enable repository pre-scan before reasoning
+- `"scanModel": "gpt-5-mini"` — optional override used only for the pre-scan step
+
 ### Supported Search & Inspection Capabilities
 
 - **Symbol search**: Find class, method, and field definitions by name or pattern
@@ -61,25 +75,18 @@ When you submit an ASK job, the system:
 
 ASK mode requires:
 - `plannerModel`: The LLM model to use for understanding queries and searching
+- `preScan` (optional): When `true`, run a repository pre-scan that seeds the Workspace before reasoning
+- `scanModel` (optional): Model name to use for the pre-scan; if omitted, the project default scan model is used
 - `autoCompress` (optional): Enable automatic context compression (recommended for large codebases)
 
 ASK mode **ignores** `codeModel` since it does not perform code generation.
 
-### Example Workflow
+### Example Workflows
+
+Basic ASK (no pre-scan):
 
 ```bash
-# 1. Create a session
-curl -sS -X POST "http://localhost:8080/v1/sessions" \
-  -H "Authorization: Bearer my-secret-token" \
-  -H "Content-Type: application/json" \
-  --data @- <<'JSON'
-{
-  "name": "Code Investigation Session"
-}
-JSON
-# Returns: { "sessionId": "<session-id>" }
-
-# 2. Submit an ASK query
+# Submit a standard ASK query (no pre-scan)
 curl -sS -X POST "http://localhost:8080/v1/jobs" \
   -H "Authorization: Bearer my-secret-token" \
   -H "Content-Type: application/json" \
@@ -96,9 +103,60 @@ curl -sS -X POST "http://localhost:8080/v1/jobs" \
   }
 }
 JSON
-# Returns: { "jobId": "<job-id>", "state": "RUNNING", ... }
+```
 
-# 3. Stream events to see the discovery process
+ASK with pre-scan (use explicit scan model):
+
+```bash
+# Submit an ASK query and request a repository pre-scan using a chosen scan model.
+curl -sS -X POST "http://localhost:8080/v1/jobs" \
+  -H "Authorization: Bearer my-secret-token" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ask-prescan-001" \
+  --data @- <<'JSON'
+{
+  "sessionId": "<session-id>",
+  "taskInput": "Find UserService and summarize its responsibilities and public methods.",
+  "autoCommit": false,
+  "autoCompress": true,
+  "plannerModel": "gpt-5",
+  "scanModel": "gpt-5-mini",   # optional: model to use for the pre-scan step
+  "preScan": true,
+  "tags": {
+    "mode": "ASK"
+  }
+}
+JSON
+```
+
+ASK with pre-scan (use project default scan model):
+
+```bash
+# Submit ASK with preScan=true but omit scanModel to use the project's default scan model.
+curl -sS -X POST "http://localhost:8080/v1/jobs" \
+  -H "Authorization: Bearer my-secret-token" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ask-prescan-002" \
+  --data @- <<'JSON'
+{
+  "sessionId": "<session-id>",
+  "taskInput": "Summarize where AuthenticationManager is used across the repo.",
+  "autoCommit": false,
+  "autoCompress": true,
+  "plannerModel": "gpt-5",
+  "preScan": true,
+  "tags": {
+    "mode": "ASK"
+  }
+}
+JSON
+```
+
+#### Streaming results
+
+After submitting any ASK job, stream events to observe discovery and results:
+
+```bash
 curl -sS "http://localhost:8080/v1/jobs/<job-id>/events?after=0" \
   -H "Authorization: Bearer my-secret-token" | tail -f
 ```
