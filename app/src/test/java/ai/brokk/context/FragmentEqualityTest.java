@@ -443,6 +443,50 @@ class FragmentEqualityTest {
 
             assertFalse(sf.hasSameSource(uf));
         }
+
+        @Test
+        void testDiffStringFragmentExposesFiles() throws IOException {
+            var file1 = new ProjectFile(tempDir, "src/File1.java");
+            var file2 = new ProjectFile(tempDir, "src/File2.java");
+            Files.createDirectories(file1.absPath().getParent());
+            Files.writeString(file1.absPath(), "class File1 {}");
+            Files.writeString(file2.absPath(), "class File2 {}");
+
+            var associatedFiles = Set.of(file1, file2);
+            var sf = new ContextFragment.StringFragment(
+                    contextManager,
+                    "diff --git a/src/File1.java b/src/File1.java\n...",
+                    "Diff of File1.java and File2.java",
+                    SyntaxConstants.SYNTAX_STYLE_NONE,
+                    associatedFiles);
+
+            var filesFromFragment = sf.files().join();
+            assertEquals(associatedFiles, filesFromFragment);
+        }
+
+        @Test
+        void testDiffStringFragmentFilesDoNotAffectHasSameSource() throws IOException {
+            var file1 = new ProjectFile(tempDir, "src/File1.java");
+            var file2 = new ProjectFile(tempDir, "src/File2.java");
+            Files.createDirectories(file1.absPath().getParent());
+            Files.writeString(file1.absPath(), "class File1 {}");
+            Files.writeString(file2.absPath(), "class File2 {}");
+
+            var sf1 = new ContextFragment.StringFragment(
+                    contextManager,
+                    "diff --git a/src/File1.java b/src/File1.java\n@@ -1 +1 @@\n-class File1 {}\n+class File1 { }",
+                    "Diff of files",
+                    SyntaxConstants.SYNTAX_STYLE_NONE,
+                    Set.of(file1));
+            var sf2 = new ContextFragment.StringFragment(
+                    contextManager,
+                    "diff --git a/src/File2.java b/src/File2.java\n@@ -1 +1 @@\n-class File2 {}\n+class File2 { }",
+                    "Diff of files",
+                    SyntaxConstants.SYNTAX_STYLE_NONE,
+                    Set.of(file2));
+
+            assertTrue(sf1.hasSameSource(sf2));
+        }
     }
 
     @Nested

@@ -1747,4 +1747,63 @@ public class ContextSerializationTest {
         assertEquals(projectFileContent, loadedPpf.text().join());
         assertEquals(externalFileContent, loadedEpf.text().join());
     }
+
+    @Test
+    void testRoundTripDiffStringFragmentWithFiles() throws Exception {
+        var projectFile1 = new ProjectFile(tempDir, "src/DiffFile1.java");
+        var projectFile2 = new ProjectFile(tempDir, "src/DiffFile2.java");
+        Files.createDirectories(projectFile1.absPath().getParent());
+        Files.writeString(projectFile1.absPath(), "class DiffFile1 {}");
+        Files.writeString(projectFile2.absPath(), "class DiffFile2 {}");
+
+        var associatedFiles = Set.of(projectFile1, projectFile2);
+
+        String diffText =
+                """
+                diff --git a/src/DiffFile1.java b/src/DiffFile1.java
+                --- a/src/DiffFile1.java
+                +++ b/src/DiffFile1.java
+                @@ -1 +1 @@
+                -class DiffFile1 {}
+                +class DiffFile1 { }
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager,
+                diffText,
+                "Diff of DiffFile1.java and DiffFile2.java",
+                SyntaxConstants.SYNTAX_STYLE_NONE,
+                associatedFiles);
+
+        // Live fragment exposes associated files for Edit All Refs
+        var liveFiles = fragment.files().join().stream()
+                .map(ProjectFile::toString)
+                .collect(Collectors.toSet());
+        var expectedFiles = associatedFiles.stream()
+                .map(ProjectFile::toString)
+                .collect(Collectors.toSet());
+        assertEquals(expectedFiles, liveFiles);
+
+        var context = new Context(mockContextManager).addFragments(fragment);
+        ContextHistory originalHistory = new ContextHistory(context);
+
+        Path zipFile = tempDir.resolve("diff_stringfragment_files_history.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        assertEquals(1, loadedHistory.getHistory().size());
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+
+        var loadedFragment = loadedCtx
+                .virtualFragments()
+                .filter(f -> f instanceof ContextFragment.StringFragment)
+                .map(f -> (ContextFragment.StringFragment) f)
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals(diffText, loadedFragment.text().join());
+        assertEquals(
+                "Diff of DiffFile1.java and DiffFile2.java",
+                loadedFragment.description().join());
+    }
 }
