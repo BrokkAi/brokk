@@ -22,7 +22,7 @@ public class Completions {
     private static final Logger logger = LogManager.getLogger(Completions.class);
     private static final int SHORT_TOLERANCE = 300;
     // Prefer analyzer-supported file extensions more strongly when scoring ProjectFile completions.
-    private static final int PREFERRED_EXTENSION_PRIORITY_BONUS = 500;
+    private static final int PREFERRED_EXTENSION_PRIORITY_BONUS = 300;
 
     public static List<CodeUnit> completeSymbols(String input, IAnalyzer analyzer) {
         String query = input.trim();
