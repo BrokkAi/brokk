@@ -3033,12 +3033,20 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         if (aggregatedChangesPanel instanceof ThemeAware ta) {
             ta.applyTheme(guiTheme);
         }
-        // Propagate to any custom tab headers that are theme-aware
+        // Propagate to any custom tab headers that are theme-aware, and content components for auxiliary tabs
         var tabs = outputTabs;
         if (tabs != null) {
+            // Header components
             for (int i = 0; i < tabs.getTabCount(); i++) {
                 var tabComp = tabs.getTabComponentAt(i);
                 if (tabComp instanceof ThemeAware ta) {
+                    ta.applyTheme(guiTheme);
+                }
+            }
+            // Content components for auxiliary tabs (beyond Output and Review)
+            for (int i = 2; i < tabs.getTabCount(); i++) {
+                Component content = tabs.getComponentAt(i);
+                if (content instanceof ThemeAware ta) {
                     ta.applyTheme(guiTheme);
                 }
             }
