@@ -125,6 +125,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     @Nullable
     private JTabbedPane outputTabs;
 
+    // DnD state for auxiliary tabs (indices >= 2)
+    private int auxTabDragSourceIndex = -1;
+    @Nullable
+    private MouseAdapter outputTabsDnDMouseAdapter;
+
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
     private JPanel activityTabsContainer;
 
@@ -485,6 +490,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         tabs.addTab("Output", outputPanel);
         tabs.addTab("Review", placeholder);
         this.outputTabs = tabs;
+        installAuxTabDnD(tabs);
 
         // Toggle Output/Changes with Space from Output area or tabs
         Runnable toggleTabs = () -> {
@@ -1228,6 +1234,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             this.addMouseListener(selectOnClick);
             titleLabel.addMouseListener(selectOnClick);
 
+            // Install lightweight DnD handler to allow reordering of aux tabs from the header
+            var dnd = ensureOutputTabsDnDHandler(this.tabs);
+            this.addMouseListener(dnd);
+            this.addMouseMotionListener(dnd);
+            titleLabel.addMouseListener(dnd);
+            titleLabel.addMouseMotionListener(dnd);
+
             // Optional: avoid trapping focus on header components
             this.setFocusable(false);
             titleLabel.setFocusable(false);
@@ -1254,6 +1267,159 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             revalidate();
             repaint();
         }
+    }
+
+    // Lightweight drag-and-drop reordering for auxiliary tabs (indices >= 2)
+
+    private MouseAdapter ensureOutputTabsDnDHandler(JTabbedPane tabs) {
+        if (outputTabsDnDMouseAdapter == null) {
+            outputTabsDnDMouseAdapter = new AuxTabDnDMouseAdapter(tabs);
+        }
+        return outputTabsDnDMouseAdapter;
+    }
+
+    private void installAuxTabDnD(JTabbedPane tabs) {
+        var handler = ensureOutputTabsDnDHandler(tabs);
+        tabs.addMouseListener(handler);
+        tabs.addMouseMotionListener(handler);
+    }
+
+    private final class AuxTabDnDMouseAdapter extends MouseAdapter {
+        private final JTabbedPane tabs;
+
+        AuxTabDnDMouseAdapter(JTabbedPane tabs) {
+            this.tabs = tabs;
+        }
+
+        @Override
+        public void mousePressed(MouseEvent e) {
+            handleStartDrag(e, tabs);
+        }
+
+        @Override
+        public void mouseReleased(MouseEvent e) {
+            handleFinishDrag(e, tabs);
+        }
+    }
+
+    private void handleStartDrag(MouseEvent e, JTabbedPane tabs) {
+        Component src = (Component) e.getSource();
+        Point pt = SwingUtilities.convertPoint(src, e.getPoint(), tabs);
+        int idx = safeIndexAt(tabs, pt);
+        auxTabDragSourceIndex = (idx >= 2) ? idx : -1;
+    }
+
+    private void handleFinishDrag(MouseEvent e, JTabbedPane tabs) {
+        try {
+            if (auxTabDragSourceIndex < 0) return;
+            Component src = (Component) e.getSource();
+            Point pt = SwingUtilities.convertPoint(src, e.getPoint(), tabs);
+            int target = safeIndexAt(tabs, pt);
+            if (target >= 2 && target != auxTabDragSourceIndex) {
+                moveAuxTab(tabs, auxTabDragSourceIndex, target);
+            }
+        } finally {
+            auxTabDragSourceIndex = -1;
+        }
+    }
+
+    private static int safeIndexAt(JTabbedPane tabs, Point pt) {
+        try {
+            return tabs.indexAtLocation(pt.x, pt.y);
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
+
+    private static String safeGetTitleAt(JTabbedPane tabs, int idx) {
+        try {
+            String s = tabs.getTitleAt(idx);
+            return (s == null) ? "" : s;
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    private static String safeGetToolTipAt(JTabbedPane tabs, int idx) {
+        try {
+            return tabs.getToolTipTextAt(idx);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static Icon safeGetIconAt(JTabbedPane tabs, int idx) {
+        try {
+            return tabs.getIconAt(idx);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static void selectIndexSafe(JTabbedPane tabs, int idx) {
+        try {
+            tabs.setSelectedIndex(idx);
+        } catch (IndexOutOfBoundsException ignore) {
+        }
+    }
+
+    private void moveAuxTab(JTabbedPane tabs, int src, int target) {
+        if (src < 2 || target < 2) return;
+        if (src == target) {
+            selectIndexSafe(tabs, src);
+            return;
+        }
+
+        int tabCount = tabs.getTabCount();
+        if (src < 0 || src >= tabCount) return;
+        // allow target == tabCount (dropping after last tab)
+        if (target < 0 || target > tabCount) return;
+
+        Component comp;
+        try {
+            comp = tabs.getComponentAt(src);
+        } catch (IndexOutOfBoundsException ex) {
+            return;
+        }
+
+        Component header = null;
+        try {
+            header = tabs.getTabComponentAt(src);
+        } catch (IndexOutOfBoundsException ignore) {
+        }
+
+        String title = safeGetTitleAt(tabs, src);
+        Icon icon = safeGetIconAt(tabs, src);
+        String tip = safeGetToolTipAt(tabs, src);
+
+        try {
+            tabs.removeTabAt(src);
+        } catch (IndexOutOfBoundsException ex) {
+            return;
+        }
+
+        int dest = target;
+        if (target > src) {
+            dest = target - 1;
+        }
+        dest = Math.max(2, Math.min(dest, tabs.getTabCount()));
+
+        try {
+            tabs.insertTab(title, icon, comp, tip, dest);
+        } catch (IndexOutOfBoundsException ex) {
+            return;
+        }
+
+        try {
+            if (header != null) {
+                tabs.setTabComponentAt(dest, header);
+            }
+        } catch (IndexOutOfBoundsException ignore) {
+        }
+
+        selectIndexSafe(tabs, dest);
+        tabs.revalidate();
+        tabs.repaint();
     }
 
     /**
