@@ -1739,15 +1739,11 @@ public interface ContextFragment {
             }
         }
 
-        private static boolean isAnonymousName(String name) {
-            return name.contains("$anon$");
-        }
-
         private String formatSummaryWithAncestors(
                 CodeUnit cu, List<CodeUnit> ancestorList, Map<CodeUnit, String> skeletons) {
             var sb = new StringBuilder();
 
-            boolean isCuAnonymous = isAnonymousName(cu.fqName()) || isAnonymousName(cu.identifier());
+            boolean isCuAnonymous = cu.isAnonymous();
 
             if (!isCuAnonymous) {
                 String primarySkeleton = skeletons.get(cu);
@@ -1760,7 +1756,7 @@ public interface ContextFragment {
             }
 
             var filteredAncestors = ancestorList.stream()
-                    .filter(anc -> !(isAnonymousName(anc.fqName()) || isAnonymousName(anc.identifier())))
+                    .filter(anc -> !anc.isAnonymous())
                     .toList();
 
             if (!filteredAncestors.isEmpty()) {
@@ -1788,10 +1784,7 @@ public interface ContextFragment {
             if (skeletons.isEmpty()) return "";
 
             var skeletonsByPackage = skeletons.entrySet().stream()
-                    .filter(e -> {
-                        var cu = e.getKey();
-                        return !(isAnonymousName(cu.fqName()) || isAnonymousName(cu.identifier()));
-                    })
+                    .filter(e -> !e.getKey().isAnonymous())
                     .collect(Collectors.groupingBy(
                             e -> e.getKey().packageName().isEmpty()
                                     ? "(default package)"
