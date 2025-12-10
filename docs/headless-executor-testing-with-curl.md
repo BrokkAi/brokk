@@ -169,7 +169,7 @@ curl -sS -X POST "${BASE}/v1/jobs" \
   "sessionId": "replace-with-session-id",
   "taskInput": "Based on the code I just added, explain the UserService class structure and its key responsibilities.",
   "autoCommit": false,
-  "autoCompress": false,
+  "autoCompress": true,
   "plannerModel": "gpt-5",
   "tags": {
     "mode": "ASK"
@@ -428,6 +428,43 @@ ASK will retrieve class skeletons with method signatures and fields, providing a
 - Requires `plannerModel`: Specify which LLM to use for understanding your query and navigating the codebase
 - Ignores `codeModel`: Code model is not used in ASK mode
 
+### SEARCH Mode (read-only repository scan)
+
+SEARCH mode is a read-only mode focused on explicit repository scanning and discovery. It behaves similarly to ASK (no code modifications, no commits), but it lets the caller explicitly choose the scanning LLM via the optional `scanModel` field in the job payload.
+
+Key points:
+- Read-only: SEARCH will not write, commit, or modify repository files. No code diffs or git commits are produced.
+- Uses a scan model: When creating a SEARCH job you may optionally supply a `scanModel` in the job payload. If provided, the executor will use that model for scanning and searching the repository. If `scanModel` is not provided, the executor falls back to the project's default scan model (via the Service's `getScanModel()`).
+- `plannerModel` is still required by the API for validation (kept for API uniformity), but SEARCH prefers `scanModel` to select the actual scanning LLM. `codeModel` is ignored in SEARCH mode.
+- Behavior vs ASK: ASK also performs read-only searches using the SearchAgent; SEARCH exposes an explicit `scanModel` override and is intended as the canonical "scan-only" mode when callers want to pick the scanning LLM. Functionally the streamed output and read-only guarantees are the same.
+- Behavior vs LUTZ: LUTZ is a two-phase planning+execution workflow (SearchAgent generates a task list, then Architect executes tasks possibly producing code). SEARCH does not plan or execute — it only discovers and returns information.
+
+#### Example: SEARCH with explicit scan model
+
+```bash
+curl -sS -X POST "${BASE}/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "sessionId": "replace-with-session-id",
+  "taskInput": "Find all usages of AuthenticationManager and summarize where it's referenced.",
+  "autoCommit": false,
+  "autoCompress": false,
+  "plannerModel": "gpt-5",
+  "scanModel": "gpt-5-mini",
+  "tags": {
+    "mode": "SEARCH"
+  }
+}
+JSON
+```
+
+**Notes:**
+- `plannerModel` remains required by the API and is used for validating the job request; SEARCH will use `scanModel` (if present) as the actual scanning model.
+- `codeModel` is ignored in SEARCH mode; no code generation is performed.
+
 ### CODE Mode
 
 ```bash
@@ -457,21 +494,21 @@ to fall back to the project's default code model.
 
 ```bash
 curl -sS "${BASE}/v1/jobs/<job-id>" \
-  -H "Authorization: Bearer ${AUTH_TOKEN}"
+  -H "Authorization: Bearer <AUTH_TOKEN>"
 ```
 
 ## Job Events
 
 ```bash
 curl -sS "${BASE}/v1/jobs/<job-id>/events?after=0" \
-  -H "Authorization: Bearer ${AUTH_TOKEN}"
+  -H "Authorization: Bearer <AUTH_TOKEN>"
 ```
 
 ## Cancel Job
 
 ```bash
 curl -sS -X POST "${BASE}/v1/jobs/<job-id>/cancel" \
-  -H "Authorization: Bearer ${AUTH_TOKEN}"
+  -H "Authorization: Bearer <AUTH_TOKEN>"
 ```
 
 ## Troubleshooting
