@@ -155,7 +155,7 @@ public class EditBlock {
             Matcher nextOffsetMatcher =
                     Pattern.compile("^BRK_NEXT_OFFSET\\s+(.+)$").matcher(trimmed);
             if (nextOffsetMatcher.matches()) {
-                String parentFqName = nextOffsetMatcher.group(2).trim();
+                String parentFqName = nextOffsetMatcher.group(1).trim();
                 plans.add(new ApplyPlan(file, block, effectiveBefore, parentFqName));
                 continue;
             }
@@ -854,7 +854,7 @@ public class EditBlock {
         identifier = identifier.strip();
         // Resolve BRK markers to source snippets (NEXT_OFFSET handled upstream)
         var markerMatcher =
-                Pattern.compile("^BRK_(CLASS|FUNCTION|NEXT_OFFSET|)\\s+(.+)$").matcher(identifier);
+                Pattern.compile("^BRK_(CLASS|FUNCTION|NEXT_OFFSET)\\s+(.+)$").matcher(identifier);
         if (!markerMatcher.matches()) {
             return null;
         }
