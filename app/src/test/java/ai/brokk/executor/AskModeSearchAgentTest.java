@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
 import ai.brokk.project.MainProject;
+import ai.brokk.testutil.TestService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -52,8 +53,15 @@ public class AskModeSearchAgentTest {
         Files.createFile(gitDir.resolve("refs").resolve("heads").resolve("master"));
 
         var execId = UUID.randomUUID();
+        // Configure tests to use localhost proxy and a dummy Brokk key to avoid external network/calls in CI.
+        // This mirrors other integration tests which use LOCALHOST proxy + dummy key so model creation
+        // doesn't require a real Brokk API key.
+        MainProject.setLlmProxySetting(MainProject.LlmProxySetting.LOCALHOST);
+        MainProject.setBrokkKey("brk+" + UUID.randomUUID() + "+test");
+
         var project = new MainProject(tempWorkspace);
-        var contextManager = new ContextManager(project);
+        // Use a TestService provider to avoid external network calls and model lookups in CI.
+        var contextManager = new ContextManager(project, TestService.provider(project));
 
         // random token
         authToken = UUID.randomUUID().toString();
@@ -72,6 +80,10 @@ public class AskModeSearchAgentTest {
 
     @AfterEach
     public void tearDown() {
+        // Restore global settings to avoid cross-test leakage of proxy/key configuration.
+        MainProject.setLlmProxySetting(MainProject.LlmProxySetting.BROKK);
+        MainProject.setBrokkKey("");
+
         if (executor != null) {
             try {
                 executor.stop(0);
@@ -191,7 +203,16 @@ public class AskModeSearchAgentTest {
                         for (var ev : events) {
                             var data = ev.get("data");
                             if (data != null) {
-                                var text = data.asText();
+                                String text = null;
+                                if (data.isTextual()) {
+                                    text = data.asText();
+                                } else if (data.has("token")) {
+                                    text = data.get("token").asText();
+                                } else {
+                                    // fallback: stringify
+                                    text = data.toString();
+                                }
+
                                 if (text != null && text.contains(matchText)) {
                                     return text;
                                 }
