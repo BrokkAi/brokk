@@ -657,6 +657,7 @@ public final class HeadlessExecutorMain {
             }
 
             Map<String, String> safeTags = tags != null ? Map.copyOf(tags) : Map.of();
+            boolean preScanFlag = Objects.requireNonNullElse(jobSpecRequest.preScan(), false);
             var jobSpec = JobSpec.of(
                     jobSpecRequest.taskInput(),
                     jobSpecRequest.autoCommit(),
@@ -664,6 +665,7 @@ public final class HeadlessExecutorMain {
                     plannerModel,
                     jobSpecRequest.scanModel(),
                     jobSpecRequest.codeModel(),
+                    preScanFlag,
                     safeTags);
 
             // Create or get job (idempotent)
@@ -1036,6 +1038,7 @@ public final class HeadlessExecutorMain {
             @Nullable String plannerModel,
             @Nullable String scanModel,
             @Nullable String codeModel,
+            @Nullable Boolean preScan,
             @Nullable Map<String, String> tags) {}
 
     private record AddContextFilesRequest(List<String> relativePaths) {}
