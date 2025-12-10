@@ -137,7 +137,7 @@ public class AskModeSearchAgentTest {
         json.put("autoCommit", (Boolean) jobPayload.getOrDefault("autoCommit", false));
         json.put("autoCompress", (Boolean) jobPayload.getOrDefault("autoCompress", false));
         json.put(
-                "plannerModel", jobPayload.getOrDefault("plannerModel", "gpt-5").toString());
+                "plannerModel", jobPayload.getOrDefault("plannerModel", "gemini-2.0-flash").toString());
         if (jobPayload.containsKey("scanModel")) {
             json.put("scanModel", jobPayload.get("scanModel").toString());
         }
@@ -229,7 +229,7 @@ public class AskModeSearchAgentTest {
                 "taskInput",
                 "Summarize repository structure for pre-scan test",
                 "plannerModel",
-                "gpt-5",
+                "gemini-2.0-flash",
                 "scanModel",
                 "gpt-5-mini",
                 "preScan",
@@ -267,7 +267,7 @@ public class AskModeSearchAgentTest {
                 "taskInput",
                 "Find references to AuthenticationManager across repo",
                 "plannerModel",
-                "gpt-5",
+                "gemini-2.0-flash",
                 // scanModel omitted to exercise project default
                 "preScan",
                 true,
@@ -298,7 +298,7 @@ public class AskModeSearchAgentTest {
                 "taskInput",
                 "Explain UserService responsibilities",
                 "plannerModel",
-                "gpt-5",
+                "gemini-2.0-flash",
                 "scanModel",
                 "gpt-5-mini",
                 "codeModel",
