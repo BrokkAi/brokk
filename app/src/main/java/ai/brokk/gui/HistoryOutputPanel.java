@@ -2026,6 +2026,21 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             });
         });
 
+        // Select the Review tab when the header (or its label) is clicked
+        MouseAdapter headerSelectListener = new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                int i = tabs.indexOfTabComponent(headerPanel);
+                if (i >= 0) {
+                    tabs.setSelectedIndex(i);
+                }
+            }
+        };
+        headerPanel.addMouseListener(headerSelectListener);
+        if (reviewTabHeaderLabel != null) {
+            reviewTabHeaderLabel.addMouseListener(headerSelectListener);
+        }
+
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
         buttonPanel.setOpaque(false);
         buttonPanel.add(reviewTabHeaderButton);
@@ -2033,6 +2048,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         try {
             tabs.setTabComponentAt(idx, headerPanel);
+            tabs.setMnemonicAt(idx, KeyEvent.VK_R);
         } catch (IndexOutOfBoundsException ex) {
             logger.debug("Failed to set custom Review tab header", ex);
         }
