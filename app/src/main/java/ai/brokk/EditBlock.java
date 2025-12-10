@@ -734,9 +734,8 @@ public class EditBlock {
 
             // Preserve replacement indentation when anchoring at a structural closer like "}" or
             // when the target's base indent is shallower than the replacement's base indent.
-            boolean isClosingBraceAnchor =
-                    !originalLines[matchStart].stripLeading().isEmpty()
-                            && originalLines[matchStart].stripLeading().charAt(0) == '}';
+            String strippedAtMatch = originalLines[matchStart].stripLeading();
+            boolean isClosingBraceAnchor = !strippedAtMatch.isEmpty() && strippedAtMatch.charAt(0) == '}';
             boolean preserveReplacementIndent =
                     baseIndent.isEmpty() || isClosingBraceAnchor || baseIndent.length() < baseReplaceIndent;
 
