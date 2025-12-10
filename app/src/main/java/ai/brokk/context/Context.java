@@ -151,6 +151,11 @@ public class Context {
         var prefix = "  ".repeat(Math.max(0, indent));
         var sb = new StringBuilder();
         for (var cu : units) {
+            // Skip anonymous/lambda artifacts
+            if (cu.isAnonymous()) {
+                continue;
+            }
+
             // Use FQN for top-level entries, simple identifier for nested entries
             String name = indent == 0 ? cu.fqName() : cu.identifier();
             sb.append(prefix).append("- ").append(name);
@@ -158,7 +163,7 @@ public class Context {
             var children = analyzer.getDirectChildren(cu);
             if (!children.isEmpty()) {
                 sb.append("\n");
-                sb.append(buildRelatedIdentifiers(analyzer, children, indent + 2));
+                sb.append(buildRelatedIdentifiers(analyzer, children, indent + 1));
             }
             sb.append("\n");
         }
