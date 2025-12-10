@@ -1114,6 +1114,64 @@ class EditBlockTest {
                 updated);
     }
 
+    @Test
+    void testBrkNextOffset_InEmptyNestedClass_JavaAnalyzer() throws Exception {
+        var rootDir = UpdateTestUtil.newTempDir();
+        UpdateTestUtil.writeFile(
+                rootDir,
+                "A.java",
+                """
+                public class A {
+                  public class Inner {
+                  }
+                }
+                """);
+
+        var project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
+        var analyzer = new JavaAnalyzer(project);
+
+        var editable = Set.of(new ProjectFile(rootDir, "A.java"));
+        var cm = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);
+
+        String response =
+                """
+                ```
+                A.java
+                <<<<<<< SEARCH
+                BRK_NEXT_OFFSET A.Inner
+                =======
+                public int y() { return 2; }
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        var blocks = EditBlockParser.instance
+                .parseEditBlocks(response, cm.getFilesInContext())
+                .blocks();
+        var result = EditBlock.apply(cm, new TestConsoleIO(), blocks);
+
+        assertTrue(result.failedBlocks().isEmpty(), "Insertion should succeed");
+
+        var updated = Files.readString(new ProjectFile(rootDir, "A.java").absPath());
+
+        // Basic presence checks
+        assertTrue(updated.contains("public class Inner {"), "Inner class declaration should be present");
+        assertTrue(updated.contains("public int y() { return 2; }"), "Inserted method text should be present");
+
+        // Ensure the method is inside the inner class body (first valid location for empty body)
+        int innerStart = updated.indexOf("public class Inner {");
+        assertTrue(innerStart >= 0, "Should find inner class start");
+        int methodIdx = updated.indexOf("public int y() { return 2; }", innerStart);
+        assertTrue(methodIdx > innerStart, "Method should appear after the inner class start");
+        int innerClose = updated.indexOf("\n  }\n", innerStart);
+        assertTrue(innerClose > methodIdx, "Method should appear before the inner class closing brace");
+
+        // Indentation: method should be exactly one indent level inside the inner class
+        int innerIndent = AssertionHelperUtil.findIndentOfLineIgnoringLeadingWhitespace(updated, "public class Inner {");
+        int methodIndent = AssertionHelperUtil.findIndentOfLineIgnoringLeadingWhitespace(updated, "public int y() { return 2; }");
+        assertEquals(innerIndent + 2, methodIndent, "New method should be one indent level inside the inner class");
+    }
+
     // ----------------------------------------------------
     // Helper methods
     // ----------------------------------------------------
