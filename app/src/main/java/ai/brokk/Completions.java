@@ -375,9 +375,8 @@ public class Completions {
                 scoredCandidates.stream().mapToInt(ScoredPF::shortScore).min().orElse(Integer.MAX_VALUE);
         int shortThreshold = bestShortScore == Integer.MAX_VALUE ? Integer.MAX_VALUE : bestShortScore + SHORT_TOLERANCE;
 
-        Comparator<ScoredPF> cmp = Comparator.<ScoredPF>comparingInt(
-                        sc -> Math.min(sc.shortScore(), sc.longScore())
-                                + (sc.preferred() ? -PREFERRED_EXTENSION_PRIORITY_BONUS : 0))
+        Comparator<ScoredPF> cmp = Comparator.<ScoredPF>comparingInt(sc -> Math.min(sc.shortScore(), sc.longScore())
+                        + (sc.preferred() ? -PREFERRED_EXTENSION_PRIORITY_BONUS : 0))
                 .thenComparing(sc -> extractShort.apply(sc.pf()));
 
         return scoredCandidates.stream()
