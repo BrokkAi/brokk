@@ -118,7 +118,7 @@ public class EditBlock {
                 ProjectFile file,
                 SearchReplaceBlock block,
                 String effectiveBefore,
-                @Nullable String newFunctionTargetFqClass) {}
+                @Nullable String nextOffsetParentFqName) {}
         List<ApplyPlan> plans = new ArrayList<>();
 
         for (var block : blocks) {
@@ -156,13 +156,13 @@ public class EditBlock {
                 throw ie;
             }
 
-            // Detect BRK_NEW_FUNCTION upfront (no snippet resolution; handled during apply)
+            // Detect BRK_NEXT_OFFSET (and deprecated aliases) upfront; handled during apply
             String trimmed = effectiveBefore.strip();
-            Matcher newFuncMatcher =
-                    Pattern.compile("^BRK_NEW_FUNCTION\\s+(.+)$").matcher(trimmed);
-            if (newFuncMatcher.matches()) {
-                String fqClass = newFuncMatcher.group(1).trim();
-                plans.add(new ApplyPlan(file, block, effectiveBefore, fqClass));
+            Matcher nextOffsetMatcher =
+                    Pattern.compile("^BRK_(NEXT_OFFSET|INSERT_FUNCTION|NEW_FUNCTION)\\s+(.+)$").matcher(trimmed);
+            if (nextOffsetMatcher.matches()) {
+                String parentFqName = nextOffsetMatcher.group(2).trim();
+                plans.add(new ApplyPlan(file, block, effectiveBefore, parentFqName));
                 continue;
             }
 
@@ -217,15 +217,15 @@ public class EditBlock {
                             file, file.exists() ? file.read().orElse("") : "");
                 }
 
-                // Handle BRK_NEW_FUNCTION by computing insertion point and splicing new method
-                if (plan.newFunctionTargetFqClass() != null) {
-                    String classFqn = plan.newFunctionTargetFqClass();
-                    var ipOpt = computeInsertionPointForNewMethod(ctx, classFqn);
+                // Handle BRK_NEXT_OFFSET by computing insertion point and splicing new member text
+                if (plan.nextOffsetParentFqName() != null) {
+                    String parentFqn = plan.nextOffsetParentFqName();
+                    var ipOpt = computeInsertionPointForNewMember(ctx, parentFqn);
                     if (ipOpt.isEmpty()) {
                         failed.add(new FailedBlock(
                                 block,
                                 EditBlockFailureReason.NO_MATCH,
-                                "Could not compute insertion point for class: " + classFqn));
+                                "Could not compute insertion point for parent: " + parentFqn));
                         continue;
                     }
                     var ip = ipOpt.get();
@@ -307,7 +307,7 @@ public class EditBlock {
     }
 
     /**
-     * Adjusts the provided method text so that it is indented relative to the insertion point's indent.
+     * Adjusts the provided insertion text so that it is indented relative to the insertion point's indent.
      * - Computes the minimum common leading whitespace across non-blank lines in the replacement.
      * - Strips that from each non-blank line and prefixes the insertion indent.
      * - Preserves blank lines (rendered as empty).
@@ -459,9 +459,9 @@ public class EditBlock {
      *  - BRK_CONFLICT_BEGIN_<n>...BRK_CONFLICT_END_<n> (back-compat: old behavior where SEARCH contained the whole
      *    region)
      *  - BRK_CLASS <fqcn> (existing)
-     *  - BRK_REPLACE_FUNCTION <fqMethodName> (existing; rejects overloads as ambiguous)
+     *  - BRK_FUNCTION <fqMethodName> (existing; rejects overloads as ambiguous)
      *
-     * <p>For BRK_CLASS/BRK_REPLACE_FUNCTION, we fetch the exact source via SourceCodeProvider and then proceed as a normal line
+     * <p>For BRK_CLASS/BRK_FUNCTION, we fetch the exact source via SourceCodeProvider and then proceed as a normal line
      * edit using that snippet as the search block.
      */
     static String replaceMostSimilarChunk(String content, String target, String replace)
@@ -847,19 +847,19 @@ public class EditBlock {
     private record ContentLines(String original, List<String> lines, boolean originalEndsWithNewline) {}
 
     /**
-     * Resolve BRK_CLASS / BRK_[REPLACE|NEW]_FUNCTION markers to source snippets. Returns null if the target is not a BRK marker.
-     * Throws on not found or ambiguous cases.
+     * Resolve BRK_CLASS / BRK_FUNCTION markers to source snippets. Returns null if the target is not a BRK marker,
+     * or if the marker is BRK_NEXT_OFFSET (insertion handled upstream).
      *
-     * @param identifier The identifier string (e.g., "BRK_CLASS com.example.Foo", "BRK_[REPLACE|NEW]_FUNCTION com.example.Foo.bar")
+     * @param identifier The identifier string (e.g., "BRK_CLASS com.example.Foo", "BRK_FUNCTION com.example.Foo.bar", "BRK_NEXT_OFFSET com.example.Foo")
      * @param target The ProjectFile where the resolution is happening (used to check syntax support)
      * @param analyzer The analyzer to use for resolution
-     * @return The resolved source code, or null if not a BRK marker
+     * @return The resolved source code, or null if not a BRK marker or if it is BRK_NEXT_OFFSET
      */
     private static @Nullable String resolveBrkSnippet(String identifier, ProjectFile target, IAnalyzer analyzer)
             throws NoMatchException, AmbiguousMatchException, InterruptedException {
         identifier = identifier.strip();
-        // Resolve BRK_CLASS / BRK_[REPLACE|NEW]_FUNCTION markers to source snippets (NEW_FUNCTION handled upstream)
-        var markerMatcher = Pattern.compile("^BRK_(CLASS|REPLACE_FUNCTION|NEW_FUNCTION)\\s+(.+)$")
+        // Resolve BRK markers to source snippets (NEXT_OFFSET handled upstream)
+        var markerMatcher = Pattern.compile("^BRK_(CLASS|FUNCTION|NEXT_OFFSET|REPLACE_FUNCTION|INSERT_FUNCTION|NEW_FUNCTION)\\s+(.+)$")
                 .matcher(identifier);
         if (!markerMatcher.matches()) {
             return null;
@@ -867,8 +867,14 @@ public class EditBlock {
 
         var kind = markerMatcher.group(1);
         var fqName = markerMatcher.group(2).trim();
-        if ("NEW_FUNCTION".equals(kind)) {
-            // NEW_FUNCTION is handled in apply() by computing insertion point and splicing the new method
+        // Temporary aliases (deprecated):
+        // - BRK_REPLACE_FUNCTION -> BRK_FUNCTION
+        // - BRK_INSERT_FUNCTION / BRK_NEW_FUNCTION -> BRK_NEXT_OFFSET
+        if ("REPLACE_FUNCTION".equals(kind)) {
+            kind = "FUNCTION";
+        }
+        if ("INSERT_FUNCTION".equals(kind) || "NEW_FUNCTION".equals(kind) || "NEXT_OFFSET".equals(kind)) {
+            // NEXT_OFFSET and its aliases are handled in apply() by computing a language-aware insertion point
             return null;
         }
 
@@ -1011,23 +1017,31 @@ public class EditBlock {
     }
 
     /**
-     * Computes a best-effort insertion point (file, byte offset, line/column, indent) to add a new method
-     * inside the specified class FQN. Only returns a value when the underlying analyzer supports
-     * TreeSitter-backed insertion computation.
+     * Computes a best-effort insertion point (file, byte offset, line/column, indent) to add a new member
+     * under the specified parent FQN. The parent FQN must identify the code unit that will contain the new member
+     * (e.g., a class, interface, struct, module, or similar depending on the language).
      *
-     * @param ctx the live context
-     * @param classFqName fully qualified class/type name
-     * @return Optional insertion point describing where and how to insert a new method
+     * Parent FQN contract for BRK_NEXT_OFFSET:
+     * - Provide the fully qualified name of the parent container into which the new member should be inserted.
+     * - The analyzer selects a language-aware location and indent that respects the surrounding style.
+     * - The REPLACE payload is the exact text to insert at that location (no BRK_* line in REPLACE).
+     */
+    public static Optional<IAnalyzer.InsertionPoint> computeInsertionPointForNewMember(Context ctx, String parentFqName)
+            throws InterruptedException {
+        var analyzer = ctx.getContextManager().getAnalyzer();
+        var parentCuOpt = analyzer.getDefinitions(parentFqName).stream().findFirst();
+        if (parentCuOpt.isEmpty()) {
+            return Optional.empty();
+        }
+        return analyzer.computeInsertionPointForNewMember(parentCuOpt.get());
+    }
+
+    /**
+     * Deprecated: use computeInsertionPointForNewMember(Context, String).
+     * Retained for temporary compatibility while migrating from BRK_NEW_FUNCTION to BRK_NEXT_OFFSET.
      */
     public static Optional<IAnalyzer.InsertionPoint> computeInsertionPointForNewMethod(Context ctx, String classFqName)
             throws InterruptedException {
-        var analyzer = ctx.getContextManager().getAnalyzer();
-        var classCuOpt = analyzer.getDefinitions(classFqName).stream()
-                .filter(CodeUnit::isClass)
-                .findFirst();
-        if (classCuOpt.isEmpty()) {
-            return Optional.empty();
-        }
-        return analyzer.computeInsertionPointForNewMember(classCuOpt.get());
+        return computeInsertionPointForNewMember(ctx, classFqName);
     }
 }
