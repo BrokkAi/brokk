@@ -46,9 +46,10 @@ Or via Gradle:
 
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
-| `--mode MODE` | String | No | `ARCHITECT` | Execution mode: `ASK`, `CODE`, `ARCHITECT`, or `LUTZ` |
+| `--mode MODE` | String | No | `ARCHITECT` | Execution mode: `ASK`, `CODE`, `ARCHITECT`, `LUTZ`, or `SEARCH` |
 | `--planner-model MODEL` | String | **Yes** | N/A | LLM model for planning and reasoning (e.g., `gpt-5`, `claude-3-opus`) |
-| `--code-model MODEL` | String | No | Project default | LLM model for code generation (CODE and ARCHITECT modes) |
+| `--scan-model MODEL` | String | No | Project default | LLM model to use for repository scanning (used by `SEARCH` mode; if omitted, the project's default scan model is used) |
+| `--code-model MODEL` | String | No | Project default | LLM model for code generation (CODE and ARCHITECT modes). Note: `--code-model` is ignored when using `--mode SEARCH`. |
 | `--token TOKEN` | String | No | Random UUID | Authentication token for the executor (defaults to a randomly generated UUID if not provided) |
 | `--auto-commit` | Flag | No | `false` | Enable automatic git commits after task completion |
 | `--auto-compress` | Flag | No | `false` | Enable automatic context compression to reduce token usage |
@@ -70,6 +71,21 @@ Search and explore code without making modifications:
 - Uses `SearchAgent` for intelligent codebase exploration
 - `--code-model` is ignored (SearchAgent doesn't generate code)
 - Streams search results and code summaries
+
+### SEARCH Mode: Read-Only Repository Scan
+
+Run an explicit repository scan and discovery using a chosen scan model. SEARCH is read-only like ASK but gives callers control over which model does the scanning.
+
+```bash
+./gradlew :app:runHeadlessCli --args "--mode SEARCH --planner-model gpt-5 --scan-model gpt-5-mini 'Describe the project layout and list files related to authentication'"
+```
+
+**Characteristics:**
+- Read-only: no code changes, no commits
+- Uses `SearchAgent` for repository discovery and summaries
+- `--scan-model` selects the scanning LLM for SEARCH; if omitted, the project default scan model is used
+- `--planner-model` is still required by the CLI/API for validation
+- `--code-model` is ignored when running in `SEARCH` mode
 
 ### CODE Mode: Single-Shot Code Generation
 

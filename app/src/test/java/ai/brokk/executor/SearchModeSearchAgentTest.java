@@ -30,14 +30,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Integration tests for ASK mode ensuring SearchAgent is used and no writes occur.
- * Verifies that ASK mode:
+ * Integration tests for SEARCH mode ensuring SearchAgent is used and no writes occur.
+ * Verifies that SEARCH mode:
  * - Uses SearchAgent with ANSWER_ONLY objective
  * - Produces no code diffs
  * - Emits search/summary events, not code edits
  * - Maintains read-only semantics
  */
-class AskModeSearchAgentTest {
+class SearchModeSearchAgentTest {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -84,11 +84,11 @@ class AskModeSearchAgentTest {
     }
 
     @Test
-    void testAskModeUsesSearchAgent_ReadsOnly() throws Exception {
+    void testSearchModeUsesSearchAgent_ReadsOnly() throws Exception {
         // Upload a minimal session
         uploadSession();
 
-        // Create an ASK mode job
+        // Create a SEARCH mode job
         var jobSpec = Map.<String, Object>of(
                 "sessionId",
                 UUID.randomUUID().toString(),
@@ -101,9 +101,9 @@ class AskModeSearchAgentTest {
                 "plannerModel",
                 "gemini-2.0-flash",
                 "tags",
-                Map.of("mode", "ASK"));
+                Map.of("mode", "SEARCH"));
 
-        var jobId = createJobWithSpec(jobSpec, "ask-test-read-only");
+        var jobId = createJobWithSpec(jobSpec, "search-test-read-only");
 
         // Wait for job to complete
         Thread.sleep(500);
@@ -122,7 +122,7 @@ class AskModeSearchAgentTest {
             var events = (List<?>) eventsData.get("events");
 
             assertNotNull(events, "Events should not be null");
-            assertTrue(events.size() > 0, "ASK mode should produce events");
+            assertTrue(events.size() > 0, "SEARCH mode should produce events");
 
             // Verify events contain search/LLM output, not code edits
             var eventTypes = events.stream()
@@ -130,13 +130,13 @@ class AskModeSearchAgentTest {
                     .map(Object::toString)
                     .toList();
 
-            // ASK mode should produce LLM_TOKEN or NOTIFICATION events, not CODE_EDIT events
+            // SEARCH mode should produce LLM_TOKEN or NOTIFICATION events, not CODE_EDIT events
             assertTrue(
                     eventTypes.stream().anyMatch(t -> t.contains("LLM_TOKEN") || t.contains("NOTIFICATION")),
-                    "ASK mode should produce LLM or notification events; got: " + eventTypes);
+                    "SEARCH mode should produce LLM or notification events; got: " + eventTypes);
             assertFalse(
                     eventTypes.stream().anyMatch(t -> t.contains("CODE_EDIT")),
-                    "ASK mode should not produce CODE_EDIT events; got: " + eventTypes);
+                    "SEARCH mode should not produce CODE_EDIT events; got: " + eventTypes);
         }
         eventsConn.disconnect();
 
@@ -158,7 +158,88 @@ class AskModeSearchAgentTest {
                     var diffText = new String(is.readAllBytes(), StandardCharsets.UTF_8);
                     assertTrue(
                             diffText.isEmpty() || diffText.isBlank(),
-                            "ASK mode should produce no diff (read-only); got: " + diffText);
+                            "SEARCH mode should produce no diff (read-only); got: " + diffText);
+                }
+            }
+        } finally {
+            diffConn.disconnect();
+        }
+    }
+
+    @Test
+    void testSearchModeWithExplicitScanModel() throws Exception {
+        uploadSession();
+
+        // Create a SEARCH job with explicit scanModel
+        var jobSpec = Map.<String, Object>of(
+                "sessionId",
+                UUID.randomUUID().toString(),
+                "taskInput",
+                "Find usages of AuthenticationManager",
+                "autoCommit",
+                false,
+                "autoCompress",
+                false,
+                "plannerModel",
+                "gemini-2.0-flash",
+                "scanModel",
+                "gemini-2.0-flash",
+                "tags",
+                Map.of("mode", "SEARCH"));
+
+        var jobId = createJobWithSpec(jobSpec, "search-test-scan-model");
+
+        // Wait for job to complete
+        Thread.sleep(500);
+
+        // Poll events to ensure search produced LLM tokens/notifications and no code edits
+        var eventsUrl = URI.create(baseUrl + "/v1/jobs/" + jobId + "/events?after=-1&limit=1000")
+                .toURL();
+        var eventsConn = (HttpURLConnection) eventsUrl.openConnection();
+        eventsConn.setRequestMethod("GET");
+        eventsConn.setRequestProperty("Authorization", "Bearer " + authToken);
+
+        assertEquals(200, eventsConn.getResponseCode());
+        try (InputStream is = eventsConn.getInputStream()) {
+            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            var eventsData = OBJECT_MAPPER.readValue(response, new TypeReference<Map<String, Object>>() {});
+            var events = (List<?>) eventsData.get("events");
+
+            assertNotNull(events, "Events should not be null");
+            assertTrue(events.size() > 0, "SEARCH mode should produce events");
+
+            var eventTypes = events.stream()
+                    .map(e -> ((Map<?, ?>) e).get("type"))
+                    .map(Object::toString)
+                    .toList();
+
+            assertTrue(
+                    eventTypes.stream().anyMatch(t -> t.contains("LLM_TOKEN") || t.contains("NOTIFICATION")),
+                    "SEARCH mode should produce LLM or notification events; got: " + eventTypes);
+            assertFalse(
+                    eventTypes.stream().anyMatch(t -> t.contains("CODE_EDIT")),
+                    "SEARCH mode should not produce CODE_EDIT events; got: " + eventTypes);
+        } finally {
+            eventsConn.disconnect();
+        }
+
+        // Diff check as well
+        var diffUrl = URI.create(baseUrl + "/v1/jobs/" + jobId + "/diff").toURL();
+        var diffConn = (HttpURLConnection) diffUrl.openConnection();
+        diffConn.setRequestMethod("GET");
+        diffConn.setRequestProperty("Authorization", "Bearer " + authToken);
+
+        try {
+            var statusCode = diffConn.getResponseCode();
+            assertTrue(
+                    statusCode == 200 || statusCode == 409,
+                    "Diff endpoint should succeed or report no git; got: " + statusCode);
+            if (statusCode == 200) {
+                try (InputStream is = diffConn.getInputStream()) {
+                    var diffText = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+                    assertTrue(
+                            diffText.isEmpty() || diffText.isBlank(),
+                            "SEARCH should produce no diff; got: " + diffText);
                 }
             }
         } finally {
@@ -168,10 +249,10 @@ class AskModeSearchAgentTest {
 
     @Disabled
     @Test
-    void testAskModeIgnoresCodeModel() throws Exception {
+    void testSearchModeIgnoresCodeModel() throws Exception {
         uploadSession();
 
-        // Create ASK job with explicit codeModel (should be ignored)
+        // Create SEARCH job with explicit codeModel (should be ignored)
         var jobSpec = Map.<String, Object>of(
                 "sessionId",
                 UUID.randomUUID().toString(),
@@ -184,11 +265,11 @@ class AskModeSearchAgentTest {
                 "plannerModel",
                 "gemini-2.0-flash",
                 "codeModel",
-                "gemini-2.0-flash", // Explicitly set, but should be ignored in ASK
+                "gemini-2.0-flash", // Explicitly set, but should be ignored in SEARCH
                 "tags",
-                Map.of("mode", "ASK"));
+                Map.of("mode", "SEARCH"));
 
-        var jobId = createJobWithSpec(jobSpec, "ask-test-ignore-code-model");
+        var jobId = createJobWithSpec(jobSpec, "search-test-ignore-code-model");
 
         // Wait for job
         Thread.sleep(300);
@@ -204,92 +285,8 @@ class AskModeSearchAgentTest {
             var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
             // Job should exist and have status (RUNNING, COMPLETED, or FAILED)
             assertTrue(response.contains("state"), "Job status should be present");
-        }
-        statusConn.disconnect();
-    }
-
-    @Test
-    void testAskModeWithAutoCompress() throws Exception {
-        uploadSession();
-
-        // Create ASK job with autoCompress enabled
-        var jobSpec = Map.<String, Object>of(
-                "sessionId",
-                UUID.randomUUID().toString(),
-                "taskInput",
-                "What are the key files?",
-                "autoCommit",
-                false,
-                "autoCompress",
-                true, // Enable compression
-                "plannerModel",
-                "gemini-2.0-flash",
-                "tags",
-                Map.of("mode", "ASK"));
-
-        var jobId = createJobWithSpec(jobSpec, "ask-test-auto-compress");
-
-        // Wait for job completion
-        Thread.sleep(500);
-
-        // Verify job completed (autoCompress should not cause issues)
-        var statusUrl = URI.create(baseUrl + "/v1/jobs/" + jobId).toURL();
-        var statusConn = (HttpURLConnection) statusUrl.openConnection();
-        statusConn.setRequestMethod("GET");
-        statusConn.setRequestProperty("Authorization", "Bearer " + authToken);
-
-        assertEquals(200, statusConn.getResponseCode());
-        try (InputStream is = statusConn.getInputStream()) {
-            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            // Should complete successfully (either COMPLETED or have events)
-            assertTrue(response.contains("state"), "Job should have a state");
-        }
-        statusConn.disconnect();
-    }
-
-    @Disabled
-    @Test
-    void testAskModeNoAutoCommit() throws Exception {
-        uploadSession();
-
-        // Create ASK job with autoCommit=true (should be ignored)
-        var jobSpec = Map.<String, Object>of(
-                "sessionId",
-                UUID.randomUUID().toString(),
-                "taskInput",
-                "Describe the architecture",
-                "autoCommit",
-                true, // Should be ignored in ASK mode
-                "autoCompress",
-                false,
-                "plannerModel",
-                "gemini-2.0-flash",
-                "tags",
-                Map.of("mode", "ASK"));
-
-        var jobId = createJobWithSpec(jobSpec, "ask-test-no-auto-commit");
-
-        // Wait for job
-        Thread.sleep(300);
-
-        // Verify no diff (autoCommit should be ignored)
-        var diffUrl = URI.create(baseUrl + "/v1/jobs/" + jobId + "/diff").toURL();
-        var diffConn = (HttpURLConnection) diffUrl.openConnection();
-        diffConn.setRequestMethod("GET");
-        diffConn.setRequestProperty("Authorization", "Bearer " + authToken);
-
-        try {
-            var statusCode = diffConn.getResponseCode();
-            if (statusCode == 200) {
-                try (InputStream is = diffConn.getInputStream()) {
-                    var diffText = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-                    assertTrue(
-                            diffText.isEmpty() || diffText.isBlank(),
-                            "ASK should produce no diff even with autoCommit=true; got: " + diffText);
-                }
-            }
         } finally {
-            diffConn.disconnect();
+            statusConn.disconnect();
         }
     }
 

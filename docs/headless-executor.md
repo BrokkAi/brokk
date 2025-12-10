@@ -103,6 +103,43 @@ curl -sS "http://localhost:8080/v1/jobs/<job-id>/events?after=0" \
   -H "Authorization: Bearer my-secret-token" | tail -f
 ```
 
+## SEARCH Mode: Read-Only Repository Scan (explicit scan model)
+
+SEARCH mode is a new read-only mode focused on repository scanning and discovery. It is operationally similar to ASK in that it performs read-only exploration and returns findings without producing code changes or commits, but it provides explicit control over which LLM model performs the repository scan.
+
+Key points:
+- Read-only: SEARCH will not write, commit, or modify repository files. No code diffs or git commits are produced.
+- Uses a scan model: When creating a SEARCH job you may optionally supply a `scanModel` in the job payload. If provided, the executor will use that model for scanning and searching the repository. If `scanModel` is not provided, the executor falls back to the project's default scan model (via the Service's `getScanModel()`).
+- `plannerModel` is still required by the API for validation (this is kept for API uniformity), but SEARCH prefers `scanModel` to select the actual scanning LLM. `codeModel` is ignored in SEARCH mode.
+- Behavior vs ASK: ASK also performs read-only searches using the SearchAgent; SEARCH exposes an explicit `scanModel` override and is intended as the canonical "scan-only" mode when callers want to pick the scanning LLM. Functionally the streamed output and read-only guarantees are the same.
+- Behavior vs LUTZ: LUTZ is a two-phase planning+execution workflow (SearchAgent generates a task list, then Architect executes tasks possibly producing code). SEARCH does not plan or execute — it only discovers and returns information.
+
+### Example: SEARCH with explicit scan model
+
+```bash
+curl -sS -X POST "http://localhost:8080/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "sessionId": "replace-with-session-id",
+  "taskInput": "Find all usages of AuthenticationManager and summarize where it's referenced.",
+  "autoCommit": false,
+  "autoCompress": false,
+  "plannerModel": "gpt-5",
+  "scanModel": "gpt-5-mini",
+  "tags": {
+    "mode": "SEARCH"
+  }
+}
+JSON
+```
+
+**Notes:**
+- `plannerModel` remains required by the API and is used for validating the job request; SEARCH will use `scanModel` (if present) as the actual scanning model.
+- `codeModel` is ignored in SEARCH mode; no code generation is performed.
+
 ## LUTZ Mode: Two-Phase Planning & Execution
 
 LUTZ mode enables **intelligent task decomposition followed by sequential execution**. It's ideal for complex objectives that benefit from structured planning before implementation.
@@ -189,7 +226,7 @@ LUTZ jobs emit events following this pattern:
 2. **Execution Events**: Per-task progress, code modifications, and completions
 3. **Final Events**: Job completion with diff and summary
 
-Progress is updated after each top-level task completes (not per subtask).
+**Progress is updated after each top-level task completes (not per subtask).**
 
 ## API Endpoints
 
@@ -215,9 +252,10 @@ Once running, the executor exposes the following endpoints:
 
 - **`POST /v1/jobs`** - Create and execute a job
   - Requires `Idempotency-Key` header for safe retries
-  - Body: `JobSpec` JSON with task input and execution mode (ARCHITECT, LUTZ, ASK, or CODE)
+  - Body: `JobSpec` JSON with task input and execution mode (ARCHITECT, LUTZ, ASK, SEARCH, or CODE)
   - Returns: `{ "jobId": "<uuid>", "state": "running", ... }`
-  - **ASK mode**: Set `"tags": { "mode": "ASK" }` for read-only codebase search
+  - **SEARCH mode**: Set `"tags": { "mode": "SEARCH" }` to run a read-only repository scan. Optionally include `"scanModel": "<model>"` to override the default scan model used for repository scanning. `plannerModel` is still required by the API for validation.
+  - **ASK mode**: Set `"tags": { "mode": "ASK" }` for ad-hoc read-only searches (uses service default scan model unless otherwise configured).
   - **CODE mode**: Set `"tags": { "mode": "CODE" }` for single-shot code generation
   - **LUTZ mode**: Set `"tags": { "mode": "LUTZ" }` to enable two-phase planning and execution (SearchAgent generates a task list, then ArchitectAgent executes tasks sequentially), honoring autoCommit and autoCompress
   - **ARCHITECT mode** (default): Orchestrates multi-step planning and implementation

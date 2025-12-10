@@ -575,11 +575,12 @@ public final class HeadlessExecutorMain {
      * @throws Exception if switching the session fails
      */
     void importSessionZip(byte[] zipData, UUID sessionId) throws Exception {
-        // Write zip file to the directory ContextManager/SessionManager expect: <workspace>/.brokk/sessions
-        var cmSessionsDir =
-                contextManager.getProject().getRoot().resolve(".brokk").resolve("sessions");
+        // Write zip file to the sessions directory as reported by the project's SessionManager.
+        // This ensures we store the uploaded session in the exact location expected by SessionManager
+        // and avoids mismatches that can lead to missing session zip files during loading.
+        var cmSessionsDir = contextManager.getProject().getSessionManager().getSessionsDir();
         Files.createDirectories(cmSessionsDir);
-        var sessionZipPath = cmSessionsDir.resolve(sessionId + ".zip");
+        var sessionZipPath = cmSessionsDir.resolve(sessionId.toString() + ".zip");
         Files.write(sessionZipPath, zipData, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
 
         logger.info("Session zip stored: {} ({})", sessionId, sessionZipPath);
@@ -661,6 +662,7 @@ public final class HeadlessExecutorMain {
                     jobSpecRequest.autoCommit(),
                     jobSpecRequest.autoCompress(),
                     plannerModel,
+                    jobSpecRequest.scanModel(),
                     jobSpecRequest.codeModel(),
                     safeTags);
 
@@ -1032,6 +1034,7 @@ public final class HeadlessExecutorMain {
             boolean autoCommit,
             boolean autoCompress,
             @Nullable String plannerModel,
+            @Nullable String scanModel,
             @Nullable String codeModel,
             @Nullable Map<String, String> tags) {}
 
