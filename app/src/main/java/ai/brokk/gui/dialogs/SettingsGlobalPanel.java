@@ -166,7 +166,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
      * Populates UI fields from pre-loaded settings data. No I/O operations.
      * Must be called on EDT. Enables the panel after populating.
      */
-    public void populateFromData(SettingsData data) {
+    public void populateFromData(SettingsDialog.SettingsData data) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
         // Enable panel now that we have data
@@ -201,7 +201,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
     }
 
-    private void populateGeneralTab(SettingsData data) {
+    private void populateGeneralTab(SettingsDialog.SettingsData data) {
         // JVM Memory
         try {
             var mem = data.jvmMemorySettings();
@@ -257,7 +257,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
     }
 
-    private void populateServiceTab(SettingsData data) {
+    private void populateServiceTab(SettingsDialog.SettingsData data) {
         brokkKeyField.setText(data.brokkApiKey());
         balanceField.setText(data.accountBalance()); // Pre-loaded from background
         updateSignupLabelVisibility();
@@ -352,7 +352,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         showInfoNotificationsCheckbox.setSelected(GlobalUiSettings.isShowInfoNotifications());
     }
 
-    private void populateQuickModelsTab(SettingsData data) {
+    private void populateQuickModelsTab(SettingsDialog.SettingsData data) {
         var service = chrome.getContextManager().getService();
         var loadedFavorites = data.favoriteModels();
         quickModelsTableModel.setFavorites(loadedFavorites);
