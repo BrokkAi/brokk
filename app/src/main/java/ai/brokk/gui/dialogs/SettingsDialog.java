@@ -263,16 +263,22 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
         var dialog = new SettingsDialog(chrome.getFrame(), chrome);
 
         boolean tabSelected = false;
-        // Top-level tabs: "Global", "Project"
+        // Top-level tabs: "Global", "Project", "Advanced"
         // Global sub-tabs: "Service", "Appearance", SettingsGlobalPanel.MODELS_TAB_TITLE, "Alternative Models",
         // "GitHub"
         // Project sub-tabs: "General", "Build", "Data Retention"
-
-        // Try to select top-level tab first
-        int globalTabIndex = -1, projectTabIndex = -1;
+        int globalTabIndex = -1;
+        int projectTabIndex = -1;
+        int advancedTabIndex = -1;
         for (int i = 0; i < dialog.tabbedPane.getTabCount(); i++) {
-            if ("Global".equals(dialog.tabbedPane.getTitleAt(i))) globalTabIndex = i;
-            if ("Project".equals(dialog.tabbedPane.getTitleAt(i))) projectTabIndex = i;
+            String title = dialog.tabbedPane.getTitleAt(i);
+            if ("Global".equals(title)) {
+                globalTabIndex = i;
+            } else if ("Project".equals(title)) {
+                projectTabIndex = i;
+            } else if ("Advanced".equals(title)) {
+                advancedTabIndex = i;
+            }
         }
 
         if (targetTabName.equals("Global") && globalTabIndex != -1 && dialog.tabbedPane.isEnabledAt(globalTabIndex)) {
@@ -282,6 +288,11 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
                 && projectTabIndex != -1
                 && dialog.tabbedPane.isEnabledAt(projectTabIndex)) {
             dialog.tabbedPane.setSelectedIndex(projectTabIndex);
+            tabSelected = true;
+        } else if (targetTabName.equals("Advanced")
+                && advancedTabIndex != -1
+                && dialog.tabbedPane.isEnabledAt(advancedTabIndex)) {
+            dialog.tabbedPane.setSelectedIndex(advancedTabIndex);
             tabSelected = true;
         } else {
             // Check Global sub-tabs
@@ -310,6 +321,22 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
                         dialog.tabbedPane.setSelectedIndex(projectTabIndex); // Select "Project" parent
                         if (projectSubTabs.isEnabledAt(i)) {
                             projectSubTabs.setSelectedIndex(i);
+                            tabSelected = true;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // If not found in Global or Project, check Advanced sub-tabs
+            if (!tabSelected && advancedTabIndex != -1 && dialog.tabbedPane.isEnabledAt(advancedTabIndex)) {
+                JTabbedPane advancedSubTabs = dialog.advancedSettingsPanel.getAdvancedSubTabbedPane();
+                for (int i = 0; i < advancedSubTabs.getTabCount(); i++) {
+                    if (targetTabName.equals(advancedSubTabs.getTitleAt(i))) {
+                        dialog.tabbedPane.setSelectedIndex(advancedTabIndex); // Select "Advanced" parent
+                        if (advancedSubTabs.isEnabledAt(i)
+                                || targetTabName.equals(SettingsAdvancedPanel.MODELS_TAB_TITLE)) {
+                            advancedSubTabs.setSelectedIndex(i);
                             tabSelected = true;
                         }
                         break;
