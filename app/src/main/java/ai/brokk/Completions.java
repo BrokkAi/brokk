@@ -250,6 +250,10 @@ public class Completions {
                 && (s.charAt(2) == '\\' || s.charAt(2) == '/');
     }
 
+    private static int calculateCompositeScore(int shortScore, int longScore, boolean preferred) {
+        return Math.min(shortScore, longScore) + (preferred ? -PREFERRED_EXTENSION_PRIORITY_BONUS : 0);
+    }
+
     /**
      * Rank-and-filter ProjectFile candidates with a preference for files whose extensions are
      * supported by the project's active analyzers. Uses the default minimum pattern length of 1.
@@ -309,8 +313,8 @@ public class Completions {
         int shortThreshold = bestShortScore == Integer.MAX_VALUE ? Integer.MAX_VALUE : bestShortScore + SHORT_TOLERANCE;
 
         // Lower scores are better; subtracting the bonus for preferred extensions ensures they sort first.
-        Comparator<ScoredPF> cmp = Comparator.<ScoredPF>comparingInt(sc -> Math.min(sc.shortScore(), sc.longScore())
-                        + (sc.preferred() ? -PREFERRED_EXTENSION_PRIORITY_BONUS : 0))
+        Comparator<ScoredPF> cmp = Comparator.<ScoredPF>comparingInt(
+                        sc -> calculateCompositeScore(sc.shortScore(), sc.longScore(), sc.preferred()))
                 .thenComparing(sc -> extractShort.apply(sc.pf()));
 
         return scoredCandidates.stream()
