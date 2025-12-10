@@ -733,8 +733,7 @@ public class AttachContextDialog extends BaseThemedDialog {
             var filtered =
                     switch (mode) {
                         case CLASSES -> cands.stream().filter(CodeUnit::isClass).toList();
-                        case METHODS ->
-                            cands.stream().filter(CodeUnit::isFunction).toList();
+                        case METHODS -> cands.stream().filter(CodeUnit::isFunction).toList();
                         case ALL -> cands;
                     };
 
