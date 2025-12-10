@@ -813,7 +813,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                 }
             }
 
-            var fragment = new ContextFragment.StringFragment(contextManager, diffText, description, syntaxStyle);
+            var filesForFragment = collectProjectFilesForSources(currentLeftSource, currentRightSource);
+
+            var fragment =
+                    new ContextFragment.StringFragment(contextManager, diffText, description, syntaxStyle, filesForFragment);
             contextManager.submitContextTask(() -> {
                 contextManager.addFragments(fragment);
                 IConsoleIO iConsoleIO = contextManager.getIo();
@@ -1594,6 +1597,51 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             return f.file().getName();
         }
         return null;
+    }
+
+    private Set<ProjectFile> collectProjectFilesForSources(BufferSource leftSource, BufferSource rightSource) {
+        var files = new LinkedHashSet<ProjectFile>();
+        addProjectFileForSource(leftSource, files);
+        addProjectFileForSource(rightSource, files);
+        return Set.copyOf(files);
+    }
+
+    private void addProjectFileForSource(BufferSource source, Set<ProjectFile> files) {
+        if (source instanceof BufferSource.StringSource ss) {
+            var filename = ss.filename();
+            if (filename == null || filename.isBlank()) {
+                return;
+            }
+            var normalized = filename.replace('\\', '/');
+            try {
+                var projectFile = contextManager.toFile(normalized);
+                files.add(projectFile);
+            } catch (Exception e) {
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Unable to resolve ProjectFile from StringSource filename '{}'", filename, e);
+                }
+            }
+        } else if (source instanceof BufferSource.FileSource fs) {
+            var file = fs.file();
+            var rootPath = contextManager.getProject().getRoot().toAbsolutePath().normalize();
+            var filePath = file.toPath().toAbsolutePath().normalize();
+            if (!filePath.startsWith(rootPath)) {
+                return;
+            }
+            var relPath = rootPath.relativize(filePath).toString().replace('\\', '/');
+            try {
+                var projectFile = contextManager.toFile(relPath);
+                files.add(projectFile);
+            } catch (Exception e) {
+                if (logger.isDebugEnabled()) {
+                    logger.debug(
+                            "Unable to resolve ProjectFile from FileSource path '{}' (relative '{}')",
+                            filePath,
+                            relPath,
+                            e);
+                }
+            }
+        }
     }
 
     @SuppressWarnings("UnusedVariable")
