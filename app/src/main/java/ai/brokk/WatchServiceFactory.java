@@ -84,7 +84,7 @@ public class WatchServiceFactory {
         }
 
         // 4) Default to native to preserve previous behavior
-        return WATCH_SERVICE_IMPL_NATIVE;
+        return WATCH_SERVICE_IMPL_LEGACY;
     }
 
     /**
