@@ -138,7 +138,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
      * Populates UI fields from pre-loaded settings data. No I/O operations.
      * Must be called on EDT. Enables the panel after populating.
      */
-    public void populateFromData(SettingsDialog.SettingsData data) {
+    public void populateFromData(SettingsData data) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
         // Enable panel now that we have data
@@ -150,7 +150,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         populateBuildTab(data);
     }
 
-    private void populateGeneralTab(SettingsDialog.SettingsData data) {
+    private void populateGeneralTab(SettingsData data) {
         styleGuideArea.setText(data.styleGuide() != null ? data.styleGuide() : "");
         styleGuideArea.setCaretPosition(0); // Reset scroll position to top
         commitFormatArea.setText(data.commitMessageFormat() != null ? data.commitMessageFormat() : "");
@@ -205,7 +205,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private void populateBuildTab(SettingsDialog.SettingsData data) {
+    private void populateBuildTab(SettingsData data) {
         // Build details - use pre-loaded data
         if (data.buildDetails() != null) {
             updateExcludedDirectories(data.buildDetails().excludedDirectories());
