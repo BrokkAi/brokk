@@ -269,6 +269,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                         return null;
                     });
         }
+        updateClearButtonTooltip();
     }
 
     private static void runOnEdt(Runnable r) {
@@ -414,6 +415,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         }
 
         currentActiveRunId = lastRunningId;
+        updateClearButtonTooltip();
     }
 
     /**
@@ -491,6 +493,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
             // Persist after updating the UI/model
             triggerSave();
+            updateClearButtonTooltip();
         });
         return id;
     }
@@ -581,6 +584,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
             // Persist updated completion state
             triggerSave();
+            updateClearButtonTooltip();
         });
     }
 
@@ -624,19 +628,68 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         return saveExecutor.awaitCompletion("test_runs_save");
     }
 
-    /** Clear all runs and output. */
+    /** Clear runs. If an active run exists, clear only completed runs; otherwise clear all. */
     public void clearAllRuns() {
         runOnEdt(() -> {
-            runsById.clear();
-            currentActiveRunId = null;
-            runListModel.clear();
-            try {
-                document.withWritePermission(() -> outputArea.setText(""));
-            } catch (RuntimeException ex) {
-                logger.warn("Failed to clear output", ex);
+            boolean hasActive = false;
+            for (int i = 0; i < runListModel.getSize(); i++) {
+                RunEntry re = runListModel.get(i);
+                if (re.isRunning()) {
+                    hasActive = true;
+                    break;
+                }
             }
-            // Persist cleared state
+
+            if (!hasActive) {
+                runsById.clear();
+                currentActiveRunId = null;
+                runListModel.clear();
+                try {
+                    document.withWritePermission(() -> outputArea.setText(""));
+                } catch (RuntimeException ex) {
+                    logger.warn("Failed to clear output", ex);
+                }
+                // Persist cleared state
+                triggerSave();
+                updateClearButtonTooltip();
+                return;
+            }
+
+            // Active run exists: remove only completed runs; keep running and queued
+            for (int i = runListModel.getSize() - 1; i >= 0; i--) {
+                RunEntry run = runListModel.get(i);
+                if (!run.isRunning() && !run.isQueued()) {
+                    runListModel.remove(i);
+                    runsById.remove(run.id);
+                }
+            }
+
+            // Ensure a sensible selection after removals
+            RunEntry selected = runList.getSelectedValue();
+            boolean selectionValid = selected != null && runListModel.contains(selected);
+            if (!selectionValid) {
+                int runningIdx = -1;
+                for (int i = 0; i < runListModel.getSize(); i++) {
+                    if (runListModel.get(i).isRunning()) {
+                        runningIdx = i;
+                        break;
+                    }
+                }
+                if (runningIdx >= 0) {
+                    runList.setSelectedIndex(runningIdx);
+                } else if (runListModel.getSize() > 0) {
+                    runList.setSelectedIndex(0);
+                } else {
+                    try {
+                        document.withWritePermission(() -> outputArea.setText(""));
+                    } catch (RuntimeException ex) {
+                        logger.warn("Failed to clear output", ex);
+                    }
+                }
+            }
+            updateOutputForSelectedRun();
             triggerSave();
+            updateClearButtonTooltip();
         });
     }
 
@@ -810,6 +863,22 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
         revalidate();
         repaint();
+    }
+
+    private void updateClearButtonTooltip() {
+        runOnEdt(() -> {
+            String tip = hasActiveRun() ? "Clear finished runs." : "Clear all test runs.";
+            clearAllButton.setToolTipText(tip);
+        });
+    }
+
+    private boolean hasActiveRun() {
+        for (int i = 0; i < runListModel.getSize(); i++) {
+            if (runListModel.get(i).isRunning()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
