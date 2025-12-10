@@ -4,7 +4,6 @@ import ai.brokk.AbstractService;
 import ai.brokk.Service;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.gui.Chrome;
-import ai.brokk.gui.dialogs.SettingsAdvancedPanel.AdvancedValues;
 import ai.brokk.gui.SwingUtil.ThemedIcon;
 import ai.brokk.gui.components.BrowserLabel;
 import ai.brokk.gui.components.MaterialButton;
@@ -990,164 +989,117 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     /**
-         * Apply only the settings managed by this panel (Service + Appearance + Keybindings + MCP + GitHub),
-         * combining them with the advanced values collected by {@link SettingsAdvancedPanel}.
-         * All global persistence is done atomically via {@link MainProject#saveAllGlobalSettings}, and
-         * UI-related preferences are persisted via {@link GlobalUiSettings#saveAllUiSettings}.
-         */
-    public boolean applySettings(AdvancedValues advancedValues) {
-                        // Validate API key
-                        String currentBrokkKeyInSettings = MainProject.getBrokkKey();
-                        String newBrokkKeyFromField = brokkKeyField.getText().trim();
-                        boolean keyStateChangedInUI = !newBrokkKeyFromField.equals(currentBrokkKeyInSettings);
+     * Apply only the settings managed by this panel (Service + Appearance + Keybindings + MCP + GitHub).
+     * To avoid introducing a dependency on the new advanced panel for saving, we combine the values we manage
+     * with the current persisted values for the settings that moved to the advanced panel and write them in one
+     * atomic save call to MainProject.saveAllGlobalSettings().
+     */
+    public boolean applySettings() {
+        // Validate API key
+        String currentBrokkKeyInSettings = MainProject.getBrokkKey();
+        String newBrokkKeyFromField = brokkKeyField.getText().trim();
+        boolean keyStateChangedInUI = !newBrokkKeyFromField.equals(currentBrokkKeyInSettings);
 
-                        if (keyStateChangedInUI && !newBrokkKeyFromField.isEmpty()) {
-                                            try {
-                                                                Service.validateKey(newBrokkKeyFromField);
-                                            } catch (IllegalArgumentException ex) {
-                                                                JOptionPane.showMessageDialog(this, "Invalid Brokk Key", "Invalid Key", JOptionPane.ERROR_MESSAGE);
-                                                                return false;
-                                            } catch (IOException ex) {
-                                                                JOptionPane.showMessageDialog(
-                                                                                                        this,
-                                                                                                        "Network error: " + ex.getMessage() + ". Key saved, but validation failed.",
-                                                                                                        "Network Error",
-                                                                                                        JOptionPane.WARNING_MESSAGE);
-                                            }
-                        }
+        if (keyStateChangedInUI && !newBrokkKeyFromField.isEmpty()) {
+            try {
+                Service.validateKey(newBrokkKeyFromField);
+            } catch (IllegalArgumentException ex) {
+                JOptionPane.showMessageDialog(this, "Invalid Brokk Key", "Invalid Key", JOptionPane.ERROR_MESSAGE);
+                return false;
+            } catch (IOException ex) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Network error: " + ex.getMessage() + ". Key saved, but validation failed.",
+                        "Network Error",
+                        JOptionPane.WARNING_MESSAGE);
+            }
+        }
 
-                        // Service settings
-                        MainProject.LlmProxySetting proxySetting;
-                        if (brokkProxyRadio == null) {
-                                            proxySetting = MainProject.getProxySetting();
-                        } else {
-                                            proxySetting = brokkProxyRadio.isSelected()
-                                                                                    ? MainProject.LlmProxySetting.BROKK
-                                                                                    : MainProject.LlmProxySetting.LOCALHOST;
-                        }
-                        boolean forceToolEmulation = forceToolEmulationCheckbox != null && forceToolEmulationCheckbox.isSelected();
+        // Service settings
+        MainProject.LlmProxySetting proxySetting;
+        if (brokkProxyRadio == null) {
+            proxySetting = MainProject.getProxySetting();
+        } else {
+            proxySetting = brokkProxyRadio.isSelected()
+                    ? MainProject.LlmProxySetting.BROKK
+                    : MainProject.LlmProxySetting.LOCALHOST;
+        }
+        var forceToolEmulation = (forceToolEmulationCheckbox != null) && forceToolEmulationCheckbox.isSelected();
 
-                        // Appearance
-                        String newTheme = GuiTheme.THEME_LIGHT;
-                        if (lightThemeRadio.isSelected()) {
-                                            newTheme = (String) lightThemeRadio.getClientProperty("theme");
-                        } else if (lightPlusThemeRadio.isSelected()) {
-                                            newTheme = (String) lightPlusThemeRadio.getClientProperty("theme");
-                        } else if (darkThemeRadio.isSelected()) {
-                                            newTheme = (String) darkThemeRadio.getClientProperty("theme");
-                        } else if (darkPlusThemeRadio.isSelected()) {
-                                            newTheme = (String) darkPlusThemeRadio.getClientProperty("theme");
-                        } else if (highContrastThemeRadio.isSelected()) {
-                                            newTheme = (String) highContrastThemeRadio.getClientProperty("theme");
-                        }
-                        boolean newWrapMode = wordWrapCheckbox.isSelected();
-                        float terminalFontSize = ((Double) terminalFontSizeSpinner.getValue()).floatValue();
+        // Appearance
+        String newTheme = GuiTheme.THEME_LIGHT;
+        if (lightThemeRadio.isSelected()) {
+            newTheme = (String) lightThemeRadio.getClientProperty("theme");
+        } else if (lightPlusThemeRadio.isSelected()) {
+            newTheme = (String) lightPlusThemeRadio.getClientProperty("theme");
+        } else if (darkThemeRadio.isSelected()) {
+            newTheme = (String) darkThemeRadio.getClientProperty("theme");
+        } else if (darkPlusThemeRadio.isSelected()) {
+            newTheme = (String) darkPlusThemeRadio.getClientProperty("theme");
+        } else if (highContrastThemeRadio.isSelected()) {
+            newTheme = (String) highContrastThemeRadio.getClientProperty("theme");
+        }
+        boolean newWrapMode = wordWrapCheckbox.isSelected();
+        float terminalFontSize = ((Double) terminalFontSizeSpinner.getValue()).floatValue();
 
-                        String previousTheme = MainProject.getTheme();
-                        boolean previousWrapMode = MainProject.getCodeBlockWrapMode();
-                        String previousUiScale = MainProject.getUiScalePref();
+        // UI Scale
+        String uiScale;
+        if (uiScaleAutoRadio != null && uiScaleCustomRadio != null && uiScaleCombo != null) {
+            if (uiScaleAutoRadio.isSelected()) {
+                uiScale = "auto";
+            } else {
+                String txt = String.valueOf(uiScaleCombo.getSelectedItem()).trim();
+                var allowed = Set.of("1.0", "2.0", "3.0", "4.0", "5.0");
+                if (!allowed.contains(txt)) {
+                    JOptionPane.showMessageDialog(
+                            this,
+                            "Select a scale from 1.0, 2.0, 3.0, 4.0, or 5.0.",
+                            "Invalid UI Scale",
+                            JOptionPane.ERROR_MESSAGE);
+                    return false;
+                }
+                uiScale = txt;
+            }
+        } else {
+            uiScale = MainProject.getUiScalePref();
+        }
 
-                        // UI Scale
-                        String uiScale;
-                        if (uiScaleAutoRadio != null && uiScaleCustomRadio != null && uiScaleCombo != null) {
-                                            if (uiScaleAutoRadio.isSelected()) {
-                                                                uiScale = "auto";
-                                            } else {
-                                                                String txt = String.valueOf(uiScaleCombo.getSelectedItem()).trim();
-                                                                var allowed = Set.of("1.0", "2.0", "3.0", "4.0", "5.0");
-                                                                if (!allowed.contains(txt)) {
-                                                                                    JOptionPane.showMessageDialog(
-                                                                                                                            this,
-                                                                                                                            "Select a scale from 1.0, 2.0, 3.0, 4.0, or 5.0.",
-                                                                                                                            "Invalid UI Scale",
-                                                                                                                            JOptionPane.ERROR_MESSAGE);
-                                                                                    return false;
-                                                                }
-                                                                uiScale = txt;
-                                            }
-                        } else {
-                                            uiScale = MainProject.getUiScalePref();
-                        }
+        // Build the grouped settings records we control
+        var serviceSettings = new MainProject.ServiceSettings(newBrokkKeyFromField, proxySetting, forceToolEmulation);
+        var appearanceSettings = new MainProject.AppearanceSettings(newTheme, newWrapMode, uiScale, terminalFontSize);
 
-                        // Grouped global settings we control
-                        var serviceSettings = new MainProject.ServiceSettings(newBrokkKeyFromField, proxySetting, forceToolEmulation);
-                        var appearanceSettings = new MainProject.AppearanceSettings(newTheme, newWrapMode, uiScale, terminalFontSize);
+        // For settings that were moved to Advanced, read current persisted values so we can perform an atomic save
+        var startupSettings = new MainProject.StartupSettings(MainProject.getStartupOpenMode());
+        var generalSettings = new MainProject.GeneralSettings(MainProject.getJvmMemorySettings());
+        var favoriteModels = MainProject.loadFavoriteModels();
+        var mcpConfig = chrome.getProject().getMainProject().getMcpConfig();
+        var modelSettings = new MainProject.ModelSettings(favoriteModels, mcpConfig);
 
-                        var startupSettings = new MainProject.StartupSettings(advancedValues.startupOpenMode());
-                        var generalSettings = new MainProject.GeneralSettings(advancedValues.jvmMemorySettings());
+        // Save all (this writes all global settings atomically)
+        MainProject.saveAllGlobalSettings(serviceSettings, appearanceSettings, startupSettings, generalSettings, modelSettings);
 
-                        // Favorite models and MCP configuration (from UI models)
-                        var favoriteModels = advancedValues.favoriteModels();
-                        var mcpServers = new ArrayList<McpServer>();
-                        for (int i = 0; i < mcpServersListModel.size(); i++) {
-                                            mcpServers.add(mcpServersListModel.get(i));
-                        }
-                        var mcpConfig = new McpConfig(List.copyOf(mcpServers));
-                        var modelSettings = new MainProject.ModelSettings(favoriteModels, mcpConfig);
+        // Persist force tool emulation immediately
+        MainProject.setForceToolEmulation(forceToolEmulation);
 
-                        // Persist all global settings atomically
-                        MainProject.saveAllGlobalSettings(
-                                                                serviceSettings, appearanceSettings, startupSettings, generalSettings, modelSettings);
+        // Side effects
+        if (keyStateChangedInUI) {
+            refreshBalanceDisplay();
+            updateSignupLabelVisibility();
+            parentDialog.triggerDataRetentionPolicyRefresh();
+            chrome.getContextManager().reloadService();
+        }
 
-                        // Immediate runtime effects not fully covered by saveAllGlobalSettings
-                        MainProject.setForceToolEmulation(forceToolEmulation);
-                        MainProject.setOtherModelsVendorPreference(advancedValues.otherModelsVendor());
-                        MainProject.setWatchServiceImplPreference(advancedValues.watchServiceImplPreference());
+        boolean themeChanged = !newTheme.equals(MainProject.getTheme());
+        boolean wrapChanged = newWrapMode != MainProject.getCodeBlockWrapMode();
+        if (themeChanged || wrapChanged) {
+            chrome.switchThemeAndWrapMode(newTheme, newWrapMode);
+        }
 
-                        var mainProject = chrome.getProject().getMainProject();
-                        Service.FavoriteModel selectedCodeFavorite = advancedValues.selectedCodeFavorite();
-                        if (selectedCodeFavorite != null) {
-                                            mainProject.setCodeModelConfig(selectedCodeFavorite.config());
-                        }
-                        Service.FavoriteModel selectedPrimaryFavorite = advancedValues.selectedPrimaryFavorite();
-                        if (selectedPrimaryFavorite != null) {
-                                            mainProject.setArchitectModelConfig(selectedPrimaryFavorite.config());
-                        }
+        JDeploySettingsUtil.updateJvmMemorySettings(generalSettings.jvmMemory());
+        chrome.updateTerminalFontSize();
 
-                        // Global UI and notification preferences
-                        var notificationSettings = new GlobalUiSettings.NotificationSettings(
-                                                                advancedValues.showCostNotifications(),
-                                                                advancedValues.showFreeInternalLLMCostNotifications(),
-                                                                advancedValues.showErrorNotifications(),
-                                                                advancedValues.showConfirmNotifications(),
-                                                                advancedValues.showInfoNotifications());
-
-                        boolean verticalLayout = !classicBrokkViewCheckbox.isSelected();
-                        boolean unifiedView = diffUnifiedRadio.isSelected();
-                        var uiPreferences = new GlobalUiSettings.UiPreferences(
-                                                                advancedValues.advancedMode(),
-                                                                verticalLayout,
-                                                                advancedValues.persistPerProjectBounds(),
-                                                                advancedValues.instructionsTabInsertIndentation(),
-                                                                unifiedView);
-
-                        GlobalUiSettings.saveAllUiSettings(notificationSettings, uiPreferences);
-                        GlobalUiSettings.saveSkipCommitGateInEzMode(advancedValues.skipCommitGateEzMode());
-
-                        // Restart signals
-                        if (!previousUiScale.equals(uiScale)) {
-                                            parentDialog.markRestartNeededForUiScale();
-                        }
-
-                        // Side effects
-                        if (keyStateChangedInUI) {
-                                            refreshBalanceDisplay();
-                                            updateSignupLabelVisibility();
-                                            parentDialog.triggerDataRetentionPolicyRefresh();
-                                            chrome.getContextManager().reloadService();
-                        }
-
-                        boolean themeChanged = !newTheme.equals(previousTheme);
-                        boolean wrapChanged = newWrapMode != previousWrapMode;
-                        if (themeChanged || wrapChanged) {
-                                            chrome.switchThemeAndWrapMode(newTheme, newWrapMode);
-                        }
-
-                        JDeploySettingsUtil.updateJvmMemorySettings(generalSettings.jvmMemory());
-                        chrome.updateTerminalFontSize();
-
-                        logger.debug("Applied global and advanced settings successfully");
-                        return true;
+        logger.debug("Applied global settings (service+appearance) successfully");
+        return true;
     }
 
     private void refreshBalanceDisplay() {
