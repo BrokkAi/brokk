@@ -3,6 +3,7 @@ package ai.brokk.gui;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.Completions;
+import ai.brokk.FuzzyMatcher;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
@@ -399,26 +400,26 @@ public class FileSelectionPanel extends JPanel {
 
             if (pattern.trim().isEmpty()) return List.of(); // Avoid processing empty patterns after merging
 
-            // Score based on filename and full path.
-            // Tie-breaking: project files (if identifiable) could be prioritized.
-            // The original FSD/MFSD had specific logic for this.
-            // Here, we simplify: if a path is within project root, it's a "project file" for scoring.
-            var comps = Completions.scoreShortAndLong(
-                    pattern.trim(), // Trim pattern for matching
-                    allCandidatePaths,
-                    p -> p.getFileName().toString(),
-                    Path::toString,
-                    p -> p.startsWith(project.getRoot()) ? 0 : 1, // Simple tie-breaker
-                    this::createPathCompletion);
+            var matcher = new FuzzyMatcher(pattern.trim());
 
-            // Sizing popup - needs AutoCompletion instance. This is tricky if provider is static.
-            // This suggests AutoCompleteUtil.sizePopupWindows should be called outside, or AC passed in.
-            // For now, let's assume the caller of provider might do this, or we omit it here.
-            // If `autoCompletion` field is accessible (e.g., provider is inner class of panel), then it can be used.
-            // This is not a static class, so it can access outer class members if needed.
-            // The autoCompletion instance that this provider is registered with is what matters.
+            record ScoredPath(Path p, int shortScore, int longScore, int tie) {}
 
-            return comps.stream().map(c -> (Completion) c).toList();
+            var comps = allCandidatePaths.stream()
+                    .map(p -> new ScoredPath(
+                            p,
+                            matcher.score(p.getFileName().toString()),
+                            matcher.score(p.toString()),
+                            p.startsWith(project.getRoot()) ? 0 : 1))
+                    .filter(sc -> sc.shortScore() != Integer.MAX_VALUE || sc.longScore() != Integer.MAX_VALUE)
+                    .sorted(Comparator
+                            .comparingInt((ScoredPath sc) -> Math.min(sc.shortScore(), sc.longScore()))
+                            .thenComparingInt(ScoredPath::tie)
+                            .thenComparing(sc -> sc.p().getFileName().toString()))
+                    .limit(100)
+                    .map(sc -> (Completion) this.createPathCompletion(sc.p()))
+                    .toList();
+
+            return comps;
         }
 
         private ShorthandCompletion createPathCompletion(Path path) {

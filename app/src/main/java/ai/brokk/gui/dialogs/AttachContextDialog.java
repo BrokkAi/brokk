@@ -2,6 +2,7 @@ package ai.brokk.gui.dialogs;
 
 import ai.brokk.Completions;
 import ai.brokk.ContextManager;
+import ai.brokk.FuzzyMatcher;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
@@ -662,22 +663,24 @@ public class AttachContextDialog extends BaseThemedDialog {
                 }
             }
 
-            var scored = Completions.scoreShortAndLong(
-                    pattern,
-                    folders,
-                    s -> {
+            var matcher = new FuzzyMatcher(pattern);
+            record ScoredFolder(String path, String shortName, int shortScore, int longScore) {}
+            List<ShorthandCompletion> scored = folders.stream()
+                    .map(s -> {
                         var p = Path.of(s);
                         var fn = p.getFileName();
-                        return fn != null ? fn.toString() : s;
-                    },
-                    s -> s,
-                    s -> 0,
-                    s -> {
-                        var p = Path.of(s);
-                        var fn = p.getFileName();
-                        var shortName = fn != null ? fn.toString() : s;
-                        return new ShorthandCompletion(this, shortName, s, s);
-                    });
+                        String shortName = fn != null ? fn.toString() : s;
+                        int shortScore = matcher.score(shortName);
+                        int longScore = matcher.score(s);
+                        return new ScoredFolder(s, shortName, shortScore, longScore);
+                    })
+                    .filter(sf -> sf.shortScore() != Integer.MAX_VALUE || sf.longScore() != Integer.MAX_VALUE)
+                    .sorted(java.util.Comparator
+                            .comparingInt((ScoredFolder sf) -> Math.min(sf.shortScore(), sf.longScore()))
+                            .thenComparing(ScoredFolder::shortName))
+                    .limit(100)
+                    .map(sf -> new ShorthandCompletion(this, sf.shortName(), sf.path(), sf.path()))
+                    .toList();
 
             AutoCompleteUtil.sizePopupWindows(ac, searchField, scored);
             return scored.stream().map(c -> (Completion) c).toList();
@@ -721,16 +724,13 @@ public class AttachContextDialog extends BaseThemedDialog {
                         case ALL -> cands;
                     };
 
-            var scored = Completions.scoreShortAndLong(
-                    pattern,
-                    filtered,
-                    CodeUnit::identifier,
-                    CodeUnit::fqName,
-                    cu -> 0,
-                    cu -> new ShorthandCompletion(this, cu.shortName(), cu.fqName() + " ", cu.fqName()));
+            List<ShorthandCompletion> completions = filtered.stream()
+                    .limit(100)
+                    .map(cu -> new ShorthandCompletion(this, cu.shortName(), cu.fqName() + " ", cu.fqName()))
+                    .toList();
 
-            AutoCompleteUtil.sizePopupWindows(dialog.ac, dialog.searchField, scored);
-            return scored.stream().map(c -> (Completion) c).toList();
+            AutoCompleteUtil.sizePopupWindows(dialog.ac, dialog.searchField, completions);
+            return completions.stream().map(c -> (Completion) c).toList();
         }
     }
 }
