@@ -120,7 +120,7 @@ curl -sS -X POST "http://localhost:8080/v1/jobs" \
   "autoCommit": false,
   "autoCompress": true,
   "plannerModel": "gpt-5",
-  "scanModel": "gpt-5-mini",   # optional: model to use for the pre-scan step
+  "scanModel": "gpt-5-mini",
   "preScan": true,
   "tags": {
     "mode": "ASK"
