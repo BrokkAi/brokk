@@ -412,12 +412,12 @@ public class ProjectFilesPanel extends JPanel {
 
             Set<ProjectFile> candidates = project.getRepo().getTrackedFiles();
 
-            var scoredCompletions = Completions.scoreShortAndLong(
+            var scoredCompletions = Completions.scoreProjectFiles(
                     pattern,
+                    project,
                     candidates,
                     ProjectFile::getFileName,
                     pf -> pf.getRelPath().toString(),
-                    pf -> 0,
                     this::createProjectFileCompletion,
                     minLength);
 
