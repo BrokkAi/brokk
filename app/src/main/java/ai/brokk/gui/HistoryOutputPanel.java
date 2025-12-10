@@ -19,10 +19,10 @@ import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.dialogs.CreatePullRequestDialog;
-import ai.brokk.gui.terminal.TerminalPanel;
 import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
+import ai.brokk.gui.terminal.TerminalPanel;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.DiffPanelUtils;
@@ -1143,7 +1143,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      * Builds a small theme-aware tab header with a title and a close button.
      * The close button removes the associated tab and invokes the provided onClose runnable if present.
      */
-    private JComponent createClosableTabHeader(JTabbedPane tabs, JComponent content, String title, @Nullable Runnable onClose) {
+    private JComponent createClosableTabHeader(
+            JTabbedPane tabs, JComponent content, String title, @Nullable Runnable onClose) {
         return new ClosableTabHeader(tabs, content, title, onClose);
     }
 
@@ -1256,85 +1257,86 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     /**
-                 * Opens a closable auxiliary tab inside the Output/Review tab strip.
-                 *
-                 * <p>Behavior:
-                 * - If a tab with the same plain-text title (HTML stripped) already exists, it is selected instead of adding a new one.
-                 * - If the content implements ThemeAware, the current theme is applied immediately.
-                 * - The tab header includes a close button. When closed, the provided onClose callback is invoked; if null, the method attempts best-effort cleanup (e.g., TerminalPanel.dispose, BrokkDiffPanel.dispose, or AutoCloseable.close).
-                 *
-                 * <p>Threading:
-                 * - Safe to call from any thread. If invoked off the EDT, the work is marshaled via SwingUtilities.invokeLater.
-                 *
-                 * <p>Safety:
-                 * - Guards against outputTabs being null or the tab lineup changing during operations (e.g., IndexOutOfBounds is caught and ignored safely).
-                 * - Index computations are validated before use to avoid out-of-range access.
-                 */
+     * Opens a closable auxiliary tab inside the Output/Review tab strip.
+     *
+     * <p>Behavior:
+     * - If a tab with the same plain-text title (HTML stripped) already exists, it is selected instead of adding a new one.
+     * - If the content implements ThemeAware, the current theme is applied immediately.
+     * - The tab header includes a close button. When closed, the provided onClose callback is invoked; if null, the method attempts best-effort cleanup (e.g., TerminalPanel.dispose, BrokkDiffPanel.dispose, or AutoCloseable.close).
+     *
+     * <p>Threading:
+     * - Safe to call from any thread. If invoked off the EDT, the work is marshaled via SwingUtilities.invokeLater.
+     *
+     * <p>Safety:
+     * - Guards against outputTabs being null or the tab lineup changing during operations (e.g., IndexOutOfBounds is caught and ignored safely).
+     * - Index computations are validated before use to avoid out-of-range access.
+     */
     public void openAuxTab(String title, JComponent content, @Nullable Runnable onClose) {
-                                                        Runnable task = () -> {
-                                                                                                            var tabs = outputTabs;
-                                                                                                            if (tabs == null) {
-                                                                                                                                                                return;
-                                                                                                            }
+        Runnable task = () -> {
+            var tabs = outputTabs;
+            if (tabs == null) {
+                return;
+            }
 
-                                                                                                            // Prevent duplicate tabs by plain-text title (strip any HTML from existing titles)
-                                                                                                            String needle = title.replaceAll("<[^>]*>", "").trim();
-                                                                                                            for (int i = 0; i < tabs.getTabCount(); i++) {
-                                                                                                                                                                try {
-                                                                                                                                                                                                                    String existing = tabs.getTitleAt(i);
-                                                                                                                                                                                                                    if (existing == null) existing = "";
-                                                                                                                                                                                                                    String plain = existing.replaceAll("<[^>]*>", "").trim();
-                                                                                                                                                                                                                    if (plain.equalsIgnoreCase(needle)) {
-                                                                                                                                                                                                                                                                        try {
-                                                                                                                                                                                                                                                                                                                            tabs.setSelectedIndex(i);
-                                                                                                                                                                                                                                                                        } catch (IndexOutOfBoundsException ignore) {
-                                                                                                                                                                                                                                                                                                                            // Tab lineup may have changed; ignore safely.
-                                                                                                                                                                                                                                                                        }
-                                                                                                                                                                                                                                                                        return;
-                                                                                                                                                                                                                    }
-                                                                                                                                                                } catch (IndexOutOfBoundsException ignore) {
-                                                                                                                                                                                                                    // Tab lineup changed underneath us; fall through to add a new tab.
-                                                                                                                                                                                                                    break;
-                                                                                                                                                                }
-                                                                                                            }
+            // Prevent duplicate tabs by plain-text title (strip any HTML from existing titles)
+            String needle = title.replaceAll("<[^>]*>", "").trim();
+            for (int i = 0; i < tabs.getTabCount(); i++) {
+                try {
+                    String existing = tabs.getTitleAt(i);
+                    if (existing == null) existing = "";
+                    String plain = existing.replaceAll("<[^>]*>", "").trim();
+                    if (plain.equalsIgnoreCase(needle)) {
+                        try {
+                            tabs.setSelectedIndex(i);
+                        } catch (IndexOutOfBoundsException ignore) {
+                            // Tab lineup may have changed; ignore safely.
+                        }
+                        return;
+                    }
+                } catch (IndexOutOfBoundsException ignore) {
+                    // Tab lineup changed underneath us; fall through to add a new tab.
+                    break;
+                }
+            }
 
-                                                                                                            if (content instanceof ThemeAware ta) {
-                                                                                                                                                                ta.applyTheme(chrome.getTheme());
-                                                                                                            }
+            if (content instanceof ThemeAware ta) {
+                ta.applyTheme(chrome.getTheme());
+            }
 
-                                                                                                            try {
-                                                                                                                                                                tabs.addTab(title, content);
-                                                                                                            } catch (IndexOutOfBoundsException ignore) {
-                                                                                                                                                                // Very unlikely; continue and compute index safely below.
-                                                                                                            }
+            try {
+                tabs.addTab(title, content);
+            } catch (IndexOutOfBoundsException ignore) {
+                // Very unlikely; continue and compute index safely below.
+            }
 
-                                                                                                            int index = tabs.indexOfComponent(content);
-                                                                                                            if (index < 0) index = tabs.getTabCount() - 1;
+            int index = tabs.indexOfComponent(content);
+            if (index < 0) index = tabs.getTabCount() - 1;
 
-                                                                                                            if (index >= 0 && index < tabs.getTabCount()) {
-                                                                                                                                                                var header = createClosableTabHeader(tabs, content, title, onClose);
-                                                                                                                                                                try {
-                                                                                                                                                                                                                    tabs.setTabComponentAt(index, header);
-                                                                                                                                                                } catch (IndexOutOfBoundsException ignore) {
-                                                                                                                                                                                                                    // Tab lineup changed; skip setting header safely.
-                                                                                                                                                                }
-                                                                                                                                                                try {
-                                                                                                                                                                                                                    tabs.setSelectedIndex(index);
-                                                                                                                                                                } catch (IndexOutOfBoundsException ignore) {
-                                                                                                                                                                                                                    // Tab lineup changed; skip selection safely.
-                                                                                                                                                                }
-                                                                                                            } else {
-                                                                                                                                                                logger.debug(
-                                                                                                                                                                                                                                                                        "openAuxTab: computed tab index {} out of range (tabCount={}); lineup may have changed",
-                                                                                                                                                                                                                                                                        index, tabs.getTabCount());
-                                                                                                            }
-                                                        };
+            if (index >= 0 && index < tabs.getTabCount()) {
+                var header = createClosableTabHeader(tabs, content, title, onClose);
+                try {
+                    tabs.setTabComponentAt(index, header);
+                } catch (IndexOutOfBoundsException ignore) {
+                    // Tab lineup changed; skip setting header safely.
+                }
+                try {
+                    tabs.setSelectedIndex(index);
+                } catch (IndexOutOfBoundsException ignore) {
+                    // Tab lineup changed; skip selection safely.
+                }
+            } else {
+                logger.debug(
+                        "openAuxTab: computed tab index {} out of range (tabCount={}); lineup may have changed",
+                        index,
+                        tabs.getTabCount());
+            }
+        };
 
-                                                        if (SwingUtilities.isEventDispatchThread()) {
-                                                                                                            task.run();
-                                                        } else {
-                                                                                                            SwingUtilities.invokeLater(task);
-                                                        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
     }
 
     /**
