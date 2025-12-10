@@ -496,15 +496,8 @@ public class SearchAgent {
         // Current Workspace contents (apply viewing policy for visibility filtering)
         messages.addAll(precomputedWorkspaceMessages);
 
-        // Related identifiers from nearby files (best-effort; failures must not abort the agent)
-        Map<ProjectFile, String> related = Map.of();
-        try {
-            related = context.buildRelatedIdentifiers(10);
-        } catch (Throwable t) {
-            // Protect agent flow from repository/analysis issues (e.g., unexpected repo impls causing casts).
-            // Log and continue without related-file hints.
-            logger.warn("Unable to compute related identifiers for workspace; continuing without related files.", t);
-        }
+        // Related identifiers from nearby files
+        var related = context.buildRelatedIdentifiers(10);
         if (!related.isEmpty()) {
             var relatedBlock = ArchitectPrompts.formatRelatedFiles(related);
             messages.add(new UserMessage(
