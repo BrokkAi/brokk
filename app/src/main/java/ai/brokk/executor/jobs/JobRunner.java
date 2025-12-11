@@ -15,13 +15,11 @@ import ai.brokk.prompts.CodePrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Json;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.google.common.base.Splitter;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -151,18 +149,7 @@ public final class JobRunner {
                 // To use it with set or get methods
                 AtomicReference<Object> completionResultRef = new AtomicReference<>(null);
 
-                List<TaskList.TaskItem> tasks;
-                if (mode == Mode.REVIEW) {
-                    // For REVIEW mode, create a single synthetic task
-                    tasks = List.of(new TaskList.TaskItem(null, "Review", false));
-                } else {
-                    // For other modes, parse tasks from spec.taskInput (split by newlines, trim, ignore blanks)
-                    tasks = parseTasks(spec.taskInput());
-                }
-                int total = tasks.size();
                 var completed = new java.util.concurrent.atomic.AtomicInteger(0);
-
-                logger.info("Job {} parsed {} task(s)", jobId, total);
 
                 var rawCodeModelName = spec.codeModel();
                 var trimmedCodeModelName = rawCodeModelName == null ? null : rawCodeModelName.trim();
@@ -243,372 +230,354 @@ public final class JobRunner {
 
                 // Execute within submitLlmAction to honor cancellation semantics
                 cm.submitLlmAction(() -> {
-                            for (TaskList.TaskItem task : tasks) {
-                                if (cancelled.get()) {
-                                    logger.info("Job {} execution cancelled by user", jobId);
-                                    break;
-                                }
-
-                                logger.info("Job {} executing task: {}", jobId, task.text());
-                                try {
-                                    switch (mode) {
-                                        case ARCHITECT -> {
-                                            cm.executeTask(
-                                                    task,
+                            if (cancelled.get()) {
+                                logger.info("Job {} execution cancelled by user", jobId);
+                                return;
+                            }
+                            try {
+                                switch (mode) {
+                                    case ARCHITECT -> {
+                                        cm.executeTask(
+                                                new TaskList.TaskItem("", spec.taskInput(), false),
+                                                Objects.requireNonNull(
+                                                        architectPlannerModel,
+                                                        "plannerModel required for ARCHITECT jobs"),
+                                                Objects.requireNonNull(
+                                                        architectCodeModel,
+                                                        "code model unavailable for ARCHITECT jobs"));
+                                    }
+                                    case LUTZ -> {
+                                        // Phase 1: Use SearchAgent to generate a task list from the initial task
+                                        try (var scope = cm.beginTask(spec.taskInput(), false)) {
+                                            var context = cm.liveContext();
+                                            var searchAgent = new SearchAgent(
+                                                    context,
+                                                    spec.taskInput(),
                                                     Objects.requireNonNull(
                                                             architectPlannerModel,
-                                                            "plannerModel required for ARCHITECT jobs"),
-                                                    Objects.requireNonNull(
-                                                            architectCodeModel,
-                                                            "code model unavailable for ARCHITECT jobs"));
+                                                            "plannerModel required for LUTZ jobs"),
+                                                    SearchAgent.Objective.TASKS_ONLY,
+                                                    scope);
+                                            var taskListResult = searchAgent.execute();
+                                            scope.append(taskListResult);
                                         }
-                                        case LUTZ -> {
-                                            // Phase 1: Use SearchAgent to generate a task list from the initial task
-                                            try (var scope = cm.beginTask(task.text(), false)) {
-                                                var context = cm.liveContext();
-                                                var searchAgent = new SearchAgent(
-                                                        context,
-                                                        task.text(),
-                                                        Objects.requireNonNull(
-                                                                architectPlannerModel,
-                                                                "plannerModel required for LUTZ jobs"),
-                                                        SearchAgent.Objective.TASKS_ONLY,
-                                                        scope);
-                                                var taskListResult = searchAgent.execute();
-                                                scope.append(taskListResult);
-                                            }
-                                            // Task list is now in the live context and persisted by the scope
-                                            logger.debug("LUTZ Phase 1 complete: task list generated");
+                                        // Task list is now in the live context and persisted by the scope
+                                        logger.debug("LUTZ Phase 1 complete: task list generated");
 
-                                            // Phase 2: Check if task list was generated; if empty, mark job complete
-                                            var generatedTasks =
-                                                    cm.getTaskList().tasks();
-                                            if (generatedTasks.isEmpty()) {
-                                                var msg = "SearchAgent generated no tasks for: " + task.text();
-                                                logger.info("LUTZ job {}: {}", jobId, msg);
-                                                if (console != null) {
-                                                    try {
-                                                        console.showNotification(IConsoleIO.NotificationRole.INFO, msg);
-                                                    } catch (Throwable ignore) {
-                                                        // Non-critical: event writing failed
-                                                    }
-                                                }
-                                                // No tasks generated; outer loop will handle completion/progress
-                                            } else {
-                                                // Phase 3: Execute each generated incomplete task sequentially
-                                                logger.debug(
-                                                        "LUTZ Phase 2 complete: {} task(s) to execute",
-                                                        generatedTasks.size());
-                                                var incompleteTasks = generatedTasks.stream()
-                                                        .filter(t -> !t.done())
-                                                        .toList();
-                                                logger.debug(
-                                                        "LUTZ will execute {} incomplete task(s)",
-                                                        incompleteTasks.size());
-
-                                                for (TaskList.TaskItem generatedTask : incompleteTasks) {
-                                                    if (cancelled.get()) {
-                                                        logger.info(
-                                                                "LUTZ job {} execution cancelled during task iteration",
-                                                                jobId);
-                                                        return; // Cancelled: exit submitLlmAction early to prevent
-                                                        // further job completion handling in the outer loop
-                                                    }
-
-                                                    logger.info(
-                                                            "LUTZ job {} executing generated task: {}",
-                                                            jobId,
-                                                            generatedTask.text());
-                                                    try {
-                                                        cm.executeTask(
-                                                                generatedTask,
-                                                                architectPlannerModel,
-                                                                Objects.requireNonNull(architectCodeModel));
-                                                    } catch (Exception e) {
-                                                        logger.warn(
-                                                                "Generated task execution failed for job {}: {}",
-                                                                jobId,
-                                                                e.getMessage());
-                                                        throw e;
-                                                    }
-                                                }
-
-                                                logger.debug("LUTZ Phase 3 complete: all generated tasks executed");
-                                            }
-                                        }
-                                        case CODE -> {
-                                            var agent = new CodeAgent(
-                                                    cm,
-                                                    Objects.requireNonNull(
-                                                            codeModeModel, "code model unavailable for CODE jobs"));
-                                            try (var scope = cm.beginTask(task.text(), false)) {
-                                                var result = agent.runTask(task.text(), Set.of());
-                                                scope.append(result);
-                                            }
-                                        }
-                                        case ASK -> {
-                                            // Read-only ASK execution: perform optional pre-scan (Context Agent)
-                                            // then generate a single, final written answer using the plannerModel
-                                            // and the current Workspace. Do NOT invoke SearchAgent.execute() or
-                                            // any tools that could modify the workspace. Append the answer to the
-                                            // task scope and continue.
-                                            try (var scope = cm.beginTask(task.text(), false)) {
-                                                var context = cm.liveContext();
-
-                                                // Construct SearchAgent only for potential pre-scan usage (no execute).
-                                                var searchAgent = new SearchAgent(
-                                                        context,
-                                                        task.text(),
-                                                        Objects.requireNonNull(
-                                                                askPlannerModel, "plannerModel required for ASK jobs"),
-                                                        SearchAgent.Objective.ANSWER_ONLY,
-                                                        scope);
-
-                                                // Optional pre-scan: resolve scan model similarly to SEARCH mode.
-                                                if (spec.preScan()) {
-                                                    String rawScanModel = spec.scanModel();
-                                                    String trimmedScanModel =
-                                                            rawScanModel == null ? "" : rawScanModel.trim();
-
-                                                    // Emit deterministic start NOTIFICATION so headless clients/tests
-                                                    // can observe the pre-scan start.
-                                                    try {
-                                                        store.appendEvent(
-                                                                jobId,
-                                                                JobEvent.of(
-                                                                        "NOTIFICATION",
-                                                                        "Brokk Context Engine: analyzing repository context..."));
-                                                    } catch (IOException ioe) {
-                                                        logger.warn(
-                                                                "Failed to append pre-scan start notification event for job {}: {}",
-                                                                jobId,
-                                                                ioe.getMessage(),
-                                                                ioe);
-                                                    }
-
-                                                    StreamingChatModel scanModelToUse = null;
-                                                    try {
-                                                        scanModelToUse = !trimmedScanModel.isEmpty()
-                                                                ? resolveModelOrThrow(trimmedScanModel)
-                                                                : cm.getService()
-                                                                        .getScanModel();
-                                                    } catch (IllegalArgumentException iae) {
-                                                        // resolveModelOrThrow may throw; log and continue without
-                                                        // failing job.
-                                                        logger.warn(
-                                                                "Pre-scan model unavailable for job {}: {}",
-                                                                jobId,
-                                                                iae.getMessage());
-                                                        scanModelToUse = null;
-                                                    } catch (Exception e) {
-                                                        logger.warn(
-                                                                "Unexpected error during pre-scan model resolution for job {}: {}",
-                                                                jobId,
-                                                                e.getMessage(),
-                                                                e);
-                                                        scanModelToUse = null;
-                                                    }
-
-                                                    if (scanModelToUse == null) {
-                                                        // No scan model available; log and skip pre-scan but still emit
-                                                        // completion below.
-                                                        logger.warn(
-                                                                "ASK pre-scan requested but no scan model is available (spec.scanModel='{}'). Skipping pre-scan for job {}.",
-                                                                trimmedScanModel,
-                                                                jobId);
-                                                    } else {
-                                                        // Attempt the pre-scan, but do not allow failures to abort the
-                                                        // job.
-                                                        try {
-                                                            searchAgent.scanInitialContext(scanModelToUse);
-                                                        } catch (InterruptedException ie) {
-                                                            // Preserve interruption status but continue with the job.
-                                                            Thread.currentThread()
-                                                                    .interrupt();
-                                                            logger.warn(
-                                                                    "Pre-scan interrupted for job {}: {}",
-                                                                    jobId,
-                                                                    ie.getMessage(),
-                                                                    ie);
-                                                        } catch (IllegalArgumentException iae) {
-                                                            // Model resolution or argument problems: log and continue.
-                                                            logger.warn(
-                                                                    "Pre-scan skipped due to model error for job {}: {}",
-                                                                    jobId,
-                                                                    iae.getMessage());
-                                                        } catch (Exception ex) {
-                                                            // Any other exception during pre-scan should not fail the
-                                                            // job.
-                                                            logger.warn(
-                                                                    "Pre-scan failed for job {}: {}",
-                                                                    jobId,
-                                                                    ex.getMessage(),
-                                                                    ex);
-                                                        }
-                                                    }
-
-                                                    // Emit deterministic completion NOTIFICATION so headless
-                                                    // clients/tests can reliably observe that the Context Engine
-                                                    // pre-scan phase finished.
-                                                    try {
-                                                        store.appendEvent(
-                                                                jobId,
-                                                                JobEvent.of(
-                                                                        "NOTIFICATION",
-                                                                        "Brokk Context Engine: complete — contextual insights added to Workspace."));
-                                                    } catch (IOException ioe) {
-                                                        logger.warn(
-                                                                "Failed to append pre-scan completion event for job {}: {}",
-                                                                jobId,
-                                                                ioe.getMessage(),
-                                                                ioe);
-                                                    }
-                                                }
-
+                                        // Phase 2: Check if task list was generated; if empty, mark job complete
+                                        var generatedTasks = cm.getTaskList().tasks();
+                                        if (generatedTasks.isEmpty()) {
+                                            var msg = "SearchAgent generated no tasks for: " + spec.taskInput();
+                                            logger.info("LUTZ job {}: {}", jobId, msg);
+                                            if (console != null) {
                                                 try {
-                                                    // Use helper that builds a workspace-only prompt and calls the
-                                                    // planner model.
-                                                    TaskResult askResult =
-                                                            askUsingPlannerModel(askPlannerModel, task.text());
-                                                    scope.append(askResult);
-                                                } catch (Throwable t) {
-                                                    // Do not allow a planner-model failure to abort the entire job.
-                                                    logger.error(
-                                                            "ASK direct-answer failed for job {}: {}",
-                                                            jobId,
-                                                            t.getMessage(),
-                                                            t);
-                                                    // Report to headless console if available (best-effort).
-                                                    if (console != null) {
-                                                        try {
-                                                            console.toolError(
-                                                                    "ASK direct-answer failed: "
-                                                                            + (t.getMessage() == null
-                                                                                    ? t.getClass()
-                                                                                            .getSimpleName()
-                                                                                    : t.getMessage()),
-                                                                    "ASK error");
-                                                        } catch (Throwable ignore) {
-                                                            // best-effort only
-                                                        }
-                                                    }
-                                                    // Append a non-fatal TaskResult indicating the failure so the task
-                                                    // has a record,
-                                                    // but do not rethrow (so job status handling can complete
-                                                    // normally).
-                                                    var stopDetails = new TaskResult.StopDetails(
-                                                            TaskResult.StopReason.LLM_ERROR,
-                                                            t.getMessage() == null
-                                                                    ? t.getClass()
-                                                                            .getSimpleName()
-                                                                    : t.getMessage());
-                                                    List<ChatMessage> ui = List.of(
-                                                            new UserMessage(task.text()),
-                                                            new SystemMessage("ASK direct-answer failed: "
-                                                                    + stopDetails.explanation()));
-                                                    var failureResult = new TaskResult(
-                                                            cm,
-                                                            "ASK: " + task.text() + " [LLM_ERROR]",
-                                                            ui,
-                                                            context,
-                                                            stopDetails,
-                                                            null);
-                                                    try {
-                                                        scope.append(failureResult);
-                                                    } catch (Throwable e2) {
-                                                        // If appending also fails, log it but keep proceeding so we can
-                                                        // update job status normally.
-                                                        logger.warn(
-                                                                "Failed to append ASK failure result for job {}: {}",
-                                                                jobId,
-                                                                e2.getMessage(),
-                                                                e2);
-                                                    }
-                                                    // Do not rethrow; allow outer flow to mark job completed
-                                                    // (read-only) where appropriate.
+                                                    console.showNotification(IConsoleIO.NotificationRole.INFO, msg);
+                                                } catch (Throwable ignore) {
+                                                    // Non-critical: event writing failed
                                                 }
                                             }
-                                        }
-                                        case SEARCH -> {
-                                            // Read-only repository search using a scan model (spec.scanModel preferred,
-                                            // otherwise project default)
-                                            try (var scope = cm.beginTask(task.text(), false)) {
-                                                var context = cm.liveContext();
+                                            // No tasks generated; outer loop will handle completion/progress
+                                        } else {
+                                            // Phase 3: Execute each generated incomplete task sequentially
+                                            logger.debug(
+                                                    "LUTZ Phase 2 complete: {} task(s) to execute",
+                                                    generatedTasks.size());
+                                            var incompleteTasks = generatedTasks.stream()
+                                                    .filter(t -> !t.done())
+                                                    .toList();
+                                            logger.debug(
+                                                    "LUTZ will execute {} incomplete task(s)", incompleteTasks.size());
 
-                                                // Determine scan model: prefer explicit spec.scanModel() if provided,
-                                                // otherwise use project default
+                                            for (TaskList.TaskItem generatedTask : incompleteTasks) {
+                                                if (cancelled.get()) {
+                                                    logger.info(
+                                                            "LUTZ job {} execution cancelled during task iteration",
+                                                            jobId);
+                                                    return; // Cancelled: exit submitLlmAction early to prevent
+                                                    // further job completion handling in the outer loop
+                                                }
+
+                                                logger.info(
+                                                        "LUTZ job {} executing generated task: {}",
+                                                        jobId,
+                                                        generatedTask.text());
+                                                try {
+                                                    cm.executeTask(
+                                                            generatedTask,
+                                                            architectPlannerModel,
+                                                            Objects.requireNonNull(architectCodeModel));
+                                                } catch (Exception e) {
+                                                    logger.warn(
+                                                            "Generated task execution failed for job {}: {}",
+                                                            jobId,
+                                                            e.getMessage());
+                                                    throw e;
+                                                }
+                                            }
+
+                                            logger.debug("LUTZ Phase 3 complete: all generated tasks executed");
+                                        }
+                                    }
+                                    case CODE -> {
+                                        var agent = new CodeAgent(
+                                                cm,
+                                                Objects.requireNonNull(
+                                                        codeModeModel, "code model unavailable for CODE jobs"));
+                                        try (var scope = cm.beginTask(spec.taskInput(), false)) {
+                                            var result = agent.runTask(spec.taskInput(), Set.of());
+                                            scope.append(result);
+                                        }
+                                    }
+                                    case ASK -> {
+                                        // Read-only ASK execution: perform optional pre-scan (Context Agent)
+                                        // then generate a single, final written answer using the plannerModel
+                                        // and the current Workspace. Do NOT invoke SearchAgent.execute() or
+                                        // any tools that could modify the workspace. Append the answer to the
+                                        // task scope and continue.
+                                        try (var scope = cm.beginTask(spec.taskInput(), false)) {
+                                            var context = cm.liveContext();
+
+                                            // Construct SearchAgent only for potential pre-scan usage (no execute).
+                                            var searchAgent = new SearchAgent(
+                                                    context,
+                                                    spec.taskInput(),
+                                                    Objects.requireNonNull(
+                                                            askPlannerModel, "plannerModel required for ASK jobs"),
+                                                    SearchAgent.Objective.ANSWER_ONLY,
+                                                    scope);
+
+                                            // Optional pre-scan: resolve scan model similarly to SEARCH mode.
+                                            if (spec.preScan()) {
                                                 String rawScanModel = spec.scanModel();
                                                 String trimmedScanModel =
-                                                        rawScanModel == null ? null : rawScanModel.trim();
-                                                final StreamingChatModel scanModelToUse = (trimmedScanModel != null
-                                                                && !trimmedScanModel.isEmpty())
-                                                        ? resolveModelOrThrow(trimmedScanModel)
-                                                        : cm.getService().getScanModel();
+                                                        rawScanModel == null ? "" : rawScanModel.trim();
 
-                                                var searchAgent = new SearchAgent(
+                                                // Emit deterministic start NOTIFICATION so headless clients/tests
+                                                // can observe the pre-scan start.
+                                                try {
+                                                    store.appendEvent(
+                                                            jobId,
+                                                            JobEvent.of(
+                                                                    "NOTIFICATION",
+                                                                    "Brokk Context Engine: analyzing repository context..."));
+                                                } catch (IOException ioe) {
+                                                    logger.warn(
+                                                            "Failed to append pre-scan start notification event for job {}: {}",
+                                                            jobId,
+                                                            ioe.getMessage(),
+                                                            ioe);
+                                                }
+
+                                                StreamingChatModel scanModelToUse = null;
+                                                try {
+                                                    scanModelToUse = !trimmedScanModel.isEmpty()
+                                                            ? resolveModelOrThrow(trimmedScanModel)
+                                                            : cm.getService().getScanModel();
+                                                } catch (IllegalArgumentException iae) {
+                                                    // resolveModelOrThrow may throw; log and continue without
+                                                    // failing job.
+                                                    logger.warn(
+                                                            "Pre-scan model unavailable for job {}: {}",
+                                                            jobId,
+                                                            iae.getMessage());
+                                                    scanModelToUse = null;
+                                                } catch (Exception e) {
+                                                    logger.warn(
+                                                            "Unexpected error during pre-scan model resolution for job {}: {}",
+                                                            jobId,
+                                                            e.getMessage(),
+                                                            e);
+                                                    scanModelToUse = null;
+                                                }
+
+                                                if (scanModelToUse == null) {
+                                                    // No scan model available; log and skip pre-scan but still emit
+                                                    // completion below.
+                                                    logger.warn(
+                                                            "ASK pre-scan requested but no scan model is available (spec.scanModel='{}'). Skipping pre-scan for job {}.",
+                                                            trimmedScanModel,
+                                                            jobId);
+                                                } else {
+                                                    // Attempt the pre-scan, but do not allow failures to abort the
+                                                    // job.
+                                                    try {
+                                                        searchAgent.scanInitialContext(scanModelToUse);
+                                                    } catch (InterruptedException ie) {
+                                                        // Preserve interruption status but continue with the job.
+                                                        Thread.currentThread().interrupt();
+                                                        logger.warn(
+                                                                "Pre-scan interrupted for job {}: {}",
+                                                                jobId,
+                                                                ie.getMessage(),
+                                                                ie);
+                                                    } catch (IllegalArgumentException iae) {
+                                                        // Model resolution or argument problems: log and continue.
+                                                        logger.warn(
+                                                                "Pre-scan skipped due to model error for job {}: {}",
+                                                                jobId,
+                                                                iae.getMessage());
+                                                    } catch (Exception ex) {
+                                                        // Any other exception during pre-scan should not fail the
+                                                        // job.
+                                                        logger.warn(
+                                                                "Pre-scan failed for job {}: {}",
+                                                                jobId,
+                                                                ex.getMessage(),
+                                                                ex);
+                                                    }
+                                                }
+
+                                                // Emit deterministic completion NOTIFICATION so headless
+                                                // clients/tests can reliably observe that the Context Engine
+                                                // pre-scan phase finished.
+                                                try {
+                                                    store.appendEvent(
+                                                            jobId,
+                                                            JobEvent.of(
+                                                                    "NOTIFICATION",
+                                                                    "Brokk Context Engine: complete — contextual insights added to Workspace."));
+                                                } catch (IOException ioe) {
+                                                    logger.warn(
+                                                            "Failed to append pre-scan completion event for job {}: {}",
+                                                            jobId,
+                                                            ioe.getMessage(),
+                                                            ioe);
+                                                }
+                                            }
+
+                                            try {
+                                                // Use helper that builds a workspace-only prompt and calls the
+                                                // planner model.
+                                                TaskResult askResult =
+                                                        askUsingPlannerModel(askPlannerModel, spec.taskInput());
+                                                scope.append(askResult);
+                                            } catch (Throwable t) {
+                                                // Do not allow a planner-model failure to abort the entire job.
+                                                logger.error(
+                                                        "ASK direct-answer failed for job {}: {}",
+                                                        jobId,
+                                                        t.getMessage(),
+                                                        t);
+                                                // Report to headless console if available (best-effort).
+                                                if (console != null) {
+                                                    try {
+                                                        console.toolError(
+                                                                "ASK direct-answer failed: "
+                                                                        + (t.getMessage() == null
+                                                                                ? t.getClass()
+                                                                                        .getSimpleName()
+                                                                                : t.getMessage()),
+                                                                "ASK error");
+                                                    } catch (Throwable ignore) {
+                                                        // best-effort only
+                                                    }
+                                                }
+                                                // Append a non-fatal TaskResult indicating the failure so the task
+                                                // has a record,
+                                                // but do not rethrow (so job status handling can complete
+                                                // normally).
+                                                var stopDetails = new TaskResult.StopDetails(
+                                                        TaskResult.StopReason.LLM_ERROR,
+                                                        t.getMessage() == null
+                                                                ? t.getClass().getSimpleName()
+                                                                : t.getMessage());
+                                                List<ChatMessage> ui = List.of(
+                                                        new UserMessage(spec.taskInput()),
+                                                        new SystemMessage("ASK direct-answer failed: "
+                                                                + stopDetails.explanation()));
+                                                var failureResult = new TaskResult(
+                                                        cm,
+                                                        "ASK: " + spec.taskInput() + " [LLM_ERROR]",
+                                                        ui,
                                                         context,
-                                                        task.text(),
-                                                        Objects.requireNonNull(
-                                                                scanModelToUse,
-                                                                "scan model unavailable for SEARCH jobs"),
-                                                        SearchAgent.Objective.ANSWER_ONLY,
-                                                        scope);
-                                                var result = searchAgent.execute();
-                                                scope.append(result);
+                                                        stopDetails,
+                                                        null);
+                                                try {
+                                                    scope.append(failureResult);
+                                                } catch (Throwable e2) {
+                                                    // If appending also fails, log it but keep proceeding so we can
+                                                    // update job status normally.
+                                                    logger.warn(
+                                                            "Failed to append ASK failure result for job {}: {}",
+                                                            jobId,
+                                                            e2.getMessage(),
+                                                            e2);
+                                                }
+                                                // Do not rethrow; allow outer flow to mark job completed
+                                                // (read-only) where appropriate.
                                             }
                                         }
-                                        case REVIEW -> {
-                                            var prData = Json.getMapper().readTree(spec.taskInput());
-                                            int prNumber =
-                                                    prData.get("pr_number").asInt(0);
-                                            String repoURL =
-                                                    prData.get("repo_url").asText();
-
-                                            // Create review prompt
-                                            String reviewPrompt = managePRContext(prNumber, repoURL, spec);
-
-                                            // Execute review using CodeAgent
-                                            var agent = new CodeAgent(
-                                                    cm,
-                                                    Objects.requireNonNull(
-                                                            reviewPlannerModel,
-                                                            "plannel model unavailable for REVIEW jobs"));
-
-                                            TaskResult result;
-                                            try (var scope = cm.beginTask("Review", false)) {
-                                                result = agent.runTask(reviewPrompt, Set.of());
-                                                scope.append(result);
-                                            }
-                                            String jsonString =
-                                                    result.stopDetails().explanation();
-                                            if (!jsonString.isBlank()) {
-                                                Object parsed = Json.fromJson(
-                                                        jsonString, new TypeReference<Map<String, Object>>() {});
-                                                completionResultRef.set(parsed);
-                                            }
-                                        }
-                                        default -> throw new IllegalStateException("Unhandled job mode: " + mode);
                                     }
+                                    case SEARCH -> {
+                                        // Read-only repository search using a scan model (spec.scanModel preferred,
+                                        // otherwise project default)
+                                        try (var scope = cm.beginTask(spec.taskInput(), false)) {
+                                            var context = cm.liveContext();
 
-                                    completed.incrementAndGet();
+                                            // Determine scan model: prefer explicit spec.scanModel() if provided,
+                                            // otherwise use project default
+                                            String rawScanModel = spec.scanModel();
+                                            String trimmedScanModel = rawScanModel == null ? null : rawScanModel.trim();
+                                            final StreamingChatModel scanModelToUse =
+                                                    (trimmedScanModel != null && !trimmedScanModel.isEmpty())
+                                                            ? resolveModelOrThrow(trimmedScanModel)
+                                                            : cm.getService().getScanModel();
 
-                                    // Update progress
-                                    int progress = total == 0 ? 100 : (int) ((completed.get() * 100.0) / total);
-                                    try {
-                                        JobStatus s = store.loadStatus(jobId);
-                                        if (s != null) {
-                                            s = s.withProgress(progress);
-                                            store.updateStatus(jobId, s);
-                                            logger.debug("Job {} progress updated: {}%", jobId, progress);
+                                            var searchAgent = new SearchAgent(
+                                                    context,
+                                                    spec.taskInput(),
+                                                    Objects.requireNonNull(
+                                                            scanModelToUse, "scan model unavailable for SEARCH jobs"),
+                                                    SearchAgent.Objective.ANSWER_ONLY,
+                                                    scope);
+                                            var result = searchAgent.execute();
+                                            scope.append(result);
                                         }
-                                    } catch (Exception e) {
-                                        logger.debug("Unable to update job progress {}% for {}", progress, jobId, e);
+                                    }
+                                    case REVIEW -> {
+                                        var prData = Json.getMapper().readTree(spec.taskInput());
+                                        int prNumber = prData.get("pr_number").asInt(0);
+                                        String repoURL = prData.get("repo_url").asText();
+
+                                        // Create review prompt
+                                        String reviewPrompt = managePRContext(prNumber, repoURL, spec);
+
+                                        // Execute review using CodeAgent
+                                        var agent = new CodeAgent(
+                                                cm,
+                                                Objects.requireNonNull(
+                                                        reviewPlannerModel,
+                                                        "plannel model unavailable for REVIEW jobs"));
+
+                                        TaskResult result;
+                                        try (var scope = cm.beginTask("Review", false)) {
+                                            result = agent.runTask(reviewPrompt, Set.of());
+                                            scope.append(result);
+                                        }
+                                        String jsonString = result.stopDetails().explanation();
+                                        if (!jsonString.isBlank()) {
+                                            Object parsed = Json.fromJson(
+                                                    jsonString, new TypeReference<Map<String, Object>>() {});
+                                            completionResultRef.set(parsed);
+                                        }
+                                    }
+                                    default -> throw new IllegalStateException("Unhandled job mode: " + mode);
+                                }
+
+                                completed.incrementAndGet();
+
+                                try {
+                                    JobStatus s = store.loadStatus(jobId);
+                                    if (s != null) {
+                                        store.updateStatus(jobId, s);
                                     }
                                 } catch (Exception e) {
-                                    logger.warn("Task execution failed for job {}: {}", jobId, e.getMessage());
-                                    // Continue to next task or exit depending on requirements
-                                    throw e;
+                                    logger.debug("Unable to update job {} for {}", jobId, e);
                                 }
+                            } catch (Exception e) {
+                                logger.warn("Task execution failed for job {}: {}", jobId, e.getMessage());
+                                // Continue to next task or exit depending on requirements
+                                throw e;
                             }
                         })
                         .join();
@@ -819,39 +788,6 @@ public final class JobRunner {
             return throwable.getClass().getSimpleName();
         }
         return throwable.getClass().getSimpleName() + ": " + message;
-    }
-
-    /**
-     * Parse task input string into a list of TaskItems.
-     *
-     * <p>Tasks are separated by newlines. Each line is trimmed and blank lines are ignored.
-     * If the input is empty or blank, returns an empty list.
-     *
-     * @param taskInput The task input string
-     * @return A list of TaskItems
-     */
-    private static List<TaskList.TaskItem> parseTasks(String taskInput) {
-        if (taskInput.isBlank()) {
-            return List.of();
-        }
-
-        var list = new ArrayList<TaskList.TaskItem>();
-        for (String line : Splitter.on('\n').split(taskInput)) {
-            var trimmed = line.trim();
-            if (!trimmed.isEmpty()) {
-                list.add(new TaskList.TaskItem("", trimmed, false));
-            }
-        }
-
-        // If no tasks were parsed, try to use the entire input as a single task
-        if (list.isEmpty()) {
-            String trimmed = taskInput.trim();
-            if (!trimmed.isEmpty()) {
-                list.add(new TaskList.TaskItem("", trimmed, false));
-            }
-        }
-
-        return list;
     }
 
     /**
