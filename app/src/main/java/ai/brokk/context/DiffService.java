@@ -136,26 +136,21 @@ public final class DiffService {
      * Triggers async computations and awaits their completion.
      */
     @Blocking
-    public static List<Context.DiffEntry> computeDiff(Context curr, Context other) {
+    public static List<Context.DiffEntry> computeDiff(Context ctx, Context other) {
         // Candidates:
         // - Editable fragments
-        // - Git file fragments.
         // - Image fragments (non-text), including pasted images and image files.
         // Exclude external path fragments from editable candidates; only project files should be diffed.
         var editableFragments =
-                curr.getEditableFragments().filter(f -> f.getType() != ContextFragment.FragmentType.EXTERNAL_PATH);
-        var gitFileFragments = curr.allFragments().filter(f -> f.getType() == ContextFragment.FragmentType.GIT_FILE);
-        var imageFragments = curr.allFragments().filter(f -> !f.isText());
+                ctx.getEditableFragments().filter(f -> f.getType() != ContextFragment.FragmentType.EXTERNAL_PATH);
+        var imageFragments = ctx.allFragments().filter(f -> !f.isText());
 
-        var candidates = Stream.of(editableFragments, gitFileFragments, imageFragments)
-                .flatMap(s -> s)
-                .distinct();
+        var candidates = Stream.concat(editableFragments, imageFragments);
         var diffFutures =
-                candidates.map(cf -> computeDiffForFragment(curr, cf, other)).toList();
+                candidates.map(cf -> computeDiffForFragment(ctx, cf, other)).toList();
 
         return diffFutures.stream()
                 .map(CompletableFuture::join)
-                .filter(Objects::nonNull)
                 .toList();
     }
 
