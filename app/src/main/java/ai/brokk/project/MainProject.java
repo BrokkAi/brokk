@@ -259,8 +259,23 @@ public final class MainProject extends AbstractProject {
 
     private static synchronized void saveGlobalProperties(Properties props) {
         try {
-            if (loadGlobalProperties().equals(props)) {
+            var existingProps = loadGlobalProperties();
+            if (existingProps.equals(props)) {
                 return;
+            }
+            // Log brokkApiKey changes to help diagnose disappearing key issues
+            var existingKey = existingProps.getProperty("brokkApiKey", "");
+            var newKey = props.getProperty("brokkApiKey", "");
+            if (!existingKey.equals(newKey)) {
+                if (newKey.isEmpty() && !existingKey.isEmpty()) {
+                    logger.warn(
+                            "brokkApiKey is being REMOVED from global properties. Stack trace for diagnosis:",
+                            new Exception("brokkApiKey removal trace"));
+                } else if (!newKey.isEmpty() && existingKey.isEmpty()) {
+                    logger.info("brokkApiKey is being SET in global properties");
+                } else {
+                    logger.info("brokkApiKey is being CHANGED in global properties");
+                }
             }
             AtomicWrites.atomicSaveProperties(GLOBAL_PROPERTIES_PATH, props, "Brokk global configuration");
             globalPropertiesCache = (Properties) props.clone();
@@ -1658,7 +1673,11 @@ public final class MainProject extends AbstractProject {
     // Grouped settings records for atomic batch saving
     public record ServiceSettings(String brokkApiKey, LlmProxySetting proxySetting, boolean forceToolEmulation) {
         public void applyTo(Properties props) {
+            var existingKey = props.getProperty("brokkApiKey", "");
             if (brokkApiKey.isBlank()) {
+                if (!existingKey.isBlank()) {
+                    logger.info("ServiceSettings.applyTo: removing brokkApiKey (blank key in settings record)");
+                }
                 props.remove("brokkApiKey");
             } else {
                 props.setProperty("brokkApiKey", brokkApiKey.trim());
@@ -1748,8 +1767,12 @@ public final class MainProject extends AbstractProject {
     }
 
     public static void setBrokkKey(String key) {
+        logger.info(
+                "setBrokkKey called with key={}",
+                key.isBlank() ? "(blank)" : "(non-blank, length=" + key.length() + ")");
         var props = loadGlobalProperties();
         if (key.isBlank()) {
+            logger.info("setBrokkKey: removing brokkApiKey (blank key provided)");
             props.remove("brokkApiKey");
         } else {
             props.setProperty("brokkApiKey", key.trim());
