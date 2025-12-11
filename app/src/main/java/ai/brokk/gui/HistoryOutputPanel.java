@@ -3772,11 +3772,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             int count = 0;
             try {
                 var sm = contextManager.getProject().getSessionManager();
-                var ch = sm.loadHistory(id, contextManager);
-                count = (ch == null) ? 0 : countAiResponses(ch);
+                count = sm.countAiResponses(id);
             } catch (Throwable t) {
-                logger.warn("Failed to load history for session {}", id, t);
-                count = 0;
+                logger.warn("Failed to count AI responses for session {}", id, t);
             } finally {
                 sessionAiResponseCounts.put(id, count);
                 sessionCountLoading.remove(id);
@@ -3788,15 +3786,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 });
             }
         });
-    }
-
-    private int countAiResponses(ContextHistory ch) {
-        var list = ch.getHistory();
-        int count = 0;
-        for (var ctx : list) {
-            if (ctx.isAiResult()) count++;
-        }
-        return count;
     }
 
     /**
