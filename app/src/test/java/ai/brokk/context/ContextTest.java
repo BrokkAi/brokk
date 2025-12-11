@@ -229,7 +229,7 @@ class ContextTest {
                         .findFirst()
                         .orElseThrow(),
                 "Unrelated virtual fragments should be reused");
-        assertEquals("Load external changes", refreshed.getAction(), "Action should be set accordingly");
+        assertEquals(ctx.getAction(), refreshed.getAction(), "Refresh should preserve previous action");
     }
 
     @Test
