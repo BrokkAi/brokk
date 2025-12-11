@@ -12,7 +12,7 @@
 #   --retries M           Retries per iteration when JSON is not produced and decision retries for midpoint when inconclusive (default: 1)
 #   --runner-args "..."   Arguments to scripts/run-treesitter-repos.sh (must include a command)
 #                         Example: --runner-args "chromium-cpp --max-files 1000 --json"
-#   --workdir DIR         Directory to store artifacts (default: <repo>/perf-bisect-<timestamp>/)
+#   --workdir DIR         Directory to store artifacts (default: <repo>/build/perf-bisect/<timestamp>/)
 #   --keep-worktrees      Keep created worktrees for inspection (default: remove on exit)
 #   -h, --help            Show this help
 #
@@ -72,7 +72,7 @@ Options:
   --retries M           Retries per iteration when JSON is not produced and decision retries for midpoint when inconclusive (default: ${RETRIES})
   --runner-args "..."   Arguments passed to run-treesitter-repos.sh. Must include a command.
                         Example: --runner-args "chromium-cpp --max-files 1000 --json"
-  --workdir DIR         Directory to store artifacts (default: <repo>/perf-bisect-<timestamp>/)
+  --workdir DIR         Directory to store artifacts (default: <repo>/build/perf-bisect/<timestamp>/)
   --keep-worktrees      Keep created worktrees for inspection
   -h, --help            Show this help
 
@@ -376,7 +376,7 @@ parse_args() {
   RUNNER_ARGS="$(ensure_json_flag "${RUNNER_ARGS}")"
 
   if [[ -z "${WORKDIR}" ]]; then
-    WORKDIR="${REPO_ROOT}/perf-bisect-$(timestamp)"
+    WORKDIR="${REPO_ROOT}/build/perf-bisect/$(timestamp)"
   fi
   WORKDIR="$(abs_path "${WORKDIR}")"
   mkdir -p "${WORKDIR}/results" "${WORKDIR}/logs" "${WORKDIR}/worktrees"
