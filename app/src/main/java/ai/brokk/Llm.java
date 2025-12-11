@@ -72,7 +72,11 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
-/** The main orchestrator for sending requests to an LLM, possibly with tools, collecting streaming responses, etc. */
+/**
+ * The main orchestrator for sending requests to an LLM, possibly with tools, collecting streaming responses, etc.
+ *
+ * NOT threadsafe.
+ */
 public class Llm {
     private static final Logger logger = LogManager.getLogger(Llm.class);
     private static final ObjectMapper objectMapper =
@@ -362,7 +366,8 @@ public class Llm {
                     } else {
                         completedChatResponse.set(response);
                         var id = response.id();
-                        if (id != null && !id.isBlank()) {
+                        if (id != null) {
+                            assert !id.isBlank();
                             previousResponseId = id;
                         }
                         String tokens =
@@ -714,11 +719,13 @@ public class Llm {
             return emulateTools(model, messagesToSend, toolContext);
         }
 
-        // If native tools are used, or no tools, send the (potentially preprocessed if tools were empty) messages.
+        // Build request with parameters (always include base params for previousResponseId/metadata)
         var requestBuilder = ChatRequest.builder().messages(messagesToSend);
+        var paramsBuilder = getParamsBuilder();
+
         if (!tools.isEmpty()) {
             logger.debug("Performing native tool calls");
-            var paramsBuilder = getParamsBuilder().toolSpecifications(tools);
+            paramsBuilder = paramsBuilder.toolSpecifications(tools);
             if (contextManager.getService().supportsParallelCalls(model)) {
                 // can't just blindly call .parallelToolCalls(boolean), litellm will barf if it sees the option at all
                 paramsBuilder = paramsBuilder.parallelToolCalls(true);
@@ -726,10 +733,9 @@ public class Llm {
             if (toolChoice == ToolChoice.REQUIRED && contextManager.getService().supportsToolChoiceRequired(model)) {
                 paramsBuilder = paramsBuilder.toolChoice(ToolChoice.REQUIRED);
             }
-            requestBuilder.parameters(paramsBuilder.build());
         }
 
-        var request = requestBuilder.build();
+        var request = requestBuilder.parameters(paramsBuilder.build()).build();
         var sr = doSingleStreamingCall(request, false);
 
         // Pretty-print native tool calls when echo is enabled
@@ -759,7 +765,7 @@ public class Llm {
     private OpenAiChatRequestParameters.Builder getParamsBuilder() {
         OpenAiChatRequestParameters.Builder builder = OpenAiChatRequestParameters.builder();
 
-        if (this.tagRetain) {
+        if (tagRetain) {
             // this is the only place we add metadata so we can just overwrite what's there
             logger.trace("Adding 'retain' metadata tag to LLM request.");
             Map<String, String> newMetadata = new HashMap<>();
@@ -767,7 +773,7 @@ public class Llm {
             builder.metadata(newMetadata);
         }
 
-        if (previousResponseId != null && !previousResponseId.isBlank()) {
+        if (previousResponseId != null) {
             builder.previousResponseId(previousResponseId);
         }
 
