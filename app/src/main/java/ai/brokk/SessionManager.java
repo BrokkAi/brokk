@@ -479,6 +479,20 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
+    /**
+     * Counts AI responses for a session without loading full history.
+     * This is much faster than loadHistory() for just getting the count.
+     */
+    public int countAiResponses(UUID sessionId) {
+        var zipPath = getSessionHistoryPath(sessionId);
+        try {
+            return HistoryIo.countAiResponses(zipPath);
+        } catch (IOException e) {
+            logger.warn("Failed to count AI responses for session {}", sessionId, e);
+            return 0;
+        }
+    }
+
     private ContextHistory loadHistoryInternal(UUID sessionId, IContextManager contextManager) throws IOException {
         var sessionHistoryPath = getSessionHistoryPath(sessionId);
         ContextHistory ch = HistoryIo.readZip(sessionHistoryPath, contextManager);
