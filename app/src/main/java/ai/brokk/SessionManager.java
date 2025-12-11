@@ -335,7 +335,7 @@ public class SessionManager implements AutoCloseable {
                     migrated++;
                 }
             } catch (Exception e) {
-                logger.warn("Failed to migrate aiResponseCount for session {}: {}", info.id(), e.getMessage());
+                logger.warn("Failed to migrate aiResponseCount for session {}", info.id(), e);
             }
         }
 

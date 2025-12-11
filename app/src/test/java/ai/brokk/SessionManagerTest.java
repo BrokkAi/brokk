@@ -493,8 +493,8 @@ public class SessionManagerTest {
                     "aiResponseCount should be 2 after saving history with 2 AI responses");
         });
 
-        // Wait for async disk write to complete before closing
-        Thread.sleep(500);
+        // Small delay to allow async write to be submitted before close() awaits termination
+        Thread.sleep(100);
         project.close();
 
         // Verify persisted to disk by reopening
