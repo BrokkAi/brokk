@@ -5,6 +5,7 @@ import {clearState, pushChunk, parse} from '../worker/worker-bridge';
 import {register, unregister, isRegistered} from '../worker/parseRouter';
 import { getNextThreadId, threadStore } from './threadStore';
 import { deleteSummaryEntry, getSummaryEntry } from './summaryStore';
+import { hideTransientMessage } from './transientStore';
 
 export const bubblesStore = writable<BubbleState[]>([]);
 
@@ -35,6 +36,7 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                 return [];
 
             case 'chunk': {
+                hideTransientMessage();
                 const lastBubble = list.at(-1);
                 // If the last message was a streaming reasoning bubble and the new one is not,
                 // mark the reasoning as complete, immutably.
