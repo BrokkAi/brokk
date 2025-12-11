@@ -572,7 +572,7 @@ public final class JobRunner {
                                         store.updateStatus(jobId, s);
                                     }
                                 } catch (Exception e) {
-                                    logger.debug("Unable to update job {}% for {}", jobId, e);
+                                    logger.debug("Unable to update job {} for {}", jobId, e);
                                 }
                             } catch (Exception e) {
                                 logger.warn("Task execution failed for job {}: {}", jobId, e.getMessage());
