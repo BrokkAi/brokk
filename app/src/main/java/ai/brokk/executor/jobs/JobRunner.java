@@ -502,9 +502,14 @@ public final class JobRunner {
                                                                     ? t.getClass()
                                                                             .getSimpleName()
                                                                     : t.getMessage());
+                                                    java.util.List<dev.langchain4j.data.message.ChatMessage> ui = java.util.List.of(
+                                                            new dev.langchain4j.data.message.UserMessage(task.text()),
+                                                            new dev.langchain4j.data.message.SystemMessage("ASK direct-answer failed: " + stopDetails.explanation())
+                                                    );
                                                     var failureResult = new TaskResult(
+                                                            cm,
                                                             "ASK: " + task.text() + " [LLM_ERROR]",
-                                                            null,
+                                                            ui,
                                                             context,
                                                             stopDetails,
                                                             null);
@@ -783,15 +788,24 @@ public final class JobRunner {
         } catch (InterruptedException ie) {
             // Preserve interrupt status and return an interrupted TaskResult
             Thread.currentThread().interrupt();
-            var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, ie.getMessage());
-            return new TaskResult("ASK: " + taskText + " [INTERRUPTED]", null, context, stopDetails, null);
+            String expl = ie.getMessage() == null ? "Interrupted" : ie.getMessage();
+            var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, expl);
+            java.util.List<dev.langchain4j.data.message.ChatMessage> ui = java.util.List.of(
+                    new dev.langchain4j.data.message.UserMessage(taskText),
+                    new dev.langchain4j.data.message.SystemMessage("Interrupted: " + expl)
+            );
+            return new TaskResult(cm, "ASK: " + taskText + " [INTERRUPTED]", ui, context, stopDetails, null);
         }
 
         if (sr == null || sr.error() != null) {
-            var stopDetails = sr == null
+            var stopDetails = (sr == null)
                     ? new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, "Empty response")
                     : TaskResult.StopDetails.fromResponse(sr);
-            return new TaskResult("ASK: " + taskText + " [LLM_ERROR]", null, context, stopDetails, null);
+            java.util.List<dev.langchain4j.data.message.ChatMessage> ui = java.util.List.of(
+                    new dev.langchain4j.data.message.UserMessage(taskText),
+                    new dev.langchain4j.data.message.SystemMessage("LLM error: " + stopDetails.toString())
+            );
+            return new TaskResult(cm, "ASK: " + taskText + " [LLM_ERROR]", ui, context, stopDetails, null);
         } else {
             // Compose UI messages: user prompt + assistant reply
             List<ChatMessage> finalUiMessages = List.of(new UserMessage(taskText), sr.aiMessage());
