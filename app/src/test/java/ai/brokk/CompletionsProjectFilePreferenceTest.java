@@ -11,8 +11,12 @@ import java.util.Set;
 import org.fife.ui.autocomplete.ShorthandCompletion;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 public class CompletionsProjectFilePreferenceTest {
+
+    @TempDir
+    Path tempDir;
 
     private static IProject projectWithJava() {
         return new IProject() {
@@ -27,9 +31,8 @@ public class CompletionsProjectFilePreferenceTest {
     public void javaExtensionPreferredOverMd() {
         IProject project = projectWithJava();
 
-        Path root = Path.of("/tmp/proj");
-        ProjectFile javaFile = new ProjectFile(root, "BuildTool.java");
-        ProjectFile mdFile = new ProjectFile(root, "baseline-testing.md");
+        ProjectFile javaFile = new ProjectFile(tempDir, "BuildTool.java");
+        ProjectFile mdFile = new ProjectFile(tempDir, "baseline-testing.md");
 
         // Intentionally place the .md file first to ensure reordering by scoring
         List<ProjectFile> candidates = List.of(mdFile, javaFile);
@@ -104,9 +107,8 @@ public class CompletionsProjectFilePreferenceTest {
     public void unrelatedExtensionWithCamelCaseDoesNotOutrankPreferredExtension() {
         IProject project = projectWithJava();
 
-        Path root = Path.of("/tmp/proj");
-        ProjectFile javaFile = new ProjectFile(root, "BuildTool.java");
-        ProjectFile svgFile = new ProjectFile(root, "BuildTool.svg");
+        ProjectFile javaFile = new ProjectFile(tempDir, "BuildTool.java");
+        ProjectFile svgFile = new ProjectFile(tempDir, "BuildTool.svg");
 
         // Place .svg first to ensure scoring reorders them
         List<ProjectFile> candidates = List.of(svgFile, javaFile);
