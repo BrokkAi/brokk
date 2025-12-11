@@ -6,6 +6,7 @@ import ai.brokk.IWatchService.EventBatch;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.FileUtil;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,7 +18,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Tests for ContextManager's file watching features (Phases 4-6).
@@ -26,8 +26,7 @@ import org.junit.jupiter.api.io.TempDir;
  */
 class ContextManagerFileWatchingTest {
 
-    @TempDir
-    Path tempDir;
+    private Path tempDir;
 
     private Path projectRoot;
     private Path gitRepoRoot;
@@ -37,6 +36,7 @@ class ContextManagerFileWatchingTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        tempDir = Files.createTempDirectory("context-manager-test-");
         projectRoot = tempDir;
 
         // Create a minimal git repo structure
@@ -70,6 +70,7 @@ class ContextManagerFileWatchingTest {
                 e.printStackTrace();
             }
         }
+        FileUtil.deleteRecursively(tempDir);
     }
 
     /**

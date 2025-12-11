@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.ContextManager;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.TestService;
+import ai.brokk.util.FileUtil;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -83,28 +84,7 @@ class SearchModeSearchAgentTest {
         if (executor != null) {
             executor.stop(2);
         }
-        // Best-effort cleanup - ignore failures on Windows due to JGit file handle locking
-        if (tempDir != null) {
-            try {
-                deleteRecursively(tempDir);
-            } catch (IOException ignored) {
-                // Temp directory cleanup failures are non-fatal
-            }
-        }
-    }
-
-    private void deleteRecursively(Path path) throws IOException {
-        if (!Files.exists(path)) return;
-        try (var walk = Files.walk(path)) {
-            walk.sorted((a, b) -> b.compareTo(a)) // Delete children before parents
-                    .forEach(p -> {
-                        try {
-                            Files.deleteIfExists(p);
-                        } catch (IOException ignored) {
-                            // Ignore individual file deletion failures
-                        }
-                    });
-        }
+        FileUtil.deleteRecursively(tempDir);
     }
 
     @Test
