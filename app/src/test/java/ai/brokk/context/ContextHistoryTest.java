@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -313,5 +314,139 @@ public class ContextHistoryTest {
         history.redo(contextManager.getIo(), contextManager.getProject());
         assertEquals("version 2", Files.readString(pf.absPath()), "Redo should restore content from second snapshot");
         assertEquals(ctx2.id(), history.liveContext().id(), "Live context should be ctx2 after redo");
+    }
+
+    @Test
+    public void testProcessExternalFileChanges_noContentChange_returnsNullAndNoPush() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Noop.txt");
+        Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "v1");
+
+        var frag = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        frag.text().await(Duration.ofSeconds(2));
+
+        var initialContext = new Context(
+                contextManager, List.of(frag), List.of(), null, CompletableFuture.completedFuture("Initial"));
+        var history = new ContextHistory(initialContext);
+
+        var initialSize = history.getHistory().size();
+        var initialId = history.liveContext().id();
+
+        // Touch the file with the same content (mtime may change, content does not)
+        Files.writeString(pf.absPath(), "v1");
+
+        var updated = history.processExternalFileChangesIfNeeded(Set.of(pf));
+
+        assertNull(updated, "No new context should be created for no-op content changes");
+        assertEquals(initialSize, history.getHistory().size(), "History size should remain unchanged");
+        assertEquals(initialId, history.liveContext().id(), "Live context should remain the initial one");
+        assertFalse(
+                history.liveContext().getAction().startsWith("Load external changes"),
+                "Action should not be an external-changes label for no-op changes");
+    }
+
+    @Test
+    public void testProcessExternalFileChanges_contentChange_pushesEntryAndDiffsNotEmpty() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Changed.txt");
+        Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "v1\n");
+
+        var frag = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        frag.text().await(Duration.ofSeconds(2));
+
+        var initialContext = new Context(
+                contextManager, List.of(frag), List.of(), null, CompletableFuture.completedFuture("Initial"));
+        var history = new ContextHistory(initialContext);
+
+        Files.writeString(pf.absPath(), "v1\nv2\n");
+
+        var updated = history.processExternalFileChangesIfNeeded(Set.of(pf));
+
+        assertNotNull(updated, "A context should be returned when content changes");
+        assertEquals(
+                updated.id(), history.liveContext().id(), "Returned context should be the new live context");
+        assertTrue(
+                updated.getAction().startsWith("Load external changes"),
+                "Action should indicate external changes");
+
+        var prev = history.previousOf(updated);
+        assertNotNull(prev, "There must be a previous context to diff against");
+
+        var changedFiles = updated.getChangedFiles(prev);
+        assertFalse(changedFiles.isEmpty(), "Changed files should not be empty");
+        assertTrue(changedFiles.contains(pf), "Changed files should include the modified ProjectFile");
+
+        var diffs = history.getDiffService().diff(updated).join();
+        assertNotNull(diffs, "Diffs should be computed");
+        assertFalse(diffs.isEmpty(), "Diffs should reflect content change");
+    }
+
+    @Test
+    public void testProcessExternalFileChanges_continuationCounterIncrementsAndReplacesTop() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Counter.txt");
+        Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "one\n");
+
+        var frag = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        frag.text().await(Duration.ofSeconds(2));
+
+        var initialContext = new Context(
+                contextManager, List.of(frag), List.of(), null, CompletableFuture.completedFuture("Initial"));
+        var history = new ContextHistory(initialContext);
+
+        var sizeBefore = history.getHistory().size();
+
+        // First external change -> should push a new entry
+        Files.writeString(pf.absPath(), "one\ntwo\n");
+        var first = history.processExternalFileChangesIfNeeded(Set.of(pf));
+        assertNotNull(first, "First external change should produce a new context");
+        assertEquals(sizeBefore + 1, history.getHistory().size(), "History should grow by one on first change");
+        assertEquals("Load external changes", first.getAction(), "First change has no counter suffix");
+
+        var prevOfFirst = history.previousOf(first);
+        assertNotNull(prevOfFirst, "Previous of first should be the original context");
+
+        // Second external change -> should replace top and increment counter to (2)
+        Files.writeString(pf.absPath(), "one\ntwo\nthree\n");
+        var second = history.processExternalFileChangesIfNeeded(Set.of(pf));
+        assertNotNull(second, "Second external change should produce an updated context");
+        assertEquals(
+                sizeBefore + 1,
+                history.getHistory().size(),
+                "Second change should replace the top (no growth)");
+        assertEquals(
+                "Load external changes (2)", second.getAction(), "Continuation count should increment to (2)");
+
+        var prevOfSecond = history.previousOf(second);
+        assertNotNull(prevOfSecond, "Previous of second should exist");
+        assertEquals(
+                prevOfFirst.id(),
+                prevOfSecond.id(),
+                "Previous of second should still be the original context (top replaced)");
+
+        var changed = second.getChangedFiles(prevOfSecond);
+        assertTrue(changed.contains(pf), "Changed files should include the modified ProjectFile");
+    }
+
+    @Test
+    public void testProcessExternalFileChanges_emptyChangedSetTargetsAllContextFiles() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/EmptySet.txt");
+        Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "a\n");
+
+        var frag = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        frag.text().await(Duration.ofSeconds(2));
+
+        var initialContext = new Context(
+                contextManager, List.of(frag), List.of(), null, CompletableFuture.completedFuture("Initial"));
+        var history = new ContextHistory(initialContext);
+
+        Files.writeString(pf.absPath(), "a\nb\n");
+
+        var updated = history.processExternalFileChangesIfNeeded(Set.of());
+        assertNotNull(updated, "Empty changed set should target all context files and detect the change");
+        assertTrue(
+                updated.getAction().startsWith("Load external changes"),
+                "Action should indicate external changes");
     }
 }
