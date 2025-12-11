@@ -18,6 +18,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -27,8 +28,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledOnOs;
-import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
@@ -39,7 +38,6 @@ import org.junit.jupiter.api.io.TempDir;
  * - Emits search/summary events, not code edits
  * - Maintains read-only semantics
  */
-@EnabledOnOs(OS.MAC)
 class SearchModeSearchAgentTest {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -109,7 +107,7 @@ class SearchModeSearchAgentTest {
         var jobId = createJobWithSpec(jobSpec, "search-test-read-only");
 
         // Wait for job to complete
-        Thread.sleep(500);
+        awaitJobCompletion(jobId, Duration.ofSeconds(30));
 
         // Poll for events to ensure job has processed
         var eventsUrl = URI.create(baseUrl + "/v1/jobs/" + jobId + "/events?after=-1&limit=1000")
@@ -193,7 +191,7 @@ class SearchModeSearchAgentTest {
         var jobId = createJobWithSpec(jobSpec, "search-test-scan-model");
 
         // Wait for job to complete
-        Thread.sleep(500);
+        awaitJobCompletion(jobId, Duration.ofSeconds(30));
 
         // Poll events to ensure search produced LLM tokens/notifications and no code edits
         var eventsUrl = URI.create(baseUrl + "/v1/jobs/" + jobId + "/events?after=-1&limit=1000")
@@ -274,8 +272,8 @@ class SearchModeSearchAgentTest {
 
         var jobId = createJobWithSpec(jobSpec, "search-test-ignore-code-model");
 
-        // Wait for job
-        Thread.sleep(300);
+        // Wait for job to complete
+        awaitJobCompletion(jobId, Duration.ofSeconds(30));
 
         // Verify job status
         var statusUrl = URI.create(baseUrl + "/v1/jobs/" + jobId).toURL();
@@ -296,6 +294,29 @@ class SearchModeSearchAgentTest {
     // ============================================================================
     // Helpers
     // ============================================================================
+
+    private void awaitJobCompletion(String jobId, Duration timeout) throws Exception {
+        long deadline = System.currentTimeMillis() + timeout.toMillis();
+        while (System.currentTimeMillis() < deadline) {
+            var statusUrl = URI.create(baseUrl + "/v1/jobs/" + jobId).toURL();
+            var conn = (HttpURLConnection) statusUrl.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setRequestProperty("Authorization", "Bearer " + authToken);
+
+            try (InputStream is = conn.getInputStream()) {
+                var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+                if (response.contains("\"state\":\"COMPLETED\"")
+                        || response.contains("\"state\":\"FAILED\"")
+                        || response.contains("\"state\":\"CANCELLED\"")) {
+                    return;
+                }
+            } finally {
+                conn.disconnect();
+            }
+            Thread.sleep(100);
+        }
+        throw new AssertionError("Job did not complete within timeout: " + timeout);
+    }
 
     private byte[] createEmptyZip() throws IOException {
         var out = new java.io.ByteArrayOutputStream();
