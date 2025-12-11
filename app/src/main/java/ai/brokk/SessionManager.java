@@ -427,8 +427,9 @@ public class SessionManager implements AutoCloseable {
         SessionInfo currentInfo = sessionsCache.get(sessionId);
         if (currentInfo != null) {
             if (!isSessionEmpty(currentInfo, contextHistory)) {
+                int count = countAiResponses(contextHistory);
                 infoToSave = new SessionInfo(currentInfo.id(), currentInfo.name(), currentInfo.created(),
-                                            System.currentTimeMillis(), currentInfo.aiResponseCount());
+                                            System.currentTimeMillis(), count);
                 sessionsCache.put(sessionId, infoToSave); // Update cache before async task
             } // else, session info is not modified, we are just adding an empty initial context (e.g. welcome message)
             // to the session
@@ -482,6 +483,11 @@ public class SessionManager implements AutoCloseable {
         }
 
         return false;
+    }
+
+    /** Counts the number of AI task completions in the given history. */
+    private static int countAiResponses(ContextHistory history) {
+        return (int) history.getHistory().stream().filter(Context::isAiResult).count();
     }
 
     @Nullable
