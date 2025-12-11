@@ -36,9 +36,9 @@ public class BrokkCliTest {
                     new ContextAgent.RecommendationResult(true, List.of(), "reasoning-text", null);
 
             String key = "brokk-cli-test-key";
-            BrokkCli.writeRecommendationToCache(key, rec);
+            BrokkCli.writeRecommendationToCache();
 
-            Optional<ContextAgent.RecommendationResult> maybe = BrokkCli.readRecommendationFromCache(key, null);
+            Optional<ContextAgent.RecommendationResult> maybe = BrokkCli.readRecommendationFromCache();
             assertTrue(maybe.isPresent(), "Cached recommendation should be present");
             ContextAgent.RecommendationResult loaded = maybe.get();
 
@@ -91,9 +91,9 @@ public class BrokkCliTest {
                     new ContextAgent.RecommendationResult(true, List.of(pfrag, sfrag), "ignored", null);
 
             String key = "brokk-cli-test-fragments";
-            BrokkCli.writeRecommendationToCache(key, rec);
+            BrokkCli.writeRecommendationToCache();
 
-            Optional<ContextAgent.RecommendationResult> maybe = BrokkCli.readRecommendationFromCache(key, tcm);
+            Optional<ContextAgent.RecommendationResult> maybe = BrokkCli.readRecommendationFromCache();
             assertTrue(maybe.isPresent(), "Cached recommendation should be present");
             ContextAgent.RecommendationResult loaded = maybe.get();
 
