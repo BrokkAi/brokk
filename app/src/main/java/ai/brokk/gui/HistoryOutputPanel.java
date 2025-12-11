@@ -3003,6 +3003,16 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     /**
      * Releases owned resources. Must be called on the EDT.
      */
+    public void showTransientMessage(String message) {
+        // Apply preset layout before showing transient message
+        applyPresetIfNeeded();
+        llmStreamArea.showTransientMessage(message);
+    }
+
+    public void hideTransientMessage() {
+        llmStreamArea.hideTransientMessage();
+    }
+
     public void dispose() {
         assert SwingUtilities.isEventDispatchThread() : "dispose must be called on EDT";
         // Dispose aggregated changes panel if present
