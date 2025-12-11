@@ -118,6 +118,7 @@ public final class AskHumanDialog {
             // Create a modeless dialog; do not block EDT
             var dialog = optionPane.createDialog(null, sessionName);
             dialog.setModal(false);
+            dialog.setResizable(true);
             dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
 
             // OK action
@@ -243,6 +244,7 @@ public final class AskHumanDialog {
 
             var dialog = optionPane.createDialog(null, sessionName);
             dialog.setModal(false);
+            dialog.setResizable(true);
             dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
 
             // OK action: read selection

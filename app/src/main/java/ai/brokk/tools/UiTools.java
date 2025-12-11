@@ -44,7 +44,7 @@ public final class UiTools {
                             "A clear, concise question for the human. Do not include code to implement; ask only for information you need.")
                     String question,
             @P(
-                            "Optional list of choices for a multiple-choice question. If provided and non-empty, the human selects from these options. If null or empty, the human provides free-form text input.")
+                            "Optional list of choices for a multiple-choice question. If provided and non-empty, the human selects from these options.")
                     @Nullable
                     List<String> choices) {
 
