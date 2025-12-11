@@ -7,6 +7,7 @@ import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.SearchAgent;
+import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.executor.io.HeadlessHttpConsole;
@@ -465,63 +466,10 @@ public final class JobRunner {
                                                     }
                                                 }
 
-                                                // Build a single-shot prompt using the current Workspace and
-                                                // ask the planner model to produce a final written answer.
                                                 try {
-                                                    // Create an LLM instance for the planner model and route output
-                                                    Llm llm = cm.getLlm(askPlannerModel, "ASK: " + task.text());
-                                                    llm.setOutput(cm.getIo());
-
-                                                    // Prepare workspace messages (no task list visibility for ASK)
-                                                    var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, false);
-                                                    List<ChatMessage> workspaceMessages =
-                                                            new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(
-                                                                    context, viewingPolicy));
-
-                                                    List<ChatMessage> messagesForLlm = new ArrayList<>();
-                                                    // System-level instruction: answer using only the Workspace
-                                                    messagesForLlm.add(new SystemMessage(
-                                                            "You are an assistant answering a question using only the provided Workspace context. " +
-                                                                    "Do not search external sources, do not modify files, and do not suggest edits. " +
-                                                                    "Provide a concise, clear, and complete answer."));
-
-                                                    // Include the Workspace contents
-                                                    messagesForLlm.addAll(workspaceMessages);
-
-                                                    // Add the user question
-                                                    messagesForLlm.add(new UserMessage(task.text()));
-
-                                                    // Make the call (single-shot)
-                                                    Llm.StreamingResult sr = llm.sendRequest(messagesForLlm);
-
-                                                    if (sr.error() != null) {
-                                                        // Append an error-like TaskResult but do not perform writes.
-                                                        var stopDetails = TaskResult.StopDetails.fromResponse(sr);
-                                                        var errFrag = new ContextFragment.StringFragment(
-                                                                cm,
-                                                                "LLM error during ASK: " + stopDetails.explanation(),
-                                                                "LLM Error",
-                                                                "text/plain");
-                                                        var errTaskResult = new TaskResult(
-                                                                "ASK: " + task.text() + " [LLM_ERROR]",
-                                                                null,
-                                                                context,
-                                                                stopDetails,
-                                                                null);
-                                                        scope.append(errTaskResult);
-                                                    } else {
-                                                        // Compose UI messages: user prompt + assistant reply
-                                                        List<ChatMessage> finalUiMessages = List.of(
-                                                                new UserMessage(task.text()),
-                                                                sr.aiMessage());
-                                                        var humanResult = TaskResult.humanResult(
-                                                                cm,
-                                                                "ASK: " + task.text(),
-                                                                finalUiMessages,
-                                                                context,
-                                                                TaskResult.StopReason.SUCCESS);
-                                                        scope.append(humanResult);
-                                                    }
+                                                    // Use helper that builds a workspace-only prompt and calls the planner model.
+                                                    TaskResult askResult = askUsingPlannerModel(askPlannerModel, task.text(), context);
+                                                    scope.append(askResult);
                                                 } catch (RuntimeException rte) {
                                                     logger.warn("ASK direct-answer failed for job {}: {}", jobId, rte.getMessage(), rte);
                                                     throw rte;
@@ -746,6 +694,61 @@ public final class JobRunner {
     private StreamingChatModel defaultCodeModel() {
         return cm.getCodeModel();
     }
+
+    /**
+         * Build a single-shot workspace-only prompt using the provided planner model and return
+         * a TaskResult representing the answer (or an error TaskResult on failure). This helper
+         * is read-only and does not mutate workspace state.
+         *
+         * @param plannerModel the planner model to use for the single-shot answer
+         * @param taskText the user's question / task text
+         * @param context the current workspace context to base the answer on
+         * @return a TaskResult suitable for appending to a TaskScope
+         */
+        private TaskResult askUsingPlannerModel(StreamingChatModel plannerModel, String taskText, Context context) {
+            // Create an LLM instance for the planner model and route output to the ContextManager IO
+            Llm llm = cm.getLlm(plannerModel, "ASK: " + taskText);
+            llm.setOutput(cm.getIo());
+
+            // Prepare workspace messages (no task list visibility for ASK)
+            var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, false);
+            List<ChatMessage> workspaceMessages =
+                    new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(context, viewingPolicy));
+
+            List<ChatMessage> messagesForLlm = new ArrayList<>();
+            // System-level instruction: answer using only the Workspace
+            messagesForLlm.add(new SystemMessage(
+                    "You are an assistant answering a question using only the provided Workspace context. " +
+                            "Do not search external sources, do not modify files, and do not suggest edits. " +
+                            "Provide a concise, clear, and complete answer."));
+
+            // Include the Workspace contents
+            messagesForLlm.addAll(workspaceMessages);
+
+            // Add the user question
+            messagesForLlm.add(new UserMessage(taskText));
+
+            // Make the call (single-shot)
+            Llm.StreamingResult sr;
+            try {
+                sr = llm.sendRequest(messagesForLlm);
+            } catch (InterruptedException ie) {
+                // Preserve interrupt status and return an interrupted TaskResult
+                Thread.currentThread().interrupt();
+                var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, ie.getMessage());
+                return new TaskResult("ASK: " + taskText + " [INTERRUPTED]", null, context, stopDetails, null);
+            }
+
+            if (sr == null || sr.error() != null) {
+                var stopDetails = sr == null ? new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, "Empty response")
+                        : TaskResult.StopDetails.fromResponse(sr);
+                return new TaskResult("ASK: " + taskText + " [LLM_ERROR]", null, context, stopDetails, null);
+            } else {
+                // Compose UI messages: user prompt + assistant reply
+                List<ChatMessage> finalUiMessages = List.of(new UserMessage(taskText), sr.aiMessage());
+                return TaskResult.humanResult(cm, "ASK: " + taskText, finalUiMessages, context, TaskResult.StopReason.SUCCESS);
+            }
+        }
 
     private static Throwable unwrapFailure(Throwable throwable) {
         var current = throwable;
