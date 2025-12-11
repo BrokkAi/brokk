@@ -1,5 +1,11 @@
 package ai.brokk.gui.components;
 
+/*
+Summary:
+- Updated boundary_inclusive_checks to use "zai-glm-4.6" (actual key) with expected 85 per ModelBenchmarkData.
+- Added providerPrefix_isStripped_in_ModelConfig_overload to verify provider prefix stripping in the ModelConfig overload.
+*/
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import ai.brokk.Service;
@@ -71,7 +77,14 @@ class ModelBenchmarkDataTest {
 
     @Test
     void boundary_inclusive_checks() {
-        int result = ModelBenchmarkData.getSuccessRate("glm-4.6", Service.ReasoningLevel.DEFAULT, 100);
-        assertEquals(63, result, "glm-4.6 DEFAULT @100 (16K-32K range) should be 63%");
+        int result = ModelBenchmarkData.getSuccessRate("zai-glm-4.6", Service.ReasoningLevel.DEFAULT, 100);
+        assertEquals(85, result, "zai-glm-4.6 DEFAULT @100 (16K-32K range) should be 85%");
+    }
+
+    @Test
+    void providerPrefix_isStripped_in_ModelConfig_overload() {
+        var config = new Service.ModelConfig("provider/zai-glm-4.6", Service.ReasoningLevel.DEFAULT);
+        int result = ModelBenchmarkData.getSuccessRate(config, 100);
+        assertEquals(85, result, "ModelConfig with provider prefix should resolve to zai-glm-4.6 @100 => 85%");
     }
 }

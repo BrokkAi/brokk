@@ -2,20 +2,27 @@ package ai.brokk.executor.jobs;
 
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
+import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.SearchAgent;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.gui.util.GitRepoIdUtil;
+import ai.brokk.prompts.CodePrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Json;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.base.Splitter;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -340,13 +347,15 @@ public final class JobRunner {
                                             }
                                         }
                                         case ASK -> {
-                                            // Read-only execution via SearchAgent with ANSWER_ONLY objective.
-                                            // Use 'plannerModel' for reasoning and, if requested, use an explicit
-                                            // 'scanModel' only for the prescan step (fallback to project default).
+                                            // Read-only ASK execution: perform optional pre-scan (Context Agent)
+                                            // then generate a single, final written answer using the plannerModel
+                                            // and the current Workspace. Do NOT invoke SearchAgent.execute() or
+                                            // any tools that could modify the workspace. Append the answer to the
+                                            // task scope and continue.
                                             try (var scope = cm.beginTask(task.text(), false)) {
                                                 var context = cm.liveContext();
 
-                                                // Construct SearchAgent with the planner model (required for ASK)
+                                                // Construct SearchAgent only for potential pre-scan usage (no execute).
                                                 var searchAgent = new SearchAgent(
                                                         context,
                                                         task.text(),
@@ -355,7 +364,7 @@ public final class JobRunner {
                                                         SearchAgent.Objective.ANSWER_ONLY,
                                                         scope);
 
-                                                // Optional pre-scan: resolve scan model the same way SEARCH mode does.
+                                                // Optional pre-scan: resolve scan model similarly to SEARCH mode.
                                                 if (spec.preScan()) {
                                                     String rawScanModel = spec.scanModel();
                                                     String trimmedScanModel =
@@ -439,9 +448,8 @@ public final class JobRunner {
                                                     }
 
                                                     // Emit deterministic completion NOTIFICATION so headless
-                                                    // clients/tests
-                                                    // can reliably observe that the Context Engine pre-scan phase
-                                                    // finished.
+                                                    // clients/tests can reliably observe that the Context Engine
+                                                    // pre-scan phase finished.
                                                     try {
                                                         store.appendEvent(
                                                                 jobId,
@@ -457,9 +465,68 @@ public final class JobRunner {
                                                     }
                                                 }
 
-                                                // Execute ASK reasoning using the planner model (unchanged).
-                                                var result = searchAgent.execute();
-                                                scope.append(result);
+                                                try {
+                                                    // Use helper that builds a workspace-only prompt and calls the
+                                                    // planner model.
+                                                    TaskResult askResult =
+                                                            askUsingPlannerModel(askPlannerModel, task.text());
+                                                    scope.append(askResult);
+                                                } catch (Throwable t) {
+                                                    // Do not allow a planner-model failure to abort the entire job.
+                                                    logger.error(
+                                                            "ASK direct-answer failed for job {}: {}",
+                                                            jobId,
+                                                            t.getMessage(),
+                                                            t);
+                                                    // Report to headless console if available (best-effort).
+                                                    if (console != null) {
+                                                        try {
+                                                            console.toolError(
+                                                                    "ASK direct-answer failed: "
+                                                                            + (t.getMessage() == null
+                                                                                    ? t.getClass()
+                                                                                            .getSimpleName()
+                                                                                    : t.getMessage()),
+                                                                    "ASK error");
+                                                        } catch (Throwable ignore) {
+                                                            // best-effort only
+                                                        }
+                                                    }
+                                                    // Append a non-fatal TaskResult indicating the failure so the task
+                                                    // has a record,
+                                                    // but do not rethrow (so job status handling can complete
+                                                    // normally).
+                                                    var stopDetails = new TaskResult.StopDetails(
+                                                            TaskResult.StopReason.LLM_ERROR,
+                                                            t.getMessage() == null
+                                                                    ? t.getClass()
+                                                                            .getSimpleName()
+                                                                    : t.getMessage());
+                                                    List<ChatMessage> ui = List.of(
+                                                            new UserMessage(task.text()),
+                                                            new SystemMessage("ASK direct-answer failed: "
+                                                                    + stopDetails.explanation()));
+                                                    var failureResult = new TaskResult(
+                                                            cm,
+                                                            "ASK: " + task.text() + " [LLM_ERROR]",
+                                                            ui,
+                                                            context,
+                                                            stopDetails,
+                                                            null);
+                                                    try {
+                                                        scope.append(failureResult);
+                                                    } catch (Throwable e2) {
+                                                        // If appending also fails, log it but keep proceeding so we can
+                                                        // update job status normally.
+                                                        logger.warn(
+                                                                "Failed to append ASK failure result for job {}: {}",
+                                                                jobId,
+                                                                e2.getMessage(),
+                                                                e2);
+                                                    }
+                                                    // Do not rethrow; allow outer flow to mark job completed
+                                                    // (read-only) where appropriate.
+                                                }
                                             }
                                         }
                                         case SEARCH -> {
@@ -473,11 +540,10 @@ public final class JobRunner {
                                                 String rawScanModel = spec.scanModel();
                                                 String trimmedScanModel =
                                                         rawScanModel == null ? null : rawScanModel.trim();
-                                                final dev.langchain4j.model.chat.StreamingChatModel scanModelToUse =
-                                                        (trimmedScanModel != null && !trimmedScanModel.isEmpty())
-                                                                ? resolveModelOrThrow(trimmedScanModel)
-                                                                : cm.getService()
-                                                                        .getScanModel();
+                                                final StreamingChatModel scanModelToUse = (trimmedScanModel != null
+                                                                && !trimmedScanModel.isEmpty())
+                                                        ? resolveModelOrThrow(trimmedScanModel)
+                                                        : cm.getService().getScanModel();
 
                                                 var searchAgent = new SearchAgent(
                                                         context,
@@ -681,6 +747,60 @@ public final class JobRunner {
         return cm.getCodeModel();
     }
 
+    /**
+     * Build a single-shot workspace-only prompt using the provided planner model and return
+     * a TaskResult representing the answer (or an error TaskResult on failure). This helper
+     * is read-only and does not mutate workspace state.
+     *
+     * @param model the model to use for the single-shot answer
+     * @param question the user's question / task text
+     * @return a TaskResult suitable for appending to a TaskScope
+     */
+    private TaskResult askUsingPlannerModel(StreamingChatModel model, String question) {
+        var svc = cm.getService();
+        var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
+
+        List<ChatMessage> messages;
+        try {
+            messages = CodePrompts.instance.collectAskMessages(cm, question);
+        } catch (InterruptedException e) {
+            return new TaskResult(
+                    cm,
+                    "Ask: " + question,
+                    cm.getIo().getLlmRawMessages(),
+                    cm.liveContext(),
+                    new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
+                    meta);
+        }
+        // Create an LLM instance for the planner model and route output to the ContextManager IO
+        var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
+        llm.setOutput(cm.getIo());
+        // Build and send the request to the LLM
+        TaskResult.StopDetails stop = null;
+        Llm.StreamingResult response = null;
+        try {
+            response = llm.sendRequest(messages);
+        } catch (InterruptedException e) {
+            stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
+        }
+
+        // Determine stop details based on the response
+        if (response != null) {
+            stop = TaskResult.StopDetails.fromResponse(response);
+        }
+
+        // construct TaskResult
+        Objects.requireNonNull(stop);
+        var resultingCtx = cm.liveContext();
+        return new TaskResult(
+                cm,
+                "Ask: " + question,
+                List.copyOf(cm.getIo().getLlmRawMessages()),
+                resultingCtx, // Ask never changes files; use current live context
+                stop,
+                meta);
+    }
+
     private static Throwable unwrapFailure(Throwable throwable) {
         var current = throwable;
         while ((current instanceof CompletionException || current instanceof ExecutionException)) {
@@ -777,15 +897,28 @@ public final class JobRunner {
 
         try {
             StringBuilder diff = new StringBuilder();
+            Set<ProjectFile> changedFiles = new LinkedHashSet<>();
 
             for (GHPullRequestFileDetail file : pr.listFiles()) {
+                String filename = file.getFilename();
+                if (filename != null && !filename.isBlank()) {
+                    try {
+                        var projectFile = cm.toFile(filename);
+                        changedFiles.add(projectFile);
+                    } catch (Exception ex) {
+                        if (logger.isDebugEnabled()) {
+                            logger.debug("Unable to resolve ProjectFile for PR file '{}'", filename, ex);
+                        }
+                    }
+                }
+
                 String patch = file.getPatch();
 
-                if (patch != null) {
+                if (patch != null && filename != null && !filename.isBlank()) {
                     diff.append("diff --git a/")
-                            .append(file.getFilename())
+                            .append(filename)
                             .append(" b/")
-                            .append(file.getFilename())
+                            .append(filename)
                             .append("\n")
                             .append(patch)
                             .append("\n");
@@ -795,7 +928,8 @@ public final class JobRunner {
             String fullDiff = diff.toString();
             String description = pr.getBody();
 
-            var fragment = new ContextFragment.StringFragment(cm, fullDiff, description, "text/x-diff");
+            var fragment = new ContextFragment.StringFragment(
+                    cm, fullDiff, description, "text/x-diff", Set.copyOf(changedFiles));
             cm.addFragments(fragment);
 
             String reviewGuide = cm.getProject().getReviewGuide();

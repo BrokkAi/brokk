@@ -282,5 +282,6 @@ public interface IContextManager {
                 options, this, getProject().getDataRetentionPolicy() == MainProject.DataRetentionPolicy.IMPROVE_BROKK);
     }
 
+    @Blocking
     default void compressHistory() throws InterruptedException {}
 }
