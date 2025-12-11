@@ -314,6 +314,32 @@ public class ArchitectAgent {
     }
 
     /**
+     * A tool to configure build and test commands for the project, for new or empty projects.
+     */
+    @Tool("Configure build and test commands for the project. Use this to set up build details for new or empty projects.")
+    public String setBuildDetails(
+            @P("Command to build or lint incrementally, e.g. mvn compile, cargo check, pyflakes. Leave blank if not applicable.")
+                    String buildLintCommand,
+            @P("Command to run all tests. Leave blank if not applicable.")
+                    String testAllCommand,
+            @P("Command template to run specific tests using Mustache templating with {{classes}}, {{fqclasses}}, or {{files}} variable. Leave blank if not applicable.")
+                    String testSomeCommand,
+            @P("List of directories to exclude from code intelligence, e.g., generated code, build artifacts. Can be empty.")
+                    java.util.List<String> excludedDirectories) {
+        var details = new BuildAgent.BuildDetails(
+                buildLintCommand != null ? buildLintCommand : "",
+                testAllCommand != null ? testAllCommand : "",
+                testSomeCommand != null ? testSomeCommand : "",
+                excludedDirectories != null ? new java.util.HashSet<>(excludedDirectories) : java.util.Set.of(),
+                java.util.Map.of());
+        cm.getProject().saveBuildDetails(details);
+        cm.getIo().showNotification(
+                IConsoleIO.NotificationRole.INFO,
+                "Build details configured and saved.");
+        return "Build details have been configured and saved successfully.";
+    }
+
+    /**
      * A tool that invokes the SearchAgent to perform searches and analysis based on a query. The SearchAgent will
      * decide which specific search/analysis tools to use (e.g., searchSymbols, getFileContents). The results are added
      * as a context fragment.
@@ -486,6 +512,12 @@ public class ArchitectAgent {
 
                 // Agent tools
                 allowed.add("callCodeAgent");
+
+                // Expose setBuildDetails only when build details are empty
+                var buildDetails = cm.getProject().loadBuildDetails();
+                if (buildDetails == null || buildDetails.equals(BuildAgent.BuildDetails.EMPTY)) {
+                    allowed.add("setBuildDetails");
+                }
 
                 if (this.offerUndoToolNext) {
                     allowed.add("undoLastChanges");
