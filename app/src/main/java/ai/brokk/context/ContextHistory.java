@@ -178,9 +178,8 @@ public class ContextHistory {
         // - If 'changed' is empty (e.g., compatibility path), treat all files referenced by the context as candidates.
         Set<ProjectFile> targetFiles;
         if (changed.isEmpty()) {
-            targetFiles = base.getEditableFragments()
-                    .flatMap(f -> f.files().join().stream())
-                    .collect(Collectors.toSet());
+            targetFiles =
+                    base.allFragments().flatMap(f -> f.files().join().stream()).collect(Collectors.toSet());
             if (targetFiles.isEmpty()) {
                 return null;
             }
