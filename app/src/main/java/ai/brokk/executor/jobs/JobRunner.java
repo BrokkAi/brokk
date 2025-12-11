@@ -470,9 +470,35 @@ public final class JobRunner {
                                                     // Use helper that builds a workspace-only prompt and calls the planner model.
                                                     TaskResult askResult = askUsingPlannerModel(askPlannerModel, task.text(), context);
                                                     scope.append(askResult);
-                                                } catch (RuntimeException rte) {
-                                                    logger.warn("ASK direct-answer failed for job {}: {}", jobId, rte.getMessage(), rte);
-                                                    throw rte;
+                                                } catch (Throwable t) {
+                                                    // Do not allow a planner-model failure to abort the entire job.
+                                                    logger.error("ASK direct-answer failed for job {}: {}", jobId, t.getMessage(), t);
+                                                    // Report to headless console if available (best-effort).
+                                                    if (console != null) {
+                                                        try {
+                                                            console.toolError("ASK direct-answer failed: " + (t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage()), "ASK error");
+                                                        } catch (Throwable ignore) {
+                                                            // best-effort only
+                                                        }
+                                                    }
+                                                    // Append a non-fatal TaskResult indicating the failure so the task has a record,
+                                                    // but do not rethrow (so job status handling can complete normally).
+                                                    var stopDetails = new TaskResult.StopDetails(
+                                                            TaskResult.StopReason.LLM_ERROR,
+                                                            t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage());
+                                                    var failureResult = new TaskResult(
+                                                            "ASK: " + task.text() + " [LLM_ERROR]",
+                                                            null,
+                                                            context,
+                                                            stopDetails,
+                                                            null);
+                                                    try {
+                                                        scope.append(failureResult);
+                                                    } catch (Throwable e2) {
+                                                        // If appending also fails, log it but keep proceeding so we can update job status normally.
+                                                        logger.warn("Failed to append ASK failure result for job {}: {}", jobId, e2.getMessage(), e2);
+                                                    }
+                                                    // Do not rethrow; allow outer flow to mark job completed (read-only) where appropriate.
                                                 }
                                             }
                                         }
