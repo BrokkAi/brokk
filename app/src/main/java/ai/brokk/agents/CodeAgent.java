@@ -26,6 +26,8 @@ import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Patch;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Streams;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -409,6 +411,29 @@ public class CodeAgent {
     void reportComplete(String message) {
         logger.debug(message);
         io.llmOutput("\n# Code Agent Finished\n" + message, ChatMessageType.CUSTOM);
+    }
+
+    @Tool("Configure build and test commands for the project. Use this to set up build details for new or empty projects.")
+    public String setBuildDetails(
+            @P("Command to build or lint incrementally, e.g. mvn compile, cargo check, pyflakes. Leave blank if not applicable.")
+                    String buildLintCommand,
+            @P("Command to run all tests. Leave blank if not applicable.")
+                    String testAllCommand,
+            @P("Command template to run specific tests using Mustache templating with {{classes}}, {{fqclasses}}, or {{files}} variable. Leave blank if not applicable.")
+                    String testSomeCommand,
+            @P("List of directories to exclude from code intelligence, e.g., generated code, build artifacts. Can be empty.")
+                    java.util.List<String> excludedDirectories) {
+        var details = new BuildAgent.BuildDetails(
+                buildLintCommand != null ? buildLintCommand : "",
+                testAllCommand != null ? testAllCommand : "",
+                testSomeCommand != null ? testSomeCommand : "",
+                excludedDirectories != null ? new java.util.HashSet<>(excludedDirectories) : java.util.Set.of(),
+                java.util.Map.of());
+        contextManager.getProject().saveBuildDetails(details);
+        io.showNotification(
+                IConsoleIO.NotificationRole.INFO,
+                "Build details configured and saved.");
+        return "Build details have been configured and saved successfully.";
     }
 
     Step parsePhase(

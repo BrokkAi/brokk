@@ -12,6 +12,7 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.git.TestRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.tools.ToolRegistry;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.File;
 import java.nio.file.Path;
@@ -215,6 +216,11 @@ public final class TestContextManager implements IContextManager {
         existing.addAll(
                 cleaned.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList());
         return context.withTaskList(new TaskList.TaskListData(List.copyOf(existing)), "Task list updated");
+    }
+
+    @Override
+    public ToolRegistry getToolRegistry() {
+        return ToolRegistry.empty();
     }
 
     private String buildFragmentContent = "";

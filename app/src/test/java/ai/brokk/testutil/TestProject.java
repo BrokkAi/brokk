@@ -9,6 +9,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.IProject;
+import org.jetbrains.annotations.Blocking;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
@@ -86,6 +87,11 @@ public class TestProject implements IProject {
     @Override
     public boolean isEmptyProject() {
         return isEmpty;
+    }
+
+    @Override
+    public void saveBuildDetails(BuildAgent.BuildDetails details) {
+        this.buildDetails = details;
     }
 
     /** Creates a TestProject rooted under src/test/resources/{subDir}. */
