@@ -1,13 +1,13 @@
 package ai.brokk.context;
 
+import ai.brokk.ExceptionReporter;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.util.ContentDiffUtils;
-import java.io.UncheckedIOException;
+
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -193,7 +193,7 @@ public final class DiffService {
             }
 
             // Text fragment newly added: diff against empty, preferring snapshot text
-            return extractFragmentContentAsync(thisFragment, true)
+            return extractFragmentContentAsync(thisFragment)
                     .thenApply(newContent -> {
                         var oldName = "old/" + thisFragment.shortDescription().renderNowOr("");
                         var newName = "new/" + thisFragment.shortDescription().renderNowOr("");
@@ -217,23 +217,13 @@ public final class DiffService {
 
         // Image fragments: compare bytes (prefer frozen snapshot bytes)
         if (!thisFragment.isText() || !otherFragment.isText()) {
-            try {
-                var entry = computeImageDiffEntry(thisFragment, otherFragment);
-                return CompletableFuture.completedFuture(entry);
-            } catch (Exception ex) {
-                logger.warn(
-                        "Error computing image diff for fragment '{}': {}",
-                        thisFragment.shortDescription().join(),
-                        ex.getMessage(),
-                        ex);
-                return CompletableFuture.completedFuture(new Context.DiffEntry(
-                        thisFragment, "[Error computing image diff]", 0, 0, "", "[Failed to extract image]"));
-            }
+            var entry = computeImageDiffEntry(thisFragment, otherFragment);
+            return CompletableFuture.completedFuture(entry);
         }
 
         // Extract text content asynchronously for both sides, preferring snapshots
-        var oldContentFuture = extractFragmentContentAsync(otherFragment, false);
-        var newContentFuture = extractFragmentContentAsync(thisFragment, true);
+        var oldContentFuture = extractFragmentContentAsync(otherFragment);
+        var newContentFuture = extractFragmentContentAsync(thisFragment);
 
         // Text fragments: compute textual diff
         return oldContentFuture
@@ -281,46 +271,22 @@ public final class DiffService {
     /**
      * Extract text content asynchronously for a fragment. For ComputedFragment, chains its future; otherwise immediate.
      */
-    private static CompletableFuture<String> extractFragmentContentAsync(ContextFragment fragment, boolean isNew) {
-        try {
-            var computedTextFuture = fragment.text().future();
-            return computedTextFuture
-                    .completeOnTimeout("", TEXT_FALLBACK_TIMEOUT.toSeconds(), TimeUnit.SECONDS)
-                    .exceptionally(ex -> {
-                        logger.warn(
-                                "Error computing text for {} fragment '{}': {}",
-                                fragment.getClass().getSimpleName(),
-                                fragment.shortDescription().renderNowOr(fragment.toString()),
-                                ex.getMessage(),
-                                ex);
-                        return "";
-                    });
-        } catch (UncheckedIOException e) {
-            logger.warn(
-                    "IO error reading content for {} fragment '{}' ({}): {}",
-                    fragment.getClass().getSimpleName(),
-                    fragment.shortDescription().renderNowOr(fragment.toString()),
-                    isNew ? "new" : "old",
-                    e.getMessage());
-            return CompletableFuture.failedFuture(e);
-        } catch (CancellationException e) {
-            logger.warn(
-                    "Computation cancelled for {} fragment '{}': {}",
-                    fragment.getClass().getSimpleName(),
-                    fragment.shortDescription().renderNowOr(fragment.toString()),
-                    e.getMessage());
-            CompletableFuture<String> cancelledFuture = CompletableFuture.failedFuture(e);
-            cancelledFuture.cancel(false);
-            return cancelledFuture;
-        } catch (Exception e) {
-            logger.error(
-                    "Unexpected error extracting content for {} fragment '{}': {}",
-                    fragment.getClass().getSimpleName(),
-                    fragment.shortDescription().renderNowOr(fragment.toString()),
-                    e.getMessage(),
-                    e);
-            return CompletableFuture.failedFuture(e);
-        }
+    private static CompletableFuture<String> extractFragmentContentAsync(ContextFragment fragment) {
+        var computedTextFuture = fragment.text().future();
+        return computedTextFuture
+                .completeOnTimeout("Timeout loading contents. Please consider reporting a bug", TEXT_FALLBACK_TIMEOUT.toSeconds(), TimeUnit.SECONDS)
+                .exceptionally(ex -> {
+                    var msg = """
+                            Error loading contents. Please consider reporting a bug.
+                            
+                            Details:
+                            Fragment type %s
+                            Fragment description: %s
+                            Stacktrace: %s
+                            """.formatted(fragment.getClass().getSimpleName(), fragment.shortDescription().renderNowOr(fragment.toString()), ExceptionReporter.formatStackTrace(ex));
+                    logger.warn(msg, ex);
+                    return msg;
+                });
     }
 
     /**
