@@ -138,7 +138,7 @@ public class Llm {
     private final boolean forceReasoningEcho;
     private final boolean tagRetain;
     private final boolean echo;
-    private volatile String previousResponseId;
+    private volatile @Nullable String previousResponseId;
 
     // Monotonically increasing sequence for emulated tool request IDs
     private final AtomicInteger toolRequestIdSeq = new AtomicInteger();
