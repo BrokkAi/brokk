@@ -145,8 +145,9 @@ public final class DiffService {
         var gitFileFragments = curr.allFragments().filter(f -> f.getType() == ContextFragment.FragmentType.GIT_FILE);
         var imageFragments = curr.allFragments().filter(f -> !f.isText());
 
-        var candidates =
-                Stream.of(editableFragments, gitFileFragments, imageFragments).flatMap(s -> s).distinct();
+        var candidates = Stream.of(editableFragments, gitFileFragments, imageFragments)
+                .flatMap(s -> s)
+                .distinct();
         var diffFutures =
                 candidates.map(cf -> computeDiffForFragment(curr, cf, other)).toList();
 
