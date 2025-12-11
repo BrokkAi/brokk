@@ -45,7 +45,7 @@ NC='\033[0m'
 # --------------- Globals ---------------
 ITERATIONS=3
 RETRIES=1
-RUNNER_ARGS="quick --json"
+RUNNER_ARGS="full --max-files 1000 --json"
 WORKDIR=""
 KEEP_WORKTREES=false
 
@@ -54,6 +54,8 @@ if [[ -z "${REPO_ROOT}" ]] || [[ ! -d "${REPO_ROOT}" ]]; then
   echo -e "${RED}This script must be run inside a Git repository.${NC}" >&2
   exit 1
 fi
+
+DEFAULT_PROJECTS_DIR="${REPO_ROOT}/test-projects"
 
 RUNNER_SCRIPT_REL="scripts/run-treesitter-repos.sh"
 RUNNER_SCRIPT="${REPO_ROOT}/${RUNNER_SCRIPT_REL}"
@@ -89,8 +91,10 @@ Options:
   -h, --help            Show this help
 
 Notes:
-- The runner should produce JSON results (--json). If not present in --runner-args,
-  --json will be appended automatically.
+- Default runner args: full --max-files 1000 --json
+- Default projects dataset dir: <repo>/test-projects (auto-prepared via 'setup' if missing)
+- The runner should produce JSON results (--json). If not present in --runner-args, --json will be appended automatically.
+- If --projects-dir is not present in --runner-args, it will default to the path above.
 - Artifacts will be stored under: <workdir>/{results,logs,worktrees}
 
 Examples:
@@ -190,6 +194,15 @@ ensure_json_flag() {
     printf "%s" "$args"
   else
     printf "%s --json" "$args"
+  fi
+}
+
+ensure_projects_dir_flag() {
+  local args="$1"
+  if [[ "$args" == *"--projects-dir"* ]]; then
+    printf "%s" "$args"
+  else
+    printf "%s --projects-dir %s" "$args" "${DEFAULT_PROJECTS_DIR}"
   fi
 }
 
@@ -397,8 +410,9 @@ parse_args() {
   GOOD_COMMIT="$1"
   BAD_COMMIT="$2"
 
-  # Ensure --json in runner args
+  # Ensure --json and default projects-dir in runner args
   RUNNER_ARGS="$(ensure_json_flag "${RUNNER_ARGS}")"
+  RUNNER_ARGS="$(ensure_projects_dir_flag "${RUNNER_ARGS}")"
 
   if [[ -z "${WORKDIR}" ]]; then
     WORKDIR="${REPO_ROOT}/build/perf-bisect/$(timestamp)"
@@ -407,11 +421,28 @@ parse_args() {
   mkdir -p "${WORKDIR}/results" "${WORKDIR}/logs" "${WORKDIR}/worktrees"
 }
 
+ensure_projects_dir_ready() {
+  local dir="${DEFAULT_PROJECTS_DIR}"
+  if [[ -d "$dir" ]]; then
+    if find "$dir" -mindepth 1 -maxdepth 1 -print -quit >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+  echo -e "${YELLOW}Preparing test projects in: ${dir}${NC}"
+  mkdir -p "$dir"
+  if ! (cd "${REPO_ROOT}" && bash "${RUNNER_SCRIPT}" setup --projects-dir "$dir"); then
+    echo -e "${RED}Failed to setup test projects in ${dir}.${NC}" >&2
+    exit 1
+  fi
+}
+
 # --------------- Main ---------------
 main() {
   require_cmd git
   require_cmd python3
   parse_args "$@"
+
+  ensure_projects_dir_ready
 
   local good_sha bad_sha
   good_sha="$(resolve_sha "${GOOD_COMMIT}")"
