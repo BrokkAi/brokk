@@ -54,7 +54,7 @@ public class SessionManager implements AutoCloseable {
                            @JsonProperty("name") String name,
                            @JsonProperty("created") long created,
                            @JsonProperty("modified") long modified,
-                           @JsonProperty("aiResponseCount") Integer aiResponseCount) {
+                           @JsonProperty("aiResponseCount") @Nullable Integer aiResponseCount) {
             this(id, name, created, modified, aiResponseCount != null ? aiResponseCount : COUNT_UNKNOWN);
         }
 
@@ -317,6 +317,43 @@ public class SessionManager implements AutoCloseable {
         }
 
         return new QuarantineReport(Set.copyOf(quarantinedIds), List.copyOf(quarantinedNoUuid), moved);
+    }
+
+    /**
+     * Migrates aiResponseCount for all sessions that don't have it yet.
+     * This is idempotent and skips already-migrated sessions.
+     *
+     * <p>This runs synchronously; intended to be invoked from a background task.
+     *
+     * @return the number of sessions migrated
+     */
+    public int migrateAiResponseCounts(IContextManager contextManager) {
+        var sessionsToMigrate = sessionsCache.values().stream()
+                .filter(SessionInfo::needsCountMigration)
+                .toList();
+
+        if (sessionsToMigrate.isEmpty()) {
+            return 0;
+        }
+
+        logger.info("Migrating aiResponseCount for {} session(s)", sessionsToMigrate.size());
+        int migrated = 0;
+
+        for (var info : sessionsToMigrate) {
+            try {
+                var history = loadHistoryInternal(info.id(), contextManager);
+                int count = countAiResponses(history);
+                var updated = new SessionInfo(info.id(), info.name(), info.created(), info.modified(), count);
+                sessionsCache.put(info.id(), updated);
+                writeSessionInfoToZip(getSessionHistoryPath(info.id()), updated);
+                migrated++;
+            } catch (Exception e) {
+                logger.warn("Failed to migrate aiResponseCount for session {}: {}", info.id(), e.getMessage());
+            }
+        }
+
+        logger.info("Migrated aiResponseCount for {} session(s)", migrated);
+        return migrated;
     }
 
     public SessionInfo copySession(UUID originalSessionId, String newSessionName) throws Exception {

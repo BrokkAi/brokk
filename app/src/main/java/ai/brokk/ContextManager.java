@@ -337,6 +337,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
                             JOptionPane.WARNING_MESSAGE));
                 }
             });
+        } else {
+            // V3 migration already complete, but still need to migrate aiResponseCount for old sessions
+            submitBackgroundTask("Migrate session metadata", () -> {
+                var sessionManager = project.getSessionManager();
+                int migrated = sessionManager.migrateAiResponseCounts(this);
+                if (migrated > 0 && io instanceof Chrome) {
+                    project.sessionsListChanged();
+                }
+            });
         }
     }
 
