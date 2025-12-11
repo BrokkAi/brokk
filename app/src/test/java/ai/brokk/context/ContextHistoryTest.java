@@ -2,11 +2,11 @@ package ai.brokk.context;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
-import ai.brokk.IContextManager;
 import dev.langchain4j.data.message.UserMessage;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -364,11 +364,8 @@ public class ContextHistoryTest {
         var updated = history.processExternalFileChangesIfNeeded(Set.of(pf));
 
         assertNotNull(updated, "A context should be returned when content changes");
-        assertEquals(
-                updated.id(), history.liveContext().id(), "Returned context should be the new live context");
-        assertTrue(
-                updated.getAction().startsWith("Load external changes"),
-                "Action should indicate external changes");
+        assertEquals(updated.id(), history.liveContext().id(), "Returned context should be the new live context");
+        assertTrue(updated.getAction().startsWith("Load external changes"), "Action should indicate external changes");
 
         var prev = history.previousOf(updated);
         assertNotNull(prev, "There must be a previous context to diff against");
@@ -411,12 +408,8 @@ public class ContextHistoryTest {
         Files.writeString(pf.absPath(), "one\ntwo\nthree\n");
         var second = history.processExternalFileChangesIfNeeded(Set.of(pf));
         assertNotNull(second, "Second external change should produce an updated context");
-        assertEquals(
-                sizeBefore + 1,
-                history.getHistory().size(),
-                "Second change should replace the top (no growth)");
-        assertEquals(
-                "Load external changes (2)", second.getAction(), "Continuation count should increment to (2)");
+        assertEquals(sizeBefore + 1, history.getHistory().size(), "Second change should replace the top (no growth)");
+        assertEquals("Load external changes (2)", second.getAction(), "Continuation count should increment to (2)");
 
         var prevOfSecond = history.previousOf(second);
         assertNotNull(prevOfSecond, "Previous of second should exist");
@@ -446,13 +439,13 @@ public class ContextHistoryTest {
 
         var updated = history.processExternalFileChangesIfNeeded(Set.of());
         assertNotNull(updated, "Empty changed set should target all context files and detect the change");
-        assertTrue(
-                updated.getAction().startsWith("Load external changes"),
-                "Action should indicate external changes");
+        assertTrue(updated.getAction().startsWith("Load external changes"), "Action should indicate external changes");
     }
 
-    // --- Helpers for usage-like editable fragment ---
-
+    /**
+     * We use a mock usage fragment as it will satisfy control flow such as `ContextFragment.isEditable` while
+     * avoiding dependencies and computation from analyzers/usage finders.
+     */
     private static final class MockUsageFragment extends ContextFragment.AbstractStaticFragment
             implements ContextFragment.DynamicIdentity {
         public MockUsageFragment(IContextManager cm, String id, String text) {
@@ -470,8 +463,9 @@ public class ContextHistoryTest {
     }
 
     @Test
-    public void testProcessExternalFileChanges_withUsageFragment_fileChange_producesNonEmptyDiffsAndExcludesUsageInDiffs()
-            throws Exception {
+    public void
+            testProcessExternalFileChanges_withUsageFragment_fileChange_producesNonEmptyDiffsAndExcludesUsageInDiffs()
+                    throws Exception {
         var pf = new ProjectFile(tempDir, "src/WithUsage.txt");
         Files.createDirectories(pf.absPath().getParent());
         Files.writeString(pf.absPath(), "base\n");
@@ -481,7 +475,11 @@ public class ContextHistoryTest {
         var usageFrag1 = new MockUsageFragment(contextManager, "U1", "U1");
 
         var initialContext = new Context(
-                contextManager, List.of(projectFrag1, usageFrag1), List.of(), null, CompletableFuture.completedFuture("Initial"));
+                contextManager,
+                List.of(projectFrag1, usageFrag1),
+                List.of(),
+                null,
+                CompletableFuture.completedFuture("Initial"));
         var history = new ContextHistory(initialContext);
 
         // Change the file on disk
@@ -499,8 +497,7 @@ public class ContextHistoryTest {
         assertTrue(changed.contains(pf), "Changed files should include the modified ProjectFile");
 
         // Identify the refreshed project fragment in the updated context
-        var projectFrag2 = updated
-                .allFragments()
+        var projectFrag2 = updated.allFragments()
                 .filter(f -> f instanceof ContextFragment.PathFragment)
                 .map(f -> (ContextFragment.PathFragment) f)
                 .filter(f -> f.file().equals(pf))
@@ -548,7 +545,11 @@ public class ContextHistoryTest {
         var usageFrag = new MockUsageFragment(contextManager, "U2", "something");
 
         var initialContext = new Context(
-                contextManager, List.of(projectFrag, usageFrag), List.of(), null, CompletableFuture.completedFuture("Initial"));
+                contextManager,
+                List.of(projectFrag, usageFrag),
+                List.of(),
+                null,
+                CompletableFuture.completedFuture("Initial"));
         var history = new ContextHistory(initialContext);
 
         var beforeSize = history.getHistory().size();
