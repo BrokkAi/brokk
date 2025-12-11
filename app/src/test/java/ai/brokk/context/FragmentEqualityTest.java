@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -442,6 +443,186 @@ class FragmentEqualityTest {
             var uf = track(new ContextFragment.UsageFragment(contextManager, "com.example.Class"));
 
             assertFalse(sf.hasSameSource(uf));
+        }
+
+        @Test
+        void testDiffStringFragmentExposesFiles() throws IOException {
+            var file1 = new ProjectFile(tempDir, "src/File1.java");
+            var file2 = new ProjectFile(tempDir, "src/File2.java");
+            Files.createDirectories(file1.absPath().getParent());
+            Files.writeString(file1.absPath(), "class File1 {}");
+            Files.writeString(file2.absPath(), "class File2 {}");
+
+            var associatedFiles = Set.of(file1, file2);
+            var sf = new ContextFragment.StringFragment(
+                    contextManager,
+                    "diff --git a/src/File1.java b/src/File1.java\n...",
+                    "Diff of File1.java and File2.java",
+                    SyntaxConstants.SYNTAX_STYLE_NONE,
+                    associatedFiles);
+
+            var filesFromFragment = sf.files().join();
+            assertEquals(associatedFiles, filesFromFragment);
+        }
+
+        @Test
+        void testDiffStringFragmentFilesDoNotAffectHasSameSource() throws IOException {
+            var file1 = new ProjectFile(tempDir, "src/File1.java");
+            var file2 = new ProjectFile(tempDir, "src/File2.java");
+            Files.createDirectories(file1.absPath().getParent());
+            Files.writeString(file1.absPath(), "class File1 {}");
+            Files.writeString(file2.absPath(), "class File2 {}");
+
+            var sf1 = new ContextFragment.StringFragment(
+                    contextManager,
+                    "diff --git a/src/File1.java b/src/File1.java\n@@ -1 +1 @@\n-class File1 {}\n+class File1 { }",
+                    "Diff of files",
+                    SyntaxConstants.SYNTAX_STYLE_NONE,
+                    Set.of(file1));
+            var sf2 = new ContextFragment.StringFragment(
+                    contextManager,
+                    "diff --git a/src/File2.java b/src/File2.java\n@@ -1 +1 @@\n-class File2 {}\n+class File2 { }",
+                    "Diff of files",
+                    SyntaxConstants.SYNTAX_STYLE_NONE,
+                    Set.of(file2));
+
+            assertTrue(sf1.hasSameSource(sf2));
+        }
+
+        @Test
+        void testDiffParsingSingleFileGitDiff() throws IOException {
+            var file = new ProjectFile(tempDir, "src/GitDiffSingle.java");
+            Files.createDirectories(file.absPath().getParent());
+            Files.writeString(file.absPath(), "class GitDiffSingle {}");
+
+            String diffText =
+                    """
+                    diff --git a/src/GitDiffSingle.java b/src/GitDiffSingle.java
+                    index e69de29..4b825dc 100644
+                    --- a/src/GitDiffSingle.java
+                    +++ b/src/GitDiffSingle.java
+                    @@ -1 +1 @@
+                    -class GitDiffSingle {}
+                    +class GitDiffSingle { }
+                    """;
+
+            var sf = new ContextFragment.StringFragment(
+                    contextManager, diffText, "Git diff for GitDiffSingle.java", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+            var expectedPaths = Set.of(file.absPath().toString());
+            var actualPaths = sf.files().join().stream()
+                    .map(pf -> pf.absPath().toString())
+                    .collect(Collectors.toSet());
+            assertEquals(expectedPaths, actualPaths);
+        }
+
+        @Test
+        void testDiffParsingMultiFileUnifiedDiff() throws IOException {
+            var fileA = new ProjectFile(tempDir, "src/UnifiedA.java");
+            var fileB = new ProjectFile(tempDir, "src/UnifiedB.java");
+            Files.createDirectories(fileA.absPath().getParent());
+            Files.writeString(fileA.absPath(), "class UnifiedA {}");
+            Files.writeString(fileB.absPath(), "class UnifiedB {}");
+
+            String diffText =
+                    """
+                    --- src/UnifiedA.java
+                    +++ src/UnifiedA.java
+                    @@ -1 +1 @@
+                    -class UnifiedA {}
+                    +class UnifiedA { }
+
+                    --- src/UnifiedB.java
+                    +++ src/UnifiedB.java
+                    @@ -1 +1 @@
+                    -class UnifiedB {}
+                    +class UnifiedB { }
+                    """;
+
+            var sf = new ContextFragment.StringFragment(
+                    contextManager,
+                    diffText,
+                    "Unified diff for UnifiedA.java and UnifiedB.java",
+                    SyntaxConstants.SYNTAX_STYLE_NONE);
+
+            var expectedPaths =
+                    Set.of(fileA.absPath().toString(), fileB.absPath().toString());
+            var actualPaths = sf.files().join().stream()
+                    .map(pf -> pf.absPath().toString())
+                    .collect(Collectors.toSet());
+            assertEquals(expectedPaths, actualPaths);
+        }
+
+        @Test
+        void testDiffParsingDeletionDiffWithDevNull() throws IOException {
+            var file = new ProjectFile(tempDir, "src/Deleted.java");
+            Files.createDirectories(file.absPath().getParent());
+            Files.writeString(file.absPath(), "class Deleted {}");
+
+            String diffText =
+                    """
+                    diff --git a/src/Deleted.java b/src/Deleted.java
+                    deleted file mode 100644
+                    index e69de29..0000000
+                    --- a/src/Deleted.java
+                    +++ /dev/null
+                    @@ -1 +0,0 @@
+                    -class Deleted {}
+                    """;
+
+            var sf = new ContextFragment.StringFragment(
+                    contextManager, diffText, "Deletion diff for Deleted.java", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+            var expectedPaths = Set.of(file.absPath().toString());
+            var actualPaths = sf.files().join().stream()
+                    .map(pf -> pf.absPath().toString())
+                    .collect(Collectors.toSet());
+            assertEquals(expectedPaths, actualPaths);
+        }
+
+        @Test
+        void testDiffParsingRenameDiffPrefersNewPath() throws IOException {
+            var oldFile = new ProjectFile(tempDir, "src/RenamedOld.java");
+            var newFile = new ProjectFile(tempDir, "src/RenamedNew.java");
+            Files.createDirectories(oldFile.absPath().getParent());
+            Files.writeString(oldFile.absPath(), "class RenamedOld {}");
+            Files.writeString(newFile.absPath(), "class RenamedNew {}");
+
+            String diffText =
+                    """
+                    diff --git a/src/RenamedOld.java b/src/RenamedNew.java
+                    similarity index 100%
+                    rename from src/RenamedOld.java
+                    rename to src/RenamedNew.java
+                    --- a/src/RenamedOld.java
+                    +++ b/src/RenamedNew.java
+                    @@ -1 +1 @@
+                    -class RenamedOld {}
+                    +class RenamedNew {}
+                    """;
+
+            var sf = new ContextFragment.StringFragment(
+                    contextManager,
+                    diffText,
+                    "Rename diff from RenamedOld.java to RenamedNew.java",
+                    SyntaxConstants.SYNTAX_STYLE_NONE);
+
+            var expectedPaths = Set.of(newFile.absPath().toString());
+            var actualPaths = sf.files().join().stream()
+                    .map(pf -> pf.absPath().toString())
+                    .collect(Collectors.toSet());
+            assertEquals(expectedPaths, actualPaths);
+        }
+
+        @Test
+        void testDiffParsingNonDiffTextHasNoFiles() {
+            var sf = new ContextFragment.StringFragment(
+                    contextManager,
+                    "This is not a diff\nJust some plain text.",
+                    "Plain text",
+                    SyntaxConstants.SYNTAX_STYLE_NONE);
+
+            assertTrue(sf.files().join().isEmpty());
         }
     }
 
