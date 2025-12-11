@@ -1909,11 +1909,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /**
      * Ensures build details are loaded or inferred using BuildAgent if necessary. Runs asynchronously in the
-     * background.
+     * background. For empty projects, skips inference and sets empty build details.
      */
     private synchronized void ensureBuildDetailsAsync() {
         if (project.hasBuildDetails()) {
             logger.debug("Using existing build details");
+            return;
+        }
+
+        // Check if this is an empty project; skip build inference for new projects
+        if (project.isEmptyProject()) {
+            logger.debug("Skipping build inference for empty project");
+            project.getMainProject().setBuildDetails(BuildDetails.EMPTY);
             return;
         }
 
