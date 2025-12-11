@@ -233,7 +233,7 @@ run_commit() {
   mkdir -p "${wt_dir}" "${res_dir}" "${log_dir}"
   local runner="${wt_dir}/${RUNNER_SCRIPT_REL}"
 
-  echo -e "${BLUE}Creating worktree for ${sha_short} -> ${wt_dir}${NC}"
+  echo -e "${BLUE}Creating worktree for ${sha_short} -> ${wt_dir}${NC}" >&2
   # Add a detached worktree
   (cd "${REPO_ROOT}" && git worktree add --detach "${wt_dir}" "${sha}") >/dev/null
   CREATED_WORKTREES+=("${wt_dir}")
@@ -251,13 +251,13 @@ run_commit() {
     local attempt=1
     local produced=""
     while (( attempt <= RETRIES )); do
-      echo -e "${GREEN}[${sha_short}] Iteration ${i}/${ITERATIONS} (attempt ${attempt}/${RETRIES})${NC}"
+      echo -e "${GREEN}[${sha_short}] Iteration ${i}/${ITERATIONS} (attempt ${attempt}/${RETRIES})${NC}" >&2
       # Use a subshell with bash -lc to preserve any quoting inside RUNNER_ARGS
       local start_ts
       start_ts="$(timestamp)"
       local run_args
       run_args="$(ensure_output_flag "${RUNNER_ARGS}" "${output_dir}")"
-      if ! bash -lc "bash \"${runner}\" ${run_args}"; then
+      if ! bash -lc "bash \"${runner}\" ${run_args}" 1>&2; then
         echo -e "${YELLOW}Runner failed for ${sha_short} (iteration ${i}, attempt ${attempt}). Retrying if available...${NC}" >&2
       fi
 
@@ -266,7 +266,7 @@ run_commit() {
       if [[ -n "${produced}" ]] && [[ -s "${produced}" ]]; then
         local dst="${res_dir}/iter-$(printf "%02d" "${i}").json"
         cp -f "${produced}" "${dst}"
-        echo -e "${GREEN}Captured ${dst}${NC}"
+        echo -e "${GREEN}Captured ${dst}${NC}" >&2
         break
       fi
       attempt=$((attempt + 1))
@@ -282,7 +282,7 @@ run_commit() {
   popd >/dev/null
 
   if [[ "${KEEP_WORKTREES}" != "true" ]]; then
-    echo -e "${YELLOW}Removing worktree ${wt_dir}${NC}"
+    echo -e "${YELLOW}Removing worktree ${wt_dir}${NC}" >&2
     (cd "${REPO_ROOT}" && git worktree remove --force "${wt_dir}") >/dev/null || true
   fi
 
