@@ -393,4 +393,109 @@ public class AskModeSearchAgentTest {
         boolean sawCodeAgent = eventsContain(jobId, "Code Agent", Duration.ofSeconds(5));
         assertFalse(sawCodeAgent, "codeModel must be ignored for ASK; no Code Agent invocation expected");
     }
+
+    /**
+     * New test:
+     * Submits an ASK job with preScan=true and asserts:
+     *  1) both Context Engine NOTIFICATIONs (start and completion) appear in the event stream,
+     *  2) no follow-on SearchAgent search/inspection tool activity is recorded after pre-scan,
+     *  3) an answer is produced (job reaches COMPLETED),
+     *  4) no CodeAgent/commit events occur.
+     */
+    @Test
+    public void testAskModePreScan_OnlyInitialScanThenAnswer_NoFurtherSearch() throws Exception {
+        String sessionId = createSession();
+
+        var payload = Map.<String, Object>of(
+                "taskInput",
+                "Summarize repository structure for fast-ask test",
+                "plannerModel",
+                "gemini-2.0-flash",
+                "scanModel",
+                "gemini-2.0-flash",
+                "preScan",
+                true,
+                "autoCommit",
+                false,
+                "autoCompress",
+                false,
+                "tags",
+                Map.of("mode", "ASK"));
+
+        String jobId = submitJob(sessionId, payload);
+
+        // 1) Assert pre-scan start notification appears
+        boolean sawPreScanStart = eventsContain(
+                jobId,
+                "Brokk Context Engine: analyzing repository context...",
+                Duration.ofSeconds(60));
+        assertTrue(sawPreScanStart, "Expected pre-scan START Context Engine notification");
+
+        // 1b) Assert pre-scan completion notification appears
+        boolean sawPreScanComplete = eventsContain(
+                jobId,
+                "Brokk Context Engine: complete — contextual insights added to Workspace.",
+                Duration.ofSeconds(60));
+        assertTrue(sawPreScanComplete, "Expected pre-scan COMPLETE Context Engine notification");
+
+        // 2) Ensure no follow-on search/inspection tool activity is recorded after pre-scan.
+        // These tool names represent typical search/inspection calls exposed by SearchAgent/WorkspaceTools.
+        var forbiddenSearchTools = new String[] {
+                "searchSymbols",
+                "getSymbolLocations",
+                "getClassSkeletons",
+                "getClassSources",
+                "getMethodSources",
+                "getUsages",
+                "searchSubstrings",
+                "searchFilenames",
+                "getFileContents",
+                "getFileSummaries"
+        };
+        for (String tool : forbiddenSearchTools) {
+            boolean sawTool = eventsContain(jobId, tool, Duration.ofSeconds(5));
+            assertFalse(sawTool, "Did not expect search/inspection tool activity after pre-scan: " + tool);
+        }
+
+        // 4) Also ensure no CodeAgent or commit messages appear (read-only)
+        boolean sawCodeAgent = eventsContain(jobId, "Code Agent", Duration.ofSeconds(5));
+        boolean sawCommit = eventsContain(jobId, "commit", Duration.ofSeconds(5));
+        assertFalse(sawCodeAgent, "ASK with pre-scan must not invoke Code Agent (read-only)");
+        assertFalse(sawCommit, "ASK with pre-scan must not perform commits (read-only)");
+
+        // 3) Finally, assert that the job completes (indirect evidence that an answer was produced).
+        long deadline = System.currentTimeMillis() + Duration.ofSeconds(60).toMillis();
+        boolean completed = false;
+        while (System.currentTimeMillis() < deadline) {
+            var uri = baseUrl() + "/v1/jobs/" + jobId;
+            var req = new Request.Builder()
+                    .url(uri)
+                    .get()
+                    .header("Authorization", "Bearer " + authToken)
+                    .build();
+            try (var resp = httpClient.newCall(req).execute()) {
+                if (resp.code() == 200 && resp.body() != null) {
+                    var node = mapper.readTree(resp.body().string());
+                    if (node.has("status")) {
+                        // Some installations may return "status" or "state"; tolerate both
+                        String state = node.has("status") ? node.get("status").asText() : node.get("state").asText();
+                        if ("COMPLETED".equalsIgnoreCase(state) || "completed".equalsIgnoreCase(state)) {
+                            completed = true;
+                            break;
+                        }
+                    } else if (node.has("state")) {
+                        String state = node.get("state").asText();
+                        if ("COMPLETED".equalsIgnoreCase(state) || "completed".equalsIgnoreCase(state)) {
+                            completed = true;
+                            break;
+                        }
+                    }
+                }
+            } catch (IOException ioe) {
+                // transient: ignore and retry until deadline
+            }
+            Thread.sleep(500L);
+        }
+        assertTrue(completed, "Expected job to reach COMPLETED state (answer produced) within timeout");
+    }
 }
