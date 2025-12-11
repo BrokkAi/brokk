@@ -18,7 +18,6 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 import java.util.zip.GZIPOutputStream;
 import okhttp3.*;
 import org.apache.logging.log4j.LogManager;
@@ -379,7 +378,10 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                 }
             }
 
-            LogManager.getLogger(Service.class).info("Discovered models {}", locationsTarget.keySet().stream().sorted().toList());
+            LogManager.getLogger(Service.class)
+                    .info(
+                            "Discovered models {}",
+                            locationsTarget.keySet().stream().sorted().toList());
         }
     }
 

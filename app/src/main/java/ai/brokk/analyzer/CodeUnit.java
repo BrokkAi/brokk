@@ -187,6 +187,14 @@ public class CodeUnit implements Comparable<CodeUnit> {
         return signature != null;
     }
 
+    /**
+     * Returns true if this CodeUnit represents an anonymous or synthetic element that contains "$anon$" in its name.
+     * Used to filter out lambda/anonymous artifacts from summaries and recommendations.
+     */
+    public boolean isAnonymous() {
+        return fqName.contains("$anon$");
+    }
+
     @Override
     public int compareTo(CodeUnit other) {
         // Compare based on the derived fully qualified name

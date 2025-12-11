@@ -9,6 +9,7 @@ import ai.brokk.gui.search.ScrollingUtils;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.MainProject;
+import java.awt.Container;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
@@ -16,11 +17,7 @@ import java.awt.Insets;
 import java.awt.Rectangle;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.util.Collection;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -191,20 +188,32 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
     }
 
     private void updateChips(List<ContextFragment> fragments) {
+        updateChips(fragments, false);
+    }
+
+    private void updateChips(List<ContextFragment> fragments, boolean fromBackground) {
+        if (!fromBackground && SwingUtilities.isEventDispatchThread()) {
+            var fragmentsCopy = List.copyOf(fragments);
+            contextManager.submitBackgroundTask(
+                    "WorkspaceItemsChipPanel.updateChips", () -> updateChips(fragmentsCopy, true));
+            return;
+        }
+
         logger.debug(
                 "updateChips (incremental) called with {} fragments (forceToolEmulation={} readOnly={})",
                 fragments.size(),
                 MainProject.getForceToolEmulation(),
                 readOnly);
 
-        var visibleFragments = fragments.stream()
-                .filter(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f))
-                .toList();
+        boolean force = MainProject.getForceToolEmulation();
+
+        var visibleFragments =
+                fragments.stream().filter(f -> force || hasRenderableContent(f)).toList();
 
         var summaries = visibleFragments.stream()
                 .filter(f -> classify(f) == WorkspaceChip.ChipKind.SUMMARY)
                 .toList();
-        var nonsummaries = visibleFragments.stream()
+        var nonSummaryFragments = visibleFragments.stream()
                 .filter(f -> classify(f) != WorkspaceChip.ChipKind.SUMMARY)
                 .toList();
 
@@ -212,103 +221,107 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
                 "updateChips: {} visible ({} summaries, {} others) out of {}",
                 visibleFragments.size(),
                 summaries.size(),
-                nonsummaries.size(),
+                nonSummaryFragments.size(),
                 fragments.size());
 
         Map<String, ContextFragment> newOthersById = new LinkedHashMap<>();
-        for (var f : nonsummaries) {
+        for (var f : nonSummaryFragments) {
             newOthersById.put(f.id(), f);
         }
 
-        // 1) Remove chips that are no longer present
-        var toRemove = chipById.keySet().stream()
-                .filter(oldId -> !newOthersById.containsKey(oldId))
-                .toList();
-        for (var id : toRemove) {
-            var chip = chipById.remove(id);
-            if (chip != null) {
-                remove(chip);
-            }
-        }
+        var orderIds = nonSummaryFragments.stream().map(ContextFragment::id).toList();
 
-        // 2) Add chips that are new
-        for (var entry : newOthersById.entrySet()) {
-            var id = entry.getKey();
-            var frag = entry.getValue();
-            if (!chipById.containsKey(id)) {
+        boolean anyRenderableSummary = summaries.stream().anyMatch(f -> force || hasRenderableContent(f));
+        var renderableSummaries = anyRenderableSummary
+                ? summaries.stream()
+                        .filter(f -> force || hasRenderableContent(f))
+                        .toList()
+                : java.util.List.<ContextFragment>of();
+
+        SwingUtilities.invokeLater(() -> {
+            // Snapshot current ids to avoid races and inconsistent views during add/remove planning.
+            var currentIds = new HashSet<>(chipById.keySet());
+
+            var toRemoveIds = currentIds.stream()
+                    .filter(oldId -> !newOthersById.containsKey(oldId))
+                    .toList();
+
+            for (var id : toRemoveIds) {
+                var chip = chipById.remove(id);
+                if (chip != null) {
+                    remove(chip);
+                }
+            }
+
+            var toAddFrags = nonSummaryFragments.stream()
+                    .filter(f -> !currentIds.contains(f.id()))
+                    .toList();
+
+            for (var frag : toAddFrags) {
                 var chip = createChip(frag);
                 if (chip != null) {
                     add(chip);
-                    chipById.put(id, chip);
+                    chipById.put(frag.id(), chip);
                 }
             }
-        }
 
-        // 3) Reorder chips to match 'others' order
-        int z = 0;
-        for (var f : nonsummaries) {
-            var chip = chipById.get(f.id());
-            if (chip != null) {
-                try {
-                    setComponentZOrder(chip, z++);
-                } catch (Exception ex) {
-                    logger.debug("Failed to set component z-order for fragment: {}", f.id(), ex);
+            int z = 0;
+            for (var id : orderIds) {
+                var chip = chipById.get(id);
+                if (chip != null) {
+                    try {
+                        setComponentZOrder(chip, z++);
+                    } catch (Exception ex) {
+                        logger.debug("Failed to set component z-order for fragment: {}", id, ex);
+                    }
                 }
             }
-        }
 
-        // 3b) Rebind existing chips to updated fragment instances
-        for (var f : nonsummaries) {
-            var chip = chipById.get(f.id());
-            if (chip != null) {
-                chip.updateFragment(f);
+            for (var f : nonSummaryFragments) {
+                var chip = chipById.get(f.id());
+                if (chip != null) {
+                    chip.updateFragment(f);
+                }
             }
-        }
 
-        // 4) Synthetic "Summaries" chip incremental management
-        boolean anyRenderableSummary =
-                summaries.stream().anyMatch(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f));
-
-        if (!anyRenderableSummary) {
-            if (syntheticSummaryChip != null) {
-                remove(syntheticSummaryChip);
-                syntheticSummaryChip = null;
-            }
-        } else {
-            var renderableSummaries = summaries.stream()
-                    .filter(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f))
-                    .toList();
-            if (renderableSummaries.isEmpty()) {
-                logger.debug("No renderable summaries for synthetic chip; skipping.");
-            } else if (syntheticSummaryChip == null) {
-                syntheticSummaryChip = createSyntheticSummaryChip(renderableSummaries);
+            if (!anyRenderableSummary) {
                 if (syntheticSummaryChip != null) {
-                    add(syntheticSummaryChip);
+                    remove(syntheticSummaryChip);
+                    syntheticSummaryChip = null;
                 }
             } else {
-                syntheticSummaryChip.updateSummaries(renderableSummaries);
-            }
+                if (renderableSummaries.isEmpty()) {
+                    logger.debug("No renderable summaries for synthetic chip; skipping.");
+                } else if (syntheticSummaryChip == null) {
+                    syntheticSummaryChip = createSyntheticSummaryChip(renderableSummaries);
+                    if (syntheticSummaryChip != null) {
+                        add(syntheticSummaryChip);
+                    }
+                } else {
+                    syntheticSummaryChip.updateSummaries(renderableSummaries);
+                }
 
-            if (syntheticSummaryChip != null) {
-                try {
-                    setComponentZOrder(syntheticSummaryChip, getComponentCount() - 1);
-                } catch (Exception ex) {
-                    logger.debug("Failed to set component z-order for synthetic summary chip", ex);
+                if (syntheticSummaryChip != null) {
+                    try {
+                        setComponentZOrder(syntheticSummaryChip, getComponentCount() - 1);
+                    } catch (Exception ex) {
+                        logger.debug("Failed to set component z-order for synthetic summary chip", ex);
+                    }
                 }
             }
-        }
 
-        revalidate();
-        repaint();
+            revalidate();
+            repaint();
 
-        java.awt.Container p = getParent();
-        while (p != null) {
-            if (p instanceof JComponent jc) {
-                jc.revalidate();
-                jc.repaint();
+            Container p = getParent();
+            while (p != null) {
+                if (p instanceof JComponent jc) {
+                    jc.revalidate();
+                    jc.repaint();
+                }
+                p = p.getParent();
             }
-            p = p.getParent();
-        }
+        });
     }
 
     private WorkspaceChip.ChipKind classify(ContextFragment fragment) {

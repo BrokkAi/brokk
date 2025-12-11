@@ -851,10 +851,10 @@ public class SearchAgent {
                   Large/noisy/mixed = long, multi-file, logs/traces/issues, big diffs, UI/test noise, unfocused content.
 
                 Keep rule:
-                - KEEP only if it is short, focused, directly relevant, AND keeping it is clearer than summarizing.
+                - KEEP only if it is short, focused, directly relevant, AND keeping it is clearer than summarizing (i.e. to much information loss on summary).
 
                 fragment.explanation (string) format:
-                - Summary: 2–4 identifier-first bullets (files/methods and why they matter).
+                - Summary: information needed to solve the goal (e.g. descriptions, file paths, class names, method names, code snippets, stack traces)
                 - Reason: one short sentence why dropped.
                 - No implementation instructions.
 

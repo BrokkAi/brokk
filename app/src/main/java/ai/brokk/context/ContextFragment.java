@@ -1722,7 +1722,6 @@ public interface ContextFragment {
         FILE_SKELETONS
     }
 
-    // Formatter class kept for logic reuse
     class SkeletonFragmentFormatter {
         public record Request(
                 @Nullable CodeUnit primaryTarget,
@@ -1742,23 +1741,35 @@ public interface ContextFragment {
 
         private String formatSummaryWithAncestors(
                 CodeUnit cu, List<CodeUnit> ancestorList, Map<CodeUnit, String> skeletons) {
-            Map<CodeUnit, String> primary = new LinkedHashMap<>();
-            skeletons.forEach((k, v) -> {
-                if (k.fqName().equals(cu.fqName())) primary.put(k, v);
-            });
             var sb = new StringBuilder();
-            String primaryFormatted = formatSkeletonsByPackage(primary);
-            if (!primaryFormatted.isEmpty()) sb.append(primaryFormatted).append("\n\n");
-            if (!ancestorList.isEmpty()) {
-                String ancestorNames =
-                        ancestorList.stream().map(CodeUnit::shortName).collect(Collectors.joining(", "));
-                sb.append("// Direct ancestors of ")
-                        .append(cu.shortName())
-                        .append(": ")
-                        .append(ancestorNames)
-                        .append("\n\n");
+
+            boolean isCuAnonymous = cu.isAnonymous();
+
+            if (!isCuAnonymous) {
+                String primarySkeleton = skeletons.get(cu);
+                if (primarySkeleton != null && !primarySkeleton.isEmpty()) {
+                    Map<CodeUnit, String> primary = new LinkedHashMap<>();
+                    primary.put(cu, primarySkeleton);
+                    String primaryFormatted = formatSkeletonsByPackage(primary);
+                    if (!primaryFormatted.isEmpty()) sb.append(primaryFormatted).append("\n\n");
+                }
+            }
+
+            var filteredAncestors =
+                    ancestorList.stream().filter(anc -> !anc.isAnonymous()).toList();
+
+            if (!filteredAncestors.isEmpty()) {
+                if (!isCuAnonymous) {
+                    String ancestorNames =
+                            filteredAncestors.stream().map(CodeUnit::shortName).collect(Collectors.joining(", "));
+                    sb.append("// Direct ancestors of ")
+                            .append(cu.shortName())
+                            .append(": ")
+                            .append(ancestorNames)
+                            .append("\n\n");
+                }
                 Map<CodeUnit, String> ancestorsMap = new LinkedHashMap<>();
-                ancestorList.forEach(anc -> {
+                filteredAncestors.forEach(anc -> {
                     String sk = skeletons.get(anc);
                     if (sk != null) ancestorsMap.put(anc, sk);
                 });
@@ -1770,13 +1781,18 @@ public interface ContextFragment {
 
         private String formatSkeletonsByPackage(Map<CodeUnit, String> skeletons) {
             if (skeletons.isEmpty()) return "";
+
             var skeletonsByPackage = skeletons.entrySet().stream()
+                    .filter(e -> !e.getKey().isAnonymous())
                     .collect(Collectors.groupingBy(
                             e -> e.getKey().packageName().isEmpty()
                                     ? "(default package)"
                                     : e.getKey().packageName(),
                             Collectors.toMap(
                                     Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new)));
+
+            if (skeletonsByPackage.isEmpty()) return "";
+
             return skeletonsByPackage.entrySet().stream()
                     .sorted(Map.Entry.comparingByKey())
                     .map(pkgEntry -> "package " + pkgEntry.getKey() + ";\n\n"

@@ -84,7 +84,7 @@ public class WatchServiceFactory {
         }
 
         // 4) Default to native to preserve previous behavior
-        return WATCH_SERVICE_IMPL_NATIVE;
+        return WATCH_SERVICE_IMPL_LEGACY;
     }
 
     /**
@@ -115,31 +115,31 @@ public class WatchServiceFactory {
             String os) {
 
         if (WATCH_SERVICE_IMPL_LEGACY.equalsIgnoreCase(implProp)) {
-            logger.info("Using legacy watch service (forced by configuration)");
+            logger.debug("Using legacy watch service (forced by configuration)");
             return new LegacyProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
         }
         if (WATCH_SERVICE_IMPL_NATIVE.equalsIgnoreCase(implProp)) {
-            logger.info("Using native watch service (forced by configuration)");
+            logger.debug("Using native watch service (forced by configuration)");
             return createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
         }
 
         // Platform-based selection
         if (os.contains("mac")) {
             // macOS benefits most from native FSEvents implementation
-            logger.info("Detected macOS, using native watch service (FSEvents)");
+            logger.debug("Detected macOS, using native watch service (FSEvents)");
             return createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
         } else if (os.contains("linux")) {
             // Linux: native implementation provides optimizations
-            logger.info("Detected Linux, using native watch service (inotify optimized)");
+            logger.debug("Detected Linux, using native watch service (inotify optimized)");
             return createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
         } else if (os.contains("win")) {
             // Windows: both implementations work well, prefer native for consistency
-            logger.info("Detected Windows, using native watch service");
+            logger.debug("Detected Windows, using native watch service");
             return createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
         }
 
         // Default to native with fallback
-        logger.info("Using native watch service (default)");
+        logger.debug("Using native watch service (default)");
         return createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
     }
 

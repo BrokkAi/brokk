@@ -2231,6 +2231,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     public void populateInstructionsArea(String text) {
+        populateInstructionsArea(text, null);
+    }
+
+    public void populateInstructionsArea(String text, @Nullable Runnable onComplete) {
         SwingUtilities.invokeLater(() -> {
             // Check if WandButton captured the original text (before streaming modified the area)
             String capturedOldText = wandButton.getCapturedOriginalText();
@@ -2253,6 +2257,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 setTextWithUndo(text, finalOldText); // Use undo-preserving helper with captured old text
                 instructionsArea.requestFocusInWindow(); // Ensure focus after text set
                 instructionsArea.setCaretPosition(text.length()); // Move caret to end
+                if (onComplete != null) {
+                    onComplete.run();
+                }
             });
         });
     }
@@ -2941,13 +2948,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             List<Completion> completions;
             if (rawText.contains("/") || rawText.contains("\\")) {
                 var allFiles = contextManager.getProject().getAllFiles();
-                List<ShorthandCompletion> fileCompletions = Completions.scoreShortAndLong(
+                var project = contextManager.getProject();
+                List<ShorthandCompletion> fileCompletions = Completions.scoreProjectFiles(
                         rawText,
+                        project,
                         allFiles,
                         ProjectFile::getFileName,
                         ProjectFile::toString,
-                        f -> 0,
-                        f -> new ShorthandCompletion(this, f.getFileName(), formatCompletionText(f.getFileName())));
+                        f -> new ShorthandCompletion(this, f.getFileName(), formatCompletionText(f.getFileName())),
+                        1);
                 completions = new ArrayList<>(fileCompletions.stream().limit(50).toList());
             } else {
                 var analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
