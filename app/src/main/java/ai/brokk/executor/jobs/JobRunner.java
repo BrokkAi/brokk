@@ -502,10 +502,10 @@ public final class JobRunner {
                                                                     ? t.getClass()
                                                                             .getSimpleName()
                                                                     : t.getMessage());
-                                                    java.util.List<dev.langchain4j.data.message.ChatMessage> ui = java.util.List.of(
-                                                            new dev.langchain4j.data.message.UserMessage(task.text()),
-                                                            new dev.langchain4j.data.message.SystemMessage("ASK direct-answer failed: " + stopDetails.explanation())
-                                                    );
+                                                    List<ChatMessage> ui = List.of(
+                                                            new UserMessage(task.text()),
+                                                            new SystemMessage("ASK direct-answer failed: "
+                                                                    + stopDetails.explanation()));
                                                     var failureResult = new TaskResult(
                                                             cm,
                                                             "ASK: " + task.text() + " [LLM_ERROR]",
@@ -540,11 +540,10 @@ public final class JobRunner {
                                                 String rawScanModel = spec.scanModel();
                                                 String trimmedScanModel =
                                                         rawScanModel == null ? null : rawScanModel.trim();
-                                                final dev.langchain4j.model.chat.StreamingChatModel scanModelToUse =
-                                                        (trimmedScanModel != null && !trimmedScanModel.isEmpty())
-                                                                ? resolveModelOrThrow(trimmedScanModel)
-                                                                : cm.getService()
-                                                                        .getScanModel();
+                                                final StreamingChatModel scanModelToUse = (trimmedScanModel != null
+                                                                && !trimmedScanModel.isEmpty())
+                                                        ? resolveModelOrThrow(trimmedScanModel)
+                                                        : cm.getService().getScanModel();
 
                                                 var searchAgent = new SearchAgent(
                                                         context,
@@ -790,10 +789,7 @@ public final class JobRunner {
             Thread.currentThread().interrupt();
             String expl = ie.getMessage() == null ? "Interrupted" : ie.getMessage();
             var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, expl);
-            java.util.List<dev.langchain4j.data.message.ChatMessage> ui = java.util.List.of(
-                    new dev.langchain4j.data.message.UserMessage(taskText),
-                    new dev.langchain4j.data.message.SystemMessage("Interrupted: " + expl)
-            );
+            List<ChatMessage> ui = List.of(new UserMessage(taskText), new SystemMessage("Interrupted: " + expl));
             return new TaskResult(cm, "ASK: " + taskText + " [INTERRUPTED]", ui, context, stopDetails, null);
         }
 
@@ -801,10 +797,8 @@ public final class JobRunner {
             var stopDetails = (sr == null)
                     ? new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, "Empty response")
                     : TaskResult.StopDetails.fromResponse(sr);
-            java.util.List<dev.langchain4j.data.message.ChatMessage> ui = java.util.List.of(
-                    new dev.langchain4j.data.message.UserMessage(taskText),
-                    new dev.langchain4j.data.message.SystemMessage("LLM error: " + stopDetails.toString())
-            );
+            List<ChatMessage> ui =
+                    List.of(new UserMessage(taskText), new SystemMessage("LLM error: " + stopDetails.toString()));
             return new TaskResult(cm, "ASK: " + taskText + " [LLM_ERROR]", ui, context, stopDetails, null);
         } else {
             // Compose UI messages: user prompt + assistant reply
