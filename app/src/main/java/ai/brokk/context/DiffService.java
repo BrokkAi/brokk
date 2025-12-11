@@ -136,7 +136,6 @@ public final class DiffService {
      */
     @Blocking
     public static List<Context.DiffEntry> computeDiff(Context curr, Context other) {
-        try {
             // Candidates:
             // - Project text files that are editable (preserves read-only exclusion).
             // - Git file fragments.
@@ -155,10 +154,6 @@ public final class DiffService {
                     .map(CompletableFuture::join)
                     .filter(Objects::nonNull)
                     .toList();
-        } catch (Exception ex) {
-            logger.error("Error computing diffs between contexts: {}", ex.getMessage(), ex);
-            return List.of();
-        }
     }
 
     /**
@@ -328,7 +323,6 @@ public final class DiffService {
      */
     private static @Nullable Context.DiffEntry computeImageDiffEntry(
             ContextFragment thisFragment, ContextFragment otherFragment) {
-        try {
             // Prefer frozen bytes (snapshot), fall back to computed image bytes
             byte[] oldImageBytes = null;
             var oldImageBytesCv = otherFragment.imageBytes();
@@ -359,15 +353,6 @@ public final class DiffService {
             }
             String diff = "[Image changed]";
             return new Context.DiffEntry(thisFragment, diff, 1, 1, "[image]", "[image]");
-        } catch (Exception ex) {
-            logger.warn(
-                    "Error extracting image bytes for diff on fragment '{}': {}",
-                    thisFragment.shortDescription().renderNowOr(thisFragment.toString()),
-                    ex.getMessage(),
-                    ex);
-            return new Context.DiffEntry(
-                    thisFragment, "[Error computing image diff]", 0, 0, "", "[Failed to extract image]");
-        }
     }
 
     /**
