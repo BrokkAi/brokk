@@ -7,6 +7,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.Service;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.dialogs.AboutDialog;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.dialogs.BlitzForgeDialog;
@@ -147,6 +148,65 @@ public class MenuBar {
     }
 
     /**
+     * Handles the "New Project..." menu action.
+     * Shows a directory chooser, creates the directory if needed, initializes git repo,
+     * and opens the project.
+     *
+     * @param chrome the Chrome instance
+     */
+    private static void handleNewProject(Chrome chrome) {
+        SwingUtilities.invokeLater(() -> {
+            var fileChooser = new JFileChooser();
+            fileChooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            fileChooser.setDialogTitle("New Project - Select Directory");
+            fileChooser.setAcceptAllFileFilterUsed(false);
+
+            int returnValue = fileChooser.showOpenDialog(chrome.getFrame());
+
+            if (returnValue != JFileChooser.APPROVE_OPTION) {
+                // User cancelled
+                return;
+            }
+
+            File selectedDir = fileChooser.getSelectedFile();
+            if (selectedDir == null) {
+                chrome.toolError("No directory selected", "New Project");
+                return;
+            }
+
+            Path projectPath = selectedDir.toPath();
+
+            // Create the directory if it doesn't exist
+            try {
+                if (!Files.exists(projectPath)) {
+                    Files.createDirectories(projectPath);
+                }
+            } catch (IOException ex) {
+                chrome.toolError(
+                        "Failed to create directory: " + ex.getMessage(),
+                        "New Project");
+                return;
+            }
+
+            // Initialize git repo
+            try {
+                GitRepoFactory.initRepo(projectPath);
+            } catch (Exception ex) {
+                chrome.toolError(
+                        "Failed to initialize git repository: " + ex.getMessage(),
+                        "New Project");
+                return;
+            }
+
+            // Open the project
+            chrome.showNotification(
+                    IConsoleIO.NotificationRole.INFO,
+                    "Opening new project: " + projectPath.getFileName());
+            new Brokk.OpenProjectBuilder(projectPath).open();
+        });
+    }
+
+    /**
      * Builds the menu bar
      *
      * @param chrome
@@ -156,6 +216,10 @@ public class MenuBar {
 
         // File menu
         var fileMenu = new JMenu("File");
+
+        var newProjectItem = new JMenuItem("New Project...");
+        newProjectItem.addActionListener(e -> handleNewProject(chrome));
+        fileMenu.add(newProjectItem);
 
         var openProjectItem = new JMenuItem("Open Project...");
         openProjectItem.addActionListener(e -> Brokk.promptAndOpenProject(chrome.frame)); // No need to block on EDT
