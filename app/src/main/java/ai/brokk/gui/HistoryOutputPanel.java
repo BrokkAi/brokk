@@ -275,11 +275,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             sessions.sort(Comparator.comparingLong(SessionInfo::modified).reversed());
             for (var s : sessions) model.addElement(s);
 
-            // Trigger batch loading of AI response counts
-            triggerAiCountLoadBatch(sessions);
-
             var list = new JList<SessionInfo>(model);
-            list.setVisibleRowCount(Math.min(8, Math.max(3, model.getSize())));
+            int visibleRowCount = Math.min(8, Math.max(3, model.getSize()));
+            list.setVisibleRowCount(visibleRowCount);
+
+            // Trigger batch loading of AI response counts, visible sessions first
+            triggerAiCountLoadBatch(sessions, visibleRowCount);
             list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
             list.setCellRenderer(new SessionInfoRenderer());
 
@@ -3763,10 +3764,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     /**
      * Kicks off background loads of AI-response counts for sessions in batches.
-     * Each batch processes up to AI_COUNT_BATCH_SIZE sessions sequentially to avoid
-     * starving the executor with too many concurrent tasks.
+     * Visible sessions are loaded first for immediate UI feedback, then remaining
+     * sessions are batched to avoid starving the executor.
+     *
+     * @param sessions list of sessions (should be in display order)
+     * @param visibleCount number of sessions visible in the dropdown
      */
-    private void triggerAiCountLoadBatch(List<SessionInfo> sessions) {
+    private void triggerAiCountLoadBatch(List<SessionInfo> sessions, int visibleCount) {
         // Filter to sessions that need loading, using sessionCountLoading for deduplication
         var toLoad = sessions.stream()
                 .filter(s -> !sessionAiResponseCounts.containsKey(s.id()))
@@ -3775,30 +3779,39 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         if (toLoad.isEmpty()) return;
 
-        // Partition into batches and submit one task per batch
-        for (int i = 0; i < toLoad.size(); i += AI_COUNT_BATCH_SIZE) {
-            var batch = toLoad.subList(i, Math.min(i + AI_COUNT_BATCH_SIZE, toLoad.size()));
-            contextManager.getBackgroundTasks().submit(() -> {
-                var sm = contextManager.getProject().getSessionManager();
-                for (var session : batch) {
-                    var id = session.id();
-                    int count = 0;
-                    try {
-                        count = sm.countAiResponses(id);
-                    } catch (Throwable t) {
-                        logger.warn("Failed to count AI responses for session {}", id, t);
-                    }
-                    sessionAiResponseCounts.put(id, count);
-                    sessionCountLoading.remove(id);
-                }
-                // Repaint once after batch completes
-                SwingUtilities.invokeLater(() -> {
-                    if (sessionsList != null) {
-                        sessionsList.repaint();
-                    }
-                });
-            });
+        // Submit visible sessions first for immediate feedback
+        int firstBatchSize = Math.min(visibleCount, toLoad.size());
+        if (firstBatchSize > 0) {
+            submitCountBatch(toLoad.subList(0, firstBatchSize));
         }
+
+        // Batch the remaining sessions
+        for (int i = firstBatchSize; i < toLoad.size(); i += AI_COUNT_BATCH_SIZE) {
+            submitCountBatch(toLoad.subList(i, Math.min(i + AI_COUNT_BATCH_SIZE, toLoad.size())));
+        }
+    }
+
+    private void submitCountBatch(List<SessionInfo> batch) {
+        contextManager.getBackgroundTasks().submit(() -> {
+            var sm = contextManager.getProject().getSessionManager();
+            for (var session : batch) {
+                var id = session.id();
+                int count = 0;
+                try {
+                    count = sm.countAiResponses(id);
+                } catch (Throwable t) {
+                    logger.warn("Failed to count AI responses for session {}", id, t);
+                }
+                sessionAiResponseCounts.put(id, count);
+                sessionCountLoading.remove(id);
+            }
+            // Repaint once after batch completes
+            SwingUtilities.invokeLater(() -> {
+                if (sessionsList != null) {
+                    sessionsList.repaint();
+                }
+            });
+        });
     }
 
     /**
