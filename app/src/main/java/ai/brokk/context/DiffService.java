@@ -211,7 +211,8 @@ public final class DiffService {
         }
 
         // Image fragments: compare bytes (prefer frozen snapshot bytes)
-        if (!thisFragment.isText() || !otherFragment.isText()) {
+        assert thisFragment.isText() == otherFragment.isText();
+        if (!thisFragment.isText()) {
             var entry = computeImageDiffEntry(thisFragment, otherFragment);
             return CompletableFuture.completedFuture(entry);
         }
