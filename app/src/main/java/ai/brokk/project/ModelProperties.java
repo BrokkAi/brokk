@@ -128,8 +128,8 @@ public final class ModelProperties {
         QUICK("quickConfig", new ModelConfig(Service.GEMINI_2_0_FLASH)),
         CODE("codeConfig", new ModelConfig(Service.HAIKU_4_5)),
         ARCHITECT("architectConfig", new ModelConfig(Service.GPT_5)),
-        QUICK_EDIT("quickEditConfig", new ModelConfig("cerebras/gpt-oss-120b")),
-        QUICKEST("quickestConfig", new ModelConfig("gemini-2.0-flash-lite")),
+        QUICK_EDIT("quickEditConfig", new ModelConfig(Service.GEMINI_2_5_FLASH)),
+        QUICKEST("quickestConfig", new ModelConfig(Service.GEMINI_2_0_FLASH_LITE)),
         SCAN("scanConfig", new ModelConfig(Service.GPT_5_MINI));
 
         private final String propertyKey;
