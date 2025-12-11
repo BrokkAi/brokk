@@ -495,8 +495,9 @@ public class SessionManager implements AutoCloseable {
         var future = sessionExecutorByKey.submit(
                 sessionId.toString(), () -> loadHistoryOrQuarantine(sessionId, contextManager));
 
+        ContextHistory history;
         try {
-            return future.get();
+            history = future.get();
         } catch (InterruptedException | ExecutionException e) {
             logger.warn("Error waiting for session history to load for session {}:", sessionId, e);
             if (e instanceof InterruptedException) {
@@ -505,6 +506,23 @@ public class SessionManager implements AutoCloseable {
             // tryLoadHistoryOrQuarantine already quarantines on failure.
             return null;
         }
+
+        // Migrate aiResponseCount for old sessions that don't have it yet
+        var info = sessionsCache.get(sessionId);
+        if (info != null && info.needsCountMigration() && history != null) {
+            int count = countAiResponses(history);
+            var updated = new SessionInfo(info.id(), info.name(), info.created(), info.modified(), count);
+            sessionsCache.put(sessionId, updated);
+            sessionExecutorByKey.submit(sessionId.toString(), () -> {
+                try {
+                    writeSessionInfoToZip(getSessionHistoryPath(sessionId), updated);
+                } catch (IOException e) {
+                    logger.warn("Failed to persist migrated aiResponseCount for session {}", sessionId, e);
+                }
+            });
+        }
+
+        return history;
     }
 
     private ContextHistory loadHistoryInternal(UUID sessionId, IContextManager contextManager) throws IOException {
