@@ -60,6 +60,39 @@ public final class HistoryIo {
 
     private HistoryIo() {}
 
+    /**
+     * Counts AI responses in a session zip without full deserialization.
+     * Only reads contexts.jsonl and counts entries with non-null parsedOutputId.
+     * Uses JsonNode parsing to work with both V3 and V4 formats.
+     */
+    public static int countAiResponses(Path zip) throws IOException {
+        if (!Files.exists(zip)) {
+            return 0;
+        }
+
+        try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                if (entry.getName().equals(CONTEXTS_FILENAME)) {
+                    var content = new String(zis.readAllBytes(), StandardCharsets.UTF_8);
+                    return (int) content.lines()
+                            .filter(line -> !line.trim().isEmpty())
+                            .filter(line -> {
+                                try {
+                                    var node = objectMapper.readTree(line);
+                                    var parsedOutputId = node.get("parsedOutputId");
+                                    return parsedOutputId != null && !parsedOutputId.isNull();
+                                } catch (Exception e) {
+                                    return false;
+                                }
+                            })
+                            .count();
+                }
+            }
+        }
+        return 0;
+    }
+
     public static ContextHistory readZip(Path zip, IContextManager mgr) throws IOException {
         if (!Files.exists(zip)) {
             throw new FileNotFoundException(zip.toString());
