@@ -215,8 +215,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private @Nullable Point pendingViewportPosition = null;
 
     // Session AI response counts and in-flight loaders
+    private static final int SESSION_STATS_SKIPPED = -1;
+    private static final int MAX_SESSIONS_WITH_STATS = 200;
     private final Map<UUID, Integer> sessionAiResponseCounts = new ConcurrentHashMap<>();
     private final Set<UUID> sessionCountLoading = ConcurrentHashMap.newKeySet();
+    private final Map<UUID, Integer> sessionIndexById = new ConcurrentHashMap<>();
 
     @Nullable
     private DiffPanelUtils.CumulativeChanges lastCumulativeChanges;
@@ -273,9 +276,16 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             var model = new DefaultListModel<SessionInfo>();
             var sessions = contextManager.getProject().getSessionManager().listSessions();
             sessions.sort(Comparator.comparingLong(SessionInfo::modified).reversed());
-            for (var s : sessions) model.addElement(s);
+
+            sessionIndexById.clear();
+            for (int i = 0; i < sessions.size(); i++) {
+                var s = sessions.get(i);
+                sessionIndexById.put(s.id(), i);
+                model.addElement(s);
+            }
 
             var list = new JList<SessionInfo>(model);
+            HistoryOutputPanel.this.sessionsList = list;
             list.setVisibleRowCount(Math.min(8, Math.max(3, model.getSize())));
             list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
             list.setCellRenderer(new SessionInfoRenderer());
@@ -3757,18 +3767,31 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Kicks off a background load of the AI-response count for the given session. Runs on a platform thread to avoid
-     * blocking the common ForkJoinPool. Safe to call repeatedly; concurrent calls are deduped by sessionCountLoading.
+     * Kicks off a background load of the AI-response count for the given session using the shared background
+     * executor. Work is deduped per session and limited to the {@link #MAX_SESSIONS_WITH_STATS} most recent sessions.
      */
     private void triggerAiCountLoad(SessionInfo session) {
-        final var id = session.id();
+        final UUID id = session.id();
 
-        // Fast-path dedupe: if we already have a value or a load is in-flight, bail.
+        // Already computed or currently in-flight: nothing to do.
         if (sessionAiResponseCounts.containsKey(id) || !sessionCountLoading.add(id)) {
             return;
         }
 
-        Thread.ofPlatform().name("ai-count-" + id).start(() -> {
+        Integer index = sessionIndexById.get(id);
+        if (index == null || index >= MAX_SESSIONS_WITH_STATS) {
+            // Skip computing stats for older sessions; mark as skipped so we do not retry.
+            sessionAiResponseCounts.put(id, SESSION_STATS_SKIPPED);
+            sessionCountLoading.remove(id);
+            SwingUtilities.invokeLater(() -> {
+                if (sessionsList != null) {
+                    sessionsList.repaint();
+                }
+            });
+            return;
+        }
+
+        contextManager.getBackgroundTasks().submit((Runnable) () -> {
             int count = 0;
             try {
                 var sm = contextManager.getProject().getSessionManager();
@@ -3780,7 +3803,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             } finally {
                 sessionAiResponseCounts.put(id, count);
                 sessionCountLoading.remove(id);
-                // Only repaint the scrollable sessionsList when visible; avoid repainting the old label/combo-box.
                 SwingUtilities.invokeLater(() -> {
                     if (sessionsList != null) {
                         sessionsList.repaint();
@@ -3938,10 +3960,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             nameLabel.setText(value.name());
             timeLabel.setText(formatModified(value.modified()));
 
-            var cnt = sessionAiResponseCounts.get(value.id());
-            countLabel.setText(cnt != null ? String.format("%d %s", cnt, cnt == 1 ? "task" : "tasks") : "");
+            Integer cnt = sessionAiResponseCounts.get(value.id());
             if (cnt == null) {
                 triggerAiCountLoad(value);
+                countLabel.setText("");
+            } else if (cnt == SESSION_STATS_SKIPPED) {
+                countLabel.setText("");
+            } else {
+                countLabel.setText(String.format("%d %s", cnt, cnt == 1 ? "task" : "tasks"));
             }
 
             var bg = isSelected ? list.getSelectionBackground() : list.getBackground();

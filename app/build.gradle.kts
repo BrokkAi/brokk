@@ -27,7 +27,7 @@ application {
         // enable feature flags; JavaExec baseline supplies other args
         "-Dbrokk.servicetiers=true",
         "-Dbrokk.architectshell=true",
-        "-Dwatch.service.polling=true"
+        "-Dwatch.service.polling=true",
     )
 }
 
