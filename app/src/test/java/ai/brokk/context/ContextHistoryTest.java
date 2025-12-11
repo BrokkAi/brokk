@@ -6,6 +6,7 @@ import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
+import ai.brokk.IContextManager;
 import dev.langchain4j.data.message.UserMessage;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -448,5 +449,120 @@ public class ContextHistoryTest {
         assertTrue(
                 updated.getAction().startsWith("Load external changes"),
                 "Action should indicate external changes");
+    }
+
+    // --- Helpers for usage-like editable fragment ---
+
+    private static final class MockUsageFragment extends ContextFragment.AbstractStaticFragment
+            implements ContextFragment.DynamicIdentity {
+        public MockUsageFragment(IContextManager cm, String id, String text) {
+            super(
+                    id,
+                    cm,
+                    new ContextFragment.FragmentSnapshot(
+                            "Mock Usage", "Usage", text, "text", Set.of(), Set.of(), (byte[]) null));
+        }
+
+        @Override
+        public ContextFragment.FragmentType getType() {
+            return ContextFragment.FragmentType.USAGE;
+        }
+    }
+
+    @Test
+    public void testProcessExternalFileChanges_withUsageFragment_fileChange_producesNonEmptyDiffsAndExcludesUsageInDiffs()
+            throws Exception {
+        var pf = new ProjectFile(tempDir, "src/WithUsage.txt");
+        Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "base\n");
+
+        var projectFrag1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        projectFrag1.text().await(Duration.ofSeconds(2)); // seed snapshot
+        var usageFrag1 = new MockUsageFragment(contextManager, "U1", "U1");
+
+        var initialContext = new Context(
+                contextManager, List.of(projectFrag1, usageFrag1), List.of(), null, CompletableFuture.completedFuture("Initial"));
+        var history = new ContextHistory(initialContext);
+
+        // Change the file on disk
+        Files.writeString(pf.absPath(), "base\nchanged\n");
+
+        var updated = history.processExternalFileChangesIfNeeded(Set.of(pf));
+        assertNotNull(updated, "Expected a new context for actual content change");
+        assertEquals(updated.id(), history.liveContext().id(), "Returned context should be live");
+        assertTrue(updated.getAction().startsWith("Load external changes"), "Action should indicate external change");
+
+        var prev = history.previousOf(updated);
+        assertNotNull(prev, "There must be a previous context to diff against");
+        var changed = updated.getChangedFiles(prev);
+        assertFalse(changed.isEmpty(), "Changed files should not be empty");
+        assertTrue(changed.contains(pf), "Changed files should include the modified ProjectFile");
+
+        // Identify the refreshed project fragment in the updated context
+        var projectFrag2 = updated
+                .allFragments()
+                .filter(f -> f instanceof ContextFragment.PathFragment)
+                .map(f -> (ContextFragment.PathFragment) f)
+                .filter(f -> f.file().equals(pf))
+                .findFirst()
+                .orElseThrow();
+
+        var diffs = history.getDiffService().diff(updated).join();
+        assertNotNull(diffs, "Diffs should be computed");
+        assertFalse(diffs.isEmpty(), "Diffs should reflect content change");
+
+        var includesFile = diffs.stream().anyMatch(de -> de.fragment().id().equals(projectFrag2.id()));
+        var excludesUsage = diffs.stream().noneMatch(de -> de.fragment().id().equals(usageFrag1.id()));
+
+        assertTrue(includesFile, "Diffs should include the project fragment that changed");
+        assertTrue(excludesUsage, "Diffs should not include unrelated usage fragments");
+    }
+
+    @Test
+    public void testProcessExternalFileChanges_usageOnlyContext_emptyChangedSet_returnsNull() {
+        var usageOnly = new MockUsageFragment(contextManager, "U-only", "content");
+        var initialContext = new Context(
+                contextManager, List.of(usageOnly), List.of(), null, CompletableFuture.completedFuture("Initial"));
+        var history = new ContextHistory(initialContext);
+
+        var beforeSize = history.getHistory().size();
+        var beforeId = history.liveContext().id();
+
+        var updated = history.processExternalFileChangesIfNeeded(Set.of());
+        assertNull(updated, "No path fragments => no-op for empty changed set");
+        assertEquals(beforeSize, history.getHistory().size(), "History size should be unchanged");
+        assertEquals(beforeId, history.liveContext().id(), "Live context should remain the same");
+        assertFalse(
+                history.liveContext().getAction().startsWith("Load external changes"),
+                "Action should not indicate external changes");
+    }
+
+    @Test
+    public void testProcessExternalFileChanges_withUsageFragment_noFileContentChange_returnsNull() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/UsageNoop.txt");
+        Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "v1");
+
+        var projectFrag = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        projectFrag.text().await(Duration.ofSeconds(2)); // seed snapshot
+        var usageFrag = new MockUsageFragment(contextManager, "U2", "something");
+
+        var initialContext = new Context(
+                contextManager, List.of(projectFrag, usageFrag), List.of(), null, CompletableFuture.completedFuture("Initial"));
+        var history = new ContextHistory(initialContext);
+
+        var beforeSize = history.getHistory().size();
+        var beforeId = history.liveContext().id();
+
+        // Touch the file with the same content
+        Files.writeString(pf.absPath(), "v1");
+
+        var updated = history.processExternalFileChangesIfNeeded(Set.of(pf));
+        assertNull(updated, "No content change => no new context");
+        assertEquals(beforeSize, history.getHistory().size(), "History size should be unchanged");
+        assertEquals(beforeId, history.liveContext().id(), "Live context should remain the same");
+        assertFalse(
+                history.liveContext().getAction().startsWith("Load external changes"),
+                "Action should not indicate external changes");
     }
 }
