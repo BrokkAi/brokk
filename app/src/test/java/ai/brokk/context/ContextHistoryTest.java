@@ -594,7 +594,6 @@ public class ContextHistoryTest {
                 .orElse(null);
         assertNotNull(usageDiff, "Diffs should include the UsageFragment");
         assertFalse(usageDiff.diff().isEmpty(), "Usage diff output should not be empty");
-        assertTrue(
-                usageDiff.linesAdded() > 0 || usageDiff.linesDeleted() > 0, "Expected changes in usage diff");
+        assertTrue(usageDiff.linesAdded() > 0 || usageDiff.linesDeleted() > 0, "Expected changes in usage diff");
     }
 }

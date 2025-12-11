@@ -145,15 +145,13 @@ public final class DiffService {
                 curr.getEditableFragments().filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH);
         var gitFileFragments = curr.allFragments().filter(f -> f.getType() == ContextFragment.FragmentType.GIT_FILE);
         var imageFragments = curr.allFragments().filter(f -> !f.isText());
-        var usageFragments =
-                curr.getEditableFragments().filter(f -> f.getType() == ContextFragment.FragmentType.USAGE);
+        var usageFragments = curr.getEditableFragments().filter(f -> f.getType() == ContextFragment.FragmentType.USAGE);
 
         var candidates = Stream.of(projectPathEditable, gitFileFragments, imageFragments, usageFragments)
                 .flatMap(s -> s);
 
-        var diffFutures = candidates
-                .map(cf -> computeDiffForFragment(curr, cf, other))
-                .toList();
+        var diffFutures =
+                candidates.map(cf -> computeDiffForFragment(curr, cf, other)).toList();
 
         return diffFutures.stream()
                 .map(CompletableFuture::join)
