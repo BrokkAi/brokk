@@ -394,7 +394,10 @@ main() {
   local pre_status
   pre_status="$(compare_dirs_status "${good_dir}" "${bad_dir}" "${good_sha_short}" "${bad_sha_short}")"
   if [[ "${pre_status}" != "regression" ]]; then
-    echo -e "${YELLOW}No regression detected between endpoints (${good_sha_short} -> ${bad_sha_short}). Status: ${pre_status}${NC}"
+    echo -e "${YELLOW}No reproducible regression detected between endpoints (${good_sha_short} -> ${bad_sha_short}).${NC}"
+    echo -e "${YELLOW}compare-perf-results status: ${pre_status}${NC}"
+    echo "GOOD results: ${good_dir}"
+    echo "BAD results : ${bad_dir}"
     echo "Artifacts kept at: ${WORKDIR}"
     exit 2
   fi
