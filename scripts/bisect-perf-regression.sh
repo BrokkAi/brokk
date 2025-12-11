@@ -95,6 +95,7 @@ Notes:
 - Default projects dataset dir: <repo>/test-projects (auto-prepared via 'setup' if missing)
 - The runner should produce JSON results (--json). If not present in --runner-args, --json will be appended automatically.
 - If --projects-dir is not present in --runner-args, it will default to the path above.
+- The runner output directory defaults to <workdir>/runner-output/<sha> (via --output). Raw outputs are preserved; the latest baseline-*.json per iteration is copied to <workdir>/results/<sha>/iter-XX.json.
 - Artifacts will be stored under: <workdir>/{results,logs,worktrees}
 
 Examples:
@@ -206,6 +207,16 @@ ensure_projects_dir_flag() {
   fi
 }
 
+ensure_output_flag() {
+  local args="$1"
+  local outdir="$2"
+  if [[ "$args" == *"--output"* ]]; then
+    printf "%s" "$args"
+  else
+    printf "%s --output %s" "$args" "$outdir"
+  fi
+}
+
 # Runs the baseline at a given commit, collecting ITERATIONS JSON files into:
 #   <WORKDIR>/results/<sha>/
 # Returns: prints the absolute path to the per-commit results dir on stdout.
@@ -230,13 +241,12 @@ run_commit() {
   # Run iterations
   pushd "${wt_dir}" >/dev/null
 
-  # Ensure baseline-results dir exists
-  mkdir -p baseline-results
+  local output_dir="${WORKDIR}/runner-output/${sha}"
+  mkdir -p "${output_dir}"
 
   local i
   for (( i=1; i<=ITERATIONS; i++ )); do
-    # Clean up any previous JSON outputs to make detection deterministic
-    rm -f baseline-results/*.json || true
+    # Preserve previous outputs; detection looks in a per-commit output directory
 
     local attempt=1
     local produced=""
@@ -245,12 +255,14 @@ run_commit() {
       # Use a subshell with bash -lc to preserve any quoting inside RUNNER_ARGS
       local start_ts
       start_ts="$(timestamp)"
-      if ! bash -lc "bash \"${runner}\" ${RUNNER_ARGS}"; then
+      local run_args
+      run_args="$(ensure_output_flag "${RUNNER_ARGS}" "${output_dir}")"
+      if ! bash -lc "bash \"${runner}\" ${run_args}"; then
         echo -e "${YELLOW}Runner failed for ${sha_short} (iteration ${i}, attempt ${attempt}). Retrying if available...${NC}" >&2
       fi
 
-      # Try to find the newest JSON output
-      produced="$(ls -t baseline-results/*.json 2>/dev/null | head -n1 || true)"
+      # Try to find the newest JSON output from the designated output directory
+      produced="$(ls -t "${output_dir}"/baseline-*.json 2>/dev/null | head -n1 || true)"
       if [[ -n "${produced}" ]] && [[ -s "${produced}" ]]; then
         local dst="${res_dir}/iter-$(printf "%02d" "${i}").json"
         cp -f "${produced}" "${dst}"
