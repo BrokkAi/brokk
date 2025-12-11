@@ -16,6 +16,18 @@
 #   --keep-worktrees      Keep created worktrees for inspection (default: remove on exit)
 #   -h, --help            Show this help
 #
+# Examples:
+#   # Fast path (small run; good for quick signals)
+#   scripts/bisect-perf-regression.sh <good> <bad> --runner-args "run-baselines --max-files 200 --json"
+#
+#   # Project-specific test (OpenJDK / Java)
+#   scripts/bisect-perf-regression.sh <good> <bad> --runner-args "test-project --project openjdk --language java --max-files 1000 --json"
+#
+# Exit codes:
+#   0  Success; first bad commit found and reported
+#   1  Error during setup or execution
+#   2  Regression not reproducible between endpoints (invalid bisect)
+#
 # Requirements:
 #   - bash, git, python3
 #   - scripts/run-treesitter-repos.sh
@@ -80,6 +92,19 @@ Notes:
 - The runner should produce JSON results (--json). If not present in --runner-args,
   --json will be appended automatically.
 - Artifacts will be stored under: <workdir>/{results,logs,worktrees}
+
+Examples:
+  Fast path:
+    $(basename "$0") <good_commit> <bad_commit> --runner-args "run-baselines --max-files 200 --json"
+
+  Project-specific (OpenJDK / Java):
+    $(basename "$0") <good_commit> <bad_commit> --runner-args "test-project --project openjdk --language java --max-files 1000 --json"
+
+Exit codes:
+  0  Success; first bad commit found and reported
+  1  Error during setup or execution
+  2  Regression not reproducible between endpoints (invalid)
+
 EOF
 }
 
