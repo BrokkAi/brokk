@@ -1014,11 +1014,6 @@ public interface ContextFragment {
     }
 
     class StringFragment extends AbstractStaticFragment {
-        // Pattern to match git diff file headers: "diff --git a/path b/path"
-        private static final Pattern DIFF_GIT_PATTERN =
-                Pattern.compile("^diff --git a/(.+?) b/(.+?)$", Pattern.MULTILINE);
-        // Pattern to match unified diff headers: "+++ b/path" (preferred over --- a/ which may be /dev/null)
-        private static final Pattern DIFF_PLUS_PATTERN = Pattern.compile("^\\+\\+\\+ b/(.+?)$", Pattern.MULTILINE);
 
         public StringFragment(IContextManager contextManager, String text, String description, String syntaxStyle) {
             this(
@@ -1047,49 +1042,13 @@ public interface ContextFragment {
         }
 
         /**
-         * Extracts ProjectFile references from diff content.
+         * Extracts ProjectFile references from diff content using java-diff-utils.
          * <p>
-         * First attempts unified diff parsing via java-diff-utils; if that yields no files, falls back to
-         * regex-based parsing of common git/unified diff headers. Returns an empty set if content doesn't
-         * look like a diff or no valid files are found.
+         * Delegates to {@link #extractFilesFromUnifiedDiff(String, IContextManager)}, which parses unified diffs via
+         * java-diff-utils and returns an empty set on parse errors or unrecognized input.
          */
         private static Set<ProjectFile> extractFilesFromDiff(String text, IContextManager contextManager) {
-            Set<ProjectFile> files = extractFilesFromUnifiedDiff(text, contextManager);
-            if (!files.isEmpty()) {
-                return files;
-            }
-
-            files = new LinkedHashSet<>();
-
-            // Try "diff --git a/path b/path" format first
-            var gitMatcher = DIFF_GIT_PATTERN.matcher(text);
-            while (gitMatcher.find()) {
-                var path = normalizeDiffPath(gitMatcher.group(2)); // use b/ path (new file)
-                if (path == null) {
-                    continue;
-                }
-                var file = contextManager.toFile(path);
-                if (file != null && file.exists()) {
-                    files.add(file);
-                }
-            }
-
-            // Fallback to "+++ b/path" if no git headers found
-            if (files.isEmpty()) {
-                var plusMatcher = DIFF_PLUS_PATTERN.matcher(text);
-                while (plusMatcher.find()) {
-                    var path = normalizeDiffPath(plusMatcher.group(1));
-                    if (path == null) {
-                        continue;
-                    }
-                    var file = contextManager.toFile(path);
-                    if (file != null && file.exists()) {
-                        files.add(file);
-                    }
-                }
-            }
-
-            return files;
+            return extractFilesFromUnifiedDiff(text, contextManager);
         }
 
         /**
@@ -1115,7 +1074,7 @@ public interface ContextFragment {
                         continue;
                     }
                     ProjectFile projectFile = contextManager.toFile(normalized);
-                    if (projectFile != null && projectFile.exists()) {
+                    if (projectFile.exists()) {
                         files.add(projectFile);
                     }
                 }
