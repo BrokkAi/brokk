@@ -566,4 +566,35 @@ public class ContextHistoryTest {
                 history.liveContext().getAction().startsWith("Load external changes"),
                 "Action should not indicate external changes");
     }
+
+    @Test
+    public void testDiffServiceIncludesUsageFragmentDiffWhenUsageContentChanges() {
+        var usageFrag1 = new MockUsageFragment(contextManager, "U-usage", "alpha\n");
+        var initialContext = new Context(
+                contextManager, List.of(usageFrag1), List.of(), null, CompletableFuture.completedFuture("Initial"));
+        var history = new ContextHistory(initialContext);
+
+        var usageFrag2 = new MockUsageFragment(contextManager, "U-usage", "alpha\nbeta\n");
+        var updatedContext = new Context(
+                contextManager,
+                List.of(usageFrag2),
+                List.of(),
+                null,
+                CompletableFuture.completedFuture("Usage updated"));
+        history.pushContext(updatedContext);
+
+        var diffs = history.getDiffService().diff(updatedContext).join();
+
+        assertNotNull(diffs);
+        assertFalse(diffs.isEmpty(), "Usage fragment content change should produce a diff");
+
+        var usageDiff = diffs.stream()
+                .filter(de -> de.fragment().id().equals("U-usage"))
+                .findFirst()
+                .orElse(null);
+        assertNotNull(usageDiff, "Diffs should include the UsageFragment");
+        assertFalse(usageDiff.diff().isEmpty(), "Usage diff output should not be empty");
+        assertTrue(
+                usageDiff.linesAdded() > 0 || usageDiff.linesDeleted() > 0, "Expected changes in usage diff");
+    }
 }
