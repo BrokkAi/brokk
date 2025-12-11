@@ -280,4 +280,9 @@ public final class WorktreeProject extends AbstractProject {
     public void setAutoUpdateGitDependencies(boolean enabled) {
         parent.setAutoUpdateGitDependencies(enabled);
     }
+
+    @Override
+    public boolean isEmptyProject() {
+        return parent.isEmptyProject();
+    }
 }

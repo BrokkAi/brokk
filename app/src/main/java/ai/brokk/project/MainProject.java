@@ -2240,6 +2240,57 @@ public final class MainProject extends AbstractProject {
         return dependencyUpdateScheduler;
     }
 
+    @Override
+    public boolean isEmptyProject() {
+        if (!hasGit()) {
+            return false; // Non-git projects are not considered "empty" in this sense
+        }
+
+        Set<ProjectFile> trackedFiles = repo.getTrackedFiles();
+
+        if (trackedFiles.isEmpty()) {
+            return true; // No files at all
+        }
+
+        // Check if all tracked files are configuration/metadata files
+        for (ProjectFile file : trackedFiles) {
+            String relPath = file.getRelPath().toString().replace('\\', '/');
+
+            // Check if it's a config file we ignore
+            if (isConfigurationFile(relPath)) {
+                continue;
+            }
+
+            // Found a non-config file, so project is not empty
+            return false;
+        }
+
+        // All files are configuration files
+        return true;
+    }
+
+    /**
+     * Determines if a file path represents a configuration/metadata file that doesn't count
+     * toward making a project non-empty.
+     */
+    private static boolean isConfigurationFile(String relativePath) {
+        // Normalize to forward slashes for consistent comparison
+        String normalized = relativePath.replace('\\', '/');
+
+        // Files to ignore
+        if (normalized.equals(".gitignore") || normalized.equals(".gitattributes")
+                || normalized.equals(".editorconfig")) {
+            return true;
+        }
+
+        // Anything under .brokk/
+        if (normalized.startsWith(".brokk/")) {
+            return true;
+        }
+
+        return false;
+    }
+
     public Path getWorktreeStoragePath() {
         return Path.of(
                 System.getProperty("user.home"),
