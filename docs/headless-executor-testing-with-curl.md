@@ -144,6 +144,32 @@ JSON
 }
 ```
 
+### Add Free-form Text to Context
+
+Add arbitrary text to the current session context. Useful for sharing design notes, stack traces, or snippets that are not yet in the repo.
+
+```bash
+curl -sS -X POST "${BASE}/v1/context/text" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data @- <<'JSON'
+{
+  "text": "Here is a stack trace and some notes to guide the next action..."
+}
+JSON
+```
+
+Response (200 OK):
+```json
+{ "id": "context-fragment-id", "chars": 87 }
+```
+
+Behavior notes:
+- Size limit: Up to 1 MiB (UTF-8 bytes). Larger payloads are rejected with HTTP 400.
+- Logging: Only the size is logged; the text content is never logged.
+- Blank text is rejected with HTTP 400.
+- Fragments added via this endpoint are not auto-removed; if you need job-scoped text that is automatically cleaned up, use inline job seeding in POST /v1/jobs (see below).
+
 ### Workflow: Pre-seed Context, Then Ask
 
 ```bash
@@ -183,6 +209,67 @@ JSON
 ## Create Job
 
 All job payloads must include `plannerModel`. The examples below use inline JSON via stdin; swap in real identifiers.
+
+### Job-scoped free-form text seeding (inline)
+
+You can seed free-form text that applies only to the newly created job. These fragments are added just before execution and automatically cleaned up when the job finishes.
+
+Two equivalent payload shapes are supported:
+- Top-level array: `contextText: [ "...", "..." ]`
+- Nested object: `context: { text: [ "...", "..." ] }`
+
+Notes:
+- Each entry must be non-blank and at most 1 MiB (UTF-8 bytes); invalid entries cause a 400 error.
+- Only the sizes are logged; text content is never logged.
+- Omitting these fields leaves behavior unchanged.
+
+Example (top-level contextText):
+```bash
+curl -sS -X POST "${BASE}/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "sessionId": "replace-with-session-id",
+  "taskInput": "Use the notes I added to plan the next steps.",
+  "autoCommit": false,
+  "autoCompress": false,
+  "plannerModel": "gpt-5",
+  "contextText": [
+    "Design notes for the logging overhaul...",
+    "Known issues and constraints for the auth refactor..."
+  ],
+  "tags": { "mode": "ASK" }
+}
+JSON
+```
+
+Example (nested context.text):
+```bash
+curl -sS -X POST "${BASE}/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "sessionId": "replace-with-session-id",
+  "taskInput": "Plan next steps based on the notes provided.",
+  "autoCommit": false,
+  "autoCompress": false,
+  "plannerModel": "gpt-5",
+  "context": {
+    "text": [
+      "Observations from the last run...",
+      "Risks we need to mitigate in the next iteration..."
+    ]
+  },
+  "tags": { "mode": "ASK" }
+}
+JSON
+```
+
+The job creation response includes `contextTextFragmentIds` when text is accepted, listing the fragment IDs added for the job.
 
 ### Minimal Job (default ARCHITECT behavior)
 
@@ -516,3 +603,5 @@ curl -sS -X POST "${BASE}/v1/jobs/<job-id>/cancel" \
 - Missing `plannerModel` triggers `HTTP 400` with a validation error (`plannerModel is required`).
 - Providing an unknown `plannerModel` yields a job that transitions to `FAILED` with an error containing `MODEL_UNAVAILABLE`.
 - In CODE mode, changing `plannerModel` does not alter execution, but it must still be supplied; `codeModel` selects the LLM used for code actions.
+- Free-form text that exceeds 1 MiB (UTF-8 bytes) is rejected with `HTTP 400`.
+- Blank free-form text is rejected with `HTTP 400`.

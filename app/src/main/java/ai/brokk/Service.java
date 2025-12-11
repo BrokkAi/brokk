@@ -100,7 +100,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             var qeCfg = project.getMainProject().getQuickEditModelConfig();
             var qe = getModel(qeCfg);
             if (qe == null) {
-                qe = getModel(new ModelConfig(CEREBRAS_GPT_OSS_120B, ReasoningLevel.DEFAULT));
+                qe = getModel(new ModelConfig(GEMINI_2_5_FLASH, ReasoningLevel.DEFAULT));
             }
             quickEditModel = (qe == null) ? quickModel : qe;
         }

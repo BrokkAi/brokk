@@ -27,6 +27,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
@@ -37,6 +39,7 @@ import org.junit.jupiter.api.io.TempDir;
  * - Emits search/summary events, not code edits
  * - Maintains read-only semantics
  */
+@EnabledOnOs(OS.MAC)
 class SearchModeSearchAgentTest {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();

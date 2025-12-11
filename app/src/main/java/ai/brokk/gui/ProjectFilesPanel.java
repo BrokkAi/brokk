@@ -402,6 +402,17 @@ public class ProjectFilesPanel extends JPanel {
             return true; // Always allow autocomplete popup
         }
 
+        /**
+         * Preserves the computed ranking from Completions.scoreProjectFiles by returning
+         * the results from getCompletionsImpl directly. DefaultCompletionProvider#getCompletions
+         * applies additional sorting that would override our project-aware ordering; returning
+         * the pre-ranked list avoids that and keeps the UI consistent with our scorer.
+         */
+        @Override
+        public List<Completion> getCompletions(JTextComponent comp) {
+            return getCompletionsImpl(comp);
+        }
+
         @Override
         protected List<Completion> getCompletionsImpl(JTextComponent comp) {
             String pattern = getAlreadyEnteredText(comp);
@@ -412,12 +423,12 @@ public class ProjectFilesPanel extends JPanel {
 
             Set<ProjectFile> candidates = project.getRepo().getTrackedFiles();
 
-            var scoredCompletions = Completions.scoreShortAndLong(
+            var scoredCompletions = Completions.scoreProjectFiles(
                     pattern,
+                    project,
                     candidates,
                     ProjectFile::getFileName,
                     pf -> pf.getRelPath().toString(),
-                    pf -> 0,
                     this::createProjectFileCompletion,
                     minLength);
 

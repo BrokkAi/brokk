@@ -11,12 +11,16 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 public class ContextBuildRelatedIdentifiersTest {
 
+    @TempDir
+    Path tempDir;
+
     @Test
     void excludesAnonymousUnits() {
-        var file = new ProjectFile(Path.of("/root"), "src/Foo.java");
+        var file = new ProjectFile(tempDir, "src/Foo.java");
 
         var foo = CodeUnit.cls(file, "com.acme", "Foo");
         var anonTop = CodeUnit.cls(file, "com.acme", "$anon$1");
