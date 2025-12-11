@@ -1,5 +1,6 @@
 package ai.brokk.executor;
 
+import static ai.brokk.testutil.ExecutorTestUtil.awaitJobCompletion;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -292,9 +293,11 @@ public class AskModeSearchAgentTest {
                             if (data != null) {
                                 if (data.isTextual()) {
                                     texts.add(data.asText());
-                                } else if (data.has("token") && data.get("token").isTextual()) {
+                                } else if (data.has("token")
+                                        && data.get("token").isTextual()) {
                                     texts.add(data.get("token").asText());
-                                } else if (data.has("message") && data.get("message").isTextual()) {
+                                } else if (data.has("message")
+                                        && data.get("message").isTextual()) {
                                     texts.add(data.get("message").asText());
                                 } else {
                                     texts.add(data.toString());
@@ -312,33 +315,6 @@ public class AskModeSearchAgentTest {
             }
         }
         return texts;
-    }
-
-    private void awaitJobCompletion(String jobId, Duration timeout) throws Exception {
-        long deadline = System.currentTimeMillis() + timeout.toMillis();
-        while (System.currentTimeMillis() < deadline) {
-            var uri = baseUrl() + "/v1/jobs/" + jobId;
-            var req = new Request.Builder()
-                    .url(uri)
-                    .get()
-                    .header("Authorization", "Bearer " + authToken)
-                    .build();
-            try (var resp = httpClient.newCall(req).execute()) {
-                if (resp.code() == 200 && resp.body() != null) {
-                    var node = mapper.readTree(resp.body().string());
-                    var state = node.has("state") ? node.get("state").asText()
-                            : node.has("status") ? node.get("status").asText() : "";
-                    if ("COMPLETED".equalsIgnoreCase(state) || "FAILED".equalsIgnoreCase(state)
-                            || "CANCELLED".equalsIgnoreCase(state)) {
-                        return;
-                    }
-                }
-            } catch (IOException ioe) {
-                // transient: ignore and retry
-            }
-            Thread.sleep(100L);
-        }
-        throw new AssertionError("Job did not complete within timeout: " + timeout);
     }
 
     /**
@@ -489,7 +465,7 @@ public class AskModeSearchAgentTest {
         assertTrue(sawPreScanComplete, "Expected pre-scan COMPLETE Context Engine notification");
 
         // 3) Wait for job to complete
-        awaitJobCompletion(jobId, Duration.ofSeconds(60));
+        awaitJobCompletion(baseUrl(), jobId, authToken, Duration.ofSeconds(60));
 
         // Collect all event texts once, then check for forbidden patterns
         var allTexts = collectAllEventTexts(jobId);
@@ -509,14 +485,13 @@ public class AskModeSearchAgentTest {
             "getFileSummaries"
         };
         for (String tool : forbiddenSearchTools) {
-            assertFalse(allTextsJoined.contains(tool),
-                        "Did not expect search/inspection tool activity after pre-scan: " + tool);
+            assertFalse(
+                    allTextsJoined.contains(tool),
+                    "Did not expect search/inspection tool activity after pre-scan: " + tool);
         }
 
         // 4) Also ensure no CodeAgent or commit messages appear (read-only)
-        assertFalse(allTextsJoined.contains("Code Agent"),
-                    "ASK with pre-scan must not invoke Code Agent (read-only)");
-        assertFalse(allTextsJoined.contains("commit"),
-                    "ASK with pre-scan must not perform commits (read-only)");
+        assertFalse(allTextsJoined.contains("Code Agent"), "ASK with pre-scan must not invoke Code Agent (read-only)");
+        assertFalse(allTextsJoined.contains("commit"), "ASK with pre-scan must not perform commits (read-only)");
     }
 }
