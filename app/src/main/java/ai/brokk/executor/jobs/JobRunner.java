@@ -8,9 +8,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.context.ViewingPolicy;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.gui.util.GitRepoIdUtil;
 import ai.brokk.prompts.CodePrompts;
@@ -471,7 +469,7 @@ public final class JobRunner {
                                                     // Use helper that builds a workspace-only prompt and calls the
                                                     // planner model.
                                                     TaskResult askResult =
-                                                            askUsingPlannerModel(askPlannerModel, task.text(), context);
+                                                            askUsingPlannerModel(askPlannerModel, task.text());
                                                     scope.append(askResult);
                                                 } catch (Throwable t) {
                                                     // Do not allow a planner-model failure to abort the entire job.
@@ -754,60 +752,53 @@ public final class JobRunner {
      * a TaskResult representing the answer (or an error TaskResult on failure). This helper
      * is read-only and does not mutate workspace state.
      *
-     * @param plannerModel the planner model to use for the single-shot answer
-     * @param taskText the user's question / task text
-     * @param context the current workspace context to base the answer on
+     * @param model the model to use for the single-shot answer
+     * @param question the user's question / task text
      * @return a TaskResult suitable for appending to a TaskScope
      */
-    private TaskResult askUsingPlannerModel(StreamingChatModel plannerModel, String taskText, Context context) {
-        // Create an LLM instance for the planner model and route output to the ContextManager IO
-        Llm llm = cm.getLlm(plannerModel, "ASK: " + taskText);
-        llm.setOutput(cm.getIo());
+    private TaskResult askUsingPlannerModel(StreamingChatModel model, String question) {
+        var svc = cm.getService();
+        var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
 
-        // Prepare workspace messages (no task list visibility for ASK)
-        var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, false);
-        List<ChatMessage> workspaceMessages =
-                new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(context, viewingPolicy));
-
-        List<ChatMessage> messagesForLlm = new ArrayList<>();
-        // System-level instruction: answer using only the Workspace
-        messagesForLlm.add(new SystemMessage(
-                "You are an assistant answering a question using only the provided Workspace context. "
-                        + "Do not search external sources, do not modify files, and do not suggest edits. "
-                        + "Provide a concise, clear, and complete answer."));
-
-        // Include the Workspace contents
-        messagesForLlm.addAll(workspaceMessages);
-
-        // Add the user question
-        messagesForLlm.add(new UserMessage(taskText));
-
-        // Make the call (single-shot)
-        Llm.StreamingResult sr;
+        List<ChatMessage> messages;
         try {
-            sr = llm.sendRequest(messagesForLlm);
-        } catch (InterruptedException ie) {
-            // Preserve interrupt status and return an interrupted TaskResult
-            Thread.currentThread().interrupt();
-            String expl = ie.getMessage() == null ? "Interrupted" : ie.getMessage();
-            var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, expl);
-            List<ChatMessage> ui = List.of(new UserMessage(taskText), new SystemMessage("Interrupted: " + expl));
-            return new TaskResult(cm, "ASK: " + taskText + " [INTERRUPTED]", ui, context, stopDetails, null);
+            messages = CodePrompts.instance.collectAskMessages(cm, question);
+        } catch (InterruptedException e) {
+            return new TaskResult(
+                    cm,
+                    "Ask: " + question,
+                    cm.getIo().getLlmRawMessages(),
+                    cm.liveContext(),
+                    new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
+                    meta);
+        }
+        // Create an LLM instance for the planner model and route output to the ContextManager IO
+        var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
+        llm.setOutput(cm.getIo());
+        // Build and send the request to the LLM
+        TaskResult.StopDetails stop = null;
+        Llm.StreamingResult response = null;
+        try {
+            response = llm.sendRequest(messages);
+        } catch (InterruptedException e) {
+            stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
         }
 
-        if (sr == null || sr.error() != null) {
-            var stopDetails = (sr == null)
-                    ? new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, "Empty response")
-                    : TaskResult.StopDetails.fromResponse(sr);
-            List<ChatMessage> ui =
-                    List.of(new UserMessage(taskText), new SystemMessage("LLM error: " + stopDetails.toString()));
-            return new TaskResult(cm, "ASK: " + taskText + " [LLM_ERROR]", ui, context, stopDetails, null);
-        } else {
-            // Compose UI messages: user prompt + assistant reply
-            List<ChatMessage> finalUiMessages = List.of(new UserMessage(taskText), sr.aiMessage());
-            return TaskResult.humanResult(
-                    cm, "ASK: " + taskText, finalUiMessages, context, TaskResult.StopReason.SUCCESS);
+        // Determine stop details based on the response
+        if (response != null) {
+            stop = TaskResult.StopDetails.fromResponse(response);
         }
+
+        // construct TaskResult
+        Objects.requireNonNull(stop);
+        var resultingCtx = cm.liveContext();
+        return new TaskResult(
+                cm,
+                "Ask: " + question,
+                List.copyOf(cm.getIo().getLlmRawMessages()),
+                resultingCtx, // Ask never changes files; use current live context
+                stop,
+                meta);
     }
 
     private static Throwable unwrapFailure(Throwable throwable) {
