@@ -425,10 +425,8 @@ public class AskModeSearchAgentTest {
         String jobId = submitJob(sessionId, payload);
 
         // 1) Assert pre-scan start notification appears
-        boolean sawPreScanStart = eventsContain(
-                jobId,
-                "Brokk Context Engine: analyzing repository context...",
-                Duration.ofSeconds(60));
+        boolean sawPreScanStart =
+                eventsContain(jobId, "Brokk Context Engine: analyzing repository context...", Duration.ofSeconds(60));
         assertTrue(sawPreScanStart, "Expected pre-scan START Context Engine notification");
 
         // 1b) Assert pre-scan completion notification appears
@@ -441,16 +439,16 @@ public class AskModeSearchAgentTest {
         // 2) Ensure no follow-on search/inspection tool activity is recorded after pre-scan.
         // These tool names represent typical search/inspection calls exposed by SearchAgent/WorkspaceTools.
         var forbiddenSearchTools = new String[] {
-                "searchSymbols",
-                "getSymbolLocations",
-                "getClassSkeletons",
-                "getClassSources",
-                "getMethodSources",
-                "getUsages",
-                "searchSubstrings",
-                "searchFilenames",
-                "getFileContents",
-                "getFileSummaries"
+            "searchSymbols",
+            "getSymbolLocations",
+            "getClassSkeletons",
+            "getClassSources",
+            "getMethodSources",
+            "getUsages",
+            "searchSubstrings",
+            "searchFilenames",
+            "getFileContents",
+            "getFileSummaries"
         };
         for (String tool : forbiddenSearchTools) {
             boolean sawTool = eventsContain(jobId, tool, Duration.ofSeconds(5));
@@ -478,7 +476,9 @@ public class AskModeSearchAgentTest {
                     var node = mapper.readTree(resp.body().string());
                     if (node.has("status")) {
                         // Some installations may return "status" or "state"; tolerate both
-                        String state = node.has("status") ? node.get("status").asText() : node.get("state").asText();
+                        String state = node.has("status")
+                                ? node.get("status").asText()
+                                : node.get("state").asText();
                         if ("COMPLETED".equalsIgnoreCase(state) || "completed".equalsIgnoreCase(state)) {
                             completed = true;
                             break;

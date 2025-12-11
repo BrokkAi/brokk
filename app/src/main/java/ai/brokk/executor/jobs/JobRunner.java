@@ -17,7 +17,6 @@ import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Json;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.base.Splitter;
-import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -467,25 +466,42 @@ public final class JobRunner {
                                                 }
 
                                                 try {
-                                                    // Use helper that builds a workspace-only prompt and calls the planner model.
-                                                    TaskResult askResult = askUsingPlannerModel(askPlannerModel, task.text(), context);
+                                                    // Use helper that builds a workspace-only prompt and calls the
+                                                    // planner model.
+                                                    TaskResult askResult =
+                                                            askUsingPlannerModel(askPlannerModel, task.text(), context);
                                                     scope.append(askResult);
                                                 } catch (Throwable t) {
                                                     // Do not allow a planner-model failure to abort the entire job.
-                                                    logger.error("ASK direct-answer failed for job {}: {}", jobId, t.getMessage(), t);
+                                                    logger.error(
+                                                            "ASK direct-answer failed for job {}: {}",
+                                                            jobId,
+                                                            t.getMessage(),
+                                                            t);
                                                     // Report to headless console if available (best-effort).
                                                     if (console != null) {
                                                         try {
-                                                            console.toolError("ASK direct-answer failed: " + (t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage()), "ASK error");
+                                                            console.toolError(
+                                                                    "ASK direct-answer failed: "
+                                                                            + (t.getMessage() == null
+                                                                                    ? t.getClass()
+                                                                                            .getSimpleName()
+                                                                                    : t.getMessage()),
+                                                                    "ASK error");
                                                         } catch (Throwable ignore) {
                                                             // best-effort only
                                                         }
                                                     }
-                                                    // Append a non-fatal TaskResult indicating the failure so the task has a record,
-                                                    // but do not rethrow (so job status handling can complete normally).
+                                                    // Append a non-fatal TaskResult indicating the failure so the task
+                                                    // has a record,
+                                                    // but do not rethrow (so job status handling can complete
+                                                    // normally).
                                                     var stopDetails = new TaskResult.StopDetails(
                                                             TaskResult.StopReason.LLM_ERROR,
-                                                            t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage());
+                                                            t.getMessage() == null
+                                                                    ? t.getClass()
+                                                                            .getSimpleName()
+                                                                    : t.getMessage());
                                                     var failureResult = new TaskResult(
                                                             "ASK: " + task.text() + " [LLM_ERROR]",
                                                             null,
@@ -495,10 +511,16 @@ public final class JobRunner {
                                                     try {
                                                         scope.append(failureResult);
                                                     } catch (Throwable e2) {
-                                                        // If appending also fails, log it but keep proceeding so we can update job status normally.
-                                                        logger.warn("Failed to append ASK failure result for job {}: {}", jobId, e2.getMessage(), e2);
+                                                        // If appending also fails, log it but keep proceeding so we can
+                                                        // update job status normally.
+                                                        logger.warn(
+                                                                "Failed to append ASK failure result for job {}: {}",
+                                                                jobId,
+                                                                e2.getMessage(),
+                                                                e2);
                                                     }
-                                                    // Do not rethrow; allow outer flow to mark job completed (read-only) where appropriate.
+                                                    // Do not rethrow; allow outer flow to mark job completed
+                                                    // (read-only) where appropriate.
                                                 }
                                             }
                                         }
@@ -722,59 +744,61 @@ public final class JobRunner {
     }
 
     /**
-         * Build a single-shot workspace-only prompt using the provided planner model and return
-         * a TaskResult representing the answer (or an error TaskResult on failure). This helper
-         * is read-only and does not mutate workspace state.
-         *
-         * @param plannerModel the planner model to use for the single-shot answer
-         * @param taskText the user's question / task text
-         * @param context the current workspace context to base the answer on
-         * @return a TaskResult suitable for appending to a TaskScope
-         */
-        private TaskResult askUsingPlannerModel(StreamingChatModel plannerModel, String taskText, Context context) {
-            // Create an LLM instance for the planner model and route output to the ContextManager IO
-            Llm llm = cm.getLlm(plannerModel, "ASK: " + taskText);
-            llm.setOutput(cm.getIo());
+     * Build a single-shot workspace-only prompt using the provided planner model and return
+     * a TaskResult representing the answer (or an error TaskResult on failure). This helper
+     * is read-only and does not mutate workspace state.
+     *
+     * @param plannerModel the planner model to use for the single-shot answer
+     * @param taskText the user's question / task text
+     * @param context the current workspace context to base the answer on
+     * @return a TaskResult suitable for appending to a TaskScope
+     */
+    private TaskResult askUsingPlannerModel(StreamingChatModel plannerModel, String taskText, Context context) {
+        // Create an LLM instance for the planner model and route output to the ContextManager IO
+        Llm llm = cm.getLlm(plannerModel, "ASK: " + taskText);
+        llm.setOutput(cm.getIo());
 
-            // Prepare workspace messages (no task list visibility for ASK)
-            var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, false);
-            List<ChatMessage> workspaceMessages =
-                    new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(context, viewingPolicy));
+        // Prepare workspace messages (no task list visibility for ASK)
+        var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, false);
+        List<ChatMessage> workspaceMessages =
+                new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(context, viewingPolicy));
 
-            List<ChatMessage> messagesForLlm = new ArrayList<>();
-            // System-level instruction: answer using only the Workspace
-            messagesForLlm.add(new SystemMessage(
-                    "You are an assistant answering a question using only the provided Workspace context. " +
-                            "Do not search external sources, do not modify files, and do not suggest edits. " +
-                            "Provide a concise, clear, and complete answer."));
+        List<ChatMessage> messagesForLlm = new ArrayList<>();
+        // System-level instruction: answer using only the Workspace
+        messagesForLlm.add(new SystemMessage(
+                "You are an assistant answering a question using only the provided Workspace context. "
+                        + "Do not search external sources, do not modify files, and do not suggest edits. "
+                        + "Provide a concise, clear, and complete answer."));
 
-            // Include the Workspace contents
-            messagesForLlm.addAll(workspaceMessages);
+        // Include the Workspace contents
+        messagesForLlm.addAll(workspaceMessages);
 
-            // Add the user question
-            messagesForLlm.add(new UserMessage(taskText));
+        // Add the user question
+        messagesForLlm.add(new UserMessage(taskText));
 
-            // Make the call (single-shot)
-            Llm.StreamingResult sr;
-            try {
-                sr = llm.sendRequest(messagesForLlm);
-            } catch (InterruptedException ie) {
-                // Preserve interrupt status and return an interrupted TaskResult
-                Thread.currentThread().interrupt();
-                var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, ie.getMessage());
-                return new TaskResult("ASK: " + taskText + " [INTERRUPTED]", null, context, stopDetails, null);
-            }
-
-            if (sr == null || sr.error() != null) {
-                var stopDetails = sr == null ? new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, "Empty response")
-                        : TaskResult.StopDetails.fromResponse(sr);
-                return new TaskResult("ASK: " + taskText + " [LLM_ERROR]", null, context, stopDetails, null);
-            } else {
-                // Compose UI messages: user prompt + assistant reply
-                List<ChatMessage> finalUiMessages = List.of(new UserMessage(taskText), sr.aiMessage());
-                return TaskResult.humanResult(cm, "ASK: " + taskText, finalUiMessages, context, TaskResult.StopReason.SUCCESS);
-            }
+        // Make the call (single-shot)
+        Llm.StreamingResult sr;
+        try {
+            sr = llm.sendRequest(messagesForLlm);
+        } catch (InterruptedException ie) {
+            // Preserve interrupt status and return an interrupted TaskResult
+            Thread.currentThread().interrupt();
+            var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, ie.getMessage());
+            return new TaskResult("ASK: " + taskText + " [INTERRUPTED]", null, context, stopDetails, null);
         }
+
+        if (sr == null || sr.error() != null) {
+            var stopDetails = sr == null
+                    ? new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, "Empty response")
+                    : TaskResult.StopDetails.fromResponse(sr);
+            return new TaskResult("ASK: " + taskText + " [LLM_ERROR]", null, context, stopDetails, null);
+        } else {
+            // Compose UI messages: user prompt + assistant reply
+            List<ChatMessage> finalUiMessages = List.of(new UserMessage(taskText), sr.aiMessage());
+            return TaskResult.humanResult(
+                    cm, "ASK: " + taskText, finalUiMessages, context, TaskResult.StopReason.SUCCESS);
+        }
+    }
 
     private static Throwable unwrapFailure(Throwable throwable) {
         var current = throwable;
