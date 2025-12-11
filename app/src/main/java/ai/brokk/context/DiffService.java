@@ -141,7 +141,9 @@ public final class DiffService {
         // - Editable fragments
         // - Git file fragments.
         // - Image fragments (non-text), including pasted images and image files.
-        var editableFragments = curr.getEditableFragments();
+        // Exclude external path fragments from editable candidates; only project files should be diffed.
+        var editableFragments = curr.getEditableFragments()
+                .filter(f -> f.getType() != ContextFragment.FragmentType.EXTERNAL_PATH);
         var gitFileFragments = curr.allFragments().filter(f -> f.getType() == ContextFragment.FragmentType.GIT_FILE);
         var imageFragments = curr.allFragments().filter(f -> !f.isText());
 
