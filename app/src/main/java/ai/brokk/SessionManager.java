@@ -287,8 +287,9 @@ public class SessionManager implements AutoCloseable {
                 }
 
                 // Exercise migrations and quarantine if history read fails.
+                ContextHistory history;
                 try {
-                    loadHistoryOrQuarantine(sessionId, contextManager);
+                    history = loadHistoryOrQuarantine(sessionId, contextManager);
                 } catch (Exception e) {
                     quarantinedIds.add(sessionId);
                     moved++;
@@ -296,6 +297,20 @@ public class SessionManager implements AutoCloseable {
                 }
 
                 sessionsCache.putIfAbsent(sessionId, info.get());
+
+                // Migrate aiResponseCount for old sessions that don't have it yet
+                var loadedInfo = sessionsCache.get(sessionId);
+                if (loadedInfo != null && loadedInfo.needsCountMigration()) {
+                    int count = countAiResponses(history);
+                    var updated = new SessionInfo(loadedInfo.id(), loadedInfo.name(),
+                                                  loadedInfo.created(), loadedInfo.modified(), count);
+                    sessionsCache.put(sessionId, updated);
+                    try {
+                        writeSessionInfoToZip(getSessionHistoryPath(sessionId), updated);
+                    } catch (IOException e) {
+                        logger.warn("Failed to persist migrated aiResponseCount for session {}", sessionId, e);
+                    }
+                }
             }
         } catch (IOException e) {
             logger.error("Error listing session zip files in {}: {}", sessionsDir, e.getMessage());
