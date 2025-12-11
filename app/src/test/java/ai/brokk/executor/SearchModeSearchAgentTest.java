@@ -28,7 +28,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Integration tests for SEARCH mode ensuring SearchAgent is used and no writes occur.
@@ -46,9 +45,11 @@ class SearchModeSearchAgentTest {
     private int port;
     private String authToken = "test-secret-token";
     private String baseUrl;
+    private Path tempDir;
 
     @BeforeEach
-    void setup(@TempDir Path tempDir) throws Exception {
+    void setup() throws Exception {
+        tempDir = Files.createTempDirectory("search-mode-test-");
         var workspaceDir = tempDir.resolve("workspace");
         var sessionsDir = tempDir.resolve("sessions");
         Files.createDirectories(workspaceDir);
@@ -81,6 +82,28 @@ class SearchModeSearchAgentTest {
     void cleanup() {
         if (executor != null) {
             executor.stop(2);
+        }
+        // Best-effort cleanup - ignore failures on Windows due to JGit file handle locking
+        if (tempDir != null) {
+            try {
+                deleteRecursively(tempDir);
+            } catch (IOException ignored) {
+                // Temp directory cleanup failures are non-fatal
+            }
+        }
+    }
+
+    private void deleteRecursively(Path path) throws IOException {
+        if (!Files.exists(path)) return;
+        try (var walk = Files.walk(path)) {
+            walk.sorted((a, b) -> b.compareTo(a)) // Delete children before parents
+                    .forEach(p -> {
+                        try {
+                            Files.deleteIfExists(p);
+                        } catch (IOException ignored) {
+                            // Ignore individual file deletion failures
+                        }
+                    });
         }
     }
 
