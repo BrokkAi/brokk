@@ -4,6 +4,8 @@ import static ai.brokk.SessionManager.SessionInfo;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.project.AbstractProject;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -531,5 +533,92 @@ public class SessionManagerTest {
                 "Copied session should preserve aiResponseCount from original");
 
         project.close();
+    }
+
+    // JSON serialization/deserialization tests for SessionInfo
+
+    @Test
+    void testSessionInfoDeserializationWithoutAiResponseCount() throws JsonProcessingException {
+        // Old JSON format without aiResponseCount field
+        String oldJson = """
+            {"id":"550e8400-e29b-41d4-a716-446655440000","name":"Old Session","created":1000,"modified":2000}
+            """;
+
+        SessionInfo info = AbstractProject.objectMapper.readValue(oldJson, SessionInfo.class);
+
+        assertEquals(UUID.fromString("550e8400-e29b-41d4-a716-446655440000"), info.id());
+        assertEquals("Old Session", info.name());
+        assertEquals(1000L, info.created());
+        assertEquals(2000L, info.modified());
+        assertEquals(SessionInfo.COUNT_UNKNOWN, info.aiResponseCount(),
+                "Missing aiResponseCount should deserialize to COUNT_UNKNOWN (-1)");
+    }
+
+    @Test
+    void testSessionInfoDeserializationWithAiResponseCount() throws JsonProcessingException {
+        // New JSON format with aiResponseCount field
+        String newJson = """
+            {"id":"550e8400-e29b-41d4-a716-446655440000","name":"New Session","created":1000,"modified":2000,"aiResponseCount":42}
+            """;
+
+        SessionInfo info = AbstractProject.objectMapper.readValue(newJson, SessionInfo.class);
+
+        assertEquals(UUID.fromString("550e8400-e29b-41d4-a716-446655440000"), info.id());
+        assertEquals("New Session", info.name());
+        assertEquals(1000L, info.created());
+        assertEquals(2000L, info.modified());
+        assertEquals(42, info.aiResponseCount(),
+                "aiResponseCount should preserve exact value from JSON");
+    }
+
+    @Test
+    void testSessionInfoRoundTrip() throws JsonProcessingException {
+        // Create a SessionInfo with all fields
+        var original = new SessionInfo(
+                UUID.fromString("550e8400-e29b-41d4-a716-446655440000"),
+                "Round Trip Session",
+                1000L,
+                2000L,
+                17);
+
+        // Serialize to JSON
+        String json = AbstractProject.objectMapper.writeValueAsString(original);
+
+        // Deserialize back
+        SessionInfo restored = AbstractProject.objectMapper.readValue(json, SessionInfo.class);
+
+        // Verify all fields are preserved
+        assertEquals(original.id(), restored.id(), "id should be preserved in round-trip");
+        assertEquals(original.name(), restored.name(), "name should be preserved in round-trip");
+        assertEquals(original.created(), restored.created(), "created should be preserved in round-trip");
+        assertEquals(original.modified(), restored.modified(), "modified should be preserved in round-trip");
+        assertEquals(original.aiResponseCount(), restored.aiResponseCount(),
+                "aiResponseCount should be preserved in round-trip");
+    }
+
+    @Test
+    void testSessionInfoDeserializationWithExplicitNull() throws JsonProcessingException {
+        // JSON with explicit null for aiResponseCount
+        String jsonWithNull = """
+            {"id":"550e8400-e29b-41d4-a716-446655440000","name":"Null Count","created":1000,"modified":2000,"aiResponseCount":null}
+            """;
+
+        SessionInfo info = AbstractProject.objectMapper.readValue(jsonWithNull, SessionInfo.class);
+
+        assertEquals(SessionInfo.COUNT_UNKNOWN, info.aiResponseCount(),
+                "Explicit null aiResponseCount should deserialize to COUNT_UNKNOWN (-1)");
+    }
+
+    @Test
+    void testSessionInfoDeserializationWithZeroCount() throws JsonProcessingException {
+        // JSON with zero count (edge case - valid count value)
+        String jsonWithZero = """
+            {"id":"550e8400-e29b-41d4-a716-446655440000","name":"Zero Count","created":1000,"modified":2000,"aiResponseCount":0}
+            """;
+
+        SessionInfo info = AbstractProject.objectMapper.readValue(jsonWithZero, SessionInfo.class);
+
+        assertEquals(0, info.aiResponseCount(),
+                "aiResponseCount of 0 should be preserved (not confused with missing)");
     }
 }
