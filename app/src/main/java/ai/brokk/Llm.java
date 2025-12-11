@@ -138,6 +138,7 @@ public class Llm {
     private final boolean forceReasoningEcho;
     private final boolean tagRetain;
     private final boolean echo;
+    private volatile String previousResponseId;
 
     // Monotonically increasing sequence for emulated tool request IDs
     private final AtomicInteger toolRequestIdSeq = new AtomicInteger();
@@ -360,6 +361,10 @@ public class Llm {
                         errorRef.set(ex);
                     } else {
                         completedChatResponse.set(response);
+                        var id = response.id();
+                        if (id != null && !id.isBlank()) {
+                            previousResponseId = id;
+                        }
                         String tokens =
                                 response.tokenUsage() == null ? "null token usage!?" : formatTokensUsage(response);
                         logger.debug("Request complete ({}) with {}", response.finishReason(), tokens);
@@ -762,6 +767,10 @@ public class Llm {
             builder.metadata(newMetadata);
         }
 
+        if (previousResponseId != null && !previousResponseId.isBlank()) {
+            builder.previousResponseId(previousResponseId);
+        }
+
         return builder;
     }
 
@@ -1113,7 +1122,7 @@ public class Llm {
         // Simple request builder for JSON output format
         Function<List<ChatMessage>, ChatRequest> requestBuilder = attemptMessages -> ChatRequest.builder()
                 .messages(attemptMessages)
-                .parameters(OpenAiChatRequestParameters.builder()
+                .parameters(getParamsBuilder()
                         .responseFormat(ResponseFormat.builder()
                                 .type(ResponseFormatType.JSON)
                                 .build())
