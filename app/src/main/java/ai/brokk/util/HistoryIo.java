@@ -15,8 +15,10 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;
 import com.fasterxml.jackson.databind.jsontype.TypeIdResolver;
+import java.io.BufferedReader;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.InvalidObjectException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -74,19 +76,23 @@ public final class HistoryIo {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 if (entry.getName().equals(CONTEXTS_FILENAME)) {
-                    var content = new String(zis.readAllBytes(), StandardCharsets.UTF_8);
-                    return (int) content.lines()
-                            .filter(line -> !line.trim().isEmpty())
-                            .filter(line -> {
-                                try {
-                                    var node = objectMapper.readTree(line);
-                                    var parsedOutputId = node.get("parsedOutputId");
-                                    return parsedOutputId != null && !parsedOutputId.isNull();
-                                } catch (Exception e) {
-                                    return false;
-                                }
-                            })
-                            .count();
+                    // Stream line-by-line to avoid materializing entire file in memory
+                    var reader = new BufferedReader(new InputStreamReader(zis, StandardCharsets.UTF_8));
+                    int count = 0;
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (line.trim().isEmpty()) continue;
+                        try {
+                            var node = objectMapper.readTree(line);
+                            var parsedOutputId = node.get("parsedOutputId");
+                            if (parsedOutputId != null && !parsedOutputId.isNull()) {
+                                count++;
+                            }
+                        } catch (Exception e) {
+                            // Skip malformed lines
+                        }
+                    }
+                    return count;
                 }
             }
         }
