@@ -75,7 +75,7 @@ import org.jetbrains.annotations.VisibleForTesting;
 /**
  * The main orchestrator for sending requests to an LLM, possibly with tools, collecting streaming responses, etc.
  *
- * NOT threadsafe.
+ * Preserves model chain-of-thought, so you should create a new instance for every conversation.
  */
 public class Llm {
     private static final Logger logger = LogManager.getLogger(Llm.class);
@@ -367,6 +367,7 @@ public class Llm {
                         completedChatResponse.set(response);
                         var id = response.id();
                         if (id != null) {
+                            logger.trace("response_id={}", id);
                             assert !id.isBlank();
                             previousResponseId = id;
                         }
