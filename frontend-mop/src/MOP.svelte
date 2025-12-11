@@ -5,6 +5,7 @@
   import CacheStatsDebug from './dev/components/CacheStatsDebug.svelte';
   import autoScroll, { escapeWhenUpPlugin } from '@yrobot/auto-scroll';
   import Spinner from './components/Spinner.svelte';
+  import TransientMessage from './components/TransientMessage.svelte';
   import { zoomStore } from './stores/zoomStore';
   import { historyStore } from './stores/historyStore';
   import ThreadBlock from './components/ThreadBlock.svelte';
@@ -270,6 +271,7 @@
         summary={liveSummaryEntry?.text}
       />
     {/if}
+    <TransientMessage />
     <Spinner />
   {:else}
     <!-- Empty state when no history or live bubbles -->
