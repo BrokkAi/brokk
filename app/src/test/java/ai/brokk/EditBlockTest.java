@@ -3,6 +3,7 @@ package ai.brokk;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.JavaAnalyzer;
+import ai.brokk.analyzer.PythonAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.update.UpdateTestUtil;
@@ -1185,5 +1186,69 @@ class EditBlockTest {
         var blocks =
                 EditBlockParser.instance.parseEditBlocks(fullResponse, files).blocks();
         return blocks.toArray(new EditBlock.SearchReplaceBlock[0]);
+    }
+
+    @Test
+    void testInsertNewMethodUsingInsertionPoint_PythonAnalyzer_Class() throws Exception {
+        var rootDir = UpdateTestUtil.newTempDir();
+        UpdateTestUtil.writeFile(
+                rootDir,
+                "A.py",
+                """
+                class A:
+                  def method1(self):
+                    return 1
+                """);
+
+        var project = UpdateTestUtil.newTestProject(rootDir, Languages.PYTHON);
+        var analyzer = new PythonAnalyzer(project);
+
+        var editable = Set.of(new ProjectFile(rootDir, "A.py"));
+        var cm = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);
+
+        String response =
+                """
+                ```
+                A.py
+                <<<<<<< SEARCH
+                BRK_NEXT_OFFSET A.A
+                =======
+                def new_method(self):
+                  return 99
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        var blocks = EditBlockParser.instance
+                .parseEditBlocks(response, cm.getFilesInContext())
+                .blocks();
+        var result = EditBlock.apply(cm, new TestConsoleIO(), blocks);
+
+        assertTrue(result.failedBlocks().isEmpty(), "Insertion should succeed without failures");
+
+        var updated = Files.readString(new ProjectFile(rootDir, "A.py").absPath());
+        assertTrue(updated.contains("\n  def method1(self):"), "Original method should remain");
+        assertTrue(updated.contains("\n  def new_method(self):"), "New method should be indented and on its own line");
+    }
+
+    @Test
+    void testComputeInsertionPointForNewMember_PythonAnalyzer_Module() throws Exception {
+        var rootDir = UpdateTestUtil.newTempDir();
+        UpdateTestUtil.writeFile(
+                rootDir,
+                "mod.py",
+                """
+                def foo():
+                  return 1
+                """);
+
+        var project = UpdateTestUtil.newTestProject(rootDir, Languages.PYTHON);
+        var analyzer = new PythonAnalyzer(project);
+
+        var editable = Set.of(new ProjectFile(rootDir, "mod.py"));
+        var cm = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);
+
+        var ipOpt = EditBlock.computeInsertionPointForNewMember(cm.liveContext(), "mod");
+        assertTrue(ipOpt.isEmpty(), "Module-level insertion point is not currently supported for Python modules");
     }
 }
