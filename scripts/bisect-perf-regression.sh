@@ -239,27 +239,25 @@ run_commit() {
   echo "${res_dir}"
 }
 
-# Compare two result directories using compare-perf-results.py in JSON mode.
-# Prints "regression", "ok", or "unknown".
-compare_dirs_status() {
+# Produce JSON summary from compare-perf-results.py for two result directories.
+compare_dirs_json() {
   local base_dir="$1"
   local head_dir="$2"
   local base_sha_short="$3"
   local head_sha_short="$4"
 
-  local out_json
-  out_json="$(
-    BASE_SHA_SHORT="${base_sha_short}" HEAD_SHA_SHORT="${head_sha_short}" \
-      python3 "${COMPARE_SCRIPT}" --format json "${base_dir}" "${head_dir}" 2>/dev/null
-  )"
+  BASE_SHA_SHORT="${base_sha_short}" HEAD_SHA_SHORT="${head_sha_short}" \
+    python3 "${COMPARE_SCRIPT}" --format json "${base_dir}" "${head_dir}"
+}
 
-  # Parse using Python to avoid dependency on jq
-  python3 - "$out_json" <<'PY'
-import json, sys
+# Extract overall status from JSON using python3 -c (no jq dependency).
+# Prints "regression", "ok", or "unknown".
+status_from_json() {
+  python3 -c 'import json, sys
 try:
-    data = json.loads(sys.argv[1])
+    data = json.load(sys.stdin)
     metrics = data.get("metrics", {})
-    statuses = [v.get("status", "").lower() for v in metrics.values()]
+    statuses = [(v or {}).get("status", "").lower() for v in metrics.values()]
     if not statuses:
         print("unknown")
     elif any(s == "regression" for s in statuses):
@@ -269,8 +267,43 @@ try:
     else:
         print("unknown")
 except Exception:
-    print("unknown")
-PY
+    print("unknown")' 2>/dev/null
+}
+
+# Print a concise, human-readable summary for the compare JSON.
+# Shows per-metric base/head averages, change, and status.
+print_compare_summary() {
+  local base_short="$1"
+  local head_short="$2"
+  local json_payload="$3"
+  python3 -c 'import json, sys
+data = json.load(sys.stdin)
+metrics = data.get("metrics", {})
+# Prefer a stable display order
+order = ["analysis_time_seconds", "files_per_second"]
+for key in order:
+    m = metrics.get(key)
+    if not isinstance(m, dict):
+        continue
+    name = m.get("name", key)
+    base_str = m.get("base_str", "")
+    head_str = m.get("head_str", "")
+    change = m.get("change_str", "N/A")
+    status_emoji = m.get("status_emoji", "")
+    status = m.get("status", "N/A")
+    print(f" - {name}: {base_str} -> {head_str} ({change}) {status_emoji} {status}")' <<< "${json_payload}"
+}
+
+# Compare two result directories; prints overall status only.
+compare_dirs_status() {
+  local base_dir="$1"
+  local head_dir="$2"
+  local base_sha_short="$3"
+  local head_sha_short="$4"
+
+  local out_json
+  out_json="$(compare_dirs_json "${base_dir}" "${head_dir}" "${base_sha_short}" "${head_sha_short}" 2>/dev/null || true)"
+  status_from_json <<< "${out_json}"
 }
 
 # --------------- Argument parsing ---------------
@@ -391,8 +424,11 @@ main() {
   fi
 
   # Confirm that there is an actual regression between endpoints
-  local pre_status
-  pre_status="$(compare_dirs_status "${good_dir}" "${bad_dir}" "${good_sha_short}" "${bad_sha_short}")"
+  local pre_json pre_status
+  pre_json="$(compare_dirs_json "${good_dir}" "${bad_dir}" "${good_sha_short}" "${bad_sha_short}")"
+  echo -e "${BLUE}[Compare] ${good_sha_short} -> ${bad_sha_short}${NC}"
+  print_compare_summary "${good_sha_short}" "${bad_sha_short}" "${pre_json}"
+  pre_status="$(status_from_json <<< "${pre_json}")"
   if [[ "${pre_status}" != "regression" ]]; then
     echo -e "${YELLOW}No reproducible regression detected between endpoints (${good_sha_short} -> ${bad_sha_short}).${NC}"
     echo -e "${YELLOW}compare-perf-results status: ${pre_status}${NC}"
@@ -454,7 +490,11 @@ main() {
     # Compare GOOD (lo) vs MID
     local status="unknown"
     if [[ -n "${DIRS[${lo_sha}]:-}" ]] && [[ -n "${DIRS[${mid_sha}]:-}" ]]; then
-      status="$(compare_dirs_status "${DIRS[${lo_sha}]}" "${DIRS[${mid_sha}]}" "${lo_short}" "${mid_short}")"
+      local cmp_json
+      cmp_json="$(compare_dirs_json "${DIRS[${lo_sha}]}" "${DIRS[${mid_sha}]}" "${lo_short}" "${mid_short}")"
+      echo -e "${BLUE}[Compare] ${lo_short} -> ${mid_short}${NC}"
+      print_compare_summary "${lo_short}" "${mid_short}" "${cmp_json}"
+      status="$(status_from_json <<< "${cmp_json}")"
     fi
 
     # If not a regression, retry up to --retries times by re-running midpoint to replace JSON runs.
@@ -464,7 +504,11 @@ main() {
         echo -e "${YELLOW}Inconclusive midpoint result (${status}) for ${mid_short}; retry ${attempt}/${RETRIES}...${NC}"
         if mid_dir="$(run_commit "${mid_sha}")"; then
           DIRS["${mid_sha}"]="${mid_dir}"
-          status="$(compare_dirs_status "${DIRS[${lo_sha}]}" "${DIRS[${mid_sha}]}" "${lo_short}" "${mid_short}")"
+          local cmp_json
+          cmp_json="$(compare_dirs_json "${DIRS[${lo_sha}]}" "${DIRS[${mid_sha}]}" "${lo_short}" "${mid_short}")"
+          echo -e "${BLUE}[Compare] ${lo_short} -> ${mid_short}${NC}"
+          print_compare_summary "${lo_short}" "${mid_short}" "${cmp_json}"
+          status="$(status_from_json <<< "${cmp_json}")"
           if [[ "${status}" == "regression" ]]; then
             break
           fi
