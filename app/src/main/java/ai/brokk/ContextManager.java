@@ -322,9 +322,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // Mark migration pass complete to avoid re-running on subsequent startups
                 mainProject.setMigrationsToSessionsV3Complete(true);
 
+                // Migrate aiResponseCount for old sessions
+                int countMigrated = sessionManager.migrateAiResponseCounts(this);
+
                 // Log and refresh UI if anything was moved
-                logger.info("Quarantine complete; moved {} unreadable session zip(s).", report.movedCount());
-                if (report.movedCount() > 0 && io instanceof Chrome) {
+                logger.info(
+                        "Quarantine complete; moved {} unreadable session zip(s), migrated {} aiResponseCount(s).",
+                        report.movedCount(),
+                        countMigrated);
+                if ((report.movedCount() > 0 || countMigrated > 0) && io instanceof Chrome) {
                     project.sessionsListChanged();
                 }
 

@@ -39,6 +39,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public class SessionManager implements AutoCloseable {
@@ -259,6 +260,8 @@ public class SessionManager implements AutoCloseable {
      * manifest.json as unreadable and moving them to the 'unreadable' subfolder. Also attempts to load each valid-UUID
      * session's history to exercise migrations. Returns a report detailing what was quarantined.
      *
+     * <p>Note: aiResponseCount migration is handled separately by {@link #migrateAiResponseCounts}.
+     *
      * <p>This runs synchronously; intended to be invoked from a background task.
      */
     public QuarantineReport quarantineUnreadableSessions(IContextManager contextManager) {
@@ -288,9 +291,8 @@ public class SessionManager implements AutoCloseable {
                 }
 
                 // Exercise migrations and quarantine if history read fails.
-                ContextHistory history;
                 try {
-                    history = loadHistoryOrQuarantine(sessionId, contextManager);
+                    loadHistoryOrQuarantine(sessionId, contextManager);
                 } catch (Exception e) {
                     quarantinedIds.add(sessionId);
                     moved++;
@@ -298,20 +300,6 @@ public class SessionManager implements AutoCloseable {
                 }
 
                 sessionsCache.putIfAbsent(sessionId, info.get());
-
-                // Migrate aiResponseCount for old sessions that don't have it yet
-                var loadedInfo = sessionsCache.get(sessionId);
-                if (loadedInfo != null && loadedInfo.needsCountMigration()) {
-                    int count = countAiResponses(history);
-                    var updated = new SessionInfo(
-                            loadedInfo.id(), loadedInfo.name(), loadedInfo.created(), loadedInfo.modified(), count);
-                    sessionsCache.put(sessionId, updated);
-                    try {
-                        writeSessionInfoToZip(getSessionHistoryPath(sessionId), updated);
-                    } catch (IOException e) {
-                        logger.warn("Failed to persist migrated aiResponseCount for session {}", sessionId, e);
-                    }
-                }
             }
         } catch (IOException e) {
             logger.error("Error listing session zip files in {}: {}", sessionsDir, e.getMessage());
@@ -343,11 +331,9 @@ public class SessionManager implements AutoCloseable {
         for (var info : sessionsToMigrate) {
             try {
                 var history = loadHistoryInternal(info.id(), contextManager);
-                int count = countAiResponses(history);
-                var updated = new SessionInfo(info.id(), info.name(), info.created(), info.modified(), count);
-                sessionsCache.put(info.id(), updated);
-                writeSessionInfoToZip(getSessionHistoryPath(info.id()), updated);
-                migrated++;
+                if (migrateAiResponseCount(info.id(), history)) {
+                    migrated++;
+                }
             } catch (Exception e) {
                 logger.warn("Failed to migrate aiResponseCount for session {}: {}", info.id(), e.getMessage());
             }
@@ -355,6 +341,30 @@ public class SessionManager implements AutoCloseable {
 
         logger.info("Migrated aiResponseCount for {} session(s)", migrated);
         return migrated;
+    }
+
+    /**
+     * Migrates aiResponseCount for a single session if needed.
+     * Updates the cache and persists to disk synchronously.
+     *
+     * @return true if migration was performed, false if not needed
+     */
+    private boolean migrateAiResponseCount(UUID sessionId, @Nullable ContextHistory history) {
+        var info = sessionsCache.get(sessionId);
+        if (info == null || !info.needsCountMigration() || history == null) {
+            return false;
+        }
+
+        int count = countAiResponses(history);
+        var updated = new SessionInfo(info.id(), info.name(), info.created(), info.modified(), count);
+        sessionsCache.put(sessionId, updated);
+
+        try {
+            writeSessionInfoToZip(getSessionHistoryPath(sessionId), updated);
+        } catch (IOException e) {
+            logger.warn("Failed to persist migrated aiResponseCount for session {}", sessionId, e);
+        }
+        return true;
     }
 
     public SessionInfo copySession(UUID originalSessionId, String newSessionName) throws Exception {
@@ -543,6 +553,7 @@ public class SessionManager implements AutoCloseable {
         return (int) history.getHistory().stream().filter(Context::isAiResult).count();
     }
 
+    @Blocking
     @Nullable
     public ContextHistory loadHistory(UUID sessionId, IContextManager contextManager) {
         var future = sessionExecutorByKey.submit(
@@ -560,20 +571,8 @@ public class SessionManager implements AutoCloseable {
             return null;
         }
 
-        // Migrate aiResponseCount for old sessions that don't have it yet
-        var info = sessionsCache.get(sessionId);
-        if (info != null && info.needsCountMigration() && history != null) {
-            int count = countAiResponses(history);
-            var updated = new SessionInfo(info.id(), info.name(), info.created(), info.modified(), count);
-            sessionsCache.put(sessionId, updated);
-            sessionExecutorByKey.submit(sessionId.toString(), () -> {
-                try {
-                    writeSessionInfoToZip(getSessionHistoryPath(sessionId), updated);
-                } catch (IOException e) {
-                    logger.warn("Failed to persist migrated aiResponseCount for session {}", sessionId, e);
-                }
-            });
-        }
+        // Migrate aiResponseCount if needed (writes synchronously since we're already blocking)
+        migrateAiResponseCount(sessionId, history);
 
         return history;
     }
