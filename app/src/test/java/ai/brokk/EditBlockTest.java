@@ -3,9 +3,9 @@ package ai.brokk;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.JavaAnalyzer;
-import ai.brokk.analyzer.PythonAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.PythonAnalyzer;
 import ai.brokk.analyzer.update.UpdateTestUtil;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.testutil.AssertionHelperUtil;
@@ -1235,9 +1235,7 @@ class EditBlockTest {
     void testComputeInsertionPointForNewMember_PythonAnalyzer_Module() throws Exception {
         var rootDir = UpdateTestUtil.newTempDir();
         UpdateTestUtil.writeFile(
-                rootDir,
-                "mod.py",
-                """
+                rootDir, "mod.py", """
                 def foo():
                   return 1
                 """);
