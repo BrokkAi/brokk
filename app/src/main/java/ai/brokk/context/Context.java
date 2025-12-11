@@ -1235,7 +1235,7 @@ public class Context {
                 newFragments,
                 taskHistory,
                 parsedOutput,
-                this.action,
+                CompletableFuture.completedFuture("Load external changes"),
                 this.groupId,
                 this.groupLabel,
                 newReadOnly);
