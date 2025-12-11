@@ -137,19 +137,15 @@ public final class DiffService {
     @Blocking
     public static List<Context.DiffEntry> computeDiff(Context curr, Context other) {
         // Candidates:
-        // - Project text files that are editable (preserves read-only exclusion).
+        // - Editable fragments
         // - Git file fragments.
         // - Image fragments (non-text), including pasted images and image files.
-        // - Editable non-path text fragments such as USAGE.
-        var projectPathEditable =
-                curr.getEditableFragments().filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH);
+        var editableFragments = curr.getEditableFragments();
         var gitFileFragments = curr.allFragments().filter(f -> f.getType() == ContextFragment.FragmentType.GIT_FILE);
         var imageFragments = curr.allFragments().filter(f -> !f.isText());
-        var usageFragments = curr.getEditableFragments().filter(f -> f.getType() == ContextFragment.FragmentType.USAGE);
 
-        var candidates = Stream.of(projectPathEditable, gitFileFragments, imageFragments, usageFragments)
-                .flatMap(s -> s);
-
+        var candidates =
+                Stream.of(editableFragments, gitFileFragments, imageFragments).flatMap(s -> s);
         var diffFutures =
                 candidates.map(cf -> computeDiffForFragment(curr, cf, other)).toList();
 
