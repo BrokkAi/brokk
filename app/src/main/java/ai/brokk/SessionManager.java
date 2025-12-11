@@ -9,8 +9,10 @@ import ai.brokk.project.AbstractProject;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.HistoryIo;
 import ai.brokk.util.SerialByKeyExecutor;
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.github.f4b6a3.uuid.UuidCreator;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -42,11 +44,28 @@ import org.jetbrains.annotations.Nullable;
 public class SessionManager implements AutoCloseable {
     /** Record representing session metadata for the sessions management system. */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record SessionInfo(UUID id, String name, long created, long modified) {
+    public record SessionInfo(UUID id, String name, long created, long modified, int aiResponseCount) {
+
+        public static final int COUNT_UNKNOWN = -1;
+
+        /** Backward-compatible constructor for JSON deserialization of old sessions without aiResponseCount. */
+        @JsonCreator
+        public SessionInfo(@JsonProperty("id") UUID id,
+                           @JsonProperty("name") String name,
+                           @JsonProperty("created") long created,
+                           @JsonProperty("modified") long modified,
+                           @JsonProperty("aiResponseCount") Integer aiResponseCount) {
+            this(id, name, created, modified, aiResponseCount != null ? aiResponseCount : COUNT_UNKNOWN);
+        }
 
         @JsonIgnore
         public boolean isSessionModified() {
             return created != modified;
+        }
+
+        @JsonIgnore
+        public boolean needsCountMigration() {
+            return aiResponseCount == COUNT_UNKNOWN;
         }
     }
 
@@ -120,7 +139,7 @@ public class SessionManager implements AutoCloseable {
     public SessionInfo newSession(String name) {
         var sessionId = newSessionId();
         var currentTime = System.currentTimeMillis();
-        var newSessionInfo = new SessionInfo(sessionId, name, currentTime, currentTime);
+        var newSessionInfo = new SessionInfo(sessionId, name, currentTime, currentTime, SessionInfo.COUNT_UNKNOWN);
         sessionsCache.put(sessionId, newSessionInfo);
 
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
@@ -149,7 +168,8 @@ public class SessionManager implements AutoCloseable {
     public void renameSession(UUID sessionId, String newName) {
         SessionInfo oldInfo = sessionsCache.get(sessionId);
         if (oldInfo != null) {
-            var updatedInfo = new SessionInfo(oldInfo.id(), newName, oldInfo.created(), System.currentTimeMillis());
+            var updatedInfo = new SessionInfo(oldInfo.id(), newName, oldInfo.created(), System.currentTimeMillis(),
+                                             oldInfo.aiResponseCount());
             sessionsCache.put(sessionId, updatedInfo);
             sessionExecutorByKey.submit(sessionId.toString(), () -> {
                 try {
@@ -287,7 +307,9 @@ public class SessionManager implements AutoCloseable {
     public SessionInfo copySession(UUID originalSessionId, String newSessionName) throws Exception {
         var newSessionId = newSessionId();
         var currentTime = System.currentTimeMillis();
-        var newSessionInfo = new SessionInfo(newSessionId, newSessionName, currentTime, currentTime);
+        var originalInfo = sessionsCache.get(originalSessionId);
+        int count = originalInfo != null ? originalInfo.aiResponseCount() : SessionInfo.COUNT_UNKNOWN;
+        var newSessionInfo = new SessionInfo(newSessionId, newSessionName, currentTime, currentTime, count);
 
         var copyFuture = sessionExecutorByKey.submit(originalSessionId.toString(), () -> {
             try {
@@ -405,8 +427,8 @@ public class SessionManager implements AutoCloseable {
         SessionInfo currentInfo = sessionsCache.get(sessionId);
         if (currentInfo != null) {
             if (!isSessionEmpty(currentInfo, contextHistory)) {
-                infoToSave = new SessionInfo(
-                        currentInfo.id(), currentInfo.name(), currentInfo.created(), System.currentTimeMillis());
+                infoToSave = new SessionInfo(currentInfo.id(), currentInfo.name(), currentInfo.created(),
+                                            System.currentTimeMillis(), currentInfo.aiResponseCount());
                 sessionsCache.put(sessionId, infoToSave); // Update cache before async task
             } // else, session info is not modified, we are just adding an empty initial context (e.g. welcome message)
             // to the session
