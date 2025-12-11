@@ -5,7 +5,6 @@ import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.util.ContentDiffUtils;
-
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -149,9 +148,7 @@ public final class DiffService {
         var diffFutures =
                 candidates.map(cf -> computeDiffForFragment(ctx, cf, other)).toList();
 
-        return diffFutures.stream()
-                .map(CompletableFuture::join)
-                .toList();
+        return diffFutures.stream().map(CompletableFuture::join).toList();
     }
 
     /**
@@ -270,16 +267,24 @@ public final class DiffService {
     private static CompletableFuture<String> extractFragmentContentAsync(ContextFragment fragment) {
         var computedTextFuture = fragment.text().future();
         return computedTextFuture
-                .completeOnTimeout("Timeout loading contents. Please consider reporting a bug", TEXT_FALLBACK_TIMEOUT.toSeconds(), TimeUnit.SECONDS)
+                .completeOnTimeout(
+                        "Timeout loading contents. Please consider reporting a bug",
+                        TEXT_FALLBACK_TIMEOUT.toSeconds(),
+                        TimeUnit.SECONDS)
                 .exceptionally(ex -> {
-                    var msg = """
+                    var msg =
+                            """
                             Error loading contents. Please consider reporting a bug.
-                            
+
                             Details:
                             Fragment type %s
                             Fragment description: %s
                             Stacktrace: %s
-                            """.formatted(fragment.getClass().getSimpleName(), fragment.shortDescription().renderNowOr(fragment.toString()), ExceptionReporter.formatStackTrace(ex));
+                            """
+                                    .formatted(
+                                            fragment.getClass().getSimpleName(),
+                                            fragment.shortDescription().renderNowOr(fragment.toString()),
+                                            ExceptionReporter.formatStackTrace(ex));
                     logger.warn(msg, ex);
                     return msg;
                 });
