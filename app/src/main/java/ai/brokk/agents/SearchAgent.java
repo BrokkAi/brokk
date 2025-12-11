@@ -592,6 +592,16 @@ public class SearchAgent {
 
         var terminalObjective = buildTerminalObjective();
 
+        String emptyProjectGuidance = "";
+        if (cm.getProject().isEmptyProject()) {
+            emptyProjectGuidance =
+                    """
+                    <empty-project-notice>
+                    This is a new/empty project; there are no existing files to reference. Focus on creating an initial project structure. After you create files, configure build/test commands (the agent can call a tool to set build details).
+                    </empty-project-notice>
+                    """;
+        }
+
         String directive =
                 """
                         <%s>
@@ -621,6 +631,8 @@ public class SearchAgent {
                         It is NOT your objective to write code.
 
                         %s
+
+                        %s
                         """
                         .formatted(
                                 terminalObjective.type,
@@ -629,7 +641,8 @@ public class SearchAgent {
                                 terminalObjective.text(),
                                 testsGuidance,
                                 finalsStr,
-                                warning);
+                                warning,
+                                emptyProjectGuidance);
 
         // Beast mode directive
         if (beastMode) {

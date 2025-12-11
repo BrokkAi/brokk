@@ -924,8 +924,19 @@ public class ArchitectAgent {
         // This agent's own conversational history for the current goal
         messages.addAll(architectMessages);
         // Final user message with the goal and specific instructions for this turn, including workspace warnings
-        messages.add(new UserMessage(
-                ArchitectPrompts.instance.getFinalInstructions(cm, goal, workspaceTokenSize, maxInputTokens)));
+        var finalInstructions = ArchitectPrompts.instance.getFinalInstructions(cm, goal, workspaceTokenSize, maxInputTokens);
+        
+        // Append empty project guidance if applicable
+        if (cm.getProject().isEmptyProject()) {
+            finalInstructions = finalInstructions
+                    + "\n\n<empty-project-notice>\n"
+                    + "This is a new/empty project; there are no existing files to reference. "
+                    + "Focus on creating an initial project structure. After you create files, "
+                    + "configure build/test commands (the agent can call a tool to set build details).\n"
+                    + "</empty-project-notice>";
+        }
+        
+        messages.add(new UserMessage(finalInstructions));
         return messages;
     }
 }
