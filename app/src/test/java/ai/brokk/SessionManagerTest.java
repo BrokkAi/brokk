@@ -432,4 +432,104 @@ public class SessionManagerTest {
 
         project.close();
     }
+
+    @Test
+    void testNewSessionHasUnknownAiResponseCount() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        var sessionManager = project.getSessionManager();
+
+        SessionInfo sessionInfo = sessionManager.newSession("Test Session");
+
+        assertEquals(SessionInfo.COUNT_UNKNOWN, sessionInfo.aiResponseCount(),
+                "New session should have COUNT_UNKNOWN for aiResponseCount");
+
+        project.close();
+    }
+
+    @Test
+    void testSaveHistoryUpdatesAiResponseCount() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        var sessionManager = project.getSessionManager();
+        SessionInfo sessionInfo = sessionManager.newSession("Test Session");
+        UUID sessionId = sessionInfo.id();
+
+        // Create history with AI responses
+        var initialContext = new Context(mockContextManager);
+        ContextHistory history = new ContextHistory(initialContext);
+
+        // Add a context with AI result (TaskFragment with AI message)
+        var aiMessages = List.<ChatMessage>of(
+                dev.langchain4j.data.message.UserMessage.from("User question"),
+                dev.langchain4j.data.message.AiMessage.from("AI response"));
+        var taskFragment = new ContextFragment.TaskFragment(mockContextManager, aiMessages, "test-task");
+        var aiContext = new Context(mockContextManager).withParsedOutput(taskFragment, "AI completed task");
+        history.pushContext(aiContext);
+
+        // Add another AI response
+        var aiMessages2 = List.<ChatMessage>of(
+                dev.langchain4j.data.message.UserMessage.from("Another question"),
+                dev.langchain4j.data.message.AiMessage.from("Another response"));
+        var taskFragment2 = new ContextFragment.TaskFragment(mockContextManager, aiMessages2, "test-task-2");
+        var aiContext2 = new Context(mockContextManager).withParsedOutput(taskFragment2, "AI completed another task");
+        history.pushContext(aiContext2);
+
+        // Save and wait for async write
+        sessionManager.saveHistory(history, sessionId);
+
+        // Verify count is updated in cache
+        assertEventually(() -> {
+            var sessions = sessionManager.listSessions();
+            var updated = sessions.stream().filter(s -> s.id().equals(sessionId)).findFirst().orElseThrow();
+            assertEquals(2, updated.aiResponseCount(), "aiResponseCount should be 2 after saving history with 2 AI responses");
+        });
+
+        // Wait for async disk write to complete before closing
+        Thread.sleep(500);
+        project.close();
+
+        // Verify persisted to disk by reopening
+        MainProject newProject = new MainProject(tempDir);
+        var newSessionManager = newProject.getSessionManager();
+        var reloadedSessions = newSessionManager.listSessions();
+        var reloadedSession = reloadedSessions.stream().filter(s -> s.id().equals(sessionId)).findFirst().orElseThrow();
+
+        assertEquals(2, reloadedSession.aiResponseCount(),
+                "aiResponseCount should persist after reopening project");
+
+        newProject.close();
+    }
+
+    @Test
+    void testCopySessionPreservesAiResponseCount() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        var sessionManager = project.getSessionManager();
+        SessionInfo originalSession = sessionManager.newSession("Original");
+        UUID originalId = originalSession.id();
+
+        // Create history with 1 AI response and save
+        var initialContext = new Context(mockContextManager);
+        ContextHistory history = new ContextHistory(initialContext);
+        var aiMessages = List.<ChatMessage>of(
+                dev.langchain4j.data.message.UserMessage.from("Question"),
+                dev.langchain4j.data.message.AiMessage.from("Answer"));
+        var taskFragment = new ContextFragment.TaskFragment(mockContextManager, aiMessages, "task");
+        var aiContext = new Context(mockContextManager).withParsedOutput(taskFragment, "Completed");
+        history.pushContext(aiContext);
+        sessionManager.saveHistory(history, originalId);
+
+        // Wait for count to be updated
+        assertEventually(() -> {
+            var sessions = sessionManager.listSessions();
+            var updated = sessions.stream().filter(s -> s.id().equals(originalId)).findFirst().orElseThrow();
+            assertEquals(1, updated.aiResponseCount());
+        });
+
+        // Copy session
+        SessionInfo copiedSession = sessionManager.copySession(originalId, "Copied");
+
+        assertEquals(1, copiedSession.aiResponseCount(),
+                "Copied session should preserve aiResponseCount from original");
+
+        project.close();
+    }
 }
