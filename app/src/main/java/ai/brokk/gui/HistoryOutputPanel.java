@@ -3757,8 +3757,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Kicks off a background load of the AI-response count for the given session. Runs on a platform thread to avoid
-     * blocking the common ForkJoinPool. Safe to call repeatedly; concurrent calls are deduped by sessionCountLoading.
+     * Kicks off a background load of the AI-response count for the given session. Uses a bounded executor to avoid
+     * spawning unbounded threads. Safe to call repeatedly; concurrent calls are deduped by sessionCountLoading.
      */
     private void triggerAiCountLoad(SessionInfo session) {
         final var id = session.id();
@@ -3768,7 +3768,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        Thread.ofPlatform().name("ai-count-" + id).start(() -> {
+        contextManager.getBackgroundTasks().submit(() -> {
             int count = 0;
             try {
                 var sm = contextManager.getProject().getSessionManager();
