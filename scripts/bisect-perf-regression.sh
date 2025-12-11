@@ -9,7 +9,7 @@
 #
 # Options:
 #   --iterations N        Number of iterations per commit (default: 3)
-#   --retries M           Retries per iteration when JSON is not produced (default: 1)
+#   --retries M           Retries per iteration when JSON is not produced and decision retries for midpoint when inconclusive (default: 1)
 #   --runner-args "..."   Arguments to scripts/run-treesitter-repos.sh (must include a command)
 #                         Example: --runner-args "chromium-cpp --max-files 1000 --json"
 #   --workdir DIR         Directory to store artifacts (default: <repo>/perf-bisect-<timestamp>/)
@@ -69,7 +69,7 @@ Usage:
 
 Options:
   --iterations N        Number of iterations per commit (default: ${ITERATIONS})
-  --retries M           Retries per iteration when JSON is not produced (default: ${RETRIES})
+  --retries M           Retries per iteration when JSON is not produced and decision retries for midpoint when inconclusive (default: ${RETRIES})
   --runner-args "..."   Arguments passed to run-treesitter-repos.sh. Must include a command.
                         Example: --runner-args "chromium-cpp --max-files 1000 --json"
   --workdir DIR         Directory to store artifacts (default: <repo>/perf-bisect-<timestamp>/)
@@ -402,57 +402,109 @@ main() {
     exit 2
   fi
 
-  # Bisect loop
-  local current_good_sha="${good_sha}"
-  local current_bad_sha="${bad_sha}"
-  local current_good_dir="${good_dir}"
-  local current_bad_dir="${bad_dir}"
+  # Bisect loop using linear ancestry path (--reverse) and midpoint retries on inconclusive results.
+  # Build the ancestry path from GOOD..BAD, oldest->newest, and include GOOD at the start.
+  local -a PATH_COMMITS
+  mapfile -t PATH_COMMITS < <(git -C "${REPO_ROOT}" rev-list --ancestry-path "${good_sha}..${bad_sha}" --reverse)
+  PATH_COMMITS=( "${good_sha}" "${PATH_COMMITS[@]}" )
+  local n="${#PATH_COMMITS[@]}"
+  if [[ "${n}" -lt 2 ]]; then
+    echo -e "${RED}Unexpected ancestry path length: ${n}${NC}" >&2
+    exit 1
+  fi
 
-  while true; do
-    local mid
-    mid="$(midpoint_on_path "${current_good_sha}" "${current_bad_sha}")"
-    if [[ -z "${mid}" ]]; then
-      # Adjacent; current_bad_sha is first bad
-      echo -e "${GREEN}First bad commit identified: ${current_bad_sha} ($(git -C "${REPO_ROOT}" rev-parse --short "${current_bad_sha}"))${NC}"
-      echo "${current_bad_sha}" > "${WORKDIR}/first-bad-commit.txt"
+  # Cache result directories and short SHAs for tested commits.
+  declare -A DIRS
+  declare -A SHORTS
+  DIRS["${good_sha}"]="${good_dir}"
+  DIRS["${bad_sha}"]="${bad_dir}"
+  SHORTS["${good_sha}"]="${good_sha_short}"
+  SHORTS["${bad_sha}"]="${bad_sha_short}"
 
-      # Produce a final markdown summary
-      local report_md="${WORKDIR}/final-report.md"
-      BASE_SHA_SHORT="$(git -C "${REPO_ROOT}" rev-parse --short "${current_good_sha}")" \
-      HEAD_SHA_SHORT="$(git -C "${REPO_ROOT}" rev-parse --short "${current_bad_sha}")" \
-        python3 "${COMPARE_SCRIPT}" --format markdown "${current_good_dir}" "${current_bad_dir}" > "${report_md}" || true
-      echo -e "${BLUE}Summary written to: ${report_md}${NC}"
-      echo -e "${BLUE}Artifacts kept at: ${WORKDIR}${NC}"
-      break
+  local lo=0
+  local hi=$(( n - 1 ))
+
+  while (( hi - lo > 1 )); do
+    local mid_index=$(( (lo + hi) / 2 ))
+    local mid_sha="${PATH_COMMITS[$mid_index]}"
+    local lo_sha="${PATH_COMMITS[$lo]}"
+    local hi_sha="${PATH_COMMITS[$hi]}"
+
+    if [[ -z "${SHORTS[${mid_sha}]:-}" ]]; then
+      SHORTS["${mid_sha}"]="$(git -C "${REPO_ROOT}" rev-parse --short "${mid_sha}")"
+    fi
+    local mid_short="${SHORTS[${mid_sha}]}"
+    local lo_short="${SHORTS[${lo_sha}]}"
+    local hi_short="${SHORTS[${hi_sha}]}"
+
+    echo -e "${GREEN}Testing midpoint ${mid_sha} (${mid_short}) between ${lo_short}..${hi_short}${NC}"
+
+    # Ensure results exist for midpoint
+    local mid_dir="${DIRS[${mid_sha}]:-}"
+    if [[ -z "${mid_dir}" ]] || [[ ! -d "${mid_dir}" ]]; then
+      if ! mid_dir="$(run_commit "${mid_sha}")"; then
+        echo -e "${YELLOW}Failed to run ${mid_short}; treating as inconclusive and retrying if allowed...${NC}" >&2
+        mid_dir=""
+      fi
+      if [[ -n "${mid_dir}" ]]; then
+        DIRS["${mid_sha}"]="${mid_dir}"
+      fi
     fi
 
-    local mid_short
-    mid_short="$(git -C "${REPO_ROOT}" rev-parse --short "${mid}")"
-    echo -e "${GREEN}Testing midpoint ${mid} (${mid_short})${NC}"
-
-    local mid_dir
-    if ! mid_dir="$(run_commit "${mid}")"; then
-      echo -e "${YELLOW}Failed to get results for ${mid_short}; treating as inconclusive and continuing...${NC}" >&2
-      # Treat inconclusive as non-regression to continue search
-      current_good_sha="${mid}"
-      current_good_dir="${mid_dir}"
-      continue
+    # Compare GOOD (lo) vs MID
+    local status="unknown"
+    if [[ -n "${DIRS[${lo_sha}]:-}" ]] && [[ -n "${DIRS[${mid_sha}]:-}" ]]; then
+      status="$(compare_dirs_status "${DIRS[${lo_sha}]}" "${DIRS[${mid_sha}]}" "${lo_short}" "${mid_short}")"
     fi
 
-    local status
-    status="$(compare_dirs_status "${current_good_dir}" "${mid_dir}" "$(git -C "${REPO_ROOT}" rev-parse --short "${current_good_sha}")" "${mid_short}")"
+    # If not a regression, retry up to --retries times by re-running midpoint to replace JSON runs.
+    if [[ "${status}" != "regression" ]]; then
+      local attempt=1
+      while (( attempt <= RETRIES )); do
+        echo -e "${YELLOW}Inconclusive midpoint result (${status}) for ${mid_short}; retry ${attempt}/${RETRIES}...${NC}"
+        if mid_dir="$(run_commit "${mid_sha}")"; then
+          DIRS["${mid_sha}"]="${mid_dir}"
+          status="$(compare_dirs_status "${DIRS[${lo_sha}]}" "${DIRS[${mid_sha}]}" "${lo_short}" "${mid_short}")"
+          if [[ "${status}" == "regression" ]]; then
+            break
+          fi
+        else
+          echo -e "${YELLOW}Midpoint rerun failed for ${mid_short}.${NC}" >&2
+        fi
+        attempt=$((attempt + 1))
+      done
+    fi
+
     if [[ "${status}" == "regression" ]]; then
-      # mid is bad
-      current_bad_sha="${mid}"
-      current_bad_dir="${mid_dir}"
+      # Midpoint behaves like BAD -> narrow upper bound
+      hi="${mid_index}"
       echo -e "${RED}${mid_short} classified as BAD (regression).${NC}"
     else
-      # mid is good
-      current_good_sha="${mid}"
-      current_good_dir="${mid_dir}"
+      # Midpoint behaves like GOOD (or still inconclusive after retries) -> advance lower bound
+      lo="${mid_index}"
       echo -e "${GREEN}${mid_short} classified as GOOD.${NC}"
     fi
   done
+
+  local first_bad_sha="${PATH_COMMITS[$hi]}"
+  local first_bad_short="$(git -C "${REPO_ROOT}" rev-parse --short "${first_bad_sha}")"
+  echo -e "${GREEN}First bad commit identified: ${first_bad_sha} (${first_bad_short})${NC}"
+  echo "${first_bad_sha}" > "${WORKDIR}/first-bad-commit.txt"
+
+  # Produce a final markdown summary using current GOOD (lo) and BAD (hi)
+  local final_good_sha="${PATH_COMMITS[$lo]}"
+  local final_bad_sha="${PATH_COMMITS[$hi]}"
+  local final_good_short="$(git -C "${REPO_ROOT}" rev-parse --short "${final_good_sha}")"
+  local final_bad_short="$(git -C "${REPO_ROOT}" rev-parse --short "${final_bad_sha}")"
+  local final_good_dir="${DIRS[${final_good_sha}]}"
+  local final_bad_dir="${DIRS[${final_bad_sha}]}"
+
+  local report_md="${WORKDIR}/final-report.md"
+  BASE_SHA_SHORT="${final_good_short}" \
+  HEAD_SHA_SHORT="${final_bad_short}" \
+    python3 "${COMPARE_SCRIPT}" --format markdown "${final_good_dir}" "${final_bad_dir}" > "${report_md}" || true
+  echo -e "${BLUE}Summary written to: ${report_md}${NC}"
+  echo -e "${BLUE}Artifacts kept at: ${WORKDIR}${NC}"
 }
 
 main "$@"
