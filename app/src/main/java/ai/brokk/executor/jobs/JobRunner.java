@@ -2,17 +2,24 @@ package ai.brokk.executor.jobs;
 
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
+import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ViewingPolicy;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.gui.util.GitRepoIdUtil;
+import ai.brokk.prompts.CodePrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Json;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.base.Splitter;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -340,13 +347,15 @@ public final class JobRunner {
                                             }
                                         }
                                         case ASK -> {
-                                            // Read-only execution via SearchAgent with ANSWER_ONLY objective.
-                                            // Use 'plannerModel' for reasoning and, if requested, use an explicit
-                                            // 'scanModel' only for the prescan step (fallback to project default).
+                                            // Read-only ASK execution: perform optional pre-scan (Context Agent)
+                                            // then generate a single, final written answer using the plannerModel
+                                            // and the current Workspace. Do NOT invoke SearchAgent.execute() or
+                                            // any tools that could modify the workspace. Append the answer to the
+                                            // task scope and continue.
                                             try (var scope = cm.beginTask(task.text(), false)) {
                                                 var context = cm.liveContext();
 
-                                                // Construct SearchAgent with the planner model (required for ASK)
+                                                // Construct SearchAgent only for potential pre-scan usage (no execute).
                                                 var searchAgent = new SearchAgent(
                                                         context,
                                                         task.text(),
@@ -355,7 +364,7 @@ public final class JobRunner {
                                                         SearchAgent.Objective.ANSWER_ONLY,
                                                         scope);
 
-                                                // Optional pre-scan: resolve scan model the same way SEARCH mode does.
+                                                // Optional pre-scan: resolve scan model similarly to SEARCH mode.
                                                 if (spec.preScan()) {
                                                     String rawScanModel = spec.scanModel();
                                                     String trimmedScanModel =
@@ -439,9 +448,8 @@ public final class JobRunner {
                                                     }
 
                                                     // Emit deterministic completion NOTIFICATION so headless
-                                                    // clients/tests
-                                                    // can reliably observe that the Context Engine pre-scan phase
-                                                    // finished.
+                                                    // clients/tests can reliably observe that the Context Engine
+                                                    // pre-scan phase finished.
                                                     try {
                                                         store.appendEvent(
                                                                 jobId,
@@ -457,9 +465,67 @@ public final class JobRunner {
                                                     }
                                                 }
 
-                                                // Execute ASK reasoning using the planner model (unchanged).
-                                                var result = searchAgent.execute();
-                                                scope.append(result);
+                                                // Build a single-shot prompt using the current Workspace and
+                                                // ask the planner model to produce a final written answer.
+                                                try {
+                                                    // Create an LLM instance for the planner model and route output
+                                                    Llm llm = cm.getLlm(askPlannerModel, "ASK: " + task.text());
+                                                    llm.setOutput(cm.getIo());
+
+                                                    // Prepare workspace messages (no task list visibility for ASK)
+                                                    var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, false);
+                                                    List<ChatMessage> workspaceMessages =
+                                                            new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(
+                                                                    context, viewingPolicy));
+
+                                                    List<ChatMessage> messagesForLlm = new ArrayList<>();
+                                                    // System-level instruction: answer using only the Workspace
+                                                    messagesForLlm.add(new SystemMessage(
+                                                            "You are an assistant answering a question using only the provided Workspace context. " +
+                                                                    "Do not search external sources, do not modify files, and do not suggest edits. " +
+                                                                    "Provide a concise, clear, and complete answer."));
+
+                                                    // Include the Workspace contents
+                                                    messagesForLlm.addAll(workspaceMessages);
+
+                                                    // Add the user question
+                                                    messagesForLlm.add(new UserMessage(task.text()));
+
+                                                    // Make the call (single-shot)
+                                                    Llm.StreamingResult sr = llm.sendRequest(messagesForLlm);
+
+                                                    if (sr.error() != null) {
+                                                        // Append an error-like TaskResult but do not perform writes.
+                                                        var stopDetails = TaskResult.StopDetails.fromResponse(sr);
+                                                        var errFrag = new ContextFragment.StringFragment(
+                                                                cm,
+                                                                "LLM error during ASK: " + stopDetails.explanation(),
+                                                                "LLM Error",
+                                                                "text/plain");
+                                                        var errTaskResult = new TaskResult(
+                                                                "ASK: " + task.text() + " [LLM_ERROR]",
+                                                                null,
+                                                                context,
+                                                                stopDetails,
+                                                                null);
+                                                        scope.append(errTaskResult);
+                                                    } else {
+                                                        // Compose UI messages: user prompt + assistant reply
+                                                        List<ChatMessage> finalUiMessages = List.of(
+                                                                new UserMessage(task.text()),
+                                                                sr.aiMessage());
+                                                        var humanResult = TaskResult.humanResult(
+                                                                cm,
+                                                                "ASK: " + task.text(),
+                                                                finalUiMessages,
+                                                                context,
+                                                                TaskResult.StopReason.SUCCESS);
+                                                        scope.append(humanResult);
+                                                    }
+                                                } catch (RuntimeException rte) {
+                                                    logger.warn("ASK direct-answer failed for job {}: {}", jobId, rte.getMessage(), rte);
+                                                    throw rte;
+                                                }
                                             }
                                         }
                                         case SEARCH -> {
