@@ -136,24 +136,23 @@ public final class DiffService {
      */
     @Blocking
     public static List<Context.DiffEntry> computeDiff(Context curr, Context other) {
-            // Candidates:
-            // - Project text files that are editable (preserves read-only exclusion).
-            // - Git file fragments.
-            // - Image fragments (non-text), including pasted images and image files.
-            var projectPathEditable =
-                    curr.getEditableFragments().filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH);
-            var gitFileFragments =
-                    curr.allFragments().filter(f -> f.getType() == ContextFragment.FragmentType.GIT_FILE);
-            var imageFragments = curr.allFragments().filter(f -> !f.isText());
+        // Candidates:
+        // - Project text files that are editable (preserves read-only exclusion).
+        // - Git file fragments.
+        // - Image fragments (non-text), including pasted images and image files.
+        var projectPathEditable =
+                curr.getEditableFragments().filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH);
+        var gitFileFragments = curr.allFragments().filter(f -> f.getType() == ContextFragment.FragmentType.GIT_FILE);
+        var imageFragments = curr.allFragments().filter(f -> !f.isText());
 
-            var diffFutures = Stream.concat(Stream.concat(projectPathEditable, gitFileFragments), imageFragments)
-                    .map(cf -> computeDiffForFragment(curr, cf, other))
-                    .toList();
+        var diffFutures = Stream.concat(Stream.concat(projectPathEditable, gitFileFragments), imageFragments)
+                .map(cf -> computeDiffForFragment(curr, cf, other))
+                .toList();
 
-            return diffFutures.stream()
-                    .map(CompletableFuture::join)
-                    .filter(Objects::nonNull)
-                    .toList();
+        return diffFutures.stream()
+                .map(CompletableFuture::join)
+                .filter(Objects::nonNull)
+                .toList();
     }
 
     /**
@@ -299,14 +298,14 @@ public final class DiffService {
                     fragment.shortDescription().renderNowOr(fragment.toString()),
                     isNew ? "new" : "old",
                     e.getMessage());
-            return CompletableFuture.completedFuture("");
+            return CompletableFuture.failedFuture(e);
         } catch (java.util.concurrent.CancellationException e) {
             logger.warn(
                     "Computation cancelled for {} fragment '{}': {}",
                     fragment.getClass().getSimpleName(),
                     fragment.shortDescription().renderNowOr(fragment.toString()),
                     e.getMessage());
-            return CompletableFuture.completedFuture("");
+            return CompletableFuture.failedFuture(e);
         } catch (Exception e) {
             logger.error(
                     "Unexpected error extracting content for {} fragment '{}': {}",
@@ -314,7 +313,7 @@ public final class DiffService {
                     fragment.shortDescription().renderNowOr(fragment.toString()),
                     e.getMessage(),
                     e);
-            return CompletableFuture.completedFuture("");
+            return CompletableFuture.failedFuture(e);
         }
     }
 
@@ -323,36 +322,36 @@ public final class DiffService {
      */
     private static @Nullable Context.DiffEntry computeImageDiffEntry(
             ContextFragment thisFragment, ContextFragment otherFragment) {
-            // Prefer frozen bytes (snapshot), fall back to computed image bytes
-            byte[] oldImageBytes = null;
-            var oldImageBytesCv = otherFragment.imageBytes();
-            if (oldImageBytesCv != null) {
-                oldImageBytes = oldImageBytesCv.join();
-            }
+        // Prefer frozen bytes (snapshot), fall back to computed image bytes
+        byte[] oldImageBytes = null;
+        var oldImageBytesCv = otherFragment.imageBytes();
+        if (oldImageBytesCv != null) {
+            oldImageBytes = oldImageBytesCv.join();
+        }
 
-            byte[] newImageBytes = null;
-            var newImageBytesCv = thisFragment.imageBytes();
-            if (newImageBytesCv != null) {
-                newImageBytes = newImageBytesCv.join();
-            }
+        byte[] newImageBytes = null;
+        var newImageBytesCv = thisFragment.imageBytes();
+        if (newImageBytesCv != null) {
+            newImageBytes = newImageBytesCv.join();
+        }
 
-            // If both sides are missing bytes, we cannot compare — omit diff.
-            if (oldImageBytes == null && newImageBytes == null) {
-                return null;
-            }
+        // If both sides are missing bytes, we cannot compare — omit diff.
+        if (oldImageBytes == null && newImageBytes == null) {
+            return null;
+        }
 
-            // If one side has bytes and the other does not, treat as changed.
-            if ((oldImageBytes == null) != (newImageBytes == null)) {
-                String diff = "[Image changed]";
-                return new Context.DiffEntry(thisFragment, diff, 1, 1, "[image]", "[image]");
-            }
-
-            boolean imagesEqual = Arrays.equals(oldImageBytes, newImageBytes);
-            if (imagesEqual) {
-                return null;
-            }
+        // If one side has bytes and the other does not, treat as changed.
+        if ((oldImageBytes == null) != (newImageBytes == null)) {
             String diff = "[Image changed]";
             return new Context.DiffEntry(thisFragment, diff, 1, 1, "[image]", "[image]");
+        }
+
+        boolean imagesEqual = Arrays.equals(oldImageBytes, newImageBytes);
+        if (imagesEqual) {
+            return null;
+        }
+        String diff = "[Image changed]";
+        return new Context.DiffEntry(thisFragment, diff, 1, 1, "[image]", "[image]");
     }
 
     /**
