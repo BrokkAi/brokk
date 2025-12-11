@@ -5,6 +5,7 @@ import Mop from './MOP.svelte';
 import {bubblesStore, onBrokkEvent, reparseAll, setLiveTaskInProgress, getCurrentLiveThreadId} from './stores/bubblesStore';
 import {onHistoryEvent} from './stores/historyStore';
 import {spinnerStore} from './stores/spinnerStore';
+import {transientStore} from './stores/transientStore';
 import {themeStore} from './stores/themeStore';
 import { threadStore } from './stores/threadStore';
 import {createSearchController, type SearchController} from './search/search';
@@ -64,7 +65,15 @@ function setupBrokkInterface(): any[] {
         showSpinner: showSpinnerMessage,
         hideSpinner: hideSpinnerMessage,
         // Task progress API
-        setTaskInProgress: (inProgress: boolean) => setLiveTaskInProgress(inProgress),
+        setTaskInProgress: (inProgress: boolean) => {
+            if (!inProgress) {
+                transientStore.hide();
+            }
+            setLiveTaskInProgress(inProgress);
+        },
+        // Transient message API
+        showTransientMessage: (msg: string) => transientStore.show(msg),
+        hideTransientMessage: () => transientStore.hide(),
 
         // Search API
         setSearch: (query: string, caseSensitive: boolean) => searchCtrl?.setQuery(query, caseSensitive),
