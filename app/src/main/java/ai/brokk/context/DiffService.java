@@ -7,6 +7,7 @@ import ai.brokk.util.ContentDiffUtils;
 import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -299,13 +300,15 @@ public final class DiffService {
                     isNew ? "new" : "old",
                     e.getMessage());
             return CompletableFuture.failedFuture(e);
-        } catch (java.util.concurrent.CancellationException e) {
+        } catch (CancellationException e) {
             logger.warn(
                     "Computation cancelled for {} fragment '{}': {}",
                     fragment.getClass().getSimpleName(),
                     fragment.shortDescription().renderNowOr(fragment.toString()),
                     e.getMessage());
-            return CompletableFuture.failedFuture(e);
+            CompletableFuture<String> cancelledFuture = CompletableFuture.failedFuture(e);
+            cancelledFuture.cancel(false);
+            return cancelledFuture;
         } catch (Exception e) {
             logger.error(
                     "Unexpected error extracting content for {} fragment '{}': {}",
