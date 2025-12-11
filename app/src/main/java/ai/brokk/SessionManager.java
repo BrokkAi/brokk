@@ -50,11 +50,12 @@ public class SessionManager implements AutoCloseable {
 
         /** Backward-compatible constructor for JSON deserialization of old sessions without aiResponseCount. */
         @JsonCreator
-        public SessionInfo(@JsonProperty("id") UUID id,
-                           @JsonProperty("name") String name,
-                           @JsonProperty("created") long created,
-                           @JsonProperty("modified") long modified,
-                           @JsonProperty("aiResponseCount") @Nullable Integer aiResponseCount) {
+        public SessionInfo(
+                @JsonProperty("id") UUID id,
+                @JsonProperty("name") String name,
+                @JsonProperty("created") long created,
+                @JsonProperty("modified") long modified,
+                @JsonProperty("aiResponseCount") @Nullable Integer aiResponseCount) {
             this(id, name, created, modified, aiResponseCount != null ? aiResponseCount : COUNT_UNKNOWN);
         }
 
@@ -168,8 +169,8 @@ public class SessionManager implements AutoCloseable {
     public void renameSession(UUID sessionId, String newName) {
         SessionInfo oldInfo = sessionsCache.get(sessionId);
         if (oldInfo != null) {
-            var updatedInfo = new SessionInfo(oldInfo.id(), newName, oldInfo.created(), System.currentTimeMillis(),
-                                             oldInfo.aiResponseCount());
+            var updatedInfo = new SessionInfo(
+                    oldInfo.id(), newName, oldInfo.created(), System.currentTimeMillis(), oldInfo.aiResponseCount());
             sessionsCache.put(sessionId, updatedInfo);
             sessionExecutorByKey.submit(sessionId.toString(), () -> {
                 try {
@@ -302,8 +303,8 @@ public class SessionManager implements AutoCloseable {
                 var loadedInfo = sessionsCache.get(sessionId);
                 if (loadedInfo != null && loadedInfo.needsCountMigration()) {
                     int count = countAiResponses(history);
-                    var updated = new SessionInfo(loadedInfo.id(), loadedInfo.name(),
-                                                  loadedInfo.created(), loadedInfo.modified(), count);
+                    var updated = new SessionInfo(
+                            loadedInfo.id(), loadedInfo.name(), loadedInfo.created(), loadedInfo.modified(), count);
                     sessionsCache.put(sessionId, updated);
                     try {
                         writeSessionInfoToZip(getSessionHistoryPath(sessionId), updated);
@@ -480,8 +481,8 @@ public class SessionManager implements AutoCloseable {
         if (currentInfo != null) {
             if (!isSessionEmpty(currentInfo, contextHistory)) {
                 int count = countAiResponses(contextHistory);
-                infoToSave = new SessionInfo(currentInfo.id(), currentInfo.name(), currentInfo.created(),
-                                            System.currentTimeMillis(), count);
+                infoToSave = new SessionInfo(
+                        currentInfo.id(), currentInfo.name(), currentInfo.created(), System.currentTimeMillis(), count);
                 sessionsCache.put(sessionId, infoToSave); // Update cache before async task
             } // else, session info is not modified, we are just adding an empty initial context (e.g. welcome message)
             // to the session

@@ -4,16 +4,16 @@ import static ai.brokk.SessionManager.SessionInfo;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.project.AbstractProject;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.Messages;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import dev.langchain4j.data.message.ChatMessage;
 import java.awt.Graphics2D;
 import java.awt.Image;
@@ -442,7 +442,9 @@ public class SessionManagerTest {
 
         SessionInfo sessionInfo = sessionManager.newSession("Test Session");
 
-        assertEquals(SessionInfo.COUNT_UNKNOWN, sessionInfo.aiResponseCount(),
+        assertEquals(
+                SessionInfo.COUNT_UNKNOWN,
+                sessionInfo.aiResponseCount(),
                 "New session should have COUNT_UNKNOWN for aiResponseCount");
 
         project.close();
@@ -481,8 +483,14 @@ public class SessionManagerTest {
         // Verify count is updated in cache
         assertEventually(() -> {
             var sessions = sessionManager.listSessions();
-            var updated = sessions.stream().filter(s -> s.id().equals(sessionId)).findFirst().orElseThrow();
-            assertEquals(2, updated.aiResponseCount(), "aiResponseCount should be 2 after saving history with 2 AI responses");
+            var updated = sessions.stream()
+                    .filter(s -> s.id().equals(sessionId))
+                    .findFirst()
+                    .orElseThrow();
+            assertEquals(
+                    2,
+                    updated.aiResponseCount(),
+                    "aiResponseCount should be 2 after saving history with 2 AI responses");
         });
 
         // Wait for async disk write to complete before closing
@@ -493,10 +501,12 @@ public class SessionManagerTest {
         MainProject newProject = new MainProject(tempDir);
         var newSessionManager = newProject.getSessionManager();
         var reloadedSessions = newSessionManager.listSessions();
-        var reloadedSession = reloadedSessions.stream().filter(s -> s.id().equals(sessionId)).findFirst().orElseThrow();
+        var reloadedSession = reloadedSessions.stream()
+                .filter(s -> s.id().equals(sessionId))
+                .findFirst()
+                .orElseThrow();
 
-        assertEquals(2, reloadedSession.aiResponseCount(),
-                "aiResponseCount should persist after reopening project");
+        assertEquals(2, reloadedSession.aiResponseCount(), "aiResponseCount should persist after reopening project");
 
         newProject.close();
     }
@@ -522,15 +532,18 @@ public class SessionManagerTest {
         // Wait for count to be updated
         assertEventually(() -> {
             var sessions = sessionManager.listSessions();
-            var updated = sessions.stream().filter(s -> s.id().equals(originalId)).findFirst().orElseThrow();
+            var updated = sessions.stream()
+                    .filter(s -> s.id().equals(originalId))
+                    .findFirst()
+                    .orElseThrow();
             assertEquals(1, updated.aiResponseCount());
         });
 
         // Copy session
         SessionInfo copiedSession = sessionManager.copySession(originalId, "Copied");
 
-        assertEquals(1, copiedSession.aiResponseCount(),
-                "Copied session should preserve aiResponseCount from original");
+        assertEquals(
+                1, copiedSession.aiResponseCount(), "Copied session should preserve aiResponseCount from original");
 
         project.close();
     }
@@ -540,7 +553,8 @@ public class SessionManagerTest {
     @Test
     void testSessionInfoDeserializationWithoutAiResponseCount() throws JsonProcessingException {
         // Old JSON format without aiResponseCount field
-        String oldJson = """
+        String oldJson =
+                """
             {"id":"550e8400-e29b-41d4-a716-446655440000","name":"Old Session","created":1000,"modified":2000}
             """;
 
@@ -550,14 +564,17 @@ public class SessionManagerTest {
         assertEquals("Old Session", info.name());
         assertEquals(1000L, info.created());
         assertEquals(2000L, info.modified());
-        assertEquals(SessionInfo.COUNT_UNKNOWN, info.aiResponseCount(),
+        assertEquals(
+                SessionInfo.COUNT_UNKNOWN,
+                info.aiResponseCount(),
                 "Missing aiResponseCount should deserialize to COUNT_UNKNOWN (-1)");
     }
 
     @Test
     void testSessionInfoDeserializationWithAiResponseCount() throws JsonProcessingException {
         // New JSON format with aiResponseCount field
-        String newJson = """
+        String newJson =
+                """
             {"id":"550e8400-e29b-41d4-a716-446655440000","name":"New Session","created":1000,"modified":2000,"aiResponseCount":42}
             """;
 
@@ -567,19 +584,14 @@ public class SessionManagerTest {
         assertEquals("New Session", info.name());
         assertEquals(1000L, info.created());
         assertEquals(2000L, info.modified());
-        assertEquals(42, info.aiResponseCount(),
-                "aiResponseCount should preserve exact value from JSON");
+        assertEquals(42, info.aiResponseCount(), "aiResponseCount should preserve exact value from JSON");
     }
 
     @Test
     void testSessionInfoRoundTrip() throws JsonProcessingException {
         // Create a SessionInfo with all fields
         var original = new SessionInfo(
-                UUID.fromString("550e8400-e29b-41d4-a716-446655440000"),
-                "Round Trip Session",
-                1000L,
-                2000L,
-                17);
+                UUID.fromString("550e8400-e29b-41d4-a716-446655440000"), "Round Trip Session", 1000L, 2000L, 17);
 
         // Serialize to JSON
         String json = AbstractProject.objectMapper.writeValueAsString(original);
@@ -592,33 +604,38 @@ public class SessionManagerTest {
         assertEquals(original.name(), restored.name(), "name should be preserved in round-trip");
         assertEquals(original.created(), restored.created(), "created should be preserved in round-trip");
         assertEquals(original.modified(), restored.modified(), "modified should be preserved in round-trip");
-        assertEquals(original.aiResponseCount(), restored.aiResponseCount(),
+        assertEquals(
+                original.aiResponseCount(),
+                restored.aiResponseCount(),
                 "aiResponseCount should be preserved in round-trip");
     }
 
     @Test
     void testSessionInfoDeserializationWithExplicitNull() throws JsonProcessingException {
         // JSON with explicit null for aiResponseCount
-        String jsonWithNull = """
+        String jsonWithNull =
+                """
             {"id":"550e8400-e29b-41d4-a716-446655440000","name":"Null Count","created":1000,"modified":2000,"aiResponseCount":null}
             """;
 
         SessionInfo info = AbstractProject.objectMapper.readValue(jsonWithNull, SessionInfo.class);
 
-        assertEquals(SessionInfo.COUNT_UNKNOWN, info.aiResponseCount(),
+        assertEquals(
+                SessionInfo.COUNT_UNKNOWN,
+                info.aiResponseCount(),
                 "Explicit null aiResponseCount should deserialize to COUNT_UNKNOWN (-1)");
     }
 
     @Test
     void testSessionInfoDeserializationWithZeroCount() throws JsonProcessingException {
         // JSON with zero count (edge case - valid count value)
-        String jsonWithZero = """
+        String jsonWithZero =
+                """
             {"id":"550e8400-e29b-41d4-a716-446655440000","name":"Zero Count","created":1000,"modified":2000,"aiResponseCount":0}
             """;
 
         SessionInfo info = AbstractProject.objectMapper.readValue(jsonWithZero, SessionInfo.class);
 
-        assertEquals(0, info.aiResponseCount(),
-                "aiResponseCount of 0 should be preserved (not confused with missing)");
+        assertEquals(0, info.aiResponseCount(), "aiResponseCount of 0 should be preserved (not confused with missing)");
     }
 }
