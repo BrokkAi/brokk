@@ -275,6 +275,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             sessions.sort(Comparator.comparingLong(SessionInfo::modified).reversed());
             for (var s : sessions) model.addElement(s);
 
+            // Trigger batch loading of AI response counts
+            triggerAiCountLoadBatch(sessions);
+
             var list = new JList<SessionInfo>(model);
             list.setVisibleRowCount(Math.min(8, Math.max(3, model.getSize())));
             list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -3756,36 +3759,46 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return GitDiffUiUtil.formatRelativeDate(instant, LocalDate.now(ZoneId.systemDefault()));
     }
 
+    private static final int AI_COUNT_BATCH_SIZE = 20;
+
     /**
-     * Kicks off a background load of the AI-response count for the given session. Uses a bounded executor to avoid
-     * spawning unbounded threads. Safe to call repeatedly; concurrent calls are deduped by sessionCountLoading.
+     * Kicks off background loads of AI-response counts for sessions in batches.
+     * Each batch processes up to AI_COUNT_BATCH_SIZE sessions sequentially to avoid
+     * starving the executor with too many concurrent tasks.
      */
-    private void triggerAiCountLoad(SessionInfo session) {
-        final var id = session.id();
+    private void triggerAiCountLoadBatch(List<SessionInfo> sessions) {
+        // Filter to sessions that need loading, using sessionCountLoading for deduplication
+        var toLoad = sessions.stream()
+                .filter(s -> !sessionAiResponseCounts.containsKey(s.id()))
+                .filter(s -> sessionCountLoading.add(s.id()))
+                .toList();
 
-        // Fast-path dedupe: if we already have a value or a load is in-flight, bail.
-        if (sessionAiResponseCounts.containsKey(id) || !sessionCountLoading.add(id)) {
-            return;
-        }
+        if (toLoad.isEmpty()) return;
 
-        contextManager.getBackgroundTasks().submit(() -> {
-            int count = 0;
-            try {
+        // Partition into batches and submit one task per batch
+        for (int i = 0; i < toLoad.size(); i += AI_COUNT_BATCH_SIZE) {
+            var batch = toLoad.subList(i, Math.min(i + AI_COUNT_BATCH_SIZE, toLoad.size()));
+            contextManager.getBackgroundTasks().submit(() -> {
                 var sm = contextManager.getProject().getSessionManager();
-                count = sm.countAiResponses(id);
-            } catch (Throwable t) {
-                logger.warn("Failed to count AI responses for session {}", id, t);
-            } finally {
-                sessionAiResponseCounts.put(id, count);
-                sessionCountLoading.remove(id);
-                // Only repaint the scrollable sessionsList when visible; avoid repainting the old label/combo-box.
+                for (var session : batch) {
+                    var id = session.id();
+                    int count = 0;
+                    try {
+                        count = sm.countAiResponses(id);
+                    } catch (Throwable t) {
+                        logger.warn("Failed to count AI responses for session {}", id, t);
+                    }
+                    sessionAiResponseCounts.put(id, count);
+                    sessionCountLoading.remove(id);
+                }
+                // Repaint once after batch completes
                 SwingUtilities.invokeLater(() -> {
                     if (sessionsList != null) {
                         sessionsList.repaint();
                     }
                 });
-            }
-        });
+            });
+        }
     }
 
     /**
@@ -3929,9 +3942,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
             var cnt = sessionAiResponseCounts.get(value.id());
             countLabel.setText(cnt != null ? String.format("%d %s", cnt, cnt == 1 ? "task" : "tasks") : "");
-            if (cnt == null) {
-                triggerAiCountLoad(value);
-            }
 
             var bg = isSelected ? list.getSelectionBackground() : list.getBackground();
             var fg = isSelected ? list.getSelectionForeground() : list.getForeground();
