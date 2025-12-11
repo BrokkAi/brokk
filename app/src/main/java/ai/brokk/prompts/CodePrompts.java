@@ -1129,12 +1129,12 @@ public abstract class CodePrompts {
 
         // Line edits
         rows.add("| " + priority++
-                         + " | Line-based | Default choice for localized edits and adding new code to existing files |");
+                + " | Line-based | Default choice for localized edits and adding new code to existing files |");
 
         // syntax-based (same priority)
         if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
             rows.add("| " + priority
-                             + " | `BRK_FUNCTION` | Replacing a complete, non-overloaded method (signature + body) |");
+                    + " | `BRK_FUNCTION` | Replacing a complete, non-overloaded method (signature + body) |");
             rows.add("| " + priority + " | `BRK_CLASS` | Replacing the entire body of a class-like declaration |");
             priority++;
         }

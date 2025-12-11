@@ -389,7 +389,9 @@ public class SearchAgent {
                                 taskMeta());
                     } else if (termReq.name().equals("callCodeAgent")) {
                         if (codeAgentJustSucceeded) {
-                            return createResult(termReq.name(), goal);
+                            // code agent already appended output to history, empty messages are skipped by scope.append
+                            return TaskResult.humanResult(
+                                    cm, "CodeAgent finished", List.of(), context, TaskResult.StopReason.SUCCESS);
                         }
                         // If CodeAgent did not succeed, continue planning/search loop
                     } else {
