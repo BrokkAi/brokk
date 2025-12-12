@@ -252,23 +252,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         final BufferSource leftSource;
         final BufferSource rightSource;
 
-        @Nullable
-        BufferDiffPanel sideBySidePanel; // Side-by-side view panel
-
-        @Nullable
-        UnifiedDiffPanel unifiedPanel; // Unified view panel
-
         FileComparisonInfo(BufferSource leftSource, BufferSource rightSource) {
             this.leftSource = leftSource;
             this.rightSource = rightSource;
-            this.sideBySidePanel = null; // Initialize @Nullable fields
-            this.unifiedPanel = null;
-        }
-
-        // Legacy method to maintain compatibility
-        @Nullable
-        BufferDiffPanel getDiffPanel() {
-            return sideBySidePanel;
         }
 
         String getDisplayName() {
