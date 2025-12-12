@@ -2,7 +2,6 @@ package ai.brokk.gui.dialogs;
 
 import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
-import ai.brokk.context.Context;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
@@ -19,7 +18,6 @@ import ai.brokk.gui.components.MaterialLoadingButton;
 import ai.brokk.gui.git.GitCommitBrowserPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.widgets.FileStatusTable;
-import ai.brokk.util.ContentDiffUtils;
 import java.awt.*;
 import java.awt.event.ActionListener;
 import java.util.ArrayList;
