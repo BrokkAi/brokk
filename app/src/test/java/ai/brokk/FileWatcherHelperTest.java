@@ -23,7 +23,7 @@ class FileWatcherHelperTest {
         // Use toAbsolutePath() to ensure paths are absolute on all platforms (Windows needs drive letter)
         projectRoot = Path.of("/test/project").toAbsolutePath();
         gitRepoRoot = Path.of("/test/project").toAbsolutePath();
-        helper = new FileWatcherHelper(projectRoot, gitRepoRoot);
+        helper = new FileWatcherHelper(gitRepoRoot);
     }
 
     @Test
@@ -44,7 +44,7 @@ class FileWatcherHelperTest {
 
     @Test
     void testIsGitMetadataChanged_NoGitRepo() {
-        FileWatcherHelper helperNoGit = new FileWatcherHelper(projectRoot, null);
+        FileWatcherHelper helperNoGit = new FileWatcherHelper(null);
         EventBatch batch = new EventBatch();
         batch.files.add(new ProjectFile(projectRoot, Path.of(".git/HEAD")));
 
@@ -182,5 +182,38 @@ class FileWatcherHelperTest {
         assertFalse(classification.gitMetadataChanged, "Should not detect git changes");
         assertTrue(classification.trackedFilesChanged, "Should detect tracked changes");
         assertEquals(1, classification.changedTrackedFiles.size());
+    }
+
+    /**
+     * Tests that git metadata changes are detected in worktree scenarios where
+     * gitRepoRoot is different from projectRoot. In this case, git files come
+     * with gitRepoRoot as their base path but still have .git-prefixed relative paths.
+     */
+    @Test
+    void testIsGitMetadataChanged_Worktree() {
+        // In worktree scenario, gitRepoRoot is different from projectRoot
+        Path mainRepoRoot = Path.of("/main/repo").toAbsolutePath();
+        FileWatcherHelper worktreeHelper = new FileWatcherHelper(mainRepoRoot);
+
+        // Git events from worktrees will have gitRepoRoot as base with .git prefix
+        // This simulates what NativeProjectWatchService produces after the fix
+        EventBatch batch = new EventBatch();
+        batch.files.add(new ProjectFile(mainRepoRoot, Path.of(".git/HEAD")));
+
+        assertTrue(
+                worktreeHelper.isGitMetadataChanged(batch),
+                "Should detect .git changes even when projectRoot != gitRepoRoot");
+    }
+
+    /**
+     * Tests that regular files are not falsely detected as git metadata.
+     */
+    @Test
+    void testIsGitMetadataChanged_NotGitignore() {
+        EventBatch batch = new EventBatch();
+        // .gitignore is NOT a git metadata file (it's a regular tracked file)
+        batch.files.add(new ProjectFile(projectRoot, Path.of(".gitignore")));
+
+        assertFalse(helper.isGitMetadataChanged(batch), "Should not detect .gitignore as git metadata");
     }
 }
