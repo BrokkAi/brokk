@@ -453,7 +453,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // handleTrackedFileChange().
                 // This method is kept for backward compatibility only.
                 logger.debug("AnalyzerListener.onTrackedFileChange fired (backward compatibility path)");
-                handleTrackedFileChange(Set.of()); // Empty set since we don't have specific files from this path
+                handleTrackedFileChange(project.getAllFiles());
             }
 
             @Override
