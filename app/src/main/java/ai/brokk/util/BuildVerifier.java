@@ -1,7 +1,6 @@
 package ai.brokk.util;
 
 import ai.brokk.project.IProject;
-import ai.brokk.project.MainProject;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,9 +41,15 @@ public class BuildVerifier {
         try {
             var root = project.getRoot();
             var execCfg = ExecutorConfig.fromProject(project);
-            var timeout = (project instanceof MainProject mp)
-                    ? Duration.ofSeconds(mp.getRunCommandTimeoutSeconds())
-                    : Environment.DEFAULT_TIMEOUT;
+            Duration timeout;
+            try {
+                var mp = project.getMainProject();
+                timeout = (mp != null)
+                        ? Duration.ofSeconds(mp.getRunCommandTimeoutSeconds())
+                        : Environment.DEFAULT_TIMEOUT;
+            } catch (Exception e) {
+                timeout = Environment.DEFAULT_TIMEOUT;
+            }
 
             var outputLines = new ArrayList<String>();
             var outputCollector = new StringBuilder();
@@ -79,7 +84,13 @@ public class BuildVerifier {
                 // Command execution error (e.g., executable not found, I/O error)
                 logger.warn("Build command verification error: {}", ex.getMessage());
                 String output = ex.getOutput();
-                String tail = output != null ? output : ex.getMessage();
+                String tail;
+                if (output != null && !output.isEmpty()) {
+                    var lines = output.lines().toList();
+                    tail = getTail(lines);
+                } else {
+                    tail = ex.getMessage() != null ? ex.getMessage() : "";
+                }
                 return new Result(false, -1, tail);
             }
 
