@@ -2,8 +2,6 @@ package ai.brokk.agents;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.IConsoleIO;
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
@@ -32,11 +30,7 @@ public class SearchAgentEmptyProjectPromptTest {
         };
 
         // Create a minimal context manager with the empty project
-        var cm = new TestContextManager(
-                emptyProject,
-                new ai.brokk.testutil.TestConsoleIO(),
-                Set.of(),
-                null);
+        var cm = new TestContextManager(emptyProject, new ai.brokk.testutil.TestConsoleIO(), Set.of(), null);
         var context = cm.liveContext();
 
         // Verify the context manager has the empty project
@@ -53,11 +47,7 @@ public class SearchAgentEmptyProjectPromptTest {
             }
         };
 
-        var cm = new TestContextManager(
-                nonEmptyProject,
-                new ai.brokk.testutil.TestConsoleIO(),
-                Set.of(),
-                null);
+        var cm = new TestContextManager(nonEmptyProject, new ai.brokk.testutil.TestConsoleIO(), Set.of(), null);
         var context = cm.liveContext();
 
         // Verify the context manager has the non-empty project

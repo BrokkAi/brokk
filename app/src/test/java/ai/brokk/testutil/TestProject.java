@@ -9,7 +9,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.IProject;
-import org.jetbrains.annotations.Blocking;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;

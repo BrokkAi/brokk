@@ -316,15 +316,18 @@ public class ArchitectAgent {
     /**
      * A tool to configure build and test commands for the project, for new or empty projects.
      */
-    @Tool("Configure build and test commands for the project. Use this to set up build details for new or empty projects.")
+    @Tool(
+            "Configure build and test commands for the project. Use this to set up build details for new or empty projects.")
     public String setBuildDetails(
-            @P("Command to build or lint incrementally, e.g. mvn compile, cargo check, pyflakes. Leave blank if not applicable.")
+            @P(
+                            "Command to build or lint incrementally, e.g. mvn compile, cargo check, pyflakes. Leave blank if not applicable.")
                     String buildLintCommand,
-            @P("Command to run all tests. Leave blank if not applicable.")
-                    String testAllCommand,
-            @P("Command template to run specific tests using Mustache templating with {{classes}}, {{fqclasses}}, or {{files}} variable. Leave blank if not applicable.")
+            @P("Command to run all tests. Leave blank if not applicable.") String testAllCommand,
+            @P(
+                            "Command template to run specific tests using Mustache templating with {{classes}}, {{fqclasses}}, or {{files}} variable. Leave blank if not applicable.")
                     String testSomeCommand,
-            @P("List of directories to exclude from code intelligence, e.g., generated code, build artifacts. Can be empty.")
+            @P(
+                            "List of directories to exclude from code intelligence, e.g., generated code, build artifacts. Can be empty.")
                     java.util.List<String> excludedDirectories) {
         var details = new BuildAgent.BuildDetails(
                 buildLintCommand != null ? buildLintCommand : "",
@@ -333,9 +336,7 @@ public class ArchitectAgent {
                 excludedDirectories != null ? new java.util.HashSet<>(excludedDirectories) : java.util.Set.of(),
                 java.util.Map.of());
         cm.getProject().saveBuildDetails(details);
-        cm.getIo().showNotification(
-                IConsoleIO.NotificationRole.INFO,
-                "Build details configured and saved.");
+        cm.getIo().showNotification(IConsoleIO.NotificationRole.INFO, "Build details configured and saved.");
 
         // Immediately verify the build/lint command if configured
         String verificationMessage = "";
@@ -351,7 +352,8 @@ public class ArchitectAgent {
      * If the command is blank, defaults to the project's configured buildLintCommand.
      * Returns success/failure status, exit code, and a bounded tail of output.
      */
-    @Tool("Verify that the project's configured build/lint command works correctly. Returns success status, exit code, and output tail.")
+    @Tool(
+            "Verify that the project's configured build/lint command works correctly. Returns success status, exit code, and output tail.")
     public String verifyBuildCommand() {
         var project = cm.getProject();
         var buildDetails = project.loadBuildDetails();
@@ -360,15 +362,14 @@ public class ArchitectAgent {
             return "Error: No build/lint command configured. Call setBuildDetails(...) first.";
         }
 
-        var result = ai.brokk.util.BuildVerifier.verify(project, buildDetails.buildLintCommand(), buildDetails.environmentVariables());
+        var result = ai.brokk.util.BuildVerifier.verify(
+                project, buildDetails.buildLintCommand(), buildDetails.environmentVariables());
 
         if (result.success()) {
             return "Build command succeeded (exit code 0).";
         } else {
             var statusMsg = result.exitCode() == -1 ? "execution error" : "exit code " + result.exitCode();
-            var outputSummary = result.outputTail().isEmpty()
-                    ? ""
-                    : "\n\nOutput:\n" + result.outputTail();
+            var outputSummary = result.outputTail().isEmpty() ? "" : "\n\nOutput:\n" + result.outputTail();
             return "Build command failed (" + statusMsg + ")." + outputSummary;
         }
     }
@@ -986,7 +987,8 @@ public class ArchitectAgent {
         // This agent's own conversational history for the current goal
         messages.addAll(architectMessages);
         // Final user message with the goal and specific instructions for this turn, including workspace warnings
-        var finalInstructions = ArchitectPrompts.instance.getFinalInstructions(cm, goal, workspaceTokenSize, maxInputTokens);
+        var finalInstructions =
+                ArchitectPrompts.instance.getFinalInstructions(cm, goal, workspaceTokenSize, maxInputTokens);
 
         // Append empty project guidance if applicable
         if (cm.getProject().isEmptyProject()) {
@@ -1009,10 +1011,10 @@ public class ArchitectAgent {
                     + "After you call setBuildDetails(...), verification runs automatically and you will see the result. "
                     + "If verification fails due to missing dependencies, missing permissions, or non-executable wrappers"
                     + (io instanceof Chrome
-                        ? ", you do not have direct shell access. Use askHuman(...) to request the user run the exact command and paste back the last ~100 lines of output. "
-                        + "Typical commands include: npm install/yarn install, pip install -r requirements.txt/poetry install, cargo build, chmod +x ./gradlew, and system package installs via apt-get, brew, or choco. "
-                        + "Once the human completes the command, call verifyBuildCommand again to re-verify the configuration.\n"
-                        : ", you cannot proceed further; report the failure.\n")
+                            ? ", you do not have direct shell access. Use askHuman(...) to request the user run the exact command and paste back the last ~100 lines of output. "
+                                    + "Typical commands include: npm install/yarn install, pip install -r requirements.txt/poetry install, cargo build, chmod +x ./gradlew, and system package installs via apt-get, brew, or choco. "
+                                    + "Once the human completes the command, call verifyBuildCommand again to re-verify the configuration.\n"
+                            : ", you cannot proceed further; report the failure.\n")
                     + "If scaffolding files do not exist yet (no build file or package manifest), first create them with callCodeAgent(..., deferBuild=true); once scaffolding is present, call setBuildDetails(...) to configure build/test commands.\n"
                     + "</build-setup>";
         }

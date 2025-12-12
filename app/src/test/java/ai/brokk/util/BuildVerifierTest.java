@@ -20,9 +20,7 @@ class BuildVerifierTest {
         assertTrue(result.success(), "Echo command should succeed");
         assertEquals(0, result.exitCode(), "Exit code should be 0");
         assertNotNull(result.outputTail(), "Output tail should not be null");
-        assertTrue(
-                result.outputTail().contains("Hello from BuildVerifier"),
-                "Output should contain the echo message");
+        assertTrue(result.outputTail().contains("Hello from BuildVerifier"), "Output should contain the echo message");
     }
 
     @Test

@@ -1,8 +1,8 @@
 package ai.brokk.agents;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestProject;
@@ -19,7 +19,9 @@ import org.junit.jupiter.api.io.TempDir;
  * orchestration, avoiding the complexity of creating a TaskScope.
  */
 class ArchitectAgentTest {
-    @TempDir Path projectRoot;
+    @TempDir
+    Path projectRoot;
+
     private TestProject project;
     private TestConsoleIO consoleIO;
 
@@ -37,17 +39,17 @@ class ArchitectAgentTest {
     void verifyBuildCommand_withEchoCommand_returnsSuccessMessage() {
         // Arrange
         project.setBuildDetails(
-                new BuildAgent.BuildDetails(
-                        "echo 'build success'", "", "", java.util.Set.of(), java.util.Map.of()));
+                new BuildAgent.BuildDetails("echo 'build success'", "", "", java.util.Set.of(), java.util.Map.of()));
 
         // Act: call verifyBuildCommand via the tool implementation
-        var result = ai.brokk.util.BuildVerifier.verify(
-                project, "echo 'build success'", java.util.Map.of());
+        var result = ai.brokk.util.BuildVerifier.verify(project, "echo 'build success'", java.util.Map.of());
 
         // Assert
         assertTrue(result.success(), "Expected success for echo command");
         assertTrue(result.exitCode() == 0, "Expected exit code 0");
-        assertTrue(result.outputTail().contains("build success") || result.outputTail().isEmpty(),
+        assertTrue(
+                result.outputTail().contains("build success")
+                        || result.outputTail().isEmpty(),
                 "Expected output to contain command output or be empty");
     }
 
@@ -59,8 +61,8 @@ class ArchitectAgentTest {
     void verifyBuildCommand_withFailingCommand_returnsFailureWithOutput() {
         // Arrange: use a command that will fail reliably (non-existent executable)
         // Act
-        var result = ai.brokk.util.BuildVerifier.verify(
-                project, "/nonexistent/path/to/build-script", java.util.Map.of());
+        var result =
+                ai.brokk.util.BuildVerifier.verify(project, "/nonexistent/path/to/build-script", java.util.Map.of());
 
         // Assert
         assertFalse(result.success(), "Expected failure for non-existent command");
@@ -93,14 +95,11 @@ class ArchitectAgentTest {
         // Assert
         var saved = project.loadBuildDetails();
         assertNotNull(saved, "Build details should be persisted");
-        assertTrue(saved.buildLintCommand().equals(buildLintCommand),
-                "Expected build/lint command to be saved");
-        assertTrue(saved.testAllCommand().equals(testAllCommand),
-                "Expected test all command to be saved");
-        assertTrue(saved.testSomeCommand().equals(testSomeCommand),
-                "Expected test some command to be saved");
-        assertTrue(saved.excludedDirectories().containsAll(excludedDirs),
-                "Expected all excluded directories to be saved");
+        assertTrue(saved.buildLintCommand().equals(buildLintCommand), "Expected build/lint command to be saved");
+        assertTrue(saved.testAllCommand().equals(testAllCommand), "Expected test all command to be saved");
+        assertTrue(saved.testSomeCommand().equals(testSomeCommand), "Expected test some command to be saved");
+        assertTrue(
+                saved.excludedDirectories().containsAll(excludedDirs), "Expected all excluded directories to be saved");
     }
 
     /**
@@ -127,14 +126,12 @@ class ArchitectAgentTest {
     @Test
     void setBuildDetails_withNullExclusions_defaultsToEmpty() {
         // Arrange & Act
-        var details = new BuildAgent.BuildDetails(
-                "echo test", "echo test", "", java.util.Set.of(), java.util.Map.of());
+        var details = new BuildAgent.BuildDetails("echo test", "echo test", "", java.util.Set.of(), java.util.Map.of());
         project.saveBuildDetails(details);
 
         // Assert
         var saved = project.loadBuildDetails();
-        assertTrue(saved.excludedDirectories().isEmpty(),
-                "Expected empty exclusions");
+        assertTrue(saved.excludedDirectories().isEmpty(), "Expected empty exclusions");
     }
 
     /**
@@ -145,16 +142,15 @@ class ArchitectAgentTest {
     void verifyBuildCommand_withBlankAndConfiguredDefault_usesDefault() {
         // Arrange
         project.setBuildDetails(
-                new BuildAgent.BuildDetails(
-                        "echo 'default build'", "", "", java.util.Set.of(), java.util.Map.of()));
+                new BuildAgent.BuildDetails("echo 'default build'", "", "", java.util.Set.of(), java.util.Map.of()));
 
         // Act: call with blank command, should default to buildLintCommand
         var buildDetails = project.loadBuildDetails();
-        String commandToRun = (buildDetails != null && !buildDetails.buildLintCommand().isBlank())
-                ? buildDetails.buildLintCommand()
-                : null;
-        var result = ai.brokk.util.BuildVerifier.verify(
-                project, commandToRun, java.util.Map.of());
+        String commandToRun =
+                (buildDetails != null && !buildDetails.buildLintCommand().isBlank())
+                        ? buildDetails.buildLintCommand()
+                        : null;
+        var result = ai.brokk.util.BuildVerifier.verify(project, commandToRun, java.util.Map.of());
 
         // Assert
         assertTrue(result.success(), "Expected default build command to succeed");
@@ -168,18 +164,17 @@ class ArchitectAgentTest {
     @Test
     void verifyBuildCommand_withNoConfiguredCommand_handlesBlanks() {
         // Arrange: explicitly set empty build details
-        project.setBuildDetails(
-                new BuildAgent.BuildDetails("", "", "", java.util.Set.of(), java.util.Map.of()));
+        project.setBuildDetails(new BuildAgent.BuildDetails("", "", "", java.util.Set.of(), java.util.Map.of()));
 
         // Act: try to verify with null/blank command
         var buildDetails = project.loadBuildDetails();
-        String commandToRun = (buildDetails != null && !buildDetails.buildLintCommand().isBlank())
-                ? buildDetails.buildLintCommand()
-                : null;
+        String commandToRun =
+                (buildDetails != null && !buildDetails.buildLintCommand().isBlank())
+                        ? buildDetails.buildLintCommand()
+                        : null;
 
         // Assert: verify we detect when no command is available
-        assertFalse(commandToRun != null && !commandToRun.isBlank(),
-                "Expected no command to be available");
+        assertFalse(commandToRun != null && !commandToRun.isBlank(), "Expected no command to be available");
     }
 
     /**
@@ -193,8 +188,7 @@ class ArchitectAgentTest {
         envVars.put("TEST_VAR", "test_value");
 
         // Act: echo the env var (should work on all platforms)
-        var result = ai.brokk.util.BuildVerifier.verify(
-                project, "echo 'test'", envVars);
+        var result = ai.brokk.util.BuildVerifier.verify(project, "echo 'test'", envVars);
 
         // Assert
         assertTrue(result.success(), "Expected command with env vars to succeed");
@@ -208,8 +202,7 @@ class ArchitectAgentTest {
     @Test
     void verifyBuildCommand_toolLogic_withNoConfiguredCommand_returnsHelpfulMessage() {
         // Arrange: set empty build details (no buildLintCommand)
-        project.setBuildDetails(
-                new BuildAgent.BuildDetails("", "", "", java.util.Set.of(), java.util.Map.of()));
+        project.setBuildDetails(new BuildAgent.BuildDetails("", "", "", java.util.Set.of(), java.util.Map.of()));
 
         // Act: simulate the tool logic from ArchitectAgent.verifyBuildCommand()
         var buildDetails = project.loadBuildDetails();
@@ -221,10 +214,10 @@ class ArchitectAgentTest {
         }
 
         // Assert: exact error message
-        assertTrue(toolResult.contains("Error: No build/lint command configured"),
+        assertTrue(
+                toolResult.contains("Error: No build/lint command configured"),
                 "Expected helpful error message when no command available");
-        assertTrue(toolResult.contains("Call setBuildDetails(...) first"),
-                "Expected guidance to call setBuildDetails");
+        assertTrue(toolResult.contains("Call setBuildDetails(...) first"), "Expected guidance to call setBuildDetails");
     }
 
     /**
@@ -268,13 +261,12 @@ class ArchitectAgentTest {
         var toolReturnMessage = "Build details have been configured and saved successfully." + verificationMessage;
 
         // Assert: both parts are present in the output
-        assertTrue(toolReturnMessage.contains("Build details have been configured and saved successfully"),
+        assertTrue(
+                toolReturnMessage.contains("Build details have been configured and saved successfully"),
                 "Expected success confirmation in tool output");
-        assertTrue(toolReturnMessage.contains("**Verification:**"),
-                "Expected verification section in tool output");
-        assertTrue(toolReturnMessage.contains("Build command succeeded"),
-                "Expected verification result in tool output");
-        assertTrue(toolReturnMessage.contains("exit code 0"),
-                "Expected exit code in verification output");
+        assertTrue(toolReturnMessage.contains("**Verification:**"), "Expected verification section in tool output");
+        assertTrue(
+                toolReturnMessage.contains("Build command succeeded"), "Expected verification result in tool output");
+        assertTrue(toolReturnMessage.contains("exit code 0"), "Expected exit code in verification output");
     }
 }

@@ -182,9 +182,7 @@ public class MenuBar {
                     Files.createDirectories(projectPath);
                 }
             } catch (IOException ex) {
-                chrome.toolError(
-                        "Failed to create directory: " + ex.getMessage(),
-                        "New Project");
+                chrome.toolError("Failed to create directory: " + ex.getMessage(), "New Project");
                 return;
             }
 
@@ -192,16 +190,13 @@ public class MenuBar {
             try {
                 GitRepoFactory.initRepo(projectPath);
             } catch (Exception ex) {
-                chrome.toolError(
-                        "Failed to initialize git repository: " + ex.getMessage(),
-                        "New Project");
+                chrome.toolError("Failed to initialize git repository: " + ex.getMessage(), "New Project");
                 return;
             }
 
             // Open the project
             chrome.showNotification(
-                    IConsoleIO.NotificationRole.INFO,
-                    "Opening new project: " + projectPath.getFileName());
+                    IConsoleIO.NotificationRole.INFO, "Opening new project: " + projectPath.getFileName());
             new Brokk.OpenProjectBuilder(projectPath).open();
         });
     }

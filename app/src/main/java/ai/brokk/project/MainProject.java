@@ -2278,7 +2278,8 @@ public final class MainProject extends AbstractProject {
         String normalized = relativePath.replace('\\', '/');
 
         // Files to ignore
-        if (normalized.equals(".gitignore") || normalized.equals(".gitattributes")
+        if (normalized.equals(".gitignore")
+                || normalized.equals(".gitattributes")
                 || normalized.equals(".editorconfig")) {
             return true;
         }

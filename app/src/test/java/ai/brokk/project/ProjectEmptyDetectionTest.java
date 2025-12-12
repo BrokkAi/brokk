@@ -2,7 +2,6 @@ package ai.brokk.project;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.git.GitRepo;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.eclipse.jgit.api.Git;
@@ -56,8 +55,7 @@ class ProjectEmptyDetectionTest {
 
         MainProject project = new MainProject(tempDir);
         try {
-            assertTrue(project.isEmptyProject(),
-                    "Repo with only config files should be detected as empty project");
+            assertTrue(project.isEmptyProject(), "Repo with only config files should be detected as empty project");
         } finally {
             project.close();
         }
@@ -82,8 +80,7 @@ class ProjectEmptyDetectionTest {
 
         MainProject project = new MainProject(tempDir);
         try {
-            assertTrue(project.isEmptyProject(),
-                    "Repo with only .brokk directory should be detected as empty project");
+            assertTrue(project.isEmptyProject(), "Repo with only .brokk directory should be detected as empty project");
         } finally {
             project.close();
         }
@@ -106,8 +103,7 @@ class ProjectEmptyDetectionTest {
 
         MainProject project = new MainProject(tempDir);
         try {
-            assertFalse(project.isEmptyProject(),
-                    "Repo with a source file should NOT be detected as empty project");
+            assertFalse(project.isEmptyProject(), "Repo with a source file should NOT be detected as empty project");
         } finally {
             project.close();
         }
@@ -134,8 +130,7 @@ class ProjectEmptyDetectionTest {
 
         MainProject project = new MainProject(tempDir);
         try {
-            assertFalse(project.isEmptyProject(),
-                    "Repo with config files and a source file should NOT be empty");
+            assertFalse(project.isEmptyProject(), "Repo with config files and a source file should NOT be empty");
         } finally {
             project.close();
         }
@@ -150,11 +145,9 @@ class ProjectEmptyDetectionTest {
 
         MainProject project = new MainProject(tempDir);
         try {
-            assertFalse(project.isEmptyProject(),
-                    "Non-git project should not be considered empty");
+            assertFalse(project.isEmptyProject(), "Non-git project should not be considered empty");
         } finally {
             project.close();
         }
     }
-
 }

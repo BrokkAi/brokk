@@ -26,8 +26,6 @@ import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Patch;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Streams;
-import dev.langchain4j.agent.tool.P;
-import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;

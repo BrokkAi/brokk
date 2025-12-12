@@ -36,8 +36,7 @@ public class BuildVerifier {
      * @param environmentVariables optional environment variables to merge with the system environment
      * @return a Result containing success status, exit code, and output tail
      */
-    public static Result verify(
-            IProject project, String command, @Nullable Map<String, String> environmentVariables) {
+    public static Result verify(IProject project, String command, @Nullable Map<String, String> environmentVariables) {
         try {
             var root = project.getRoot();
             var execCfg = ExecutorConfig.fromProject(project);
@@ -74,10 +73,7 @@ public class BuildVerifier {
                 // Command failed but completed (non-zero exit code)
                 int exitCode = parseExitCode(ex);
                 String tail = getTail(outputLines);
-                logger.debug(
-                        "Build command verification failed with exit code {}: {}",
-                        exitCode,
-                        ex.getMessage());
+                logger.debug("Build command verification failed with exit code {}: {}", exitCode, ex.getMessage());
                 return new Result(false, exitCode, tail);
 
             } catch (Environment.SubprocessException ex) {
