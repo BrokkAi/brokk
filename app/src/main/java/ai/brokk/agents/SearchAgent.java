@@ -1064,7 +1064,7 @@ public class SearchAgent {
     }
 
     @Tool(
-            "Ask the human for clarification when the goal is unclear or necessary information cannot be found. The human can only reply with plain text; they cannot attach files, modify the workspace, or run commands on your behalf. Outputs the provided question to the user and stops.")
+            "Ask the human for clarification when the goal is unclear or necessary information cannot be found. Outputs the provided question to the user and stops.")
     public String askForClarification(
             @P("A concise question or clarification request for the human user.") String queryForUser) {
         io.llmOutput(queryForUser, ChatMessageType.AI);
