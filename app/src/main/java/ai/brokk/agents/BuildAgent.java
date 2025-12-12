@@ -836,7 +836,9 @@ public class BuildAgent {
         var cm = ctx.getContextManager();
         var io = cm.getIo();
 
-        io.llmOutput("\nRunning verification command: \n\n```bash\n" + verificationCommand + "\n```\n", ChatMessageType.CUSTOM);
+        io.llmOutput(
+                "\nRunning verification command: \n\n```bash\n" + verificationCommand + "\n```\n",
+                ChatMessageType.CUSTOM);
         String shellLang = ExecutorConfig.getShellLanguageFromProject(cm.getProject());
         io.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM);
         try {
