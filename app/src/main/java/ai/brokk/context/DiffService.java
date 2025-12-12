@@ -185,26 +185,16 @@ public final class DiffService {
             }
 
             // Text fragment newly added: diff against empty, preferring snapshot text
-            return extractFragmentContentAsync(thisFragment)
-                    .thenApply(newContent -> {
-                        var oldName = "old/" + thisFragment.shortDescription().renderNowOr("");
-                        var newName = "new/" + thisFragment.shortDescription().renderNowOr("");
-                        var result = ContentDiffUtils.computeDiffResult("", newContent, oldName, newName);
-                        if (result.diff().isEmpty()) {
-                            return null;
-                        }
-                        return new Context.DiffEntry(
-                                thisFragment, result.diff(), result.added(), result.deleted(), "", newContent);
-                    })
-                    .exceptionally(ex -> {
-                        logger.warn(
-                                "Error computing diff for new fragment '{}': {}",
-                                thisFragment.shortDescription().renderNowOr(thisFragment.toString()),
-                                ex.getMessage(),
-                                ex);
-                        return new Context.DiffEntry(
-                                thisFragment, "[Error computing diff]", 0, 0, "", "[Failed to extract content]");
-                    });
+            return extractFragmentContentAsync(thisFragment).thenApply(newContent -> {
+                var oldName = "old/" + thisFragment.shortDescription().renderNowOr("");
+                var newName = "new/" + thisFragment.shortDescription().renderNowOr("");
+                var result = ContentDiffUtils.computeDiffResult("", newContent, oldName, newName);
+                if (result.diff().isEmpty()) {
+                    return null;
+                }
+                return new Context.DiffEntry(
+                        thisFragment, result.diff(), result.added(), result.deleted(), "", newContent);
+            });
         }
 
         // Image fragments: compare bytes (prefer frozen snapshot bytes)
@@ -219,46 +209,36 @@ public final class DiffService {
         var newContentFuture = extractFragmentContentAsync(thisFragment);
 
         // Text fragments: compute textual diff
-        return oldContentFuture
-                .thenCombine(newContentFuture, (oldContent, newContent) -> {
-                    int oldLineCount =
-                            oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
-                    int newLineCount =
-                            newContent.isEmpty() ? 0 : (int) newContent.lines().count();
-                    logger.trace(
-                            "computeDiff: fragment='{}' ctxId={} oldLines={} newLines={}",
-                            thisFragment.shortDescription().renderNowOr(""),
-                            curr.id(),
-                            oldLineCount,
-                            newLineCount);
+        return oldContentFuture.thenCombine(newContentFuture, (oldContent, newContent) -> {
+            int oldLineCount =
+                    oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
+            int newLineCount =
+                    newContent.isEmpty() ? 0 : (int) newContent.lines().count();
+            logger.trace(
+                    "computeDiff: fragment='{}' ctxId={} oldLines={} newLines={}",
+                    thisFragment.shortDescription().renderNowOr(""),
+                    curr.id(),
+                    oldLineCount,
+                    newLineCount);
 
-                    var oldName = "old/" + thisFragment.shortDescription().renderNowOr("");
-                    var newName = "new/" + thisFragment.shortDescription().renderNowOr("");
-                    var result = ContentDiffUtils.computeDiffResult(oldContent, newContent, oldName, newName);
+            var oldName = "old/" + thisFragment.shortDescription().renderNowOr("");
+            var newName = "new/" + thisFragment.shortDescription().renderNowOr("");
+            var result = ContentDiffUtils.computeDiffResult(oldContent, newContent, oldName, newName);
 
-                    logger.trace(
-                            "computeDiff: fragment='{}' added={} deleted={} diffEmpty={}",
-                            thisFragment.shortDescription().renderNowOr(""),
-                            result.added(),
-                            result.deleted(),
-                            result.diff().isEmpty());
+            logger.trace(
+                    "computeDiff: fragment='{}' added={} deleted={} diffEmpty={}",
+                    thisFragment.shortDescription().renderNowOr(""),
+                    result.added(),
+                    result.deleted(),
+                    result.diff().isEmpty());
 
-                    if (result.diff().isEmpty()) {
-                        return null;
-                    }
+            if (result.diff().isEmpty()) {
+                return null;
+            }
 
-                    return new Context.DiffEntry(
-                            thisFragment, result.diff(), result.added(), result.deleted(), oldContent, newContent);
-                })
-                .exceptionally(ex -> {
-                    logger.warn(
-                            "Error computing diff for fragment '{}': {}",
-                            thisFragment.shortDescription().renderNowOr(thisFragment.toString()),
-                            ex.getMessage(),
-                            ex);
-                    return new Context.DiffEntry(
-                            thisFragment, "[Error computing diff]", 0, 0, "", "[Failed to extract content]");
-                });
+            return new Context.DiffEntry(
+                    thisFragment, result.diff(), result.added(), result.deleted(), oldContent, newContent);
+        });
     }
 
     /**
