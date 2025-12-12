@@ -174,26 +174,13 @@ public class ContextHistory {
     public synchronized @Nullable Context processExternalFileChangesIfNeeded(Set<ProjectFile> changed) {
         var base = liveContext();
 
-        // Determine target files to compare against:
-        // - If 'changed' is empty (e.g., compatibility path), treat all files referenced by the context as candidates.
-        Set<ProjectFile> targetFiles;
-        if (changed.isEmpty()) {
-            targetFiles =
-                    base.allFragments().flatMap(f -> f.files().join().stream()).collect(Collectors.toSet());
-            if (targetFiles.isEmpty()) {
-                return null;
-            }
-        } else {
-            targetFiles = changed;
-        }
-
         // Identify only the affected path fragments (by referenced ProjectFiles).
         List<ContextFragment.PathFragment> toReplace = base.allFragments()
                 .filter(f -> f instanceof ContextFragment.PathFragment)
                 .map(f -> (ContextFragment.PathFragment) f)
                 .filter(f -> {
                     var filesOpt = f.files().await(SNAPSHOT_AWAIT_TIMEOUT);
-                    return filesOpt.map(projectFiles -> projectFiles.stream().anyMatch(targetFiles::contains))
+                    return filesOpt.map(projectFiles -> projectFiles.stream().anyMatch(changed::contains))
                             .orElse(false);
                 })
                 .toList();

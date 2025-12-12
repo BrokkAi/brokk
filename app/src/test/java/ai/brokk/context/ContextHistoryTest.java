@@ -422,26 +422,6 @@ public class ContextHistoryTest {
         assertTrue(changed.contains(pf), "Changed files should include the modified ProjectFile");
     }
 
-    @Test
-    public void testProcessExternalFileChanges_emptyChangedSetTargetsAllContextFiles() throws Exception {
-        var pf = new ProjectFile(tempDir, "src/EmptySet.txt");
-        Files.createDirectories(pf.absPath().getParent());
-        Files.writeString(pf.absPath(), "a\n");
-
-        var frag = new ContextFragment.ProjectPathFragment(pf, contextManager);
-        frag.text().await(Duration.ofSeconds(2));
-
-        var initialContext = new Context(
-                contextManager, List.of(frag), List.of(), null, CompletableFuture.completedFuture("Initial"));
-        var history = new ContextHistory(initialContext);
-
-        Files.writeString(pf.absPath(), "a\nb\n");
-
-        var updated = history.processExternalFileChangesIfNeeded(Set.of());
-        assertNotNull(updated, "Empty changed set should target all context files and detect the change");
-        assertTrue(updated.getAction().startsWith("Load external changes"), "Action should indicate external changes");
-    }
-
     /**
      * We use a mock usage fragment as it will satisfy control flow such as `ContextFragment.isEditable` while
      * avoiding dependencies and computation from analyzers/usage finders.
@@ -513,25 +493,6 @@ public class ContextHistoryTest {
 
         assertTrue(includesFile, "Diffs should include the project fragment that changed");
         assertTrue(excludesUsage, "Diffs should not include unrelated usage fragments");
-    }
-
-    @Test
-    public void testProcessExternalFileChanges_usageOnlyContext_emptyChangedSet_returnsNull() {
-        var usageOnly = new MockUsageFragment(contextManager, "U-only", "content");
-        var initialContext = new Context(
-                contextManager, List.of(usageOnly), List.of(), null, CompletableFuture.completedFuture("Initial"));
-        var history = new ContextHistory(initialContext);
-
-        var beforeSize = history.getHistory().size();
-        var beforeId = history.liveContext().id();
-
-        var updated = history.processExternalFileChangesIfNeeded(Set.of());
-        assertNull(updated, "No path fragments => no-op for empty changed set");
-        assertEquals(beforeSize, history.getHistory().size(), "History size should be unchanged");
-        assertEquals(beforeId, history.liveContext().id(), "Live context should remain the same");
-        assertFalse(
-                history.liveContext().getAction().startsWith("Load external changes"),
-                "Action should not indicate external changes");
     }
 
     @Test
