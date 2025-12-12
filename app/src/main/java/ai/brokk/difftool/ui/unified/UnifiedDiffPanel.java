@@ -599,23 +599,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         return customLineNumberList;
     }
 
-    /**
-     * Set gutter blame map for the unified line-number component. The map keys are 1-based document line numbers,
-     * values are BlameInfo-like records (author + sha).
-     */
-    public void setGutterBlameData(Map<Integer, BlameInfo> blameData) {
-        if (customLineNumberList != null) {
-            customLineNumberList.setBlameLines(blameData);
-        }
-    }
-
-    /** Set left/old file blame data for the gutter (used for deletions). */
-    public void setGutterLeftBlameData(Map<Integer, BlameInfo> blameData) {
-        if (customLineNumberList != null) {
-            customLineNumberList.setLeftBlameLines(blameData);
-        }
-    }
-
     /** Show or hide gutter blame in this unified panel. */
     @Override
     public void setShowGutterBlame(boolean show) {
@@ -668,7 +651,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         if (customLineNumberList != null) {
             customLineNumberList.setLeftBlameLines(leftMap);
             customLineNumberList.setBlameLines(rightMap);
-            customLineNumberList.setShowBlame(true);
+            customLineNumberList.setShowBlame(isShowGutterBlame());
         }
     }
 

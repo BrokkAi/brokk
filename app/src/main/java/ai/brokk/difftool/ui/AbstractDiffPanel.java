@@ -41,6 +41,14 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
     /** Cached dirty state. Updated by recalcDirty(). */
     protected volatile boolean dirty = false;
 
+    /**
+     * Index of the FileComparisonInfo this panel represents, or -1 when unknown.
+     *
+     * BrokkDiffPanel will assign this when caching/creating panels so blame and other per-file operations can
+     * retrieve revision metadata without relying on the global currentFileIndex.
+     */
+    private volatile int associatedFileIndex = -1;
+
     public AbstractDiffPanel(BrokkDiffPanel parent, GuiTheme theme) {
         this.parent = parent;
         this.theme = theme;
@@ -162,6 +170,7 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
         // Default cleanup - subclasses should override and call super
         removeAll();
         this.diffNode = null;
+        this.associatedFileIndex = -1;
     }
 
     public boolean atLeastOneSideEditable() {
@@ -274,5 +283,20 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
     @Override
     public final boolean hasUnsavedChanges() {
         return dirty;
+    }
+
+    /**
+     * Associate this panel with a specific file index from BrokkDiffPanel.FileComparisonInfo list so that the panel
+     * can be used independently for operations that need revision metadata.
+     */
+    public void setAssociatedFileIndex(int index) {
+        this.associatedFileIndex = index;
+    }
+
+    /**
+     * Returns the associated file index or -1 if none assigned.
+     */
+    public int getAssociatedFileIndex() {
+        return associatedFileIndex;
     }
 }

@@ -1788,14 +1788,14 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         var right = getFilePanel(PanelSide.RIGHT);
         if (right != null) {
             right.getGutterComponent().setBlameLines(rightMap);
-            right.getGutterComponent().setShowBlame(true);
+            right.getGutterComponent().setShowBlame(isShowGutterBlame());
             if (hasUnsavedChanges()) {
                 right.getGutterComponent().markBlameStale();
             }
         }
         var left = getFilePanel(PanelSide.LEFT);
         if (left != null) {
-            left.getGutterComponent().setShowBlame(false);
+            left.getGutterComponent().setLeftBlameLines(leftMap);
         }
     }
 

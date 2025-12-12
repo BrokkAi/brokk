@@ -384,8 +384,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             if (panel instanceof AbstractDiffPanel adp) {
                 adp.setShowGutterBlame(show);
                 updateBlameForPanel(adp, show);
-            } else if (panel instanceof AbstractDiffPanel idp) {
-                updateBlameForPanel(idp, show);
             }
         });
 
@@ -1914,42 +1912,45 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
      * the slot was reserved, otherwise regular put.
      */
     public void cachePanel(int fileIndex, AbstractDiffPanel panel) {
-        // Validate that panel type matches current view mode
-        boolean isPanelUnified = panel instanceof UnifiedDiffPanel;
-        if (isPanelUnified != isUnifiedView) {
-            // Don't cache panels that don't match current view mode (prevents async race conditions)
-            return;
-        }
+         // Validate that panel type matches current view mode
+         boolean isPanelUnified = panel instanceof UnifiedDiffPanel;
+         if (isPanelUnified != isUnifiedView) {
+              // Don't cache panels that don't match current view mode (prevents async race conditions)
+              return;
+         }
 
-        // Reset auto-scroll flag for newly created panels
-        panel.resetAutoScrollFlag();
-        // Ensure newly-created panel respects the current editor font size (if we've initialized it)
-        if (currentFontIndex >= 0) {
-            applySizeToSinglePanel(panel, FONT_SIZES.get(currentFontIndex));
-        }
+         // Ensure the panel is associated with the correct file index for later operations (blame, saves, etc.)
+         panel.setAssociatedFileIndex(fileIndex);
 
-        // Ensure creation context is set for debugging (only for BufferDiffPanel)
-        if (panel instanceof BufferDiffPanel bufferPanel) {
-            if ("unknown".equals(bufferPanel.getCreationContext())) {
-                bufferPanel.markCreationContext("cachePanel");
-            }
-            // Reset selectedDelta to first difference for consistent navigation behavior
-            bufferPanel.resetToFirstDifference();
-        }
+         // Reset auto-scroll flag for newly created panels
+         panel.resetAutoScrollFlag();
+         // Ensure newly-created panel respects the current editor font size (if we've initialized it)
+         if (currentFontIndex >= 0) {
+              applySizeToSinglePanel(panel, FONT_SIZES.get(currentFontIndex));
+         }
 
-        // Only cache if within current window
-        if (panelCache.isInWindow(fileIndex)) {
-            var cachedPanel = panelCache.get(fileIndex);
-            if (cachedPanel == null) {
-                // This was a reserved slot, replace with actual panel
-                panelCache.putReserved(fileIndex, panel);
-            } else {
-                // Direct cache (shouldn't happen in normal flow but handle gracefully)
-                panelCache.put(fileIndex, panel);
-            }
-        } else {
-            // Still display but don't cache
-        }
+         // Ensure creation context is set for debugging (only for BufferDiffPanel)
+         if (panel instanceof BufferDiffPanel bufferPanel) {
+              if ("unknown".equals(bufferPanel.getCreationContext())) {
+                   bufferPanel.markCreationContext("cachePanel");
+              }
+              // Reset selectedDelta to first difference for consistent navigation behavior
+              bufferPanel.resetToFirstDifference();
+         }
+
+         // Only cache if within current window
+         if (panelCache.isInWindow(fileIndex)) {
+              var cachedPanel = panelCache.get(fileIndex);
+              if (cachedPanel == null) {
+                   // This was a reserved slot, replace with actual panel
+                   panelCache.putReserved(fileIndex, panel);
+              } else {
+                   // Direct cache (shouldn't happen in normal flow but handle gracefully)
+                   panelCache.put(fileIndex, panel);
+              }
+         } else {
+              // Still display but don't cache
+         }
     }
 
     /** Preload adjacent files in the background for smooth navigation */
@@ -2318,14 +2319,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         return errorMsg.toLowerCase(Locale.ROOT);
     }
 
-    /** Applies blame to gutter using the panel's polymorphic interface. */
-    private void applyBlameMapsToPanel(
-            AbstractDiffPanel panel,
-            Map<Integer, BlameService.BlameInfo> leftMap,
-            Map<Integer, BlameService.BlameInfo> rightMap) {
-        panel.applyBlame(leftMap, rightMap);
-    }
-
     /**
      * Shows one-time error dialog and updates menu text. Prioritizes right over left errors. Doesn't auto-disable
      * blame.
@@ -2364,12 +2357,16 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             return;
         }
 
-        // Get current file comparison to extract revision metadata
-        var currentComparison = fileComparisons.get(currentFileIndex);
+        // Determine which file comparison this panel represents. Fall back to currentFileIndex if none assigned.
+        int fileIndex = panel.getAssociatedFileIndex();
+        if (fileIndex < 0 || fileIndex >= fileComparisons.size()) {
+            fileIndex = currentFileIndex;
+        }
+        var comparison = fileComparisons.get(fileIndex);
 
         // Extract revision information from BufferSources
-        String leftRevision = currentComparison.leftSource.revisionSha();
-        String rightRevision = currentComparison.rightSource.revisionSha();
+        String leftRevision = comparison.leftSource.revisionSha();
+        String rightRevision = comparison.rightSource.revisionSha();
 
         final Path finalTargetPath = targetPath;
 
@@ -2415,7 +2412,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                 if (!rightMap.isEmpty() || !leftMap.isEmpty()) {
                     menuShowBlame.setText("Show Git Blame");
                 }
-                applyBlameMapsToPanel(panel, leftMap, rightMap);
+                panel.applyBlame(leftMap, rightMap);
             });
         });
     }
