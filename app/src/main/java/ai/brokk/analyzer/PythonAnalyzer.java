@@ -783,7 +783,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         List<CodeUnit> children = localTopLevelCUs.stream()
                 .filter(cu -> modulePackageName.equals(cu.packageName()))
                 .filter(cu -> cu.isClass() || cu.isFunction() || cu.isField())
-                .collect(Collectors.toList());
+                .toList();
 
         localChildren.put(moduleCu, children);
         localCuByFqName.put(moduleCu.fqName(), moduleCu);
