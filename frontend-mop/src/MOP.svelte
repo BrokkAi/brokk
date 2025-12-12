@@ -67,6 +67,7 @@
   $: liveSummaryEntry = (typeof liveThreadId === 'number' && !isNaN(liveThreadId)) ? $summaryStore[liveThreadId] : undefined;
   $: hasLiveSummaryOnly = !hasLiveBubbles && !!liveSummaryEntry?.compressed && !!liveSummaryEntry?.text;
   $: hasLive = hasLiveBubbles || hasLiveSummaryOnly;
+  $: hasLiveOrTransient = hasLive || $transientStore.visible;
 
 
   // Toggle handlers for collapse control
@@ -213,7 +214,7 @@
   id="chat-container"
   style="--zoom-level: {$zoomStore}"
 >
-  {#if hasHistory || hasLive}
+  {#if hasHistory || hasLiveOrTransient}
     <!-- History tasks (expanded) OR a single-line summary (collapsed) -->
     {#if hasHistory}
       {#if !historyCollapsed}
@@ -245,7 +246,7 @@
     {/if}
 
     <!-- Separator line with centered toggle between history and live bubbles -->
-    {#if hasHistory && hasLive}
+    {#if hasHistory && hasLiveOrTransient}
       <div class="history-live-separator-container">
         <div class="line"></div>
         <div
