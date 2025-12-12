@@ -94,7 +94,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     // Thread-safe sliding window cache for loaded diff panels
     private static final int WINDOW_SIZE = PerformanceConstants.DEFAULT_SLIDING_WINDOW;
     private static final int MAX_CACHED_PANELS = PerformanceConstants.MAX_CACHED_DIFF_PANELS;
-    private final SlidingWindowCache<Integer, IDiffPanel> panelCache =
+    private final SlidingWindowCache<Integer, AbstractDiffPanel> panelCache =
             new SlidingWindowCache<>(MAX_CACHED_PANELS, WINDOW_SIZE);
 
     // View mode state loaded from GlobalUiSettings
@@ -255,7 +255,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             if (panel instanceof AbstractDiffPanel adp) {
                 adp.setShowGutterBlame(show);
                 updateBlameForPanel(adp, show);
-            } else if (panel instanceof IDiffPanel idp) {
+            } else if (panel instanceof AbstractDiffPanel idp) {
                 updateBlameForPanel(idp, show);
             }
         });
@@ -462,7 +462,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     private volatile boolean needsLayoutReset = false;
 
     @Nullable
-    private IDiffPanel currentDiffPanel;
+    private AbstractDiffPanel currentDiffPanel;
 
     public void setBufferDiffPanel(@Nullable BufferDiffPanel bufferDiffPanel) {
         // Don't allow BufferDiffPanel to override currentDiffPanel when in unified view mode
@@ -487,7 +487,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
      * Check if the given panel represents a working tree diff (vs a historical commit diff). Working tree diffs have
      * FileDocument on the right side, while commit diffs have StringDocument.
      */
-    private boolean isWorkingTreeDiff(IDiffPanel panel) {
+    private boolean isWorkingTreeDiff(AbstractDiffPanel panel) {
         if (panel instanceof BufferDiffPanel bp) {
             var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
             if (right != null) {
@@ -1005,7 +1005,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         // include currentDiffPanel (if present) plus all cached panels (deduplicated),
         // and count those with hasUnsavedChanges() == true.
         int dirtyCount = 0;
-        var visited = new HashSet<IDiffPanel>();
+        var visited = new HashSet<AbstractDiffPanel>();
 
         if (currentDiffPanel != null) {
             visited.add(currentDiffPanel);
@@ -1373,7 +1373,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         repaint();
     }
 
-    private void displayCachedFile(int fileIndex, IDiffPanel cachedPanel) {
+    private void displayCachedFile(int fileIndex, AbstractDiffPanel cachedPanel) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
         // Check if cached panel type matches current view mode preference
@@ -1877,7 +1877,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
      * Displays a cached panel and updates navigation buttons. This is the proper way to display panels created by
      * HybridFileComparison.
      */
-    public void displayAndRefreshPanel(int fileIndex, IDiffPanel panel) {
+    public void displayAndRefreshPanel(int fileIndex, AbstractDiffPanel panel) {
         displayCachedFile(fileIndex, panel);
     }
 
@@ -1885,7 +1885,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
      * Cache a panel for the given file index. Helper method for both sync and async panel creation. Uses putReserved if
      * the slot was reserved, otherwise regular put.
      */
-    public void cachePanel(int fileIndex, IDiffPanel panel) {
+    public void cachePanel(int fileIndex, AbstractDiffPanel panel) {
         // Validate that panel type matches current view mode
         boolean isPanelUnified = panel instanceof UnifiedDiffPanel;
         if (isPanelUnified != isUnifiedView) {
@@ -1969,7 +1969,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                 if (panelCache.get(fileIndex) == null && panelCache.isInWindow(fileIndex)) {
                     if (loadingResult.isSuccess()) {
                         // Create appropriate panel type based on current view mode
-                        IDiffPanel panel;
+                        AbstractDiffPanel panel;
                         if (isUnifiedView) {
                             // For UnifiedDiffPanel, we need to check if diffNode is null since constructor requires
                             // non-null
@@ -2049,7 +2049,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
      * @param panel The panel to update
      * @param size The font size to apply
      */
-    private void applySizeToSinglePanel(@Nullable IDiffPanel panel, float size) {
+    private void applySizeToSinglePanel(@Nullable AbstractDiffPanel panel, float size) {
         if (panel == null) return;
         Component root = panel.getComponent();
 
@@ -2252,7 +2252,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
      * Reset layout hierarchy to fix broken container relationships after file navigation. This rebuilds the
      * BorderLayout relationships to restore proper resize behavior.
      */
-    private void resetLayoutHierarchy(IDiffPanel currentPanel) {
+    private void resetLayoutHierarchy(AbstractDiffPanel currentPanel) {
         // Remove and re-add mainSplitPane to reset BorderLayout relationships
         remove(mainSplitPane);
         invalidate();
@@ -2434,7 +2434,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     /**
      * Resolves file path from panel for blame, converting relative paths to absolute. Returns null if path unavailable.
      */
-    private @Nullable Path resolveTargetPath(IDiffPanel panel) {
+    private @Nullable Path resolveTargetPath(AbstractDiffPanel panel) {
         Path targetPath = null;
 
         try {
@@ -2492,7 +2492,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
     /** Applies blame to gutter. Side-by-side: right gutter only. Unified: both left (HEAD) and right (working tree). */
     private void applyBlameMapsToPanel(
-            IDiffPanel panel,
+            AbstractDiffPanel panel,
             Map<Integer, BlameService.BlameInfo> leftMap,
             Map<Integer, BlameService.BlameInfo> rightMap) {
         if (panel instanceof BufferDiffPanel bp) {
@@ -2537,7 +2537,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         }
     }
 
-    private void updateBlameForPanel(IDiffPanel panel, boolean show) {
+    private void updateBlameForPanel(AbstractDiffPanel panel, boolean show) {
         if (!show) {
             if (panel instanceof BufferDiffPanel bp) {
                 var left = bp.getFilePanel(BufferDiffPanel.PanelSide.LEFT);

@@ -2,9 +2,12 @@ package ai.brokk.difftool.ui;
 
 import ai.brokk.difftool.node.JMDiffNode;
 import ai.brokk.gui.theme.GuiTheme;
+import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.util.SlidingWindowCache;
 import ai.brokk.util.SyntaxDetector;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import javax.swing.JComponent;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -14,10 +17,10 @@ import org.jetbrains.annotations.Nullable;
  * Base class for diff panel implementations with common functionality. This class provides default implementations for
  * common operations and maintains shared state between different diff view types.
  *
- * <p>Note: This extends AbstractContentPanel to leverage existing undo/redo infrastructure while adding IDiffPanel
+ * <p>Note: This extends AbstractContentPanel to leverage existing undo/redo infrastructure while providing diff panel
  * functionality.
  */
-public abstract class AbstractDiffPanel extends AbstractContentPanel implements IDiffPanel {
+public abstract class AbstractDiffPanel extends AbstractContentPanel implements ThemeAware, SlidingWindowCache.Disposable {
     protected final BrokkDiffPanel parent;
     protected final GuiTheme theme;
 
@@ -37,41 +40,62 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
         this.theme = theme;
     }
 
-    // Common implementations from IDiffPanel
+    // Panel lifecycle - abstract methods that subclasses must implement
+    public abstract void resetAutoScrollFlag();
 
-    @Override
+    public abstract void resetToFirstDifference();
+
+    // Diff operations - abstract methods that subclasses must implement
+    public abstract void diff(boolean autoScroll);
+
+    // Navigation - abstract methods that subclasses must implement
+    public abstract void doUp();
+
+    public abstract void doDown();
+
+    public abstract boolean isAtFirstLogicalChange();
+
+    public abstract boolean isAtLastLogicalChange();
+
+    public abstract void goToLastLogicalChange();
+
+    // Editing and state - abstract methods that subclasses must implement
+    public abstract List<BufferDiffPanel.AggregatedChange> collectChangesForAggregation();
+
+    public abstract BufferDiffPanel.SaveResult writeChangedDocuments();
+
+    public abstract void finalizeAfterSaveAggregation(Set<String> successfulFiles);
+
+    // UI - abstract methods that subclasses must implement
+    public abstract String getTitle();
+
+    // Common implementations
     public JComponent getComponent() {
         return this; // The panel itself is the component
     }
 
-    @Override
     @Nullable
     public JMDiffNode getDiffNode() {
         return diffNode;
     }
 
-    @Override
     public void setDiffNode(@Nullable JMDiffNode diffNode) {
         this.diffNode = diffNode;
     }
 
-    @Override
     public void markCreationContext(String context) {
         this.creationContext = context;
     }
 
-    @Override
     public String getCreationContext() {
         return creationContext;
     }
 
     /** Per-panel gutter blame controls. */
-    @Override
     public void setShowGutterBlame(boolean show) {
         this.showGutterBlame = show;
     }
 
-    @Override
     public boolean isShowGutterBlame() {
         return this.showGutterBlame;
     }
@@ -86,12 +110,10 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
     }
 
     // Default implementations that subclasses may override
-    @Override
     public void refreshComponentListeners() {
         // Default implementation - subclasses can override if needed
     }
 
-    @Override
     public void clearCaches() {
         // Default implementation - subclasses can override if needed
     }
@@ -103,12 +125,14 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
         this.diffNode = null;
     }
 
-    // IDiffPanel implementations that delegate to existing AbstractContentPanel methods
-    // These provide the bridge between IDiffPanel interface and existing functionality
+    // Panel type identification
+    public boolean isUnifiedView() {
+        return false;
+    }
 
-    // Navigation methods are already defined in AbstractContentPanel as abstract
-    // isAtFirstLogicalChange(), isAtLastLogicalChange(), goToLastLogicalChange()
-    // doUp(), doDown() are already implemented in AbstractContentPanel
+    public boolean atLeastOneSideEditable() {
+        return true;
+    }
 
     // Undo/redo methods are already implemented in AbstractContentPanel
     // isUndoEnabled(), doUndo(), isRedoEnabled(), doRedo()
@@ -179,4 +203,10 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
      * own highlight refresh logic.
      */
     public abstract void reDisplay();
+
+    /**
+     * Recalculate dirty state for the current document. This method is typically called after
+     * modifications to update internal state tracking.
+     */
+    public abstract void recalcDirty();
 }

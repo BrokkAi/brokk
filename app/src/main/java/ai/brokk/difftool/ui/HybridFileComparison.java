@@ -109,7 +109,7 @@ public class HybridFileComparison {
                 }
 
                 // Create appropriate panel type based on view mode
-                IDiffPanel panel;
+                AbstractDiffPanel panel;
                 if (mainPanel.isUnifiedView()) {
                     panel = createUnifiedDiffPanel(diffNode, mainPanel, theme);
                 } else {
@@ -166,7 +166,7 @@ public class HybridFileComparison {
                 SwingUtilities.invokeLater(() -> {
                     try {
                         // Create appropriate panel type based on view mode
-                        IDiffPanel panel;
+                        AbstractDiffPanel panel;
                         if (mainPanel.isUnifiedView()) {
                             panel = createUnifiedDiffPanel(diffNode, mainPanel, theme);
                         } else {
@@ -255,7 +255,7 @@ public class HybridFileComparison {
     }
 
     /** Creates a UnifiedDiffPanel using the provided JMDiffNode. */
-    private static IDiffPanel createUnifiedDiffPanel(JMDiffNode diffNode, BrokkDiffPanel mainPanel, GuiTheme theme) {
+    private static AbstractDiffPanel createUnifiedDiffPanel(JMDiffNode diffNode, BrokkDiffPanel mainPanel, GuiTheme theme) {
         try {
             var unifiedPanel = new UnifiedDiffPanel(mainPanel, theme, diffNode);
 
