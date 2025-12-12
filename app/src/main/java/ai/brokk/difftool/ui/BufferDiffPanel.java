@@ -1838,13 +1838,12 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
 
         if (leftPanel != null) {
             try {
-                var editor = leftPanel.getEditor();
-                setEditorFont(editor, size);
+                applyDerivedFont(leftPanel.getEditor(), size);
             } catch (Exception ignored) {
                 // Best-effort
             }
             try {
-                setGutterFonts(leftPanel.getGutterComponent(), size);
+                applyDerivedFontToGutter(leftPanel.getGutterComponent(), size);
             } catch (Exception ignored) {
                 // Best-effort
             }
@@ -1852,62 +1851,15 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
 
         if (rightPanel != null) {
             try {
-                var editor = rightPanel.getEditor();
-                setEditorFont(editor, size);
+                applyDerivedFont(rightPanel.getEditor(), size);
             } catch (Exception ignored) {
                 // Best-effort
             }
             try {
-                setGutterFonts(rightPanel.getGutterComponent(), size);
+                applyDerivedFontToGutter(rightPanel.getGutterComponent(), size);
             } catch (Exception ignored) {
                 // Best-effort
             }
-        }
-    }
-
-    /**
-     * Set editor font size. Helper method extracted from EditorFontSizeControl pattern.
-     *
-     * @param editor the text editor to update
-     * @param size the font size in points
-     */
-    private void setEditorFont(org.fife.ui.rsyntaxtextarea.RSyntaxTextArea editor, float size) {
-        try {
-            var font = editor.getFont();
-            if (font != null) {
-                editor.setFont(font.deriveFont(size));
-            }
-        } catch (Exception ex) {
-            // Best-effort font application
-        }
-    }
-
-    /**
-     * Set gutter font size including blame font. Helper method extracted from EditorFontSizeControl pattern.
-     *
-     * @param gutter the gutter component to update
-     * @param size the font size in points
-     */
-    private void setGutterFonts(DiffGutterComponent gutter, float size) {
-        try {
-            var gbase = gutter.getFont();
-            if (gbase != null) {
-                var gf = gbase.deriveFont(size);
-                gutter.setFont(gf);
-                try {
-                    gutter.setBlameFont(gf);
-                } catch (Throwable ignored) {
-                    // Best-effort
-                }
-            }
-            gutter.revalidate();
-            gutter.repaint();
-            var parent = gutter.getParent();
-            if (parent != null) {
-                parent.revalidate();
-            }
-        } catch (Exception ex) {
-            // Best-effort font application
         }
     }
 }

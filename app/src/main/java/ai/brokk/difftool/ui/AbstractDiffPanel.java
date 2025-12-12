@@ -5,6 +5,7 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.util.SlidingWindowCache;
 import ai.brokk.util.SyntaxDetector;
+import java.awt.Component;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -236,6 +237,43 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
         }
 
         return style;
+    }
+
+    /**
+     * Apply a font size to a component by deriving from its current font. Best-effort: no-op if font is null.
+     *
+     * @param component component to update
+     * @param size font size in points
+     */
+    protected static void applyDerivedFont(Component component, float size) {
+        var font = component.getFont();
+        if (font != null) {
+            component.setFont(font.deriveFont(size));
+        }
+    }
+
+    /**
+     * Apply a font size to the diff gutter, including the blame font when supported.
+     *
+     * @param gutter gutter to update
+     * @param size font size in points
+     */
+    protected static void applyDerivedFontToGutter(DiffGutterComponent gutter, float size) {
+        applyDerivedFont(gutter, size);
+        try {
+            var font = gutter.getFont();
+            if (font != null) {
+                gutter.setBlameFont(font);
+            }
+        } catch (Throwable ignored) {
+            // Best-effort
+        }
+        gutter.revalidate();
+        gutter.repaint();
+        var parent = gutter.getParent();
+        if (parent != null) {
+            parent.revalidate();
+        }
     }
 
     /**

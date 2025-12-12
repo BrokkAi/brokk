@@ -692,28 +692,15 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     @Override
     public void applyEditorFontSize(float size) {
         try {
-            var font = textArea.getFont();
-            if (font != null) {
-                textArea.setFont(font.deriveFont(size));
-            }
+            applyDerivedFont(textArea, size);
         } catch (Exception ignored) {
             // Best-effort
         }
 
-        if (customLineNumberList != null) {
+        var gutter = customLineNumberList;
+        if (gutter != null) {
             try {
-                var gbase = customLineNumberList.getFont();
-                if (gbase != null) {
-                    var gf = gbase.deriveFont(size);
-                    customLineNumberList.setFont(gf);
-                    try {
-                        customLineNumberList.setBlameFont(gf);
-                    } catch (Throwable ignored) {
-                        // Best-effort
-                    }
-                }
-                customLineNumberList.revalidate();
-                customLineNumberList.repaint();
+                applyDerivedFontToGutter(gutter, size);
             } catch (Exception ignored) {
                 // Best-effort
             }
