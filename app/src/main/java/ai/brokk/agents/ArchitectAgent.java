@@ -358,7 +358,7 @@ public class ArchitectAgent {
         var project = cm.getProject();
         var buildDetails = project.loadBuildDetails();
 
-        if (buildDetails == null || buildDetails.buildLintCommand().isBlank()) {
+        if (buildDetails.buildLintCommand().isBlank()) {
             return "Error: No build/lint command configured. Call setBuildDetails(...) first.";
         }
 
@@ -1002,7 +1002,7 @@ public class ArchitectAgent {
 
         // Nudge: when build/test commands are not configured yet, use setBuildDetails during the build-setup task
         var bd = cm.getProject().loadBuildDetails();
-        if (bd == null || bd.equals(BuildAgent.BuildDetails.EMPTY)) {
+        if (bd.equals(BuildAgent.BuildDetails.EMPTY)) {
             finalInstructions = finalInstructions
                     + "\n\n<build-setup>\n"
                     + "If the current task is to configure build/test for this project, call setBuildDetails(...) as soon as you have selected the stack "
