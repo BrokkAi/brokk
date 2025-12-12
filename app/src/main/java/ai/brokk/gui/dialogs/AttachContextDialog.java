@@ -335,26 +335,26 @@ public class AttachContextDialog extends BaseThemedDialog {
     }
 
     private void onTabChanged() {
-            DefaultCompletionProvider p =
-                            switch (getActiveTab()) {
-                                    case FILES -> filesProvider;
-                                    case FOLDERS -> foldersProvider;
-                                    case CLASSES -> classesProvider;
-                                    case METHODS -> methodsProvider;
-                                    case USAGES -> usagesProvider;
-                            };
-            p.setAutoActivationRules(true, "._-$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
-            ac.setCompletionProvider(p);
+        DefaultCompletionProvider p =
+                switch (getActiveTab()) {
+                    case FILES -> filesProvider;
+                    case FOLDERS -> foldersProvider;
+                    case CLASSES -> classesProvider;
+                    case METHODS -> methodsProvider;
+                    case USAGES -> usagesProvider;
+                };
+        p.setAutoActivationRules(true, "._-$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
+        ac.setCompletionProvider(p);
 
-            // Refresh popup sizing on tab change
-            AutoCompleteUtil.sizePopupWindows(ac, searchField, List.of());
+        // Refresh popup sizing on tab change
+        AutoCompleteUtil.sizePopupWindows(ac, searchField, List.of());
 
-            // Update checkbox visibility for each tab
-            includeSubfoldersCheck.setVisible(getActiveTab() == TabType.FOLDERS);
-            includeTestFilesCheck.setVisible(getActiveTab() == TabType.USAGES);
-            summarizeCheck.setVisible(getActiveTab() != TabType.FOLDERS && getActiveTab() != TabType.METHODS);
+        // Update checkbox visibility for each tab
+        includeSubfoldersCheck.setVisible(getActiveTab() == TabType.FOLDERS);
+        includeTestFilesCheck.setVisible(getActiveTab() == TabType.USAGES);
+        summarizeCheck.setVisible(getActiveTab() != TabType.FOLDERS && getActiveTab() != TabType.METHODS);
 
-            searchField.requestFocusInWindow();
+        searchField.requestFocusInWindow();
     }
 
     private void gateTabs() {
