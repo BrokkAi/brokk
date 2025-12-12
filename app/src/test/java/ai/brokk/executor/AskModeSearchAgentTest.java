@@ -53,14 +53,8 @@ public class AskModeSearchAgentTest {
         Files.createFile(gitDir.resolve("refs").resolve("heads").resolve("master"));
 
         var execId = UUID.randomUUID();
-        // Configure tests to use localhost proxy and a dummy Brokk key to avoid external network/calls in CI.
-        // This mirrors other integration tests which use LOCALHOST proxy + dummy key so model creation
-        // doesn't require a real Brokk API key.
-        MainProject.setLlmProxySetting(MainProject.LlmProxySetting.LOCALHOST);
-        MainProject.setBrokkKey("brk+" + UUID.randomUUID() + "+test");
-
+        // TestService is a mock that doesn't make real API calls, so no proxy/key config needed.
         var project = new MainProject(tempWorkspace);
-        // Use a TestService provider to avoid external network calls and model lookups in CI.
         var contextManager = new ContextManager(project, TestService.provider(project));
 
         // random token
@@ -80,10 +74,6 @@ public class AskModeSearchAgentTest {
 
     @AfterEach
     public void tearDown() {
-        // Restore global settings to avoid cross-test leakage of proxy/key configuration.
-        MainProject.setLlmProxySetting(MainProject.LlmProxySetting.BROKK);
-        MainProject.setBrokkKey("");
-
         if (executor != null) {
             try {
                 executor.stop(0);
