@@ -89,7 +89,8 @@ public final class HistoryIo {
                                 count++;
                             }
                         } catch (Exception e) {
-                            // Skip malformed lines
+                            // Skip malformed lines, but log for troubleshooting
+                            logger.debug("Skipping malformed JSON line in contexts.jsonl: '{}'. Exception: {}", line.length() > 200 ? line.substring(0, 200) + "..." : line, e.toString());
                         }
                     }
                     return count;
