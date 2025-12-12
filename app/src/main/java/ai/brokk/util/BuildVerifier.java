@@ -1,6 +1,7 @@
 package ai.brokk.util;
 
 import ai.brokk.project.IProject;
+import com.google.common.base.Splitter;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -43,9 +44,7 @@ public class BuildVerifier {
             Duration timeout;
             try {
                 var mp = project.getMainProject();
-                timeout = (mp != null)
-                        ? Duration.ofSeconds(mp.getRunCommandTimeoutSeconds())
-                        : Environment.DEFAULT_TIMEOUT;
+                timeout = Duration.ofSeconds(mp.getRunCommandTimeoutSeconds());
             } catch (Exception e) {
                 timeout = Environment.DEFAULT_TIMEOUT;
             }
@@ -81,7 +80,7 @@ public class BuildVerifier {
                 logger.warn("Build command verification error: {}", ex.getMessage());
                 String output = ex.getOutput();
                 String tail;
-                if (output != null && !output.isEmpty()) {
+                if (!output.isEmpty()) {
                     var lines = output.lines().toList();
                     tail = getTail(lines);
                 } else {
@@ -125,9 +124,9 @@ public class BuildVerifier {
         String msg = ex.getMessage();
         if (msg != null && msg.contains("code")) {
             try {
-                String[] parts = msg.split(":");
-                if (parts.length > 1) {
-                    return Integer.parseInt(parts[parts.length - 1].trim());
+                List<String> parts = Splitter.on(':').splitToList(msg);
+                if (parts.size() > 1) {
+                    return Integer.parseInt(parts.get(parts.size() - 1).trim());
                 }
             } catch (NumberFormatException e) {
                 // Fall through to return -1
