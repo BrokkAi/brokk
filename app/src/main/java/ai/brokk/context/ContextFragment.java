@@ -209,7 +209,7 @@ public interface ContextFragment {
      * Works with stack traces, grep output, compiler errors, git status, plain paths, etc.
      * Uses PathNormalizer for cross-OS path canonicalization.
      */
-    static Set<ProjectFile> extractFilesFromPathList(String text, IContextManager contextManager) {
+    static Set<ProjectFile> extractFilesFromPathList(String text, @Nullable IContextManager contextManager) {
         return FilePathExtractor.extract(text, contextManager);
     }
 
@@ -228,14 +228,20 @@ public interface ContextFragment {
                         + "[a-zA-Z0-9_][a-zA-Z0-9_.\\-/\\\\]*" // Path body
                         + "\\.[a-zA-Z0-9]{1,10})" // Extension (1-10 chars)
                         + "(?=[:\\s\"'(),\\]}>]|$)" // Followed by delimiter or end
-        );
+                );
 
-        static Set<ProjectFile> extract(String text, IContextManager contextManager) {
-            if (text.isBlank()) {
+        static Set<ProjectFile> extract(String text, @Nullable IContextManager contextManager) {
+            if (text.isBlank() || contextManager == null) {
                 return Set.of();
             }
 
-            var projectRoot = contextManager.getProject().getRoot();
+            // Get project root; return empty if not available (e.g., test mocks)
+            Path projectRoot;
+            try {
+                projectRoot = contextManager.getProject().getRoot();
+            } catch (UnsupportedOperationException e) {
+                return Set.of();
+            }
             Set<ProjectFile> files = new LinkedHashSet<>();
             var matcher = FILE_PATH_PATTERN.matcher(text);
 
@@ -1284,17 +1290,20 @@ public interface ContextFragment {
                 String text,
                 Future<String> descriptionFuture,
                 Future<String> syntaxStyleFuture) {
-            super(id, contextManager, null,
-                  () -> computeSnapshotFor(text, descriptionFuture, syntaxStyleFuture, contextManager));
+            super(
+                    id,
+                    contextManager,
+                    null,
+                    () -> computeSnapshotFor(text, descriptionFuture, syntaxStyleFuture, contextManager));
             this.descriptionFuture = descriptionFuture;
             this.syntaxStyleFuture = syntaxStyleFuture;
         }
 
-        private static FragmentSnapshot computeSnapshotFor(String text,
-                                                           Future<String> descriptionFuture,
-                                                           Future<String> syntaxStyleFuture,
-                                                           IContextManager contextManager)
-        {
+        private static FragmentSnapshot computeSnapshotFor(
+                String text,
+                Future<String> descriptionFuture,
+                Future<String> syntaxStyleFuture,
+                IContextManager contextManager) {
             String desc = "Paste of pasted content";
             String syntax = SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
             try {

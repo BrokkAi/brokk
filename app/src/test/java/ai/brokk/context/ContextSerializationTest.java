@@ -2167,7 +2167,9 @@ public class ContextSerializationTest {
 
         var extractedFiles = fragment.files().join();
         assertEquals(1, extractedFiles.size());
-        assertEquals("src/nested/BackslashTest.java", extractedFiles.iterator().next().toString());
+        assertEquals(
+                "src/nested/BackslashTest.java",
+                extractedFiles.iterator().next().toString());
     }
 
     @Test
@@ -2359,7 +2361,8 @@ public class ContextSerializationTest {
 
         var extractedFiles = fragment.files().join();
         assertEquals(1, extractedFiles.size());
-        assertEquals("src/com/example/Service.java", extractedFiles.iterator().next().toString());
+        assertEquals(
+                "src/com/example/Service.java", extractedFiles.iterator().next().toString());
     }
 
     @Test
@@ -2426,8 +2429,7 @@ public class ContextSerializationTest {
         var normalFile = new ProjectFile(tempDir, "src/NormalFile.java");
         Files.writeString(normalFile.absPath(), "class NormalFile {}");
 
-        String pathList =
-                """
+        String pathList = """
                 src/My Class.java
                 src/NormalFile.java
                 """;
@@ -2462,6 +2464,30 @@ public class ContextSerializationTest {
         // LinkedHashSet should deduplicate
         assertEquals(1, extractedFiles.size());
         assertEquals("src/DuplicateTest.java", extractedFiles.iterator().next().toString());
+    }
+
+    @Test
+    void testAbsolutePathsOutsideProjectAreNotExtracted() throws Exception {
+        // Create a file inside the project
+        var insideFile = new ProjectFile(tempDir, "src/InsideProject.java");
+        Files.createDirectories(insideFile.absPath().getParent());
+        Files.writeString(insideFile.absPath(), "class InsideProject {}");
+
+        // Simulate paths from a different worktree or external location
+        String textWithMixedPaths =
+                """
+                Error in /other/worktree/main/src/ExternalFile.java:42
+                Warning in src/InsideProject.java:10
+                Also see /completely/different/path/SomeFile.java
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager, textWithMixedPaths, "Mixed paths", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var extractedFiles = fragment.files().join();
+        // Only the file inside the project should be extracted
+        assertEquals(1, extractedFiles.size());
+        assertEquals("src/InsideProject.java", extractedFiles.iterator().next().toString());
     }
 
     @Test
