@@ -215,7 +215,7 @@ class ContextTest {
         var ctx = new Context(contextManager).addFragments(List.of(ppf)).addFragments(sf);
 
         pf.write("class RefreshR0 { public static void main() {} }");
-        var refreshed = ctx.copyAndRefresh(Set.of(pf));
+        var refreshed = ctx.copyAndRefresh(Set.of(pf), "Test Action");
 
         // ProjectPathFragment should be replaced (new instance), StringFragment should be reused (same instance)
         var oldPpf = ctx.fileFragments().findFirst().orElseThrow();
@@ -229,7 +229,7 @@ class ContextTest {
                         .findFirst()
                         .orElseThrow(),
                 "Unrelated virtual fragments should be reused");
-        assertEquals("Load external changes", refreshed.getAction(), "Action should be set accordingly");
+        assertEquals("Test Action", refreshed.getAction(), "Action should be set accordingly");
     }
 
     @Test
@@ -245,7 +245,7 @@ class ContextTest {
 
         // Update and trigger refresh
         pf.write("class RefreshR0 { public static void main() {} }");
-        var refreshed = ctx.copyAndRefresh(Set.of(pf));
+        var refreshed = ctx.copyAndRefresh(Set.of(pf), "Test");
 
         var newFrag = refreshed.fileFragments().findFirst().orElseThrow();
         assertNotSame(ppf, newFrag, "Project fragment should be refreshed to a new instance");
