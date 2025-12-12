@@ -432,4 +432,49 @@ public class SessionManagerTest {
 
         project.close();
     }
+
+    @Test
+    void testCountAiResponses_sessionWithKnownAiCount() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        var sessionManager = project.getSessionManager();
+        SessionInfo sessionInfo = sessionManager.newSession("AI Count Test Session");
+        UUID sessionId = sessionInfo.id();
+
+        // Create history with exactly 3 AI responses
+        var history = new ContextHistory(new Context(mockContextManager));
+        for (int i = 0; i < 3; i++) {
+            var msgs = List.<ChatMessage>of(
+                    dev.langchain4j.data.message.UserMessage.from("Query " + i),
+                    dev.langchain4j.data.message.AiMessage.from("Response " + i));
+            var tf = new ContextFragment.TaskFragment(mockContextManager, msgs, "Task " + i);
+            var ctx = new Context(mockContextManager)
+                    .addHistoryEntry(
+                            new TaskEntry(i + 1, tf, null),
+                            tf,
+                            java.util.concurrent.CompletableFuture.completedFuture("action" + i));
+            history.pushContext(ctx);
+        }
+
+        sessionManager.saveHistory(history, sessionId);
+
+        // saveHistory is async; wait for the count to update
+        assertEventually(() ->
+                assertEquals(3, sessionManager.countAiResponses(sessionId), "Should count exactly 3 AI responses"));
+
+        project.close();
+    }
+
+    @Test
+    void testCountAiResponses_missingSession() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        var sessionManager = project.getSessionManager();
+
+        // Use a random UUID that doesn't exist
+        UUID nonExistentId = SessionManager.newSessionId();
+
+        int count = sessionManager.countAiResponses(nonExistentId);
+        assertEquals(0, count, "Non-existent session should return 0");
+
+        project.close();
+    }
 }

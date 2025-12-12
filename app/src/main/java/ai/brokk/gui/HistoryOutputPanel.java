@@ -276,7 +276,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             for (var s : sessions) model.addElement(s);
 
             var list = new JList<SessionInfo>(model);
-            list.setVisibleRowCount(Math.min(8, Math.max(3, model.getSize())));
+            this.sessionsList = list;
+            int visibleRowCount = Math.min(8, Math.max(3, model.getSize()));
+            list.setVisibleRowCount(visibleRowCount);
+
+            // Trigger batch loading of AI response counts, visible sessions first
+            triggerAiCountLoadBatch(sessions, visibleRowCount);
             list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
             list.setCellRenderer(new SessionInfoRenderer());
 
@@ -3756,47 +3761,61 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return GitDiffUiUtil.formatRelativeDate(instant, LocalDate.now(ZoneId.systemDefault()));
     }
 
-    /**
-     * Kicks off a background load of the AI-response count for the given session. Runs on a platform thread to avoid
-     * blocking the common ForkJoinPool. Safe to call repeatedly; concurrent calls are deduped by sessionCountLoading.
-     */
-    private void triggerAiCountLoad(SessionInfo session) {
-        final var id = session.id();
+    // Batch size for loading AI response counts in the background.
+    // Chosen as 20 to balance UI responsiveness with background executor load.
+    // Adjusted based on performance testing and typical session list sizes.
+    private static final int AI_COUNT_BATCH_SIZE = 20;
 
-        // Fast-path dedupe: if we already have a value or a load is in-flight, bail.
-        if (sessionAiResponseCounts.containsKey(id) || !sessionCountLoading.add(id)) {
-            return;
+    /**
+     * Kicks off background loads of AI-response counts for sessions in batches.
+     * Visible sessions are loaded first for immediate UI feedback, then remaining
+     * sessions are batched to avoid starving the executor.
+     *
+     * @param sessions list of sessions (should be in display order)
+     * @param visibleCount number of sessions visible in the dropdown
+     */
+    private void triggerAiCountLoadBatch(List<SessionInfo> sessions, int visibleCount) {
+        // Filter to sessions that need loading, using sessionCountLoading for deduplication
+        var toLoad = sessions.stream()
+                .filter(s -> !sessionAiResponseCounts.containsKey(s.id()))
+                .filter(s -> sessionCountLoading.add(s.id()))
+                .toList();
+
+        if (toLoad.isEmpty()) return;
+
+        // Submit visible sessions first for immediate feedback
+        int firstBatchSize = Math.min(visibleCount, toLoad.size());
+        if (firstBatchSize > 0) {
+            submitCountBatch(toLoad.subList(0, firstBatchSize));
         }
 
-        Thread.ofPlatform().name("ai-count-" + id).start(() -> {
-            int count = 0;
-            try {
-                var sm = contextManager.getProject().getSessionManager();
-                var ch = sm.loadHistory(id, contextManager);
-                count = (ch == null) ? 0 : countAiResponses(ch);
-            } catch (Throwable t) {
-                logger.warn("Failed to load history for session {}", id, t);
-                count = 0;
-            } finally {
-                sessionAiResponseCounts.put(id, count);
-                sessionCountLoading.remove(id);
-                // Only repaint the scrollable sessionsList when visible; avoid repainting the old label/combo-box.
-                SwingUtilities.invokeLater(() -> {
-                    if (sessionsList != null) {
-                        sessionsList.repaint();
-                    }
-                });
-            }
-        });
+        // Batch the remaining sessions
+        for (int i = firstBatchSize; i < toLoad.size(); i += AI_COUNT_BATCH_SIZE) {
+            submitCountBatch(toLoad.subList(i, Math.min(i + AI_COUNT_BATCH_SIZE, toLoad.size())));
+        }
     }
 
-    private int countAiResponses(ContextHistory ch) {
-        var list = ch.getHistory();
-        int count = 0;
-        for (var ctx : list) {
-            if (ctx.isAiResult()) count++;
-        }
-        return count;
+    private void submitCountBatch(List<SessionInfo> batch) {
+        contextManager.getBackgroundTasks().submit(() -> {
+            var sm = contextManager.getProject().getSessionManager();
+            for (var session : batch) {
+                var id = session.id();
+                int count = 0;
+                try {
+                    count = sm.countAiResponses(id);
+                } catch (Throwable t) {
+                    logger.warn("Failed to count AI responses for session {}", id, t);
+                }
+                sessionAiResponseCounts.put(id, count);
+                sessionCountLoading.remove(id);
+            }
+            // Repaint once after batch completes
+            SwingUtilities.invokeLater(() -> {
+                if (sessionsList != null) {
+                    sessionsList.repaint();
+                }
+            });
+        });
     }
 
     /**
@@ -3940,9 +3959,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
             var cnt = sessionAiResponseCounts.get(value.id());
             countLabel.setText(cnt != null ? String.format("%d %s", cnt, cnt == 1 ? "task" : "tasks") : "");
-            if (cnt == null) {
-                triggerAiCountLoad(value);
-            }
 
             var bg = isSelected ? list.getSelectionBackground() : list.getBackground();
             var fg = isSelected ? list.getSelectionForeground() : list.getForeground();

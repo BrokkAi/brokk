@@ -15,8 +15,10 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;
 import com.fasterxml.jackson.databind.jsontype.TypeIdResolver;
+import java.io.BufferedReader;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.InvalidObjectException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -59,6 +61,47 @@ public final class HistoryIo {
     private static final int CURRENT_FORMAT_VERSION = 4;
 
     private HistoryIo() {}
+
+    /**
+     * Counts AI responses in a session zip without full deserialization.
+     * Only reads contexts.jsonl and counts entries with non-null parsedOutputId.
+     * Uses JsonNode parsing to work with both V3 and V4 formats.
+     */
+    public static int countAiResponses(Path zip) throws IOException {
+        if (!Files.exists(zip)) {
+            return 0;
+        }
+
+        try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                if (entry.getName().equals(CONTEXTS_FILENAME)) {
+                    // Stream line-by-line to avoid materializing entire file in memory
+                    var reader = new BufferedReader(new InputStreamReader(zis, StandardCharsets.UTF_8));
+                    int count = 0;
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (line.trim().isEmpty()) continue;
+                        try {
+                            var node = objectMapper.readTree(line);
+                            var parsedOutputId = node.get("parsedOutputId");
+                            if (parsedOutputId != null && !parsedOutputId.isNull()) {
+                                count++;
+                            }
+                        } catch (Exception e) {
+                            // Skip malformed lines, but log for troubleshooting
+                            logger.debug(
+                                    "Skipping malformed JSON line in contexts.jsonl: '{}'. Exception: {}",
+                                    line.length() > 200 ? line.substring(0, 200) + "..." : line,
+                                    e.toString());
+                        }
+                    }
+                    return count;
+                }
+            }
+        }
+        return 0;
+    }
 
     public static ContextHistory readZip(Path zip, IContextManager mgr) throws IOException {
         if (!Files.exists(zip)) {
