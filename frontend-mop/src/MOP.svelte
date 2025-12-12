@@ -272,7 +272,6 @@
         summary={liveSummaryEntry?.text}
       />
     {/if}
-    <Spinner />
   {:else}
     {#if !$transientStore.visible}
       <!-- Empty state when no history or live bubbles -->
@@ -280,4 +279,5 @@
     {/if}
   {/if}
   <TransientMessage />
+  <Spinner />
 </div>
