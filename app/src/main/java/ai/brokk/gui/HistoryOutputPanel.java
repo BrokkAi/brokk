@@ -276,6 +276,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             for (var s : sessions) model.addElement(s);
 
             var list = new JList<SessionInfo>(model);
+            this.sessionsList = list;
             int visibleRowCount = Math.min(8, Math.max(3, model.getSize()));
             list.setVisibleRowCount(visibleRowCount);
 

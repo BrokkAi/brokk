@@ -37,6 +37,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public class SessionManager implements AutoCloseable {
@@ -462,6 +463,7 @@ public class SessionManager implements AutoCloseable {
         return false;
     }
 
+    @Blocking
     @Nullable
     public ContextHistory loadHistory(UUID sessionId, IContextManager contextManager) {
         var future = sessionExecutorByKey.submit(
