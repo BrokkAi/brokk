@@ -3828,4 +3828,233 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     protected boolean isNullNameExpectedForExtraction(String nodeType) {
         return false;
     }
+
+    /**
+     * Computes a language-aware insertion point for adding a new member under the given parent.
+     *
+     * Contract for NEXT_OFFSET:
+     * - The parent is the class-like {@link CodeUnit} identified by the fully-qualified name used with the
+     *   BRK_NEXT_OFFSET search marker.
+     * - If the parent has existing members, the returned offset should be immediately after the last member;
+     *   if the body is empty, it should be the first valid location inside the body, generally on a fresh line right
+     *   after the opening of the body.
+     * - {@code indent} is the recommended indentation for the first line of the inserted member (e.g., one level
+     *   deeper than the class header for brace-based languages).
+     * - {@code line} and {@code column} are 0-based, and {@code byteOffset} is an absolute UTF-8 byte offset.
+     *
+     * Returns empty if the provided {@code classUnit} is not class-like or its source cannot be read.
+     */
+    @Override
+    public Optional<IAnalyzer.InsertionPoint> computeInsertionPointForNewMember(CodeUnit classUnit) {
+        if (!classUnit.isClass()) {
+            return Optional.empty();
+        }
+        var file = classUnit.source();
+        var scOpt = SourceContent.read(file);
+        if (scOpt.isEmpty()) {
+            return Optional.empty();
+        }
+        var sc = scOpt.get();
+        byte[] bytes = sc.utf8Bytes();
+
+        var classRanges = rangesOf(classUnit);
+        if (classRanges.isEmpty()) {
+            return Optional.empty();
+        }
+        var classRange = classRanges.getFirst();
+
+        int insertionByte = -1;
+        int line = -1;
+        int column = -1;
+        String indent = "";
+
+        // Preferred path: locate the class node in the current parsed tree and use its body/children.
+        TSNode classNode = null;
+        @Nullable TSTree tree = treeOf(file);
+        if (tree != null) {
+            TSNode root = tree.getRootNode();
+            classNode = findClassNodeByRange(
+                    root, classRange, getLanguageSyntaxProfile().classLikeNodeTypes());
+        }
+
+        if (classNode != null && !classNode.isNull()) {
+            var profile = getLanguageSyntaxProfile();
+            TSNode body = classNode.getChildByFieldName(profile.bodyFieldName());
+
+            TSNode lastChild = null;
+            if (body != null && !body.isNull()) {
+                // Find the last named child within the body to append after any existing member.
+                for (int i = body.getNamedChildCount() - 1; i >= 0; i--) {
+                    TSNode child = body.getNamedChild(i);
+                    if (child == null || child.isNull()) continue;
+                    lastChild = child;
+                    break;
+                }
+            }
+
+            if (lastChild != null) {
+                insertionByte = lastChild.getEndByte();
+                var p = lastChild.getEndPoint();
+                line = p.getRow();
+                column = p.getColumn();
+                indent = leadingWhitespaceOfLine(bytes, lineStartOf(bytes, lastChild.getStartByte()));
+            } else if (body != null && !body.isNull()) {
+                // Empty body: choose the start of the body, advanced to the next line if a brace is present.
+                insertionByte = body.getStartByte();
+                // Advance to the next newline, so that insertion starts on a fresh member line.
+                int nextNl = findNextNewline(bytes, insertionByte);
+                if (nextNl >= 0 && nextNl + 1 < bytes.length) {
+                    insertionByte = nextNl + 1;
+                }
+                int[] lc = computeLineAndColumn(bytes, insertionByte);
+                line = lc[0];
+                column = lc[1];
+
+                // Indentation: header indent + one language indent unit.
+                String headerIndent = leadingWhitespaceOfLine(bytes, lineStartOf(bytes, classRange.startByte()));
+                indent = headerIndent + getLanguageSpecificIndent();
+            }
+        }
+
+        // Fallback: derive from known child ranges or class closer text.
+        if (insertionByte < 0) {
+            List<CodeUnit> kids = childrenOf(classUnit);
+            if (!kids.isEmpty()) {
+                // Append after the end of the last child by source position
+                Range lastRange = kids.stream()
+                        .map(this::rangesOf)
+                        .filter(r -> !r.isEmpty())
+                        .map(List::getFirst)
+                        .max(Comparator.comparingInt(Range::endByte))
+                        .orElse(null);
+                if (lastRange != null) {
+                    insertionByte = lastRange.endByte();
+                    int[] lc = computeLineAndColumn(bytes, insertionByte);
+                    line = lc[0];
+                    column = lc[1];
+                    indent = leadingWhitespaceOfLine(bytes, lineStartOf(bytes, lastRange.startByte()));
+                }
+            }
+        }
+
+        if (insertionByte < 0) {
+            // As a last resort, insert before the class closer (brace languages) or at class end (indent-based).
+            String closer = getLanguageSpecificCloser(classUnit);
+            if (!closer.isEmpty()) {
+                int closerPos = lastIndexOf(
+                        bytes, closer.getBytes(StandardCharsets.UTF_8), classRange.startByte(), classRange.endByte());
+                if (closerPos >= 0) {
+                    insertionByte = closerPos;
+                } else {
+                    insertionByte = classRange.endByte();
+                }
+                int[] lc = computeLineAndColumn(bytes, insertionByte);
+                line = lc[0];
+                column = lc[1];
+
+                String headerIndent = leadingWhitespaceOfLine(bytes, lineStartOf(bytes, classRange.startByte()));
+                indent = headerIndent + getLanguageSpecificIndent();
+            } else {
+                insertionByte = classRange.endByte();
+                int[] lc = computeLineAndColumn(bytes, insertionByte);
+                line = lc[0];
+                column = lc[1];
+
+                String headerIndent = leadingWhitespaceOfLine(bytes, lineStartOf(bytes, classRange.startByte()));
+                indent = headerIndent + getLanguageSpecificIndent();
+            }
+        }
+
+        return Optional.of(new IAnalyzer.InsertionPoint(file, insertionByte, line, column, indent));
+    }
+
+    private @Nullable TSNode findClassNodeByRange(TSNode node, Range target, Set<String> classTypes) {
+        if (node.isNull()) return null;
+
+        if (node.getStartByte() == target.startByte()
+                && node.getEndByte() == target.endByte()
+                && classTypes.contains(node.getType())) {
+            return node;
+        }
+
+        int n = node.getNamedChildCount();
+        for (int i = 0; i < n; i++) {
+            TSNode child = node.getNamedChild(i);
+            if (child == null || child.isNull()) continue;
+
+            // Prune branches that cannot contain (overlap) the target range
+            if (child.getEndByte() < target.startByte() || child.getStartByte() > target.endByte()) continue;
+
+            TSNode found = findClassNodeByRange(child, target, classTypes);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private static int lineStartOf(byte[] bytes, int offset) {
+        int prevNl = findPrevNewline(bytes, offset);
+        return prevNl < 0 ? 0 : prevNl + 1;
+    }
+
+    private static int findPrevNewline(byte[] bytes, int fromExclusive) {
+        int i = Math.min(fromExclusive - 1, bytes.length - 1);
+        for (; i >= 0; i--) {
+            if (bytes[i] == (byte) '\n') return i;
+        }
+        return -1;
+    }
+
+    private static int findNextNewline(byte[] bytes, int fromInclusive) {
+        for (int i = Math.max(0, fromInclusive); i < bytes.length; i++) {
+            if (bytes[i] == (byte) '\n') return i;
+        }
+        return -1;
+    }
+
+    private static int[] computeLineAndColumn(byte[] bytes, int offset) {
+        int line = 0;
+        int colSinceLastNl = 0;
+        for (int i = 0; i < Math.min(offset, bytes.length); i++) {
+            if (bytes[i] == (byte) '\n') {
+                line++;
+                colSinceLastNl = 0;
+            } else {
+                colSinceLastNl++;
+            }
+        }
+        return new int[] {line, colSinceLastNl};
+    }
+
+    private static String leadingWhitespaceOfLine(byte[] bytes, int lineStartIndex) {
+        int i = Math.max(0, lineStartIndex);
+        int end = i;
+        while (end < bytes.length) {
+            byte b = bytes[end];
+            if (b == ' ' || b == '\t') {
+                end++;
+                continue;
+            }
+            if (b == '\r') {
+                end++;
+                continue;
+            }
+            if (b == '\n') break;
+            break;
+        }
+        return new String(bytes, i, Math.max(0, end - i), StandardCharsets.UTF_8);
+    }
+
+    private static int lastIndexOf(byte[] haystack, byte[] needle, int fromInclusive, int toExclusive) {
+        if (needle.length == 0) return -1;
+        int start = Math.max(0, Math.min(fromInclusive, haystack.length));
+        int end = Math.max(0, Math.min(toExclusive, haystack.length));
+        for (int i = end - needle.length; i >= start; i--) {
+            int j = 0;
+            for (; j < needle.length; j++) {
+                if (haystack[i + j] != needle[j]) break;
+            }
+            if (j == needle.length) return i;
+        }
+        return -1;
+    }
 }

@@ -299,4 +299,11 @@ public class MultiAnalyzer
                 .flatMap(analyzer -> analyzer.getDirectAncestors(cu).stream())
                 .toList();
     }
+
+    @Override
+    public Optional<InsertionPoint> computeInsertionPointForNewMember(CodeUnit classUnit) {
+        return delegates.values().stream()
+                .flatMap(analyzer -> analyzer.computeInsertionPointForNewMember(classUnit).stream())
+                .findAny();
+    }
 }

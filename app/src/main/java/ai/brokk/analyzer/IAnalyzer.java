@@ -177,6 +177,13 @@ public interface IAnalyzer {
     }
 
     /**
+     * Describes where to insert a new member (method/field/class) within a class-like declaration.
+     * line/column are 0-based and refer to the original file content; byteOffset is an absolute UTF-8 byte offset.
+     * indent is the recommended indentation for the inserted member's first line.
+     */
+    record InsertionPoint(ProjectFile file, int byteOffset, int line, int column, String indent) {}
+
+    /**
      * Returns the direct supertypes/basetypes (non-transitive) for the given CodeUnit.
      * Implementations should return only the immediate ancestors.
      */
@@ -408,5 +415,27 @@ public interface IAnalyzer {
         } else {
             return Optional.empty();
         }
+    }
+
+    /**
+     * Computes a language-aware insertion point for adding a new member under the given parent declaration.
+     *
+     * Semantics for NEXT_OFFSET:
+     * - The parent is the class-like or module-like {@link CodeUnit} identified by the fully-qualified name
+     *   provided with the BRK_NEXT_OFFSET marker.
+     * - If the parent already has members, the returned position should be immediately after the last existing member.
+     *   If the body is empty, the position should be the first valid insertion point inside the body (typically the
+     *   line after the opening brace/colon), on a fresh line.
+     * - The {@code indent} string is the recommended indentation for the first line of the new member (e.g., one level
+     *   deeper than the class/module header in brace-based languages).
+     *
+     * Implementations must ensure the returned location is inside the parent's body and respects language-specific
+     * formatting conventions. The default implementation returns empty; TreeSitter-based analyzers should override.
+     *
+     * @param classUnit a CodeUnit representing the parent class-like/module-like declaration
+     * @return Optional insertion point with file, byte offset, 0-based line/column, and recommended indentation
+     */
+    default Optional<InsertionPoint> computeInsertionPointForNewMember(CodeUnit classUnit) {
+        return Optional.empty();
     }
 }

@@ -5,8 +5,10 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.PythonAnalyzer;
 import ai.brokk.analyzer.update.UpdateTestUtil;
 import ai.brokk.prompts.EditBlockParser;
+import ai.brokk.testutil.AssertionHelperUtil;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.io.File;
@@ -958,6 +960,221 @@ class EditBlockTest {
                 "Commentary should include helpful context from analyzer");
     }
 
+    @Test
+    void testComputeInsertionPointForNewMethod_JavaAnalyzer() throws Exception {
+        var rootDir = UpdateTestUtil.newTempDir();
+        UpdateTestUtil.writeFile(
+                rootDir,
+                "A.java",
+                """
+                public class A {
+                  public int method1() { return 1; }
+                }
+                """);
+
+        var project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
+        var analyzer = new JavaAnalyzer(project);
+
+        var editable = Set.of(new ProjectFile(rootDir, "A.java"));
+        var ctx = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);
+
+        var ipOpt = EditBlock.computeInsertionPointForNewMember(ctx.liveContext(), "A");
+        assertTrue(ipOpt.isPresent(), "Expected insertion point to be present for class A");
+
+        var ip = ipOpt.get();
+        assertEquals("A.java", ip.file().getFileName(), "Insertion point must resolve to A.java");
+
+        // Derive the expected insertion byte offset from the actual file contents:
+        // insert right after the method's closing brace (the first occurrence of "}\n" inside the class).
+        var content = Files.readString(ip.file().absPath());
+        int expectedOffset = content.indexOf("}\n") + 1; // endByte is just after the '}' character
+        assertTrue(expectedOffset > 0, "Expected to find method closer in content");
+        int actual = ip.byteOffset();
+        assertTrue(
+                Math.abs(actual - expectedOffset) <= 1,
+                "Insertion byte offset should align to the method closer (within 1 byte)");
+
+        // Tree-sitter rows are 0-based; the new method should be inserted on the second line (line index 1).
+        assertEquals(1, ip.line(), "Expected 0-based line index 1 (second line)");
+
+        // Column is implementation-dependent; just assert it is non-negative.
+        assertTrue(ip.column() >= 0, "Insertion column should be non-negative");
+
+        // For Java (brace language) expect indent to be one indent unit inside the class
+        assertEquals("  ", ip.indent(), "Expected 2-space indent for Java analyzer");
+    }
+
+    @Test
+    void testInsertNewMethodUsingInsertionPoint_JavaAnalyzer() throws Exception {
+        var rootDir = UpdateTestUtil.newTempDir();
+        UpdateTestUtil.writeFile(
+                rootDir,
+                "A.java",
+                """
+                public class A {
+                  public int method1() { return 1; }
+                }
+                """);
+
+        var project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
+        var analyzer = new JavaAnalyzer(project);
+
+        var editable = Set.of(new ProjectFile(rootDir, "A.java"));
+        var cm = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);
+
+        String response =
+                """
+                ```
+                A.java
+                <<<<<<< SEARCH
+                BRK_NEXT_OFFSET A
+                =======
+                public int newMethod() { return 99; }
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        var blocks = EditBlockParser.instance
+                .parseEditBlocks(response, cm.getFilesInContext())
+                .blocks();
+        var result = EditBlock.apply(cm, new TestConsoleIO(), blocks);
+
+        assertTrue(result.failedBlocks().isEmpty(), "Insertion should succeed without failures");
+
+        var updated = Files.readString(new ProjectFile(rootDir, "A.java").absPath());
+        assertTrue(
+                updated.contains("\n  public int newMethod() { return 99; }\n"),
+                "New method should be indented and on its own line");
+        // Class closing brace should remain and method1 should still be present
+        assertTrue(updated.contains("public int method1() { return 1; }"), "Original method should remain");
+        assertTrue(updated.trim().endsWith("}"), "Class closing brace should still be present");
+        AssertionHelperUtil.assertCodeContains(
+                """
+                public class A {
+                  public int method1() { return 1; }
+                  public int newMethod() { return 99; }
+                }
+                """,
+                updated);
+    }
+
+    @Test
+    void testInsertNewMethodInNestedClass_JavaAnalyzer() throws Exception {
+        var rootDir = UpdateTestUtil.newTempDir();
+        UpdateTestUtil.writeFile(
+                rootDir,
+                "A.java",
+                """
+                public class A {
+                  public class Inner {
+                    public int x() { return 1; }
+                  }
+                }
+                """);
+
+        var project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
+        var analyzer = new JavaAnalyzer(project);
+
+        var editable = Set.of(new ProjectFile(rootDir, "A.java"));
+        var cm = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);
+
+        String response =
+                """
+                ```
+                A.java
+                <<<<<<< SEARCH
+                BRK_NEXT_OFFSET A.Inner
+                =======
+                public int y() { return 2; }
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        var blocks = EditBlockParser.instance
+                .parseEditBlocks(response, cm.getFilesInContext())
+                .blocks();
+        var result = EditBlock.apply(cm, new TestConsoleIO(), blocks);
+
+        assertTrue(result.failedBlocks().isEmpty(), "Insertion should succeed");
+
+        var updated = Files.readString(new ProjectFile(rootDir, "A.java").absPath());
+        assertTrue(updated.contains("public int x() { return 1; }"), "Original inner method should remain");
+        assertTrue(
+                updated.contains("\n    public int y() { return 2; }\n"),
+                "New method should be indented and on its own line");
+        assertTrue(updated.contains("}\n}"), "Closing braces should be present");
+        AssertionHelperUtil.assertCodeContains(
+                """
+                public class A {
+                  public class Inner {
+                    public int x() { return 1; }
+                    public int y() { return 2; }
+                  }
+                }
+                """,
+                updated);
+    }
+
+    @Test
+    void testBrkNextOffset_InEmptyNestedClass_JavaAnalyzer() throws Exception {
+        var rootDir = UpdateTestUtil.newTempDir();
+        UpdateTestUtil.writeFile(
+                rootDir,
+                "A.java",
+                """
+                public class A {
+                  public class Inner {
+                  }
+                }
+                """);
+
+        var project = UpdateTestUtil.newTestProject(rootDir, Languages.JAVA);
+        var analyzer = new JavaAnalyzer(project);
+
+        var editable = Set.of(new ProjectFile(rootDir, "A.java"));
+        var cm = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);
+
+        String response =
+                """
+                ```
+                A.java
+                <<<<<<< SEARCH
+                BRK_NEXT_OFFSET A.Inner
+                =======
+                public int y() { return 2; }
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        var blocks = EditBlockParser.instance
+                .parseEditBlocks(response, cm.getFilesInContext())
+                .blocks();
+        var result = EditBlock.apply(cm, new TestConsoleIO(), blocks);
+
+        assertTrue(result.failedBlocks().isEmpty(), "Insertion should succeed");
+
+        var updated = Files.readString(new ProjectFile(rootDir, "A.java").absPath());
+
+        // Basic presence checks
+        assertTrue(updated.contains("public class Inner {"), "Inner class declaration should be present");
+        assertTrue(updated.contains("public int y() { return 2; }"), "Inserted method text should be present");
+
+        // Ensure the method is inside the inner class body (first valid location for empty body)
+        int innerStart = updated.indexOf("public class Inner {");
+        assertTrue(innerStart >= 0, "Should find inner class start");
+        int methodIdx = updated.indexOf("public int y() { return 2; }", innerStart);
+        assertTrue(methodIdx > innerStart, "Method should appear after the inner class start");
+        int innerClose = updated.indexOf("\n  }\n", innerStart);
+        assertTrue(innerClose > methodIdx, "Method should appear before the inner class closing brace");
+
+        // Indentation: method should be exactly one indent level inside the inner class
+        int innerIndent =
+                AssertionHelperUtil.findIndentOfLineIgnoringLeadingWhitespace(updated, "public class Inner {");
+        int methodIndent =
+                AssertionHelperUtil.findIndentOfLineIgnoringLeadingWhitespace(updated, "public int y() { return 2; }");
+        assertEquals(innerIndent + 2, methodIndent, "New method should be one indent level inside the inner class");
+    }
+
     // ----------------------------------------------------
     // Helper methods
     // ----------------------------------------------------
@@ -969,5 +1186,67 @@ class EditBlockTest {
         var blocks =
                 EditBlockParser.instance.parseEditBlocks(fullResponse, files).blocks();
         return blocks.toArray(new EditBlock.SearchReplaceBlock[0]);
+    }
+
+    @Test
+    void testInsertNewMethodUsingInsertionPoint_PythonAnalyzer_Class() throws Exception {
+        var rootDir = UpdateTestUtil.newTempDir();
+        UpdateTestUtil.writeFile(
+                rootDir,
+                "A.py",
+                """
+                class A:
+                  def method1(self):
+                    return 1
+                """);
+
+        var project = UpdateTestUtil.newTestProject(rootDir, Languages.PYTHON);
+        var analyzer = new PythonAnalyzer(project);
+
+        var editable = Set.of(new ProjectFile(rootDir, "A.py"));
+        var cm = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);
+
+        String response =
+                """
+                ```
+                A.py
+                <<<<<<< SEARCH
+                BRK_NEXT_OFFSET A.A
+                =======
+                def new_method(self):
+                  return 99
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        var blocks = EditBlockParser.instance
+                .parseEditBlocks(response, cm.getFilesInContext())
+                .blocks();
+        var result = EditBlock.apply(cm, new TestConsoleIO(), blocks);
+
+        assertTrue(result.failedBlocks().isEmpty(), "Insertion should succeed without failures");
+
+        var updated = Files.readString(new ProjectFile(rootDir, "A.py").absPath());
+        assertTrue(updated.contains("\n  def method1(self):"), "Original method should remain");
+        assertTrue(updated.contains("\n  def new_method(self):"), "New method should be indented and on its own line");
+    }
+
+    @Test
+    void testComputeInsertionPointForNewMember_PythonAnalyzer_Module() throws Exception {
+        var rootDir = UpdateTestUtil.newTempDir();
+        UpdateTestUtil.writeFile(
+                rootDir, "mod.py", """
+                def foo():
+                  return 1
+                """);
+
+        var project = UpdateTestUtil.newTestProject(rootDir, Languages.PYTHON);
+        var analyzer = new PythonAnalyzer(project);
+
+        var editable = Set.of(new ProjectFile(rootDir, "mod.py"));
+        var cm = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);
+
+        var ipOpt = EditBlock.computeInsertionPointForNewMember(cm.liveContext(), "mod");
+        assertTrue(ipOpt.isEmpty(), "Module-level insertion point is not currently supported for Python modules");
     }
 }
