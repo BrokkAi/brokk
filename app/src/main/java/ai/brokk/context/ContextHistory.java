@@ -174,7 +174,7 @@ public class ContextHistory {
     public synchronized @Nullable Context processExternalFileChangesIfNeeded(Set<ProjectFile> changed) {
         var base = liveContext();
 
-        // Identify only the affected path fragments (by referenced ProjectFiles).
+        // Identify the affected fragments by referenced ProjectFiles
         var toReplace = base.allFragments()
                 .filter(f -> {
                     var filesOpt = f.files().await(SNAPSHOT_AWAIT_TIMEOUT);
