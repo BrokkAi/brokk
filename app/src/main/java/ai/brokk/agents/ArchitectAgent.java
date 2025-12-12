@@ -336,7 +336,14 @@ public class ArchitectAgent {
         cm.getIo().showNotification(
                 IConsoleIO.NotificationRole.INFO,
                 "Build details configured and saved.");
-        return "Build details have been configured and saved successfully.";
+
+        // Immediately verify the build/lint command if configured
+        String verificationMessage = "";
+        if (buildLintCommand != null && !buildLintCommand.isBlank()) {
+            verificationMessage = "\n\n**Verification:** " + verifyBuildCommand(buildLintCommand);
+        }
+
+        return "Build details have been configured and saved successfully." + verificationMessage;
     }
 
     /**
