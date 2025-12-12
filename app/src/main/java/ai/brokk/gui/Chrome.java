@@ -2253,6 +2253,16 @@ public class Chrome
         SwingUtilities.invokeLater(historyOutputPanel::hideSessionSwitchSpinner);
     }
 
+    @Override
+    public void showTransientMessage(String message) {
+        SwingUtilities.invokeLater(() -> historyOutputPanel.showTransientMessage(message));
+    }
+
+    @Override
+    public void hideTransientMessage() {
+        SwingUtilities.invokeLater(historyOutputPanel::hideTransientMessage);
+    }
+
     public void focusInput() {
         SwingUtilities.invokeLater(instructionsPanel::requestCommandInputFocus);
     }
