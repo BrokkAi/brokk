@@ -4,7 +4,6 @@ import ai.brokk.analyzer.ProjectFile;
 import java.awt.KeyboardFocusManager;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -62,7 +61,7 @@ public class LegacyProjectWatchService implements IWatchService {
         this.gitRepoRoot = gitRepoRoot;
         this.globalGitignorePath = globalGitignorePath;
         this.listeners = new CopyOnWriteArrayList<>(listeners);
-        this.gitMetaDir = resolveGitMetaDir(gitRepoRoot);
+        this.gitMetaDir = IWatchService.resolveGitMetaDir(gitRepoRoot);
 
         // Precompute real path for robust comparison (handles symlinks, case-insensitive filesystems)
         if (globalGitignorePath != null) {
@@ -78,32 +77,6 @@ public class LegacyProjectWatchService implements IWatchService {
         } else {
             this.globalGitignoreRealPath = null;
         }
-    }
-
-    /**
-     * Resolves the actual git metadata directory, handling worktrees where .git is a file.
-     * In worktrees, .git is a file containing "gitdir: /path/to/main/.git/worktrees/xxx".
-     */
-    private @Nullable Path resolveGitMetaDir(@Nullable Path gitRepoRoot) {
-        if (gitRepoRoot == null) {
-            return null;
-        }
-        var gitPath = gitRepoRoot.resolve(".git");
-        if (Files.isRegularFile(gitPath)) {
-            // Worktree case: .git is a file pointing to the actual git directory
-            try {
-                var content = Files.readString(gitPath, StandardCharsets.UTF_8).trim();
-                if (content.startsWith("gitdir: ")) {
-                    var gitDirPath = content.substring("gitdir: ".length());
-                    var resolved = Path.of(gitDirPath).normalize();
-                    logger.debug("Resolved worktree git metadata directory: {} -> {}", gitPath, resolved);
-                    return resolved;
-                }
-            } catch (IOException e) {
-                logger.warn("Failed to read .git file for worktree resolution: {}", e.getMessage());
-            }
-        }
-        return gitPath;
     }
 
     @Override
