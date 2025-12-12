@@ -31,9 +31,7 @@ public class SettingsGlobalPanelKeybindingPersistenceTest {
                 (roundTripped.getModifiers() & InputEvent.CTRL_DOWN_MASK) != 0,
                 "Undo should use Ctrl modifier on non-macOS");
         assertEquals(
-                0,
-                roundTripped.getModifiers() & InputEvent.SHIFT_DOWN_MASK,
-                "Undo should not include Shift modifier");
+                0, roundTripped.getModifiers() & InputEvent.SHIFT_DOWN_MASK, "Undo should not include Shift modifier");
     }
 
     @Test

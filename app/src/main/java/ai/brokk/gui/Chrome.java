@@ -61,6 +61,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.prefs.Preferences;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.undo.UndoManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -1250,25 +1251,27 @@ public class Chrome
         });
     }
 
-    private void registerGlobalKeyboardShortcuts() {
-        var rootPane = frame.getRootPane();
-
+    static void registerUndoRedoShortcuts(JRootPane rootPane, Action globalUndoAction, Action globalRedoAction) {
         // Cmd/Ctrl+Z => undo (configurable)
-        KeyStroke undoKeyStroke = GlobalUiSettings.getKeybinding(
-                "global.undo", KeyboardShortcutUtil.createCtrlZ());
+        KeyStroke undoKeyStroke = GlobalUiSettings.getKeybinding("global.undo", KeyboardShortcutUtil.createCtrlZ());
         bindKey(rootPane, undoKeyStroke, "globalUndo");
         rootPane.getActionMap().put("globalUndo", globalUndoAction);
 
         // Cmd/Ctrl+Shift+Z (or Cmd/Ctrl+Y) => redo
-        KeyStroke redoKeyStroke = GlobalUiSettings.getKeybinding(
-                "global.redo", KeyboardShortcutUtil.createCtrlShiftZ());
+        KeyStroke redoKeyStroke =
+                GlobalUiSettings.getKeybinding("global.redo", KeyboardShortcutUtil.createCtrlShiftZ());
         // For Windows/Linux, Ctrl+Y is also common for redo
-        KeyStroke redoYKeyStroke = GlobalUiSettings.getKeybinding(
-                "global.redoY", KeyboardShortcutUtil.createCtrlY());
+        KeyStroke redoYKeyStroke = GlobalUiSettings.getKeybinding("global.redoY", KeyboardShortcutUtil.createCtrlY());
 
         bindKey(rootPane, redoKeyStroke, "globalRedo");
         bindKey(rootPane, redoYKeyStroke, "globalRedo");
         rootPane.getActionMap().put("globalRedo", globalRedoAction);
+    }
+
+    private void registerGlobalKeyboardShortcuts() {
+        var rootPane = frame.getRootPane();
+
+        registerUndoRedoShortcuts(rootPane, globalUndoAction, globalRedoAction);
 
         // Cmd/Ctrl+C => global copy
         KeyStroke copyKeyStroke = GlobalUiSettings.getKeybinding(
@@ -2917,6 +2920,37 @@ public class Chrome
         return inContextPanel || inHistoryTable;
     }
 
+    static void performGlobalRedo(
+            @Nullable Component lastRelevantFocusOwner,
+            JTextArea instructionsArea,
+            UndoManager instructionsUndoManager,
+            JComponent contextAreaRoot,
+            @Nullable JTable historyTable,
+            boolean contextHasRedoStates,
+            Runnable contextRedoInvoker) {
+        if (lastRelevantFocusOwner == instructionsArea) {
+            if (instructionsUndoManager.canRedo()) {
+                instructionsUndoManager.redo();
+            }
+            return;
+        }
+
+        boolean focusInContextArea = lastRelevantFocusOwner != null
+                && (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, contextAreaRoot)
+                        || (historyTable != null
+                                && SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, historyTable)));
+        if (focusInContextArea) {
+            if (contextHasRedoStates) {
+                contextRedoInvoker.run();
+            }
+            return;
+        }
+
+        if (instructionsUndoManager.canRedo()) {
+            instructionsUndoManager.redo();
+        }
+    }
+
     // --- Global Undo/Redo Action Classes ---
     private class GlobalUndoAction extends AbstractAction {
         public GlobalUndoAction(String name) {
@@ -2960,18 +2994,18 @@ public class Chrome
 
         @Override
         public void actionPerformed(ActionEvent e) {
-            if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
-                if (instructionsPanel.getCommandInputUndoManager().canRedo()) {
-                    instructionsPanel.getCommandInputUndoManager().redo();
-                }
-            } else if (isFocusInContextArea(lastRelevantFocusOwner)) {
-                if (contextManager.getContextHistory().hasRedoStates()) {
-                    contextManager.redoContextAsync();
-                }
-            } else if (instructionsPanel.getCommandInputUndoManager().canRedo()) {
-                // Fallback: redo instructions panel when focus is elsewhere
-                instructionsPanel.getCommandInputUndoManager().redo();
-            }
+            JTextArea instructionsArea = instructionsPanel.getInstructionsArea();
+            UndoManager undoManager = instructionsPanel.getCommandInputUndoManager();
+            JTable historyTable = historyOutputPanel.getHistoryTable();
+
+            performGlobalRedo(
+                    lastRelevantFocusOwner,
+                    instructionsArea,
+                    undoManager,
+                    workspacePanel,
+                    historyTable,
+                    contextManager.getContextHistory().hasRedoStates(),
+                    () -> contextManager.redoContextAsync());
         }
 
         public void updateEnabledState() {
