@@ -759,6 +759,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         adder.add("instructions.toggleMode", "Toggle Code/Ask/Lutz");
         adder.add("global.undo", "Undo");
         adder.add("global.redo", "Redo");
+        adder.add("global.redoY", "Redo (Alt)");
         adder.add("global.copy", "Copy");
         adder.add("global.paste", "Paste");
         adder.add("global.toggleMicrophone", "Toggle Microphone");
@@ -890,6 +891,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "instructions.toggleMode",
             "global.undo",
             "global.redo",
+            "global.redoY",
             "global.copy",
             "global.paste",
             "global.toggleMicrophone",
@@ -930,6 +932,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             case "instructions.toggleMode" -> "Toggle Code/Ask/Lutz";
             case "global.undo" -> "Undo";
             case "global.redo" -> "Redo";
+            case "global.redoY" -> "Redo (Alt)";
             case "global.copy" -> "Copy";
             case "global.paste" -> "Paste";
             case "global.toggleMicrophone" -> "Toggle Microphone";
@@ -962,6 +965,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "instructions.toggleMode",
             "global.undo",
             "global.redo",
+            "global.redoY",
             "global.copy",
             "global.paste",
             "global.toggleMicrophone",
@@ -2352,6 +2356,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             case "instructions.toggleMode" -> defaultToggleMode();
             case "global.undo" -> defaultUndo();
             case "global.redo" -> defaultRedo();
+            case "global.redoY" -> KeyboardShortcutUtil.createCtrlY();
             case "global.copy" -> defaultCopy();
             case "global.paste" -> defaultPaste();
             case "global.toggleMicrophone" -> defaultToggleMicrophone();

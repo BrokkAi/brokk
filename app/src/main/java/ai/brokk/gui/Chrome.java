@@ -1255,23 +1255,16 @@ public class Chrome
 
         // Cmd/Ctrl+Z => undo (configurable)
         KeyStroke undoKeyStroke = GlobalUiSettings.getKeybinding(
-                "global.undo",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+                "global.undo", KeyboardShortcutUtil.createCtrlZ());
         bindKey(rootPane, undoKeyStroke, "globalUndo");
         rootPane.getActionMap().put("globalUndo", globalUndoAction);
 
         // Cmd/Ctrl+Shift+Z (or Cmd/Ctrl+Y) => redo
         KeyStroke redoKeyStroke = GlobalUiSettings.getKeybinding(
-                "global.redo",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_Z,
-                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
+                "global.redo", KeyboardShortcutUtil.createCtrlShiftZ());
         // For Windows/Linux, Ctrl+Y is also common for redo
         KeyStroke redoYKeyStroke = GlobalUiSettings.getKeybinding(
-                "global.redoY",
-                KeyStroke.getKeyStroke(
-                        KeyEvent.VK_Y, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+                "global.redoY", KeyboardShortcutUtil.createCtrlY());
 
         bindKey(rootPane, redoKeyStroke, "globalRedo");
         bindKey(rootPane, redoYKeyStroke, "globalRedo");
