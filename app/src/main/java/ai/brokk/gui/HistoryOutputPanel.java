@@ -3760,6 +3760,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return GitDiffUiUtil.formatRelativeDate(instant, LocalDate.now(ZoneId.systemDefault()));
     }
 
+    // Batch size for loading AI response counts in the background.
+    // Chosen as 20 to balance UI responsiveness with background executor load.
+    // Adjusted based on performance testing and typical session list sizes.
     private static final int AI_COUNT_BATCH_SIZE = 20;
 
     /**
