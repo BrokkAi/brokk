@@ -1637,12 +1637,35 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     private void capture(List<FileComparisonInfo> comps) {
         if (comps.isEmpty()) return;
 
+        assert SwingUtilities.isEventDispatchThread() : "capture must be called on EDT";
+
+        boolean isSingle = comps.size() == 1;
+
+        // Capture any editor-based overrides on the EDT before doing background work.
+        var leftOverrides = new LinkedHashMap<FileComparisonInfo, String>();
+        var rightOverrides = new LinkedHashMap<FileComparisonInfo, String>();
+
+        if (isSingle) {
+            var currentComparison = fileComparisons.get(currentFileIndex);
+            if (comps.getFirst() == currentComparison) {
+                var bufferPanel = getBufferDiffPanel();
+                if (bufferPanel != null) {
+                    var leftPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
+                    var rightPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
+                    if (leftPanel != null && rightPanel != null) {
+                        leftOverrides.put(
+                                currentComparison, leftPanel.getEditor().getText());
+                        rightOverrides.put(
+                                currentComparison, rightPanel.getEditor().getText());
+                    }
+                }
+            }
+        }
+
         contextManager.submitBackgroundTask("Capture diffs", () -> {
             var combinedBuilder = new StringBuilder();
             var filesForFragment = new LinkedHashSet<ProjectFile>();
             String primaryDisplayName = null;
-
-            boolean isSingle = comps.size() == 1;
 
             for (FileComparisonInfo comp : comps) {
                 var leftSource = comp.leftSource;
@@ -1651,31 +1674,14 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                 String leftContent;
                 String rightContent;
 
-                // For single-file captures prefer the visible editor contents when present
-                if (isSingle) {
-                    var bufferPanel = getBufferDiffPanel();
-                    var unifiedPanel = getUnifiedDiffPanel();
-                    // Only use editors if the captured comparison is the current visible file
-                    if (bufferPanel != null && fileComparisons.get(currentFileIndex) == comp) {
-                        var leftPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
-                        var rightPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
-                        if (leftPanel == null || rightPanel == null) {
-                            leftContent = leftSource.content();
-                            rightContent = rightSource.content();
-                        } else {
-                            leftContent = leftPanel.getEditor().getText();
-                            rightContent = rightPanel.getEditor().getText();
-                        }
-                    } else if (unifiedPanel != null && fileComparisons.get(currentFileIndex) == comp) {
-                        // Unified panel shows source-based content; use BufferSource.content() for unified
-                        leftContent = leftSource.content();
-                        rightContent = rightSource.content();
-                    } else {
-                        leftContent = leftSource.content();
-                        rightContent = rightSource.content();
-                    }
+                // Use editor overrides when available (single-file capture with an editable BufferDiffPanel).
+                String leftOverride = leftOverrides.get(comp);
+                String rightOverride = rightOverrides.get(comp);
+                if (leftOverride != null && rightOverride != null) {
+                    leftContent = leftOverride;
+                    rightContent = rightOverride;
                 } else {
-                    // Multi-file: always read from sources to avoid depending on visible editors
+                    // Fallback to source content; used for multi-file captures and unified view.
                     leftContent = leftSource.content();
                     rightContent = rightSource.content();
                 }
@@ -1692,7 +1698,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                 String detectedFilename = detectFilename(leftSource, rightSource);
                 String displayName = Optional.ofNullable(detectedFilename).orElse(comp.getDisplayName());
 
-                // Append a simple header per file so the single fragment contains identifiable sections
                 if (!combinedBuilder.isEmpty()) {
                     combinedBuilder.append("\n\n");
                 }
@@ -1710,7 +1715,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
             String description;
             if (isSingle) {
-                var singleInfo = comps.get(0);
+                var singleInfo = comps.getFirst();
                 description =
                         buildCaptureDescription(singleInfo.leftSource, singleInfo.rightSource, primaryDisplayName);
             } else {
