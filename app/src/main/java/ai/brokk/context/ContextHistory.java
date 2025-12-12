@@ -175,9 +175,7 @@ public class ContextHistory {
         var base = liveContext();
 
         // Identify only the affected path fragments (by referenced ProjectFiles).
-        List<ContextFragment.PathFragment> toReplace = base.allFragments()
-                .filter(f -> f instanceof ContextFragment.PathFragment)
-                .map(f -> (ContextFragment.PathFragment) f)
+        var toReplace = base.allFragments()
                 .filter(f -> {
                     var filesOpt = f.files().await(SNAPSHOT_AWAIT_TIMEOUT);
                     return filesOpt.map(projectFiles -> projectFiles.stream().anyMatch(changed::contains))
@@ -190,10 +188,7 @@ public class ContextHistory {
         }
 
         // Refresh only the affected fragments; do NOT precompute text(), to keep snapshots cleared pre-serialization.
-        List<ContextFragment.PathFragment> replacements = toReplace.stream()
-                .map(ContextFragment.PathFragment::refreshCopy)
-                .map(ContextFragment.PathFragment.class::cast)
-                .toList();
+        var replacements = toReplace.stream().map(ContextFragment::refreshCopy).toList();
 
         // Merge: keep all unaffected fragments, but swap in the refreshed ones.
         Context merged = base.removeFragments(toReplace).addFragments(replacements);
