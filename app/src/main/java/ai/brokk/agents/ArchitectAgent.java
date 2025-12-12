@@ -340,7 +340,7 @@ public class ArchitectAgent {
         // Immediately verify the build/lint command if configured
         String verificationMessage = "";
         if (buildLintCommand != null && !buildLintCommand.isBlank()) {
-            verificationMessage = "\n\n**Verification:** " + verifyBuildCommand(buildLintCommand);
+            verificationMessage = "\n\n**Verification:** " + verifyBuildCommand();
         }
 
         return "Build details have been configured and saved successfully." + verificationMessage;
@@ -351,27 +351,17 @@ public class ArchitectAgent {
      * If the command is blank, defaults to the project's configured buildLintCommand.
      * Returns success/failure status, exit code, and a bounded tail of output.
      */
-    @Tool("Verify that a build or lint command works correctly. Leave the command blank to test the project's configured build/lint command. Returns success status, exit code, and output tail.")
-    public String verifyBuildCommand(
-            @P("The shell command to verify (e.g., 'mvn compile', 'cargo check'). Leave blank to use the project's configured buildLintCommand.")
-                    String command) {
+    @Tool("Verify that the project's configured build/lint command works correctly. Returns success status, exit code, and output tail.")
+    public String verifyBuildCommand() {
         var project = cm.getProject();
         var buildDetails = project.loadBuildDetails();
 
-        // Default to buildLintCommand if command is blank
-        String commandToRun = command;
-        if (commandToRun == null || commandToRun.isBlank()) {
-            if (buildDetails != null && !buildDetails.buildLintCommand().isBlank()) {
-                commandToRun = buildDetails.buildLintCommand();
-            } else {
-                return "Error: No build/lint command specified and no default configured. Call setBuildDetails(...) first.";
-            }
+        if (buildDetails == null || buildDetails.buildLintCommand().isBlank()) {
+            return "Error: No build/lint command configured. Call setBuildDetails(...) first.";
         }
 
-        // Execute the verification
-        var result = ai.brokk.util.BuildVerifier.verify(project, commandToRun, buildDetails != null ? buildDetails.environmentVariables() : null);
+        var result = ai.brokk.util.BuildVerifier.verify(project, buildDetails.buildLintCommand(), buildDetails.environmentVariables());
 
-        // Format concise, human/LLM-friendly result
         if (result.success()) {
             return "Build command succeeded (exit code 0).";
         } else {
@@ -1026,7 +1016,7 @@ public class ArchitectAgent {
                     + (io instanceof Chrome
                         ? ", you do not have direct shell access. Use askHuman(...) to request the user run the exact command and paste back the last ~100 lines of output. "
                         + "Typical commands include: npm install/yarn install, pip install -r requirements.txt/poetry install, cargo build, chmod +x ./gradlew, and system package installs via apt-get, brew, or choco. "
-                        + "Once the human completes the command, call verifyBuildCommand(...) again to re-verify the configuration.\n"
+                        + "Once the human completes the command, call verifyBuildCommand again to re-verify the configuration.\n"
                         : ", you cannot proceed further; report the failure.\n")
                     + "If scaffolding files do not exist yet (no build file or package manifest), first create them with callCodeAgent(..., deferBuild=true); once scaffolding is present, call setBuildDetails(...) to configure build/test commands.\n"
                     + "</build-setup>";

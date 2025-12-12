@@ -201,36 +201,27 @@ class ArchitectAgentTest {
     }
 
     /**
-     * Test verifyBuildCommand tool logic: blank command with no default configured.
-     * Simulates the tool's behavior when command is blank and no buildLintCommand is configured.
+     * Test verifyBuildCommand tool logic: no configured build command.
+     * Simulates the tool's behavior when no buildLintCommand is configured.
      * Verifies that the exact helpful error message is returned.
      */
     @Test
-    void verifyBuildCommand_toolLogic_withBlankAndNoDefault_returnsHelpfulMessage() {
+    void verifyBuildCommand_toolLogic_withNoConfiguredCommand_returnsHelpfulMessage() {
         // Arrange: set empty build details (no buildLintCommand)
         project.setBuildDetails(
                 new BuildAgent.BuildDetails("", "", "", java.util.Set.of(), java.util.Map.of()));
 
-        // Act: simulate the tool logic from ArchitectAgent.verifyBuildCommand("")
-        var command = "";
+        // Act: simulate the tool logic from ArchitectAgent.verifyBuildCommand()
         var buildDetails = project.loadBuildDetails();
-        String commandToRun = command;
         String toolResult;
-        if (commandToRun == null || commandToRun.isBlank()) {
-            if (buildDetails != null && !buildDetails.buildLintCommand().isBlank()) {
-                commandToRun = buildDetails.buildLintCommand();
-                // would execute verification here
-                toolResult = "would verify";
-            } else {
-                // This is the exact message from ArchitectAgent.verifyBuildCommand
-                toolResult = "Error: No build/lint command specified and no default configured. Call setBuildDetails(...) first.";
-            }
-        } else {
+        if (buildDetails != null && !buildDetails.buildLintCommand().isBlank()) {
             toolResult = "would verify";
+        } else {
+            toolResult = "Error: No build/lint command configured. Call setBuildDetails(...) first.";
         }
 
         // Assert: exact error message
-        assertTrue(toolResult.contains("Error: No build/lint command specified and no default configured"),
+        assertTrue(toolResult.contains("Error: No build/lint command configured"),
                 "Expected helpful error message when no command available");
         assertTrue(toolResult.contains("Call setBuildDetails(...) first"),
                 "Expected guidance to call setBuildDetails");

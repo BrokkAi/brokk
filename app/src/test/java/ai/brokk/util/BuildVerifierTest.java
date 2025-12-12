@@ -27,13 +27,13 @@ class BuildVerifierTest {
 
     @Test
     void testVerifyFailingCommand() {
-        // Use a simple command that fails on all platforms
-        String command = "false";
+        // Use a non-existent executable path to reliably fail on all platforms
+        String command = "/nonexistent/path/to/build-script";
         TestProject project = createStubProject();
 
         BuildVerifier.Result result = BuildVerifier.verify(project, command, null);
 
-        assertFalse(result.success(), "False command should fail");
+        assertFalse(result.success(), "Non-existent command should fail");
         assertNotEquals(0, result.exitCode(), "Exit code should be non-zero");
         assertNotNull(result.outputTail(), "Output tail should not be null");
     }
