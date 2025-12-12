@@ -31,7 +31,6 @@ public class HybridFileComparison {
 
         long maxSize = Math.max(leftSource.estimatedSizeBytes(), rightSource.estimatedSizeBytes());
 
-        // Use consistent file size validation from FileComparisonHelper
         var sizeValidationError = FileComparisonHelper.validateFileSizes(leftSource, rightSource);
         if (sizeValidationError != null) {
             logger.error("File size validation failed: {}", sizeValidationError);
@@ -87,43 +86,21 @@ public class HybridFileComparison {
             long startTime) {
 
         SwingUtilities.invokeLater(() -> {
-            try {
-                long diffStartTime = System.currentTimeMillis();
+            long diffStartTime = System.currentTimeMillis();
 
-                // Create diff node (panels will compute diff in their initialization)
-                var diffNode = FileComparisonHelper.createDiffNode(
-                        leftSource, rightSource, contextManager, isMultipleCommitsContext);
+            var diffNode = FileComparisonHelper.createDiffNode(
+                    leftSource, rightSource, contextManager, isMultipleCommitsContext);
 
-                long diffCreationTime = System.currentTimeMillis() - diffStartTime;
-                if (diffCreationTime > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS / 2) {
-                    logger.warn("Slow diff node creation: {}ms", diffCreationTime);
-                }
+            long diffCreationTime = System.currentTimeMillis() - diffStartTime;
+            if (diffCreationTime > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS / 2) {
+                logger.warn("Slow diff node creation: {}ms", diffCreationTime);
+            }
 
-                // Create appropriate panel type based on view mode
-                AbstractDiffPanel panel;
-                if (mainPanel.isUnifiedView()) {
-                    panel = createUnifiedDiffPanel(diffNode, mainPanel, theme);
-                } else {
-                    var bufferPanel = new BufferDiffPanel(mainPanel, theme);
-                    bufferPanel.setDiffNode(diffNode);
-                    panel = bufferPanel;
-                }
+            buildAndDisplayPanelOnEdt(diffNode, mainPanel, theme, fileIndex);
 
-                // Cache the panel
-                mainPanel.cachePanel(fileIndex, panel);
-
-                // Display using the proper method that updates navigation buttons
-                mainPanel.displayAndRefreshPanel(fileIndex, panel);
-
-                long totalElapsedTime = System.currentTimeMillis() - startTime;
-
-                if (totalElapsedTime > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS) {
-                    logger.warn("Slow sync diff creation: {}ms", totalElapsedTime);
-                }
-
-            } catch (RuntimeException ex) {
-                logger.error("Error creating sync diff panel", ex);
-                mainPanel.getConsoleIO().toolError("Error creating diff: " + ex.getMessage(), "Error");
+            long elapsedTime = System.currentTimeMillis() - startTime;
+            if (elapsedTime > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS) {
+                logger.warn("Slow sync diff creation: {}ms", elapsedTime);
             }
         });
     }
@@ -146,59 +123,27 @@ public class HybridFileComparison {
                 .formatted(mainPanel.fileComparisons.get(fileIndex).getDisplayName());
 
         contextManager.submitBackgroundTask(taskDescription, () -> {
-            try {
-                // Create diff node and compute diff in background
-                var diffNode = FileComparisonHelper.createDiffNode(
-                        leftSource, rightSource, contextManager, isMultipleCommitsContext);
+            var diffNode = FileComparisonHelper.createDiffNode(
+                    leftSource, rightSource, contextManager, isMultipleCommitsContext);
 
-                diffNode.diff(); // This is the potentially slow operation for large files
+            diffNode.diff();
 
-                // Create panel on EDT after diff computation is complete
-                SwingUtilities.invokeLater(() -> {
-                    try {
-                        // Create appropriate panel type based on view mode
-                        AbstractDiffPanel panel;
-                        if (mainPanel.isUnifiedView()) {
-                            panel = createUnifiedDiffPanel(diffNode, mainPanel, theme);
-                        } else {
-                            var bufferPanel = new BufferDiffPanel(mainPanel, theme);
-                            bufferPanel.setDiffNode(diffNode);
-                            panel = bufferPanel;
-                        }
+            SwingUtilities.invokeLater(() -> {
+                buildAndDisplayPanelOnEdt(diffNode, mainPanel, theme, fileIndex);
 
-                        // Cache the panel
-                        mainPanel.cachePanel(fileIndex, panel);
-
-                        // Display using the proper method that updates navigation buttons
-                        mainPanel.displayAndRefreshPanel(fileIndex, panel);
-
-                        // Performance monitoring
-                        long elapsedTime = System.currentTimeMillis() - startTime;
-
-                        if (elapsedTime > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS * 5) {
-                            logger.warn("Slow async diff creation: {}ms", elapsedTime);
-                        } else {
-                        }
-
-                    } catch (RuntimeException ex) {
-                        logger.error("Error creating async diff panel on EDT", ex);
-                        mainPanel.getConsoleIO().toolError("Error creating diff: " + ex.getMessage(), "Error");
-                    }
-                });
-
-            } catch (RuntimeException ex) {
-                logger.error("Error computing diff in background thread", ex);
-                SwingUtilities.invokeLater(() -> {
-                    mainPanel.getConsoleIO().toolError("Error computing diff: " + ex.getMessage(), "Error");
-                });
-            }
+                long elapsedTime = System.currentTimeMillis() - startTime;
+                if (elapsedTime > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS * 5) {
+                    logger.warn("Slow async diff creation: {}ms", elapsedTime);
+                }
+            });
         });
     }
 
-    /** Creates a UnifiedDiffPanel using the provided JMDiffNode. */
-    private static AbstractDiffPanel createUnifiedDiffPanel(
-            JMDiffNode diffNode, BrokkDiffPanel mainPanel, GuiTheme theme) {
-        try {
+    /** Creates, caches, and displays the appropriate diff panel on the EDT. */
+    private static void buildAndDisplayPanelOnEdt(
+            JMDiffNode diffNode, BrokkDiffPanel mainPanel, GuiTheme theme, int fileIndex) {
+        AbstractDiffPanel panel;
+        if (mainPanel.isUnifiedView()) {
             var unifiedPanel = new UnifiedDiffPanel(mainPanel, theme, diffNode);
 
             // Apply global context mode preference from main panel
@@ -207,16 +152,15 @@ public class HybridFileComparison {
                     : UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
             unifiedPanel.setContextMode(targetMode);
 
-            return unifiedPanel;
-        } catch (Exception e) {
-            logger.error(
-                    "Exception in createUnifiedDiffPanel for JMDiffNode {} - {}: {}",
-                    diffNode.getName(),
-                    e.getClass().getSimpleName(),
-                    e.getMessage(),
-                    e);
-            // Fallback to empty panel that shows the error
-            throw new RuntimeException("Failed to create unified diff panel: " + e.getMessage(), e);
+            panel = unifiedPanel;
+        } else {
+            var bufferPanel = new BufferDiffPanel(mainPanel, theme);
+            bufferPanel.setDiffNode(diffNode);
+            panel = bufferPanel;
         }
+
+        mainPanel.cachePanel(fileIndex, panel);
+        mainPanel.displayAndRefreshPanel(fileIndex, panel);
     }
+
 }

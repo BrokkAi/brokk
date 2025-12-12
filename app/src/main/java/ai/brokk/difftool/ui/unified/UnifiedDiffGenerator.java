@@ -729,17 +729,4 @@ public class UnifiedDiffGenerator {
 
         return textBuilder.toString();
     }
-
-    /** Create a simple unified diff for testing purposes. */
-    public static UnifiedDiffDocument createTestDiff() {
-        var diffLines = List.of(
-                new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.HEADER, "@@ -1,4 +1,4 @@", -1, -1, false),
-                new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.CONTEXT, " Line 1", 1, 1, true),
-                new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.DELETION, "-Old Line 2", 2, -1, false),
-                new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.ADDITION, "+New Line 2", -1, 2, true),
-                new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.CONTEXT, " Line 3", 3, 3, true),
-                new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.CONTEXT, " Line 4", 4, 4, true));
-
-        return new UnifiedDiffDocument(diffLines, UnifiedDiffDocument.ContextMode.STANDARD_3_LINES);
-    }
 }
