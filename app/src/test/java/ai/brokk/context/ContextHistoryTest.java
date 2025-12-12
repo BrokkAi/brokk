@@ -237,8 +237,7 @@ public class ContextHistoryTest {
         var diffs = history.getDiffService().diff(contextWithHistory).join();
 
         // Since file didn't change, expect no diffs; we just ensure computation succeeded
-        assertNotNull(diffs, "Diffs should be computed");
-        assertTrue(diffs.isEmpty(), "No file changes means no diffs");
+        assertTrue(diffs.isEmpty(), diffs.toString());
     }
 
     /**

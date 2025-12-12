@@ -148,7 +148,11 @@ public final class DiffService {
         var diffFutures =
                 candidates.map(cf -> computeDiffForFragment(ctx, cf, other)).toList();
 
-        return diffFutures.stream().map(CompletableFuture::join).toList();
+        return diffFutures.stream()
+                .map(CompletableFuture::join)
+                // cDFF returns null to mean "no changes"
+                .filter(de -> de != null)
+                .toList();
     }
 
     /**
