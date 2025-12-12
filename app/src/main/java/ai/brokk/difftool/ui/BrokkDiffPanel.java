@@ -781,22 +781,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             // Build a friendlier description that shows a shortened hash plus
             // the first-line commit title (trimmed with ... when overly long)
             // Build user-friendly labels for the two sides
-            GitRepo repo = null;
-            try {
-                repo = (GitRepo) contextManager.getProject().getRepo();
-            } catch (Exception lookupEx) {
-                // Commit message lookup is best-effort; log at TRACE and continue.
-                if (logger.isTraceEnabled()) {
-                    logger.trace("Commit message lookup failed: {}", lookupEx.toString());
-                }
-            }
             String displayName = Optional.ofNullable(detectFilename(currentLeftSource, currentRightSource))
                     .orElse(fileComparisons.get(currentFileIndex).getDisplayName());
-            var description = "Captured Diff: %s - %s vs %s"
-                    .formatted(
-                            displayName,
-                            GitDiffUiUtil.friendlyCommitLabel(currentLeftSource.title(), repo),
-                            GitDiffUiUtil.friendlyCommitLabel(currentRightSource.title(), repo));
+            var description = buildCaptureDescription(currentLeftSource, currentRightSource, displayName);
 
             var patch = DiffUtils.diff(leftLines, rightLines, (DiffAlgorithmListener) null);
             var unifiedDiff = UnifiedDiffUtils.generateUnifiedDiff(
@@ -836,13 +823,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             contextManager.submitBackgroundTask("Capture all diffs", () -> {
                 List<ContextFragment> fragments = new ArrayList<>();
 
-                GitRepo repo = null;
-                try {
-                    var r = contextManager.getProject().getRepo();
-                    if (r instanceof GitRepo gr) {
-                        repo = gr;
-                    }
-                } catch (Exception ignore) { /* best-effort */ }
 
                 for (int i = 0; i < fileComparisons.size(); i++) {
                     var comp = fileComparisons.get(i);
@@ -868,10 +848,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                         String displayName = Optional.ofNullable(detectFilename(leftSource, rightSource))
                                 .orElse(comp.getDisplayName());
 
-                        String description = "Captured Diff: %s - %s vs %s".formatted(
-                                displayName,
-                                GitDiffUiUtil.friendlyCommitLabel(leftSource.title(), repo),
-                                GitDiffUiUtil.friendlyCommitLabel(rightSource.title(), repo));
+                        String description = buildCaptureDescription(leftSource, rightSource, displayName);
 
                         String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
                         String detectedFilename = detectFilename(leftSource, rightSource);
@@ -1686,6 +1663,29 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             return f.file().getName();
         }
         return null;
+    }
+
+    /**
+     * Builds the user-facing description for a captured diff, including a display name and
+     * friendly commit labels for the left and right sources.
+     */
+    private String buildCaptureDescription(BufferSource left, BufferSource right, @Nullable String filenameOrDisplayName) {
+        GitRepo repo = null;
+        try {
+            var r = contextManager.getProject().getRepo();
+            if (r instanceof GitRepo gr) {
+                repo = gr;
+            }
+        } catch (Exception ignore) { /* best-effort */ }
+
+        String displayName = (filenameOrDisplayName != null && !filenameOrDisplayName.isBlank())
+                ? filenameOrDisplayName
+                : Optional.ofNullable(detectFilename(left, right)).orElse(left.title());
+
+        return "Captured Diff: %s - %s vs %s".formatted(
+                displayName,
+                GitDiffUiUtil.friendlyCommitLabel(left.title(), repo),
+                GitDiffUiUtil.friendlyCommitLabel(right.title(), repo));
     }
 
     private Set<ProjectFile> collectProjectFilesForSources(BufferSource leftSource, BufferSource rightSource) {
