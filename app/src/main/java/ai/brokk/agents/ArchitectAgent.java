@@ -1020,12 +1020,15 @@ public class ArchitectAgent {
                     + "\n\n<build-setup>\n"
                     + "If the current task is to configure build/test for this project, call setBuildDetails(...) as soon as you have selected the stack "
                     + "(e.g., Java with Gradle or Maven; Python with pytest; Node with Jest). Prefer repository-local wrapper scripts when present "
-                    + "(./gradlew, ./mvnw). You may refine these settings later after scaffolding is created.\n"
-                    + "After you call setBuildDetails(...), immediately verify the configuration by calling callCodeAgent with a minimal verification step that writes a tiny sample file which the configured build/test will naturally pick up (for example, a trivial test case or a no-op source module), and then runs the verification. Use deferBuild=false for this verification step.\n"
+                    + "(./gradlew, ./mvnw).\n"
+                    + "After you call setBuildDetails(...), verification runs automatically and you will see the result. "
+                    + "If verification fails due to missing dependencies, missing permissions, or non-executable wrappers"
                     + (io instanceof Chrome
-                        ? "If verification fails because environment setup is required (e.g., dependency installation or permissions), you do not have shell access. Use askHuman(...) to request the user run the exact command and paste back the relevant output (for example, the last 100 lines or the error section). Typical commands include: npm install/yarn install, pip install -r requirements.txt/poetry install, cargo build, chmod +x ./gradlew, and system package installs via apt-get, brew, or choco. After the human completes the step, re-run the verification callCodeAgent to confirm the configuration.\n"
-                        : "")
-                    + "If scaffolding files do not exist yet (no build file or package manifest), first create them with callCodeAgent(..., deferBuild=true); once scaffolding is present, call setBuildDetails(...), then run the verification step above.\n"
+                        ? ", you do not have direct shell access. Use askHuman(...) to request the user run the exact command and paste back the last ~100 lines of output. "
+                        + "Typical commands include: npm install/yarn install, pip install -r requirements.txt/poetry install, cargo build, chmod +x ./gradlew, and system package installs via apt-get, brew, or choco. "
+                        + "Once the human completes the command, call verifyBuildCommand(...) again to re-verify the configuration.\n"
+                        : ", you cannot proceed further; report the failure.\n")
+                    + "If scaffolding files do not exist yet (no build file or package manifest), first create them with callCodeAgent(..., deferBuild=true); once scaffolding is present, call setBuildDetails(...) to configure build/test commands.\n"
                     + "</build-setup>";
         }
 
