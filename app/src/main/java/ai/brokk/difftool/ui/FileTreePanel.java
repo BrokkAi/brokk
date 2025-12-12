@@ -413,8 +413,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     private String getSourcePath(BufferSource source) {
         if (source instanceof BufferSource.FileSource fs) {
             // For FileSource, always use absolute path to get full directory structure
-            var file = fs.file();
-            return file.getAbsolutePath();
+            return fs.file().absPath().toString();
         } else if (source instanceof BufferSource.StringSource ss && ss.filename() != null) {
             return ss.filename();
         }
@@ -422,8 +421,8 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     }
 
     private DiffStatus determineDiffStatus(BrokkDiffPanel.FileComparisonInfo comparison) {
-        boolean leftExists = hasContent(comparison.leftSource);
-        boolean rightExists = hasContent(comparison.rightSource);
+        boolean leftExists = !comparison.leftSource.content().isEmpty();
+        boolean rightExists = !comparison.rightSource.content().isEmpty();
 
         if (leftExists && !rightExists) {
             return DiffStatus.DELETED;
@@ -434,15 +433,6 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         }
 
         return DiffStatus.UNCHANGED;
-    }
-
-    private boolean hasContent(BufferSource source) {
-        if (source instanceof BufferSource.StringSource ss) {
-            return !ss.content().isEmpty();
-        } else if (source instanceof BufferSource.FileSource fs) {
-            return fs.file().exists() && fs.file().length() > 0;
-        }
-        return false;
     }
 
     private void expandAllNodes() {

@@ -7,7 +7,6 @@ import ai.brokk.difftool.node.StringNode;
 import ai.brokk.difftool.performance.PerformanceConstants;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
-import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import javax.swing.*;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -23,27 +22,7 @@ public class FileComparisonHelper {
     public static JMDiffNode createDiffNode(
             BufferSource left, BufferSource right, ContextManager contextManager, boolean isMultipleCommitsContext) {
 
-        String leftDocSyntaxHint = left.title();
-        String leftFullPath = left.title(); // Store full path for FileNode
-        if (left instanceof BufferSource.StringSource stringSourceLeft && stringSourceLeft.filename() != null) {
-            leftDocSyntaxHint = stringSourceLeft.filename();
-            leftFullPath = stringSourceLeft.filename();
-        } else if (left instanceof BufferSource.FileSource fileSourceLeft) {
-            leftDocSyntaxHint = fileSourceLeft.file().getName();
-            leftFullPath = fileSourceLeft.file().getAbsolutePath(); // Use full path
-        }
-
-        String rightDocSyntaxHint = right.title();
-        String rightFullPath = right.title(); // Store full path for FileNode
-        if (right instanceof BufferSource.StringSource stringSourceRight && stringSourceRight.filename() != null) {
-            rightDocSyntaxHint = stringSourceRight.filename();
-            rightFullPath = stringSourceRight.filename();
-        } else if (right instanceof BufferSource.FileSource fileSourceRight) {
-            rightDocSyntaxHint = fileSourceRight.file().getName();
-            rightFullPath = fileSourceRight.file().getAbsolutePath(); // Use full path
-        }
-
-        String leftFileDisplay = leftDocSyntaxHint;
+        String leftFileDisplay = left.displayName();
         String nodeTitle;
         if (isMultipleCommitsContext) {
             nodeTitle = leftFileDisplay;
@@ -56,15 +35,19 @@ public class FileComparisonHelper {
         // FileSource: Real files on disk, use FileNode with absolute paths for proper ProjectFile creation
         // StringSource: Virtual content from commits/branches, use StringNode with display names
         if (left instanceof BufferSource.FileSource fileSourceLeft) {
-            node.setBufferNodeLeft(new FileNode(leftFullPath, fileSourceLeft.file()));
+            node.setBufferNodeLeft(new FileNode(
+                    fileSourceLeft.file().absPath().toString(),
+                    fileSourceLeft.file().absPath().toFile()));
         } else if (left instanceof BufferSource.StringSource stringSourceLeft) {
-            node.setBufferNodeLeft(new StringNode(leftDocSyntaxHint, stringSourceLeft.content()));
+            node.setBufferNodeLeft(new StringNode(leftFileDisplay, stringSourceLeft.content()));
         }
 
         if (right instanceof BufferSource.FileSource fileSourceRight) {
-            node.setBufferNodeRight(new FileNode(rightFullPath, fileSourceRight.file()));
+            node.setBufferNodeRight(new FileNode(
+                    fileSourceRight.file().absPath().toString(),
+                    fileSourceRight.file().absPath().toFile()));
         } else if (right instanceof BufferSource.StringSource stringSourceRight) {
-            node.setBufferNodeRight(new StringNode(rightDocSyntaxHint, stringSourceRight.content()));
+            node.setBufferNodeRight(new StringNode(right.displayName(), stringSourceRight.content()));
         }
 
         return node;
@@ -77,7 +60,7 @@ public class FileComparisonHelper {
     private static String getDisplayTitleForSource(BufferSource source, ContextManager contextManager) {
         String originalTitle = source.title();
 
-        if (source instanceof BufferSource.FileSource) {
+        if (source.isWorkingTreeSource()) {
             return "Working Tree"; // Represent local files as "Working Tree"
         }
 
@@ -86,12 +69,13 @@ public class FileComparisonHelper {
             return originalTitle; // Handle special markers or blank as is
         }
 
-        if (source instanceof BufferSource.StringSource stringSource) {
-            // Avoid resolving commit metadata for in-memory buffers (no revisionSha) or non-commit-like titles
-            if (stringSource.revisionSha() == null || !isCommitLike(originalTitle)) {
-                return originalTitle;
-            }
+        // Avoid resolving commit metadata for in-memory buffers or non-commit-like titles
+        if (!source.hasRevisionMetadata() || !isCommitLike(originalTitle)) {
+            return originalTitle;
+        }
 
+        // Source has revision metadata, attempt to resolve commit message
+        if (source instanceof BufferSource.StringSource stringSource) {
             IGitRepo repo = contextManager.getProject().getRepo();
             if (repo instanceof GitRepo gitRepo) { // Ensure it's our GitRepo implementation
                 try {
@@ -138,31 +122,13 @@ public class FileComparisonHelper {
     }
 
     /**
-     * Estimates the size of a BufferSource in bytes. Used for preload size checking to avoid loading files that are too
-     * large.
-     */
-    public static long estimateSourceSize(BufferSource source) {
-        if (source instanceof BufferSource.FileSource fileSource) {
-            var file = fileSource.file();
-            if (file.exists() && file.isFile()) {
-                return file.length();
-            }
-            return 0L;
-        } else if (source instanceof BufferSource.StringSource stringSource) {
-            return stringSource.content().getBytes(StandardCharsets.UTF_8).length;
-        }
-        // Unknown source type, return 0
-        return 0L;
-    }
-
-    /**
      * Validates file sizes before loading to prevent UI issues with large files. Returns null if files are valid to
      * load, otherwise returns an error message.
      */
     @Nullable
     public static String validateFileSizes(BufferSource leftSource, BufferSource rightSource) {
-        long leftSize = estimateSourceSize(leftSource);
-        long rightSize = estimateSourceSize(rightSource);
+        long leftSize = leftSource.estimatedSizeBytes();
+        long rightSize = rightSource.estimatedSizeBytes();
         long maxSize = Math.max(leftSize, rightSize);
 
         if (maxSize > PerformanceConstants.MAX_FILE_SIZE_BYTES) {
@@ -185,8 +151,8 @@ public class FileComparisonHelper {
      * is suitable for preloading, false otherwise.
      */
     public static boolean isValidForPreload(BufferSource leftSource, BufferSource rightSource) {
-        long leftSize = estimateSourceSize(leftSource);
-        long rightSize = estimateSourceSize(rightSource);
+        long leftSize = leftSource.estimatedSizeBytes();
+        long rightSize = rightSource.estimatedSizeBytes();
         long maxSize = Math.max(leftSize, rightSize);
 
         return maxSize <= PerformanceConstants.MAX_FILE_SIZE_BYTES;

@@ -6,11 +6,9 @@ import ai.brokk.difftool.performance.PerformanceConstants;
 import ai.brokk.difftool.ui.unified.UnifiedDiffDocument;
 import ai.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import ai.brokk.gui.theme.GuiTheme;
-import java.nio.charset.StandardCharsets;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
 
 /**
  * hybrid file comparison that uses synchronous processing for small files and asynchronous processing only for large
@@ -31,12 +29,7 @@ public class HybridFileComparison {
 
         long startTime = System.currentTimeMillis();
 
-        SizeEstimation leftEstimation = estimateSizeIntelligent(leftSource);
-        SizeEstimation rightEstimation = estimateSizeIntelligent(rightSource);
-
-        long maxSize = Math.max(leftEstimation.estimatedBytes(), rightEstimation.estimatedBytes());
-        boolean isLowConfidence =
-                leftEstimation.confidence() == SizeConfidence.LOW || rightEstimation.confidence() == SizeConfidence.LOW;
+        long maxSize = Math.max(leftSource.estimatedSizeBytes(), rightSource.estimatedSizeBytes());
 
         // Use consistent file size validation from FileComparisonHelper
         var sizeValidationError = FileComparisonHelper.validateFileSizes(leftSource, rightSource);
@@ -54,12 +47,10 @@ public class HybridFileComparison {
         // Warn about potentially problematic files
         if (maxSize > PerformanceConstants.HUGE_FILE_THRESHOLD_BYTES) {
             logger.warn("Processing huge file ({} bytes): may cause memory issues", maxSize);
-        } else if (maxSize > PerformanceConstants.MEDIUM_FILE_THRESHOLD_BYTES) {
         }
 
-        // Use async for large files OR when size estimation is uncertain and file is medium+
-        boolean useAsync = maxSize > PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES
-                || (isLowConfidence && maxSize > PerformanceConstants.MEDIUM_FILE_THRESHOLD_BYTES);
+        // Use async for large files
+        boolean useAsync = maxSize > PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES;
 
         if (useAsync) {
             createAsyncDiffPanel(
@@ -204,64 +195,11 @@ public class HybridFileComparison {
         });
     }
 
-    /**
-     * Intelligently estimates the content size for a BufferSource with confidence assessment. Uses different strategies
-     * based on source type and available information.
-     */
-    private static SizeEstimation estimateSizeIntelligent(BufferSource source) {
-        try {
-            if (source instanceof BufferSource.FileSource fileSource) {
-                var file = fileSource.file();
-                if (file.exists() && file.isFile()) {
-                    long fileSize = file.length();
-                    // High confidence for existing files
-                    return new SizeEstimation(fileSize, SizeConfidence.HIGH, "file.length()");
-                } else {
-                    // File doesn't exist or isn't a regular file
-                    logger.warn("File does not exist or is not regular file: {}", file);
-                    return new SizeEstimation(0L, SizeConfidence.LOW, "file not found");
-                }
-
-            } else if (source instanceof BufferSource.StringSource stringSource) {
-                var content = stringSource.content();
-                // Accurate size calculation for string content
-                long byteSize = content.getBytes(StandardCharsets.UTF_8).length;
-                return new SizeEstimation(byteSize, SizeConfidence.HIGH, "UTF-8 byte count");
-
-            } else {
-                // Unknown BufferSource type - use conservative estimate
-                logger.warn("Unknown BufferSource type: {}", source.getClass().getName());
-                return new SizeEstimation(
-                        PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES / 8, SizeConfidence.LOW, "unknown source type");
-            }
-
-        } catch (RuntimeException ex) {
-            logger.error("Error estimating size for source: {}", source, ex);
-            return new SizeEstimation(
-                    PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES / 4,
-                    SizeConfidence.LOW,
-                    "estimation error: " + ex.getMessage());
-        }
-    }
-
-    /** Represents a size estimation with confidence level and method used. */
-    private record SizeEstimation(long estimatedBytes, SizeConfidence confidence, @Nullable String method) {}
-
-    /** Confidence level in size estimation accuracy. */
-    private enum SizeConfidence {
-        HIGH, // Exact or very accurate (e.g., file.length(), string.getBytes().length)
-        MEDIUM, // Good approximation (e.g., string.length() * avg_char_size)
-        LOW // Rough estimate or fallback (e.g., unknown types, errors)
-    }
-
     /** Creates a UnifiedDiffPanel using the provided JMDiffNode. */
-    private static AbstractDiffPanel createUnifiedDiffPanel(JMDiffNode diffNode, BrokkDiffPanel mainPanel, GuiTheme theme) {
+    private static AbstractDiffPanel createUnifiedDiffPanel(
+            JMDiffNode diffNode, BrokkDiffPanel mainPanel, GuiTheme theme) {
         try {
             var unifiedPanel = new UnifiedDiffPanel(mainPanel, theme, diffNode);
-
-            if (unifiedPanel == null) {
-                throw new RuntimeException("UnifiedDiffPanel constructor returned null");
-            }
 
             // Apply global context mode preference from main panel
             var targetMode = mainPanel.getGlobalShowAllLinesInUnified()

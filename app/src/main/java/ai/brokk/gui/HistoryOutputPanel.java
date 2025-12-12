@@ -3057,15 +3057,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             for (var de : diffs) {
                 var task = contextManager.submitBackgroundTask("Compute diff window entry for:" + de, () -> {
                     String pathDisplay;
-                    try {
-                        var files = de.fragment().files().join();
-                        if (!files.isEmpty()) {
-                            var pf = files.iterator().next();
-                            pathDisplay = pf.getRelPath().toString();
-                        } else {
-                            pathDisplay = de.fragment().shortDescription().join();
-                        }
-                    } catch (Exception ex) {
+                    var files = de.fragment().files().join();
+                    if (!files.isEmpty()) {
+                        var pf = files.iterator().next();
+                        pathDisplay = pf.getRelPath().toString();
+                    } else {
                         pathDisplay = de.fragment().shortDescription().join();
                     }
 

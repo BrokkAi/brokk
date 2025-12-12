@@ -5,8 +5,6 @@ import ai.brokk.difftool.ui.BufferSource;
 import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
 import com.github.difflib.patch.Patch;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -90,8 +88,8 @@ public class UnifiedDiffGenerator {
             BufferSource leftSource, BufferSource rightSource, UnifiedDiffDocument.ContextMode contextMode) {
 
         try {
-            var leftContent = getContentFromSource(leftSource);
-            var rightContent = getContentFromSource(rightSource);
+            var leftContent = leftSource.content();
+            var rightContent = rightSource.content();
 
             var leftLines = splitIntoLines(leftContent);
             var rightLines = splitIntoLines(rightContent);
@@ -524,21 +522,6 @@ public class UnifiedDiffGenerator {
         } catch (Exception e) {
             logger.warn("Failed to parse hunk header: {}", hunkHeader, e);
             return new int[] {1, 1, 1, 1, 0}; // Default fallback
-        }
-    }
-
-    /** Get content string from BufferSource, handling both FileSource and StringSource. */
-    private static String getContentFromSource(BufferSource source) throws Exception {
-        if (source instanceof BufferSource.StringSource stringSource) {
-            return stringSource.content();
-        } else if (source instanceof BufferSource.FileSource fileSource) {
-            var file = fileSource.file();
-            if (!file.exists() || !file.isFile()) {
-                return "";
-            }
-            return Files.readString(file.toPath(), StandardCharsets.UTF_8);
-        } else {
-            throw new IllegalArgumentException("Unsupported BufferSource type: " + source.getClass());
         }
     }
 

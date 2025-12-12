@@ -33,8 +33,6 @@ import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -140,7 +138,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
         private String getSourceName(BufferSource source) {
             if (source instanceof BufferSource.FileSource fs) {
-                return fs.file().getName();
+                return fs.file().getFileName();
             } else if (source instanceof BufferSource.StringSource ss) {
                 return ss.filename() != null ? ss.filename() : ss.title();
             }
@@ -507,21 +505,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         return false;
     }
 
-    /** Get content string from BufferSource, handling both FileSource and StringSource. */
-    private static String getContentFromSource(BufferSource source) throws Exception {
-        if (source instanceof BufferSource.StringSource stringSource) {
-            return stringSource.content();
-        } else if (source instanceof BufferSource.FileSource fileSource) {
-            var file = fileSource.file();
-            if (!file.exists() || !file.isFile()) {
-                return "";
-            }
-            return Files.readString(file.toPath(), StandardCharsets.UTF_8);
-        } else {
-            throw new IllegalArgumentException("Unsupported BufferSource type: " + source.getClass());
-        }
-    }
-
     public void nextFile() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
@@ -760,8 +743,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                 currentRightSource = currentComparison.rightSource;
 
                 try {
-                    leftContent = getContentFromSource(currentLeftSource);
-                    rightContent = getContentFromSource(currentRightSource);
+                    leftContent = currentLeftSource.content();
+                    rightContent = currentRightSource.content();
                 } catch (Exception ex) {
                     logger.warn("Failed to get content from sources for diff capture", ex);
                     return;
@@ -778,7 +761,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             // Generate unified diff text (contextLines = 0 for capture)
             String oldName = currentLeftSource.title();
             String newName = currentRightSource.title();
-            var diffText = ContentDiffUtils.computeDiffResult(leftContent, rightContent, oldName, newName, 0).diff();
+            var diffText = ContentDiffUtils.computeDiffResult(leftContent, rightContent, oldName, newName, 0)
+                    .diff();
 
             var detectedFilename = detectFilename(currentLeftSource, currentRightSource);
 
@@ -819,17 +803,20 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                     var rightSource = comp.rightSource;
 
                     try {
-                        String leftContent = getContentFromSource(leftSource);
-                        String rightContent = getContentFromSource(rightSource);
+                        String leftContent = leftSource.content();
+                        String rightContent = rightSource.content();
 
                         if (Objects.equals(leftContent, rightContent)) {
                             continue;
                         }
 
-                        // Use centralized ContentDiffUtils for normalized unified-diff generation (preserves final-newline)
+                        // Use centralized ContentDiffUtils for normalized unified-diff generation (preserves
+                        // final-newline)
                         String oldName = leftSource.title();
                         String newName = rightSource.title();
-                        var diffText = ContentDiffUtils.computeDiffResult(leftContent, rightContent, oldName, newName, 0).diff();
+                        var diffText = ContentDiffUtils.computeDiffResult(
+                                        leftContent, rightContent, oldName, newName, 0)
+                                .diff();
 
                         String detectedFilename = detectFilename(leftSource, rightSource);
                         String displayName =
@@ -988,11 +975,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             boolean hasRevisionMetadata = false;
             if (currentFileIndex >= 0 && currentFileIndex < fileComparisons.size()) {
                 var comparison = fileComparisons.get(currentFileIndex);
-                if (comparison.leftSource instanceof BufferSource.StringSource leftSS && leftSS.revisionSha() != null) {
+                if (comparison.leftSource.hasRevisionMetadata()) {
                     hasRevisionMetadata = true;
                 }
-                if (comparison.rightSource instanceof BufferSource.StringSource rightSS
-                        && rightSS.revisionSha() != null) {
+                if (comparison.rightSource.hasRevisionMetadata()) {
                     hasRevisionMetadata = true;
                 }
             }
@@ -1427,10 +1413,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         boolean hasRevisionMetadata = false;
         if (fileIndex >= 0 && fileIndex < fileComparisons.size()) {
             var comparison = fileComparisons.get(fileIndex);
-            if (comparison.leftSource instanceof BufferSource.StringSource leftSS && leftSS.revisionSha() != null) {
+            if (comparison.leftSource.hasRevisionMetadata()) {
                 hasRevisionMetadata = true;
             }
-            if (comparison.rightSource instanceof BufferSource.StringSource rightSS && rightSS.revisionSha() != null) {
+            if (comparison.rightSource.hasRevisionMetadata()) {
                 hasRevisionMetadata = true;
             }
         }
@@ -1639,18 +1625,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
     @Nullable
     private String detectFilename(BufferSource leftSource, BufferSource rightSource) {
-        if (leftSource instanceof BufferSource.StringSource s && s.filename() != null) {
-            return s.filename();
-        } else if (leftSource instanceof BufferSource.FileSource f) {
-            return f.file().getName();
+        if (leftSource.filename() != null) {
+            return leftSource.filename();
         }
-
-        if (rightSource instanceof BufferSource.StringSource s && s.filename() != null) {
-            return s.filename();
-        } else if (rightSource instanceof BufferSource.FileSource f) {
-            return f.file().getName();
-        }
-        return null;
+        return rightSource.filename();
     }
 
     /**
@@ -1699,26 +1677,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                 }
             }
         } else if (source instanceof BufferSource.FileSource fs) {
-            var file = fs.file();
-            var rootPath =
-                    contextManager.getProject().getRoot().toAbsolutePath().normalize();
-            var filePath = file.toPath().toAbsolutePath().normalize();
-            if (!filePath.startsWith(rootPath)) {
-                return;
-            }
-            var relPath = rootPath.relativize(filePath).toString().replace('\\', '/');
-            try {
-                var projectFile = contextManager.toFile(relPath);
-                files.add(projectFile);
-            } catch (Exception e) {
-                if (logger.isDebugEnabled()) {
-                    logger.debug(
-                            "Unable to resolve ProjectFile from FileSource path '{}' (relative '{}')",
-                            filePath,
-                            relPath,
-                            e);
-                }
-            }
+            files.add(fs.file());
         }
     }
 
@@ -2564,15 +2523,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         var currentComparison = fileComparisons.get(currentFileIndex);
 
         // Extract revision information from BufferSources
-        String leftRevision = null;
-        String rightRevision = null;
-
-        if (currentComparison.leftSource instanceof BufferSource.StringSource leftStringSource) {
-            leftRevision = leftStringSource.revisionSha();
-        }
-        if (currentComparison.rightSource instanceof BufferSource.StringSource rightStringSource) {
-            rightRevision = rightStringSource.revisionSha();
-        }
+        String leftRevision = currentComparison.leftSource.revisionSha();
+        String rightRevision = currentComparison.rightSource.revisionSha();
 
         final Path finalTargetPath = targetPath;
 
