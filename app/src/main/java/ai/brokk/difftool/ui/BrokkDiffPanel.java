@@ -844,150 +844,14 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         captureDiffButton.setIcon(Icons.CONTENT_CAPTURE);
         captureDiffButton.setToolTipText("Capture Diff");
         captureDiffButton.addActionListener(e -> {
-            String leftContent;
-            String rightContent;
-            BufferSource currentLeftSource;
-            BufferSource currentRightSource;
-
-            // Handle both unified and side-by-side modes
-            var bufferPanel = getBufferDiffPanel();
-            var unifiedPanel = getUnifiedDiffPanel();
-
-            if (bufferPanel != null) {
-                // Side-by-side mode
-                var leftPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
-                var rightPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
-                if (leftPanel == null || rightPanel == null) {
-                    logger.warn("Capture diff called but left or right panel is null");
-                    return;
-                }
-                leftContent = leftPanel.getEditor().getText();
-                rightContent = rightPanel.getEditor().getText();
-
-                // Get the current file comparison sources
-                var currentComparison = fileComparisons.get(currentFileIndex);
-                currentLeftSource = currentComparison.leftSource;
-                currentRightSource = currentComparison.rightSource;
-            } else if (unifiedPanel != null) {
-                // Unified mode - get content from BufferSources
-                var currentComparison = fileComparisons.get(currentFileIndex);
-                currentLeftSource = currentComparison.leftSource;
-                currentRightSource = currentComparison.rightSource;
-
-                try {
-                    leftContent = currentLeftSource.content();
-                    rightContent = currentRightSource.content();
-                } catch (Exception ex) {
-                    logger.warn("Failed to get content from sources for diff capture", ex);
-                    return;
-                }
-            } else {
-                logger.warn("Capture diff called but both bufferPanel and unifiedPanel are null");
-                return;
-            }
-
-            // Build a friendlier description that shows a shortened hash plus the first-line commit title.
-            String displayName = Optional.ofNullable(detectFilename(currentLeftSource, currentRightSource))
-                    .orElse(fileComparisons.get(currentFileIndex).getDisplayName());
-            var description = buildCaptureDescription(currentLeftSource, currentRightSource, displayName);
-            // Generate unified diff text (contextLines = 0 for capture)
-            String oldName = currentLeftSource.title();
-            String newName = currentRightSource.title();
-            var diffText = ContentDiffUtils.computeDiffResult(leftContent, rightContent, oldName, newName, 0)
-                    .diff();
-
-            var detectedFilename = detectFilename(currentLeftSource, currentRightSource);
-
-            var syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
-            if (detectedFilename != null) {
-                int dotIndex = detectedFilename.lastIndexOf('.');
-                if (dotIndex > 0 && dotIndex < detectedFilename.length() - 1) {
-                    var extension = detectedFilename.substring(dotIndex + 1);
-                    syntaxStyle = SyntaxDetector.fromExtension(extension);
-                } else {
-                    // If no extension or malformed, SyntaxDetector might still identify some common filenames
-                    syntaxStyle = SyntaxDetector.fromExtension(detectedFilename);
-                }
-            }
-
-            var filesForFragment = collectProjectFilesForSources(currentLeftSource, currentRightSource);
-
-            var fragment = new ContextFragment.StringFragment(
-                    contextManager, diffText, description, syntaxStyle, filesForFragment);
-            contextManager.submitContextTask(() -> {
-                contextManager.addFragments(fragment);
-                IConsoleIO iConsoleIO = contextManager.getIo();
-                iConsoleIO.showNotification(
-                        IConsoleIO.NotificationRole.INFO, "Added captured diff to context: " + description);
-            });
+            var currentComparison = fileComparisons.get(currentFileIndex);
+            capture(List.of(currentComparison));
         });
 
         // "Capture All Diffs" button (visible for multi-file contexts)
         captureAllDiffsButton.setText("Capture All Diffs");
         captureAllDiffsButton.setToolTipText("Capture all file diffs to the context");
-        captureAllDiffsButton.addActionListener(e -> {
-            contextManager.submitBackgroundTask("Capture all diffs", () -> {
-                List<ContextFragment> fragments = new ArrayList<>();
-
-                for (int i = 0; i < fileComparisons.size(); i++) {
-                    var comp = fileComparisons.get(i);
-                    var leftSource = comp.leftSource;
-                    var rightSource = comp.rightSource;
-
-                    String leftContent = leftSource.content();
-                    String rightContent = rightSource.content();
-
-                    if (Objects.equals(leftContent, rightContent)) {
-                        continue;
-                    }
-
-                    // Use centralized ContentDiffUtils for normalized unified-diff generation (preserves
-                    // final-newline)
-                    String oldName = leftSource.title();
-                    String newName = rightSource.title();
-                    var diffText = ContentDiffUtils.computeDiffResult(
-                                    leftContent, rightContent, oldName, newName, 0)
-                            .diff();
-
-                    String detectedFilename = detectFilename(leftSource, rightSource);
-                    String displayName =
-                            Optional.ofNullable(detectedFilename).orElse(comp.getDisplayName());
-
-                    String description = buildCaptureDescription(leftSource, rightSource, displayName);
-
-                    String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
-
-                    if (detectedFilename != null) {
-                        int dotIndex = detectedFilename.lastIndexOf('.');
-                        if (dotIndex > 0 && dotIndex < detectedFilename.length() - 1) {
-                            var ext = detectedFilename.substring(dotIndex + 1);
-                            syntaxStyle = SyntaxDetector.fromExtension(ext);
-                        } else {
-                            syntaxStyle = SyntaxDetector.fromExtension(detectedFilename);
-                        }
-                    }
-
-                    var filesForFragment = collectProjectFilesForSources(leftSource, rightSource);
-                    var fragment = new ContextFragment.StringFragment(
-                            contextManager, diffText, description, syntaxStyle, filesForFragment);
-                    fragments.add(fragment);
-                }
-
-                if (fragments.isEmpty()) {
-                    contextManager.getIo().showNotification(IConsoleIO.NotificationRole.INFO, "No diffs to capture");
-                } else {
-                    contextManager.submitContextTask(() -> {
-                        contextManager.addFragments(fragments);
-                        contextManager
-                                .getIo()
-                                .showNotification(
-                                        IConsoleIO.NotificationRole.INFO,
-                                        "Added captured diffs for " + fragments.size() + " file(s) to context");
-                    });
-                }
-                return null;
-            });
-        });
+        captureAllDiffsButton.addActionListener(e -> capture(new ArrayList<>(fileComparisons)));
 
         // Add buttons to toolbar with spacing
         toolBar.add(btnPrevious);
@@ -1801,6 +1665,118 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         } else if (source instanceof BufferSource.FileSource fs) {
             files.add(fs.file());
         }
+    }
+
+    /**
+     * Capture one or more file comparisons and add a single StringFragment representing the combined diffs.
+     * If a single file is being captured and the visible buffer panel is present for that file, the current editor
+     * contents are used (including unsaved edits). For multi-file captures the source content is read directly.
+     */
+    private void capture(List<FileComparisonInfo> comps) {
+        if (comps.isEmpty()) return;
+
+        contextManager.submitBackgroundTask("Capture diffs", () -> {
+            var combinedBuilder = new StringBuilder();
+            var filesForFragment = new LinkedHashSet<ProjectFile>();
+            String primaryDisplayName = null;
+
+            boolean isSingle = comps.size() == 1;
+
+            for (FileComparisonInfo comp : comps) {
+                var leftSource = comp.leftSource;
+                var rightSource = comp.rightSource;
+
+                String leftContent;
+                String rightContent;
+
+                // For single-file captures prefer the visible editor contents when present
+                if (isSingle) {
+                    var bufferPanel = getBufferDiffPanel();
+                    var unifiedPanel = getUnifiedDiffPanel();
+                    // Only use editors if the captured comparison is the current visible file
+                    if (bufferPanel != null && fileComparisons.get(currentFileIndex) == comp) {
+                        var leftPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
+                        var rightPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
+                        if (leftPanel == null || rightPanel == null) {
+                            leftContent = leftSource.content();
+                            rightContent = rightSource.content();
+                        } else {
+                            leftContent = leftPanel.getEditor().getText();
+                            rightContent = rightPanel.getEditor().getText();
+                        }
+                    } else if (unifiedPanel != null && fileComparisons.get(currentFileIndex) == comp) {
+                        // Unified panel shows source-based content; use BufferSource.content() for unified
+                        leftContent = leftSource.content();
+                        rightContent = rightSource.content();
+                    } else {
+                        leftContent = leftSource.content();
+                        rightContent = rightSource.content();
+                    }
+                } else {
+                    // Multi-file: always read from sources to avoid depending on visible editors
+                    leftContent = leftSource.content();
+                    rightContent = rightSource.content();
+                }
+
+                if (Objects.equals(leftContent, rightContent)) {
+                    continue;
+                }
+
+                String oldName = leftSource.title();
+                String newName = rightSource.title();
+                var diffText = ContentDiffUtils.computeDiffResult(leftContent, rightContent, oldName, newName, 0)
+                        .diff();
+
+                String detectedFilename = detectFilename(leftSource, rightSource);
+                String displayName = Optional.ofNullable(detectedFilename).orElse(comp.getDisplayName());
+
+                // Append a simple header per file so the single fragment contains identifiable sections
+                if (!combinedBuilder.isEmpty()) {
+                    combinedBuilder.append("\n\n");
+                }
+                combinedBuilder.append("### ").append(displayName).append("\n");
+                combinedBuilder.append(diffText);
+
+                filesForFragment.addAll(collectProjectFilesForSources(leftSource, rightSource));
+                if (primaryDisplayName == null) primaryDisplayName = displayName;
+            }
+
+            if (combinedBuilder.isEmpty()) {
+                contextManager.getIo().showNotification(IConsoleIO.NotificationRole.INFO, "No diffs to capture");
+                return;
+            }
+
+            String description;
+            if (isSingle) {
+                var singleInfo = comps.get(0);
+                description =
+                        buildCaptureDescription(singleInfo.leftSource, singleInfo.rightSource, primaryDisplayName);
+            } else {
+                description = "Captured diffs for " + comps.size() + " file(s)";
+            }
+
+            String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
+            if (primaryDisplayName != null) {
+                int dotIndex = primaryDisplayName.lastIndexOf('.');
+                if (dotIndex > 0 && dotIndex < primaryDisplayName.length() - 1) {
+                    var extension = primaryDisplayName.substring(dotIndex + 1);
+                    syntaxStyle = SyntaxDetector.fromExtension(extension);
+                } else {
+                    syntaxStyle = SyntaxDetector.fromExtension(primaryDisplayName);
+                }
+            }
+
+            var fragment = new ContextFragment.StringFragment(
+                    contextManager, combinedBuilder.toString(), description, syntaxStyle, filesForFragment);
+
+            contextManager.submitContextTask(() -> {
+                contextManager.addFragments(fragment);
+                contextManager
+                        .getIo()
+                        .showNotification(
+                                IConsoleIO.NotificationRole.INFO, "Added captured diffs to context: " + description);
+            });
+        });
     }
 
     @SuppressWarnings("UnusedVariable")
