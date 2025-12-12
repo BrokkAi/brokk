@@ -1167,18 +1167,20 @@ public class Chrome
                 logger.trace("updateGitRepo: using fallback branch label '{}'", branchToDisplay);
             }
             final String display = branchToDisplay;
-            try {
-                // Redundancy guard: only refresh if the displayed branch text actually changed
-                if (lastDisplayedBranchLabel != null && lastDisplayedBranchLabel.equals(display)) {
-                    logger.trace("updateGitRepo: branch unchanged ({}), skipping InstructionsPanel refresh", display);
-                    return;
+            // Only refresh branch UI if it actually changed (avoid redundant UI updates)
+            boolean branchUiNeedsRefresh =
+                    lastDisplayedBranchLabel == null || !lastDisplayedBranchLabel.equals(display);
+            if (branchUiNeedsRefresh) {
+                try {
+                    refreshBranchUi(display);
+                    lastDisplayedBranchLabel = display;
+                } catch (Exception ex) {
+                    logger.warn("updateGitRepo: failed to refresh InstructionsPanel branch UI: {}", ex.getMessage());
                 }
-                // Delegate branch UI updates to the branch selector hosted in Chrome
-                refreshBranchUi(display);
-                lastDisplayedBranchLabel = display;
-            } catch (Exception ex) {
-                logger.warn("updateGitRepo: failed to refresh InstructionsPanel branch UI: {}", ex.getMessage());
+            } else {
+                logger.trace("updateGitRepo: branch unchanged ({}), skipping branch UI refresh", display);
             }
+            // Continue to update git panels even if branch unchanged (e.g., new commits)
         }
 
         // Update individual Git-related panels and log what is being updated
