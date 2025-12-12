@@ -2231,13 +2231,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M);
     }
 
-    private static KeyStroke defaultUndo() {
-        return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_Z);
-    }
+    static KeyStroke defaultUndo() {
+            return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_Z);
+        }
 
-    private static KeyStroke defaultRedo() {
-        return KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_Z);
-    }
+    static KeyStroke defaultRedo() {
+            return KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_Z);
+        }
 
     private static KeyStroke defaultCopy() {
         return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_C);
