@@ -179,8 +179,8 @@ public final class MOPBridge {
 
     public void showTransientMessage(String message) {
         var jsonMessage = toJson(message);
-        var js = "if (window.brokk && window.brokk.showTransientMessage) { window.brokk.showTransientMessage(" + jsonMessage
-                + "); } else { console.error('showTransientMessage called - bridge not ready yet'); }";
+        var js = "if (window.brokk && window.brokk.showTransientMessage) { window.brokk.showTransientMessage("
+                + jsonMessage + "); } else { console.error('showTransientMessage called - bridge not ready yet'); }";
         Platform.runLater(() -> engine.executeScript(js));
     }
 
