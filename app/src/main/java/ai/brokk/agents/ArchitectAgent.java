@@ -340,6 +340,43 @@ public class ArchitectAgent {
     }
 
     /**
+     * A tool to verify a build or lint command without making code changes.
+     * If the command is blank, defaults to the project's configured buildLintCommand.
+     * Returns success/failure status, exit code, and a bounded tail of output.
+     */
+    @Tool("Verify that a build or lint command works correctly. Leave the command blank to test the project's configured build/lint command. Returns success status, exit code, and output tail.")
+    public String verifyBuildCommand(
+            @P("The shell command to verify (e.g., 'mvn compile', 'cargo check'). Leave blank to use the project's configured buildLintCommand.")
+                    String command) {
+        var project = cm.getProject();
+        var buildDetails = project.loadBuildDetails();
+
+        // Default to buildLintCommand if command is blank
+        String commandToRun = command;
+        if (commandToRun == null || commandToRun.isBlank()) {
+            if (buildDetails != null && !buildDetails.buildLintCommand().isBlank()) {
+                commandToRun = buildDetails.buildLintCommand();
+            } else {
+                return "Error: No build/lint command specified and no default configured. Call setBuildDetails(...) first.";
+            }
+        }
+
+        // Execute the verification
+        var result = ai.brokk.util.BuildVerifier.verify(project, commandToRun, buildDetails != null ? buildDetails.environmentVariables() : null);
+
+        // Format concise, human/LLM-friendly result
+        if (result.success()) {
+            return "Build command succeeded (exit code 0).";
+        } else {
+            var statusMsg = result.exitCode() == -1 ? "execution error" : "exit code " + result.exitCode();
+            var outputSummary = result.outputTail().isEmpty()
+                    ? ""
+                    : "\n\nOutput:\n" + result.outputTail();
+            return "Build command failed (" + statusMsg + ")." + outputSummary;
+        }
+    }
+
+    /**
      * A tool that invokes the SearchAgent to perform searches and analysis based on a query. The SearchAgent will
      * decide which specific search/analysis tools to use (e.g., searchSymbols, getFileContents). The results are added
      * as a context fragment.
@@ -512,6 +549,7 @@ public class ArchitectAgent {
 
                 // Agent tools
                 allowed.add("callCodeAgent");
+                allowed.add("verifyBuildCommand");
 
                 // Expose setBuildDetails only when build details are empty
                 var buildDetails = cm.getProject().loadBuildDetails();
