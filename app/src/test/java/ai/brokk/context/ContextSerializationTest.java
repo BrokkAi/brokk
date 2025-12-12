@@ -2414,4 +2414,155 @@ public class ContextSerializationTest {
         assertEquals(1, extractedFiles.size());
         assertEquals("src/RealFile.java", extractedFiles.iterator().next().toString());
     }
+
+    @Test
+    void testPathsWithSpacesAreNotExtracted() throws Exception {
+        // Create a file with spaces in its name (unusual but valid)
+        var fileWithSpace = new ProjectFile(tempDir, "src/My Class.java");
+        Files.createDirectories(fileWithSpace.absPath().getParent());
+        Files.writeString(fileWithSpace.absPath(), "class MyClass {}");
+
+        // Also create a normal file to ensure something is extracted
+        var normalFile = new ProjectFile(tempDir, "src/NormalFile.java");
+        Files.writeString(normalFile.absPath(), "class NormalFile {}");
+
+        String pathList =
+                """
+                src/My Class.java
+                src/NormalFile.java
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager, pathList, "Path list with spaces", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var extractedFiles = fragment.files().join();
+        // Regex intentionally disallows spaces to avoid false positives
+        assertEquals(1, extractedFiles.size());
+        assertEquals("src/NormalFile.java", extractedFiles.iterator().next().toString());
+    }
+
+    @Test
+    void testDuplicatePathsYieldSingleFile() throws Exception {
+        var file = new ProjectFile(tempDir, "src/DuplicateTest.java");
+        Files.createDirectories(file.absPath().getParent());
+        Files.writeString(file.absPath(), "class DuplicateTest {}");
+
+        // Same file mentioned multiple times in different contexts
+        String textWithDuplicates =
+                """
+                Error at src/DuplicateTest.java:10
+                Warning at src/DuplicateTest.java:25
+                Info at src/DuplicateTest.java:30
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager, textWithDuplicates, "Duplicates", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var extractedFiles = fragment.files().join();
+        // LinkedHashSet should deduplicate
+        assertEquals(1, extractedFiles.size());
+        assertEquals("src/DuplicateTest.java", extractedFiles.iterator().next().toString());
+    }
+
+    @Test
+    void testExtensionLengthLimits() throws Exception {
+        // Create files with various extension patterns
+        var normalTs = new ProjectFile(tempDir, "src/Button.component.ts");
+        var shortExt = new ProjectFile(tempDir, "src/Config.json");
+        Files.createDirectories(normalTs.absPath().getParent());
+        Files.writeString(normalTs.absPath(), "export class Button {}");
+        Files.writeString(shortExt.absPath(), "{}");
+
+        // The regex matches extensions 1-10 chars; .component.ts works because
+        // the final segment after the last '.' is 'ts' (2 chars)
+        String pathList =
+                """
+                src/Button.component.ts
+                src/Config.json
+                src/Invalid.verylongextension
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager, pathList, "Extension test", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var extractedFiles = fragment.files().join();
+        var extractedPaths = extractedFiles.stream().map(ProjectFile::toString).collect(Collectors.toSet());
+
+        // .component.ts and .json should match, .verylongextension (18 chars) should not
+        assertEquals(2, extractedFiles.size());
+        assertTrue(extractedPaths.contains("src/Button.component.ts"));
+        assertTrue(extractedPaths.contains("src/Config.json"));
+    }
+
+    @Test
+    void testPasteTextFragmentSerializationPreservesFiles() throws Exception {
+        var file1 = new ProjectFile(tempDir, "src/SerializedFile1.java");
+        var file2 = new ProjectFile(tempDir, "src/SerializedFile2.java");
+        Files.createDirectories(file1.absPath().getParent());
+        Files.writeString(file1.absPath(), "class SerializedFile1 {}");
+        Files.writeString(file2.absPath(), "class SerializedFile2 {}");
+
+        String pathList =
+                """
+                src/SerializedFile1.java
+                src/SerializedFile2.java
+                """;
+
+        var fragment = new ContextFragment.PasteTextFragment(
+                mockContextManager,
+                pathList,
+                CompletableFuture.completedFuture("File list"),
+                CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
+
+        var context = new Context(mockContextManager).addFragments(fragment);
+        var originalHistory = new ContextHistory(context);
+
+        Path zipFile = tempDir.resolve("test_paste_files_serialization.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        var loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        context.awaitContextsAreComputed(Duration.ofSeconds(10));
+        loadedHistory.liveContext().awaitContextsAreComputed(Duration.ofSeconds(10));
+
+        var loadedFragment = (ContextFragment.PasteTextFragment) loadedHistory
+                .liveContext()
+                .allFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.PASTE_TEXT)
+                .findFirst()
+                .orElseThrow();
+
+        var loadedFiles = loadedFragment.files().join();
+        assertEquals(2, loadedFiles.size());
+        var loadedPaths = loadedFiles.stream().map(ProjectFile::toString).collect(Collectors.toSet());
+        assertTrue(loadedPaths.contains("src/SerializedFile1.java"));
+        assertTrue(loadedPaths.contains("src/SerializedFile2.java"));
+    }
+
+    @Test
+    void testPasteTextFragmentExtractsFilesOnFutureTimeout() throws Exception {
+        var file = new ProjectFile(tempDir, "src/TimeoutTest.java");
+        Files.createDirectories(file.absPath().getParent());
+        Files.writeString(file.absPath(), "class TimeoutTest {}");
+
+        String pathList = "src/TimeoutTest.java";
+
+        // Create a future that will fail/timeout
+        var failingDescFuture = new CompletableFuture<String>();
+        failingDescFuture.completeExceptionally(new RuntimeException("Simulated LLM timeout"));
+
+        var failingSyntaxFuture = new CompletableFuture<String>();
+        failingSyntaxFuture.completeExceptionally(new RuntimeException("Simulated LLM failure"));
+
+        var fragment = new ContextFragment.PasteTextFragment(
+                mockContextManager, pathList, failingDescFuture, failingSyntaxFuture);
+
+        // File extraction should still work even when futures fail
+        var extractedFiles = fragment.files().join();
+        assertEquals(1, extractedFiles.size());
+        assertEquals("src/TimeoutTest.java", extractedFiles.iterator().next().toString());
+
+        // Description should fall back to default
+        var desc = fragment.description().join();
+        assertEquals("Paste of pasted content", desc);
+    }
 }
