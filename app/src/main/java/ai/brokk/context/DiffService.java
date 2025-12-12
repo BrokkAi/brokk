@@ -152,6 +152,7 @@ public final class DiffService {
                 .map(CompletableFuture::join)
                 // cDFF returns null to mean "no changes"
                 .filter(de -> de != null)
+                .distinct()
                 .toList();
     }
 
