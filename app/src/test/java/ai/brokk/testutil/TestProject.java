@@ -27,6 +27,7 @@ public class TestProject implements IProject {
     private IProject.CodeAgentTestScope codeAgentTestScope = IProject.CodeAgentTestScope.WORKSPACE;
     private String styleGuide = "";
     private boolean isEmpty = false;
+    private long runCommandTimeoutSeconds = 30;
 
     public TestProject(Path root) {
         this(root, Languages.NONE);
@@ -92,6 +93,14 @@ public class TestProject implements IProject {
     @Override
     public void saveBuildDetails(BuildAgent.BuildDetails details) {
         this.buildDetails = details;
+    }
+
+    public long getRunCommandTimeoutSeconds() {
+        return runCommandTimeoutSeconds;
+    }
+
+    public void setRunCommandTimeoutSeconds(long seconds) {
+        this.runCommandTimeoutSeconds = seconds;
     }
 
     /** Creates a TestProject rooted under src/test/resources/{subDir}. */
