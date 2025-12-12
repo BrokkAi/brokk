@@ -2,6 +2,7 @@ package ai.brokk.gui.util;
 
 import com.formdev.flatlaf.util.SystemInfo;
 import java.awt.GraphicsEnvironment;
+import java.awt.HeadlessException;
 import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
@@ -21,14 +22,21 @@ public class KeyboardShortcutUtil {
 
     /**
      * Returns the platform-appropriate menu shortcut modifier (Cmd on macOS, Ctrl on Windows/Linux).
-     * In headless environments this avoids calling HeadlessToolkit.getMenuShortcutKeyMaskEx() and
-     * instead returns a reasonable default based on the OS.
+     * In headless or semi-headless environments this avoids or guards calls to
+     * HeadlessToolkit.getMenuShortcutKeyMaskEx() and instead returns a reasonable default
+     * based on the OS.
      */
     private static int getPlatformMenuShortcutMask() {
         if (GraphicsEnvironment.isHeadless()) {
             return SystemInfo.isMacOS ? KeyEvent.META_DOWN_MASK : InputEvent.CTRL_DOWN_MASK;
         }
-        return Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+        try {
+            return Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+        } catch (HeadlessException e) {
+            return SystemInfo.isMacOS ? KeyEvent.META_DOWN_MASK : InputEvent.CTRL_DOWN_MASK;
+        } catch (UnsupportedOperationException e) {
+            return SystemInfo.isMacOS ? KeyEvent.META_DOWN_MASK : InputEvent.CTRL_DOWN_MASK;
+        }
     }
 
     /** Creates a platform-appropriate shortcut using Cmd (Mac) or Ctrl (Windows/Linux). */
