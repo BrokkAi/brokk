@@ -28,6 +28,8 @@ For free-form questions: Provide only the 'question' parameter. The human will t
 
 For multiple-choice questions: Provide the 'question' parameter and a non-empty 'choices' list. The human will select one option via radio buttons. This is more efficient than free-form input when the set of acceptable answers is known.
 
+Shell command execution: Since the agent has no direct terminal access (for security), you may ask the human to execute shell commands on your behalf (e.g., installing dependencies with npm/cargo/pip, setting file permissions with chmod, running build commands, etc.). The human will execute the command and report the result back to you.
+
 This tool does not generate code; it only gathers human input.
 """)
     public String askHuman(
