@@ -843,7 +843,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         }
 
         var repo = contextManager.getProject().getRepo();
-        if (!(repo instanceof GitRepo gitRepo)) {
+        if (!(repo instanceof GitRepo)) {
             return new DiffService.CumulativeChanges(0, 0, 0, List.of());
         }
 

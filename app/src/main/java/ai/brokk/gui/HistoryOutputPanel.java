@@ -3131,13 +3131,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 leftCommitSha = "HEAD";
                             }
                             case DETACHED, NO_BASELINE -> {
-                                // No baseline available; no changes to compute in this switch branch.
-                                // Note: earlier guard already returns empty results for these modes.
+                                // Earlier guard already returns empty results for these modes.
+                                throw new AssertionError();
                             }
                         }
 
                         // Use DiffService to summarize changes between baseline and working tree
-                        var summarizedChanges = DiffService.summarizeDiff(repo, leftCommitSha, "WORKING", fileSet);
+                        var summarizedChanges =
+                                DiffService.summarizeDiff(repo, requireNonNull(leftCommitSha), "WORKING", fileSet);
                         var perFileChanges = summarizedChanges.perFileChanges();
                         int totalAdded = summarizedChanges.totalAdded();
                         int totalDeleted = summarizedChanges.totalDeleted();
@@ -3145,7 +3146,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         GitWorkflow.PushPullState pushPullState = null;
                         try {
                             boolean hasUpstream = gitRepo.hasUpstreamBranch(currentBranch);
-                            boolean canPull = hasUpstream;
                             boolean canPush;
                             Set<String> unpushedCommitIds = new HashSet<>();
                             if (hasUpstream) {
@@ -3156,7 +3156,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 canPush = true;
                             }
                             pushPullState =
-                                    new GitWorkflow.PushPullState(hasUpstream, canPull, canPush, unpushedCommitIds);
+                                    new GitWorkflow.PushPullState(hasUpstream, hasUpstream, canPush, unpushedCommitIds);
                         } catch (Exception e) {
                             logger.debug("Failed to evaluate push/pull state for branch {}", currentBranch, e);
                         }

@@ -372,14 +372,14 @@ public final class DiffService {
 
             // Compute left content based on left reference
             String leftContent = "";
-            if (leftRef != null && !leftRef.isBlank()) {
+            if (!leftRef.isBlank()) {
                 var leftFrag = ContextFragment.GitFileFragment.fromCommit(file, leftRef, gitRepo);
                 leftContent = leftFrag.text().join();
             }
 
             // Compute right content based on right reference
             String rightContent = "";
-            if (rightRef != null && !rightRef.isBlank()) {
+            if (!rightRef.isBlank()) {
                 var rightFrag = ContextFragment.GitFileFragment.fromCommit(file, rightRef, gitRepo);
                 rightContent = rightFrag.text().join();
             }
