@@ -432,6 +432,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     private final MaterialButton btnRedo = new MaterialButton();
     private final MaterialButton btnSaveAll = new MaterialButton();
     private final MaterialButton captureDiffButton = new MaterialButton();
+    private final MaterialButton captureAllDiffsButton = new MaterialButton();
 
     // Font size adjustment buttons
     private @Nullable MaterialButton btnDecreaseFont;
@@ -827,6 +828,87 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                         IConsoleIO.NotificationRole.INFO, "Added captured diff to context: " + description);
             });
         });
+
+        // "Capture All Diffs" button (visible for multi-file contexts)
+        captureAllDiffsButton.setText("Capture All Diffs");
+        captureAllDiffsButton.setToolTipText("Capture all file diffs to the context");
+        captureAllDiffsButton.addActionListener(e -> {
+            contextManager.submitBackgroundTask("Capture all diffs", () -> {
+                List<ContextFragment> fragments = new ArrayList<>();
+
+                GitRepo repo = null;
+                try {
+                    var r = contextManager.getProject().getRepo();
+                    if (r instanceof GitRepo gr) {
+                        repo = gr;
+                    }
+                } catch (Exception ignore) { /* best-effort */ }
+
+                for (int i = 0; i < fileComparisons.size(); i++) {
+                    var comp = fileComparisons.get(i);
+                    var leftSource = comp.leftSource;
+                    var rightSource = comp.rightSource;
+
+                    try {
+                        String leftContent = getContentFromSource(leftSource);
+                        String rightContent = getContentFromSource(rightSource);
+
+                        if (Objects.equals(leftContent, rightContent)) {
+                            continue;
+                        }
+
+                        var leftLines = Arrays.asList(leftContent.split("\\R"));
+                        var rightLines = Arrays.asList(rightContent.split("\\R"));
+
+                        var patch = DiffUtils.diff(leftLines, rightLines, (DiffAlgorithmListener) null);
+                        var unified = UnifiedDiffUtils.generateUnifiedDiff(
+                                leftSource.title(), rightSource.title(), leftLines, patch, 0);
+                        var diffText = String.join("\n", unified);
+
+                        String displayName = Optional.ofNullable(detectFilename(leftSource, rightSource))
+                                .orElse(comp.getDisplayName());
+
+                        String description = "Captured Diff: %s - %s vs %s".formatted(
+                                displayName,
+                                GitDiffUiUtil.friendlyCommitLabel(leftSource.title(), repo),
+                                GitDiffUiUtil.friendlyCommitLabel(rightSource.title(), repo));
+
+                        String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
+                        String detectedFilename = detectFilename(leftSource, rightSource);
+                        if (detectedFilename != null) {
+                            int dotIndex = detectedFilename.lastIndexOf('.');
+                            if (dotIndex > 0 && dotIndex < detectedFilename.length() - 1) {
+                                var ext = detectedFilename.substring(dotIndex + 1);
+                                syntaxStyle = SyntaxDetector.fromExtension(ext);
+                            } else {
+                                syntaxStyle = SyntaxDetector.fromExtension(detectedFilename);
+                            }
+                        }
+
+                        var filesForFragment = collectProjectFilesForSources(leftSource, rightSource);
+                        var fragment = new ContextFragment.StringFragment(
+                                contextManager, diffText, description, syntaxStyle, filesForFragment);
+                        fragments.add(fragment);
+                    } catch (Exception ex) {
+                        logger.warn("Failed capturing diff for file index {}: {}", i, ex.getMessage());
+                    }
+                }
+
+                if (fragments.isEmpty()) {
+                    contextManager.getIo().showNotification(
+                            IConsoleIO.NotificationRole.INFO, "No diffs to capture");
+                } else {
+                    contextManager.submitContextTask(() -> {
+                        contextManager.addFragments(fragments);
+                        contextManager.getIo().showNotification(
+                                IConsoleIO.NotificationRole.INFO,
+                                "Added captured diffs for " + fragments.size() + " file(s) to context");
+                    });
+                }
+                return null;
+            });
+        });
+
         // Add buttons to toolbar with spacing
         toolBar.add(btnPrevious);
         toolBar.add(Box.createHorizontalStrut(10)); // 10px spacing
@@ -889,6 +971,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         toolBar.add(btnIncreaseFont);
         toolBar.add(Box.createHorizontalStrut(8));
         toolBar.add(captureDiffButton);
+        if (fileComparisons.size() > 1 || isMultipleCommitsContext) {
+            toolBar.add(Box.createHorizontalStrut(8));
+            toolBar.add(captureAllDiffsButton);
+        }
 
         return toolBar;
     }
