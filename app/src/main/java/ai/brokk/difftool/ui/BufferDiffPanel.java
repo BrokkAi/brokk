@@ -1817,4 +1817,133 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
     public String getCreationContext() {
         return creationContext;
     }
+
+    @Override
+    public void applyBlame(Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> leftMap,
+            Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> rightMap) {
+        var right = getFilePanel(PanelSide.RIGHT);
+        if (right != null) {
+            right.getGutterComponent().setBlameLines(rightMap);
+            right.getGutterComponent().setShowBlame(true);
+            if (hasUnsavedChanges()) {
+                right.getGutterComponent().markBlameStale();
+            }
+        }
+        var left = getFilePanel(PanelSide.LEFT);
+        if (left != null) {
+            left.getGutterComponent().setShowBlame(false);
+        }
+    }
+
+    @Override
+    public void clearBlame() {
+        var left = getFilePanel(PanelSide.LEFT);
+        var right = getFilePanel(PanelSide.RIGHT);
+        if (left != null) {
+            left.getGutterComponent().clearBlame();
+        }
+        if (right != null) {
+            right.getGutterComponent().clearBlame();
+        }
+    }
+
+    @Override
+    @Nullable
+    public java.nio.file.Path getTargetPathForBlame() {
+        var right = getFilePanel(PanelSide.RIGHT);
+        if (right != null) {
+            var bd = right.getBufferDocument();
+            if (bd != null) {
+                String name = bd.getName();
+                if (!name.isBlank()) {
+                    var targetPath = java.nio.file.Paths.get(name);
+                    if (!targetPath.isAbsolute()) {
+                        return targetPath.toAbsolutePath().normalize();
+                    }
+                    return targetPath.normalize();
+                }
+            }
+        }
+        return null;
+    }
+
+    @Override
+    public void applyEditorFontSize(float size) {
+        var leftPanel = getFilePanel(PanelSide.LEFT);
+        var rightPanel = getFilePanel(PanelSide.RIGHT);
+
+        if (leftPanel != null) {
+            try {
+                var editor = leftPanel.getEditor();
+                setEditorFont(editor, size);
+            } catch (Exception ignored) {
+                // Best-effort
+            }
+            try {
+                setGutterFonts(leftPanel.getGutterComponent(), size);
+            } catch (Exception ignored) {
+                // Best-effort
+            }
+        }
+
+        if (rightPanel != null) {
+            try {
+                var editor = rightPanel.getEditor();
+                setEditorFont(editor, size);
+            } catch (Exception ignored) {
+                // Best-effort
+            }
+            try {
+                setGutterFonts(rightPanel.getGutterComponent(), size);
+            } catch (Exception ignored) {
+                // Best-effort
+            }
+        }
+    }
+
+    /**
+     * Set editor font size. Helper method extracted from EditorFontSizeControl pattern.
+     *
+     * @param editor the text editor to update
+     * @param size the font size in points
+     */
+    private void setEditorFont(org.fife.ui.rsyntaxtextarea.RSyntaxTextArea editor, float size) {
+        try {
+            var font = editor.getFont();
+            if (font != null) {
+                editor.setFont(font.deriveFont(size));
+            }
+        } catch (Exception ex) {
+            // Best-effort font application
+        }
+    }
+
+    /**
+     * Set gutter font size including blame font. Helper method extracted from EditorFontSizeControl pattern.
+     *
+     * @param gutter the gutter component to update
+     * @param size the font size in points
+     */
+    private void setGutterFonts(DiffGutterComponent gutter, float size) {
+        try {
+            var gbase = gutter.getFont();
+            if (gbase != null) {
+                var gf = gbase.deriveFont(size);
+                gutter.setFont(gf);
+                try {
+                    gutter.setBlameFont(gf);
+                } catch (Throwable ignored) {
+                    // Best-effort
+                }
+            }
+            gutter.revalidate();
+            gutter.repaint();
+            var parent = gutter.getParent();
+            if (parent != null) {
+                parent.revalidate();
+            }
+        } catch (Exception ex) {
+            // Best-effort font application
+        }
+    }
 }

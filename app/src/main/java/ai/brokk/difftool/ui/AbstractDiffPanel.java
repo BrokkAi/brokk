@@ -7,6 +7,7 @@ import ai.brokk.util.SlidingWindowCache;
 import ai.brokk.util.SyntaxDetector;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import javax.swing.JComponent;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -210,4 +211,37 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
      * modifications to update internal state tracking.
      */
     public abstract void recalcDirty();
+
+    // Blame support - every diff panel must implement these methods
+
+    /**
+     * Apply blame information to this diff panel. The maps use 1-based line numbers as keys.
+     *
+     * @param leftMap blame information for the left/original side (may be empty)
+     * @param rightMap blame information for the right/revised side (may be empty)
+     */
+    public abstract void applyBlame(
+            Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> leftMap,
+            Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> rightMap);
+
+    /** Clear all blame information from this diff panel. */
+    public abstract void clearBlame();
+
+    /**
+     * Get the file path for which this panel should display blame information. Used to resolve the target file for
+     * blame operations. Returns null if blame is not applicable for this panel.
+     *
+     * @return the absolute path to the file to blame, or null if unavailable
+     */
+    @Nullable
+    public abstract java.nio.file.Path getTargetPathForBlame();
+
+    // Font support - every diff panel must implement
+
+    /**
+     * Apply a specific font size to all editors and gutters in this panel.
+     *
+     * @param size the font size in points
+     */
+    public abstract void applyEditorFontSize(float size);
 }

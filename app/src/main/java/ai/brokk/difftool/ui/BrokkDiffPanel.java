@@ -955,26 +955,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         captureDiffButton.setEnabled(true);
 
         // Update blame menu item enabled state
-        // Blame is available for working tree diffs and for StringSource-based diffs with revision metadata
-        // Note: We don't modify isSelected() here - that represents user preference and should persist across file
-        // changes
+        // Blame is available if the panel can provide a target path for blame and it's a git repo
         boolean isGitRepo = contextManager.getProject().getRepo() instanceof GitRepo;
         boolean canShowBlame = false;
         if (isGitRepo && currentDiffPanel != null) {
-            // Check if it's a working tree diff
-            boolean isWorkingTree = isWorkingTreeDiff(currentDiffPanel);
-            // Check if current file has revision metadata for blame
-            boolean hasRevisionMetadata = false;
-            if (currentFileIndex >= 0 && currentFileIndex < fileComparisons.size()) {
-                var comparison = fileComparisons.get(currentFileIndex);
-                if (comparison.leftSource.hasRevisionMetadata()) {
-                    hasRevisionMetadata = true;
-                }
-                if (comparison.rightSource.hasRevisionMetadata()) {
-                    hasRevisionMetadata = true;
-                }
-            }
-            canShowBlame = isWorkingTree || hasRevisionMetadata;
+            canShowBlame = currentDiffPanel.getTargetPathForBlame() != null;
         }
         menuShowBlame.setEnabled(canShowBlame);
 
@@ -1400,27 +1385,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         // IMPORTANT: Sync blame state with menu BEFORE any layout-triggering operations
         // This must happen before applyTheme() and diff() which can trigger layout calculations
         // Note: Always set state explicitly to sync cached panels with current menu state
-        // Blame is supported for both working tree diffs and commit diffs with revision metadata
-        boolean isWorkingTree = isWorkingTreeDiff(cachedPanel);
-        boolean hasRevisionMetadata = false;
-        if (fileIndex >= 0 && fileIndex < fileComparisons.size()) {
-            var comparison = fileComparisons.get(fileIndex);
-            if (comparison.leftSource.hasRevisionMetadata()) {
-                hasRevisionMetadata = true;
-            }
-            if (comparison.rightSource.hasRevisionMetadata()) {
-                hasRevisionMetadata = true;
-            }
-        }
-        boolean canShowBlame = (isWorkingTree || hasRevisionMetadata) && resolveTargetPath(cachedPanel) != null;
+        boolean canShowBlame = cachedPanel.getTargetPathForBlame() != null;
         boolean shouldShowBlame = menuShowBlame.isSelected() && canShowBlame;
-        if (cachedPanel instanceof BufferDiffPanel bp) {
-            var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
-            if (right != null) {
-                right.getGutterComponent().setShowBlame(shouldShowBlame);
-            }
-        } else if (cachedPanel instanceof UnifiedDiffPanel up) {
-            up.setShowGutterBlame(shouldShowBlame);
+        if (shouldShowBlame) {
+            // Blame will be applied asynchronously by updateBlameForPanel
         }
         // Reset auto-scroll flag for file navigation to ensure fresh auto-scroll opportunity
         cachedPanel.resetAutoScrollFlag();
@@ -2100,58 +2068,14 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     }
 
     /**
-     * Apply a specific font size to a single panel's editors and gutters. Handles UnifiedDiffPanel, BufferDiffPanel,
-     * and generic panels with comprehensive logic.
+     * Apply a specific font size to a single panel's editors and gutters using the panel's polymorphic interface.
      *
      * @param panel The panel to update
      * @param size The font size to apply
      */
     private void applySizeToSinglePanel(@Nullable AbstractDiffPanel panel, float size) {
         if (panel == null) return;
-        Component root = panel.getComponent();
-
-        // Special-case UnifiedDiffPanel: use its public getters for reliable access
-        if (panel instanceof UnifiedDiffPanel up) {
-            try {
-                // Apply theme preserving font before setting size
-                theme.applyThemePreservingFont(up.getTextArea());
-                setEditorFont(up.getTextArea(), size);
-            } catch (Exception e) {
-                logger.debug("Unified text area update failed", e);
-            }
-
-            try {
-                var gutter = up.getGutterComponent();
-                if (gutter != null) {
-                    setGutterFonts(gutter, size);
-                }
-            } catch (Exception e) {
-                logger.debug("Unified gutter update failed", e);
-            }
-
-            return;
-        }
-
-        // Special-case BufferDiffPanel: ensure both LEFT and RIGHT FilePanels are updated
-        if (panel instanceof BufferDiffPanel bp) {
-            try {
-                updateFilePanelFonts(bp.getFilePanel(BufferDiffPanel.PanelSide.LEFT), size);
-            } catch (Exception ignored) {
-                // Best-effort: ignore left panel font application errors
-            }
-
-            try {
-                updateFilePanelFonts(bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT), size);
-            } catch (Exception ignored) {
-                // Best-effort: ignore right panel font application errors
-            }
-
-            return;
-        }
-
-        // Generic handling (fallback): find first RSyntaxTextArea and first DiffGutterComponent in component subtree
-        findEditorInComponent(root).ifPresent(editor -> setEditorFont(editor, size));
-        findGutterInComponent(root).ifPresent(gutter -> setGutterFonts(gutter, size));
+        panel.applyEditorFontSize(size);
     }
 
     /**
@@ -2208,102 +2132,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         applyAllEditorFontSizes();
     }
 
-    /**
-     * Set the font for a gutter including line numbers and blame information.
-     *
-     * @param gutter The gutter to update
-     * @param size The font size to apply
-     */
-    private void setGutterFonts(DiffGutterComponent gutter, float size) {
-        try {
-            Font gbase = gutter.getFont();
-            if (gbase != null) {
-                Font gf = gbase.deriveFont(size);
-                gutter.setFont(gf);
-                try {
-                    gutter.setBlameFont(gf);
-                } catch (Throwable ignored) {
-                    // Best-effort: ignore if setBlameFont not supported
-                }
-            } else {
-                gutter.setFont(gutter.getFont().deriveFont(size));
-            }
-            gutter.revalidate();
-            gutter.repaint();
-            // Ensure parent container (scroll pane) recalculates layout for new gutter width
-            var parent = gutter.getParent();
-            if (parent != null) {
-                parent.revalidate();
-            }
-        } catch (Exception ex) {
-            logger.debug("Could not apply font to gutter", ex);
-        }
-    }
-
-    /**
-     * Update fonts for a FilePanel (editor, gutter, and viewport cache).
-     *
-     * @param filePanel The FilePanel to update
-     * @param size The font size to apply
-     */
-    private void updateFilePanelFonts(@Nullable FilePanel filePanel, float size) {
-        if (filePanel == null) return;
-
-        try {
-            setEditorFont(filePanel.getEditor(), size);
-        } catch (Exception ex) {
-            logger.debug("Could not apply font to file panel editor", ex);
-        }
-
-        try {
-            setGutterFonts(filePanel.getGutterComponent(), size);
-        } catch (Exception ex) {
-            logger.debug("Could not apply font to file panel gutter", ex);
-        }
-
-        try {
-            filePanel.invalidateViewportCache();
-        } catch (Exception ignored) {
-            // Best-effort: ignore cache invalidation errors
-        }
-
-        // Ensure scroll pane recalculates layout for new gutter width
-        try {
-            filePanel.getScrollPane().revalidate();
-        } catch (Exception ignored) {
-            // Best-effort: ignore scroll pane revalidation errors
-        }
-    }
-
-    // updateSyntaxSchemeFonts and setEditorFont delegated to EditorFontSizeControl interface
-
-    /** Recursively search the component tree for the first RSyntaxTextArea instance and return it. */
-    private Optional<RSyntaxTextArea> findEditorInComponent(Component c) {
-        if (c instanceof RSyntaxTextArea rte) {
-            return Optional.of(rte);
-        }
-        if (c instanceof Container container) {
-            for (Component child : container.getComponents()) {
-                var res = findEditorInComponent(child);
-                if (res.isPresent()) return res;
-            }
-        }
-        return Optional.empty();
-    }
-
-    /** Recursively search the component tree for the first DiffGutterComponent instance and return it. */
-    private Optional<DiffGutterComponent> findGutterInComponent(Component c) {
-        if (c instanceof DiffGutterComponent dg) {
-            return Optional.of(dg);
-        }
-        if (c instanceof Container container) {
-            for (Component child : container.getComponents()) {
-                var res = findGutterInComponent(child);
-                if (res.isPresent()) return res;
-            }
-        }
-        return Optional.empty();
-    }
 
     /**
      * Reset layout hierarchy to fix broken container relationships after file navigation. This rebuilds the
@@ -2488,88 +2316,13 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         return errorMsg.toLowerCase(Locale.ROOT);
     }
 
-    /**
-     * Resolves file path from panel for blame, converting relative paths to absolute. Returns null if path unavailable.
-     */
-    private @Nullable Path resolveTargetPath(AbstractDiffPanel panel) {
-        Path targetPath = null;
 
-        try {
-            if (panel instanceof BufferDiffPanel bp) {
-                var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
-                if (right != null) {
-                    var bd = right.getBufferDocument();
-                    if (bd != null) {
-                        String name = bd.getName();
-                        if (!name.isBlank()) {
-                            targetPath = Paths.get(name);
-                        } else {
-                            logger.debug("Document has no name/path for blame");
-                            return null;
-                        }
-                    }
-                }
-            } else if (panel instanceof UnifiedDiffPanel up) {
-                var dn = up.getDiffNode();
-                if (dn != null) {
-                    var rightNode = dn.getBufferNodeRight();
-                    if (rightNode != null) {
-                        var doc = rightNode.getDocument();
-                        String name = doc.getName();
-                        if (!name.isBlank()) {
-                            targetPath = Paths.get(name);
-                        } else {
-                            logger.debug("Document has no name/path for blame");
-                            return null;
-                        }
-                    }
-                }
-            }
-
-            if (targetPath == null) {
-                logger.debug("No file path found for blame");
-                return null;
-            }
-
-            if (!targetPath.isAbsolute()) {
-                var repo = contextManager.getProject().getRepo();
-                if (repo instanceof GitRepo gitRepo) {
-                    targetPath = gitRepo.getGitTopLevel().resolve(targetPath).normalize();
-                } else {
-                    targetPath = targetPath.toAbsolutePath().normalize();
-                }
-            }
-        } catch (Exception ex) {
-            logger.warn("Failed to resolve target path for blame: {}", ex.getMessage());
-            return null;
-        }
-
-        return targetPath;
-    }
-
-    /** Applies blame to gutter. Side-by-side: right gutter only. Unified: both left (HEAD) and right (working tree). */
+    /** Applies blame to gutter using the panel's polymorphic interface. */
     private void applyBlameMapsToPanel(
             AbstractDiffPanel panel,
             Map<Integer, BlameService.BlameInfo> leftMap,
             Map<Integer, BlameService.BlameInfo> rightMap) {
-        if (panel instanceof BufferDiffPanel bp) {
-            var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
-            if (right != null) {
-                right.getGutterComponent().setBlameLines(rightMap);
-                right.getGutterComponent().setShowBlame(true);
-                if (bp.hasUnsavedChanges()) {
-                    right.getGutterComponent().markBlameStale();
-                }
-            }
-            var left = bp.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
-            if (left != null) {
-                left.getGutterComponent().setShowBlame(false);
-            }
-        } else if (panel instanceof UnifiedDiffPanel up) {
-            up.setGutterBlameData(rightMap);
-            up.setGutterLeftBlameData(leftMap);
-            up.setShowGutterBlame(true);
-        }
+        panel.applyBlame(leftMap, rightMap);
     }
 
     /**
@@ -2596,18 +2349,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
     private void updateBlameForPanel(AbstractDiffPanel panel, boolean show) {
         if (!show) {
-            if (panel instanceof BufferDiffPanel bp) {
-                var left = bp.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
-                var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
-                if (left != null) left.getGutterComponent().clearBlame();
-                if (right != null) right.getGutterComponent().clearBlame();
-            } else if (panel instanceof UnifiedDiffPanel up) {
-                up.setShowGutterBlame(false);
-            }
+            panel.clearBlame();
             return;
         }
 
-        var targetPath = resolveTargetPath(panel);
+        var targetPath = panel.getTargetPathForBlame();
         if (targetPath == null) {
             return;
         }
