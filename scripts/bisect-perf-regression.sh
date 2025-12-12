@@ -8,7 +8,8 @@
 #   scripts/bisect-perf-regression.sh [options] <good_commit> <bad_commit>
 #
 # Options:
-#   --iterations N        Number of iterations per commit (default: 3)
+#   --mode MODE           Preset mode: 'fast' or 'full'. 'full' matches CI defaults. Aliases: --fast, --full
+#   --iterations N        Number of iterations per commit (default: 3; in --mode fast defaults to 1 unless overridden)
 #   --retries M           Retries per iteration when JSON is not produced and decision retries for midpoint when inconclusive (default: 1)
 #   --runner-args "..."   Arguments to scripts/run-treesitter-repos.sh (must include a command)
 #                         Example: --runner-args "chromium-cpp --max-files 1000 --json"
@@ -17,7 +18,13 @@
 #   -h, --help            Show this help
 #
 # Examples:
-#   # Fast path (small run; good for quick signals)
+#   # Fast mode (1 warm-up + 1 measured iteration; max-files 100)
+#   scripts/bisect-perf-regression.sh <good> <bad> --mode fast
+#
+#   # Full mode (matches CI defaults; full with max-files 1000)
+#   scripts/bisect-perf-regression.sh <good> <bad> --mode full
+#
+#   # Fast path (custom; small run; good for quick signals)
 #   scripts/bisect-perf-regression.sh <good> <bad> --runner-args "run-baselines --max-files 200 --json"
 #
 #   # Project-specific test (OpenJDK / Java)
@@ -48,6 +55,9 @@ RETRIES=1
 RUNNER_ARGS="full --max-files 1000 --json"
 WORKDIR=""
 KEEP_WORKTREES=false
+MODE=""
+USER_SET_ITER=false
+USER_PROVIDED_RUNNER_ARGS=false
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [[ -z "${REPO_ROOT}" ]] || [[ ! -d "${REPO_ROOT}" ]]; then
@@ -82,7 +92,8 @@ Usage:
   $(basename "$0") [options] <good_commit> <bad_commit>
 
 Options:
-  --iterations N        Number of iterations per commit (default: ${ITERATIONS})
+  --mode MODE           Preset mode: 'fast' or 'full'. 'full' matches CI defaults. Aliases: --fast, --full
+  --iterations N        Number of iterations per commit (default: ${ITERATIONS}; in --mode fast defaults to 1 unless overridden)
   --retries M           Retries per iteration when JSON is not produced and decision retries for midpoint when inconclusive (default: ${RETRIES})
   --runner-args "..."   Arguments passed to run-treesitter-repos.sh. Must include a command.
                         Example: --runner-args "chromium-cpp --max-files 1000 --json"
@@ -91,7 +102,8 @@ Options:
   -h, --help            Show this help
 
 Notes:
-- Default runner args: full --max-files 1000 --json
+- Default runner args: full --max-files 1000 --json (matches --mode full)
+- --mode fast sets: run-baselines --max-files 100 --warm-up-iterations 1 --iterations 1 --json, and defaults bisect iterations to 1 unless explicitly overridden.
 - Default projects dataset dir: <repo>/test-projects (auto-prepared via 'setup' if missing)
 - The runner should produce JSON results (--json). If not present in --runner-args, --json will be appended automatically.
 - If --projects-dir is not present in --runner-args, it will default to the path above.
@@ -99,7 +111,13 @@ Notes:
 - Artifacts will be stored under: <workdir>/{results,logs,worktrees}
 
 Examples:
-  Fast path:
+  Fast mode (1 warm-up + 1 measured; max-files 100):
+    $(basename "$0") <good_commit> <bad_commit> --mode fast
+
+  Full mode (matches CI defaults):
+    $(basename "$0") <good_commit> <bad_commit> --mode full
+
+  Fast path (custom):
     $(basename "$0") <good_commit> <bad_commit> --runner-args "run-baselines --max-files 200 --json"
 
   Project-specific (OpenJDK / Java):
@@ -365,6 +383,20 @@ parse_args() {
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      --mode)
+        shift
+        MODE="${1:-}"
+        if [[ "${MODE}" != "fast" && "${MODE}" != "full" ]]; then
+          echo -e "${RED}--mode must be either 'fast' or 'full'${NC}" >&2
+          exit 1
+        fi
+        ;;
+      --fast)
+        MODE="fast"
+        ;;
+      --full)
+        MODE="full"
+        ;;
       --iterations)
         shift
         ITERATIONS="${1:-}"
@@ -372,6 +404,7 @@ parse_args() {
           echo -e "${RED}--iterations must be a positive integer${NC}" >&2
           exit 1
         fi
+        USER_SET_ITER=true
         ;;
       --retries)
         shift
@@ -384,6 +417,7 @@ parse_args() {
       --runner-args)
         shift
         RUNNER_ARGS="${1:-}"
+        USER_PROVIDED_RUNNER_ARGS=true
         ;;
       --workdir)
         shift
@@ -421,6 +455,21 @@ parse_args() {
 
   GOOD_COMMIT="$1"
   BAD_COMMIT="$2"
+
+  # Apply mode preset if provided and no explicit --runner-args
+  if [[ -n "${MODE}" && "${USER_PROVIDED_RUNNER_ARGS}" == "true" ]]; then
+    echo -e "${YELLOW}Note: --runner-args provided; overriding --mode ${MODE}.${NC}" >&2
+  elif [[ -n "${MODE}" && "${USER_PROVIDED_RUNNER_ARGS}" != "true" ]]; then
+    if [[ "${MODE}" == "fast" ]]; then
+      RUNNER_ARGS="run-baselines --max-files 100 --warm-up-iterations 1 --iterations 1 --json"
+      if [[ "${USER_SET_ITER}" != "true" ]]; then
+        ITERATIONS=1
+      fi
+    elif [[ "${MODE}" == "full" ]]; then
+      RUNNER_ARGS="full --max-files 1000 --json"
+      # ITERATIONS remains as configured unless explicitly set by user
+    fi
+  fi
 
   # Ensure --json and default projects-dir in runner args
   RUNNER_ARGS="$(ensure_json_flag "${RUNNER_ARGS}")"
