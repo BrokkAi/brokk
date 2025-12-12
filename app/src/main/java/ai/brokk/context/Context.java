@@ -1180,8 +1180,49 @@ public class Context {
         return withTaskList(json, action);
     }
 
+    /**
+     * Refreshes all computed fragments in this context without filtering.
+     * Equivalent to calling {@link #copyAndRefresh(Set)} with all fragments.
+     *
+     * @return a new context with refreshed fragments, or this context if no changes occurred
+     */
+    @Blocking
+    public Context copyAndRefresh() {
+        return copyAndRefreshInternal(Set.copyOf(fragments));
+    }
+
+    /**
+     * Refreshes fragments whose source files intersect the provided set.
+     *
+     * @param maybeChanged set of project files that may have changed
+     * @return a new context with refreshed fragments, or this context if no changes occurred
+     */
     @Blocking
     public Context copyAndRefresh(Set<ProjectFile> maybeChanged) {
+        if (maybeChanged.isEmpty()) {
+            return this;
+        }
+
+        // Map each fragment to the set of ProjectFiles it contains
+        var fragmentsToRefresh = new HashSet<ContextFragment>();
+        for (var f : fragments) {
+            if (!Collections.disjoint(f.files().join(), maybeChanged)) {
+                fragmentsToRefresh.add(f);
+            }
+        }
+
+        return copyAndRefreshInternal(fragmentsToRefresh);
+    }
+
+    /**
+     * Core refresh logic: refreshes the specified fragments and tracks content changes via diff.
+     * Handles remapping read-only membership for replaced fragments.
+     *
+     * @param maybeChanged the set of fragments to potentially refresh
+     * @return a new context with refreshed fragments, or this context if no changes occurred
+     */
+    @Blocking
+    private Context copyAndRefreshInternal(Set<ContextFragment> maybeChanged) {
         if (maybeChanged.isEmpty()) {
             return this;
         }
@@ -1193,11 +1234,9 @@ public class Context {
         var replacementMap = new HashMap<ContextFragment, ContextFragment>();
 
         for (var f : fragments) {
-            // Refresh computed fragments whose referenced files intersect the changed set
-            boolean intersects = !Collections.disjoint(f.files().join(), maybeChanged);
             ContextFragment fragmentToAdd = f;
-            
-            if (intersects) {
+
+            if (maybeChanged.contains(f)) {
                 var refreshed = f.refreshCopy();
                 if (refreshed != f) {
                     // Check if content actually differs using DiffService
