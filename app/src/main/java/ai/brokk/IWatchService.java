@@ -33,7 +33,8 @@ public interface IWatchService extends AutoCloseable {
                 var content = Files.readString(gitPath, StandardCharsets.UTF_8).trim();
                 if (content.startsWith("gitdir: ")) {
                     var gitDirPath = content.substring("gitdir: ".length());
-                    var resolved = Path.of(gitDirPath).normalize();
+                    // Resolve against .git file's parent to handle both absolute and relative paths
+                    var resolved = gitPath.getParent().resolve(gitDirPath).normalize();
                     logger.debug("Resolved worktree git metadata directory: {} -> {}", gitPath, resolved);
                     return resolved;
                 }
