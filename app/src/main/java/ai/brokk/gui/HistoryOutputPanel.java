@@ -3179,7 +3179,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                     : "";
 
                             // Compute right content (working tree)
-                            String rightContent = DiffPanelUtils.safeReadWorkingTree(file);
+                            String rightContent = file.read().orElse("");
 
                             // Compute line counts
                             int[] netCounts = DiffPanelUtils.computeNetLineCounts(leftContent, rightContent);

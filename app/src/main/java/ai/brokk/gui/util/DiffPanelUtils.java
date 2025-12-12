@@ -5,11 +5,10 @@ import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.util.ContentDiffUtils;
 import java.awt.Color;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -45,24 +44,8 @@ public final class DiffPanelUtils {
         try {
             String content = repo.getFileContent(commitId, file);
             return content.isEmpty() ? "" : content;
-        } catch (Exception e) {
+        } catch (GitAPIException e) {
             logger.debug("Failed to get file content for {} at {}", file, commitId, e);
-            return "";
-        }
-    }
-
-    /**
-     * Safely reads file content from the working tree, returning empty string on error.
-     */
-    public static String safeReadWorkingTree(ProjectFile file) {
-        try {
-            if (Files.exists(file.absPath())) {
-                return Files.readString(file.absPath(), StandardCharsets.UTF_8);
-            } else {
-                return "";
-            }
-        } catch (Exception e) {
-            logger.debug("Failed to read working tree file {}", file, e);
             return "";
         }
     }
