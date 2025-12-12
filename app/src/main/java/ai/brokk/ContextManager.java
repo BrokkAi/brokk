@@ -372,9 +372,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             globalGitignorePath = abstractProject.getGlobalGitignorePath().orElse(null);
         }
         // Create watch service using factory (selects best implementation for platform)
+        // Use project.getRoot() for gitRepoRoot so worktrees resolve their external git metadata
         var watchService = WatchServiceFactory.create(
                 project.getRoot(),
-                project.hasGit() ? project.getRepo().getGitTopLevel() : null,
+                project.hasGit() ? project.getRoot() : null,
                 globalGitignorePath,
                 List.of() // Start with empty listeners
                 );
@@ -530,7 +531,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     IWatchService.Listener createFileWatchListener() {
         Path gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
-        FileWatcherHelper helper = new FileWatcherHelper(project.getRoot(), gitRepoRoot);
+        FileWatcherHelper helper = new FileWatcherHelper(gitRepoRoot);
 
         return new IWatchService.Listener() {
             @Override

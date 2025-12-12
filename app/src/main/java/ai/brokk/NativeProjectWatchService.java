@@ -6,6 +6,7 @@ import ai.brokk.analyzer.ProjectFile;
 import io.methvin.watcher.DirectoryChangeEvent;
 import io.methvin.watcher.DirectoryWatcher;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -79,7 +80,7 @@ public class NativeProjectWatchService implements IWatchService {
         this.gitRepoRoot = gitRepoRoot;
         this.globalGitignorePath = globalGitignorePath;
         this.listeners = new CopyOnWriteArrayList<>(listeners);
-        this.gitMetaDir = (gitRepoRoot != null) ? gitRepoRoot.resolve(".git") : null;
+        this.gitMetaDir = resolveGitMetaDir(gitRepoRoot);
 
         // Initialize debounce executor
         this.debounceExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -103,6 +104,32 @@ public class NativeProjectWatchService implements IWatchService {
         } else {
             this.globalGitignoreRealPath = null;
         }
+    }
+
+    /**
+     * Resolves the actual git metadata directory, handling worktrees where .git is a file.
+     * In worktrees, .git is a file containing "gitdir: /path/to/main/.git/worktrees/xxx".
+     */
+    private static @Nullable Path resolveGitMetaDir(@Nullable Path gitRepoRoot) {
+        if (gitRepoRoot == null) {
+            return null;
+        }
+        var gitPath = gitRepoRoot.resolve(".git");
+        if (Files.isRegularFile(gitPath)) {
+            // Worktree case: .git is a file pointing to the actual git directory
+            try {
+                var content = Files.readString(gitPath, StandardCharsets.UTF_8).trim();
+                if (content.startsWith("gitdir: ")) {
+                    var gitDirPath = content.substring("gitdir: ".length());
+                    var resolved = Path.of(gitDirPath).normalize();
+                    logger.debug("Resolved worktree git metadata directory: {} -> {}", gitPath, resolved);
+                    return resolved;
+                }
+            } catch (IOException e) {
+                logger.warn("Failed to read .git file for worktree resolution: {}", e.getMessage());
+            }
+        }
+        return gitPath;
     }
 
     @Override
@@ -225,15 +252,26 @@ public class NativeProjectWatchService implements IWatchService {
                 accumulatedBatch.untrackedGitignoreChanged = true;
             }
 
-            // Convert to ProjectFile - handle paths outside root (e.g., global gitignore)
-            try {
-                Path relativePath = root.relativize(changedPath);
-                accumulatedBatch.files.add(new ProjectFile(root, relativePath));
-            } catch (IllegalArgumentException e) {
-                // Path is outside root, skip it for now
-                logger.trace("Skipping event for path outside root: {}", changedPath);
-                return;
+            // Convert to ProjectFile - handle paths outside root (e.g., git metadata in worktrees)
+            Path relativePath;
+            Path baseForFile;
+            if (gitMetaDir != null && gitRepoRoot != null && changedPath.startsWith(gitMetaDir)) {
+                // Git metadata event from external location (e.g., worktree pointing to main repo's .git)
+                // Relativize against gitMetaDir and prepend .git so FileWatcherHelper can detect it
+                relativePath = Path.of(".git").resolve(gitMetaDir.relativize(changedPath));
+                baseForFile = gitRepoRoot;
+                logger.trace("Git metadata event (external): {} -> relative: {}", changedPath, relativePath);
+            } else {
+                try {
+                    relativePath = root.relativize(changedPath);
+                    baseForFile = root;
+                } catch (IllegalArgumentException e) {
+                    // Path is outside both root and gitMetaDir, skip it
+                    logger.trace("Skipping event for path outside root and git: {}", changedPath);
+                    return;
+                }
             }
+            accumulatedBatch.files.add(new ProjectFile(baseForFile, relativePath));
 
             // Conditionally schedule flush only if not paused
             if (pauseCount == 0) {

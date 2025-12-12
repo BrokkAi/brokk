@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 public class NativeProjectWatchServiceTest {
     private NativeProjectWatchService service;
     private Path tempDir;
+    private Path gitRepoDir; // For worktree tests
 
     @AfterEach
     public void tearDown() throws Exception {
@@ -36,6 +37,18 @@ public class NativeProjectWatchServiceTest {
             } catch (IOException ignored) {
             } finally {
                 tempDir = null;
+            }
+        }
+        if (gitRepoDir != null) {
+            try {
+                // Best-effort cleanup
+                Files.walk(gitRepoDir)
+                        .map(Path::toFile)
+                        .sorted((a, b) -> -a.compareTo(b))
+                        .forEach(f -> f.delete());
+            } catch (IOException ignored) {
+            } finally {
+                gitRepoDir = null;
             }
         }
     }
@@ -277,5 +290,311 @@ public class NativeProjectWatchServiceTest {
             ProjectFile expected = new ProjectFile(tempDir, tempDir.relativize(p));
             assertTrue(batch.files.contains(expected), "EventBatch should contain file: " + p);
         }
+    }
+
+    /**
+     * Tests that git metadata events from an external directory (worktree scenario) are properly
+     * captured. In a worktree, the .git directory is located in the main repository, not under
+     * the worktree's root directory.
+     */
+    @Test
+    public void testWorktreeGitMetadataEventsFromExternalDirectory() throws Exception {
+        // Create two separate directories to simulate worktree scenario:
+        // - tempDir: the worktree root (project root)
+        // - gitRepoDir: the main repository root where .git lives
+        tempDir = Files.createTempDirectory("native-watcher-worktree");
+        gitRepoDir = Files.createTempDirectory("native-watcher-main-repo");
+
+        // Create .git directory structure in the main repo
+        Path gitDir = gitRepoDir.resolve(".git");
+        Files.createDirectories(gitDir);
+        Path refsDir = gitDir.resolve("refs").resolve("heads");
+        Files.createDirectories(refsDir);
+
+        // Create the watcher with gitRepoRoot pointing to the external main repo
+        service = new NativeProjectWatchService(tempDir, gitRepoDir, null, List.of());
+
+        // Listener state
+        AtomicReference<CountDownLatch> latchRef = new AtomicReference<>();
+        AtomicReference<IWatchService.EventBatch> received = new AtomicReference<>();
+        AtomicInteger filesChangedCount = new AtomicInteger(0);
+
+        service.addListener(new IWatchService.Listener() {
+            @Override
+            public void onFilesChanged(IWatchService.EventBatch batch) {
+                filesChangedCount.incrementAndGet();
+                received.set(batch);
+                CountDownLatch l = latchRef.get();
+                if (l != null) {
+                    l.countDown();
+                }
+            }
+
+            @Override
+            public void onNoFilesChangedDuringPollInterval() {}
+        });
+
+        service.start(CompletableFuture.completedFuture(null));
+
+        // Allow watcher to settle
+        Thread.sleep(500);
+
+        // Prepare for the test
+        CountDownLatch notified = new CountDownLatch(1);
+        latchRef.set(notified);
+        received.set(null);
+        filesChangedCount.set(0);
+
+        // Simulate a git operation by modifying a file in .git (e.g., HEAD update after commit)
+        Path headFile = gitDir.resolve("HEAD");
+        Files.writeString(headFile, "ref: refs/heads/main\n");
+
+        // Wait for the event to be delivered
+        boolean delivered = notified.await(5, TimeUnit.SECONDS);
+        assertTrue(delivered, "Git metadata event from external directory should be delivered");
+
+        IWatchService.EventBatch batch = received.get();
+        assertNotNull(batch, "EventBatch should be non-null");
+        assertFalse(batch.files.isEmpty(), "EventBatch should contain files");
+
+        // The file should be relativized to gitRepoRoot with .git prefix
+        ProjectFile expectedFile = new ProjectFile(gitRepoDir, gitRepoDir.relativize(headFile));
+        assertTrue(
+                batch.files.contains(expectedFile),
+                "EventBatch should contain the HEAD file with correct base: expected " + expectedFile + " but got "
+                        + batch.files);
+
+        // Verify the relative path starts with .git
+        var gitFiles = batch.files.stream()
+                .filter(pf -> pf.getRelPath().startsWith(".git"))
+                .toList();
+        assertFalse(gitFiles.isEmpty(), "EventBatch should contain files with .git prefix");
+    }
+
+    /**
+     * Tests that regular file events in the worktree root are still captured correctly
+     * even when gitRepoRoot is external.
+     */
+    @Test
+    public void testWorktreeRegularFilesStillWork() throws Exception {
+        // Create two separate directories to simulate worktree scenario
+        tempDir = Files.createTempDirectory("native-watcher-worktree-regular");
+        gitRepoDir = Files.createTempDirectory("native-watcher-main-repo-regular");
+
+        // Create .git directory structure in the main repo
+        Path gitDir = gitRepoDir.resolve(".git");
+        Files.createDirectories(gitDir);
+
+        // Create the watcher with gitRepoRoot pointing to the external main repo
+        service = new NativeProjectWatchService(tempDir, gitRepoDir, null, List.of());
+
+        // Listener state
+        AtomicReference<CountDownLatch> latchRef = new AtomicReference<>();
+        AtomicReference<IWatchService.EventBatch> received = new AtomicReference<>();
+
+        service.addListener(new IWatchService.Listener() {
+            @Override
+            public void onFilesChanged(IWatchService.EventBatch batch) {
+                received.set(batch);
+                CountDownLatch l = latchRef.get();
+                if (l != null) {
+                    l.countDown();
+                }
+            }
+
+            @Override
+            public void onNoFilesChangedDuringPollInterval() {}
+        });
+
+        service.start(CompletableFuture.completedFuture(null));
+
+        // Allow watcher to settle
+        Thread.sleep(500);
+
+        // Prepare for the test
+        CountDownLatch notified = new CountDownLatch(1);
+        latchRef.set(notified);
+        received.set(null);
+
+        // Create a regular file in the worktree root
+        Path sourceFile = tempDir.resolve("Source.java");
+        Files.writeString(sourceFile, "public class Source {}");
+
+        // Wait for the event to be delivered
+        boolean delivered = notified.await(5, TimeUnit.SECONDS);
+        assertTrue(delivered, "Regular file event in worktree root should be delivered");
+
+        IWatchService.EventBatch batch = received.get();
+        assertNotNull(batch, "EventBatch should be non-null");
+
+        // The file should be relativized to tempDir (worktree root)
+        ProjectFile expectedFile = new ProjectFile(tempDir, tempDir.relativize(sourceFile));
+        assertTrue(
+                batch.files.contains(expectedFile),
+                "EventBatch should contain the source file with worktree root as base");
+    }
+
+    /**
+     * Tests that the service correctly resolves and watches git metadata when .git is a FILE
+     * (the real worktree case where .git contains "gitdir: /path/to/main/.git/worktrees/xxx").
+     */
+    @Test
+    public void testWorktreeWithGitFile() throws Exception {
+        // Create worktree directory (project root)
+        tempDir = Files.createTempDirectory("native-watcher-worktree-gitfile");
+
+        // Create external git metadata directory (simulates main repo's .git/worktrees/xxx)
+        gitRepoDir = Files.createTempDirectory("native-watcher-external-git");
+        Path externalGitDir = gitRepoDir.resolve(".git").resolve("worktrees").resolve("myworktree");
+        Files.createDirectories(externalGitDir);
+        Path refsDir = externalGitDir.resolve("refs").resolve("heads");
+        Files.createDirectories(refsDir);
+
+        // Create .git FILE in worktree pointing to external directory
+        Path gitFile = tempDir.resolve(".git");
+        Files.writeString(gitFile, "gitdir: " + externalGitDir);
+
+        // Create watcher with worktree as BOTH root and gitRepoRoot (real scenario)
+        service = new NativeProjectWatchService(tempDir, tempDir, null, List.of());
+
+        // Listener state
+        AtomicReference<CountDownLatch> latchRef = new AtomicReference<>();
+        AtomicReference<IWatchService.EventBatch> received = new AtomicReference<>();
+
+        service.addListener(new IWatchService.Listener() {
+            @Override
+            public void onFilesChanged(IWatchService.EventBatch batch) {
+                received.set(batch);
+                CountDownLatch l = latchRef.get();
+                if (l != null) {
+                    l.countDown();
+                }
+            }
+
+            @Override
+            public void onNoFilesChangedDuringPollInterval() {}
+        });
+
+        service.start(CompletableFuture.completedFuture(null));
+
+        // Allow watcher to settle
+        Thread.sleep(500);
+
+        // Prepare for the test
+        CountDownLatch notified = new CountDownLatch(1);
+        latchRef.set(notified);
+        received.set(null);
+
+        // Simulate a git operation by modifying HEAD in the external git directory
+        Path headFile = externalGitDir.resolve("HEAD");
+        Files.writeString(headFile, "ref: refs/heads/main\n");
+
+        // Wait for the event to be delivered
+        boolean delivered = notified.await(5, TimeUnit.SECONDS);
+        assertTrue(delivered, "Git metadata event from external worktree directory should be delivered");
+
+        IWatchService.EventBatch batch = received.get();
+        assertNotNull(batch, "EventBatch should be non-null");
+        assertFalse(batch.files.isEmpty(), "EventBatch should contain files");
+
+        // Verify the event was received (the path handling is tested separately)
+        assertTrue(
+                batch.files.stream().anyMatch(pf -> pf.getRelPath().toString().contains("HEAD")),
+                "EventBatch should contain the HEAD file change");
+    }
+
+    /**
+     * Tests that malformed .git files are handled gracefully - the service should fall back
+     * to treating .git as a regular file/directory and not crash.
+     */
+    @Test
+    public void testResolveGitMetaDir_MalformedGitFile() throws Exception {
+        tempDir = Files.createTempDirectory("native-watcher-malformed-git");
+
+        // Create .git file with malformed content (missing "gitdir: " prefix)
+        Path gitFile = tempDir.resolve(".git");
+        Files.writeString(gitFile, "invalid content without gitdir prefix");
+
+        // Service should handle this gracefully without throwing
+        service = new NativeProjectWatchService(tempDir, tempDir, null, List.of());
+
+        AtomicReference<CountDownLatch> latchRef = new AtomicReference<>();
+        AtomicReference<IWatchService.EventBatch> received = new AtomicReference<>();
+
+        service.addListener(new IWatchService.Listener() {
+            @Override
+            public void onFilesChanged(IWatchService.EventBatch batch) {
+                received.set(batch);
+                CountDownLatch l = latchRef.get();
+                if (l != null) {
+                    l.countDown();
+                }
+            }
+
+            @Override
+            public void onNoFilesChangedDuringPollInterval() {}
+        });
+
+        service.start(CompletableFuture.completedFuture(null));
+        Thread.sleep(500);
+
+        // Regular files in project should still be watched
+        CountDownLatch notified = new CountDownLatch(1);
+        latchRef.set(notified);
+
+        Path sourceFile = tempDir.resolve("Source.java");
+        Files.writeString(sourceFile, "public class Source {}");
+
+        boolean delivered = notified.await(5, TimeUnit.SECONDS);
+        assertTrue(delivered, "Regular file events should still work with malformed .git file");
+
+        IWatchService.EventBatch batch = received.get();
+        assertNotNull(batch);
+        assertTrue(
+                batch.files.stream().anyMatch(pf -> pf.getRelPath().toString().contains("Source.java")));
+    }
+
+    /**
+     * Tests that empty .git file is handled gracefully.
+     */
+    @Test
+    public void testResolveGitMetaDir_EmptyGitFile() throws Exception {
+        tempDir = Files.createTempDirectory("native-watcher-empty-git");
+
+        // Create empty .git file
+        Path gitFile = tempDir.resolve(".git");
+        Files.writeString(gitFile, "");
+
+        // Service should handle this gracefully
+        service = new NativeProjectWatchService(tempDir, tempDir, null, List.of());
+
+        AtomicReference<CountDownLatch> latchRef = new AtomicReference<>();
+        AtomicReference<IWatchService.EventBatch> received = new AtomicReference<>();
+
+        service.addListener(new IWatchService.Listener() {
+            @Override
+            public void onFilesChanged(IWatchService.EventBatch batch) {
+                received.set(batch);
+                CountDownLatch l = latchRef.get();
+                if (l != null) {
+                    l.countDown();
+                }
+            }
+
+            @Override
+            public void onNoFilesChangedDuringPollInterval() {}
+        });
+
+        service.start(CompletableFuture.completedFuture(null));
+        Thread.sleep(500);
+
+        CountDownLatch notified = new CountDownLatch(1);
+        latchRef.set(notified);
+
+        Path sourceFile = tempDir.resolve("Test.java");
+        Files.writeString(sourceFile, "public class Test {}");
+
+        boolean delivered = notified.await(5, TimeUnit.SECONDS);
+        assertTrue(delivered, "Regular file events should work with empty .git file");
     }
 }
