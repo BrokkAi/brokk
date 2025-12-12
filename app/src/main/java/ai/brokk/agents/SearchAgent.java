@@ -605,7 +605,7 @@ public class SearchAgent {
         // Plan-first guidance: require the first task to configure build settings when details are empty
         String buildSetupTaskGuidance = "";
         var bd = cm.getProject().loadBuildDetails();
-        boolean buildDetailsEmpty = (bd == null || bd.equals(BuildAgent.BuildDetails.EMPTY));
+        boolean buildDetailsEmpty = bd.equals(BuildAgent.BuildDetails.EMPTY);
         boolean planningObjective = (objective == Objective.LUTZ || objective == Objective.TASKS_ONLY);
         if (planningObjective && buildDetailsEmpty) {
             buildSetupTaskGuidance =
