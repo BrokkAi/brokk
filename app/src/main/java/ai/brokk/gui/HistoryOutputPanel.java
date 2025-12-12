@@ -2592,8 +2592,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 toolbarPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
                 toolbarPanel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 0));
 
-                MaterialButton captureButton = new MaterialButton("Capture");
-                captureButton.setToolTipText("Add the output to context");
+                MaterialButton captureButton = new MaterialButton();
+                SwingUtilities.invokeLater(() -> {
+                    captureButton.setIcon(Icons.CONTENT_CAPTURE);
+                });
+                captureButton.setToolTipText("Capture output to workspace");
                 captureButton.addActionListener(e -> {
                     parentPanel.presentCaptureChoice();
                 });

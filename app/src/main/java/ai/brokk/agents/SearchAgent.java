@@ -812,7 +812,7 @@ public class SearchAgent {
         }
         var toolSpecs = tr.getTools(toolNames);
 
-        io.showTransientMessage("Brokk is performing initial workspace review…");
+        io.llmOutput("\n**Brokk** performing initial workspace review…", ChatMessageType.AI, true, false);
         var janitorOpts = new Llm.Options(model, "Janitor: " + goal).withEcho();
         var jLlm = cm.getLlm(janitorOpts);
         jLlm.setOutput(this.io);
