@@ -111,6 +111,13 @@ public class ContentDiffUtils {
         return new DiffComputationResult(diffText, added, deleted);
     }
 
+    /**
+     * Convert a text string into a list of lines suitable for java-diff-utils, preserving trailing empty line when the
+     * content ends with a newline. This uses split("\\R", -1) to retain final empty element when there is a final
+     * newline, which is important for exact diff semantics around end-of-file newline presence.
+     *
+     * Public so callers can reuse the same normalization behaviour.
+     */
     private static List<String> toLines(String content) {
         // Split on any line break, preserving trailing empty strings
         // which indicate a final newline.

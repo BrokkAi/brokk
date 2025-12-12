@@ -25,9 +25,6 @@ import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
 import ai.brokk.util.SlidingWindowCache;
 import ai.brokk.util.SyntaxDetector;
-import com.github.difflib.DiffUtils;
-import com.github.difflib.UnifiedDiffUtils;
-import com.github.difflib.algorithm.DiffAlgorithmListener;
 import dev.langchain4j.data.message.ChatMessage;
 import java.awt.*;
 import java.awt.event.ComponentAdapter;
@@ -41,7 +38,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -775,20 +771,14 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                 return;
             }
 
-            var leftLines = Arrays.asList(leftContent.split("\\R"));
-            var rightLines = Arrays.asList(rightContent.split("\\R"));
-
-            // Build a friendlier description that shows a shortened hash plus
-            // the first-line commit title (trimmed with ... when overly long)
-            // Build user-friendly labels for the two sides
+            // Build a friendlier description that shows a shortened hash plus the first-line commit title.
             String displayName = Optional.ofNullable(detectFilename(currentLeftSource, currentRightSource))
                     .orElse(fileComparisons.get(currentFileIndex).getDisplayName());
             var description = buildCaptureDescription(currentLeftSource, currentRightSource, displayName);
-
-            var patch = DiffUtils.diff(leftLines, rightLines, (DiffAlgorithmListener) null);
-            var unifiedDiff = UnifiedDiffUtils.generateUnifiedDiff(
-                    currentLeftSource.title(), currentRightSource.title(), leftLines, patch, 0);
-            var diffText = String.join("\n", unifiedDiff);
+            // Generate unified diff text (contextLines = 0 for capture)
+            String oldName = currentLeftSource.title();
+            String newName = currentRightSource.title();
+            var diffText = ContentDiffUtils.computeDiffResult(leftContent, rightContent, oldName, newName, 0).diff();
 
             var detectedFilename = detectFilename(currentLeftSource, currentRightSource);
 
@@ -836,13 +826,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                             continue;
                         }
 
-                        var leftLines = Arrays.asList(leftContent.split("\\R"));
-                        var rightLines = Arrays.asList(rightContent.split("\\R"));
-
-                        var patch = DiffUtils.diff(leftLines, rightLines, (DiffAlgorithmListener) null);
-                        var unified = UnifiedDiffUtils.generateUnifiedDiff(
-                                leftSource.title(), rightSource.title(), leftLines, patch, 0);
-                        var diffText = String.join("\n", unified);
+                        // Use centralized ContentDiffUtils for normalized unified-diff generation (preserves final-newline)
+                        String oldName = leftSource.title();
+                        String newName = rightSource.title();
+                        var diffText = ContentDiffUtils.computeDiffResult(leftContent, rightContent, oldName, newName, 0).diff();
 
                         String detectedFilename = detectFilename(leftSource, rightSource);
                         String displayName =
@@ -1673,13 +1660,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     private String buildCaptureDescription(
             BufferSource left, BufferSource right, @Nullable String filenameOrDisplayName) {
         GitRepo repo = null;
-        try {
-            var r = contextManager.getProject().getRepo();
-            if (r instanceof GitRepo gr) {
-                repo = gr;
-            }
-        } catch (Exception ignore) {
-            /* best-effort */
+        var r = contextManager.getProject().getRepo();
+        if (r instanceof GitRepo gr) {
+            repo = gr;
         }
 
         String displayName = (filenameOrDisplayName != null && !filenameOrDisplayName.isBlank())
@@ -2770,12 +2753,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         if (verifyPanel != null) {
             logger.error(
                     "Cache clearing failed - panel still cached after clear(). This indicates a serious cache issue.");
-        } else {
         }
 
         // Refresh the current file with the new view mode (skip loading UI since we already have the data)
         loadFileOnDemand(currentFileIndex, true);
     }
-
-    // FontSizeAware implementation uses default methods from interface
 }
