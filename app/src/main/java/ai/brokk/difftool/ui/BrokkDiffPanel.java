@@ -823,7 +823,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             contextManager.submitBackgroundTask("Capture all diffs", () -> {
                 List<ContextFragment> fragments = new ArrayList<>();
 
-
                 for (int i = 0; i < fileComparisons.size(); i++) {
                     var comp = fileComparisons.get(i);
                     var leftSource = comp.leftSource;
@@ -845,13 +844,14 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                                 leftSource.title(), rightSource.title(), leftLines, patch, 0);
                         var diffText = String.join("\n", unified);
 
-                        String displayName = Optional.ofNullable(detectFilename(leftSource, rightSource))
-                                .orElse(comp.getDisplayName());
+                        String detectedFilename = detectFilename(leftSource, rightSource);
+                        String displayName =
+                                Optional.ofNullable(detectedFilename).orElse(comp.getDisplayName());
 
                         String description = buildCaptureDescription(leftSource, rightSource, displayName);
 
                         String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
-                        String detectedFilename = detectFilename(leftSource, rightSource);
+
                         if (detectedFilename != null) {
                             int dotIndex = detectedFilename.lastIndexOf('.');
                             if (dotIndex > 0 && dotIndex < detectedFilename.length() - 1) {
@@ -872,14 +872,15 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                 }
 
                 if (fragments.isEmpty()) {
-                    contextManager.getIo().showNotification(
-                            IConsoleIO.NotificationRole.INFO, "No diffs to capture");
+                    contextManager.getIo().showNotification(IConsoleIO.NotificationRole.INFO, "No diffs to capture");
                 } else {
                     contextManager.submitContextTask(() -> {
                         contextManager.addFragments(fragments);
-                        contextManager.getIo().showNotification(
-                                IConsoleIO.NotificationRole.INFO,
-                                "Added captured diffs for " + fragments.size() + " file(s) to context");
+                        contextManager
+                                .getIo()
+                                .showNotification(
+                                        IConsoleIO.NotificationRole.INFO,
+                                        "Added captured diffs for " + fragments.size() + " file(s) to context");
                     });
                 }
                 return null;
@@ -1669,23 +1670,27 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
      * Builds the user-facing description for a captured diff, including a display name and
      * friendly commit labels for the left and right sources.
      */
-    private String buildCaptureDescription(BufferSource left, BufferSource right, @Nullable String filenameOrDisplayName) {
+    private String buildCaptureDescription(
+            BufferSource left, BufferSource right, @Nullable String filenameOrDisplayName) {
         GitRepo repo = null;
         try {
             var r = contextManager.getProject().getRepo();
             if (r instanceof GitRepo gr) {
                 repo = gr;
             }
-        } catch (Exception ignore) { /* best-effort */ }
+        } catch (Exception ignore) {
+            /* best-effort */
+        }
 
         String displayName = (filenameOrDisplayName != null && !filenameOrDisplayName.isBlank())
                 ? filenameOrDisplayName
                 : Optional.ofNullable(detectFilename(left, right)).orElse(left.title());
 
-        return "Captured Diff: %s - %s vs %s".formatted(
-                displayName,
-                GitDiffUiUtil.friendlyCommitLabel(left.title(), repo),
-                GitDiffUiUtil.friendlyCommitLabel(right.title(), repo));
+        return "Captured Diff: %s - %s vs %s"
+                .formatted(
+                        displayName,
+                        GitDiffUiUtil.friendlyCommitLabel(left.title(), repo),
+                        GitDiffUiUtil.friendlyCommitLabel(right.title(), repo));
     }
 
     private Set<ProjectFile> collectProjectFilesForSources(BufferSource leftSource, BufferSource rightSource) {
