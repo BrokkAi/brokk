@@ -231,8 +231,9 @@ public class NativeProjectWatchService implements IWatchService {
             Path relativePath;
             Path baseForFile;
             if (gitMetaDir != null && gitRepoRoot != null && changedPath.startsWith(gitMetaDir)) {
-                // Git metadata event from external location (e.g., worktree pointing to main repo's .git)
-                // Relativize against gitMetaDir and prepend .git so FileWatcherHelper can detect it
+                // Git metadata event from external location (e.g., worktree pointing to main repo's .git).
+                // INVARIANT: FileWatcherHelper.isGitMetadataChanged() requires relative paths to start
+                // with ".git/" prefix, so we reconstruct the path as .git/<relative-to-gitMetaDir>
                 relativePath = Path.of(".git").resolve(gitMetaDir.relativize(changedPath));
                 baseForFile = gitRepoRoot;
                 logger.trace("Git metadata event (external): {} -> relative: {}", changedPath, relativePath);
