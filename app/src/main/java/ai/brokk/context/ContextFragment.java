@@ -1042,13 +1042,15 @@ public interface ContextFragment {
         }
 
         /**
-         * Extracts ProjectFile references from diff content using java-diff-utils.
-         * <p>
-         * Delegates to {@link #extractFilesFromUnifiedDiff(String, IContextManager)}, which parses unified diffs via
-         * java-diff-utils and returns an empty set on parse errors or unrecognized input.
+         * Extracts ProjectFile references from text content.
+         * Tries unified diff parsing first, then falls back to plain file path list extraction.
          */
         private static Set<ProjectFile> extractFilesFromDiff(String text, IContextManager contextManager) {
-            return extractFilesFromUnifiedDiff(text, contextManager);
+            var diffFiles = extractFilesFromUnifiedDiff(text, contextManager);
+            if (!diffFiles.isEmpty()) {
+                return diffFiles;
+            }
+            return extractFilesFromPathList(text, contextManager);
         }
 
         /**
@@ -1110,6 +1112,55 @@ public interface ContextFragment {
                 path = path.substring(2);
             }
             return path;
+        }
+
+        // Pattern to find file-path-like strings in any text context.
+        // Matches: /abs/path/file.ext, C:\path\file.ext, path/to/file.ext, file.ext
+        // Handles: stack traces (Foo.java:42), grep output (src/Foo.java:10:), git status, etc.
+        private static final Pattern FILE_PATH_PATTERN = Pattern.compile(
+                "((?:/|[a-zA-Z]:[\\\\/])?" // Optional absolute prefix (Unix / or Windows C:\)
+                        + "[a-zA-Z0-9_][a-zA-Z0-9_.\\-/\\\\]*" // Path body
+                        + "\\.[a-zA-Z0-9]{1,10})" // Extension (1-10 chars)
+                        + "(?=[:\\s\"'(),\\]}>]|$)" // Followed by delimiter or end
+        );
+
+        /**
+         * Extracts ProjectFile references by scanning text for file-path-like patterns.
+         * Works with stack traces, grep output, compiler errors, git status, plain paths, etc.
+         * Uses PathNormalizer for cross-OS path canonicalization.
+         */
+        private static Set<ProjectFile> extractFilesFromPathList(String text, IContextManager contextManager) {
+            if (text.isBlank()) {
+                return Set.of();
+            }
+
+            var projectRoot = contextManager.getProject().getRoot();
+            Set<ProjectFile> files = new LinkedHashSet<>();
+            var matcher = FILE_PATH_PATTERN.matcher(text);
+
+            while (matcher.find()) {
+                // Skip if this looks like part of a URL (preceded by ://)
+                int start = matcher.start();
+                if (start >= 3 && text.substring(start - 3, start).equals("://")) {
+                    continue;
+                }
+
+                String candidate = matcher.group(1);
+                // Canonicalize path (normalize separators, collapse segments, relativize if absolute)
+                String path = PathNormalizer.canonicalizeForProject(candidate, projectRoot);
+                if (path.isEmpty()) {
+                    continue;
+                }
+                try {
+                    var projectFile = contextManager.toFile(path);
+                    if (projectFile.exists()) {
+                        files.add(projectFile);
+                    }
+                } catch (Exception e) {
+                    // Invalid path, skip
+                }
+            }
+            return files;
         }
 
         public StringFragment(

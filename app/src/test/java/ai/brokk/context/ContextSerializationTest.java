@@ -2036,4 +2036,278 @@ public class ContextSerializationTest {
 
         assertTrue(loadedFragment.files().join().isEmpty());
     }
+
+    @Test
+    void testStringFragmentExtractsFilesFromPathList() throws Exception {
+        // Create files that will be referenced in the path list
+        var file1 = new ProjectFile(tempDir, "src/PathListFile1.java");
+        var file2 = new ProjectFile(tempDir, "src/PathListFile2.java");
+        Files.createDirectories(file1.absPath().getParent());
+        Files.writeString(file1.absPath(), "class PathListFile1 {}");
+        Files.writeString(file2.absPath(), "class PathListFile2 {}");
+
+        // Plain file path list (not a diff)
+        String pathList =
+                """
+                src/PathListFile1.java
+                src/PathListFile2.java
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager, pathList, "File list", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var extractedFiles = fragment.files().join();
+        assertEquals(2, extractedFiles.size());
+        var extractedPaths = extractedFiles.stream().map(ProjectFile::toString).collect(Collectors.toSet());
+        assertTrue(extractedPaths.contains("src/PathListFile1.java"));
+        assertTrue(extractedPaths.contains("src/PathListFile2.java"));
+    }
+
+    @Test
+    void testPathListExtractionSupportsCommaSeparated() throws Exception {
+        var file1 = new ProjectFile(tempDir, "src/CommaFile1.java");
+        var file2 = new ProjectFile(tempDir, "src/CommaFile2.java");
+        var file3 = new ProjectFile(tempDir, "src/CommaFile3.java");
+        Files.createDirectories(file1.absPath().getParent());
+        Files.writeString(file1.absPath(), "class CommaFile1 {}");
+        Files.writeString(file2.absPath(), "class CommaFile2 {}");
+        Files.writeString(file3.absPath(), "class CommaFile3 {}");
+
+        // Comma-separated on single line
+        String pathList = "src/CommaFile1.java, src/CommaFile2.java, src/CommaFile3.java";
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager, pathList, "Comma separated", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var extractedFiles = fragment.files().join();
+        assertEquals(3, extractedFiles.size());
+        var extractedPaths = extractedFiles.stream().map(ProjectFile::toString).collect(Collectors.toSet());
+        assertTrue(extractedPaths.contains("src/CommaFile1.java"));
+        assertTrue(extractedPaths.contains("src/CommaFile2.java"));
+        assertTrue(extractedPaths.contains("src/CommaFile3.java"));
+    }
+
+    @Test
+    void testPathListExtractionSupportsMixedSeparators() throws Exception {
+        var file1 = new ProjectFile(tempDir, "src/MixedFile1.java");
+        var file2 = new ProjectFile(tempDir, "src/MixedFile2.java");
+        var file3 = new ProjectFile(tempDir, "src/MixedFile3.java");
+        Files.createDirectories(file1.absPath().getParent());
+        Files.writeString(file1.absPath(), "class MixedFile1 {}");
+        Files.writeString(file2.absPath(), "class MixedFile2 {}");
+        Files.writeString(file3.absPath(), "class MixedFile3 {}");
+
+        // Mixed: newlines and commas
+        String pathList =
+                """
+                src/MixedFile1.java, src/MixedFile2.java
+                src/MixedFile3.java
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager, pathList, "Mixed separators", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var extractedFiles = fragment.files().join();
+        assertEquals(3, extractedFiles.size());
+    }
+
+    @Test
+    void testPathListExtractionSkipsNonExistentFiles() throws Exception {
+        var existingFile = new ProjectFile(tempDir, "src/ExistingFile.java");
+        Files.createDirectories(existingFile.absPath().getParent());
+        Files.writeString(existingFile.absPath(), "class ExistingFile {}");
+
+        String pathList =
+                """
+                src/ExistingFile.java
+                src/NonExistentFile.java
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager, pathList, "Mixed file list", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var extractedFiles = fragment.files().join();
+        assertEquals(1, extractedFiles.size());
+        assertEquals("src/ExistingFile.java", extractedFiles.iterator().next().toString());
+    }
+
+    @Test
+    void testPathListExtractionSkipsCommentsAndEmptyLines() throws Exception {
+        var file = new ProjectFile(tempDir, "src/CommentTest.java");
+        Files.createDirectories(file.absPath().getParent());
+        Files.writeString(file.absPath(), "class CommentTest {}");
+
+        String pathList =
+                """
+                # This is a comment
+                src/CommentTest.java
+
+                # Another comment
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager, pathList, "With comments", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var extractedFiles = fragment.files().join();
+        assertEquals(1, extractedFiles.size());
+        assertEquals("src/CommentTest.java", extractedFiles.iterator().next().toString());
+    }
+
+    @Test
+    void testPathListExtractionNormalizesBackslashes() throws Exception {
+        var file = new ProjectFile(tempDir, "src/nested/BackslashTest.java");
+        Files.createDirectories(file.absPath().getParent());
+        Files.writeString(file.absPath(), "class BackslashTest {}");
+
+        // Windows-style backslash paths
+        String pathList = "src\\nested\\BackslashTest.java";
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager, pathList, "Backslash paths", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var extractedFiles = fragment.files().join();
+        assertEquals(1, extractedFiles.size());
+        assertEquals("src/nested/BackslashTest.java", extractedFiles.iterator().next().toString());
+    }
+
+    @Test
+    void testDiffTakesPrecedenceOverPathList() throws Exception {
+        // Create a file that exists
+        var projectFile = new ProjectFile(tempDir, "src/DiffPrecedence.java");
+        Files.createDirectories(projectFile.absPath().getParent());
+        Files.writeString(projectFile.absPath(), "class DiffPrecedence {}");
+
+        // Valid unified diff (should be parsed as diff, not path list)
+        String diffText =
+                """
+                diff --git a/src/DiffPrecedence.java b/src/DiffPrecedence.java
+                --- a/src/DiffPrecedence.java
+                +++ b/src/DiffPrecedence.java
+                @@ -1 +1 @@
+                -class DiffPrecedence {}
+                +class DiffPrecedence { }
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager, diffText, "Diff content", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        // Should extract from diff, not interpret "diff --git..." as a path
+        var extractedFiles = fragment.files().join();
+        assertEquals(1, extractedFiles.size());
+        assertEquals("src/DiffPrecedence.java", extractedFiles.iterator().next().toString());
+    }
+
+    @Test
+    void testPathListExtractionFromStackTrace() throws Exception {
+        var file1 = new ProjectFile(tempDir, "src/com/example/Foo.java");
+        var file2 = new ProjectFile(tempDir, "src/com/example/Bar.java");
+        Files.createDirectories(file1.absPath().getParent());
+        Files.writeString(file1.absPath(), "class Foo {}");
+        Files.writeString(file2.absPath(), "class Bar {}");
+
+        // Java-style stack trace
+        String stackTrace =
+                """
+                Exception in thread "main" java.lang.NullPointerException
+                    at com.example.Foo.doSomething(src/com/example/Foo.java:42)
+                    at com.example.Bar.main(src/com/example/Bar.java:15)
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager, stackTrace, "Stack trace", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var extractedFiles = fragment.files().join();
+        assertEquals(2, extractedFiles.size());
+        var paths = extractedFiles.stream().map(ProjectFile::toString).collect(Collectors.toSet());
+        assertTrue(paths.contains("src/com/example/Foo.java"));
+        assertTrue(paths.contains("src/com/example/Bar.java"));
+    }
+
+    @Test
+    void testPathListExtractionFromGrepOutput() throws Exception {
+        var file1 = new ProjectFile(tempDir, "src/Service.java");
+        var file2 = new ProjectFile(tempDir, "src/Controller.java");
+        Files.createDirectories(file1.absPath().getParent());
+        Files.writeString(file1.absPath(), "class Service {}");
+        Files.writeString(file2.absPath(), "class Controller {}");
+
+        // Grep/ripgrep style output
+        String grepOutput =
+                """
+                src/Service.java:10:    public void process() {
+                src/Service.java:25:    private void helper() {
+                src/Controller.java:5:public class Controller {
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager, grepOutput, "Grep output", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var extractedFiles = fragment.files().join();
+        assertEquals(2, extractedFiles.size());
+        var paths = extractedFiles.stream().map(ProjectFile::toString).collect(Collectors.toSet());
+        assertTrue(paths.contains("src/Service.java"));
+        assertTrue(paths.contains("src/Controller.java"));
+    }
+
+    @Test
+    void testPathListExtractionFromCompilerError() throws Exception {
+        var file = new ProjectFile(tempDir, "src/BrokenClass.java");
+        Files.createDirectories(file.absPath().getParent());
+        Files.writeString(file.absPath(), "class BrokenClass {}");
+
+        // Compiler error format
+        String compilerError =
+                """
+                src/BrokenClass.java:15: error: cannot find symbol
+                    symbol:   variable foo
+                    location: class BrokenClass
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager, compilerError, "Compiler error", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var extractedFiles = fragment.files().join();
+        assertEquals(1, extractedFiles.size());
+        assertEquals("src/BrokenClass.java", extractedFiles.iterator().next().toString());
+    }
+
+    @Test
+    void testPathListExtractionIgnoresUrls() throws Exception {
+        var file = new ProjectFile(tempDir, "src/RealFile.java");
+        Files.createDirectories(file.absPath().getParent());
+        Files.writeString(file.absPath(), "class RealFile {}");
+
+        // Text with URLs that should not be matched
+        String textWithUrls =
+                """
+                See documentation at https://example.com/docs/api.html
+                Also check http://other.com/path/file.json
+                But this is a real file: src/RealFile.java
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager, textWithUrls, "Text with URLs", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var extractedFiles = fragment.files().join();
+        assertEquals(1, extractedFiles.size());
+        assertEquals("src/RealFile.java", extractedFiles.iterator().next().toString());
+    }
+
+    @Test
+    void testPathListExtractionFromAbsolutePath() throws Exception {
+        // Create file in project
+        var file = new ProjectFile(tempDir, "src/AbsoluteTest.java");
+        Files.createDirectories(file.absPath().getParent());
+        Files.writeString(file.absPath(), "class AbsoluteTest {}");
+
+        // Pasting a file from OS gives absolute path - should be relativized against project root
+        String absolutePath = file.absPath().toString();
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager, absolutePath, "Absolute path", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var extractedFiles = fragment.files().join();
+        assertEquals(1, extractedFiles.size());
+        assertEquals("src/AbsoluteTest.java", extractedFiles.iterator().next().toString());
+    }
 }
