@@ -394,6 +394,14 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         }
     }
 
+    public void showTransientMessage(String message) {
+        webHost.showTransientMessage(message);
+    }
+
+    public void hideTransientMessage() {
+        webHost.hideTransientMessage();
+    }
+
     public void dispose() {
         logger.debug("Disposing WebViewMarkdownOutputPanel.");
 
