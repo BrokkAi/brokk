@@ -702,13 +702,12 @@ public interface ContextFragment {
          * This reads the file content via the provided GitRepo. On error, falls back to empty content.
          */
         public static GitFileFragment fromCommit(ProjectFile file, String revision, ai.brokk.git.GitRepo repo) {
-            String content;
             try {
-                content = repo.getFileContent(revision, file);
+                var content = repo.getFileContent(revision, file);
+                return new GitFileFragment(file, revision, content);
             } catch (GitAPIException e) {
-                content = "";
+                throw new RuntimeException(e);
             }
-            return new GitFileFragment(file, revision, content);
         }
 
         @Override

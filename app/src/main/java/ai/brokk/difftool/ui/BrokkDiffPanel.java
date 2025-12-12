@@ -1800,14 +1800,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                 return;
             }
             var normalized = filename.replace('\\', '/');
-            try {
-                var projectFile = contextManager.toFile(normalized);
-                files.add(projectFile);
-            } catch (Exception e) {
-                if (logger.isDebugEnabled()) {
-                    logger.debug("Unable to resolve ProjectFile from StringSource filename '{}'", filename, e);
-                }
-            }
+            var projectFile = contextManager.toFile(normalized);
+            files.add(projectFile);
         } else if (source instanceof BufferSource.FileSource fs) {
             files.add(fs.file());
         }

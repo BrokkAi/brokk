@@ -97,6 +97,6 @@ public class ProjectFile implements BrokkFile {
     }
 
     public Optional<Long> size() {
-        return exists() ? Optional.empty() : Optional.of(absPath().toFile().length());
+        return exists() ? Optional.of(absPath().toFile().length()) : Optional.empty();
     }
 }
