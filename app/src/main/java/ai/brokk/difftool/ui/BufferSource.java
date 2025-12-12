@@ -31,7 +31,7 @@ public sealed interface BufferSource {
     /**
      * Estimated size in bytes for preload validation.
      */
-    long estimatedSizeBytes();
+    long sizeInBytes();
 
     /**
      * Read the full content of this source.
@@ -75,7 +75,7 @@ public sealed interface BufferSource {
         }
 
         @Override
-        public long estimatedSizeBytes() {
+        public long sizeInBytes() {
             var jufile = file.absPath().toFile();
             if (jufile.exists() && jufile.isFile()) {
                 return jufile.length();
@@ -117,7 +117,7 @@ public sealed interface BufferSource {
         }
 
         @Override
-        public long estimatedSizeBytes() {
+        public long sizeInBytes() {
             return content.getBytes(StandardCharsets.UTF_8).length;
         }
     }

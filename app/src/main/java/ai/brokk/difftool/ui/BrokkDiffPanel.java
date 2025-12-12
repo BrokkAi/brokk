@@ -110,7 +110,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
         long startTime = System.currentTimeMillis();
 
-        long maxSize = Math.max(leftSource.estimatedSizeBytes(), rightSource.estimatedSizeBytes());
+        long maxSize = Math.max(leftSource.sizeInBytes(), rightSource.sizeInBytes());
 
         var sizeValidationError = FileComparisonHelper.validateFileSizes(leftSource, rightSource);
         if (sizeValidationError != null) {

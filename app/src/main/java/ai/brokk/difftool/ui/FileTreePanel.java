@@ -421,8 +421,8 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     }
 
     private DiffStatus determineDiffStatus(BrokkDiffPanel.FileComparisonInfo comparison) {
-        boolean leftExists = !comparison.leftSource.content().isEmpty();
-        boolean rightExists = !comparison.rightSource.content().isEmpty();
+        boolean leftExists = comparison.leftSource.sizeInBytes() > 0;
+        boolean rightExists = comparison.rightSource.sizeInBytes() > 0;
 
         if (leftExists && !rightExists) {
             return DiffStatus.DELETED;

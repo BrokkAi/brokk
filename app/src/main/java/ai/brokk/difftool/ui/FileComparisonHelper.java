@@ -127,8 +127,8 @@ public class FileComparisonHelper {
      */
     @Nullable
     public static String validateFileSizes(BufferSource leftSource, BufferSource rightSource) {
-        long leftSize = leftSource.estimatedSizeBytes();
-        long rightSize = rightSource.estimatedSizeBytes();
+        long leftSize = leftSource.sizeInBytes();
+        long rightSize = rightSource.sizeInBytes();
         long maxSize = Math.max(leftSize, rightSize);
 
         if (maxSize > PerformanceConstants.MAX_FILE_SIZE_BYTES) {
@@ -151,8 +151,8 @@ public class FileComparisonHelper {
      * is suitable for preloading, false otherwise.
      */
     public static boolean isValidForPreload(BufferSource leftSource, BufferSource rightSource) {
-        long leftSize = leftSource.estimatedSizeBytes();
-        long rightSize = rightSource.estimatedSizeBytes();
+        long leftSize = leftSource.sizeInBytes();
+        long rightSize = rightSource.sizeInBytes();
         long maxSize = Math.max(leftSize, rightSize);
 
         return maxSize <= PerformanceConstants.MAX_FILE_SIZE_BYTES;
