@@ -121,7 +121,9 @@ public class NativeProjectWatchService implements IWatchService {
             // Build the watcher with exclusions
             var builder = DirectoryWatcher.builder().listener(this::handleEvent).fileHashing(true);
 
-            // Also watch git metadata if present
+            // Also watch git metadata if present (may be external for worktrees).
+            // Note: If external directory is on different filesystem or becomes inaccessible,
+            // events may stop - this is an inherent limitation of file watching.
             if (gitMetaDir != null && Files.isDirectory(gitMetaDir)) {
                 logger.debug("Watching git metadata directory for changes: {}", gitMetaDir);
                 paths.add(gitMetaDir);

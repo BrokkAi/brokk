@@ -93,7 +93,9 @@ public class LegacyProjectWatchService implements IWatchService {
             // Recursively register all directories under project root except .brokk and .git
             registerAllDirectories(root, watchService);
 
-            // Always watch git metadata to ensure ref changes (HEAD, refs/heads/*) trigger onRepoChange
+            // Always watch git metadata to ensure ref changes (HEAD, refs/heads/*) trigger onRepoChange.
+            // Note: For worktrees, gitMetaDir may be external. If on different filesystem or
+            // becomes inaccessible, events may stop - this is an inherent limitation of file watching.
             if (gitMetaDir != null && Files.isDirectory(gitMetaDir)) {
                 logger.debug("Watching git metadata directory for changes: {}", gitMetaDir);
                 registerGitMetadata(gitMetaDir, watchService);
