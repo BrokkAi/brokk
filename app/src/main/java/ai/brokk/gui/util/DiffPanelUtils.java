@@ -4,7 +4,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.util.ContentDiffUtils;
-import java.awt.Color;
+
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -58,13 +58,5 @@ public final class DiffPanelUtils {
     public static int[] computeNetLineCounts(String left, String right) {
         var result = ContentDiffUtils.computeDiffResult(left, right, "old", "new");
         return new int[] {result.added(), result.deleted()};
-    }
-
-    /**
-     * Converts a Color to a hex string suitable for HTML/CSS.
-     */
-    public static String toHex(@Nullable Color c) {
-        if (c == null) return "#000000";
-        return String.format("#%02x%02x%02x", c.getRed(), c.getGreen(), c.getBlue());
     }
 }

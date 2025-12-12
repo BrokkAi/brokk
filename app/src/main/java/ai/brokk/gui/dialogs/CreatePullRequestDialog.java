@@ -4,6 +4,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
+import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
@@ -931,9 +932,9 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
             String htmlTitle = String.format(
                     "<html>Review (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)</html>",
                     res.filesChanged(),
-                    DiffPanelUtils.toHex(plusColor),
+                    ColorUtil.toHex(plusColor),
                     res.totalAdded(),
-                    DiffPanelUtils.toHex(minusColor),
+                    ColorUtil.toHex(minusColor),
                     res.totalDeleted());
             middleTabbedPane.setTitleAt(idx, htmlTitle);
             middleTabbedPane.setToolTipTextAt(

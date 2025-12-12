@@ -1974,9 +1974,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 String htmlTitle = String.format(
                         "<html>Review (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)%s</html>",
                         res.filesChanged(),
-                        DiffPanelUtils.toHex(plusColor),
+                        ColorUtil.toHex(plusColor),
                         res.totalAdded(),
-                        DiffPanelUtils.toHex(minusColor),
+                        ColorUtil.toHex(minusColor),
                         res.totalDeleted(),
                         escapeHtml(baselineSuffix));
                 tabs.setTitleAt(idx, htmlTitle);
