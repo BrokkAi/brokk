@@ -49,9 +49,12 @@ public class ChromeKeyboardShortcutIntegrationTest {
 
         Chrome.registerUndoRedoShortcuts(rootPane, globalUndoAction, globalRedoAction);
 
-        KeyStroke redoKeyStroke =
-                GlobalUiSettings.getKeybinding("global.redo", KeyboardShortcutUtil.createCtrlShiftZ());
-        KeyStroke redoYKeyStroke = GlobalUiSettings.getKeybinding("global.redoY", KeyboardShortcutUtil.createCtrlY());
+        // Use the default platform redo keystrokes here. Persistence and overrides
+        // for global.redo/global.redoY are covered by dedicated persistence tests;
+        // this integration test just ensures that the default redo keystrokes
+        // are wired to the globalRedo action key at the root pane level.
+        KeyStroke redoKeyStroke = KeyboardShortcutUtil.createCtrlShiftZ();
+        KeyStroke redoYKeyStroke = KeyboardShortcutUtil.createCtrlY();
 
         InputMap inputMap = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
         ActionMap actionMap = rootPane.getActionMap();
