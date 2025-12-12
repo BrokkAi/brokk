@@ -3137,41 +3137,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             }
                         }
 
-                        List<Context.DiffEntry> perFileChanges = new ArrayList<>();
-                        int totalAdded = 0;
-                        int totalDeleted = 0;
-
-                        for (var modFile : fileSet) {
-                            var file = modFile.file();
-
-                            // Compute left content based on baseline (commit)
-                            String leftContent = "";
-                            if (leftCommitSha != null && !leftCommitSha.isBlank()) {
-                                try {
-                                    var leftFrag = ai.brokk.context.ContextFragment.GitFileFragment.fromCommit(
-                                            file, leftCommitSha, gitRepo);
-                                    leftContent = leftFrag.text().join();
-                                } catch (Throwable t) {
-                                    leftContent = "";
-                                }
-                            }
-
-                            // Compute right content (working tree)
-                            String rightContent = file.read().orElse("");
-                            var rightFrag =
-                                    new ai.brokk.context.ContextFragment.GitFileFragment(file, "WORKING", rightContent);
-
-                            // Compute line counts
-                            var diffRes = ContentDiffUtils.computeDiffResult(leftContent, rightContent, "old", "new");
-                            int added = diffRes.added();
-                            int deleted = diffRes.deleted();
-                            totalAdded += added;
-                            totalDeleted += deleted;
-
-                            // Build Context.DiffEntry (use right-side fragment as the representative fragment)
-                            var de = new Context.DiffEntry(rightFrag, "", added, deleted, leftContent, rightContent);
-                            perFileChanges.add(de);
-                        }
+                        // Use DiffService to summarize changes between baseline and working tree
+                        var summarizedChanges = DiffService.summarizeDiff(repo, leftCommitSha, "WORKING", fileSet);
+                        var perFileChanges = summarizedChanges.perFileChanges();
+                        int totalAdded = summarizedChanges.totalAdded();
+                        int totalDeleted = summarizedChanges.totalDeleted();
 
                         GitWorkflow.PushPullState pushPullState = null;
                         try {

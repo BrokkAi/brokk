@@ -24,6 +24,7 @@ import java.awt.*;
 import java.awt.event.ActionListener;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -854,42 +855,11 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
             return new DiffService.CumulativeChanges(0, 0, 0, List.of());
         }
 
-        List<Context.DiffEntry> perFileChanges = new ArrayList<>();
-        int totalAdded = 0;
-        int totalDeleted = 0;
+        // Convert List<GitRepo.ModifiedFile> to Set for DiffService.summarizeDiff
+        Set<ai.brokk.git.IGitRepo.ModifiedFile> fileSet = new HashSet<>(files);
 
-        for (var modFile : files) {
-            var file = modFile.file();
-            // Get content at merge base (left side - target branch baseline)
-            String leftContent = "";
-            try {
-                var leftFrag =
-                        ai.brokk.context.ContextFragment.GitFileFragment.fromCommit(file, mergeBaseCommit, gitRepo);
-                leftContent = leftFrag.text().join();
-            } catch (Throwable t) {
-                leftContent = "";
-            }
-
-            // Get content at source branch (right side - what will be in the PR)
-            String rightContent = "";
-            try {
-                var rightFrag =
-                        ai.brokk.context.ContextFragment.GitFileFragment.fromCommit(file, sourceBranch, gitRepo);
-                rightContent = rightFrag.text().join();
-                // Use rightFrag as fragment in the DiffEntry
-                var diffRes = ContentDiffUtils.computeDiffResult(leftContent, rightContent, "old", "new");
-                int[] netCounts = new int[] {diffRes.added(), diffRes.deleted()};
-                totalAdded += netCounts[0];
-                totalDeleted += netCounts[1];
-
-                var de = new Context.DiffEntry(rightFrag, "", netCounts[0], netCounts[1], leftContent, rightContent);
-                perFileChanges.add(de);
-            } catch (Throwable t) {
-                // On error for a single file, skip and continue
-            }
-        }
-
-        return new DiffService.CumulativeChanges(files.size(), totalAdded, totalDeleted, perFileChanges);
+        // Use DiffService to summarize changes between merge base and source branch
+        return DiffService.summarizeDiff(repo, mergeBaseCommit, sourceBranch, fileSet);
     }
 
     private void updateReviewTabContent(DiffService.CumulativeChanges res) {
