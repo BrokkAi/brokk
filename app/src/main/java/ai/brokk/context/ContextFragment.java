@@ -225,7 +225,7 @@ public interface ContextFragment {
         // Handles: stack traces (Foo.java:42), grep output (src/Foo.java:10:), git status, etc.
         private static final Pattern FILE_PATH_PATTERN = Pattern.compile(
                 "((?:/|[a-zA-Z]:[\\\\/])?" // Optional absolute prefix (Unix / or Windows C:\)
-                        + "[a-zA-Z0-9_][a-zA-Z0-9_.\\-/\\\\]*" // Path body
+                        + "[a-zA-Z0-9_][a-zA-Z0-9_.\\-/\\\\~]*" // Path body (~ for Windows short names)
                         + "\\.[a-zA-Z0-9]{1,10})" // Extension (1-10 chars)
                         + "(?=[:\\s\"'(),\\]}>]|$)" // Followed by delimiter or end
                 );

@@ -41,6 +41,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 public class ContextSerializationTest {
+    /** Normalize path separators for cross-platform test assertions */
+    private static String normalizePath(String path) {
+        return path.replace('\\', '/');
+    }
+
     @TempDir
     Path tempDir;
 
@@ -285,8 +290,12 @@ public class ContextSerializationTest {
 
         // Compare files
         assertEquals(
-                expected.files().join().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
-                actual.files().join().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
+                expected.files().join().stream()
+                        .map(pf -> normalizePath(pf.toString()))
+                        .collect(Collectors.toSet()),
+                actual.files().join().stream()
+                        .map(pf -> normalizePath(pf.toString()))
+                        .collect(Collectors.toSet()),
                 "Fragment files mismatch for ID " + expected.id());
     }
 
@@ -1776,9 +1785,11 @@ public class ContextSerializationTest {
                 associatedFiles);
 
         // Live fragment exposes associated files for Edit All Refs
-        var liveFiles =
-                fragment.files().join().stream().map(ProjectFile::toString).collect(Collectors.toSet());
-        var expectedFiles = associatedFiles.stream().map(ProjectFile::toString).collect(Collectors.toSet());
+        var liveFiles = fragment.files().join().stream()
+                .map(pf -> normalizePath(pf.toString()))
+                .collect(Collectors.toSet());
+        var expectedFiles =
+                associatedFiles.stream().map(pf -> normalizePath(pf.toString())).collect(Collectors.toSet());
         assertEquals(expectedFiles, liveFiles);
 
         var context = new Context(mockContextManager).addFragments(fragment);
@@ -2058,7 +2069,8 @@ public class ContextSerializationTest {
 
         var extractedFiles = fragment.files().join();
         assertEquals(2, extractedFiles.size());
-        var extractedPaths = extractedFiles.stream().map(ProjectFile::toString).collect(Collectors.toSet());
+        var extractedPaths =
+                extractedFiles.stream().map(pf -> normalizePath(pf.toString())).collect(Collectors.toSet());
         assertTrue(extractedPaths.contains("src/PathListFile1.java"));
         assertTrue(extractedPaths.contains("src/PathListFile2.java"));
     }
@@ -2081,7 +2093,8 @@ public class ContextSerializationTest {
 
         var extractedFiles = fragment.files().join();
         assertEquals(3, extractedFiles.size());
-        var extractedPaths = extractedFiles.stream().map(ProjectFile::toString).collect(Collectors.toSet());
+        var extractedPaths =
+                extractedFiles.stream().map(pf -> normalizePath(pf.toString())).collect(Collectors.toSet());
         assertTrue(extractedPaths.contains("src/CommaFile1.java"));
         assertTrue(extractedPaths.contains("src/CommaFile2.java"));
         assertTrue(extractedPaths.contains("src/CommaFile3.java"));
@@ -2128,7 +2141,9 @@ public class ContextSerializationTest {
 
         var extractedFiles = fragment.files().join();
         assertEquals(1, extractedFiles.size());
-        assertEquals("src/ExistingFile.java", extractedFiles.iterator().next().toString());
+        assertEquals(
+                "src/ExistingFile.java",
+                normalizePath(extractedFiles.iterator().next().toString()));
     }
 
     @Test
@@ -2150,7 +2165,9 @@ public class ContextSerializationTest {
 
         var extractedFiles = fragment.files().join();
         assertEquals(1, extractedFiles.size());
-        assertEquals("src/CommentTest.java", extractedFiles.iterator().next().toString());
+        assertEquals(
+                "src/CommentTest.java",
+                normalizePath(extractedFiles.iterator().next().toString()));
     }
 
     @Test
@@ -2169,7 +2186,7 @@ public class ContextSerializationTest {
         assertEquals(1, extractedFiles.size());
         assertEquals(
                 "src/nested/BackslashTest.java",
-                extractedFiles.iterator().next().toString());
+                normalizePath(extractedFiles.iterator().next().toString()));
     }
 
     @Test
@@ -2196,7 +2213,9 @@ public class ContextSerializationTest {
         // Should extract from diff, not interpret "diff --git..." as a path
         var extractedFiles = fragment.files().join();
         assertEquals(1, extractedFiles.size());
-        assertEquals("src/DiffPrecedence.java", extractedFiles.iterator().next().toString());
+        assertEquals(
+                "src/DiffPrecedence.java",
+                normalizePath(extractedFiles.iterator().next().toString()));
     }
 
     @Test
@@ -2220,7 +2239,8 @@ public class ContextSerializationTest {
 
         var extractedFiles = fragment.files().join();
         assertEquals(2, extractedFiles.size());
-        var paths = extractedFiles.stream().map(ProjectFile::toString).collect(Collectors.toSet());
+        var paths =
+                extractedFiles.stream().map(pf -> normalizePath(pf.toString())).collect(Collectors.toSet());
         assertTrue(paths.contains("src/com/example/Foo.java"));
         assertTrue(paths.contains("src/com/example/Bar.java"));
     }
@@ -2246,7 +2266,8 @@ public class ContextSerializationTest {
 
         var extractedFiles = fragment.files().join();
         assertEquals(2, extractedFiles.size());
-        var paths = extractedFiles.stream().map(ProjectFile::toString).collect(Collectors.toSet());
+        var paths =
+                extractedFiles.stream().map(pf -> normalizePath(pf.toString())).collect(Collectors.toSet());
         assertTrue(paths.contains("src/Service.java"));
         assertTrue(paths.contains("src/Controller.java"));
     }
@@ -2270,7 +2291,9 @@ public class ContextSerializationTest {
 
         var extractedFiles = fragment.files().join();
         assertEquals(1, extractedFiles.size());
-        assertEquals("src/BrokenClass.java", extractedFiles.iterator().next().toString());
+        assertEquals(
+                "src/BrokenClass.java",
+                normalizePath(extractedFiles.iterator().next().toString()));
     }
 
     @Test
@@ -2292,7 +2315,9 @@ public class ContextSerializationTest {
 
         var extractedFiles = fragment.files().join();
         assertEquals(1, extractedFiles.size());
-        assertEquals("src/RealFile.java", extractedFiles.iterator().next().toString());
+        assertEquals(
+                "src/RealFile.java",
+                normalizePath(extractedFiles.iterator().next().toString()));
     }
 
     @Test
@@ -2310,7 +2335,9 @@ public class ContextSerializationTest {
 
         var extractedFiles = fragment.files().join();
         assertEquals(1, extractedFiles.size());
-        assertEquals("src/AbsoluteTest.java", extractedFiles.iterator().next().toString());
+        assertEquals(
+                "src/AbsoluteTest.java",
+                normalizePath(extractedFiles.iterator().next().toString()));
     }
 
     @Test
@@ -2335,7 +2362,8 @@ public class ContextSerializationTest {
 
         var extractedFiles = fragment.files().join();
         assertEquals(2, extractedFiles.size());
-        var extractedPaths = extractedFiles.stream().map(ProjectFile::toString).collect(Collectors.toSet());
+        var extractedPaths =
+                extractedFiles.stream().map(pf -> normalizePath(pf.toString())).collect(Collectors.toSet());
         assertTrue(extractedPaths.contains("src/PastedFile1.java"));
         assertTrue(extractedPaths.contains("src/PastedFile2.java"));
     }
@@ -2362,7 +2390,8 @@ public class ContextSerializationTest {
         var extractedFiles = fragment.files().join();
         assertEquals(1, extractedFiles.size());
         assertEquals(
-                "src/com/example/Service.java", extractedFiles.iterator().next().toString());
+                "src/com/example/Service.java",
+                normalizePath(extractedFiles.iterator().next().toString()));
     }
 
     @Test
@@ -2389,7 +2418,8 @@ public class ContextSerializationTest {
 
         var extractedFiles = fragment.files().join();
         assertEquals(2, extractedFiles.size());
-        var extractedPaths = extractedFiles.stream().map(ProjectFile::toString).collect(Collectors.toSet());
+        var extractedPaths =
+                extractedFiles.stream().map(pf -> normalizePath(pf.toString())).collect(Collectors.toSet());
         assertTrue(extractedPaths.contains("src/BuildError.java"));
         assertTrue(extractedPaths.contains("src/TestFailure.java"));
     }
@@ -2415,7 +2445,9 @@ public class ContextSerializationTest {
 
         var extractedFiles = fragment.files().join();
         assertEquals(1, extractedFiles.size());
-        assertEquals("src/RealFile.java", extractedFiles.iterator().next().toString());
+        assertEquals(
+                "src/RealFile.java",
+                normalizePath(extractedFiles.iterator().next().toString()));
     }
 
     @Test
@@ -2440,7 +2472,9 @@ public class ContextSerializationTest {
         var extractedFiles = fragment.files().join();
         // Regex intentionally disallows spaces to avoid false positives
         assertEquals(1, extractedFiles.size());
-        assertEquals("src/NormalFile.java", extractedFiles.iterator().next().toString());
+        assertEquals(
+                "src/NormalFile.java",
+                normalizePath(extractedFiles.iterator().next().toString()));
     }
 
     @Test
@@ -2463,7 +2497,9 @@ public class ContextSerializationTest {
         var extractedFiles = fragment.files().join();
         // LinkedHashSet should deduplicate
         assertEquals(1, extractedFiles.size());
-        assertEquals("src/DuplicateTest.java", extractedFiles.iterator().next().toString());
+        assertEquals(
+                "src/DuplicateTest.java",
+                normalizePath(extractedFiles.iterator().next().toString()));
     }
 
     @Test
@@ -2487,7 +2523,9 @@ public class ContextSerializationTest {
         var extractedFiles = fragment.files().join();
         // Only the file inside the project should be extracted
         assertEquals(1, extractedFiles.size());
-        assertEquals("src/InsideProject.java", extractedFiles.iterator().next().toString());
+        assertEquals(
+                "src/InsideProject.java",
+                normalizePath(extractedFiles.iterator().next().toString()));
     }
 
     @Test
@@ -2512,7 +2550,8 @@ public class ContextSerializationTest {
                 mockContextManager, pathList, "Extension test", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var extractedFiles = fragment.files().join();
-        var extractedPaths = extractedFiles.stream().map(ProjectFile::toString).collect(Collectors.toSet());
+        var extractedPaths =
+                extractedFiles.stream().map(pf -> normalizePath(pf.toString())).collect(Collectors.toSet());
 
         // .component.ts and .json should match, .verylongextension (18 chars) should not
         assertEquals(2, extractedFiles.size());
@@ -2559,7 +2598,8 @@ public class ContextSerializationTest {
 
         var loadedFiles = loadedFragment.files().join();
         assertEquals(2, loadedFiles.size());
-        var loadedPaths = loadedFiles.stream().map(ProjectFile::toString).collect(Collectors.toSet());
+        var loadedPaths =
+                loadedFiles.stream().map(pf -> normalizePath(pf.toString())).collect(Collectors.toSet());
         assertTrue(loadedPaths.contains("src/SerializedFile1.java"));
         assertTrue(loadedPaths.contains("src/SerializedFile2.java"));
     }
@@ -2585,7 +2625,9 @@ public class ContextSerializationTest {
         // File extraction should still work even when futures fail
         var extractedFiles = fragment.files().join();
         assertEquals(1, extractedFiles.size());
-        assertEquals("src/TimeoutTest.java", extractedFiles.iterator().next().toString());
+        assertEquals(
+                "src/TimeoutTest.java",
+                normalizePath(extractedFiles.iterator().next().toString()));
 
         // Description should fall back to default
         var desc = fragment.description().join();

@@ -226,14 +226,23 @@ public final class PathNormalizer {
     @Nullable
     private static String tryRelativizeAgainstProject(String absForwardSlashPath, Path projectRoot) {
         try {
-            Path projectAbs = projectRoot.toAbsolutePath().normalize();
-
             // Convert absForwardSlashPath into a system path best-effort for comparison.
             Path asSystemPath = toSystemPath(absForwardSlashPath);
             if (asSystemPath == null || !asSystemPath.isAbsolute()) {
                 return null;
             }
-            Path norm = asSystemPath.normalize();
+
+            // Use toRealPath() when possible to resolve canonical paths.
+            // Fall back to normalize() if file doesn't exist or toRealPath() fails.
+            Path projectAbs;
+            Path norm;
+            try {
+                projectAbs = projectRoot.toRealPath();
+                norm = asSystemPath.toRealPath();
+            } catch (Exception e) {
+                projectAbs = projectRoot.toAbsolutePath().normalize();
+                norm = asSystemPath.normalize();
+            }
 
             if (norm.startsWith(projectAbs)) {
                 Path rel = projectAbs.relativize(norm);
