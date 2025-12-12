@@ -179,7 +179,17 @@ public class Context {
             int linesAdded,
             int linesDeleted,
             String oldContent,
-            String newContent) {}
+            String newContent) {
+        @Blocking
+        public String title() {
+            var files = fragment.files().join();
+            if (files != null && !files.isEmpty()) {
+                var pf = files.iterator().next();
+                return pf.getRelPath().toString();
+            }
+            return fragment.shortDescription().join();
+        }
+    }
 
     public static UUID newContextId() {
         return UuidCreator.getTimeOrderedEpoch();

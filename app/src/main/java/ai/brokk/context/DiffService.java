@@ -3,6 +3,7 @@ package ai.brokk.context;
 import ai.brokk.ExceptionReporter;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.util.ContentDiffUtils;
 import java.time.Duration;
@@ -339,5 +340,20 @@ public final class DiffService {
         return diffs.stream()
                 .flatMap(de -> de.fragment().files().join().stream())
                 .collect(Collectors.toSet());
+    }
+
+    /** Cumulative changes summary across multiple files. */
+    public record CumulativeChanges(
+            int filesChanged,
+            int totalAdded,
+            int totalDeleted,
+            List<Context.DiffEntry> perFileChanges,
+            @Nullable GitWorkflow.PushPullState pushPullState) {
+
+        /** Convenience constructor without pushPullState. */
+        public CumulativeChanges(
+                int filesChanged, int totalAdded, int totalDeleted, List<Context.DiffEntry> perFileChanges) {
+            this(filesChanged, totalAdded, totalDeleted, perFileChanges, null);
+        }
     }
 }

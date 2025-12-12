@@ -2,6 +2,8 @@ package ai.brokk.gui.dialogs;
 
 import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
+import ai.brokk.context.Context;
+import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.utils.ColorUtil;
@@ -16,8 +18,8 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.MaterialLoadingButton;
 import ai.brokk.gui.git.GitCommitBrowserPanel;
 import ai.brokk.gui.mop.ThemeColors;
-import ai.brokk.gui.util.DiffPanelUtils;
 import ai.brokk.gui.widgets.FileStatusTable;
+import ai.brokk.util.ContentDiffUtils;
 import java.awt.*;
 import java.awt.event.ActionListener;
 import java.util.ArrayList;
@@ -836,23 +838,23 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         });
     }
 
-    private DiffPanelUtils.CumulativeChanges computeCumulativeChanges(List<GitRepo.ModifiedFile> files) {
+    private DiffService.CumulativeChanges computeCumulativeChanges(List<GitRepo.ModifiedFile> files) {
         if (mergeBaseCommit == null || files.isEmpty()) {
-            return new DiffPanelUtils.CumulativeChanges(0, 0, 0, List.of());
+            return new DiffService.CumulativeChanges(0, 0, 0, List.of());
         }
 
         var repo = contextManager.getProject().getRepo();
         if (!(repo instanceof GitRepo gitRepo)) {
-            return new DiffPanelUtils.CumulativeChanges(0, 0, 0, List.of());
+            return new DiffService.CumulativeChanges(0, 0, 0, List.of());
         }
 
         // Get the source branch for right-side content (committed content, not working tree)
         var sourceBranch = (String) sourceBranchComboBox.getSelectedItem();
         if (sourceBranch == null) {
-            return new DiffPanelUtils.CumulativeChanges(0, 0, 0, List.of());
+            return new DiffService.CumulativeChanges(0, 0, 0, List.of());
         }
 
-        List<DiffPanelUtils.PerFileChange> perFileChanges = new ArrayList<>();
+        List<Context.DiffEntry> perFileChanges = new ArrayList<>();
         int totalAdded = 0;
         int totalDeleted = 0;
 
@@ -861,23 +863,38 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
             String displayFile = file.getRelPath().toString();
 
             // Get content at merge base (left side - target branch baseline)
-            String leftContent = DiffPanelUtils.safeGetFileContent(gitRepo, mergeBaseCommit, file);
+            String leftContent = "";
+            try {
+                var leftFrag =
+                        ai.brokk.context.ContextFragment.GitFileFragment.fromCommit(file, mergeBaseCommit, gitRepo);
+                leftContent = leftFrag.text().join();
+            } catch (Throwable t) {
+                leftContent = "";
+            }
 
             // Get content at source branch (right side - what will be in the PR)
-            String rightContent = DiffPanelUtils.safeGetFileContent(gitRepo, sourceBranch, file);
+            String rightContent = "";
+            try {
+                var rightFrag =
+                        ai.brokk.context.ContextFragment.GitFileFragment.fromCommit(file, sourceBranch, gitRepo);
+                rightContent = rightFrag.text().join();
+                // Use rightFrag as fragment in the DiffEntry
+                var diffRes = ContentDiffUtils.computeDiffResult(leftContent, rightContent, "old", "new");
+                int[] netCounts = new int[] {diffRes.added(), diffRes.deleted()};
+                totalAdded += netCounts[0];
+                totalDeleted += netCounts[1];
 
-            // Compute line counts
-            int[] netCounts = DiffPanelUtils.computeNetLineCounts(leftContent, rightContent);
-            totalAdded += netCounts[0];
-            totalDeleted += netCounts[1];
-
-            perFileChanges.add(new DiffPanelUtils.PerFileChange(displayFile, leftContent, rightContent));
+                var de = new Context.DiffEntry(rightFrag, "", netCounts[0], netCounts[1], leftContent, rightContent);
+                perFileChanges.add(de);
+            } catch (Throwable t) {
+                // On error for a single file, skip and continue
+            }
         }
 
-        return new DiffPanelUtils.CumulativeChanges(files.size(), totalAdded, totalDeleted, perFileChanges);
+        return new DiffService.CumulativeChanges(files.size(), totalAdded, totalDeleted, perFileChanges);
     }
 
-    private void updateReviewTabContent(DiffPanelUtils.CumulativeChanges res) {
+    private void updateReviewTabContent(DiffService.CumulativeChanges res) {
         assert SwingUtilities.isEventDispatchThread() : "updateReviewTabContent must run on EDT";
 
         // Dispose any previous diff panel
@@ -918,7 +935,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         reviewTabPlaceholder.repaint();
     }
 
-    private void updateReviewTabTitle(DiffPanelUtils.CumulativeChanges res) {
+    private void updateReviewTabTitle(DiffService.CumulativeChanges res) {
         int idx = middleTabbedPane.indexOfComponent(reviewTabPlaceholder);
         if (idx < 0) return;
 
@@ -945,7 +962,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         }
     }
 
-    private JPanel buildAggregatedChangesPanel(DiffPanelUtils.CumulativeChanges res) {
+    private JPanel buildAggregatedChangesPanel(DiffService.CumulativeChanges res) {
         var wrapper = new JPanel(new BorderLayout());
 
         // Build header
@@ -965,9 +982,10 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
                 .setMultipleCommitsContext(false)
                 .setRootTitle("PR Changes");
+
         for (var change : res.perFileChanges()) {
-            var left = new BufferSource.StringSource(change.leftContent(), change.displayFile() + " (base)");
-            var right = new BufferSource.StringSource(change.rightContent(), change.displayFile());
+            var left = new BufferSource.StringSource(change.oldContent(), change.title() + " (base)");
+            var right = new BufferSource.StringSource(change.newContent(), change.title());
             builder.leftSource(left).rightSource(right);
         }
 

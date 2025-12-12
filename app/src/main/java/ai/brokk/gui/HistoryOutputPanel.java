@@ -8,6 +8,7 @@ import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.utils.ColorUtil;
@@ -24,7 +25,6 @@ import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.gui.util.DiffPanelUtils;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.IProject;
@@ -32,6 +32,7 @@ import ai.brokk.project.MainProject;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.ContentDiffUtils;
 import ai.brokk.util.GlobalUiSettings;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolSpecification;
@@ -219,7 +220,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private final Set<UUID> sessionCountLoading = ConcurrentHashMap.newKeySet();
 
     @Nullable
-    private DiffPanelUtils.CumulativeChanges lastCumulativeChanges;
+    private DiffService.CumulativeChanges lastCumulativeChanges;
 
     @Nullable
     private String lastBaselineLabel;
@@ -1928,7 +1929,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      * Sets the Changes tab title and tooltip based on the provided cumulative changes result,
      * using theme-appropriate + / - colors. Safe if the tab lineup changes while updating.
      */
-    private void setChangesTabTitleAndTooltip(DiffPanelUtils.CumulativeChanges res) {
+    private void setChangesTabTitleAndTooltip(DiffService.CumulativeChanges res) {
         var tabs = outputTabs;
         if (tabs == null) return;
 
@@ -3093,21 +3094,20 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
     }
 
-    // Compute the branch-based changes in the background. Updates the "Changes" tab title and content on the EDT.
-    // Shows changes relative to the baseline branch (or uncommitted changes on default branch).
-    private CompletableFuture<DiffPanelUtils.CumulativeChanges> refreshCumulativeChangesAsync() {
+    @Blocking
+    private CompletableFuture<DiffService.CumulativeChanges> refreshCumulativeChangesAsync() {
         return contextManager
                 .submitBackgroundTask("Compute branch-based changes", () -> {
                     var repoOpt = repo();
                     if (repoOpt.isEmpty()) {
-                        return new DiffPanelUtils.CumulativeChanges(0, 0, 0, List.of(), null);
+                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
                     }
 
                     var repo = repoOpt.get();
 
                     // Branch-specific methods require GitRepo, not just IGitRepo
-                    if (!(repo instanceof GitRepo gitRepo)) {
-                        return new DiffPanelUtils.CumulativeChanges(0, 0, 0, List.of(), null);
+                    if (!(repo instanceof ai.brokk.git.GitRepo gitRepo)) {
+                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
                     }
 
                     var baseline = computeBaselineForChanges();
@@ -3116,11 +3116,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
                     // Handle cases with no baseline
                     if (baseline.mode() == BaselineMode.DETACHED || baseline.mode() == BaselineMode.NO_BASELINE) {
-                        return new DiffPanelUtils.CumulativeChanges(0, 0, 0, List.of(), null);
+                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
                     }
 
                     try {
-                        Set<IGitRepo.ModifiedFile> fileSet = new HashSet<>();
+                        Set<IGitRepo.ModifiedFile> fileSet = new java.util.HashSet<>();
                         String leftCommitSha = null;
                         String currentBranch = gitRepo.getCurrentBranch();
 
@@ -3164,8 +3164,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             }
                         }
 
-                        // Build per-file changes
-                        List<DiffPanelUtils.PerFileChange> perFileChanges = new ArrayList<>();
+                        List<Context.DiffEntry> perFileChanges = new ArrayList<>();
                         int totalAdded = 0;
                         int totalDeleted = 0;
 
@@ -3173,21 +3172,33 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             var file = modFile.file();
                             String displayFile = file.getRelPath().toString();
 
-                            // Compute left content based on baseline
-                            String leftContent = (leftCommitSha != null)
-                                    ? DiffPanelUtils.safeGetFileContent(gitRepo, leftCommitSha, file)
-                                    : "";
+                            // Compute left content based on baseline (commit)
+                            String leftContent = "";
+                            if (leftCommitSha != null && !leftCommitSha.isBlank()) {
+                                try {
+                                    var leftFrag = ai.brokk.context.ContextFragment.GitFileFragment.fromCommit(
+                                            file, leftCommitSha, gitRepo);
+                                    leftContent = leftFrag.text().join();
+                                } catch (Throwable t) {
+                                    leftContent = "";
+                                }
+                            }
 
                             // Compute right content (working tree)
                             String rightContent = file.read().orElse("");
+                            var rightFrag =
+                                    new ai.brokk.context.ContextFragment.GitFileFragment(file, "WORKING", rightContent);
 
                             // Compute line counts
-                            int[] netCounts = DiffPanelUtils.computeNetLineCounts(leftContent, rightContent);
-                            totalAdded += netCounts[0];
-                            totalDeleted += netCounts[1];
+                            var diffRes = ContentDiffUtils.computeDiffResult(leftContent, rightContent, "old", "new");
+                            int added = diffRes.added();
+                            int deleted = diffRes.deleted();
+                            totalAdded += added;
+                            totalDeleted += deleted;
 
-                            perFileChanges.add(
-                                    new DiffPanelUtils.PerFileChange(displayFile, leftContent, rightContent));
+                            // Build Context.DiffEntry (use right-side fragment as the representative fragment)
+                            var de = new Context.DiffEntry(rightFrag, "", added, deleted, leftContent, rightContent);
+                            perFileChanges.add(de);
                         }
 
                         GitWorkflow.PushPullState pushPullState = null;
@@ -3209,12 +3220,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             logger.debug("Failed to evaluate push/pull state for branch {}", currentBranch, e);
                         }
 
-                        return new DiffPanelUtils.CumulativeChanges(
+                        return new DiffService.CumulativeChanges(
                                 perFileChanges.size(), totalAdded, totalDeleted, perFileChanges, pushPullState);
 
                     } catch (Exception e) {
                         logger.warn("Failed to compute branch-based changes", e);
-                        return new DiffPanelUtils.CumulativeChanges(0, 0, 0, List.of(), null);
+                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
                     }
                 })
                 .thenApply(result -> {
@@ -3230,7 +3241,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     // Build and insert the aggregated multi-file diff panel into the Changes tab.
     // Must be called on the EDT.
-    private void updateChangesTabContent(DiffPanelUtils.CumulativeChanges res) {
+    private void updateChangesTabContent(DiffService.CumulativeChanges res) {
         assert SwingUtilities.isEventDispatchThread() : "updateChangesTabContent must run on EDT";
         var container = changesTabPlaceholder;
         if (container == null) {
@@ -3290,7 +3301,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     // Constructs a panel containing a summary header and a BrokkDiffPanel with per-file comparisons.
     // Sets aggregatedChangesPanel to the created BrokkDiffPanel for lifecycle management.
-    private JPanel buildAggregatedChangesPanel(DiffPanelUtils.CumulativeChanges res) {
+    private JPanel buildAggregatedChangesPanel(DiffService.CumulativeChanges res) {
         var wrapper = new JPanel(new BorderLayout());
 
         // Build header with baseline label and buttons
@@ -3431,12 +3442,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         // Stable order by display file path
         var changes = new ArrayList<>(res.perFileChanges());
-        changes.sort(Comparator.comparing(DiffPanelUtils.PerFileChange::displayFile));
+        changes.sort(Comparator.comparing(Context.DiffEntry::title));
 
         for (var change : changes) {
-            String path = change.displayFile();
-            String leftContent = change.leftContent();
-            String rightContent = change.rightContent();
+            String path = change.title();
+            String leftContent = change.oldContent();
+            String rightContent = change.newContent();
 
             // Use non-ref titles to avoid accidental git ref resolution; keep filename for syntax highlighting.
             BufferSource left = new BufferSource.StringSource(leftContent, "", path, null);
