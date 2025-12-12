@@ -7,6 +7,7 @@
   import Spinner from './components/Spinner.svelte';
   import TransientMessage from './components/TransientMessage.svelte';
   import { zoomStore } from './stores/zoomStore';
+  import { transientStore } from './stores/transientStore';
   import { historyStore } from './stores/historyStore';
   import ThreadBlock from './components/ThreadBlock.svelte';
   import EmptyState from './components/EmptyState.svelte';
@@ -271,10 +272,12 @@
         summary={liveSummaryEntry?.text}
       />
     {/if}
-    <TransientMessage />
     <Spinner />
   {:else}
-    <!-- Empty state when no history or live bubbles -->
-    <EmptyState />
+    {#if !$transientStore.visible}
+      <!-- Empty state when no history or live bubbles -->
+      <EmptyState />
+    {/if}
   {/if}
+  <TransientMessage />
 </div>

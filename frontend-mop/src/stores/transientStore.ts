@@ -1,4 +1,4 @@
-import {writable} from 'svelte/store';
+import { writable } from 'svelte/store';
 
 export interface TransientState {
     visible: boolean;
@@ -10,29 +10,46 @@ const initialState: TransientState = {
     message: '',
 };
 
+function createTransientStore() {
+    const { subscribe, set } = writable<TransientState>(initialState);
+
+    function show(message = '') {
+        set({
+            visible: true,
+            message
+        });
+    }
+
+    function hide() {
+        set({
+            visible: false,
+            message: ''
+        });
+    }
+
+    return {
+        subscribe,
+        show,
+        hide
+    };
+}
+
 /**
  * Singleton store for transient messages.
  * Transient messages are displayed temporarily without persisting to history.
  */
-export const transientStore = writable<TransientState>(initialState);
+export const transientStore = createTransientStore();
 
 /**
- * Show a transient message.
- * @param message - The message text to display
+ * Show a transient message (compat wrapper).
  */
 export function showTransientMessage(message: string): void {
-    transientStore.set({
-        visible: true,
-        message,
-    });
+    transientStore.show(message);
 }
 
 /**
- * Hide the transient message.
+ * Hide the transient message (compat wrapper).
  */
 export function hideTransientMessage(): void {
-    transientStore.set({
-        visible: false,
-        message: '',
-    });
+    transientStore.hide();
 }

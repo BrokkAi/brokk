@@ -4,7 +4,7 @@
 </script>
 
 {#if $transientStore.visible}
-  <div id="transient-message" class="transient-msg" in:fade={{ duration: 150 }} out:fade={{ duration: 100 }}>
+  <div id="transient-message" class="transient-msg" role="status" aria-live="polite" in:fade={{ duration: 150 }} out:fade={{ duration: 100 }}>
     {$transientStore.message}<span class="ellipsis"></span>
   </div>
 {/if}
@@ -12,7 +12,7 @@
 <style>
   .transient-msg {
     position: relative;
-    align-self: center;
+    align-self: flex-start;
     padding: 0.5em 1em;
 
     --transient-text: var(--chat-text, #888);
