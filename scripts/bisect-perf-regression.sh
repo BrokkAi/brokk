@@ -58,6 +58,7 @@ KEEP_WORKTREES=false
 MODE=""
 USER_SET_ITER=false
 USER_PROVIDED_RUNNER_ARGS=false
+DEBUG=false
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [[ -z "${REPO_ROOT}" ]] || [[ ! -d "${REPO_ROOT}" ]]; then
@@ -99,6 +100,7 @@ Options:
                         Example: --runner-args "chromium-cpp --max-files 1000 --json"
   --workdir DIR         Directory to store artifacts (default: <repo>/build/perf-bisect/<timestamp>/)
   --keep-worktrees      Keep created worktrees for inspection
+  --debug, -v           Print debug diagnostics (where JSON is searched/copied)
   -h, --help            Show this help
 
 Notes:
@@ -143,6 +145,8 @@ abs_path() {
     printf "%s/%s" "$PWD" "$p"
   fi
 }
+
+dlog() { if [[ "${DEBUG}" == "true" ]]; then echo -e "${YELLOW}[DEBUG] $*${NC}" >&2; fi }
 
 cleanup_worktrees() {
   if [[ "${KEEP_WORKTREES}" == "true" ]]; then
@@ -261,6 +265,7 @@ run_commit() {
 
   local output_dir="${WORKDIR}/runner-output/${sha}"
   mkdir -p "${output_dir}"
+  dlog "Commit ${sha_short}: output_dir=${output_dir}"
 
   local i
   for (( i=1; i<=ITERATIONS; i++ )); do
@@ -275,15 +280,24 @@ run_commit() {
       start_ts="$(timestamp)"
       local run_args
       run_args="$(ensure_output_flag "${RUNNER_ARGS}" "${output_dir}")"
+      dlog "Runner invocation: bash \"${runner}\" ${run_args}"
       if ! bash -lc "bash \"${runner}\" ${run_args}" 1>&2; then
         echo -e "${YELLOW}Runner failed for ${sha_short} (iteration ${i}, attempt ${attempt}). Retrying if available...${NC}" >&2
       fi
 
       # Try to find the newest JSON output from the designated output directory
+      dlog "Searching for JSON in ${output_dir} matching baseline-*.json"
+      if [[ -d "${output_dir}" ]]; then
+        dlog "$(ls -l "${output_dir}" || true)"
+      else
+        dlog "Output directory does not exist: ${output_dir}"
+      fi
       produced="$(ls -t "${output_dir}"/baseline-*.json 2>/dev/null | head -n1 || true)"
       if [[ -n "${produced}" ]] && [[ -s "${produced}" ]]; then
         local dst="${res_dir}/iter-$(printf "%02d" "${i}").json"
+        dlog "Found JSON: ${produced}"
         cp -f "${produced}" "${dst}"
+        dlog "Copied to: ${dst}"
         echo -e "${GREEN}Captured ${dst}${NC}" >&2
         break
       fi
@@ -426,6 +440,9 @@ parse_args() {
       --keep-worktrees)
         KEEP_WORKTREES=true
         ;;
+      --debug|-v)
+        DEBUG=true
+        ;;
       -h|--help)
         usage
         exit 0
@@ -524,6 +541,7 @@ main() {
   echo -e "${BLUE}Runner args: ${RUNNER_ARGS}${NC}"
   echo -e "${BLUE}Iterations: ${ITERATIONS}, Retries: ${RETRIES}${NC}"
   echo -e "${BLUE}Good: ${good_sha} (${good_sha_short})  Bad: ${bad_sha} (${bad_sha_short})${NC}"
+  if [[ "${DEBUG}" == "true" ]]; then echo -e "${YELLOW}Debug mode enabled${NC}" >&2; fi
 
   # Pre-check: run endpoints
   echo -e "${GREEN}Running baseline on GOOD commit ${good_sha_short}${NC}"
