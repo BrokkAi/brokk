@@ -934,47 +934,43 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                     var leftSource = comp.leftSource;
                     var rightSource = comp.rightSource;
 
-                    try {
-                        String leftContent = leftSource.content();
-                        String rightContent = rightSource.content();
+                    String leftContent = leftSource.content();
+                    String rightContent = rightSource.content();
 
-                        if (Objects.equals(leftContent, rightContent)) {
-                            continue;
-                        }
-
-                        // Use centralized ContentDiffUtils for normalized unified-diff generation (preserves
-                        // final-newline)
-                        String oldName = leftSource.title();
-                        String newName = rightSource.title();
-                        var diffText = ContentDiffUtils.computeDiffResult(
-                                        leftContent, rightContent, oldName, newName, 0)
-                                .diff();
-
-                        String detectedFilename = detectFilename(leftSource, rightSource);
-                        String displayName =
-                                Optional.ofNullable(detectedFilename).orElse(comp.getDisplayName());
-
-                        String description = buildCaptureDescription(leftSource, rightSource, displayName);
-
-                        String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
-
-                        if (detectedFilename != null) {
-                            int dotIndex = detectedFilename.lastIndexOf('.');
-                            if (dotIndex > 0 && dotIndex < detectedFilename.length() - 1) {
-                                var ext = detectedFilename.substring(dotIndex + 1);
-                                syntaxStyle = SyntaxDetector.fromExtension(ext);
-                            } else {
-                                syntaxStyle = SyntaxDetector.fromExtension(detectedFilename);
-                            }
-                        }
-
-                        var filesForFragment = collectProjectFilesForSources(leftSource, rightSource);
-                        var fragment = new ContextFragment.StringFragment(
-                                contextManager, diffText, description, syntaxStyle, filesForFragment);
-                        fragments.add(fragment);
-                    } catch (Exception ex) {
-                        logger.warn("Failed capturing diff for file index {}: {}", i, ex.getMessage());
+                    if (Objects.equals(leftContent, rightContent)) {
+                        continue;
                     }
+
+                    // Use centralized ContentDiffUtils for normalized unified-diff generation (preserves
+                    // final-newline)
+                    String oldName = leftSource.title();
+                    String newName = rightSource.title();
+                    var diffText = ContentDiffUtils.computeDiffResult(
+                                    leftContent, rightContent, oldName, newName, 0)
+                            .diff();
+
+                    String detectedFilename = detectFilename(leftSource, rightSource);
+                    String displayName =
+                            Optional.ofNullable(detectedFilename).orElse(comp.getDisplayName());
+
+                    String description = buildCaptureDescription(leftSource, rightSource, displayName);
+
+                    String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
+
+                    if (detectedFilename != null) {
+                        int dotIndex = detectedFilename.lastIndexOf('.');
+                        if (dotIndex > 0 && dotIndex < detectedFilename.length() - 1) {
+                            var ext = detectedFilename.substring(dotIndex + 1);
+                            syntaxStyle = SyntaxDetector.fromExtension(ext);
+                        } else {
+                            syntaxStyle = SyntaxDetector.fromExtension(detectedFilename);
+                        }
+                    }
+
+                    var filesForFragment = collectProjectFilesForSources(leftSource, rightSource);
+                    var fragment = new ContextFragment.StringFragment(
+                            contextManager, diffText, description, syntaxStyle, filesForFragment);
+                    fragments.add(fragment);
                 }
 
                 if (fragments.isEmpty()) {
