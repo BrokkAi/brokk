@@ -453,7 +453,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // handleTrackedFileChange().
                 // This method is kept for backward compatibility only.
                 logger.debug("AnalyzerListener.onTrackedFileChange fired (backward compatibility path)");
-                handleTrackedFileChange(Set.of()); // Empty set since we don't have specific files from this path
+                handleTrackedFileChange(project.getAllFiles());
             }
 
             @Override
@@ -2162,6 +2162,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return A new TaskEntry with both log and summary, or the original entry if compression fails.
      * @throws InterruptedException if the operation is cancelled
      */
+    @Blocking
     public TaskEntry compressHistory(TaskEntry entry) throws InterruptedException {
         if (entry.isCompressed()) {
             return entry;
@@ -2791,6 +2792,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     @Override
+    @Blocking
     public void compressHistory() throws InterruptedException {
         io.disableHistoryPanel();
         try {

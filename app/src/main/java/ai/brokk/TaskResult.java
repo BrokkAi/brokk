@@ -27,7 +27,7 @@ public record TaskResult(
             List<ChatMessage> uiMessages,
             Context resultingContext,
             StopDetails stopDetails,
-            TaskMeta meta) {
+            @Nullable TaskMeta meta) {
         this(
                 actionDescription,
                 new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),

@@ -245,7 +245,10 @@ class DiffServiceTest {
         var de = diffs.getFirst();
         assertTrue(de.diff().contains("old-line"), "Diff should reflect old content vs fallback new content");
         assertEquals("old-line", de.oldContent());
-        assertEquals("", de.newContent(), "New content should fall back to empty on timeout");
+        assertEquals(
+                "Timeout loading contents. Please consider reporting a bug",
+                de.newContent(),
+                "New content should fall back to error message on timeout");
     }
 
     private static void writeImage(ProjectFile file, Color color) throws Exception {
