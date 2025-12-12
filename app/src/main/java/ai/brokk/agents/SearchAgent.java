@@ -602,6 +602,19 @@ public class SearchAgent {
                     """;
         }
 
+        // Plan-first guidance: require the first task to configure build settings when details are empty
+        String buildSetupTaskGuidance = "";
+        boolean buildDetailsEmpty =
+                cm.getProject().loadBuildDetails().equals(BuildAgent.BuildDetails.EMPTY);
+        boolean planningObjective = (objective == Objective.LUTZ || objective == Objective.TASKS_ONLY);
+        if (planningObjective && buildDetailsEmpty) {
+            buildSetupTaskGuidance =
+                    """
+                    Task list requirement:
+                      - Because the project has no build/test commands configured yet, the FIRST task must configure the build/test stack using setBuildDetails. Include the selected stack in the task (e.g., "Configure Gradle build for Java project", "Configure pytest for Python project"). This enables the verification loop for subsequent tasks.
+                    """;
+        }
+
         String directive =
                 """
                         <%s>
@@ -618,6 +631,8 @@ public class SearchAgent {
                           - Before any new exploration, prune the Workspace.
                           - Replace full text with concise, goal-focused summaries and drop the originals.
                           - Expand the Workspace only after pruning; avoid re-adding irrelevant content.
+
+                        %s
 
                         %s
 
@@ -640,6 +655,7 @@ public class SearchAgent {
                                 terminalObjective.type(),
                                 terminalObjective.text(),
                                 testsGuidance,
+                                buildSetupTaskGuidance,
                                 finalsStr,
                                 warning,
                                 emptyProjectGuidance);

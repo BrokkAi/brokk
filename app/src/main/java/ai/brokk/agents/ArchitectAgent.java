@@ -957,7 +957,7 @@ public class ArchitectAgent {
         messages.addAll(architectMessages);
         // Final user message with the goal and specific instructions for this turn, including workspace warnings
         var finalInstructions = ArchitectPrompts.instance.getFinalInstructions(cm, goal, workspaceTokenSize, maxInputTokens);
-        
+
         // Append empty project guidance if applicable
         if (cm.getProject().isEmptyProject()) {
             finalInstructions = finalInstructions
@@ -967,7 +967,18 @@ public class ArchitectAgent {
                     + "configure build/test commands (the agent can call a tool to set build details).\n"
                     + "</empty-project-notice>";
         }
-        
+
+        // Nudge: when build/test commands are not configured yet, use setBuildDetails during the build-setup task
+        var bd = cm.getProject().loadBuildDetails();
+        if (bd == null || bd.equals(BuildAgent.BuildDetails.EMPTY)) {
+            finalInstructions = finalInstructions
+                    + "\n\n<build-setup>\n"
+                    + "If the current task is to configure build/test for this project, call setBuildDetails(...) as soon as you have selected the stack "
+                    + "(e.g., Java with Gradle or Maven; Python with pytest; Node with Jest). Prefer repository-local wrapper scripts when present "
+                    + "(./gradlew, ./mvnw). You may refine these settings later after scaffolding is created.\n"
+                    + "</build-setup>";
+        }
+
         messages.add(new UserMessage(finalInstructions));
         return messages;
     }
