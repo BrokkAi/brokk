@@ -611,7 +611,7 @@ public class SearchAgent {
             buildSetupTaskGuidance =
                     """
                     Task list requirement:
-                      - Because the project has no build/test commands configured yet, the FIRST task must configure the build/test stack using setBuildDetails. Include the selected stack in the task (e.g., "Configure Gradle build for Java project", "Configure pytest for Python project"). This enables the verification loop for subsequent tasks.
+                      - Because the project has no build/test commands configured yet, the FIRST task must configure the build/test stack using setBuildDetails. Include the selected stack in the task (e.g., "Configure Gradle build for Java project", "Configure pytest for Python project"). This enables the verification loop for subsequent tasks. The Coder should explicitly not start with the implementation itself.
                     """;
         }
 

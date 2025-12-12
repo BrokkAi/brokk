@@ -547,12 +547,7 @@ public class ArchitectAgent {
                 // Agent tools
                 allowed.add("callCodeAgent");
                 allowed.add("verifyBuildCommand");
-
-                // Expose setBuildDetails only when build details are empty
-                var buildDetails = cm.getProject().loadBuildDetails();
-                if (buildDetails == null || buildDetails.equals(BuildAgent.BuildDetails.EMPTY)) {
-                    allowed.add("setBuildDetails");
-                }
+                allowed.add("setBuildDetails");
 
                 if (this.offerUndoToolNext) {
                     allowed.add("undoLastChanges");
