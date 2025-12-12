@@ -789,8 +789,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                     logger.trace("Commit message lookup failed: {}", lookupEx.toString());
                 }
             }
-            var description = "Captured Diff: %s vs %s"
+            String displayName = Optional.ofNullable(detectFilename(currentLeftSource, currentRightSource))
+                    .orElse(fileComparisons.get(currentFileIndex).getDisplayName());
+            var description = "Captured Diff: %s - %s vs %s"
                     .formatted(
+                            displayName,
                             GitDiffUiUtil.friendlyCommitLabel(currentLeftSource.title(), repo),
                             GitDiffUiUtil.friendlyCommitLabel(currentRightSource.title(), repo));
 
