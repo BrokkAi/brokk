@@ -70,8 +70,6 @@ public class AttachContextDialog extends BaseThemedDialog {
         USAGES
     }
 
-    public record Result(Set<ContextFragment> fragments) {}
-
     private final ContextManager cm;
 
     // Segmented control
