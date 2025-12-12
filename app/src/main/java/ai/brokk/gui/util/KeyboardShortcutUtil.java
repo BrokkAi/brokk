@@ -1,6 +1,7 @@
 package ai.brokk.gui.util;
 
 import com.formdev.flatlaf.util.SystemInfo;
+import java.awt.GraphicsEnvironment;
 import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
@@ -18,15 +19,26 @@ import javax.swing.KeyStroke;
  */
 public class KeyboardShortcutUtil {
 
+    /**
+     * Returns the platform-appropriate menu shortcut modifier (Cmd on macOS, Ctrl on Windows/Linux).
+     * In headless environments this avoids calling HeadlessToolkit.getMenuShortcutKeyMaskEx() and
+     * instead returns a reasonable default based on the OS.
+     */
+    private static int getPlatformMenuShortcutMask() {
+        if (GraphicsEnvironment.isHeadless()) {
+            return SystemInfo.isMacOS ? KeyEvent.META_DOWN_MASK : InputEvent.CTRL_DOWN_MASK;
+        }
+        return Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+    }
+
     /** Creates a platform-appropriate shortcut using Cmd (Mac) or Ctrl (Windows/Linux). */
     public static KeyStroke createPlatformShortcut(int keyCode) {
-        return KeyStroke.getKeyStroke(keyCode, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        return KeyStroke.getKeyStroke(keyCode, getPlatformMenuShortcutMask());
     }
 
     /** Creates a platform-appropriate shortcut with Shift modifier. */
     public static KeyStroke createPlatformShiftShortcut(int keyCode) {
-        return KeyStroke.getKeyStroke(
-                keyCode, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK);
+        return KeyStroke.getKeyStroke(keyCode, getPlatformMenuShortcutMask() | InputEvent.SHIFT_DOWN_MASK);
     }
 
     /** Creates an Alt (Windows/Linux) or Cmd (Mac) shortcut for panel navigation. */
