@@ -70,7 +70,7 @@ public class AttachContextDialog extends BaseThemedDialog {
         USAGES
     }
 
-    public record Result(Set<ContextFragment> fragments, boolean summarize) {}
+    public record Result(Set<ContextFragment> fragments) {}
 
     private final ContextManager cm;
 
@@ -99,7 +99,6 @@ public class AttachContextDialog extends BaseThemedDialog {
     private final SymbolsProvider usagesProvider = new SymbolsProvider(SymbolsProvider.Mode.ALL);
 
     private @Nullable Set<ContextFragment> selection = null;
-    private @Nullable Result selectionResult = null;
 
     private static final String ANALYZER_NOT_READY_TOOLTIP =
             " will be available after code intelligence is initialized.";
@@ -249,7 +248,6 @@ public class AttachContextDialog extends BaseThemedDialog {
                 .registerKeyboardAction(
                         ev -> {
                             selection = null;
-                            selectionResult = null;
                             dispose();
                         },
                         KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
@@ -321,10 +319,6 @@ public class AttachContextDialog extends BaseThemedDialog {
     public AttachContextDialog(Frame parent, ContextManager cm, boolean defaultSummarizeChecked) {
         this(parent, cm);
         this.summarizeCheck.setSelected(defaultSummarizeChecked);
-    }
-
-    public @Nullable Result getSelection() {
-        return selectionResult;
     }
 
     public @Nullable Set<ContextFragment> getSelectedFragments() {
@@ -441,7 +435,6 @@ public class AttachContextDialog extends BaseThemedDialog {
         var text = searchField.getText().trim();
         if (text.isEmpty()) {
             selection = null;
-            selectionResult = null;
             dispose();
             return;
         }
@@ -456,177 +449,159 @@ public class AttachContextDialog extends BaseThemedDialog {
     }
 
     private void confirmFile(String input) {
-            ProjectFile chosen = cm.toFile(input);
-            if (!cm.getProject().getAllFiles().contains(chosen)) {
-                    selection = null;
-                    selectionResult = null;
-                    dispose();
-                    return;
-            }
-
-            ContextFragment frag;
-            if (summarizeCheck.isSelected()) {
-                    // Return a summary fragment for the selected file (FILE_SKELETONS) using the relative path identifier
-                    frag = new ContextFragment.SummaryFragment(
-                                    cm,
-                                    chosen.getRelPath().toString(),
-                                    ContextFragment.SummaryType.FILE_SKELETONS);
-            } else {
-                    frag = new ContextFragment.ProjectPathFragment(chosen, cm);
-            }
-
-            selection = Set.of(frag);
-            selectionResult = new Result(selection, summarizeCheck.isSelected());
+        ProjectFile chosen = cm.toFile(input);
+        if (!cm.getProject().getAllFiles().contains(chosen)) {
+            selection = null;
             dispose();
+            return;
+        }
+
+        ContextFragment frag;
+        if (summarizeCheck.isSelected()) {
+            // Return a summary fragment for the selected file (FILE_SKELETONS) using the relative path identifier
+            frag = new ContextFragment.SummaryFragment(
+                    cm, chosen.getRelPath().toString(), ContextFragment.SummaryType.FILE_SKELETONS);
+        } else {
+            frag = new ContextFragment.ProjectPathFragment(chosen, cm);
+        }
+
+        selection = Set.of(frag);
+        dispose();
     }
 
     private void confirmFolder(String input) {
-            var rel = input.replace("\\", "/");
-            rel = rel.startsWith("/") ? rel.substring(1) : rel;
-            rel = rel.endsWith("/") ? rel.substring(0, rel.length() - 1) : rel;
+        var rel = input.replace("\\", "/");
+        rel = rel.startsWith("/") ? rel.substring(1) : rel;
+        rel = rel.endsWith("/") ? rel.substring(0, rel.length() - 1) : rel;
 
-            var includeSubfolders = includeSubfoldersCheck.isSelected();
-            var relPath = Path.of(rel);
+        var includeSubfolders = includeSubfoldersCheck.isSelected();
+        var relPath = Path.of(rel);
 
-            Set<ProjectFile> all = cm.getProject().getAllFiles();
-            Set<ProjectFile> selected = new LinkedHashSet<>();
-            for (var pf : all) {
-                    Path fileRel = pf.getRelPath();
-                    if (includeSubfolders) {
-                            if (fileRel.startsWith(relPath)) {
-                                    selected.add(pf);
-                            }
-                    } else {
-                            Path parent = fileRel.getParent();
-                            if (Objects.equals(parent, relPath)) {
-                                    selected.add(pf);
-                            }
-                    }
+        Set<ProjectFile> all = cm.getProject().getAllFiles();
+        Set<ProjectFile> selected = new LinkedHashSet<>();
+        for (var pf : all) {
+            Path fileRel = pf.getRelPath();
+            if (includeSubfolders) {
+                if (fileRel.startsWith(relPath)) {
+                    selected.add(pf);
+                }
+            } else {
+                Path parent = fileRel.getParent();
+                if (Objects.equals(parent, relPath)) {
+                    selected.add(pf);
+                }
             }
+        }
 
-            if (selected.isEmpty()) {
-                    selection = null;
-                    selectionResult = null;
-                    dispose();
-                    return;
-            }
-
-            Set<ContextFragment> fragments = selected.stream()
-                            .map(pf -> (ContextFragment) new ContextFragment.ProjectPathFragment(pf, cm))
-                            .collect(Collectors.toCollection(LinkedHashSet::new));
-            selection = fragments;
-            selectionResult = new Result(selection, false);
+        if (selected.isEmpty()) {
+            selection = null;
             dispose();
+            return;
+        }
+
+        Set<ContextFragment> fragments = selected.stream()
+                .map(pf -> (ContextFragment) new ContextFragment.ProjectPathFragment(pf, cm))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        selection = fragments;
+        dispose();
     }
 
     private void confirmClass(String input) {
-            var analyzer = cm.getAnalyzerWrapper().getNonBlocking();
-            if (analyzer == null) {
-                    selection = null;
-                    selectionResult = null;
-                    dispose();
-                    return;
-            }
-
-            Optional<CodeUnit> opt = analyzer.getDefinitions(input).stream()
-                            .filter(CodeUnit::isClass)
-                            .findFirst();
-            if (opt.isEmpty()) {
-                    var s = analyzer.searchDefinitions(input).stream()
-                                    .filter(CodeUnit::isClass)
-                                    .findFirst();
-                    opt = s;
-            }
-            if (opt.isEmpty()) {
-                    selection = null;
-                    selectionResult = null;
-                    dispose();
-                    return;
-            }
-
-            var cu = opt.get();
-
-            ContextFragment frag;
-            if (summarizeCheck.isSelected()) {
-                    frag = new ContextFragment.SummaryFragment(
-                                    cm,
-                                    cu.fqName(),
-                                    ContextFragment.SummaryType.CODEUNIT_SKELETON);
-            } else {
-                    frag = new ContextFragment.CodeFragment(cm, cu);
-            }
-            selection = Set.of(frag);
-            selectionResult = new Result(selection, summarizeCheck.isSelected());
+        var analyzer = cm.getAnalyzerWrapper().getNonBlocking();
+        if (analyzer == null) {
+            selection = null;
             dispose();
+            return;
+        }
+
+        Optional<CodeUnit> opt = analyzer.getDefinitions(input).stream()
+                .filter(CodeUnit::isClass)
+                .findFirst();
+        if (opt.isEmpty()) {
+            var s = analyzer.searchDefinitions(input).stream()
+                    .filter(CodeUnit::isClass)
+                    .findFirst();
+            opt = s;
+        }
+        if (opt.isEmpty()) {
+            selection = null;
+            dispose();
+            return;
+        }
+
+        var cu = opt.get();
+
+        ContextFragment frag;
+        if (summarizeCheck.isSelected()) {
+            frag = new ContextFragment.SummaryFragment(cm, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
+        } else {
+            frag = new ContextFragment.CodeFragment(cm, cu);
+        }
+        selection = Set.of(frag);
+        dispose();
     }
 
     private void confirmMethod(String input) {
-            var analyzer = cm.getAnalyzerWrapper().getNonBlocking();
-            if (analyzer == null) {
-                    selection = null;
-                    selectionResult = null;
-                    dispose();
-                    return;
-            }
-
-            Optional<CodeUnit> opt = analyzer.getDefinitions(input).stream()
-                            .filter(CodeUnit::isFunction)
-                            .findFirst();
-            if (opt.isEmpty()) {
-                    var s = analyzer.searchDefinitions(input).stream()
-                                    .filter(CodeUnit::isFunction)
-                                    .findFirst();
-                    opt = s;
-            }
-            if (opt.isEmpty()) {
-                    selection = null;
-                    selectionResult = null;
-                    dispose();
-                    return;
-            }
-
-            var cu = opt.get();
-
-            var frag = new ContextFragment.CodeFragment(cm, cu);
-            selection = Set.of(frag);
-            selectionResult = new Result(selection, false);
+        var analyzer = cm.getAnalyzerWrapper().getNonBlocking();
+        if (analyzer == null) {
+            selection = null;
             dispose();
+            return;
+        }
+
+        Optional<CodeUnit> opt = analyzer.getDefinitions(input).stream()
+                .filter(CodeUnit::isFunction)
+                .findFirst();
+        if (opt.isEmpty()) {
+            var s = analyzer.searchDefinitions(input).stream()
+                    .filter(CodeUnit::isFunction)
+                    .findFirst();
+            opt = s;
+        }
+        if (opt.isEmpty()) {
+            selection = null;
+            dispose();
+            return;
+        }
+
+        var cu = opt.get();
+
+        var frag = new ContextFragment.CodeFragment(cm, cu);
+        selection = Set.of(frag);
+        dispose();
     }
 
     private void confirmUsage(String input) {
-            var analyzer = cm.getAnalyzerWrapper().getNonBlocking();
-            if (analyzer == null) {
-                    selection = null;
-                    selectionResult = null;
-                    dispose();
-                    return;
-            }
-
-            // Find best matching symbol (class or method). Prefer method if exact.
-            Optional<CodeUnit> exactMethod = analyzer.getDefinitions(input).stream()
-                            .filter(CodeUnit::isFunction)
-                            .findFirst();
-            Optional<CodeUnit> any = exactMethod.isPresent()
-                            ? exactMethod
-                            : analyzer.getDefinitions(input).stream()
-                                            .findFirst()
-                                            .or(() -> analyzer.searchDefinitions(input).stream().findFirst());
-
-            if (summarizeCheck.isSelected() && any.isPresent() && any.get().isFunction()) {
-                    var methodFqn = any.get().fqName();
-                    var frag = new ContextFragment.CallGraphFragment(cm, methodFqn, 1, false);
-                    selection = Set.of(frag);
-                    selectionResult = new Result(selection, true);
-                    dispose();
-                    return;
-            }
-
-            var target = any.map(CodeUnit::fqName).orElse(input);
-
-            var frag = new ContextFragment.UsageFragment(cm, target, includeTestFilesCheck.isSelected());
-            selection = Set.of(frag);
-            selectionResult = new Result(selection, false);
+        var analyzer = cm.getAnalyzerWrapper().getNonBlocking();
+        if (analyzer == null) {
+            selection = null;
             dispose();
+            return;
+        }
+
+        // Find best matching symbol (class or method). Prefer method if exact.
+        Optional<CodeUnit> exactMethod = analyzer.getDefinitions(input).stream()
+                .filter(CodeUnit::isFunction)
+                .findFirst();
+        Optional<CodeUnit> any = exactMethod.isPresent()
+                ? exactMethod
+                : analyzer.getDefinitions(input).stream()
+                        .findFirst()
+                        .or(() -> analyzer.searchDefinitions(input).stream().findFirst());
+
+        if (summarizeCheck.isSelected() && any.isPresent() && any.get().isFunction()) {
+            var methodFqn = any.get().fqName();
+            var frag = new ContextFragment.CallGraphFragment(cm, methodFqn, 1, false);
+            selection = Set.of(frag);
+            dispose();
+            return;
+        }
+
+        var target = any.map(CodeUnit::fqName).orElse(input);
+
+        var frag = new ContextFragment.UsageFragment(cm, target, includeTestFilesCheck.isSelected());
+        selection = Set.of(frag);
+        dispose();
     }
 
     // ---------- Callbacks ----------
