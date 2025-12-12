@@ -330,17 +330,17 @@ public class ArchitectAgent {
                             "List of directories to exclude from code intelligence, e.g., generated code, build artifacts. Can be empty.")
                     java.util.List<String> excludedDirectories) {
         var details = new BuildAgent.BuildDetails(
-                buildLintCommand != null ? buildLintCommand : "",
-                testAllCommand != null ? testAllCommand : "",
-                testSomeCommand != null ? testSomeCommand : "",
-                excludedDirectories != null ? new java.util.HashSet<>(excludedDirectories) : java.util.Set.of(),
+                buildLintCommand,
+                testAllCommand,
+                testSomeCommand,
+                new java.util.HashSet<>(excludedDirectories),
                 java.util.Map.of());
         cm.getProject().saveBuildDetails(details);
         cm.getIo().showNotification(IConsoleIO.NotificationRole.INFO, "Build details configured and saved.");
 
         // Immediately verify the build/lint command if configured
         String verificationMessage = "";
-        if (buildLintCommand != null && !buildLintCommand.isBlank()) {
+        if (!buildLintCommand.isBlank()) {
             verificationMessage = "\n\n**Verification:** " + verifyBuildCommand();
         }
 
