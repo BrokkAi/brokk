@@ -12,6 +12,7 @@ import ai.brokk.difftool.ui.unified.UnifiedDiffDocument;
 import ai.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.EditorFontSizeControl;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.FontSizeAware;
@@ -1021,213 +1022,205 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
     /** Saves every dirty document across all BufferDiffPanels, producing a single undoable history entry. */
     public void saveAll() {
-        try {
-            // Disable save button temporarily
-            btnSaveAll.setEnabled(false);
+        // Disable save button temporarily
+        btnSaveAll.setEnabled(false);
 
-            // Collect unique BufferDiffPanels to process (current + cached)
-            var visited = new LinkedHashSet<BufferDiffPanel>();
-            var currentBufferPanel = getBufferDiffPanel();
-            if (currentBufferPanel != null) {
-                visited.add(currentBufferPanel);
+        // Collect unique BufferDiffPanels to process (current + cached)
+        var visited = new LinkedHashSet<BufferDiffPanel>();
+        var currentBufferPanel = getBufferDiffPanel();
+        if (currentBufferPanel != null) {
+            visited.add(currentBufferPanel);
+        }
+        for (var p : panelCache.nonNullValues()) {
+            if (p instanceof BufferDiffPanel bufferPanel) {
+                visited.add(bufferPanel);
             }
-            for (var p : panelCache.nonNullValues()) {
-                if (p instanceof BufferDiffPanel bufferPanel) {
-                    visited.add(bufferPanel);
+        }
+
+        // Filter to only panels with unsaved changes and at least one editable side
+        var panelsToSave = visited.stream()
+                .filter(p -> p.hasUnsavedChanges() && p.atLeastOneSideEditable())
+                .toList();
+
+        if (panelsToSave.isEmpty()) {
+            // Nothing to do
+            SwingUtilities.invokeLater(this::updateNavigationButtons);
+            return;
+        }
+
+        // Step 0: Add external files to workspace first (to capture original content for undo)
+        var currentContext = contextManager.liveContext();
+        var externalFiles = new ArrayList<ProjectFile>();
+
+        for (var p : panelsToSave) {
+            var panelFiles = p.getFilesBeingSaved();
+            for (var file : panelFiles) {
+                // Check if this file is already in the current workspace context
+                var editableFilesList = currentContext.fileFragments().toList();
+                boolean inWorkspace = editableFilesList.stream()
+                        .anyMatch(f -> f instanceof ContextFragment.ProjectPathFragment ppf
+                                && ppf.file().equals(file));
+                if (!inWorkspace) {
+                    externalFiles.add(file);
                 }
             }
+        }
 
-            // Filter to only panels with unsaved changes and at least one editable side
-            var panelsToSave = visited.stream()
-                    .filter(p -> p.hasUnsavedChanges() && p.atLeastOneSideEditable())
-                    .toList();
+        if (!externalFiles.isEmpty()) {
+            contextManager.addFiles(externalFiles);
+        }
 
-            if (panelsToSave.isEmpty()) {
-                // Nothing to do
-                SwingUtilities.invokeLater(this::updateNavigationButtons);
-                return;
-            }
+        // Step 1: Collect changes (on EDT) before writing to disk
+        var allChanges = new ArrayList<BufferDiffPanel.AggregatedChange>();
+        for (var p : panelsToSave) {
+            allChanges.addAll(p.collectChangesForAggregation());
+        }
 
-            // Step 0: Add external files to workspace first (to capture original content for undo)
-            var currentContext = contextManager.liveContext();
-            var externalFiles = new ArrayList<ProjectFile>();
+        // Deduplicate by filename while preserving order
+        var mergedByFilename = new LinkedHashMap<String, BufferDiffPanel.AggregatedChange>();
+        for (var ch : allChanges) {
+            mergedByFilename.putIfAbsent(ch.filename(), ch);
+        }
 
+        if (mergedByFilename.isEmpty()) {
+            SwingUtilities.invokeLater(this::updateNavigationButtons);
+            return;
+        }
+
+        // Step 2: Write all changed documents while file change notifications are paused, collecting results
+        var perPanelResults = new LinkedHashMap<BufferDiffPanel, BufferDiffPanel.SaveResult>();
+        contextManager.withFileChangeNotificationsPaused(() -> {
             for (var p : panelsToSave) {
-                var panelFiles = p.getFilesBeingSaved();
-                for (var file : panelFiles) {
-                    // Check if this file is already in the current workspace context
-                    var editableFilesList = currentContext.fileFragments().toList();
-                    boolean inWorkspace = editableFilesList.stream()
-                            .anyMatch(f -> f instanceof ContextFragment.ProjectPathFragment ppf
-                                    && ppf.file().equals(file));
-                    if (!inWorkspace) {
-                        externalFiles.add(file);
-                    }
-                }
+                var result = p.writeChangedDocuments();
+                perPanelResults.put(p, result);
             }
+            return null;
+        });
 
-            if (!externalFiles.isEmpty()) {
-                contextManager.addFiles(externalFiles);
+        // Merge results across panels
+        var successfulFiles = new LinkedHashSet<String>();
+        var failedFiles = new LinkedHashMap<String, String>();
+        for (var entry : perPanelResults.entrySet()) {
+            successfulFiles.addAll(entry.getValue().succeeded());
+            entry.getValue().failed().forEach((k, v) -> failedFiles.putIfAbsent(k, v));
+        }
+
+        // Filter to only successfully saved files
+        var mergedByFilenameSuccessful = new LinkedHashMap<String, BufferDiffPanel.AggregatedChange>();
+        for (var e : mergedByFilename.entrySet()) {
+            if (successfulFiles.contains(e.getKey())) {
+                mergedByFilenameSuccessful.put(e.getKey(), e.getValue());
             }
+        }
 
-            // Step 1: Collect changes (on EDT) before writing to disk
-            var allChanges = new ArrayList<BufferDiffPanel.AggregatedChange>();
-            for (var p : panelsToSave) {
-                allChanges.addAll(p.collectChangesForAggregation());
-            }
-
-            // Deduplicate by filename while preserving order
-            var mergedByFilename = new LinkedHashMap<String, BufferDiffPanel.AggregatedChange>();
-            for (var ch : allChanges) {
-                mergedByFilename.putIfAbsent(ch.filename(), ch);
-            }
-
-            if (mergedByFilename.isEmpty()) {
-                SwingUtilities.invokeLater(this::updateNavigationButtons);
-                return;
-            }
-
-            // Step 2: Write all changed documents while file change notifications are paused, collecting results
-            var perPanelResults = new LinkedHashMap<BufferDiffPanel, BufferDiffPanel.SaveResult>();
-            contextManager.withFileChangeNotificationsPaused(() -> {
-                for (var p : panelsToSave) {
-                    var result = p.writeChangedDocuments();
-                    perPanelResults.put(p, result);
-                }
-                return null;
-            });
-
-            // Merge results across panels
-            var successfulFiles = new LinkedHashSet<String>();
-            var failedFiles = new LinkedHashMap<String, String>();
-            for (var entry : perPanelResults.entrySet()) {
-                successfulFiles.addAll(entry.getValue().succeeded());
-                entry.getValue().failed().forEach((k, v) -> failedFiles.putIfAbsent(k, v));
-            }
-
-            // Filter to only successfully saved files
-            var mergedByFilenameSuccessful = new LinkedHashMap<String, BufferDiffPanel.AggregatedChange>();
-            for (var e : mergedByFilename.entrySet()) {
-                if (successfulFiles.contains(e.getKey())) {
-                    mergedByFilenameSuccessful.put(e.getKey(), e.getValue());
-                }
-            }
-
-            // If nothing succeeded, summarize failures and abort history/baseline updates
-            if (mergedByFilenameSuccessful.isEmpty()) {
-                if (!failedFiles.isEmpty()) {
-                    var msg = failedFiles.entrySet().stream()
-                            .map(en -> Paths.get(en.getKey()).getFileName().toString() + ": " + en.getValue())
-                            .collect(Collectors.joining("\n"));
-                    contextManager
-                            .getIo()
-                            .systemNotify(
-                                    "No files were saved. Errors:\n" + msg, "Save failed", JOptionPane.ERROR_MESSAGE);
-                }
-                SwingUtilities.invokeLater(this::updateNavigationButtons);
-                return;
-            }
-
-            // Step 3: Build a single TaskResult containing diffs for successfully saved files
-            var messages = new ArrayList<ChatMessage>();
-            var changedFiles = new LinkedHashSet<ProjectFile>();
-
-            int fileCount = mergedByFilenameSuccessful.size();
-            // Build a friendlier action title: include filenames when 1-2 files, otherwise count
-            var topNames = mergedByFilenameSuccessful.values().stream()
-                    .limit(2)
-                    .map(ch -> {
-                        var pf = ch.projectFile();
-                        return (pf != null)
-                                ? pf.toString()
-                                : Paths.get(ch.filename()).getFileName().toString();
-                    })
-                    .toList();
-            String actionDescription;
-            if (fileCount == 1) {
-                actionDescription = "Saved changes to " + topNames.get(0);
-            } else if (fileCount == 2) {
-                actionDescription = "Saved changes to " + topNames.get(0) + " and " + topNames.get(1);
-            } else {
-                actionDescription = "Saved changes to " + fileCount + " files";
-            }
-            messages.add(Messages.customSystem(actionDescription));
-
-            // Per-file diffs
-            for (var entry : mergedByFilenameSuccessful.values()) {
-                var filename = entry.filename();
-                var diffResult = ContentDiffUtils.computeDiffResult(
-                        entry.originalContent(), entry.currentContent(), filename, filename, 3);
-                var diffText = diffResult.diff();
-
-                var pf = entry.projectFile();
-                var header = "### " + (pf != null ? pf.toString() : filename);
-                messages.add(Messages.customSystem(header));
-                messages.add(Messages.customSystem("```" + diffText + "```"));
-
-                if (pf != null) {
-                    changedFiles.add(pf);
-                } else {
-                    // Outside-project file: keep it in the transcript; not tracked in changedFiles
-                    IConsoleIO iConsoleIO = contextManager.getIo();
-                    iConsoleIO.showNotification(
-                            IConsoleIO.NotificationRole.INFO,
-                            "Saved file outside project scope: " + filename + " (not added to workspace history)");
-                }
-            }
-
-            // Build resulting Context by adding any changed files that are not already editable in the top context
-            var top = contextManager.liveContext();
-            var resultingCtx = top.addFragments(contextManager.toPathFragments(changedFiles));
-
-            var result = TaskResult.humanResult(
-                    contextManager, actionDescription, messages, resultingCtx, TaskResult.StopReason.SUCCESS);
-
-            // Add a single history entry for the whole batch
-            try (var scope = contextManager.beginTask(actionDescription, false)) {
-                // This is a local save operation (non-LLM). For now we record no TaskMeta.
-                scope.append(result);
-            }
-            logger.info("Saved changes to {} file(s): {}", fileCount, actionDescription);
-
-            // Step 4: Finalize panels selectively and refresh UI
-            for (var p : panelsToSave) {
-                var saved = perPanelResults
-                        .getOrDefault(p, new BufferDiffPanel.SaveResult(Set.of(), Map.of()))
-                        .succeeded();
-                p.finalizeAfterSaveAggregation(saved);
-                p.recalcDirty();
-                refreshTabTitle(p);
-            }
-
-            // Refresh blame for successfully saved files
-            for (String filename : successfulFiles) {
-                try {
-                    refreshBlameAfterSave(Paths.get(filename));
-                } catch (Exception ex) {
-                    logger.debug("Failed to refresh blame for {}: {}", filename, ex.getMessage());
-                }
-            }
-
-            // If some files failed, notify the user after successful saves
+        // If nothing succeeded, summarize failures and abort history/baseline updates
+        if (mergedByFilenameSuccessful.isEmpty()) {
             if (!failedFiles.isEmpty()) {
                 var msg = failedFiles.entrySet().stream()
                         .map(en -> Paths.get(en.getKey()).getFileName().toString() + ": " + en.getValue())
                         .collect(Collectors.joining("\n"));
                 contextManager
                         .getIo()
-                        .systemNotify(
-                                "Some files could not be saved:\n" + msg,
-                                "Partial save completed",
-                                JOptionPane.WARNING_MESSAGE);
+                        .systemNotify("No files were saved. Errors:\n" + msg, "Save failed", JOptionPane.ERROR_MESSAGE);
             }
-
-            repaint();
             SwingUtilities.invokeLater(this::updateNavigationButtons);
-        } catch (Exception e) {
-            logger.error("Error saving files", e);
-            updateNavigationButtons();
+            return;
         }
+
+        // Step 3: Build a single TaskResult containing diffs for successfully saved files
+        var messages = new ArrayList<ChatMessage>();
+        var changedFiles = new LinkedHashSet<ProjectFile>();
+
+        int fileCount = mergedByFilenameSuccessful.size();
+        // Build a friendlier action title: include filenames when 1-2 files, otherwise count
+        var topNames = mergedByFilenameSuccessful.values().stream()
+                .limit(2)
+                .map(ch -> {
+                    var pf = ch.projectFile();
+                    return (pf != null)
+                            ? pf.toString()
+                            : Paths.get(ch.filename()).getFileName().toString();
+                })
+                .toList();
+        String actionDescription;
+        if (fileCount == 1) {
+            actionDescription = "Saved changes to " + topNames.get(0);
+        } else if (fileCount == 2) {
+            actionDescription = "Saved changes to " + topNames.get(0) + " and " + topNames.get(1);
+        } else {
+            actionDescription = "Saved changes to " + fileCount + " files";
+        }
+        messages.add(Messages.customSystem(actionDescription));
+
+        // Per-file diffs
+        for (var entry : mergedByFilenameSuccessful.values()) {
+            var filename = entry.filename();
+            var diffResult = ContentDiffUtils.computeDiffResult(
+                    entry.originalContent(), entry.currentContent(), filename, filename, 3);
+            var diffText = diffResult.diff();
+
+            var pf = entry.projectFile();
+            var header = "### " + (pf != null ? pf.toString() : filename);
+            messages.add(Messages.customSystem(header));
+            messages.add(Messages.customSystem("```" + diffText + "```"));
+
+            if (pf != null) {
+                changedFiles.add(pf);
+            } else {
+                // Outside-project file: keep it in the transcript; not tracked in changedFiles
+                IConsoleIO iConsoleIO = contextManager.getIo();
+                iConsoleIO.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "Saved file outside project scope: " + filename + " (not added to workspace history)");
+            }
+        }
+
+        // Build resulting Context by adding any changed files that are not already editable in the top context
+        var top = contextManager.liveContext();
+        var resultingCtx = top.addFragments(contextManager.toPathFragments(changedFiles));
+
+        var result = TaskResult.humanResult(
+                contextManager, actionDescription, messages, resultingCtx, TaskResult.StopReason.SUCCESS);
+
+        // Add a single history entry for the whole batch
+        try (var scope = contextManager.beginTask(actionDescription, false)) {
+            // This is a local save operation (non-LLM). For now we record no TaskMeta.
+            scope.append(result);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+        logger.info("Saved changes to {} file(s): {}", fileCount, actionDescription);
+
+        // Step 4: Finalize panels selectively and refresh UI
+        for (var p : panelsToSave) {
+            var saved = perPanelResults
+                    .getOrDefault(p, new BufferDiffPanel.SaveResult(Set.of(), Map.of()))
+                    .succeeded();
+            p.finalizeAfterSaveAggregation(saved);
+            p.recalcDirty();
+            refreshTabTitle(p);
+        }
+
+        // Refresh blame for successfully saved files
+        for (String filename : successfulFiles) {
+            refreshBlameAfterSave(Paths.get(filename));
+        }
+
+        // If some files failed, notify the user after successful saves
+        if (!failedFiles.isEmpty()) {
+            var msg = failedFiles.entrySet().stream()
+                    .map(en -> Paths.get(en.getKey()).getFileName().toString() + ": " + en.getValue())
+                    .collect(Collectors.joining("\n"));
+            contextManager
+                    .getIo()
+                    .systemNotify(
+                            "Some files could not be saved:\n" + msg,
+                            "Partial save completed",
+                            JOptionPane.WARNING_MESSAGE);
+        }
+
+        repaint();
+        SwingUtilities.invokeLater(this::updateNavigationButtons);
     }
 
     /** Refresh tab title (adds/removes “*”). */
@@ -1882,20 +1875,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         }
         // Otherwise, run on EDT and wait for result
         var result = new AtomicBoolean(true);
-        try {
-            SwingUtilities.invokeAndWait(() -> {
-                try {
-                    result.set(checkUnsavedChangesBeforeClose());
-                } catch (Exception e) {
-                    logger.warn("Error while confirming close on EDT: {}", e.getMessage(), e);
-                    // Be conservative: cancel quit on unexpected error
-                    result.set(false);
-                }
-            });
-        } catch (Exception e) {
-            logger.error("Failed to run close confirmation on EDT: {}", e.getMessage(), e);
-            return false;
-        }
+        SwingUtil.runOnEdt(() -> {
+            result.set(checkUnsavedChangesBeforeClose());
+        });
         return result.get();
     }
 
@@ -1912,45 +1894,45 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
      * the slot was reserved, otherwise regular put.
      */
     public void cachePanel(int fileIndex, AbstractDiffPanel panel) {
-         // Validate that panel type matches current view mode
-         boolean isPanelUnified = panel instanceof UnifiedDiffPanel;
-         if (isPanelUnified != isUnifiedView) {
-              // Don't cache panels that don't match current view mode (prevents async race conditions)
-              return;
-         }
+        // Validate that panel type matches current view mode
+        boolean isPanelUnified = panel instanceof UnifiedDiffPanel;
+        if (isPanelUnified != isUnifiedView) {
+            // Don't cache panels that don't match current view mode (prevents async race conditions)
+            return;
+        }
 
-         // Ensure the panel is associated with the correct file index for later operations (blame, saves, etc.)
-         panel.setAssociatedFileIndex(fileIndex);
+        // Ensure the panel is associated with the correct file index for later operations (blame, saves, etc.)
+        panel.setAssociatedFileIndex(fileIndex);
 
-         // Reset auto-scroll flag for newly created panels
-         panel.resetAutoScrollFlag();
-         // Ensure newly-created panel respects the current editor font size (if we've initialized it)
-         if (currentFontIndex >= 0) {
-              applySizeToSinglePanel(panel, FONT_SIZES.get(currentFontIndex));
-         }
+        // Reset auto-scroll flag for newly created panels
+        panel.resetAutoScrollFlag();
+        // Ensure newly-created panel respects the current editor font size (if we've initialized it)
+        if (currentFontIndex >= 0) {
+            applySizeToSinglePanel(panel, FONT_SIZES.get(currentFontIndex));
+        }
 
-         // Ensure creation context is set for debugging (only for BufferDiffPanel)
-         if (panel instanceof BufferDiffPanel bufferPanel) {
-              if ("unknown".equals(bufferPanel.getCreationContext())) {
-                   bufferPanel.markCreationContext("cachePanel");
-              }
-              // Reset selectedDelta to first difference for consistent navigation behavior
-              bufferPanel.resetToFirstDifference();
-         }
+        // Ensure creation context is set for debugging (only for BufferDiffPanel)
+        if (panel instanceof BufferDiffPanel bufferPanel) {
+            if ("unknown".equals(bufferPanel.getCreationContext())) {
+                bufferPanel.markCreationContext("cachePanel");
+            }
+            // Reset selectedDelta to first difference for consistent navigation behavior
+            bufferPanel.resetToFirstDifference();
+        }
 
-         // Only cache if within current window
-         if (panelCache.isInWindow(fileIndex)) {
-              var cachedPanel = panelCache.get(fileIndex);
-              if (cachedPanel == null) {
-                   // This was a reserved slot, replace with actual panel
-                   panelCache.putReserved(fileIndex, panel);
-              } else {
-                   // Direct cache (shouldn't happen in normal flow but handle gracefully)
-                   panelCache.put(fileIndex, panel);
-              }
-         } else {
-              // Still display but don't cache
-         }
+        // Only cache if within current window
+        if (panelCache.isInWindow(fileIndex)) {
+            var cachedPanel = panelCache.get(fileIndex);
+            if (cachedPanel == null) {
+                // This was a reserved slot, replace with actual panel
+                panelCache.putReserved(fileIndex, panel);
+            } else {
+                // Direct cache (shouldn't happen in normal flow but handle gracefully)
+                panelCache.put(fileIndex, panel);
+            }
+        } else {
+            // Still display but don't cache
+        }
     }
 
     /** Preload adjacent files in the background for smooth navigation */
@@ -2061,7 +2043,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
     /** Perform cleanup when memory usage is high */
     private void performWindowCleanup() {
-
         // Clear caches in all window panels
         for (var panel : panelCache.nonNullValues()) {
             panel.clearCaches(); // Clear undo history, search results, etc.
@@ -2093,20 +2074,12 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
         // Apply to cached panels
         for (var p : panelCache.nonNullValues()) {
-            try {
-                applySizeToSinglePanel(p, fontSize);
-            } catch (Exception e) {
-                logger.debug("Failed applying font size to cached panel", e);
-            }
+            applySizeToSinglePanel(p, fontSize);
         }
 
         // Apply to currently visible panel too
         if (currentDiffPanel != null) {
-            try {
-                applySizeToSinglePanel(currentDiffPanel, fontSize);
-            } catch (Exception e) {
-                logger.debug("Failed applying font size to current panel", e);
-            }
+            applySizeToSinglePanel(currentDiffPanel, fontSize);
         }
 
         SwingUtilities.invokeLater(() -> {

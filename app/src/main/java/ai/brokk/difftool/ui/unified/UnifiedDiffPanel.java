@@ -2,7 +2,6 @@ package ai.brokk.difftool.ui.unified;
 
 import ai.brokk.difftool.node.JMDiffNode;
 import ai.brokk.difftool.ui.AbstractDiffPanel;
-import ai.brokk.difftool.ui.BlameService.BlameInfo;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferDiffPanel;
 import ai.brokk.difftool.ui.CompositeHighlighter;
@@ -15,6 +14,8 @@ import ai.brokk.project.MainProject;
 import java.awt.BorderLayout;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -665,7 +666,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
     @Override
     @Nullable
-    public java.nio.file.Path getTargetPathForBlame() {
+    public Path getTargetPathForBlame() {
         var diffNode = getDiffNode();
         if (diffNode == null) {
             return null;
@@ -682,7 +683,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             return null;
         }
 
-        var targetPath = java.nio.file.Paths.get(name);
+        var targetPath = Paths.get(name);
         if (!targetPath.isAbsolute()) {
             return targetPath.toAbsolutePath().normalize();
         }
@@ -691,25 +692,13 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
     @Override
     public void applyEditorFontSize(float size) {
-        try {
-            applyDerivedFont(textArea, size);
-        } catch (Exception ignored) {
-            // Best-effort
-        }
+        applyDerivedFont(textArea, size);
 
         var gutter = customLineNumberList;
         if (gutter != null) {
-            try {
-                applyDerivedFontToGutter(gutter, size);
-            } catch (Exception ignored) {
-                // Best-effort
-            }
+            applyDerivedFontToGutter(gutter, size);
         }
 
-        try {
-            scrollPane.revalidate();
-        } catch (Exception ignored) {
-            // Best-effort
-        }
+        scrollPane.revalidate();
     }
 }

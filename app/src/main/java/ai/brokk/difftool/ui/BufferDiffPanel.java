@@ -985,15 +985,9 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
             document.addUndoableEditListener(editCapture);
             listenerAdded = true;
             operation.run();
-        } catch (Exception ex) {
-            throw new RuntimeException("Error applying delta operation", ex);
         } finally {
             if (listenerAdded && editor.getDocument() == document) {
-                try {
-                    document.removeUndoableEditListener(editCapture);
-                } catch (Exception e) {
-                    logger.warn("Failed to remove UndoableEditListener, potential resource leak", e);
-                }
+                document.removeUndoableEditListener(editCapture);
             }
         }
     }
@@ -1493,14 +1487,15 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         for (var fp : filePanels.values()) {
             var doc = fp.getBufferDocument();
             if (doc != null) {
+                var document = doc.getDocument();
+                String currentContent = null;
                 try {
-                    var document = doc.getDocument();
-                    var currentContent = document.getText(0, document.getLength());
-                    var projectFile = createProjectFile(doc);
-                    fileDataMap.put(doc.getName(), new FileData(currentContent, projectFile));
-                } catch (Exception e) {
-                    logger.warn("Failed to capture current content for file: {}", doc.getName(), e);
+                    currentContent = document.getText(0, document.getLength());
+                } catch (BadLocationException e) {
+                    throw new RuntimeException(e);
                 }
+                var projectFile = createProjectFile(doc);
+                fileDataMap.put(doc.getName(), new FileData(currentContent, projectFile));
             }
         }
         return fileDataMap;
@@ -1513,17 +1508,13 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         var contextManager = mainPanel.getContextManager();
         var projectRoot = contextManager.getProject().getRoot();
 
-        try {
-            // doc.getName() should now contain the full absolute path
-            var fullPath = Paths.get(doc.getName());
+        // doc.getName() should now contain the full absolute path
+        var fullPath = Paths.get(doc.getName());
 
-            if (fullPath.toFile().exists()) {
-                return createProjectFileFromFullPath(projectRoot, fullPath, doc.getName());
-            } else {
-                logger.warn("File does not exist at path: {}", fullPath);
-            }
-        } catch (Exception e) {
-            logger.warn("Failed to create ProjectFile for {}: {}", doc.getName(), e.getMessage());
+        if (fullPath.toFile().exists()) {
+            return createProjectFileFromFullPath(projectRoot, fullPath, doc.getName());
+        } else {
+            logger.warn("File does not exist at path: {}", fullPath);
         }
         return null;
     }
@@ -1562,15 +1553,11 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         var contextManager = mainPanel.getContextManager();
         var projectRoot = contextManager.getProject().getRoot();
 
-        try {
-            var fullPath = Paths.get(filename);
-            if (fullPath.toFile().exists()) {
-                return createProjectFileFromFullPath(projectRoot, fullPath, filename);
-            } else {
-                logger.warn("File does not exist at path: {}", fullPath);
-            }
-        } catch (Exception e) {
-            logger.warn("Failed to create ProjectFile for {}: {}", filename, e.getMessage());
+        var fullPath = Paths.get(filename);
+        if (fullPath.toFile().exists()) {
+            return createProjectFileFromFullPath(projectRoot, fullPath, filename);
+        } else {
+            logger.warn("File does not exist at path: {}", fullPath);
         }
         return null;
     }
@@ -1582,44 +1569,35 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
      */
     @Nullable
     private ProjectFile createProjectFileFromFullPath(Path projectRoot, Path fullPath, String displayName) {
-        try {
-            // First check if the path is absolute and starts with the project root
-            if (fullPath.isAbsolute() && fullPath.startsWith(projectRoot)) {
-                // Path is within project - safe to relativize
+        // First check if the path is absolute and starts with the project root
+        if (fullPath.isAbsolute() && fullPath.startsWith(projectRoot)) {
+            // Path is within project - safe to relativize
+            var relativePath = projectRoot.relativize(fullPath);
+            return new ProjectFile(projectRoot, relativePath);
+        }
+
+        // For absolute paths not starting with project root, try relativize with exception handling
+        if (fullPath.isAbsolute()) {
+            try {
                 var relativePath = projectRoot.relativize(fullPath);
+                // If we get here, relativize succeeded (path outside project with .. segments)
                 return new ProjectFile(projectRoot, relativePath);
+            } catch (IllegalArgumentException e) {
+                // This happens on Windows with cross-drive paths (C:\ vs D:\)
+                logger.warn(
+                        "Cannot relativize path {} from project root {} - cross-drive or incompatible paths: {}",
+                        fullPath,
+                        projectRoot,
+                        e.getMessage());
+                return null; // Caller will handle null and use logSimpleMessage fallback
             }
+        }
 
-            // For absolute paths not starting with project root, try relativize with exception handling
-            if (fullPath.isAbsolute()) {
-                try {
-                    var relativePath = projectRoot.relativize(fullPath);
-                    // If we get here, relativize succeeded (path outside project with .. segments)
-                    return new ProjectFile(projectRoot, relativePath);
-                } catch (IllegalArgumentException e) {
-                    // This happens on Windows with cross-drive paths (C:\ vs D:\)
-                    logger.warn(
-                            "Cannot relativize path {} from project root {} - cross-drive or incompatible paths: {}",
-                            fullPath,
-                            projectRoot,
-                            e.getMessage());
-                    return null; // Caller will handle null and use logSimpleMessage fallback
-                }
-            }
-
-            // For relative paths, resolve against project root
-            var resolvedPath = projectRoot.resolve(fullPath);
-            if (resolvedPath.toFile().exists()) {
-                var relativePath = projectRoot.relativize(resolvedPath);
-                return new ProjectFile(projectRoot, relativePath);
-            }
-
-        } catch (Exception e) {
-            logger.warn(
-                    "Unexpected error creating ProjectFile for {} (project root: {}): {}",
-                    displayName,
-                    projectRoot,
-                    e.getMessage());
+        // For relative paths, resolve against project root
+        var resolvedPath = projectRoot.resolve(fullPath);
+        if (resolvedPath.toFile().exists()) {
+            var relativePath = projectRoot.relativize(resolvedPath);
+            return new ProjectFile(projectRoot, relativePath);
         }
 
         return null;
@@ -1837,29 +1815,13 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         var rightPanel = getFilePanel(PanelSide.RIGHT);
 
         if (leftPanel != null) {
-            try {
-                applyDerivedFont(leftPanel.getEditor(), size);
-            } catch (Exception ignored) {
-                // Best-effort
-            }
-            try {
-                applyDerivedFontToGutter(leftPanel.getGutterComponent(), size);
-            } catch (Exception ignored) {
-                // Best-effort
-            }
+            applyDerivedFont(leftPanel.getEditor(), size);
+            applyDerivedFontToGutter(leftPanel.getGutterComponent(), size);
         }
 
         if (rightPanel != null) {
-            try {
-                applyDerivedFont(rightPanel.getEditor(), size);
-            } catch (Exception ignored) {
-                // Best-effort
-            }
-            try {
-                applyDerivedFontToGutter(rightPanel.getGutterComponent(), size);
-            } catch (Exception ignored) {
-                // Best-effort
-            }
+            applyDerivedFont(rightPanel.getEditor(), size);
+            applyDerivedFontToGutter(rightPanel.getGutterComponent(), size);
         }
     }
 }
