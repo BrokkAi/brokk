@@ -10,6 +10,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import javax.swing.JComponent;
+import javax.swing.SwingUtilities;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
@@ -36,6 +37,9 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
      * flag and update their gutter rendering accordingly.
      */
     protected volatile boolean showGutterBlame = false;
+
+    /** Cached dirty state. Updated by recalcDirty(). */
+    protected volatile boolean dirty = false;
 
     public AbstractDiffPanel(BrokkDiffPanel parent, GuiTheme theme) {
         this.parent = parent;
@@ -67,6 +71,14 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
     public abstract BufferDiffPanel.SaveResult writeChangedDocuments();
 
     public abstract void finalizeAfterSaveAggregation(Set<String> successfulFiles);
+
+    /**
+     * Compute whether this panel has unsaved changes. Subclasses implement policy; the base class manages the
+     * mechanism via recalcDirty().
+     *
+     * @return true if there are unsaved changes
+     */
+    protected abstract boolean computeUnsavedChanges();
 
     // UI - abstract methods that subclasses must implement
     public abstract String getTitle();
@@ -120,6 +132,31 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
         // Default implementation - subclasses can override if needed
     }
 
+    /**
+     * Recalculate dirty state and notify parent if state changed. This is the standard mechanism for updating unsaved
+     * change tracking. Call this after document modifications, saves, or undo/redo operations.
+     */
+    public final void recalcDirty() {
+        boolean newDirty = computeUnsavedChanges();
+        if (dirty != newDirty) {
+            dirty = newDirty;
+            onDirtyStateChanged(newDirty);
+        }
+    }
+
+    /**
+     * Hook called when dirty state transitions. Subclasses can override to notify parent or update UI.
+     *
+     * @param isDirty the new dirty state
+     */
+    protected void onDirtyStateChanged(boolean isDirty) {
+        // Default implementation: notify parent to update tab title and buttons
+        SwingUtilities.invokeLater(() -> {
+            parent.refreshTabTitle(this);
+            parent.updateUndoRedoButtons();
+        });
+    }
+
     @Override
     public void dispose() {
         // Default cleanup - subclasses should override and call super
@@ -127,17 +164,9 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
         this.diffNode = null;
     }
 
-    // Panel type identification
-    public boolean isUnifiedView() {
-        return false;
-    }
-
     public boolean atLeastOneSideEditable() {
         return true;
     }
-
-    // Undo/redo methods are already implemented in AbstractContentPanel
-    // isUndoEnabled(), doUndo(), isRedoEnabled(), doRedo()
 
     /**
      * Shared syntax detection logic for all diff panels. Chooses a syntax style for the current document based on its
@@ -206,12 +235,6 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
      */
     public abstract void reDisplay();
 
-    /**
-     * Recalculate dirty state for the current document. This method is typically called after
-     * modifications to update internal state tracking.
-     */
-    public abstract void recalcDirty();
-
     // Blame support - every diff panel must implement these methods
 
     /**
@@ -244,4 +267,12 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
      * @param size the font size in points
      */
     public abstract void applyEditorFontSize(float size);
+
+    /**
+     * Returns whether this panel has unsaved changes. The base implementation returns the cached dirty flag.
+     */
+    @Override
+    public final boolean hasUnsavedChanges() {
+        return dirty;
+    }
 }

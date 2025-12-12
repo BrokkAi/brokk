@@ -5,7 +5,6 @@ import ai.brokk.difftool.ui.AbstractDiffPanel;
 import ai.brokk.difftool.ui.BlameService.BlameInfo;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferDiffPanel;
-import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.ui.CompositeHighlighter;
 import ai.brokk.difftool.ui.DiffGutterComponent;
 import ai.brokk.difftool.ui.JMHighlighter;
@@ -202,7 +201,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         reDisplay();
     }
 
-
     @Override
     public void setDiffNode(@Nullable JMDiffNode diffNode) {
         super.setDiffNode(diffNode);
@@ -222,6 +220,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             // Clear highlights when no content
             removeHighlights();
         }
+        recalcDirty();
     }
 
     /** Apply syntax highlighting based on detected file type using FilePanel's approach. */
@@ -324,11 +323,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     // IDiffPanel implementation
 
     @Override
-    public boolean isUnifiedView() {
-        return true;
-    }
-
-    @Override
     public void resetAutoScrollFlag() {
         this.autoScrollFlag = true;
     }
@@ -408,9 +402,11 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         return "Unified Diff";
     }
 
+    /**
+     * Compute whether this panel has unsaved changes. Unified diff panels are read-only, so always false.
+     */
     @Override
-    public boolean hasUnsavedChanges() {
-        // TODO: Implement change tracking for editing support
+    protected boolean computeUnsavedChanges() {
         return false; // Read-only for now
     }
 
@@ -434,11 +430,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     @Override
     public void doRedo() {
         // TODO: Implement
-    }
-
-    @Override
-    public void recalcDirty() {
-        // TODO: Implement change tracking
     }
 
     @Override
@@ -671,7 +662,8 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     }
 
     @Override
-    public void applyBlame(Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> leftMap,
+    public void applyBlame(
+            Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> leftMap,
             Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> rightMap) {
         if (customLineNumberList != null) {
             customLineNumberList.setLeftBlameLines(leftMap);

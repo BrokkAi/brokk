@@ -97,9 +97,6 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
 
     // Creation context is inherited from AbstractDiffPanel
 
-    /** Dirty flag that tracks whether there are any unsaved changes. */
-    private boolean dirtySinceOpen = false;
-
     /** Tracks applied diff operations that haven't been saved yet. Maps filename to count of operations applied. */
     private final Map<String, Integer> pendingDiffChanges = new ConcurrentHashMap<>();
 
@@ -118,32 +115,24 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
             });
 
     /**
-     * Recalculate dirty status by checking if any FilePanel has unsaved changes. When the state changes, update tab
-     * title and toolbar buttons.
+     * Compute whether this panel has unsaved changes by checking if any FilePanel has unsaved changes.
      */
     @Override
-    public void recalcDirty() {
-        // Check if either side has unsaved changes (document changed since last save)
-        boolean newDirty = filePanels.values().stream().anyMatch(FilePanel::isDocumentChanged);
+    protected boolean computeUnsavedChanges() {
+        return filePanels.values().stream().anyMatch(FilePanel::isDocumentChanged);
+    }
 
-        if (dirtySinceOpen != newDirty) {
-            boolean wasJustCleaned = dirtySinceOpen && !newDirty;
-            dirtySinceOpen = newDirty;
+    /**
+     * Hook called when dirty state changes. Clears blame stale flag when transitioning to clean state.
+     */
+    @Override
+    protected void onDirtyStateChanged(boolean isDirty) {
+        super.onDirtyStateChanged(isDirty);
 
-            // If we just transitioned from dirty to clean (undo back to baseline), clear tracking
-            if (wasJustCleaned) {
-                pendingDiffChanges.clear();
-            }
-
-            SwingUtilities.invokeLater(() -> {
-                mainPanel.refreshTabTitle(BufferDiffPanel.this);
-                mainPanel.updateUndoRedoButtons();
-
-                // If we just transitioned from dirty to clean (undo back to baseline), clear stale blame flag
-                if (wasJustCleaned) {
-                    clearBlameStaleFlag();
-                }
-            });
+        if (!isDirty) {
+            // Just transitioned from dirty to clean (undo back to baseline)
+            pendingDiffChanges.clear();
+            clearBlameStaleFlag();
         }
     }
 
@@ -369,7 +358,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
     public String getTitle() {
         if (diffNode != null && !diffNode.getName().isBlank()) {
             var name = diffNode.getName();
-            return isDirty() ? name + " *" : name;
+            return dirty ? name + " *" : name;
         }
 
         // Fallback if diffNode or its name is not available
@@ -391,12 +380,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         } else {
             base = String.join(" vs ", titles);
         }
-        return isDirty() ? base + " *" : base;
-    }
-
-    /** Returns true if there are any unsaved changes on either side. */
-    public boolean isDirty() {
-        return dirtySinceOpen;
+        return dirty ? base + " *" : base;
     }
 
     /** Do not try incremental updates. We just re-diff the whole thing. */
@@ -1190,7 +1174,6 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
     @Override
     public void doUndo() {
         super.doUndo();
-        mainPanel.updateUndoRedoButtons();
         // ChunkApplicationEdit handles its own patch state restoration and diff() calls
         diff(true); // Scroll to selection since this is user-initiated
         // Defer recheck until after all document change events from undo have been processed
@@ -1203,7 +1186,6 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
     @Override
     public void doRedo() {
         super.doRedo();
-        mainPanel.updateUndoRedoButtons();
         // ChunkApplicationEdit handles its own patch state restoration and diff() calls
         diff(true); // Scroll to selection since this is user-initiated
         // Defer recheck until after all document change events from redo have been processed
@@ -1244,13 +1226,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
     @Override
     public void checkActions() {
         // Update undo/redo button states when edits happen
-        SwingUtilities.invokeLater(() -> {
-            // Re-evaluate dirty state after the document change
-            recalcDirty();
-
-            mainPanel.updateUndoRedoButtons();
-            mainPanel.refreshTabTitle(BufferDiffPanel.this);
-        });
+        SwingUtilities.invokeLater(this::recalcDirty);
     }
     /** ThemeAware implementation - update highlight colours and syntax themes when the global GUI theme changes. */
     @Override
@@ -1435,22 +1411,6 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         diffNode = null;
         patch = null;
         selectedDelta = null;
-    }
-
-    @Override
-    public boolean hasUnsavedChanges() {
-        // Consider programmatic diff changes as unsaved too
-        if (!pendingDiffChanges.isEmpty()) {
-            return true;
-        }
-
-        // Check if any file panel has unsaved changes (manual edits)
-        for (var fp : filePanels.values()) {
-            if (fp.isDocumentChanged()) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**
@@ -1802,6 +1762,9 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
             // Clear any tracked diff changes for files that were actually saved
             pendingDiffChanges.remove(filename);
         }
+
+        // Trigger dirty recalculation to update UI
+        recalcDirty();
     }
 
     /** Mark creation context for debugging purposes. */
@@ -1819,7 +1782,8 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
     }
 
     @Override
-    public void applyBlame(Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> leftMap,
+    public void applyBlame(
+            Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> leftMap,
             Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> rightMap) {
         var right = getFilePanel(PanelSide.RIGHT);
         if (right != null) {

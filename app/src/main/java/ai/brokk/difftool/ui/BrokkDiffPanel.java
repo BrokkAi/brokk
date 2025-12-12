@@ -55,7 +55,6 @@ import javax.swing.event.AncestorEvent;
 import javax.swing.event.AncestorListener;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
@@ -1010,7 +1009,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         }
     }
 
-    /** Returns true if any loaded diff-panel holds modified documents. */
+    /**
+     * Check if any loaded diff-panel holds modified documents. This includes the current visible panel and all cached
+     * panels.
+     */
     public boolean hasUnsavedChanges() {
         if (currentDiffPanel != null && currentDiffPanel.hasUnsavedChanges()) return true;
         for (var p : panelCache.nonNullValues()) {
@@ -1196,6 +1198,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                         .getOrDefault(p, new BufferDiffPanel.SaveResult(Set.of(), Map.of()))
                         .succeeded();
                 p.finalizeAfterSaveAggregation(saved);
+                p.recalcDirty();
                 refreshTabTitle(p);
             }
 
@@ -1230,7 +1233,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     }
 
     /** Refresh tab title (adds/removes “*”). */
-    public void refreshTabTitle(BufferDiffPanel panel) {
+    public void refreshTabTitle(AbstractDiffPanel panel) {
         var idx = tabbedPane.indexOfComponent(panel);
         if (idx != -1) {
             tabbedPane.setTitleAt(idx, panel.getTitle());
@@ -2132,7 +2135,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         applyAllEditorFontSizes();
     }
 
-
     /**
      * Reset layout hierarchy to fix broken container relationships after file navigation. This rebuilds the
      * BorderLayout relationships to restore proper resize behavior.
@@ -2315,7 +2317,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         // Return simplified version of original message
         return errorMsg.toLowerCase(Locale.ROOT);
     }
-
 
     /** Applies blame to gutter using the panel's polymorphic interface. */
     private void applyBlameMapsToPanel(
