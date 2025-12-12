@@ -597,4 +597,33 @@ public class NativeProjectWatchServiceTest {
         boolean delivered = notified.await(5, TimeUnit.SECONDS);
         assertTrue(delivered, "Regular file events should work with empty .git file");
     }
+
+    /**
+     * Tests that IWatchService.resolveGitMetaDir correctly handles symlinked worktree roots
+     * by resolving through the symlink to the real .git directory.
+     */
+    @Test
+    public void testResolveGitMetaDir_WithSymlinkedWorktreeRoot() throws Exception {
+        // Create real root with .git directory
+        Path realRoot = Files.createTempDirectory("real-root");
+        Path gitDir = realRoot.resolve(".git");
+        Files.createDirectories(gitDir);
+
+        // Create symlink to real root
+        Path parentDir = Files.createTempDirectory("parent");
+        Path symlinkedRoot = Files.createSymbolicLink(parentDir.resolve("symlink"), realRoot);
+
+        try {
+            // Resolve should follow symlink and return real path
+            Path resolved = IWatchService.resolveGitMetaDir(symlinkedRoot);
+            assertNotNull(resolved);
+            assertEquals(gitDir.toRealPath(), resolved.toRealPath());
+        } finally {
+            // Cleanup
+            Files.deleteIfExists(symlinkedRoot);
+            Files.deleteIfExists(gitDir);
+            Files.deleteIfExists(realRoot);
+            Files.deleteIfExists(parentDir);
+        }
+    }
 }

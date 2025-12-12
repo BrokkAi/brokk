@@ -1,5 +1,7 @@
 package ai.brokk;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.analyzer.ProjectFile;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -33,8 +35,17 @@ public interface IWatchService extends AutoCloseable {
                 var content = Files.readString(gitPath, StandardCharsets.UTF_8).trim();
                 if (content.startsWith("gitdir: ")) {
                     var gitDirPath = content.substring("gitdir: ".length());
-                    // Resolve against .git file's parent to handle both absolute and relative paths
-                    var resolved = gitPath.getParent().resolve(gitDirPath).normalize();
+                    // Resolve against .git file's parent to handle both absolute and relative paths,
+                    // then resolve symlinks for consistent path matching during event handling
+                    // gitPath is gitRepoRoot.resolve(".git"), so parent is always gitRepoRoot
+                    var resolved = requireNonNull(gitPath.getParent())
+                            .resolve(gitDirPath)
+                            .normalize();
+                    try {
+                        resolved = resolved.toRealPath();
+                    } catch (IOException ignored) {
+                        // Directory may not exist yet; use normalized path as fallback
+                    }
                     logger.debug("Resolved worktree git metadata directory: {} -> {}", gitPath, resolved);
                     return resolved;
                 }
@@ -44,6 +55,7 @@ public interface IWatchService extends AutoCloseable {
         }
         return gitPath;
     }
+
     default void start(CompletableFuture<?> delayNotificationsUntilCompleted) {}
 
     default void pause() {}

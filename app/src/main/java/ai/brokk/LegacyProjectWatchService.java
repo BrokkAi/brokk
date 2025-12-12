@@ -253,8 +253,9 @@ public class LegacyProjectWatchService implements IWatchService {
             Path relativized;
             Path baseForFile;
             if (gitMetaDir != null && gitRepoRoot != null && eventPath.startsWith(gitMetaDir)) {
-                // Git metadata event from external location (e.g., worktree pointing to main repo's .git)
-                // Relativize against gitMetaDir and prepend .git so FileWatcherHelper can detect it
+                // Git metadata event from external location (e.g., worktree pointing to main repo's .git).
+                // INVARIANT: FileWatcherHelper.isGitMetadataChanged() requires relative paths to start
+                // with ".git/" prefix, so we reconstruct the path as .git/<relative-to-gitMetaDir>
                 relativized = Path.of(".git").resolve(gitMetaDir.relativize(eventPath));
                 baseForFile = gitRepoRoot;
                 logger.trace("Git metadata event (external): {} -> relative: {}", eventPath, relativized);
