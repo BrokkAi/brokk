@@ -4,6 +4,7 @@ import ai.brokk.analyzer.ProjectFile;
 import java.awt.KeyboardFocusManager;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -61,7 +62,7 @@ public class LegacyProjectWatchService implements IWatchService {
         this.gitRepoRoot = gitRepoRoot;
         this.globalGitignorePath = globalGitignorePath;
         this.listeners = new CopyOnWriteArrayList<>(listeners);
-        this.gitMetaDir = (gitRepoRoot != null) ? gitRepoRoot.resolve(".git") : null;
+        this.gitMetaDir = resolveGitMetaDir(gitRepoRoot);
 
         // Precompute real path for robust comparison (handles symlinks, case-insensitive filesystems)
         if (globalGitignorePath != null) {
@@ -77,6 +78,32 @@ public class LegacyProjectWatchService implements IWatchService {
         } else {
             this.globalGitignoreRealPath = null;
         }
+    }
+
+    /**
+     * Resolves the actual git metadata directory, handling worktrees where .git is a file.
+     * In worktrees, .git is a file containing "gitdir: /path/to/main/.git/worktrees/xxx".
+     */
+    private @Nullable Path resolveGitMetaDir(@Nullable Path gitRepoRoot) {
+        if (gitRepoRoot == null) {
+            return null;
+        }
+        var gitPath = gitRepoRoot.resolve(".git");
+        if (Files.isRegularFile(gitPath)) {
+            // Worktree case: .git is a file pointing to the actual git directory
+            try {
+                var content = Files.readString(gitPath, StandardCharsets.UTF_8).trim();
+                if (content.startsWith("gitdir: ")) {
+                    var gitDirPath = content.substring("gitdir: ".length());
+                    var resolved = Path.of(gitDirPath).normalize();
+                    logger.debug("Resolved worktree git metadata directory: {} -> {}", gitPath, resolved);
+                    return resolved;
+                }
+            } catch (IOException e) {
+                logger.warn("Failed to read .git file for worktree resolution: {}", e.getMessage());
+            }
+        }
+        return gitPath;
     }
 
     @Override
@@ -247,13 +274,26 @@ public class LegacyProjectWatchService implements IWatchService {
                 batch.untrackedGitignoreChanged = true;
             }
 
+            // Convert to ProjectFile - handle paths outside root (e.g., git metadata in worktrees)
             Path relativized;
-            try {
-                relativized = root.relativize(eventPath);
-            } catch (IllegalArgumentException e) {
-                throw new RuntimeException("Failed to relativize path: %s to %s".formatted(eventPath, root), e);
+            Path baseForFile;
+            if (gitMetaDir != null && gitRepoRoot != null && eventPath.startsWith(gitMetaDir)) {
+                // Git metadata event from external location (e.g., worktree pointing to main repo's .git)
+                // Relativize against gitMetaDir and prepend .git so FileWatcherHelper can detect it
+                relativized = Path.of(".git").resolve(gitMetaDir.relativize(eventPath));
+                baseForFile = gitRepoRoot;
+                logger.trace("Git metadata event (external): {} -> relative: {}", eventPath, relativized);
+            } else {
+                try {
+                    relativized = root.relativize(eventPath);
+                    baseForFile = root;
+                } catch (IllegalArgumentException e) {
+                    // Path is outside both root and gitMetaDir, skip it
+                    logger.trace("Skipping event for path outside root and git: {}", eventPath);
+                    continue;
+                }
             }
-            batch.files.add(new ProjectFile(root, relativized));
+            batch.files.add(new ProjectFile(baseForFile, relativized));
 
             // If it's a directory creation, register it so we can watch its children
             if (event.kind() == StandardWatchEventKinds.ENTRY_CREATE && Files.isDirectory(eventPath)) {
