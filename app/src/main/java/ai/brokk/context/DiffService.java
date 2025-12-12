@@ -171,68 +171,86 @@ public final class DiffService {
                 .findFirst()
                 .orElse(null);
 
+        // If this fragment is new-only and is a PathFragment that is tracked by Git, suppress the diff.
         if (otherFragment == null) {
-            // No matching fragment in 'other'
-            // - For non-text fragments (e.g., images), don't emit a diff here.
-            // - For PathFragments: only show a diff if it's a new, untracked file in Git.
             if (!thisFragment.isText()) {
+                // Non-text new fragments are not diffed here.
                 return CompletableFuture.completedFuture(null);
             }
 
-            if (!(thisFragment instanceof ContextFragment.PathFragment)) {
+            if (thisFragment instanceof ContextFragment.PathFragment) {
+                var repo = curr.getContextManager().getRepo();
+                if (!isNewFileInGit(thisFragment, repo)) {
+                    // Path fragment exists only in 'curr' but is tracked in Git; suppress diff here.
+                    return CompletableFuture.completedFuture(null);
+                }
+            }
+        }
+
+        // Delegate to the general-purpose computeDiff helper which handles text vs image parity,
+        // content extraction, and diff computation.
+        return computeDiff(otherFragment, thisFragment).exceptionally(ex -> {
+            var desc = thisFragment.shortDescription().renderNowOr(thisFragment.toString());
+            logger.warn("Error computing diff for fragment '{}'", desc, ex);
+            return null;
+        });
+    }
+
+    @Blocking
+    public static CompletableFuture<Context.DiffEntry> computeDiff(
+            @Nullable ContextFragment oldFragment, ContextFragment newFragment) {
+        // If fragments don't share the same source, we can't sensibly diff them here.
+        if (oldFragment != null && !newFragment.hasSameSource(oldFragment)) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        // New-only fragment (old == null)
+        if (oldFragment == null) {
+            if (!newFragment.isText()) {
+                // Non-text new fragments are not diffed here.
                 return CompletableFuture.completedFuture(null);
             }
-
-            var repo = curr.getContextManager().getRepo();
-            if (!isNewFileInGit(thisFragment, repo)) {
-                // Path fragment exists only in 'curr' but is tracked in Git; suppress diff here.
-                return CompletableFuture.completedFuture(null);
-            }
-
-            // Text fragment newly added: diff against empty, preferring snapshot text
-            return extractFragmentContentAsync(thisFragment).thenApply(newContent -> {
-                var oldName = "old/" + thisFragment.shortDescription().renderNowOr("");
-                var newName = "new/" + thisFragment.shortDescription().renderNowOr("");
+            return extractFragmentContentAsync(newFragment).thenApply(newContent -> {
+                var oldName = "old/" + newFragment.shortDescription().renderNowOr("");
+                var newName = "new/" + newFragment.shortDescription().renderNowOr("");
                 var result = ContentDiffUtils.computeDiffResult("", newContent, oldName, newName);
                 if (result.diff().isEmpty()) {
                     return null;
                 }
                 return new Context.DiffEntry(
-                        thisFragment, result.diff(), result.added(), result.deleted(), "", newContent);
+                        newFragment, result.diff(), result.added(), result.deleted(), "", newContent);
             });
         }
 
-        // Image fragments: compare bytes (prefer frozen snapshot bytes)
-        assert thisFragment.isText() == otherFragment.isText();
-        if (!thisFragment.isText()) {
-            var entry = computeImageDiffEntry(thisFragment, otherFragment);
+        // Both fragments present: ensure text/image parity
+        assert oldFragment.isText() == newFragment.isText();
+        if (!newFragment.isText()) {
+            var entry = computeImageDiffEntry(newFragment, oldFragment);
             return CompletableFuture.completedFuture(entry);
         }
 
-        // Extract text content asynchronously for both sides, preferring snapshots
-        var oldContentFuture = extractFragmentContentAsync(otherFragment);
-        var newContentFuture = extractFragmentContentAsync(thisFragment);
+        // Text fragments: extract contents asynchronously and compute diff
+        var oldContentFuture = extractFragmentContentAsync(oldFragment);
+        var newContentFuture = extractFragmentContentAsync(newFragment);
 
-        // Text fragments: compute textual diff
         return oldContentFuture.thenCombine(newContentFuture, (oldContent, newContent) -> {
             int oldLineCount =
                     oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
             int newLineCount =
                     newContent.isEmpty() ? 0 : (int) newContent.lines().count();
             logger.trace(
-                    "computeDiff: fragment='{}' ctxId={} oldLines={} newLines={}",
-                    thisFragment.shortDescription().renderNowOr(""),
-                    curr.id(),
+                    "computeDiff: fragment='{}' oldLines={} newLines={}",
+                    newFragment.shortDescription().renderNowOr(""),
                     oldLineCount,
                     newLineCount);
 
-            var oldName = "old/" + thisFragment.shortDescription().renderNowOr("");
-            var newName = "new/" + thisFragment.shortDescription().renderNowOr("");
+            var oldName = "old/" + newFragment.shortDescription().renderNowOr("");
+            var newName = "new/" + newFragment.shortDescription().renderNowOr("");
             var result = ContentDiffUtils.computeDiffResult(oldContent, newContent, oldName, newName);
 
             logger.trace(
                     "computeDiff: fragment='{}' added={} deleted={} diffEmpty={}",
-                    thisFragment.shortDescription().renderNowOr(""),
+                    newFragment.shortDescription().renderNowOr(""),
                     result.added(),
                     result.deleted(),
                     result.diff().isEmpty());
@@ -242,7 +260,7 @@ public final class DiffService {
             }
 
             return new Context.DiffEntry(
-                    thisFragment, result.diff(), result.added(), result.deleted(), oldContent, newContent);
+                    newFragment, result.diff(), result.added(), result.deleted(), oldContent, newContent);
         });
     }
 

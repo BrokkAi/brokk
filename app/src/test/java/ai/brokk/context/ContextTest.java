@@ -42,11 +42,11 @@ class ContextTest {
         // Prepare a couple of Java files for CodeUnit sources
         var pf1 = new ProjectFile(tempDir, "src/CodeFragmentTarget.java");
         Files.createDirectories(pf1.absPath().getParent());
-        Files.writeString(pf1.absPath(), "public class CodeFragmentTarget {}");
+        pf1.write("public class CodeFragmentTarget {}");
 
         var pf2 = new ProjectFile(tempDir, "src/AnotherClass.java");
         Files.createDirectories(pf2.absPath().getParent());
-        Files.writeString(pf2.absPath(), "public class AnotherClass {}");
+        pf2.write("public class AnotherClass {}");
 
         var cu1 = createTestCodeUnit("com.example.CodeFragmentTarget", pf1);
         var cu2 = createTestCodeUnit("com.example.AnotherClass", pf2);
@@ -62,7 +62,7 @@ class ContextTest {
     void testaddFragmentsDedupAndAction() throws Exception {
         var pf = new ProjectFile(tempDir, "src/Foo.java");
         Files.createDirectories(pf.absPath().getParent());
-        Files.writeString(pf.absPath(), "public class Foo {}");
+        pf.write("public class Foo {}");
 
         var p1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
         var p2 = new ContextFragment.ProjectPathFragment(pf, contextManager);
@@ -95,12 +95,12 @@ class ContextTest {
         // Prepare path files with distinct mtimes
         var pfA = new ProjectFile(tempDir, "src/A.java");
         Files.createDirectories(pfA.absPath().getParent());
-        Files.writeString(pfA.absPath(), "class A {}");
+        pfA.write("class A {}");
         Thread.sleep(1100); // ensure different mtime granularity across platforms
 
         var pfB = new ProjectFile(tempDir, "src/B.java");
         Files.createDirectories(pfB.absPath().getParent());
-        Files.writeString(pfB.absPath(), "class B {}");
+        pfB.write("class B {}");
 
         var projectFragA = new ContextFragment.ProjectPathFragment(pfA, contextManager);
         var projectFragB = new ContextFragment.ProjectPathFragment(pfB, contextManager);
@@ -143,7 +143,7 @@ class ContextTest {
     void testRemoveFragmentsClearsReadOnlyAndAllowsReAdd() throws Exception {
         var pf = new ProjectFile(tempDir, "src/Rm.java");
         Files.createDirectories(pf.absPath().getParent());
-        Files.writeString(pf.absPath(), "class Rm {}");
+        pf.write("class Rm {}");
         var ppf = new ContextFragment.ProjectPathFragment(pf, contextManager);
 
         var ctx = new Context(contextManager).addFragments(List.of(ppf));
@@ -207,14 +207,14 @@ class ContextTest {
     @Test
     void testCopyAndRefreshReplacesComputedFragmentsOnChange() throws Exception {
         var pf = new ProjectFile(tempDir, "src/Refresh.java");
-        Files.createDirectories(pf.absPath().getParent());
-        Files.writeString(pf.absPath(), "class Refresh {}");
+        pf.write("class Refresh {}");
         var ppf = new ContextFragment.ProjectPathFragment(pf, contextManager);
 
         var sf = new ContextFragment.StringFragment(contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var ctx = new Context(contextManager).addFragments(List.of(ppf)).addFragments(sf);
 
+        pf.write("class RefreshR0 { public static void main() {} }");
         var refreshed = ctx.copyAndRefresh(Set.of(pf));
 
         // ProjectPathFragment should be replaced (new instance), StringFragment should be reused (same instance)
@@ -235,8 +235,7 @@ class ContextTest {
     @Test
     void testCopyAndRefreshPreservesReadOnly() throws Exception {
         var pf = new ProjectFile(tempDir, "src/RefreshRO.java");
-        Files.createDirectories(pf.absPath().getParent());
-        Files.writeString(pf.absPath(), "class RefreshRO {}");
+        pf.write("class RefreshRO {}");
         var ppf = new ContextFragment.ProjectPathFragment(pf, contextManager);
 
         var ctx = new Context(contextManager).addFragments(List.of(ppf));
@@ -244,10 +243,10 @@ class ContextTest {
         ctx = ctx.setReadonly(ppf, true);
         assertTrue(ctx.isMarkedReadonly(ppf), "Precondition: fragment should be read-only");
 
-        // Trigger refresh
+        // Update and trigger refresh
+        pf.write("class RefreshR0 { public static void main() {} }");
         var refreshed = ctx.copyAndRefresh(Set.of(pf));
 
-        // Ensure a new instance was created for the project fragment
         var newFrag = refreshed.fileFragments().findFirst().orElseThrow();
         assertNotSame(ppf, newFrag, "Project fragment should be refreshed to a new instance");
 
@@ -307,7 +306,7 @@ class ContextTest {
     void testWorkspaceContentEqualsBySource() throws Exception {
         var pf = new ProjectFile(tempDir, "src/Eq.java");
         Files.createDirectories(pf.absPath().getParent());
-        Files.writeString(pf.absPath(), "class Eq {}");
+        pf.write("class Eq {}");
 
         var f1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
         var f2 = new ContextFragment.ProjectPathFragment(pf, contextManager); // different instance, same source
@@ -323,7 +322,7 @@ class ContextTest {
         // Workspace contains CodeFragmentTarget's source; should skip adding CodeFragment for it
         var pfWorkspace = new ProjectFile(tempDir, "src/CodeFragmentTarget.java");
         Files.createDirectories(pfWorkspace.absPath().getParent());
-        Files.writeString(pfWorkspace.absPath(), "public class CodeFragmentTarget {}");
+        pfWorkspace.write("public class CodeFragmentTarget {}");
         var ppf = new ContextFragment.ProjectPathFragment(pfWorkspace, contextManager);
 
         // Another class not in workspace should be added as CodeFragment

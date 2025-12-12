@@ -1181,8 +1181,8 @@ public class Context {
     }
 
     @Blocking
-    public Context copyAndRefresh(Set<ProjectFile> changed) {
-        if (changed.isEmpty()) {
+    public Context copyAndRefresh(Set<ProjectFile> maybeChanged) {
+        if (maybeChanged.isEmpty()) {
             return this;
         }
 
@@ -1194,21 +1194,25 @@ public class Context {
 
         for (var f : fragments) {
             // Refresh computed fragments whose referenced files intersect the changed set
-            boolean intersects = !Collections.disjoint(f.files().join(), changed);
+            boolean intersects = !Collections.disjoint(f.files().join(), maybeChanged);
+            ContextFragment fragmentToAdd = f;
+            
             if (intersects) {
                 var refreshed = f.refreshCopy();
                 if (refreshed != f) {
-                    anyReplaced = true;
-                    replacementMap.put(f, refreshed);
-                    newFragments.add(refreshed);
-                } else {
-                    // If refresh returns the same instance, add exactly once
-                    newFragments.add(f);
+                    // Check if content actually differs using DiffService
+                    var diffFuture = DiffService.computeDiff(f, refreshed);
+                    var diffEntry = diffFuture.join();
+                    if (diffEntry != null) {
+                        // Content actually changed; mark as replaced
+                        anyReplaced = true;
+                        replacementMap.put(f, refreshed);
+                        fragmentToAdd = refreshed;
+                    }
                 }
-            } else {
-                // Unaffected fragments are preserved as-is
-                newFragments.add(f);
             }
+
+            newFragments.add(fragmentToAdd);
         }
 
         // Create a new Context only if any fragment actually changed, or parsed output is present.
