@@ -2310,4 +2310,108 @@ public class ContextSerializationTest {
         assertEquals(1, extractedFiles.size());
         assertEquals("src/AbsoluteTest.java", extractedFiles.iterator().next().toString());
     }
+
+    @Test
+    void testPasteTextFragmentExtractsFilesFromPathList() throws Exception {
+        var file1 = new ProjectFile(tempDir, "src/PastedFile1.java");
+        var file2 = new ProjectFile(tempDir, "src/PastedFile2.java");
+        Files.createDirectories(file1.absPath().getParent());
+        Files.writeString(file1.absPath(), "class PastedFile1 {}");
+        Files.writeString(file2.absPath(), "class PastedFile2 {}");
+
+        String pathList =
+                """
+                src/PastedFile1.java
+                src/PastedFile2.java
+                """;
+
+        var fragment = new ContextFragment.PasteTextFragment(
+                mockContextManager,
+                pathList,
+                CompletableFuture.completedFuture("File list"),
+                CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
+
+        var extractedFiles = fragment.files().join();
+        assertEquals(2, extractedFiles.size());
+        var extractedPaths = extractedFiles.stream().map(ProjectFile::toString).collect(Collectors.toSet());
+        assertTrue(extractedPaths.contains("src/PastedFile1.java"));
+        assertTrue(extractedPaths.contains("src/PastedFile2.java"));
+    }
+
+    @Test
+    void testPasteTextFragmentExtractsFilesFromStackTrace() throws Exception {
+        var file = new ProjectFile(tempDir, "src/com/example/Service.java");
+        Files.createDirectories(file.absPath().getParent());
+        Files.writeString(file.absPath(), "package com.example; class Service {}");
+
+        String stackTrace =
+                """
+                java.lang.NullPointerException: Cannot invoke method
+                    at com.example.Service.doSomething(src/com/example/Service.java:42)
+                    at com.example.Main.main(Main.java:10)
+                """;
+
+        var fragment = new ContextFragment.PasteTextFragment(
+                mockContextManager,
+                stackTrace,
+                CompletableFuture.completedFuture("Stack trace"),
+                CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
+
+        var extractedFiles = fragment.files().join();
+        assertEquals(1, extractedFiles.size());
+        assertEquals("src/com/example/Service.java", extractedFiles.iterator().next().toString());
+    }
+
+    @Test
+    void testPasteTextFragmentExtractsFilesFromTerminalOutput() throws Exception {
+        var file1 = new ProjectFile(tempDir, "src/BuildError.java");
+        var file2 = new ProjectFile(tempDir, "src/TestFailure.java");
+        Files.createDirectories(file1.absPath().getParent());
+        Files.writeString(file1.absPath(), "class BuildError {}");
+        Files.writeString(file2.absPath(), "class TestFailure {}");
+
+        String terminalOutput =
+                """
+                > Task :compileJava FAILED
+                src/BuildError.java:15: error: cannot find symbol
+                src/TestFailure.java:22: error: method not found
+                BUILD FAILED in 5s
+                """;
+
+        var fragment = new ContextFragment.PasteTextFragment(
+                mockContextManager,
+                terminalOutput,
+                CompletableFuture.completedFuture("Build output"),
+                CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
+
+        var extractedFiles = fragment.files().join();
+        assertEquals(2, extractedFiles.size());
+        var extractedPaths = extractedFiles.stream().map(ProjectFile::toString).collect(Collectors.toSet());
+        assertTrue(extractedPaths.contains("src/BuildError.java"));
+        assertTrue(extractedPaths.contains("src/TestFailure.java"));
+    }
+
+    @Test
+    void testPasteTextFragmentIgnoresUrlsInText() throws Exception {
+        var file = new ProjectFile(tempDir, "src/RealFile.java");
+        Files.createDirectories(file.absPath().getParent());
+        Files.writeString(file.absPath(), "class RealFile {}");
+
+        String textWithUrls =
+                """
+                Check out https://example.com/path/to/file.html
+                Also see http://docs.example.com/guide.pdf
+                But this is real: src/RealFile.java
+                """;
+
+        var fragment = new ContextFragment.PasteTextFragment(
+                mockContextManager,
+                textWithUrls,
+                CompletableFuture.completedFuture("Text with URLs"),
+                CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
+
+        var extractedFiles = fragment.files().join();
+        assertEquals(1, extractedFiles.size());
+        assertEquals("src/RealFile.java", extractedFiles.iterator().next().toString());
+    }
 }

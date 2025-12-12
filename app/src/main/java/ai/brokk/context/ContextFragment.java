@@ -204,6 +204,55 @@ public interface ContextFragment {
                 th -> logger.error("Uncaught exception in ContextFragment Virtual Thread executor", th));
     }
 
+    // Pattern to find file-path-like strings in any text context.
+    // Matches: /abs/path/file.ext, C:\path\file.ext, path/to/file.ext, file.ext
+    // Handles: stack traces (Foo.java:42), grep output (src/Foo.java:10:), git status, etc.
+    Pattern FILE_PATH_PATTERN = Pattern.compile(
+            "((?:/|[a-zA-Z]:[\\\\/])?" // Optional absolute prefix (Unix / or Windows C:\)
+                    + "[a-zA-Z0-9_][a-zA-Z0-9_.\\-/\\\\]*" // Path body
+                    + "\\.[a-zA-Z0-9]{1,10})" // Extension (1-10 chars)
+                    + "(?=[:\\s\"'(),\\]}>]|$)" // Followed by delimiter or end
+    );
+
+    /**
+     * Extracts ProjectFile references by scanning text for file-path-like patterns.
+     * Works with stack traces, grep output, compiler errors, git status, plain paths, etc.
+     * Uses PathNormalizer for cross-OS path canonicalization.
+     */
+    static Set<ProjectFile> extractFilesFromPathList(String text, IContextManager contextManager) {
+        if (text.isBlank()) {
+            return Set.of();
+        }
+
+        var projectRoot = contextManager.getProject().getRoot();
+        Set<ProjectFile> files = new LinkedHashSet<>();
+        var matcher = FILE_PATH_PATTERN.matcher(text);
+
+        while (matcher.find()) {
+            // Skip if this looks like part of a URL (preceded by ://)
+            int start = matcher.start();
+            if (start >= 3 && text.substring(start - 3, start).equals("://")) {
+                continue;
+            }
+
+            String candidate = matcher.group(1);
+            // Canonicalize path (normalize separators, collapse segments, relativize if absolute)
+            String path = PathNormalizer.canonicalizeForProject(candidate, projectRoot);
+            if (path.isEmpty()) {
+                continue;
+            }
+            try {
+                var projectFile = contextManager.toFile(path);
+                if (projectFile.exists()) {
+                    files.add(projectFile);
+                }
+            } catch (Exception e) {
+                // Invalid path, skip
+            }
+        }
+        return files;
+    }
+
     /**
      * Gets the current max integer fragment ID used for generating new dynamic fragment IDs. Note: This refers to the
      * numeric part of dynamic IDs.
@@ -1114,55 +1163,6 @@ public interface ContextFragment {
             return path;
         }
 
-        // Pattern to find file-path-like strings in any text context.
-        // Matches: /abs/path/file.ext, C:\path\file.ext, path/to/file.ext, file.ext
-        // Handles: stack traces (Foo.java:42), grep output (src/Foo.java:10:), git status, etc.
-        private static final Pattern FILE_PATH_PATTERN = Pattern.compile(
-                "((?:/|[a-zA-Z]:[\\\\/])?" // Optional absolute prefix (Unix / or Windows C:\)
-                        + "[a-zA-Z0-9_][a-zA-Z0-9_.\\-/\\\\]*" // Path body
-                        + "\\.[a-zA-Z0-9]{1,10})" // Extension (1-10 chars)
-                        + "(?=[:\\s\"'(),\\]}>]|$)" // Followed by delimiter or end
-        );
-
-        /**
-         * Extracts ProjectFile references by scanning text for file-path-like patterns.
-         * Works with stack traces, grep output, compiler errors, git status, plain paths, etc.
-         * Uses PathNormalizer for cross-OS path canonicalization.
-         */
-        private static Set<ProjectFile> extractFilesFromPathList(String text, IContextManager contextManager) {
-            if (text.isBlank()) {
-                return Set.of();
-            }
-
-            var projectRoot = contextManager.getProject().getRoot();
-            Set<ProjectFile> files = new LinkedHashSet<>();
-            var matcher = FILE_PATH_PATTERN.matcher(text);
-
-            while (matcher.find()) {
-                // Skip if this looks like part of a URL (preceded by ://)
-                int start = matcher.start();
-                if (start >= 3 && text.substring(start - 3, start).equals("://")) {
-                    continue;
-                }
-
-                String candidate = matcher.group(1);
-                // Canonicalize path (normalize separators, collapse segments, relativize if absolute)
-                String path = PathNormalizer.canonicalizeForProject(candidate, projectRoot);
-                if (path.isEmpty()) {
-                    continue;
-                }
-                try {
-                    var projectFile = contextManager.toFile(path);
-                    if (projectFile.exists()) {
-                        files.add(projectFile);
-                    }
-                } catch (Exception e) {
-                    // Invalid path, skip
-                }
-            }
-            return files;
-        }
-
         public StringFragment(
                 IContextManager contextManager,
                 String text,
@@ -1272,13 +1272,17 @@ public interface ContextFragment {
                 String text,
                 Future<String> descriptionFuture,
                 Future<String> syntaxStyleFuture) {
-            super(id, contextManager, null, () -> computeSnapshotFor(text, descriptionFuture, syntaxStyleFuture));
+            super(id, contextManager, null,
+                  () -> computeSnapshotFor(text, descriptionFuture, syntaxStyleFuture, contextManager));
             this.descriptionFuture = descriptionFuture;
             this.syntaxStyleFuture = syntaxStyleFuture;
         }
 
-        private static FragmentSnapshot computeSnapshotFor(
-                String text, Future<String> descriptionFuture, Future<String> syntaxStyleFuture) {
+        private static FragmentSnapshot computeSnapshotFor(String text,
+                                                           Future<String> descriptionFuture,
+                                                           Future<String> syntaxStyleFuture,
+                                                           IContextManager contextManager)
+        {
             String desc = "Paste of pasted content";
             String syntax = SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
             try {
@@ -1293,7 +1297,8 @@ public interface ContextFragment {
                 logger.error("Unable to compute PasteTextFragment syntax style within specified timeout period", e);
             }
 
-            return new FragmentSnapshot(desc, desc, text, syntax);
+            var files = extractFilesFromPathList(text, contextManager);
+            return new FragmentSnapshot(desc, desc, text, syntax, Set.of(), files, (List<Byte>) null);
         }
 
         @Override
