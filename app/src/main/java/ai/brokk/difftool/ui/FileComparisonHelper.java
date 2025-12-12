@@ -1,5 +1,7 @@
 package ai.brokk.difftool.ui;
 
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+
 import ai.brokk.ContextManager;
 import ai.brokk.difftool.node.FileNode;
 import ai.brokk.difftool.node.JMDiffNode;
@@ -77,15 +79,14 @@ public class FileComparisonHelper {
         // Source has revision metadata, attempt to resolve commit message
         if (source instanceof BufferSource.StringSource stringSource) {
             IGitRepo repo = contextManager.getProject().getRepo();
-            if (repo instanceof GitRepo gitRepo) { // Ensure it's our GitRepo implementation
+            if (repo instanceof GitRepo gitRepo) {
                 try {
-                    String commitIdToLookup = stringSource.revisionSha();
+                    String commitIdToLookup = castNonNull(stringSource.revisionSha());
                     var commitInfoOpt = gitRepo.getLocalCommitInfo(commitIdToLookup);
                     if (commitInfoOpt.isPresent()) {
                         return commitInfoOpt.get().message(); // This is already the short/first line
                     }
-                } catch (GitAPIException | RuntimeException e) {
-                    // Fall back to originalTitle on any parsing or repo error
+                } catch (GitAPIException e) {
                     return originalTitle;
                 }
             }

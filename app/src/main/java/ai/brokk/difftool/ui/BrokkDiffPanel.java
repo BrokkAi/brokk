@@ -5,7 +5,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.difftool.doc.AbstractBufferDocument;
 import ai.brokk.difftool.doc.BufferDocumentIF;
-import ai.brokk.difftool.doc.FileDocument;
 import ai.brokk.difftool.node.JMDiffNode;
 import ai.brokk.difftool.performance.PerformanceConstants;
 import ai.brokk.difftool.ui.unified.UnifiedDiffDocument;
@@ -604,35 +603,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     @Nullable
     private BufferDiffPanel getBufferDiffPanel() {
         return currentDiffPanel instanceof BufferDiffPanel ? (BufferDiffPanel) currentDiffPanel : null;
-    }
-
-    @Nullable
-    private UnifiedDiffPanel getUnifiedDiffPanel() {
-        return currentDiffPanel instanceof UnifiedDiffPanel ? (UnifiedDiffPanel) currentDiffPanel : null;
-    }
-
-    /**
-     * Check if the given panel represents a working tree diff (vs a historical commit diff). Working tree diffs have
-     * FileDocument on the right side, while commit diffs have StringDocument.
-     */
-    private boolean isWorkingTreeDiff(AbstractDiffPanel panel) {
-        if (panel instanceof BufferDiffPanel bp) {
-            var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
-            if (right != null) {
-                var bd = right.getBufferDocument();
-                return bd instanceof FileDocument;
-            }
-        } else if (panel instanceof UnifiedDiffPanel up) {
-            var dn = up.getDiffNode();
-            if (dn != null) {
-                var rightNode = dn.getBufferNodeRight();
-                if (rightNode != null) {
-                    var doc = rightNode.getDocument();
-                    return doc instanceof FileDocument;
-                }
-            }
-        }
-        return false;
     }
 
     public void nextFile() {

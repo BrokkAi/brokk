@@ -63,17 +63,6 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
     // Diff operations - abstract methods that subclasses must implement
     public abstract void diff(boolean autoScroll);
 
-    // Navigation - abstract methods that subclasses must implement
-    public abstract void doUp();
-
-    public abstract void doDown();
-
-    public abstract boolean isAtFirstLogicalChange();
-
-    public abstract boolean isAtLastLogicalChange();
-
-    public abstract void goToLastLogicalChange();
-
     // Editing and state - abstract methods that subclasses must implement
     public abstract List<BufferDiffPanel.AggregatedChange> collectChangesForAggregation();
 

@@ -95,9 +95,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private final MaterialButton undoButton;
     private final MaterialButton redoButton;
     private final MaterialButton compressButton;
-    // Replaced the JComboBox-based session UI with a label + list used in the dropdown.
-    @Nullable
-    private JList<SessionInfo> sessionsList;
 
     private final SplitButton sessionNameLabel;
     private final MaterialButton newSessionButton;
@@ -542,23 +539,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             var sessions = contextManager.getProject().getSessionManager().listSessions();
             sessions.sort(Comparator.comparingLong(SessionInfo::modified).reversed());
 
-            // If the sessions list UI exists (i.e. the menu was opened), replace its model atomically.
-            if (sessionsList != null) {
-                var newModel = new DefaultListModel<SessionInfo>();
-                for (var s : sessions) newModel.addElement(s);
-                sessionsList.setModel(newModel);
-
-                // Select current session in the list
-                var currentSessionId = contextManager.getCurrentSessionId();
-                for (int i = 0; i < newModel.getSize(); i++) {
-                    if (newModel.getElementAt(i).id().equals(currentSessionId)) {
-                        sessionsList.setSelectedIndex(i);
-                        break;
-                    }
-                }
-                sessionsList.repaint();
-            }
-
             // Update compact label to show the active session name (with ellipsize and tooltip)
             var currentSessionId = contextManager.getCurrentSessionId();
             String labelText = "";
@@ -576,12 +556,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             sessionNameLabel.setText(fullName);
             sessionNameLabel.setToolTipText(fullName);
             sessionNameLabel.revalidate();
-            // Only repaint the scrollable sessionsList when visible; avoid repainting the old label/combo-box.
-            SwingUtilities.invokeLater(() -> {
-                if (sessionsList != null) {
-                    sessionsList.repaint();
-                }
-            });
         });
     }
 
@@ -3094,7 +3068,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
     }
 
-    @Blocking
     private CompletableFuture<DiffService.CumulativeChanges> refreshCumulativeChangesAsync() {
         return contextManager
                 .submitBackgroundTask("Compute branch-based changes", () -> {
@@ -3170,7 +3143,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
                         for (var modFile : fileSet) {
                             var file = modFile.file();
-                            String displayFile = file.getRelPath().toString();
 
                             // Compute left content based on baseline (commit)
                             String leftContent = "";
@@ -3623,10 +3595,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     // --- Tree-like grouping support types and helpers ---
 
-    public static record GroupRow(UUID key, boolean expanded, boolean containsClearHistory) {}
+    public record GroupRow(UUID key, boolean expanded, boolean containsClearHistory) {}
 
     // Structural action text + indent data for column 1 (Option A)
-    static record ActionText(String text, int indentLevel) {}
+    record ActionText(String text, int indentLevel) {}
 
     private enum PendingSelectionType {
         NONE,
@@ -3787,12 +3759,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             } finally {
                 sessionAiResponseCounts.put(id, count);
                 sessionCountLoading.remove(id);
-                // Only repaint the scrollable sessionsList when visible; avoid repainting the old label/combo-box.
-                SwingUtilities.invokeLater(() -> {
-                    if (sessionsList != null) {
-                        sessionsList.repaint();
-                    }
-                });
             }
         });
     }
@@ -3811,7 +3777,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      */
     private Optional<IGitRepo> repo() {
         try {
-            return Optional.ofNullable(contextManager.getProject().getRepo());
+            return Optional.of(contextManager.getProject().getRepo());
         } catch (Exception e) {
             return Optional.empty();
         }

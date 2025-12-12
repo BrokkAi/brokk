@@ -860,8 +860,6 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
 
         for (var modFile : files) {
             var file = modFile.file();
-            String displayFile = file.getRelPath().toString();
-
             // Get content at merge base (left side - target branch baseline)
             String leftContent = "";
             try {

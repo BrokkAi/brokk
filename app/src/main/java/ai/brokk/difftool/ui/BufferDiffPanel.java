@@ -1512,7 +1512,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         var fullPath = Paths.get(doc.getName());
 
         if (fullPath.toFile().exists()) {
-            return createProjectFileFromFullPath(projectRoot, fullPath, doc.getName());
+            return createProjectFileFromFullPath(projectRoot, fullPath);
         } else {
             logger.warn("File does not exist at path: {}", fullPath);
         }
@@ -1555,7 +1555,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
 
         var fullPath = Paths.get(filename);
         if (fullPath.toFile().exists()) {
-            return createProjectFileFromFullPath(projectRoot, fullPath, filename);
+            return createProjectFileFromFullPath(projectRoot, fullPath);
         } else {
             logger.warn("File does not exist at path: {}", fullPath);
         }
@@ -1568,7 +1568,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
      * (e.g., C:\ vs D:\) and provides fallback behavior for files outside the project root.
      */
     @Nullable
-    private ProjectFile createProjectFileFromFullPath(Path projectRoot, Path fullPath, String displayName) {
+    private ProjectFile createProjectFileFromFullPath(Path projectRoot, Path fullPath) {
         // First check if the path is absolute and starts with the project root
         if (fullPath.isAbsolute() && fullPath.startsWith(projectRoot)) {
             // Path is within project - safe to relativize
