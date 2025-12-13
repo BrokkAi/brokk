@@ -425,7 +425,7 @@ public final class MainProject extends AbstractProject {
         }
     }
 
-    private ModelConfig getModelConfigInternal(ModelType modelType) {
+    public ModelConfig getModelConfig(ModelType modelType) {
         var props = loadGlobalProperties();
         return ModelProperties.getModelConfig(props, modelType);
     }
@@ -437,7 +437,7 @@ public final class MainProject extends AbstractProject {
      * persisted user settings or overrides.
      */
     public static ModelConfig getDefaultQuickModelConfig() {
-        return ModelProperties.ModelType.QUICK.preferredConfig();
+        return ModelProperties.ModelType.QUICK.defaultConfig();
     }
 
     /**
@@ -447,7 +447,7 @@ public final class MainProject extends AbstractProject {
      * persisted user settings or overrides.
      */
     public static ModelConfig getDefaultQuickEditModelConfig() {
-        return ModelProperties.ModelType.QUICK_EDIT.preferredConfig();
+        return ModelProperties.ModelType.QUICK_EDIT.defaultConfig();
     }
 
     /**
@@ -457,7 +457,7 @@ public final class MainProject extends AbstractProject {
      * persisted user settings or overrides.
      */
     public static ModelConfig getDefaultQuickestModelConfig() {
-        return ModelProperties.ModelType.QUICKEST.preferredConfig();
+        return ModelProperties.ModelType.QUICKEST.defaultConfig();
     }
 
     /**
@@ -467,7 +467,7 @@ public final class MainProject extends AbstractProject {
      * persisted user settings or overrides.
      */
     public static ModelConfig getDefaultScanModelConfig() {
-        return ModelProperties.ModelType.SCAN.preferredConfig();
+        return ModelProperties.ModelType.SCAN.defaultConfig();
     }
 
     private void setModelConfigInternal(ModelType modelType, ModelConfig config) {
@@ -478,7 +478,7 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public ModelConfig getQuickModelConfig() {
-        return getModelConfigInternal(ModelType.QUICK);
+        return getModelConfig(ModelType.QUICK);
     }
 
     @Override
@@ -488,7 +488,7 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public ModelConfig getCodeModelConfig() {
-        return getModelConfigInternal(ModelType.CODE);
+        return getModelConfig(ModelType.CODE);
     }
 
     @Override
@@ -498,7 +498,7 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public ModelConfig getArchitectModelConfig() {
-        return getModelConfigInternal(ModelType.ARCHITECT);
+        return getModelConfig(ModelType.ARCHITECT);
     }
 
     @Override
@@ -507,7 +507,7 @@ public final class MainProject extends AbstractProject {
     }
 
     public ModelConfig getQuickEditModelConfig() {
-        return getModelConfigInternal(ModelType.QUICK_EDIT);
+        return getModelConfig(ModelType.QUICK_EDIT);
     }
 
     public void setQuickEditModelConfig(ModelConfig config) {
@@ -515,7 +515,7 @@ public final class MainProject extends AbstractProject {
     }
 
     public ModelConfig getQuickestModelConfig() {
-        return getModelConfigInternal(ModelType.QUICKEST);
+        return getModelConfig(ModelType.QUICKEST);
     }
 
     public void setQuickestModelConfig(ModelConfig config) {
@@ -523,7 +523,7 @@ public final class MainProject extends AbstractProject {
     }
 
     public ModelConfig getScanModelConfig() {
-        return getModelConfigInternal(ModelType.SCAN);
+        return getModelConfig(ModelType.SCAN);
     }
 
     public void setScanModelConfig(ModelConfig config) {

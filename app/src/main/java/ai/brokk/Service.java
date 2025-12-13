@@ -77,7 +77,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         var quickCfg = project.getMainProject().getQuickModelConfig();
         var qm = getModel(quickCfg);
         if (qm == null) {
-            qm = getModel(ModelProperties.ModelType.QUICK.preferredConfig());
+            qm = getModel(ModelProperties.ModelType.QUICK.defaultConfig());
         }
         quickModel = (qm == null) ? new UnavailableStreamingModel() : qm;
 
@@ -100,7 +100,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             var qeCfg = project.getMainProject().getQuickEditModelConfig();
             var qe = getModel(qeCfg);
             if (qe == null) {
-                qe = getModel(ModelProperties.ModelType.QUICK_EDIT.preferredConfig());
+                qe = getModel(ModelProperties.ModelType.QUICK_EDIT.defaultConfig());
             }
             quickEditModel = (qe == null) ? quickModel : qe;
         }

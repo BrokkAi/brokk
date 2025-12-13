@@ -986,8 +986,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             otherModelsVendorCombo.setSelectedItem("Default");
 
             // Get preferred defaults from ModelProperties
-            var architectConfig = ModelProperties.ModelType.ARCHITECT.preferredConfig();
-            var codeConfig = ModelProperties.ModelType.CODE.preferredConfig();
+            var architectConfig = ModelProperties.ModelType.ARCHITECT.defaultConfig();
+            var codeConfig = ModelProperties.ModelType.CODE.defaultConfig();
 
             // Restore primary model to ARCHITECT default
             boolean foundPrimary = false;

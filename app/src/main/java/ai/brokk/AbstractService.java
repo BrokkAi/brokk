@@ -6,6 +6,7 @@ import static java.lang.Math.min;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
+import ai.brokk.project.ModelProperties.ModelType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
 import dev.langchain4j.agent.tool.ToolSpecification;
@@ -48,9 +49,9 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public static final String GPT_5_2 = "gpt-5.2";
     public static final String GEMINI_2_5_PRO = "gemini-2.5-pro";
     public static final String GEMINI_2_0_FLASH = "gemini-2.0-flash";
-    public static final String GEMINI_2_5_FLASH = "gemini-2.5-flash";
     public static final String GPT_5_NANO = "gpt-5-nano";
     public static final String GPT_5_MINI = "gpt-5-mini";
+    public static final String GCF_1 = "grok-code-fast-1";
     public static final String HAIKU_4_5 = "claude-haiku-4-5";
     public static final String OPUS_4_5 = "claude-opus-4-5";
     public static final String GEMINI_2_0_FLASH_LITE = "gemini-2.0-flash-lite";
@@ -665,21 +666,29 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     public StreamingChatModel getScanModel() {
-        // First attempt: use project-configured scan model if available
-        var cfg = project.getMainProject().getScanModelConfig();
+        return getModel(ModelType.SCAN);
+    }
+
+    public StreamingChatModel getModel(ModelType type) {
+        var cfg = project.getMainProject().getModelConfig(type);
         var model = getModel(cfg);
         if (model != null) {
             return model;
         }
 
-        // Fallback to default
-        cfg = ModelProperties.ModelType.SCAN.preferredConfig();
-        var model = getModel(cfg);
-        if (model == null) {
-            logger.error("Failed to get scan model '{}'", modelName);
-            return new UnavailableStreamingModel();
+        cfg = type.defaultConfig();
+        model = getModel(cfg);
+        if (model != null) {
+            return model;
         }
-        return model;
+
+        cfg = type.freeConfig();
+        model = getModel(cfg);
+        if (model != null) {
+            return model;
+        }
+
+        return new UnavailableStreamingModel();
     }
 
     public boolean hasSttModel() {

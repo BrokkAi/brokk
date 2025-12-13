@@ -39,7 +39,7 @@ public final class ModelProperties {
      * Ensures ProcessingTier is non-null (backward compatibility against older JSON).
      */
     static ModelConfig getModelConfig(Properties props, ModelType modelType) {
-        String jsonString = props.getProperty(modelType.propertyKey());
+        String jsonString = props.getProperty(modelType.propertyKey);
         if (jsonString != null && !jsonString.isBlank()) {
             try {
                 var mc = objectMapper.readValue(jsonString, ModelConfig.class);
@@ -52,12 +52,12 @@ public final class ModelProperties {
                 logger.warn(
                         "Error parsing ModelConfig JSON for {} from key '{}': {}. Using preferred default. JSON: '{}'",
                         modelType,
-                        modelType.propertyKey(),
+                        modelType.propertyKey,
                         e.getMessage(),
                         jsonString);
             }
         }
-        return modelType.preferredConfig();
+        return modelType.defaultConfig();
     }
 
     /**
@@ -66,10 +66,10 @@ public final class ModelProperties {
      */
     static void setModelConfig(Properties props, ModelType modelType, ModelConfig config) {
         try {
-            String jsonString = objectMapper.writeValueAsString(config);
-            props.setProperty(modelType.propertyKey(), jsonString);
+            var jsonString = objectMapper.writeValueAsString(config);
+            props.setProperty(modelType.propertyKey, jsonString);
         } catch (JsonProcessingException e) {
-            throw new RuntimeException("Failed to serialize ModelConfig for " + modelType, e);
+            throw new RuntimeException(e);
         }
     }
 
@@ -125,52 +125,32 @@ public final class ModelProperties {
      */
     public enum ModelType {
         QUICK("quickConfig", new ModelConfig(Service.GEMINI_2_0_FLASH)),
-        CODE("codeConfig", new ModelConfig(Service.HAIKU_4_5)),
-        ARCHITECT("architectConfig", new ModelConfig(Service.OPUS_4_5, Service.ReasoningLevel.DISABLE)),
-        QUICK_EDIT("quickEditConfig", new ModelConfig(Service.GEMINI_2_5_FLASH)),
+        CODE("codeConfig", new ModelConfig(Service.HAIKU_4_5), new ModelConfig(Service.GCF_1)),
+        ARCHITECT("architectConfig", new ModelConfig(Service.OPUS_4_5, Service.ReasoningLevel.DISABLE), new ModelConfig(Service.GCF_1)),
+        QUICK_EDIT("quickEditConfig", new ModelConfig(Service.GCF_1)),
         QUICKEST("quickestConfig", new ModelConfig(Service.GEMINI_2_0_FLASH_LITE)),
-        SCAN("scanConfig", new ModelConfig(Service.GPT_5_MINI));
+        SCAN("scanConfig", new ModelConfig(Service.GPT_5_MINI), new ModelConfig(Service.GCF_1));
 
         private final String propertyKey;
         private final ModelConfig defaultConfig;
+        private final ModelConfig defaultFreeConfig;
 
         ModelType(String propertyKey, ModelConfig defaultConfig) {
+            this(propertyKey, defaultConfig, defaultConfig);
+        }
+
+        ModelType(String propertyKey, ModelConfig defaultConfig, ModelConfig defaultFreeConfig) {
             this.propertyKey = propertyKey;
             this.defaultConfig = defaultConfig;
+            this.defaultFreeConfig = defaultFreeConfig;
         }
 
-        /**
-         * The string key used in global properties for this model type.
-         */
-        public String propertyKey() {
-            return propertyKey;
-        }
-
-        /**
-         * The preferred default ModelConfig for this model type.
-         */
-        public ModelConfig preferredConfig() {
+        public ModelConfig defaultConfig() {
             return defaultConfig;
         }
 
-        /**
-         * Human-friendly display name derived from the enum constant.
-         */
-        public String displayName() {
-            String s = name().toLowerCase(Locale.ROOT).replace('_', ' ');
-            StringBuilder out = new StringBuilder();
-            boolean cap = true;
-            for (int i = 0, len = s.length(); i < len; i++) {
-                char c = s.charAt(i);
-                if (cap && Character.isLetter(c)) {
-                    out.append(Character.toUpperCase(c));
-                    cap = false;
-                } else {
-                    out.append(c);
-                }
-                if (c == ' ') cap = true;
-            }
-            return out.toString();
+        public ModelConfig freeConfig() {
+            return defaultFreeConfig;
         }
     }
 }
