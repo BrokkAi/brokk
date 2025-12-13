@@ -85,6 +85,10 @@ public final class GitWorkflow {
         }
 
         var messages = CommitPrompts.instance.collectMessages(cm.getProject(), diff);
+        if (messages.isEmpty()) {
+            logger.debug("No messages generated from diff");
+            return Optional.empty();
+        }
         var result = cm.getLlm(cm.getService().quickestModel(), "Infer commit message")
                 .sendRequest(messages);
 
