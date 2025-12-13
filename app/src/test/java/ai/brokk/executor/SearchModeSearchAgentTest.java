@@ -1,5 +1,6 @@
 package ai.brokk.executor;
 
+import static ai.brokk.testutil.ExecutorTestUtil.awaitJobCompletion;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -8,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.ContextManager;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.TestService;
+import ai.brokk.util.FileUtil;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -18,6 +20,7 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -27,9 +30,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledOnOs;
-import org.junit.jupiter.api.condition.OS;
-import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Integration tests for SEARCH mode ensuring SearchAgent is used and no writes occur.
@@ -39,7 +39,6 @@ import org.junit.jupiter.api.io.TempDir;
  * - Emits search/summary events, not code edits
  * - Maintains read-only semantics
  */
-@EnabledOnOs(OS.MAC)
 class SearchModeSearchAgentTest {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -48,9 +47,11 @@ class SearchModeSearchAgentTest {
     private int port;
     private String authToken = "test-secret-token";
     private String baseUrl;
+    private Path tempDir;
 
     @BeforeEach
-    void setup(@TempDir Path tempDir) throws Exception {
+    void setup() throws Exception {
+        tempDir = Files.createTempDirectory("search-mode-test-");
         var workspaceDir = tempDir.resolve("workspace");
         var sessionsDir = tempDir.resolve("sessions");
         Files.createDirectories(workspaceDir);
@@ -84,6 +85,7 @@ class SearchModeSearchAgentTest {
         if (executor != null) {
             executor.stop(2);
         }
+        FileUtil.deleteRecursively(tempDir);
     }
 
     @Test
@@ -109,7 +111,7 @@ class SearchModeSearchAgentTest {
         var jobId = createJobWithSpec(jobSpec, "search-test-read-only");
 
         // Wait for job to complete
-        Thread.sleep(500);
+        awaitJobCompletion(baseUrl, jobId, authToken, Duration.ofSeconds(30));
 
         // Poll for events to ensure job has processed
         var eventsUrl = URI.create(baseUrl + "/v1/jobs/" + jobId + "/events?after=-1&limit=1000")
@@ -193,7 +195,7 @@ class SearchModeSearchAgentTest {
         var jobId = createJobWithSpec(jobSpec, "search-test-scan-model");
 
         // Wait for job to complete
-        Thread.sleep(500);
+        awaitJobCompletion(baseUrl, jobId, authToken, Duration.ofSeconds(30));
 
         // Poll events to ensure search produced LLM tokens/notifications and no code edits
         var eventsUrl = URI.create(baseUrl + "/v1/jobs/" + jobId + "/events?after=-1&limit=1000")
@@ -274,8 +276,8 @@ class SearchModeSearchAgentTest {
 
         var jobId = createJobWithSpec(jobSpec, "search-test-ignore-code-model");
 
-        // Wait for job
-        Thread.sleep(300);
+        // Wait for job to complete
+        awaitJobCompletion(baseUrl, jobId, authToken, Duration.ofSeconds(30));
 
         // Verify job status
         var statusUrl = URI.create(baseUrl + "/v1/jobs/" + jobId).toURL();
