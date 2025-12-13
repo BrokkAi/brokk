@@ -11,10 +11,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -47,9 +49,18 @@ public final class FileFilteringService {
      * rawExclusions should come from BuildDetails.excludedDirectories() (un-normalized).
      */
     public Set<ProjectFile> filterFiles(Set<ProjectFile> files, Set<String> rawExclusions) {
+        return filterFiles(files, rawExclusions, Set.of());
+    }
+
+    /**
+     * Filter files by baseline exclusions, file patterns, and gitignore rules.
+     * rawExclusions should come from BuildDetails.excludedDirectories() (un-normalized).
+     * filePatterns should come from BuildDetails.excludedFilePatterns() (glob patterns like *.svg, package-lock.json).
+     */
+    public Set<ProjectFile> filterFiles(Set<ProjectFile> files, Set<String> rawExclusions, Set<String> filePatterns) {
         // Normalize baseline exclusions
         var baselineExclusions = rawExclusions.stream()
-                .map(s -> s.replace('\\', '/').trim())
+                .map(s -> toUnixPath(s).trim())
                 .map(s -> s.startsWith("/") ? s.substring(1) : s)
                 .map(s -> s.startsWith("./") ? s.substring(2) : s)
                 .map(s -> s.endsWith("/") ? s.substring(0, s.length() - 1) : s)
@@ -64,7 +75,7 @@ public final class FileFilteringService {
 
         Set<String> normalizedFromRawLeading = rawLeadingSlashExclusions.stream()
                 .map(s -> s.substring(1))
-                .map(s -> s.replace('\\', '/'))
+                .map(FileFilteringService::toUnixPath)
                 .map(String::trim)
                 .map(s -> s.endsWith("/") ? s.substring(0, s.length() - 1) : s)
                 .filter(s -> !s.isEmpty())
@@ -73,8 +84,12 @@ public final class FileFilteringService {
         Set<String> unionNormalized = new HashSet<>(baselineExclusions);
         unionNormalized.addAll(normalizedFromRawLeading);
 
+        // Pre-compile file patterns once for efficient matching across all files
+        var compiledPatterns = compilePatterns(filePatterns);
+
         Set<ProjectFile> baselineFiltered = files.stream()
                 .filter(file -> !isBaselineExcluded(file, unionNormalized))
+                .filter(file -> !matchesFilePattern(file, compiledPatterns))
                 .collect(Collectors.toSet());
 
         // If no Git repo, return baseline-filtered only
@@ -143,9 +158,9 @@ public final class FileFilteringService {
     // -------------------------
 
     private boolean isBaselineExcluded(ProjectFile file, Set<String> baselineExclusions) {
-        String fileRel = file.getRelPath().toString().replace('\\', '/');
+        String fileRel = toUnixPath(file.getRelPath());
         for (String exclusion : baselineExclusions) {
-            String ex = exclusion.replace('\\', '/');
+            String ex = toUnixPath(exclusion);
             while (ex.startsWith("./")) ex = ex.substring(2);
             if (ex.startsWith("/")) ex = ex.substring(1);
             if (ex.endsWith("/")) ex = ex.substring(0, ex.length() - 1);
@@ -156,6 +171,144 @@ public final class FileFilteringService {
             }
         }
         return false;
+    }
+
+    /** Represents a pre-compiled file pattern for efficient matching. */
+    private sealed interface CompiledPattern {
+        String original();
+
+        record ExactFilename(String original, String lowerName) implements CompiledPattern {}
+
+        record Extension(String original, String lowerSuffix) implements CompiledPattern {}
+
+        record Glob(String original, Pattern regex, boolean matchFullPath) implements CompiledPattern {}
+    }
+
+    /**
+     * Pre-compile file patterns for efficient reuse across many files.
+     *
+     * <p>Pattern semantics (all matching is case-insensitive):
+     * <ul>
+     *   <li><b>Exact filename</b> (no wildcards, no slash): matched against filename only.
+     *       Example: {@code package-lock.json}
+     *   <li><b>Extension pattern</b> ({@code *.ext} without additional wildcards in suffix):
+     *       matched against filename only. Example: {@code *.svg}, {@code *.min.js}
+     *   <li><b>Glob pattern</b> (contains {@code *}, {@code ?}, or {@code /}):
+     *       if pattern contains {@code /}, matched against full relative path;
+     *       otherwise matched against filename only. Example: {@code *.*}, {@code build/**}
+     * </ul>
+     *
+     * <p>Note: {@code *.*} matches any file with a dot in its name, including dotfiles
+     * like {@code .gitignore} and {@code .env}.
+     */
+    private List<CompiledPattern> compilePatterns(Set<String> patterns) {
+        var compiled = new ArrayList<CompiledPattern>();
+        for (String rawPattern : patterns) {
+            if (rawPattern == null) continue;
+            String pattern = rawPattern.trim();
+            if (pattern.isEmpty()) continue;
+
+            // Exact filename match (e.g., "package-lock.json")
+            if (!pattern.contains("*") && !pattern.contains("?") && !pattern.contains("/")) {
+                compiled.add(new CompiledPattern.ExactFilename(pattern, pattern.toLowerCase(Locale.ROOT)));
+                continue;
+            }
+
+            // Simple extension match (e.g., "*.svg", "*.min.js")
+            if (pattern.startsWith("*.") && !pattern.contains("/")) {
+                String suffix = pattern.substring(1);
+                if (!suffix.contains("*") && !suffix.contains("?")) {
+                    compiled.add(new CompiledPattern.Extension(pattern, suffix.toLowerCase(Locale.ROOT)));
+                    continue;
+                }
+            }
+
+            // Path glob pattern - convert to regex for platform-independent matching
+            try {
+                String lowerPattern = pattern.toLowerCase(Locale.ROOT);
+                var regex = globToRegex(lowerPattern);
+                compiled.add(new CompiledPattern.Glob(pattern, regex, pattern.contains("/")));
+            } catch (Exception e) {
+                logger.debug("Invalid glob pattern '{}': {}", pattern, e.getMessage());
+            }
+        }
+        return compiled;
+    }
+
+    /** Check if a file matches any of the pre-compiled patterns. */
+    private boolean matchesFilePattern(ProjectFile file, List<CompiledPattern> compiledPatterns) {
+        if (compiledPatterns.isEmpty()) {
+            return false;
+        }
+
+        String filePath = toUnixPath(file.getRelPath());
+        String fileName = file.getFileName();
+        String lowerFileName = fileName.toLowerCase(Locale.ROOT);
+        String lowerFilePath = filePath.toLowerCase(Locale.ROOT);
+
+        for (var cp : compiledPatterns) {
+            boolean matched =
+                    switch (cp) {
+                        case CompiledPattern.ExactFilename ef -> lowerFileName.equals(ef.lowerName());
+                        case CompiledPattern.Extension ext -> lowerFileName.endsWith(ext.lowerSuffix());
+                        case CompiledPattern.Glob g ->
+                            g.regex()
+                                    .matcher(g.matchFullPath() ? lowerFilePath : lowerFileName)
+                                    .matches();
+                    };
+            if (matched) {
+                logger.trace("File {} excluded by pattern: {}", filePath, cp.original());
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Convert a glob pattern to a regex Pattern for platform-independent matching.
+     * Uses Unix path separators (forward slashes) consistently.
+     *
+     * <p>Glob syntax:
+     * <ul>
+     *   <li>{@code **} matches any characters including path separators
+     *   <li>{@code *} matches any characters except path separator
+     *   <li>{@code ?} matches exactly one character except path separator
+     * </ul>
+     */
+    @VisibleForTesting
+    public static Pattern globToRegex(String glob) {
+        var regex = new StringBuilder();
+        int i = 0;
+        while (i < glob.length()) {
+            char c = glob.charAt(i);
+            if (c == '*') {
+                if (i + 1 < glob.length() && glob.charAt(i + 1) == '*') {
+                    // ** matches anything including path separators
+                    regex.append(".*");
+                    i += 2;
+                    // Skip trailing / after **
+                    if (i < glob.length() && glob.charAt(i) == '/') {
+                        regex.append("/?");
+                        i++;
+                    }
+                } else {
+                    // * matches anything except path separator
+                    regex.append("[^/]*");
+                    i++;
+                }
+            } else if (c == '?') {
+                regex.append("[^/]");
+                i++;
+            } else if (".^$+[]{}()|\\".indexOf(c) >= 0) {
+                // Escape regex metacharacters
+                regex.append('\\').append(c);
+                i++;
+            } else {
+                regex.append(c);
+                i++;
+            }
+        }
+        return Pattern.compile(regex.toString());
     }
 
     private Optional<Path> getGlobalGitignoreFile(GitRepo gitRepo) {
@@ -266,6 +419,11 @@ public final class FileFilteringService {
     @VisibleForTesting
     public static String toUnixPath(Path path) {
         return path.toString().replace('\\', '/');
+    }
+
+    /** Normalize a string path to use forward slashes. */
+    public static String toUnixPath(String path) {
+        return path.replace('\\', '/');
     }
 
     @VisibleForTesting

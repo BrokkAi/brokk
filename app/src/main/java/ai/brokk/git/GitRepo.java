@@ -1,5 +1,6 @@
 package ai.brokk.git;
 
+import static ai.brokk.project.FileFilteringService.toUnixPath;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.analyzer.ProjectFile;
@@ -253,7 +254,7 @@ public class GitRepo implements Closeable, IGitRepo {
         // We need to make it relative to JGit's working tree root.
         Path workingTreeRoot = repository.getWorkTree().toPath().normalize();
         Path relativePath = workingTreeRoot.relativize(file.absPath());
-        return relativePath.toString().replace('\\', '/');
+        return toUnixPath(relativePath);
     }
 
     /**

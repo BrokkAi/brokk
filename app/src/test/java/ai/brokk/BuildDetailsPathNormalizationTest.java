@@ -14,7 +14,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import org.eclipse.jgit.api.Git;
@@ -68,7 +67,7 @@ public class BuildDetailsPathNormalizationTest {
 
         var project = new MainProject(root);
 
-        var details = new BuildAgent.BuildDetails("", "", "", rawExcludesOrdered, Map.of());
+        var details = new BuildAgent.BuildDetails("", "", "", rawExcludesOrdered);
 
         // Act: save and read back from properties
         project.saveBuildDetails(details);
@@ -94,6 +93,23 @@ public class BuildDetailsPathNormalizationTest {
     }
 
     @Test
+    void testLegacyJson_withoutFilePatterns_loadsWithEmptySet() throws Exception {
+        // Old JSON format without excludedFilePatterns field - should deserialize with empty set
+        String oldJson =
+                """
+            {"buildLintCommand":"mvn compile","testAllCommand":"mvn test","testSomeCommand":"",\
+            "excludedDirectories":["target"],"environmentVariables":{}}
+            """;
+
+        var details = MAPPER.readValue(oldJson, BuildAgent.BuildDetails.class);
+
+        assertNotNull(details.excludedFilePatterns(), "excludedFilePatterns should not be null");
+        assertTrue(details.excludedFilePatterns().isEmpty(), "excludedFilePatterns should be empty for legacy JSON");
+        assertEquals("mvn compile", details.buildLintCommand());
+        assertEquals(Set.of("target"), details.excludedDirectories());
+    }
+
+    @Test
     void testLegacyJson_loadsAndRewrites(@TempDir Path root) throws Exception {
         // Arrange: pre-write legacy JSON with backslashes, leading "/", and absolute-under-project paths
         Path fooAbs = root.resolve("foo");
@@ -103,7 +119,7 @@ public class BuildDetailsPathNormalizationTest {
                 fooAbs.toString(), // absolute under project -> should become "foo"
                 ".\\out/");
 
-        var legacyDetails = new BuildAgent.BuildDetails("", "", "", new LinkedHashSet<>(legacyExcludes), Map.of());
+        var legacyDetails = new BuildAgent.BuildDetails("", "", "", new LinkedHashSet<>(legacyExcludes));
         String legacyJson = MAPPER.writeValueAsString(legacyDetails);
 
         // Pre-create .brokk/project.properties with legacy JSON
@@ -163,14 +179,14 @@ public class BuildDetailsPathNormalizationTest {
         var files = Set.of(pfBuild, pfSrc);
 
         // Case A: exclusion "/build"
-        var detailsSlash = new BuildAgent.BuildDetails("", "", "", new LinkedHashSet<>(List.of("/build")), Map.of());
+        var detailsSlash = new BuildAgent.BuildDetails("", "", "", new LinkedHashSet<>(List.of("/build")));
         project.saveBuildDetails(detailsSlash);
         var filteredSlash = project.applyFiltering(files);
         assertTrue(filteredSlash.contains(pfSrc), "src/Main.java should remain");
         assertFalse(filteredSlash.contains(pfBuild), "build/Generated.java should be excluded by '/build'");
 
         // Case B: exclusion "build"
-        var detailsNoSlash = new BuildAgent.BuildDetails("", "", "", new LinkedHashSet<>(List.of("build")), Map.of());
+        var detailsNoSlash = new BuildAgent.BuildDetails("", "", "", new LinkedHashSet<>(List.of("build")));
         project.saveBuildDetails(detailsNoSlash);
         var filteredNoSlash = project.applyFiltering(files);
         assertTrue(filteredNoSlash.contains(pfSrc), "src/Main.java should remain");

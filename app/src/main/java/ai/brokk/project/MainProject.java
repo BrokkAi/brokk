@@ -328,6 +328,7 @@ public final class MainProject extends AbstractProject {
                         details.testAllCommand(),
                         details.testSomeCommand(),
                         canonicalExcludes,
+                        details.excludedFilePatterns(),
                         canonicalEnv);
             } catch (JsonProcessingException e) {
                 logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
@@ -374,6 +375,7 @@ public final class MainProject extends AbstractProject {
                 details.testAllCommand(),
                 details.testSomeCommand(),
                 canonicalExcludes,
+                details.excludedFilePatterns(),
                 canonicalEnv);
 
         if (!canonicalDetails.equals(BuildAgent.BuildDetails.EMPTY)) {

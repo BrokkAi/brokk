@@ -75,6 +75,10 @@ public class SettingsProjectBuildPanel extends JPanel {
     @Nullable
     private Future<?> manualInferBuildTaskFuture;
 
+    // Pending BuildDetails from agent run, saved on Apply/OK
+    @Nullable
+    private BuildAgent.BuildDetails pendingBuildDetails;
+
     private final JPanel bannerPanel;
 
     public SettingsProjectBuildPanel(
@@ -665,6 +669,8 @@ public class SettingsProjectBuildPanel extends JPanel {
                     });
                 } else {
                     SwingUtilities.invokeLater(() -> {
+                        // Store pending details for later save on Apply/OK
+                        pendingBuildDetails = newBuildDetails;
                         updateBuildDetailsFieldsFromAgent(newBuildDetails);
                         chrome.showNotification(
                                 IConsoleIO.NotificationRole.INFO, "Build Agent finished. Review and apply settings.");
@@ -712,10 +718,11 @@ public class SettingsProjectBuildPanel extends JPanel {
             allTestsCommandField.setText(details.testAllCommand());
             someTestsCommandField.setText(details.testSomeCommand());
 
-            // Also refresh the CI exclusions list model in the parent SettingsProjectPanel
+            // Also refresh the CI exclusions list models in the parent SettingsProjectPanel
             try {
                 var spp = parentDialog.getProjectPanel();
                 spp.updateExcludedDirectories(details.excludedDirectories());
+                spp.updateExcludedFilePatterns(details.excludedFilePatterns());
             } catch (Exception ex) {
                 logger.warn("Failed to update CI exclusions list from agent details: {}", ex.getMessage(), ex);
             }
@@ -766,7 +773,8 @@ public class SettingsProjectBuildPanel extends JPanel {
 
     public boolean applySettings() {
         // Persist build-related settings to project.
-        var currentDetails = project.loadBuildDetails();
+        // Use pendingBuildDetails if available (from recent BuildAgent run), otherwise load from project
+        var baseDetails = pendingBuildDetails != null ? pendingBuildDetails : project.loadBuildDetails();
         var newBuildLint = buildCleanCommandField.getText();
         var newTestAll = allTestsCommandField.getText();
         var newTestSome = someTestsCommandField.getText();
@@ -775,7 +783,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         var selectedPrimaryLang = (Language) primaryLanguageComboBox.getSelectedItem();
 
         // Build environment variables map
-        var envVars = new HashMap<>(currentDetails.environmentVariables());
+        var envVars = new HashMap<>(baseDetails.environmentVariables());
         envVars.remove("JAVA_HOME");
         envVars.remove("VIRTUAL_ENV");
         if (selectedPrimaryLang == Languages.JAVA) {
@@ -790,11 +798,22 @@ public class SettingsProjectBuildPanel extends JPanel {
         }
 
         var newDetails = new BuildAgent.BuildDetails(
-                newBuildLint, newTestAll, newTestSome, currentDetails.excludedDirectories(), envVars);
+                newBuildLint,
+                newTestAll,
+                newTestSome,
+                baseDetails.excludedDirectories(),
+                baseDetails.excludedFilePatterns(),
+                envVars);
+
+        // Compare against what's currently saved on disk
+        var currentDetails = project.loadBuildDetails();
         if (!newDetails.equals(currentDetails)) {
             project.saveBuildDetails(newDetails);
             logger.debug("Applied Build Details changes.");
         }
+
+        // Clear pending details after save
+        pendingBuildDetails = null;
 
         MainProject.CodeAgentTestScope selectedScope =
                 runAllTestsRadio.isSelected() ? IProject.CodeAgentTestScope.ALL : IProject.CodeAgentTestScope.WORKSPACE;
