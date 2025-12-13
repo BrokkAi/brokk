@@ -1654,19 +1654,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        notificationsDialog = new JFrame("Notifications (" + notifications.size() + ")");
-        // Set window icon similar to OutputWindow
-        try {
-            var iconUrl = Chrome.class.getResource(Brokk.ICON_RESOURCE);
-            if (iconUrl != null) {
-                var icon = new ImageIcon(iconUrl);
-                notificationsDialog.setIconImage(icon.getImage());
-            }
-        } catch (Exception ex) {
-            logger.debug("Failed to set notifications window icon", ex);
-        }
+        var title = "Notifications (" + notifications.size() + ")";
+        notificationsDialog = Chrome.newFrame(title);
         notificationsDialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
         notificationsDialog.setLayout(new BorderLayout(8, 8));
+        Chrome.applyTitleBar(notificationsDialog, title);
         notificationsDialog.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosed(WindowEvent e) {
@@ -2547,6 +2539,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             } catch (Exception e) {
                 logger.debug("Failed to set OutputWindow icon", e);
             }
+
+            // Apply macOS full-window-content and title bar styling
+            Chrome.applyMacOSFullWindowContent(this);
+            Chrome.applyTitleBar(this, determineWindowTitle(titleHint, isTaskInProgress));
 
             this.project = parentPanel.contextManager.getProject(); // Get project reference
             setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
