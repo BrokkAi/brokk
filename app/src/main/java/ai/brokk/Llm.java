@@ -623,8 +623,7 @@ public class Llm {
         int attempt = 0;
         var messages = Messages.forLlm(rawMessages);
         if (messages.isEmpty()) {
-            return new StreamingResult(
-                    null, new IllegalArgumentException("Cannot send request with empty message list"), 0);
+            throw new IllegalArgumentException("Cannot send request with empty message list");
         }
 
         StreamingResult response;
