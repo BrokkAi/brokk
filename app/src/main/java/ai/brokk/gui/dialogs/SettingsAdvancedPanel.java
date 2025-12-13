@@ -9,6 +9,7 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.JDeploySettingsUtil;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
 import java.util.ArrayList;
@@ -984,10 +985,15 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
 
             otherModelsVendorCombo.setSelectedItem("Default");
 
+            // Get preferred defaults from ModelProperties
+            var architectConfig = ModelProperties.ModelType.ARCHITECT.preferredConfig();
+            var codeConfig = ModelProperties.ModelType.CODE.preferredConfig();
+
+            // Restore primary model to ARCHITECT default
             boolean foundPrimary = false;
             for (int i = 0; i < primaryModelCombo.getItemCount(); i++) {
                 Service.FavoriteModel fm = primaryModelCombo.getItemAt(i);
-                if (fm != null && Service.GPT_5.equals(fm.config().name())) {
+                if (architectConfig.equals(fm.config())) {
                     primaryModelCombo.setSelectedIndex(i);
                     foundPrimary = true;
                     break;
@@ -997,10 +1003,11 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 primaryModelCombo.setSelectedIndex(0);
             }
 
+            // Restore code model to CODE default
             boolean foundCode = false;
             for (int i = 0; i < preferredCodeModelCombo.getItemCount(); i++) {
                 Service.FavoriteModel fm = preferredCodeModelCombo.getItemAt(i);
-                if (fm != null && Service.HAIKU_4_5.equals(fm.config().name())) {
+                if (codeConfig.equals(fm.config())) {
                     preferredCodeModelCombo.setSelectedIndex(i);
                     foundCode = true;
                     break;

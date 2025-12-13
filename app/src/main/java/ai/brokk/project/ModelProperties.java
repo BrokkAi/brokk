@@ -124,7 +124,7 @@ public final class ModelProperties {
      * Enum representing the different model configuration slots persisted in global properties.
      * Each enum constant owns its properties key and preferred default ModelConfig.
      */
-    enum ModelType {
+    public enum ModelType {
         QUICK("quickConfig", new ModelConfig(Service.GEMINI_2_0_FLASH)),
         CODE("codeConfig", new ModelConfig(Service.HAIKU_4_5)),
         ARCHITECT("architectConfig", new ModelConfig(Service.GPT_5)),
