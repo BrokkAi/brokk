@@ -8,6 +8,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.gui.util.ContextSizeGuard;
+import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.project.IProject;
 import ai.brokk.util.FileManagerUtil;
 import java.awt.*;
@@ -980,6 +981,16 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                         setIcon(expanded ? getOpenIcon() : getClosedIcon());
                     } else {
                         setIcon(getLeafIcon());
+                    }
+
+                    // Color CI-excluded directories
+                    if (file.isDirectory()) {
+                        Path relativePath = project.getRoot().relativize(file.toPath());
+                        String relativePathStr = relativePath.toString();
+                        Set<String> excludedDirs = project.getExcludedDirectories();
+                        if (excludedDirs.contains(relativePathStr)) {
+                            setForeground(ThemeColors.getColor(ThemeColors.CI_EXCLUDED_FOREGROUND));
+                        }
                     }
 
                     // Color untracked files red (only for files, not directories)
