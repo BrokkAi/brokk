@@ -68,9 +68,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     protected Map<String, Map<String, Object>> modelInfoMap = Map.of();
 
     // Default models - instance fields
-    protected StreamingChatModel quickModel = new UnavailableStreamingModel();
     protected StreamingChatModel quickestModel = new UnavailableStreamingModel();
-    protected StreamingChatModel quickEditModel = new UnavailableStreamingModel();
     protected SpeechToTextModel sttModel = new UnavailableSTT();
 
     public AbstractService(IProject project) {
@@ -653,11 +651,11 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     public StreamingChatModel quickModel() {
-        return quickModel;
+        return getModel(ModelType.QUICK);
     }
 
     public StreamingChatModel quickEditModel() {
-        return quickEditModel;
+        return getModel(ModelType.QUICK_EDIT);
     }
 
     public SpeechToTextModel sttModel() {
@@ -696,7 +694,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     public boolean isOnline() {
         boolean hasUsableModel = modelLocations.keySet().stream().anyMatch(name -> !UNAVAILABLE.equals(name));
-        boolean quickModelAvailable = !(quickModel instanceof UnavailableStreamingModel);
+        boolean quickModelAvailable = !(quickModel() instanceof UnavailableStreamingModel);
         return hasUsableModel && quickModelAvailable;
     }
 
