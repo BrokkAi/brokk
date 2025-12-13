@@ -70,8 +70,6 @@ public class AttachContextDialog extends BaseThemedDialog {
         USAGES
     }
 
-    public record Result(Set<ContextFragment> fragments, boolean summarize) {}
-
     private final ContextManager cm;
 
     // Segmented control
@@ -98,7 +96,7 @@ public class AttachContextDialog extends BaseThemedDialog {
     private final SymbolsProvider methodsProvider = new SymbolsProvider(SymbolsProvider.Mode.METHODS);
     private final SymbolsProvider usagesProvider = new SymbolsProvider(SymbolsProvider.Mode.ALL);
 
-    private @Nullable Result selection = null;
+    private @Nullable Set<ContextFragment> selection = null;
 
     private static final String ANALYZER_NOT_READY_TOOLTIP =
             " will be available after code intelligence is initialized.";
@@ -321,7 +319,7 @@ public class AttachContextDialog extends BaseThemedDialog {
         this.summarizeCheck.setSelected(defaultSummarizeChecked);
     }
 
-    public @Nullable Result getSelection() {
+    public @Nullable Set<ContextFragment> getSelectedFragments() {
         return selection;
     }
 
@@ -352,6 +350,7 @@ public class AttachContextDialog extends BaseThemedDialog {
         // Update checkbox visibility for each tab
         includeSubfoldersCheck.setVisible(getActiveTab() == TabType.FOLDERS);
         includeTestFilesCheck.setVisible(getActiveTab() == TabType.USAGES);
+        summarizeCheck.setVisible(getActiveTab() != TabType.FOLDERS && getActiveTab() != TabType.METHODS);
 
         searchField.requestFocusInWindow();
     }
@@ -455,9 +454,16 @@ public class AttachContextDialog extends BaseThemedDialog {
             return;
         }
 
-        var frag = new ContextFragment.ProjectPathFragment(chosen, cm);
+        ContextFragment frag;
+        if (summarizeCheck.isSelected()) {
+            // Return a summary fragment for the selected file (FILE_SKELETONS) using the relative path identifier
+            frag = new ContextFragment.SummaryFragment(
+                    cm, chosen.getRelPath().toString(), ContextFragment.SummaryType.FILE_SKELETONS);
+        } else {
+            frag = new ContextFragment.ProjectPathFragment(chosen, cm);
+        }
 
-        selection = new Result(Set.of(frag), summarizeCheck.isSelected());
+        selection = Set.of(frag);
         dispose();
     }
 
@@ -494,7 +500,7 @@ public class AttachContextDialog extends BaseThemedDialog {
         Set<ContextFragment> fragments = selected.stream()
                 .map(pf -> (ContextFragment) new ContextFragment.ProjectPathFragment(pf, cm))
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        selection = new Result(fragments, summarizeCheck.isSelected());
+        selection = fragments;
         dispose();
     }
 
@@ -523,8 +529,13 @@ public class AttachContextDialog extends BaseThemedDialog {
 
         var cu = opt.get();
 
-        var frag = new ContextFragment.CodeFragment(cm, cu);
-        selection = new Result(Set.of(frag), summarizeCheck.isSelected());
+        ContextFragment frag;
+        if (summarizeCheck.isSelected()) {
+            frag = new ContextFragment.SummaryFragment(cm, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
+        } else {
+            frag = new ContextFragment.CodeFragment(cm, cu);
+        }
+        selection = Set.of(frag);
         dispose();
     }
 
@@ -554,7 +565,7 @@ public class AttachContextDialog extends BaseThemedDialog {
         var cu = opt.get();
 
         var frag = new ContextFragment.CodeFragment(cm, cu);
-        selection = new Result(Set.of(frag), summarizeCheck.isSelected());
+        selection = Set.of(frag);
         dispose();
     }
 
@@ -579,8 +590,7 @@ public class AttachContextDialog extends BaseThemedDialog {
         if (summarizeCheck.isSelected() && any.isPresent() && any.get().isFunction()) {
             var methodFqn = any.get().fqName();
             var frag = new ContextFragment.CallGraphFragment(cm, methodFqn, 1, false);
-            // No direct CM API to publish this VirtualFragment immediately; selection will be applied by the caller.
-            selection = new Result(Set.of(frag), true);
+            selection = Set.of(frag);
             dispose();
             return;
         }
@@ -588,7 +598,7 @@ public class AttachContextDialog extends BaseThemedDialog {
         var target = any.map(CodeUnit::fqName).orElse(input);
 
         var frag = new ContextFragment.UsageFragment(cm, target, includeTestFilesCheck.isSelected());
-        selection = new Result(Set.of(frag), summarizeCheck.isSelected());
+        selection = Set.of(frag);
         dispose();
     }
 
