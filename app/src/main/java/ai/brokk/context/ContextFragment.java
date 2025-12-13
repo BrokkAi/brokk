@@ -218,7 +218,7 @@ public interface ContextFragment {
      * Private helper class for file path extraction from arbitrary text.
      * Encapsulates the regex pattern and extraction logic.
      */
-    final class FilePathExtractor {
+    static final class FilePathExtractor {
         private FilePathExtractor() {} // Prevent instantiation
 
         // Pattern to find file-path-like strings in any text context.
