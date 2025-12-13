@@ -1,6 +1,5 @@
 package ai.brokk.project;
 
-import ai.brokk.AbstractService;
 import ai.brokk.IssueProvider;
 import ai.brokk.SessionManager;
 import ai.brokk.agents.BuildAgent;
@@ -95,26 +94,6 @@ public final class WorktreeProject extends AbstractProject {
     @Override
     public void saveReviewGuide(String reviewGuide) {
         parent.saveReviewGuide(reviewGuide);
-    }
-
-    @Override
-    public AbstractService.ModelConfig getCodeModelConfig() {
-        return parent.getCodeModelConfig();
-    }
-
-    @Override
-    public void setCodeModelConfig(AbstractService.ModelConfig config) {
-        parent.setCodeModelConfig(config);
-    }
-
-    @Override
-    public AbstractService.ModelConfig getArchitectModelConfig() {
-        return parent.getArchitectModelConfig();
-    }
-
-    @Override
-    public void setArchitectModelConfig(AbstractService.ModelConfig config) {
-        parent.setArchitectModelConfig(config);
     }
 
     @Override

@@ -5,7 +5,6 @@ import static java.lang.Math.min;
 
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
-import ai.brokk.project.ModelProperties;
 import ai.brokk.project.ModelProperties.ModelType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;

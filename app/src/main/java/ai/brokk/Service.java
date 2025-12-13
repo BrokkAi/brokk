@@ -74,7 +74,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         this.modelInfoMap = Map.copyOf(tempModelInfoMap);
 
         // these should always be available
-        var quickCfg = project.getMainProject().getQuickModelConfig();
+        var quickCfg = project.getMainProject().getModelConfig(ModelProperties.ModelType.QUICK);
         var qm = getModel(quickCfg);
         if (qm == null) {
             qm = getModel(ModelProperties.ModelType.QUICK.defaultConfig());
@@ -97,7 +97,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                     .info("Free tier detected – using quickModel for quick‑edit operations.");
             quickEditModel = quickModel;
         } else {
-            var qeCfg = project.getMainProject().getQuickEditModelConfig();
+            var qeCfg = project.getMainProject().getModelConfig(ModelProperties.ModelType.QUICK_EDIT);
             var qe = getModel(qeCfg);
             if (qe == null) {
                 qe = getModel(ModelProperties.ModelType.QUICK_EDIT.defaultConfig());
@@ -106,7 +106,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         }
 
         // hard‑code quickest temperature to 0 so that Quick Context inference is reproducible
-        var qkCfg = project.getMainProject().getQuickestModelConfig();
+        var qkCfg = project.getMainProject().getModelConfig(ModelProperties.ModelType.QUICKEST);
         var qqm = getModel(qkCfg, OpenAiChatRequestParameters.builder().temperature(0.0));
         if (qqm == null) {
             qqm = getModel(

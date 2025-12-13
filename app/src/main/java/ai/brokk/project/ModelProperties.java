@@ -6,7 +6,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Properties;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -126,7 +125,10 @@ public final class ModelProperties {
     public enum ModelType {
         QUICK("quickConfig", new ModelConfig(Service.GEMINI_2_0_FLASH)),
         CODE("codeConfig", new ModelConfig(Service.HAIKU_4_5), new ModelConfig(Service.GCF_1)),
-        ARCHITECT("architectConfig", new ModelConfig(Service.OPUS_4_5, Service.ReasoningLevel.DISABLE), new ModelConfig(Service.GCF_1)),
+        ARCHITECT(
+                "architectConfig",
+                new ModelConfig(Service.OPUS_4_5, Service.ReasoningLevel.DISABLE),
+                new ModelConfig(Service.GCF_1)),
         QUICK_EDIT("quickEditConfig", new ModelConfig(Service.GCF_1)),
         QUICKEST("quickestConfig", new ModelConfig(Service.GEMINI_2_0_FLASH_LITE)),
         SCAN("scanConfig", new ModelConfig(Service.GPT_5_MINI), new ModelConfig(Service.GCF_1));

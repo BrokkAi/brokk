@@ -1,6 +1,6 @@
 package ai.brokk.project;
 
-import ai.brokk.AbstractService;
+import ai.brokk.AbstractService.ModelConfig;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IssueProvider;
 import ai.brokk.SessionManager;
@@ -9,6 +9,7 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
+import ai.brokk.project.ModelProperties.ModelType;
 import com.jakewharton.disklrucache.DiskLruCache;
 import java.awt.Rectangle;
 import java.io.IOException;
@@ -138,11 +139,11 @@ public interface IProject extends AutoCloseable {
         return CompletableFuture.failedFuture(new UnsupportedOperationException());
     }
 
-    default AbstractService.ModelConfig getCodeModelConfig() {
+    default ModelConfig getModelConfig(ModelType modelType) {
         throw new UnsupportedOperationException();
     }
 
-    default AbstractService.ModelConfig getQuickModelConfig() {
+    default void setModelConfig(ModelType modelType, ModelConfig config) {
         throw new UnsupportedOperationException();
     }
 
@@ -287,22 +288,6 @@ public interface IProject extends AutoCloseable {
 
     default boolean isGitIgnoreSet() {
         return false;
-    }
-
-    default void setQuickModelConfig(AbstractService.ModelConfig modelConfig) {
-        throw new UnsupportedOperationException();
-    }
-
-    default void setCodeModelConfig(AbstractService.ModelConfig modelConfig) {
-        throw new UnsupportedOperationException();
-    }
-
-    default AbstractService.ModelConfig getArchitectModelConfig() {
-        throw new UnsupportedOperationException();
-    }
-
-    default void setArchitectModelConfig(AbstractService.ModelConfig config) {
-        throw new UnsupportedOperationException();
     }
 
     default String getCommitMessageFormat() {

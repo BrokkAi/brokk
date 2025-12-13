@@ -425,109 +425,17 @@ public final class MainProject extends AbstractProject {
         }
     }
 
+    @Override
     public ModelConfig getModelConfig(ModelType modelType) {
         var props = loadGlobalProperties();
         return ModelProperties.getModelConfig(props, modelType);
     }
 
-    /**
-     * Returns the code-defined default ModelConfig for the Quick role.
-     *
-     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
-     * persisted user settings or overrides.
-     */
-    public static ModelConfig getDefaultQuickModelConfig() {
-        return ModelProperties.ModelType.QUICK.defaultConfig();
-    }
-
-    /**
-     * Returns the code-defined default ModelConfig for the Quick Edit role.
-     *
-     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
-     * persisted user settings or overrides.
-     */
-    public static ModelConfig getDefaultQuickEditModelConfig() {
-        return ModelProperties.ModelType.QUICK_EDIT.defaultConfig();
-    }
-
-    /**
-     * Returns the code-defined default ModelConfig for the Quickest role.
-     *
-     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
-     * persisted user settings or overrides.
-     */
-    public static ModelConfig getDefaultQuickestModelConfig() {
-        return ModelProperties.ModelType.QUICKEST.defaultConfig();
-    }
-
-    /**
-     * Returns the code-defined default ModelConfig for the Scan role.
-     *
-     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
-     * persisted user settings or overrides.
-     */
-    public static ModelConfig getDefaultScanModelConfig() {
-        return ModelProperties.ModelType.SCAN.defaultConfig();
-    }
-
-    private void setModelConfigInternal(ModelType modelType, ModelConfig config) {
+    @Override
+    public void setModelConfig(ModelType modelType, ModelConfig config) {
         var props = loadGlobalProperties();
         ModelProperties.setModelConfig(props, modelType, config);
         saveGlobalProperties(props);
-    }
-
-    @Override
-    public ModelConfig getQuickModelConfig() {
-        return getModelConfig(ModelType.QUICK);
-    }
-
-    @Override
-    public void setQuickModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.QUICK, config);
-    }
-
-    @Override
-    public ModelConfig getCodeModelConfig() {
-        return getModelConfig(ModelType.CODE);
-    }
-
-    @Override
-    public void setCodeModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.CODE, config);
-    }
-
-    @Override
-    public ModelConfig getArchitectModelConfig() {
-        return getModelConfig(ModelType.ARCHITECT);
-    }
-
-    @Override
-    public void setArchitectModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.ARCHITECT, config);
-    }
-
-    public ModelConfig getQuickEditModelConfig() {
-        return getModelConfig(ModelType.QUICK_EDIT);
-    }
-
-    public void setQuickEditModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.QUICK_EDIT, config);
-    }
-
-    public ModelConfig getQuickestModelConfig() {
-        return getModelConfig(ModelType.QUICKEST);
-    }
-
-    public void setQuickestModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.QUICKEST, config);
-    }
-
-    public ModelConfig getScanModelConfig() {
-        return getModelConfig(ModelType.SCAN);
-    }
-
-    public void setScanModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.SCAN, config);
     }
 
     @Override

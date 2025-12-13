@@ -32,7 +32,9 @@ import ai.brokk.gui.util.FileDropHandlerFactory;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.gui.wand.WandAction;
+import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.GlobalUiSettings;
@@ -447,8 +449,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         modelSelector = new ModelSelector(chrome);
-        modelSelector.selectConfig(chrome.getProject().getArchitectModelConfig());
-        modelSelector.addSelectionListener(cfg -> chrome.getProject().setArchitectModelConfig(cfg));
+        modelSelector.selectConfig(chrome.getProject().getModelConfig(ModelProperties.ModelType.ARCHITECT));
+        modelSelector.addSelectionListener(cfg -> {
+            IProject iProject = chrome.getProject();
+            iProject.setModelConfig(ModelProperties.ModelType.ARCHITECT, cfg);
+        });
         // Also recompute token/cost indicator when model changes
         modelSelector.addSelectionListener(cfg -> updateTokenCostIndicator());
         // Ensure model selector component is focusable
@@ -2326,7 +2331,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * default if none is available.
      */
     public StreamingChatModel getSelectedModel() {
-        return contextManager.getModelOrDefault(modelSelector.getModel(), "Selected");
+        Service.ModelConfig config = modelSelector.getModel();
+        var service = contextManager.getService();
+        StreamingChatModel model = service.getModel(config);
+        if (model != null) {
+            return model;
+        }
+
+        return contextManager.getService().getModel(ModelProperties.ModelType.ARCHITECT);
     }
 
     // TODO this is unnecessary if we can push config into StreamingChatModel
