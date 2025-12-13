@@ -65,10 +65,10 @@ public final class GitWorkflow {
     }
 
     /**
-     * Background helper that returns a suggestion or empty string. The caller decides on threading; no Swing here. Can
-     * throw RuntimeException if diffing fails or InterruptedException occurs.
+     * Background helper that returns a suggested commit message. The caller decides on threading; no Swing here.
+     * Returns empty Optional if diff is blank, unparseable, or LLM fails.
      */
-    public String suggestCommitMessage(List<ProjectFile> files, String taskDescription) throws InterruptedException {
+    public Optional<String> suggestCommitMessage(List<ProjectFile> files) throws InterruptedException {
         logger.debug("Suggesting commit message for {} files", files.size());
 
         String diff;
@@ -76,19 +76,24 @@ public final class GitWorkflow {
             diff = files.isEmpty() ? repo.diff() : repo.diffFiles(files);
         } catch (GitAPIException e) {
             logger.error("Git diff operation failed while suggesting commit message", e);
-            throw new RuntimeException("Failed to generate diff for commit message suggestion", e);
+            return Optional.empty();
         }
 
         if (diff.isBlank()) {
-            throw new IllegalStateException("No modifications present in %s".formatted(files));
+            logger.debug("No modifications present in {}", files);
+            return Optional.empty();
         }
 
         var messages = CommitPrompts.instance.collectMessages(cm.getProject(), diff);
-        Llm.StreamingResult result;
-        result = cm.getLlm(cm.getService().quickestModel(), "Infer commit message")
+        var result = cm.getLlm(cm.getService().quickestModel(), "Infer commit message")
                 .sendRequest(messages);
 
-        return result.error() == null ? result.text() : taskDescription;
+        if (result.error() != null) {
+            logger.debug(
+                    "LLM failed to generate commit message: {}", result.error().getMessage());
+            return Optional.empty();
+        }
+        return Optional.of(result.text());
     }
 
     public PushPullState evaluatePushPull(String branch) throws GitAPIException {
@@ -285,7 +290,7 @@ public final class GitWorkflow {
 
         var filesToCommit = modified.stream().map(GitRepo.ModifiedFile::file).collect(Collectors.toList());
 
-        String message = suggestCommitMessage(filesToCommit, taskDescription);
+        var message = suggestCommitMessage(filesToCommit).orElse(taskDescription);
 
         var commitResult = commit(filesToCommit, message);
 

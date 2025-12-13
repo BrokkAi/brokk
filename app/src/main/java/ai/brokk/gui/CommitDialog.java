@@ -9,7 +9,6 @@ import ai.brokk.gui.util.KeyboardShortcutUtil;
 import java.awt.*;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -143,28 +142,22 @@ public class CommitDialog extends BaseThemedDialog {
     }
 
     private void initiateCommitMessageSuggestion() {
-        CompletableFuture<String> suggestionFuture = contextManager.submitBackgroundTask(
-                "Suggesting commit message",
-                () -> workflowService.suggestCommitMessage(filesToCommit, "Llm error inferring commit message"));
+        var suggestionFuture = contextManager.submitBackgroundTask(
+                "Suggesting commit message", () -> workflowService.suggestCommitMessage(filesToCommit));
 
-        suggestionFuture.whenComplete(
-                (@Nullable String suggestedMessage, @Nullable Throwable throwable) -> SwingUtilities.invokeLater(() -> {
-                    if (throwable == null) {
-                        if (suggestedMessage != null && !suggestedMessage.isEmpty()) {
-                            commitMessageArea.setText(suggestedMessage);
-                        } else {
-                            commitMessageArea.setText(""); // Clear placeholder if suggestion is empty
-                        }
-                        commitMessageArea.setEnabled(true);
-                        commitMessageArea.requestFocusInWindow(); // Focus for editing
-                    } else {
-                        logger.error("Error suggesting commit message for dialog:", throwable);
-                        commitMessageArea.setText(PLACEHOLDER_FAILURE);
-                        commitMessageArea.setEnabled(true);
-                        commitMessageArea.requestFocusInWindow(); // Focus for manual input
-                    }
-                    checkCommitButtonState(); // Update commit button based on new text/state
-                }));
+        suggestionFuture.whenComplete((suggestedMessage, throwable) -> SwingUtilities.invokeLater(() -> {
+            if (throwable != null) {
+                logger.error("Error suggesting commit message for dialog:", throwable);
+                commitMessageArea.setText(PLACEHOLDER_FAILURE);
+            } else if (suggestedMessage.isPresent()) {
+                commitMessageArea.setText(suggestedMessage.get());
+            } else {
+                commitMessageArea.setText(PLACEHOLDER_FAILURE);
+            }
+            commitMessageArea.setEnabled(true);
+            commitMessageArea.requestFocusInWindow();
+            checkCommitButtonState();
+        }));
     }
 
     private void performCommit() {
