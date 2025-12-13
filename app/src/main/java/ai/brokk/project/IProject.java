@@ -433,6 +433,27 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    /**
+     * Determines whether this project is empty (newly created with no user source files).
+     *
+     * <p>A project is considered empty if the git repository contains no tracked files, or only
+     * configuration files such as:
+     * <ul>
+     *   <li>.gitignore</li>
+     *   <li>.gitattributes</li>
+     *   <li>.editorconfig</li>
+     *   <li>Files under .brokk/</li>
+     * </ul>
+     *
+     * <p>This heuristic is used to skip build inference for new projects and prompt the user
+     * appropriately in planning modes.
+     *
+     * @return true if the project contains no source files (only config or is empty), false otherwise
+     */
+    default boolean isEmptyProject() {
+        return false;
+    }
+
     enum CodeAgentTestScope {
         ALL,
         WORKSPACE;

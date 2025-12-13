@@ -592,6 +592,29 @@ public class SearchAgent {
 
         var terminalObjective = buildTerminalObjective();
 
+        String emptyProjectGuidance = "";
+        if (cm.getProject().isEmptyProject()) {
+            emptyProjectGuidance =
+                    """
+                    <empty-project-notice>
+                    This is a new/empty project; there are no existing files to reference. Focus on creating an initial project structure. After you create files, configure build/test commands (the agent can call a tool to set build details).
+                    </empty-project-notice>
+                    """;
+        }
+
+        // Plan-first guidance: require the first task to configure build settings when details are empty
+        String buildSetupTaskGuidance = "";
+        var bd = cm.getProject().loadBuildDetails();
+        boolean buildDetailsEmpty = bd.equals(BuildAgent.BuildDetails.EMPTY);
+        boolean planningObjective = (objective == Objective.LUTZ || objective == Objective.TASKS_ONLY);
+        if (planningObjective && buildDetailsEmpty) {
+            buildSetupTaskGuidance =
+                    """
+                    Task list requirement:
+                      - Because the project has no build/test commands configured yet, the FIRST task must configure the build/test stack using setBuildDetails. Include the selected stack in the task (e.g., "Configure Gradle build for Java project", "Configure pytest for Python project"). This enables the verification loop for subsequent tasks. The Coder should explicitly not start with the implementation itself.
+                    """;
+        }
+
         String directive =
                 """
                         <%s>
@@ -611,6 +634,8 @@ public class SearchAgent {
 
                         %s
 
+                        %s
+
                         Finalization options:
                         %s
 
@@ -621,6 +646,8 @@ public class SearchAgent {
                         It is NOT your objective to write code.
 
                         %s
+
+                        %s
                         """
                         .formatted(
                                 terminalObjective.type,
@@ -628,8 +655,10 @@ public class SearchAgent {
                                 terminalObjective.type(),
                                 terminalObjective.text(),
                                 testsGuidance,
+                                buildSetupTaskGuidance,
                                 finalsStr,
-                                warning);
+                                warning,
+                                emptyProjectGuidance);
 
         // Beast mode directive
         if (beastMode) {

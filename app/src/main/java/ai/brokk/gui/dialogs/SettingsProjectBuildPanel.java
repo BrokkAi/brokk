@@ -9,6 +9,7 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
 import ai.brokk.util.ExecutorConfig;
 import ai.brokk.util.ExecutorValidator;
@@ -466,26 +467,18 @@ public class SettingsProjectBuildPanel extends JPanel {
             protected String doInBackground() throws InterruptedException {
                 var root = project.getRoot();
 
-                // Step 1: Build/Lint command
+                // Step 1: Build/Lint command (using BuildVerifier)
                 String buildCmd = buildCleanCommandField.getText().trim();
                 if (!buildCmd.isEmpty()) {
                     publish("--- Verifying Build/Lint Command ---\n");
                     publish("$ " + buildCmd + "\n");
-                    try {
-                        var execCfg = ExecutorConfig.fromProject(project);
-                        var envVars = computeEnvFromUi();
-                        Environment.instance.runShellCommand(
-                                buildCmd,
-                                root,
-                                line -> publish(line + "\n"),
-                                Environment.DEFAULT_TIMEOUT,
-                                execCfg,
-                                envVars);
+                    var envVars = computeEnvFromUi();
+                    var result = BuildVerifier.verify(project, buildCmd, envVars);
+                    publish(result.outputTail() + "\n");
+                    if (result.success()) {
                         publish("\nSUCCESS: Build/Lint command completed successfully.\n\n");
-                    } catch (Environment.SubprocessException e) {
-                        publish("\nERROR: Build/Lint command failed.\n");
-                        publish(e.getMessage() + "\n");
-                        publish(e.getOutput() + "\n");
+                    } else {
+                        publish("\nERROR: Build/Lint command failed with exit code " + result.exitCode() + ".\n\n");
                         return "Build/Lint command failed.";
                     }
                 } else {

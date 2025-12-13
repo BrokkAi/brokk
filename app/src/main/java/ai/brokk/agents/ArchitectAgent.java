@@ -314,6 +314,67 @@ public class ArchitectAgent {
     }
 
     /**
+     * A tool to configure build and test commands for the project, for new or empty projects.
+     */
+    @Tool(
+            "Configure build and test commands for the project. Use this to set up build details for new or empty projects.")
+    public String setBuildDetails(
+            @P(
+                            "Command to build or lint incrementally, e.g. mvn compile, cargo check, pyflakes. Leave blank if not applicable.")
+                    String buildLintCommand,
+            @P("Command to run all tests. Leave blank if not applicable.") String testAllCommand,
+            @P(
+                            "Command template to run specific tests using Mustache templating with {{classes}}, {{fqclasses}}, or {{files}} variable. Leave blank if not applicable.")
+                    String testSomeCommand,
+            @P(
+                            "List of directories to exclude from code intelligence, e.g., generated code, build artifacts. Can be empty.")
+                    java.util.List<String> excludedDirectories) {
+        var details = new BuildAgent.BuildDetails(
+                buildLintCommand,
+                testAllCommand,
+                testSomeCommand,
+                new java.util.HashSet<>(excludedDirectories),
+                java.util.Map.of());
+        cm.getProject().saveBuildDetails(details);
+        cm.getIo().showNotification(IConsoleIO.NotificationRole.INFO, "Build details configured and saved.");
+
+        // Immediately verify the build/lint command if configured
+        String verificationMessage = "";
+        if (!buildLintCommand.isBlank()) {
+            verificationMessage = "\n\n**Verification:** " + verifyBuildCommand();
+        }
+
+        return "Build details have been configured and saved successfully." + verificationMessage;
+    }
+
+    /**
+     * A tool to verify a build or lint command without making code changes.
+     * If the command is blank, defaults to the project's configured buildLintCommand.
+     * Returns success/failure status, exit code, and a bounded tail of output.
+     */
+    @Tool(
+            "Verify that the project's configured build/lint command works correctly. Returns success status, exit code, and output tail.")
+    public String verifyBuildCommand() {
+        var project = cm.getProject();
+        var buildDetails = project.loadBuildDetails();
+
+        if (buildDetails.buildLintCommand().isBlank()) {
+            return "Error: No build/lint command configured. Call setBuildDetails(...) first.";
+        }
+
+        var result = ai.brokk.util.BuildVerifier.verify(
+                project, buildDetails.buildLintCommand(), buildDetails.environmentVariables());
+
+        if (result.success()) {
+            return "Build command succeeded (exit code 0).";
+        } else {
+            var statusMsg = result.exitCode() == -1 ? "execution error" : "exit code " + result.exitCode();
+            var outputSummary = result.outputTail().isEmpty() ? "" : "\n\nOutput:\n" + result.outputTail();
+            return "Build command failed (" + statusMsg + ")." + outputSummary;
+        }
+    }
+
+    /**
      * A tool that invokes the SearchAgent to perform searches and analysis based on a query. The SearchAgent will
      * decide which specific search/analysis tools to use (e.g., searchSymbols, getFileContents). The results are added
      * as a context fragment.
@@ -486,6 +547,8 @@ public class ArchitectAgent {
 
                 // Agent tools
                 allowed.add("callCodeAgent");
+                allowed.add("verifyBuildCommand");
+                allowed.add("setBuildDetails");
 
                 if (this.offerUndoToolNext) {
                     allowed.add("undoLastChanges");
@@ -925,8 +988,39 @@ public class ArchitectAgent {
         // This agent's own conversational history for the current goal
         messages.addAll(architectMessages);
         // Final user message with the goal and specific instructions for this turn, including workspace warnings
-        messages.add(new UserMessage(
-                ArchitectPrompts.instance.getFinalInstructions(cm, goal, workspaceTokenSize, maxInputTokens)));
+        var finalInstructions =
+                ArchitectPrompts.instance.getFinalInstructions(cm, goal, workspaceTokenSize, maxInputTokens);
+
+        // Append empty project guidance if applicable
+        if (cm.getProject().isEmptyProject()) {
+            finalInstructions = finalInstructions
+                    + "\n\n<empty-project-notice>\n"
+                    + "This is a new/empty project; there are no existing files to reference. "
+                    + "Focus on creating an initial project structure. After you create files, "
+                    + "configure build/test commands (the agent can call a tool to set build details).\n"
+                    + "</empty-project-notice>";
+        }
+
+        // Nudge: when build/test commands are not configured yet, use setBuildDetails during the build-setup task
+        var bd = cm.getProject().loadBuildDetails();
+        if (bd.equals(BuildAgent.BuildDetails.EMPTY)) {
+            finalInstructions = finalInstructions
+                    + "\n\n<build-setup>\n"
+                    + "If the current task is to configure build/test for this project, call setBuildDetails(...) as soon as you have selected the stack "
+                    + "(e.g., Java with Gradle or Maven; Python with pytest; Node with Jest). Prefer repository-local wrapper scripts when present "
+                    + "(./gradlew, ./mvnw).\n"
+                    + "After you call setBuildDetails(...), verification runs automatically and you will see the result. "
+                    + "If verification fails due to missing dependencies, missing permissions, or non-executable wrappers"
+                    + (io instanceof Chrome
+                            ? ", you do not have direct shell access. Use askHuman(...) to request the user run the exact command and paste back the last ~100 lines of output. "
+                                    + "Typical commands include: npm install/yarn install, pip install -r requirements.txt/poetry install, cargo build, chmod +x ./gradlew, and system package installs via apt-get, brew, or choco. "
+                                    + "Once the human completes the command, call verifyBuildCommand again to re-verify the configuration.\n"
+                            : ", you cannot proceed further; report the failure.\n")
+                    + "If scaffolding files do not exist yet (no build file or package manifest), first create them with callCodeAgent(..., deferBuild=true); once scaffolding is present, call setBuildDetails(...) to configure build/test commands.\n"
+                    + "</build-setup>";
+        }
+
+        messages.add(new UserMessage(finalInstructions));
         return messages;
     }
 }

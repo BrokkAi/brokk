@@ -25,6 +25,8 @@ public class TestProject implements IProject {
     private BuildAgent.BuildDetails buildDetails = BuildAgent.BuildDetails.EMPTY;
     private IProject.CodeAgentTestScope codeAgentTestScope = IProject.CodeAgentTestScope.WORKSPACE;
     private String styleGuide = "";
+    private boolean isEmpty = false;
+    private long runCommandTimeoutSeconds = 30;
 
     public TestProject(Path root) {
         this(root, Languages.NONE);
@@ -39,6 +41,10 @@ public class TestProject implements IProject {
 
     public void setBuildDetails(BuildAgent.BuildDetails buildDetails) {
         this.buildDetails = buildDetails;
+    }
+
+    public void setIsEmpty(boolean isEmpty) {
+        this.isEmpty = isEmpty;
     }
 
     @Override
@@ -77,6 +83,24 @@ public class TestProject implements IProject {
 
     @Override
     public void setMcpConfig(McpConfig config) {}
+
+    @Override
+    public boolean isEmptyProject() {
+        return isEmpty;
+    }
+
+    @Override
+    public void saveBuildDetails(BuildAgent.BuildDetails details) {
+        this.buildDetails = details;
+    }
+
+    public long getRunCommandTimeoutSeconds() {
+        return runCommandTimeoutSeconds;
+    }
+
+    public void setRunCommandTimeoutSeconds(long seconds) {
+        this.runCommandTimeoutSeconds = seconds;
+    }
 
     /** Creates a TestProject rooted under src/test/resources/{subDir}. */
     public static TestProject createTestProject(String subDir, Language lang) {
