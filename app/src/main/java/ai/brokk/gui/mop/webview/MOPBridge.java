@@ -711,7 +711,7 @@ public final class MOPBridge {
                             .filter(s -> !s.isEmpty())
                             .distinct()
                             .toList();
-                } else if (langs != null) {
+                } else {
                     var s = String.valueOf(langs).trim();
                     if (!s.isEmpty()) {
                         languageNames.add(s);
@@ -726,11 +726,11 @@ public final class MOPBridge {
                     try {
                         // Convert language name to Language object
                         var language = ai.brokk.analyzer.Languages.valueOf(langName);
-                        
+
                         // Get analyzable files for this language
                         var analyzableFiles = project.getAnalyzableFiles(language);
                         int fileCount = analyzableFiles.size();
-                        
+
                         // Count files from dependencies matching this language
                         int depCount = 0;
                         for (var dep : liveDeps) {
@@ -738,7 +738,7 @@ public final class MOPBridge {
                                 depCount += dep.files().size();
                             }
                         }
-                        
+
                         var langInfo = new LinkedHashMap<String, Object>();
                         langInfo.put("name", language.name());
                         langInfo.put("fileCount", fileCount);
