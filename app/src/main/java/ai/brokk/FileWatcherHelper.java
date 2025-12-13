@@ -16,16 +16,20 @@ import org.jetbrains.annotations.Nullable;
  */
 public class FileWatcherHelper {
 
-    private final Path projectRoot;
     private final @Nullable Path gitRepoRoot;
 
-    public FileWatcherHelper(Path projectRoot, @Nullable Path gitRepoRoot) {
-        this.projectRoot = projectRoot;
+    public FileWatcherHelper(@Nullable Path gitRepoRoot) {
         this.gitRepoRoot = gitRepoRoot;
     }
 
+    private static final Path GIT_DIR_PREFIX = Path.of(".git");
+
     /**
      * Checks if the event batch contains changes to git metadata (.git directory).
+     * <p>
+     * For both regular repos and worktrees, git metadata files have relative paths
+     * that start with ".git". In worktrees, the ProjectFile will have gitRepoRoot
+     * as its base (not projectRoot), but the relative path still starts with ".git".
      *
      * @param batch The event batch to check
      * @return true if git metadata was modified
@@ -34,8 +38,10 @@ public class FileWatcherHelper {
         if (gitRepoRoot == null) {
             return false;
         }
-        Path relativeGitMetaDir = projectRoot.relativize(gitRepoRoot.resolve(".git"));
-        return batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir));
+        // Check if any file's relative path starts with .git directory
+        // This works for both regular repos and worktrees since git events always
+        // have .git-prefixed relative paths (though the base may differ)
+        return batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(GIT_DIR_PREFIX));
     }
 
     /**

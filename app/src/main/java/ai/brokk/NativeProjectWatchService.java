@@ -79,7 +79,7 @@ public class NativeProjectWatchService implements IWatchService {
         this.gitRepoRoot = gitRepoRoot;
         this.globalGitignorePath = globalGitignorePath;
         this.listeners = new CopyOnWriteArrayList<>(listeners);
-        this.gitMetaDir = (gitRepoRoot != null) ? gitRepoRoot.resolve(".git") : null;
+        this.gitMetaDir = IWatchService.resolveGitMetaDir(gitRepoRoot);
 
         // Initialize debounce executor
         this.debounceExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -121,7 +121,9 @@ public class NativeProjectWatchService implements IWatchService {
             // Build the watcher with exclusions
             var builder = DirectoryWatcher.builder().listener(this::handleEvent).fileHashing(true);
 
-            // Also watch git metadata if present
+            // Also watch git metadata if present (may be external for worktrees).
+            // Note: If external directory is on different filesystem or becomes inaccessible,
+            // events may stop - this is an inherent limitation of file watching.
             if (gitMetaDir != null && Files.isDirectory(gitMetaDir)) {
                 logger.debug("Watching git metadata directory for changes: {}", gitMetaDir);
                 paths.add(gitMetaDir);
@@ -225,15 +227,27 @@ public class NativeProjectWatchService implements IWatchService {
                 accumulatedBatch.untrackedGitignoreChanged = true;
             }
 
-            // Convert to ProjectFile - handle paths outside root (e.g., global gitignore)
-            try {
-                Path relativePath = root.relativize(changedPath);
-                accumulatedBatch.files.add(new ProjectFile(root, relativePath));
-            } catch (IllegalArgumentException e) {
-                // Path is outside root, skip it for now
-                logger.trace("Skipping event for path outside root: {}", changedPath);
-                return;
+            // Convert to ProjectFile - handle paths outside root (e.g., git metadata in worktrees)
+            Path relativePath;
+            Path baseForFile;
+            if (gitMetaDir != null && gitRepoRoot != null && changedPath.startsWith(gitMetaDir)) {
+                // Git metadata event from external location (e.g., worktree pointing to main repo's .git).
+                // INVARIANT: FileWatcherHelper.isGitMetadataChanged() requires relative paths to start
+                // with ".git/" prefix, so we reconstruct the path as .git/<relative-to-gitMetaDir>
+                relativePath = Path.of(".git").resolve(gitMetaDir.relativize(changedPath));
+                baseForFile = gitRepoRoot;
+                logger.trace("Git metadata event (external): {} -> relative: {}", changedPath, relativePath);
+            } else {
+                try {
+                    relativePath = root.relativize(changedPath);
+                    baseForFile = root;
+                } catch (IllegalArgumentException e) {
+                    // Path is outside both root and gitMetaDir, skip it
+                    logger.trace("Skipping event for path outside root and git: {}", changedPath);
+                    return;
+                }
             }
+            accumulatedBatch.files.add(new ProjectFile(baseForFile, relativePath));
 
             // Conditionally schedule flush only if not paused
             if (pauseCount == 0) {
