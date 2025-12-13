@@ -961,7 +961,7 @@ public final class MainProject extends AbstractProject {
         try {
             return StartupOpenMode.valueOf(val);
         } catch (IllegalArgumentException e) {
-            return StartupOpenMode.LAST;
+            return StartupOpenMode.ALL;
         }
     }
 
