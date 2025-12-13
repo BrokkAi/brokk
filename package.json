@@ -7,12 +7,13 @@
     "homepage": "https://brokk.ai",
     "repository": "https://github.com/BrokkAi/brokk",
     "version": "1.0.0",
+    "jdeployPrelaunchVersion": "v0.0.2",
     "jdeploy": {
         "jdk": false,
         "jdkProvider": "jbr",
         "minLauncherInitialAppVersion": "0.17.3",
         "files": [{
-            "dir": "jdeploy-bundle-includes",
+            "dir": "app/build/libs",
             "includes": "jdeploy-prelaunch.jar"
         }],
         "args": ["-Dwatch.service.polling=true"],

@@ -38,6 +38,14 @@ jobs:
       - name: Build shadow JAR
         run: ./gradlew shadowJar
 
+      - name: Download jdeploy-prelaunch.jar
+        run: |
+          PRELAUNCH_VERSION=$(jq -r '.jdeployPrelaunchVersion' package.json)
+          mkdir -p app/build/libs
+          curl -L "https://github.com/shannah/brokk-jdeploy-prelaunch/releases/download/${PRELAUNCH_VERSION}/jdeploy-prelaunch.jar" \
+            -o app/build/libs/jdeploy-prelaunch.jar
+          echo "Downloaded jdeploy-prelaunch.jar version ${PRELAUNCH_VERSION}"
+
       - name: Get JAR filename
         id: jar
         run: |
