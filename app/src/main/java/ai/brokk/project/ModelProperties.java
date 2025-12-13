@@ -29,11 +29,10 @@ public final class ModelProperties {
 
     // Default favorite models (moved from MainProject)
     static final List<Service.FavoriteModel> DEFAULT_FAVORITE_MODELS = List.of(
-            new Service.FavoriteModel("GPT-5", new ModelConfig(Service.GPT_5)),
+            new Service.FavoriteModel("Opus 4.5", new ModelConfig(Service.OPUS_4_5, Service.ReasoningLevel.DISABLE)),
+            new Service.FavoriteModel("GPT-5.2", new ModelConfig(Service.GPT_5_2)),
             new Service.FavoriteModel("GPT-5 mini", new ModelConfig(Service.GPT_5_MINI)),
-            new Service.FavoriteModel("Gemini Pro 2.5", new ModelConfig(Service.GEMINI_2_5_PRO)),
-            new Service.FavoriteModel("Sonnet 4.5", new ModelConfig(Service.SONNET_4_5, Service.ReasoningLevel.MEDIUM)),
-            new Service.FavoriteModel("Haiku 4.5", new ModelConfig(Service.HAIKU_4_5, Service.ReasoningLevel.DEFAULT)));
+            new Service.FavoriteModel("Haiku 4.5", new ModelConfig(Service.HAIKU_4_5)));
 
     /**
      * Reads a ModelConfig for the given modelType from props, with fallback to preferred defaults.
@@ -127,17 +126,17 @@ public final class ModelProperties {
     public enum ModelType {
         QUICK("quickConfig", new ModelConfig(Service.GEMINI_2_0_FLASH)),
         CODE("codeConfig", new ModelConfig(Service.HAIKU_4_5)),
-        ARCHITECT("architectConfig", new ModelConfig(Service.GPT_5)),
+        ARCHITECT("architectConfig", new ModelConfig(Service.OPUS_4_5, Service.ReasoningLevel.DISABLE)),
         QUICK_EDIT("quickEditConfig", new ModelConfig(Service.GEMINI_2_5_FLASH)),
         QUICKEST("quickestConfig", new ModelConfig(Service.GEMINI_2_0_FLASH_LITE)),
         SCAN("scanConfig", new ModelConfig(Service.GPT_5_MINI));
 
         private final String propertyKey;
-        private final ModelConfig preferredConfig;
+        private final ModelConfig defaultConfig;
 
-        ModelType(String propertyKey, ModelConfig preferredConfig) {
+        ModelType(String propertyKey, ModelConfig defaultConfig) {
             this.propertyKey = propertyKey;
-            this.preferredConfig = preferredConfig;
+            this.defaultConfig = defaultConfig;
         }
 
         /**
@@ -151,7 +150,7 @@ public final class ModelProperties {
          * The preferred default ModelConfig for this model type.
          */
         public ModelConfig preferredConfig() {
-            return preferredConfig;
+            return defaultConfig;
         }
 
         /**

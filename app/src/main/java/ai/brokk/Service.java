@@ -3,6 +3,7 @@ package ai.brokk;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -76,8 +77,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         var quickCfg = project.getMainProject().getQuickModelConfig();
         var qm = getModel(quickCfg);
         if (qm == null) {
-            // Fallback to previous behavior if resolution fails
-            qm = getModel(new ModelConfig(GEMINI_2_0_FLASH, ReasoningLevel.DEFAULT));
+            qm = getModel(ModelProperties.ModelType.QUICK.preferredConfig());
         }
         quickModel = (qm == null) ? new UnavailableStreamingModel() : qm;
 
@@ -100,7 +100,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             var qeCfg = project.getMainProject().getQuickEditModelConfig();
             var qe = getModel(qeCfg);
             if (qe == null) {
-                qe = getModel(new ModelConfig(GEMINI_2_5_FLASH, ReasoningLevel.DEFAULT));
+                qe = getModel(ModelProperties.ModelType.QUICK_EDIT.preferredConfig());
             }
             quickEditModel = (qe == null) ? quickModel : qe;
         }
