@@ -97,9 +97,6 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
 
     // Creation context is inherited from AbstractDiffPanel
 
-    /** Dirty flag that tracks whether there are any unsaved changes. */
-    private boolean dirtySinceOpen = false;
-
     /** Tracks applied diff operations that haven't been saved yet. Maps filename to count of operations applied. */
     private final Map<String, Integer> pendingDiffChanges = new ConcurrentHashMap<>();
 
@@ -118,32 +115,24 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
             });
 
     /**
-     * Recalculate dirty status by checking if any FilePanel has unsaved changes. When the state changes, update tab
-     * title and toolbar buttons.
+     * Compute whether this panel has unsaved changes by checking if any FilePanel has unsaved changes.
      */
     @Override
-    public void recalcDirty() {
-        // Check if either side has unsaved changes (document changed since last save)
-        boolean newDirty = filePanels.values().stream().anyMatch(FilePanel::isDocumentChanged);
+    protected boolean computeUnsavedChanges() {
+        return filePanels.values().stream().anyMatch(FilePanel::isDocumentChanged);
+    }
 
-        if (dirtySinceOpen != newDirty) {
-            boolean wasJustCleaned = dirtySinceOpen && !newDirty;
-            dirtySinceOpen = newDirty;
+    /**
+     * Hook called when dirty state changes. Clears blame stale flag when transitioning to clean state.
+     */
+    @Override
+    protected void onDirtyStateChanged(boolean isDirty) {
+        super.onDirtyStateChanged(isDirty);
 
-            // If we just transitioned from dirty to clean (undo back to baseline), clear tracking
-            if (wasJustCleaned) {
-                pendingDiffChanges.clear();
-            }
-
-            SwingUtilities.invokeLater(() -> {
-                mainPanel.refreshTabTitle(BufferDiffPanel.this);
-                mainPanel.updateUndoRedoButtons();
-
-                // If we just transitioned from dirty to clean (undo back to baseline), clear stale blame flag
-                if (wasJustCleaned) {
-                    clearBlameStaleFlag();
-                }
-            });
+        if (!isDirty) {
+            // Just transitioned from dirty to clean (undo back to baseline)
+            pendingDiffChanges.clear();
+            clearBlameStaleFlag();
         }
     }
 
@@ -369,7 +358,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
     public String getTitle() {
         if (diffNode != null && !diffNode.getName().isBlank()) {
             var name = diffNode.getName();
-            return isDirty() ? name + " *" : name;
+            return dirty ? name + " *" : name;
         }
 
         // Fallback if diffNode or its name is not available
@@ -391,12 +380,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         } else {
             base = String.join(" vs ", titles);
         }
-        return isDirty() ? base + " *" : base;
-    }
-
-    /** Returns true if there are any unsaved changes on either side. */
-    public boolean isDirty() {
-        return dirtySinceOpen;
+        return dirty ? base + " *" : base;
     }
 
     /** Do not try incremental updates. We just re-diff the whole thing. */
@@ -1001,15 +985,9 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
             document.addUndoableEditListener(editCapture);
             listenerAdded = true;
             operation.run();
-        } catch (Exception ex) {
-            throw new RuntimeException("Error applying delta operation", ex);
         } finally {
             if (listenerAdded && editor.getDocument() == document) {
-                try {
-                    document.removeUndoableEditListener(editCapture);
-                } catch (Exception e) {
-                    logger.warn("Failed to remove UndoableEditListener, potential resource leak", e);
-                }
+                document.removeUndoableEditListener(editCapture);
             }
         }
     }
@@ -1190,7 +1168,6 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
     @Override
     public void doUndo() {
         super.doUndo();
-        mainPanel.updateUndoRedoButtons();
         // ChunkApplicationEdit handles its own patch state restoration and diff() calls
         diff(true); // Scroll to selection since this is user-initiated
         // Defer recheck until after all document change events from undo have been processed
@@ -1203,7 +1180,6 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
     @Override
     public void doRedo() {
         super.doRedo();
-        mainPanel.updateUndoRedoButtons();
         // ChunkApplicationEdit handles its own patch state restoration and diff() calls
         diff(true); // Scroll to selection since this is user-initiated
         // Defer recheck until after all document change events from redo have been processed
@@ -1244,13 +1220,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
     @Override
     public void checkActions() {
         // Update undo/redo button states when edits happen
-        SwingUtilities.invokeLater(() -> {
-            // Re-evaluate dirty state after the document change
-            recalcDirty();
-
-            mainPanel.updateUndoRedoButtons();
-            mainPanel.refreshTabTitle(BufferDiffPanel.this);
-        });
+        SwingUtilities.invokeLater(this::recalcDirty);
     }
     /** ThemeAware implementation - update highlight colours and syntax themes when the global GUI theme changes. */
     @Override
@@ -1437,22 +1407,6 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         selectedDelta = null;
     }
 
-    @Override
-    public boolean hasUnsavedChanges() {
-        // Consider programmatic diff changes as unsaved too
-        if (!pendingDiffChanges.isEmpty()) {
-            return true;
-        }
-
-        // Check if any file panel has unsaved changes (manual edits)
-        for (var fp : filePanels.values()) {
-            if (fp.isDocumentChanged()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /**
      * Returns {@code true} if at least one side is editable (not read-only). Used by the main toolbar to decide whether
      * undo/redo buttons should be shown.
@@ -1533,14 +1487,15 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         for (var fp : filePanels.values()) {
             var doc = fp.getBufferDocument();
             if (doc != null) {
+                var document = doc.getDocument();
+                String currentContent = null;
                 try {
-                    var document = doc.getDocument();
-                    var currentContent = document.getText(0, document.getLength());
-                    var projectFile = createProjectFile(doc);
-                    fileDataMap.put(doc.getName(), new FileData(currentContent, projectFile));
-                } catch (Exception e) {
-                    logger.warn("Failed to capture current content for file: {}", doc.getName(), e);
+                    currentContent = document.getText(0, document.getLength());
+                } catch (BadLocationException e) {
+                    throw new RuntimeException(e);
                 }
+                var projectFile = createProjectFile(doc);
+                fileDataMap.put(doc.getName(), new FileData(currentContent, projectFile));
             }
         }
         return fileDataMap;
@@ -1553,17 +1508,13 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         var contextManager = mainPanel.getContextManager();
         var projectRoot = contextManager.getProject().getRoot();
 
-        try {
-            // doc.getName() should now contain the full absolute path
-            var fullPath = Paths.get(doc.getName());
+        // doc.getName() should now contain the full absolute path
+        var fullPath = Paths.get(doc.getName());
 
-            if (fullPath.toFile().exists()) {
-                return createProjectFileFromFullPath(projectRoot, fullPath, doc.getName());
-            } else {
-                logger.warn("File does not exist at path: {}", fullPath);
-            }
-        } catch (Exception e) {
-            logger.warn("Failed to create ProjectFile for {}: {}", doc.getName(), e.getMessage());
+        if (fullPath.toFile().exists()) {
+            return createProjectFileFromFullPath(projectRoot, fullPath);
+        } else {
+            logger.warn("File does not exist at path: {}", fullPath);
         }
         return null;
     }
@@ -1602,15 +1553,11 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         var contextManager = mainPanel.getContextManager();
         var projectRoot = contextManager.getProject().getRoot();
 
-        try {
-            var fullPath = Paths.get(filename);
-            if (fullPath.toFile().exists()) {
-                return createProjectFileFromFullPath(projectRoot, fullPath, filename);
-            } else {
-                logger.warn("File does not exist at path: {}", fullPath);
-            }
-        } catch (Exception e) {
-            logger.warn("Failed to create ProjectFile for {}: {}", filename, e.getMessage());
+        var fullPath = Paths.get(filename);
+        if (fullPath.toFile().exists()) {
+            return createProjectFileFromFullPath(projectRoot, fullPath);
+        } else {
+            logger.warn("File does not exist at path: {}", fullPath);
         }
         return null;
     }
@@ -1621,45 +1568,36 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
      * (e.g., C:\ vs D:\) and provides fallback behavior for files outside the project root.
      */
     @Nullable
-    private ProjectFile createProjectFileFromFullPath(Path projectRoot, Path fullPath, String displayName) {
-        try {
-            // First check if the path is absolute and starts with the project root
-            if (fullPath.isAbsolute() && fullPath.startsWith(projectRoot)) {
-                // Path is within project - safe to relativize
+    private ProjectFile createProjectFileFromFullPath(Path projectRoot, Path fullPath) {
+        // First check if the path is absolute and starts with the project root
+        if (fullPath.isAbsolute() && fullPath.startsWith(projectRoot)) {
+            // Path is within project - safe to relativize
+            var relativePath = projectRoot.relativize(fullPath);
+            return new ProjectFile(projectRoot, relativePath);
+        }
+
+        // For absolute paths not starting with project root, try relativize with exception handling
+        if (fullPath.isAbsolute()) {
+            try {
                 var relativePath = projectRoot.relativize(fullPath);
+                // If we get here, relativize succeeded (path outside project with .. segments)
                 return new ProjectFile(projectRoot, relativePath);
+            } catch (IllegalArgumentException e) {
+                // This happens on Windows with cross-drive paths (C:\ vs D:\)
+                logger.warn(
+                        "Cannot relativize path {} from project root {} - cross-drive or incompatible paths: {}",
+                        fullPath,
+                        projectRoot,
+                        e.getMessage());
+                return null; // Caller will handle null and use logSimpleMessage fallback
             }
+        }
 
-            // For absolute paths not starting with project root, try relativize with exception handling
-            if (fullPath.isAbsolute()) {
-                try {
-                    var relativePath = projectRoot.relativize(fullPath);
-                    // If we get here, relativize succeeded (path outside project with .. segments)
-                    return new ProjectFile(projectRoot, relativePath);
-                } catch (IllegalArgumentException e) {
-                    // This happens on Windows with cross-drive paths (C:\ vs D:\)
-                    logger.warn(
-                            "Cannot relativize path {} from project root {} - cross-drive or incompatible paths: {}",
-                            fullPath,
-                            projectRoot,
-                            e.getMessage());
-                    return null; // Caller will handle null and use logSimpleMessage fallback
-                }
-            }
-
-            // For relative paths, resolve against project root
-            var resolvedPath = projectRoot.resolve(fullPath);
-            if (resolvedPath.toFile().exists()) {
-                var relativePath = projectRoot.relativize(resolvedPath);
-                return new ProjectFile(projectRoot, relativePath);
-            }
-
-        } catch (Exception e) {
-            logger.warn(
-                    "Unexpected error creating ProjectFile for {} (project root: {}): {}",
-                    displayName,
-                    projectRoot,
-                    e.getMessage());
+        // For relative paths, resolve against project root
+        var resolvedPath = projectRoot.resolve(fullPath);
+        if (resolvedPath.toFile().exists()) {
+            var relativePath = projectRoot.relativize(resolvedPath);
+            return new ProjectFile(projectRoot, relativePath);
         }
 
         return null;
@@ -1802,6 +1740,9 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
             // Clear any tracked diff changes for files that were actually saved
             pendingDiffChanges.remove(filename);
         }
+
+        // Trigger dirty recalculation to update UI
+        recalcDirty();
     }
 
     /** Mark creation context for debugging purposes. */
@@ -1816,5 +1757,71 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
     @Override
     public String getCreationContext() {
         return creationContext;
+    }
+
+    @Override
+    public void applyBlame(
+            Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> leftMap,
+            Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> rightMap) {
+        var right = getFilePanel(PanelSide.RIGHT);
+        if (right != null) {
+            right.getGutterComponent().setBlameLines(rightMap);
+            right.getGutterComponent().setShowBlame(isShowGutterBlame());
+            if (hasUnsavedChanges()) {
+                right.getGutterComponent().markBlameStale();
+            }
+        }
+        var left = getFilePanel(PanelSide.LEFT);
+        if (left != null) {
+            left.getGutterComponent().setLeftBlameLines(leftMap);
+        }
+    }
+
+    @Override
+    public void clearBlame() {
+        var left = getFilePanel(PanelSide.LEFT);
+        var right = getFilePanel(PanelSide.RIGHT);
+        if (left != null) {
+            left.getGutterComponent().clearBlame();
+        }
+        if (right != null) {
+            right.getGutterComponent().clearBlame();
+        }
+    }
+
+    @Override
+    @Nullable
+    public java.nio.file.Path getTargetPathForBlame() {
+        var right = getFilePanel(PanelSide.RIGHT);
+        if (right != null) {
+            var bd = right.getBufferDocument();
+            if (bd != null) {
+                String name = bd.getName();
+                if (!name.isBlank()) {
+                    var targetPath = java.nio.file.Paths.get(name);
+                    if (!targetPath.isAbsolute()) {
+                        return targetPath.toAbsolutePath().normalize();
+                    }
+                    return targetPath.normalize();
+                }
+            }
+        }
+        return null;
+    }
+
+    @Override
+    public void applyEditorFontSize(float size) {
+        var leftPanel = getFilePanel(PanelSide.LEFT);
+        var rightPanel = getFilePanel(PanelSide.RIGHT);
+
+        if (leftPanel != null) {
+            applyDerivedFont(leftPanel.getEditor(), size);
+            applyDerivedFontToGutter(leftPanel.getGutterComponent(), size);
+        }
+
+        if (rightPanel != null) {
+            applyDerivedFont(rightPanel.getEditor(), size);
+            applyDerivedFontToGutter(rightPanel.getGutterComponent(), size);
+        }
     }
 }

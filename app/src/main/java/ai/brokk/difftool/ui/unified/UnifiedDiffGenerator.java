@@ -5,8 +5,6 @@ import ai.brokk.difftool.ui.BufferSource;
 import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
 import com.github.difflib.patch.Patch;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -90,8 +88,8 @@ public class UnifiedDiffGenerator {
             BufferSource leftSource, BufferSource rightSource, UnifiedDiffDocument.ContextMode contextMode) {
 
         try {
-            var leftContent = getContentFromSource(leftSource);
-            var rightContent = getContentFromSource(rightSource);
+            var leftContent = leftSource.content();
+            var rightContent = rightSource.content();
 
             var leftLines = splitIntoLines(leftContent);
             var rightLines = splitIntoLines(rightContent);
@@ -527,21 +525,6 @@ public class UnifiedDiffGenerator {
         }
     }
 
-    /** Get content string from BufferSource, handling both FileSource and StringSource. */
-    private static String getContentFromSource(BufferSource source) throws Exception {
-        if (source instanceof BufferSource.StringSource stringSource) {
-            return stringSource.content();
-        } else if (source instanceof BufferSource.FileSource fileSource) {
-            var file = fileSource.file();
-            if (!file.exists() || !file.isFile()) {
-                return "";
-            }
-            return Files.readString(file.toPath(), StandardCharsets.UTF_8);
-        } else {
-            throw new IllegalArgumentException("Unsupported BufferSource type: " + source.getClass());
-        }
-    }
-
     /** Split content into lines, handling different line endings. */
     private static List<String> splitIntoLines(String content) {
         if (content.isEmpty()) {
@@ -745,18 +728,5 @@ public class UnifiedDiffGenerator {
         }
 
         return textBuilder.toString();
-    }
-
-    /** Create a simple unified diff for testing purposes. */
-    public static UnifiedDiffDocument createTestDiff() {
-        var diffLines = List.of(
-                new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.HEADER, "@@ -1,4 +1,4 @@", -1, -1, false),
-                new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.CONTEXT, " Line 1", 1, 1, true),
-                new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.DELETION, "-Old Line 2", 2, -1, false),
-                new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.ADDITION, "+New Line 2", -1, 2, true),
-                new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.CONTEXT, " Line 3", 3, 3, true),
-                new UnifiedDiffDocument.DiffLine(UnifiedDiffDocument.LineType.CONTEXT, " Line 4", 4, 4, true));
-
-        return new UnifiedDiffDocument(diffLines, UnifiedDiffDocument.ContextMode.STANDARD_3_LINES);
     }
 }

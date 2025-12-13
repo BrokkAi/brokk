@@ -3,6 +3,7 @@ package ai.brokk.context;
 import ai.brokk.ExceptionReporter;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.util.ContentDiffUtils;
 import java.time.Duration;
@@ -339,5 +340,84 @@ public final class DiffService {
         return diffs.stream()
                 .flatMap(de -> de.fragment().files().join().stream())
                 .collect(Collectors.toSet());
+    }
+
+    /**
+     * Summarizes cumulative changes between two Git references for a given set of files.
+     * Handles git IO errors gracefully by skipping problematic files rather than failing the entire operation.
+     *
+     * @param repo the Git repository
+     * @param leftRef the baseline commit/branch reference (left/old side)
+     * @param rightRef the target commit/branch reference (right/new side)
+     * @param files the set of modified files to diff
+     * @return CumulativeChanges with per-file diffs and aggregated statistics
+     */
+    @Blocking
+    public static CumulativeChanges summarizeDiff(
+            IGitRepo repo, String leftRef, String rightRef, Set<IGitRepo.ModifiedFile> files) {
+        if (!(repo instanceof ai.brokk.git.GitRepo gitRepo)) {
+            return new CumulativeChanges(0, 0, 0, List.of());
+        }
+
+        if (files.isEmpty()) {
+            return new CumulativeChanges(0, 0, 0, List.of());
+        }
+
+        List<Context.DiffEntry> perFileChanges = new ArrayList<>();
+        int totalAdded = 0;
+        int totalDeleted = 0;
+
+        for (var modFile : files) {
+            var file = modFile.file();
+
+            // Compute left content based on left reference
+            String leftContent = "";
+            if (!leftRef.isBlank()) {
+                var leftFrag = ContextFragment.GitFileFragment.fromCommit(file, leftRef, gitRepo);
+                leftContent = leftFrag.text().join();
+            }
+
+            // Compute right content based on right reference
+            String rightContent = "";
+            if (!rightRef.isBlank()) {
+                var rightFrag = ContextFragment.GitFileFragment.fromCommit(file, rightRef, gitRepo);
+                rightContent = rightFrag.text().join();
+            }
+
+            // Compute line counts
+            var diffRes = ContentDiffUtils.computeDiffResult(leftContent, rightContent, "old", "new");
+            int added = diffRes.added();
+            int deleted = diffRes.deleted();
+
+            // Skip if no changes
+            if (added == 0 && deleted == 0) {
+                continue;
+            }
+
+            totalAdded += added;
+            totalDeleted += deleted;
+
+            // Build DiffEntry using the right-side fragment as representative
+            var rightFrag = ContextFragment.GitFileFragment.fromCommit(file, rightRef, gitRepo);
+            var de = new Context.DiffEntry(rightFrag, "", added, deleted, leftContent, rightContent);
+            perFileChanges.add(de);
+        }
+
+        return new CumulativeChanges(perFileChanges.size(), totalAdded, totalDeleted, perFileChanges);
+    }
+
+    /** Cumulative changes summary across multiple files. */
+    public record CumulativeChanges(
+            int filesChanged,
+            int totalAdded,
+            int totalDeleted,
+            List<Context.DiffEntry> perFileChanges,
+            @Nullable GitWorkflow.PushPullState pushPullState) {
+
+        /** Convenience constructor without pushPullState. */
+        public CumulativeChanges(
+                int filesChanged, int totalAdded, int totalDeleted, List<Context.DiffEntry> perFileChanges) {
+            this(filesChanged, totalAdded, totalDeleted, perFileChanges, null);
+        }
     }
 }

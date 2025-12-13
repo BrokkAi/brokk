@@ -8,6 +8,7 @@ import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.utils.ColorUtil;
@@ -24,7 +25,6 @@ import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.gui.util.DiffPanelUtils;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.IProject;
@@ -94,9 +94,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private final MaterialButton undoButton;
     private final MaterialButton redoButton;
     private final MaterialButton compressButton;
-    // Replaced the JComboBox-based session UI with a label + list used in the dropdown.
-    @Nullable
-    private JList<SessionInfo> sessionsList;
 
     private final SplitButton sessionNameLabel;
     private final MaterialButton newSessionButton;
@@ -219,7 +216,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private final Set<UUID> sessionCountLoading = ConcurrentHashMap.newKeySet();
 
     @Nullable
-    private DiffPanelUtils.CumulativeChanges lastCumulativeChanges;
+    private DiffService.CumulativeChanges lastCumulativeChanges;
 
     @Nullable
     private String lastBaselineLabel;
@@ -541,23 +538,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             var sessions = contextManager.getProject().getSessionManager().listSessions();
             sessions.sort(Comparator.comparingLong(SessionInfo::modified).reversed());
 
-            // If the sessions list UI exists (i.e. the menu was opened), replace its model atomically.
-            if (sessionsList != null) {
-                var newModel = new DefaultListModel<SessionInfo>();
-                for (var s : sessions) newModel.addElement(s);
-                sessionsList.setModel(newModel);
-
-                // Select current session in the list
-                var currentSessionId = contextManager.getCurrentSessionId();
-                for (int i = 0; i < newModel.getSize(); i++) {
-                    if (newModel.getElementAt(i).id().equals(currentSessionId)) {
-                        sessionsList.setSelectedIndex(i);
-                        break;
-                    }
-                }
-                sessionsList.repaint();
-            }
-
             // Update compact label to show the active session name (with ellipsize and tooltip)
             var currentSessionId = contextManager.getCurrentSessionId();
             String labelText = "";
@@ -575,12 +555,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             sessionNameLabel.setText(fullName);
             sessionNameLabel.setToolTipText(fullName);
             sessionNameLabel.revalidate();
-            // Only repaint the scrollable sessionsList when visible; avoid repainting the old label/combo-box.
-            SwingUtilities.invokeLater(() -> {
-                if (sessionsList != null) {
-                    sessionsList.repaint();
-                }
-            });
         });
     }
 
@@ -1680,19 +1654,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        notificationsDialog = new JFrame("Notifications (" + notifications.size() + ")");
-        // Set window icon similar to OutputWindow
-        try {
-            var iconUrl = Chrome.class.getResource(Brokk.ICON_RESOURCE);
-            if (iconUrl != null) {
-                var icon = new ImageIcon(iconUrl);
-                notificationsDialog.setIconImage(icon.getImage());
-            }
-        } catch (Exception ex) {
-            logger.debug("Failed to set notifications window icon", ex);
-        }
+        var title = "Notifications (" + notifications.size() + ")";
+        notificationsDialog = Chrome.newFrame(title);
         notificationsDialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
         notificationsDialog.setLayout(new BorderLayout(8, 8));
+        Chrome.applyTitleBar(notificationsDialog, title);
         notificationsDialog.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosed(WindowEvent e) {
@@ -1928,7 +1894,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      * Sets the Changes tab title and tooltip based on the provided cumulative changes result,
      * using theme-appropriate + / - colors. Safe if the tab lineup changes while updating.
      */
-    private void setChangesTabTitleAndTooltip(DiffPanelUtils.CumulativeChanges res) {
+    private void setChangesTabTitleAndTooltip(DiffService.CumulativeChanges res) {
         var tabs = outputTabs;
         if (tabs == null) return;
 
@@ -1974,9 +1940,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 String htmlTitle = String.format(
                         "<html>Review (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)%s</html>",
                         res.filesChanged(),
-                        DiffPanelUtils.toHex(plusColor),
+                        ColorUtil.toHex(plusColor),
                         res.totalAdded(),
-                        DiffPanelUtils.toHex(minusColor),
+                        ColorUtil.toHex(minusColor),
                         res.totalDeleted(),
                         escapeHtml(baselineSuffix));
                 tabs.setTitleAt(idx, htmlTitle);
@@ -2574,6 +2540,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 logger.debug("Failed to set OutputWindow icon", e);
             }
 
+            // Apply macOS full-window-content and title bar styling
+            Chrome.applyMacOSFullWindowContent(this);
+            Chrome.applyTitleBar(this, determineWindowTitle(titleHint, isTaskInProgress));
+
             this.project = parentPanel.contextManager.getProject(); // Get project reference
             setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
 
@@ -2592,8 +2562,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 toolbarPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
                 toolbarPanel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 0));
 
-                MaterialButton captureButton = new MaterialButton("Capture");
-                captureButton.setToolTipText("Add the output to context");
+                MaterialButton captureButton = new MaterialButton();
+                SwingUtilities.invokeLater(() -> {
+                    captureButton.setIcon(Icons.CONTENT_CAPTURE);
+                });
+                captureButton.setToolTipText("Capture output to workspace");
                 captureButton.addActionListener(e -> {
                     parentPanel.presentCaptureChoice();
                 });
@@ -3003,6 +2976,16 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     /**
      * Releases owned resources. Must be called on the EDT.
      */
+    public void showTransientMessage(String message) {
+        // Apply preset layout before showing transient message
+        applyPresetIfNeeded();
+        llmStreamArea.showTransientMessage(message);
+    }
+
+    public void hideTransientMessage() {
+        llmStreamArea.hideTransientMessage();
+    }
+
     public void dispose() {
         assert SwingUtilities.isEventDispatchThread() : "dispose must be called on EDT";
         // Dispose aggregated changes panel if present
@@ -3057,15 +3040,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             for (var de : diffs) {
                 var task = contextManager.submitBackgroundTask("Compute diff window entry for:" + de, () -> {
                     String pathDisplay;
-                    try {
-                        var files = de.fragment().files().join();
-                        if (!files.isEmpty()) {
-                            var pf = files.iterator().next();
-                            pathDisplay = pf.getRelPath().toString();
-                        } else {
-                            pathDisplay = de.fragment().shortDescription().join();
-                        }
-                    } catch (Exception ex) {
+                    var files = de.fragment().files().join();
+                    if (!files.isEmpty()) {
+                        var pf = files.iterator().next();
+                        pathDisplay = pf.getRelPath().toString();
+                    } else {
                         pathDisplay = de.fragment().shortDescription().join();
                     }
 
@@ -3097,21 +3076,19 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
     }
 
-    // Compute the branch-based changes in the background. Updates the "Changes" tab title and content on the EDT.
-    // Shows changes relative to the baseline branch (or uncommitted changes on default branch).
-    private CompletableFuture<DiffPanelUtils.CumulativeChanges> refreshCumulativeChangesAsync() {
+    private CompletableFuture<DiffService.CumulativeChanges> refreshCumulativeChangesAsync() {
         return contextManager
                 .submitBackgroundTask("Compute branch-based changes", () -> {
                     var repoOpt = repo();
                     if (repoOpt.isEmpty()) {
-                        return new DiffPanelUtils.CumulativeChanges(0, 0, 0, List.of(), null);
+                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
                     }
 
                     var repo = repoOpt.get();
 
                     // Branch-specific methods require GitRepo, not just IGitRepo
-                    if (!(repo instanceof GitRepo gitRepo)) {
-                        return new DiffPanelUtils.CumulativeChanges(0, 0, 0, List.of(), null);
+                    if (!(repo instanceof ai.brokk.git.GitRepo gitRepo)) {
+                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
                     }
 
                     var baseline = computeBaselineForChanges();
@@ -3120,11 +3097,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
                     // Handle cases with no baseline
                     if (baseline.mode() == BaselineMode.DETACHED || baseline.mode() == BaselineMode.NO_BASELINE) {
-                        return new DiffPanelUtils.CumulativeChanges(0, 0, 0, List.of(), null);
+                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
                     }
 
                     try {
-                        Set<IGitRepo.ModifiedFile> fileSet = new HashSet<>();
+                        Set<IGitRepo.ModifiedFile> fileSet = new java.util.HashSet<>();
                         String leftCommitSha = null;
                         String currentBranch = gitRepo.getCurrentBranch();
 
@@ -3163,41 +3140,21 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 leftCommitSha = "HEAD";
                             }
                             case DETACHED, NO_BASELINE -> {
-                                // No baseline available; no changes to compute in this switch branch.
-                                // Note: earlier guard already returns empty results for these modes.
+                                // Earlier guard already returns empty results for these modes.
+                                throw new AssertionError();
                             }
                         }
 
-                        // Build per-file changes
-                        List<DiffPanelUtils.PerFileChange> perFileChanges = new ArrayList<>();
-                        int totalAdded = 0;
-                        int totalDeleted = 0;
-
-                        for (var modFile : fileSet) {
-                            var file = modFile.file();
-                            String displayFile = file.getRelPath().toString();
-
-                            // Compute left content based on baseline
-                            String leftContent = (leftCommitSha != null)
-                                    ? DiffPanelUtils.safeGetFileContent(gitRepo, leftCommitSha, file)
-                                    : "";
-
-                            // Compute right content (working tree)
-                            String rightContent = DiffPanelUtils.safeReadWorkingTree(file);
-
-                            // Compute line counts
-                            int[] netCounts = DiffPanelUtils.computeNetLineCounts(leftContent, rightContent);
-                            totalAdded += netCounts[0];
-                            totalDeleted += netCounts[1];
-
-                            perFileChanges.add(
-                                    new DiffPanelUtils.PerFileChange(displayFile, leftContent, rightContent));
-                        }
+                        // Use DiffService to summarize changes between baseline and working tree
+                        var summarizedChanges =
+                                DiffService.summarizeDiff(repo, requireNonNull(leftCommitSha), "WORKING", fileSet);
+                        var perFileChanges = summarizedChanges.perFileChanges();
+                        int totalAdded = summarizedChanges.totalAdded();
+                        int totalDeleted = summarizedChanges.totalDeleted();
 
                         GitWorkflow.PushPullState pushPullState = null;
                         try {
                             boolean hasUpstream = gitRepo.hasUpstreamBranch(currentBranch);
-                            boolean canPull = hasUpstream;
                             boolean canPush;
                             Set<String> unpushedCommitIds = new HashSet<>();
                             if (hasUpstream) {
@@ -3208,17 +3165,17 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 canPush = true;
                             }
                             pushPullState =
-                                    new GitWorkflow.PushPullState(hasUpstream, canPull, canPush, unpushedCommitIds);
+                                    new GitWorkflow.PushPullState(hasUpstream, hasUpstream, canPush, unpushedCommitIds);
                         } catch (Exception e) {
                             logger.debug("Failed to evaluate push/pull state for branch {}", currentBranch, e);
                         }
 
-                        return new DiffPanelUtils.CumulativeChanges(
+                        return new DiffService.CumulativeChanges(
                                 perFileChanges.size(), totalAdded, totalDeleted, perFileChanges, pushPullState);
 
                     } catch (Exception e) {
                         logger.warn("Failed to compute branch-based changes", e);
-                        return new DiffPanelUtils.CumulativeChanges(0, 0, 0, List.of(), null);
+                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
                     }
                 })
                 .thenApply(result -> {
@@ -3234,7 +3191,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     // Build and insert the aggregated multi-file diff panel into the Changes tab.
     // Must be called on the EDT.
-    private void updateChangesTabContent(DiffPanelUtils.CumulativeChanges res) {
+    private void updateChangesTabContent(DiffService.CumulativeChanges res) {
         assert SwingUtilities.isEventDispatchThread() : "updateChangesTabContent must run on EDT";
         var container = changesTabPlaceholder;
         if (container == null) {
@@ -3294,7 +3251,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     // Constructs a panel containing a summary header and a BrokkDiffPanel with per-file comparisons.
     // Sets aggregatedChangesPanel to the created BrokkDiffPanel for lifecycle management.
-    private JPanel buildAggregatedChangesPanel(DiffPanelUtils.CumulativeChanges res) {
+    private JPanel buildAggregatedChangesPanel(DiffService.CumulativeChanges res) {
         var wrapper = new JPanel(new BorderLayout());
 
         // Build header with baseline label and buttons
@@ -3435,12 +3392,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         // Stable order by display file path
         var changes = new ArrayList<>(res.perFileChanges());
-        changes.sort(Comparator.comparing(DiffPanelUtils.PerFileChange::displayFile));
+        changes.sort(Comparator.comparing(Context.DiffEntry::title));
 
         for (var change : changes) {
-            String path = change.displayFile();
-            String leftContent = change.leftContent();
-            String rightContent = change.rightContent();
+            String path = change.title();
+            String leftContent = change.oldContent();
+            String rightContent = change.newContent();
 
             // Use non-ref titles to avoid accidental git ref resolution; keep filename for syntax highlighting.
             BufferSource left = new BufferSource.StringSource(leftContent, "", path, null);
@@ -3616,10 +3573,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     // --- Tree-like grouping support types and helpers ---
 
-    public static record GroupRow(UUID key, boolean expanded, boolean containsClearHistory) {}
+    public record GroupRow(UUID key, boolean expanded, boolean containsClearHistory) {}
 
     // Structural action text + indent data for column 1 (Option A)
-    static record ActionText(String text, int indentLevel) {}
+    record ActionText(String text, int indentLevel) {}
 
     private enum PendingSelectionType {
         NONE,
@@ -3780,12 +3737,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             } finally {
                 sessionAiResponseCounts.put(id, count);
                 sessionCountLoading.remove(id);
-                // Only repaint the scrollable sessionsList when visible; avoid repainting the old label/combo-box.
-                SwingUtilities.invokeLater(() -> {
-                    if (sessionsList != null) {
-                        sessionsList.repaint();
-                    }
-                });
             }
         });
     }
@@ -3804,7 +3755,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      */
     private Optional<IGitRepo> repo() {
         try {
-            return Optional.ofNullable(contextManager.getProject().getRepo());
+            return Optional.of(contextManager.getProject().getRepo());
         } catch (Exception e) {
             return Optional.empty();
         }
