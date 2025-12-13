@@ -232,17 +232,8 @@ public final class PathNormalizer {
                 return null;
             }
 
-            // Use toRealPath() when possible to resolve canonical paths.
-            // Fall back to normalize() if file doesn't exist or toRealPath() fails.
-            Path projectAbs;
-            Path norm;
-            try {
-                projectAbs = projectRoot.toRealPath();
-                norm = asSystemPath.toRealPath();
-            } catch (Exception e) {
-                projectAbs = projectRoot.toAbsolutePath().normalize();
-                norm = asSystemPath.normalize();
-            }
+            Path projectAbs = projectRoot.toAbsolutePath().normalize();
+            Path norm = asSystemPath.normalize();
 
             if (norm.startsWith(projectAbs)) {
                 Path rel = projectAbs.relativize(norm);
