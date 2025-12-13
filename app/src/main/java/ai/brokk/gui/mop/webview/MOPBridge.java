@@ -684,18 +684,20 @@ public final class MOPBridge {
 
             String version = BuildInfo.version;
             String projectName = project.getRoot().getFileName().toString();
-            int nativeFileCount = project.getRepo().getTrackedFiles().size();
             int totalFileCount = project.getAllFiles().size();
 
-            List<String> analyzerLanguages = List.of();
+            List<Map<String, Object>> analyzerLanguagesInfo = new ArrayList<>();
             try {
-                // Prefer whatever the project exposes (used previously in welcome message).
-                // Normalize to a list of strings for the frontend.
+                // Get analyzer languages from the project
                 Object langs = project.getAnalyzerLanguages();
+                List<String> languageNames = new ArrayList<>();
+
                 if (langs instanceof String s) {
-                    analyzerLanguages = s.isBlank() ? List.of() : List.of(s);
+                    if (!s.isBlank()) {
+                        languageNames.add(s.trim());
+                    }
                 } else if (langs instanceof Collection<?> c) {
-                    analyzerLanguages = c.stream()
+                    languageNames = c.stream()
                             .map(String::valueOf)
                             .map(String::trim)
                             .filter(s -> !s.isEmpty())
@@ -703,15 +705,50 @@ public final class MOPBridge {
                             .toList();
                 } else if (langs.getClass().isArray()) {
                     var arr = (Object[]) langs;
-                    analyzerLanguages = Arrays.stream(arr)
+                    languageNames = Arrays.stream(arr)
                             .map(String::valueOf)
                             .map(String::trim)
                             .filter(s -> !s.isEmpty())
                             .distinct()
                             .toList();
-                } else {
+                } else if (langs != null) {
                     var s = String.valueOf(langs).trim();
-                    analyzerLanguages = s.isEmpty() ? List.of() : List.of(s);
+                    if (!s.isEmpty()) {
+                        languageNames.add(s);
+                    }
+                }
+
+                // Get all live dependencies once
+                var liveDeps = project.getLiveDependencies();
+
+                // For each language, get file and dependency counts
+                for (String langName : languageNames) {
+                    try {
+                        // Convert language name to Language object
+                        var language = ai.brokk.analyzer.Languages.valueOf(langName);
+                        
+                        // Get analyzable files for this language
+                        var analyzableFiles = project.getAnalyzableFiles(language);
+                        int fileCount = analyzableFiles.size();
+                        
+                        // Count files from dependencies matching this language
+                        int depCount = 0;
+                        for (var dep : liveDeps) {
+                            if (dep.language() == language) {
+                                depCount += dep.files().size();
+                            }
+                        }
+                        
+                        var langInfo = new LinkedHashMap<String, Object>();
+                        langInfo.put("name", language.name());
+                        langInfo.put("fileCount", fileCount);
+                        langInfo.put("depCount", depCount);
+                        analyzerLanguagesInfo.add(langInfo);
+                    } catch (IllegalArgumentException e) {
+                        logger.trace("Language not found or invalid: {}", langName, e);
+                    } catch (Exception e) {
+                        logger.trace("Failed to get file counts for language: {}", langName, e);
+                    }
                 }
             } catch (Throwable t) {
                 logger.trace("Analyzer languages unavailable from project", t);
@@ -720,11 +757,10 @@ public final class MOPBridge {
             var payload = new LinkedHashMap<String, Object>();
             payload.put("version", version);
             payload.put("projectName", projectName);
-            payload.put("nativeFileCount", nativeFileCount);
             payload.put("totalFileCount", totalFileCount);
             payload.put("analyzerReady", analyzerReady);
-            if (!analyzerLanguages.isEmpty()) {
-                payload.put("analyzerLanguages", analyzerLanguages);
+            if (!analyzerLanguagesInfo.isEmpty()) {
+                payload.put("analyzerLanguages", analyzerLanguagesInfo);
             }
 
             var json = toJson(payload);
