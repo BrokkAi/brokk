@@ -11,6 +11,7 @@ import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.util.ContextSizeGuard;
 import ai.brokk.project.IProject;
 import ai.brokk.util.FileManagerUtil;
+import ai.brokk.agents.BuildAgent;
 import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
@@ -30,6 +31,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.event.TreeExpansionEvent;
@@ -171,6 +173,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
 
             List<ProjectFile> targetFiles = List.of();
             boolean bulk = false;
+            File targetDirectoryFile = null;
 
             if (path != null) {
                 // If right-clicking on an item not in current selection, change selection to that item.
@@ -185,6 +188,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                     if (f.isDirectory()) {
                         targetFiles = collectProjectFilesUnderDirectory(f);
                         bulk = true; // Directory context: show "All" actions
+                        targetDirectoryFile = f;
                     } else if (f.isFile()) {
                         var selectedFiles = getSelectedProjectFiles();
                         if (!selectedFiles.isEmpty()) {
@@ -208,7 +212,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             }
 
             if (!targetFiles.isEmpty()) {
-                prepareAndShowContextMenu(e.getX(), e.getY(), targetFiles, bulk);
+                prepareAndShowContextMenu(e.getX(), e.getY(), targetFiles, bulk, targetDirectoryFile);
             }
         }
     }
@@ -227,8 +231,21 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                     if (bounds != null) {
                         var selectedFiles = getSelectedProjectFiles();
                         if (!selectedFiles.isEmpty()) {
+                            File targetDirFile = null;
+                            DefaultMutableTreeNode node =
+                                    (DefaultMutableTreeNode) selectionPaths[0].getLastPathComponent();
+                            if (node.getUserObject() instanceof ProjectTreeNode treeNode) {
+                                File nf = treeNode.getFile();
+                                if (nf.isDirectory()) {
+                                    targetDirFile = nf;
+                                }
+                            }
                             prepareAndShowContextMenu(
-                                    bounds.x, bounds.y + bounds.height, selectedFiles, selectedFiles.size() > 1);
+                                    bounds.x,
+                                    bounds.y + bounds.height,
+                                    selectedFiles,
+                                    selectedFiles.size() > 1,
+                                    targetDirFile);
                         }
                     }
                 }
@@ -244,7 +261,8 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         return currentContextMenu;
     }
 
-    private void populateContextMenu(JPopupMenu contextMenu, List<ProjectFile> targetFiles, boolean bulk) {
+    private void populateContextMenu(
+            JPopupMenu contextMenu, List<ProjectFile> targetFiles, boolean bulk, @Nullable File targetDirectory) {
         contextMenu.removeAll();
 
         if (targetFiles.isEmpty()) {
@@ -323,6 +341,53 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             worker.execute();
         });
         contextMenu.add(openInItem);
+
+        // Add include/exclude toggle for Code Intelligence when right-clicking a directory
+        if (targetDirectory != null && targetDirectory.isDirectory()) {
+            Path rel = project.getRoot().relativize(targetDirectory.toPath());
+            String relStr = rel.toString();
+            boolean currentlyExcluded = isDirectoryExcluded(relStr);
+            String toggleLabel = currentlyExcluded ? "Include in Code Intelligence" : "Exclude from Code Intelligence";
+
+            JMenuItem toggleCiItem = new JMenuItem(toggleLabel);
+            toggleCiItem.addActionListener(ev -> {
+                final String finalRelStr = relStr;
+                final boolean isExcludedNow = currentlyExcluded;
+                contextManager.submitContextTask(() -> {
+                    try {
+                        var currentDetails = project.loadBuildDetails();
+                        Set<String> excludesSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+                        excludesSet.addAll(currentDetails.excludedDirectories());
+
+                        if (isExcludedNow) {
+                            excludesSet.remove(finalRelStr);
+                        } else {
+                            excludesSet.add(finalRelStr);
+                        }
+
+                        var newDetails = new BuildAgent.BuildDetails(
+                                currentDetails.buildLintCommand(),
+                                currentDetails.testAllCommand(),
+                                currentDetails.testSomeCommand(),
+                                excludesSet,
+                                currentDetails.environmentVariables());
+
+                        project.saveBuildDetails(newDetails);
+
+                        SwingUtilities.invokeLater(() -> {
+                            ((DefaultTreeModel) getModel()).nodeStructureChanged(
+                                    (DefaultMutableTreeNode) getModel().getRoot());
+                            repaint();
+                        });
+                    } catch (Exception ex) {
+                        logger.error("Error toggling directory exclusion", ex);
+                        SwingUtilities.invokeLater(
+                                () -> chrome.toolError("Failed to update exclusion: " + ex.getMessage()));
+                    }
+                });
+            });
+            contextMenu.add(toggleCiItem);
+        }
 
         contextMenu.addSeparator();
 
@@ -457,9 +522,10 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         return historyItem;
     }
 
-    private void prepareAndShowContextMenu(int x, int y, List<ProjectFile> targetFiles, boolean bulk) {
+    private void prepareAndShowContextMenu(
+            int x, int y, List<ProjectFile> targetFiles, boolean bulk, @Nullable File targetDirectory) {
         JPopupMenu contextMenu = getOrCreateContextMenu();
-        populateContextMenu(contextMenu, targetFiles, bulk);
+        populateContextMenu(contextMenu, targetFiles, bulk, targetDirectory);
         if (contextMenu.getComponentCount() > 0) {
             contextMenu.show(ProjectTree.this, x, y);
             // Swing's JPopupMenu typically handles focusing its first enabled item.
@@ -800,6 +866,11 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                 .flatMap(lang -> lang.getExtensions().stream())
                 .collect(Collectors.toSet());
         return files.stream().anyMatch(pf -> exts.contains(pf.extension()));
+    }
+
+    private boolean isDirectoryExcluded(String relativePath) {
+        Set<String> excludedDirs = project.getExcludedDirectories();
+        return excludedDirs.contains(relativePath);
     }
 
     /**
