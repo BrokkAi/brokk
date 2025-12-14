@@ -683,6 +683,38 @@ class EditBlockTest {
                 () -> EditBlock.resolveProjectFile(cm.liveContext(), "%ssrc%sfoo.txt".formatted(sep, sep)));
     }
 
+    @Test
+    void testResolveFilenameSubstringMatchWithBasenameTieBreaker(@TempDir Path tempDir) throws Exception {
+        Path mainUtilDir = tempDir.resolve("app")
+                .resolve("src")
+                .resolve("main")
+                .resolve("java")
+                .resolve("ai")
+                .resolve("brokk")
+                .resolve("util");
+        Path testUtilDir = tempDir.resolve("app")
+                .resolve("src")
+                .resolve("test")
+                .resolve("java")
+                .resolve("ai")
+                .resolve("brokk")
+                .resolve("util");
+        Files.createDirectories(mainUtilDir);
+        Files.createDirectories(testUtilDir);
+
+        Files.writeString(mainUtilDir.resolve("IndentUtil.java"), "main content\n");
+        Files.writeString(testUtilDir.resolve("IndentUtil.java"), "test content\n");
+
+        TestContextManager ctx = new TestContextManager(
+                tempDir,
+                Set.of(
+                        "app/src/main/java/ai/brokk/util/IndentUtil.java",
+                        "app/src/test/java/ai/brokk/util/IndentUtil.java"));
+
+        var resolved = EditBlock.resolveProjectFile(ctx.liveContext(), "src/test/java/ai/brokk/util/IndentUtil.java");
+        assertEquals(testUtilDir.resolve("IndentUtil.java"), resolved.absPath());
+    }
+
     // ----------------------------------------------------
     // Tests for BRK_CONFLICT handling
     // ----------------------------------------------------
