@@ -422,6 +422,227 @@ Streaming (NDJSON) variant
 }
 ```
 
+## Instances list — command specification
+
+This section specifies the `brokkctl instances list` command in detail: inputs, output schema, and example responses for the common cases (0, 1, many instances). It also documents how stale/unreachable instances are represented when `--all` is used.
+
+Purpose
+- Enumerate discovered Brokk instances visible to the current user.
+- By default, return *non-stale* (i.e., "online") entries only. Use `--all` to include stale and potentially unreachable records left in the registry.
+
+Inputs / Flags
+- `--format json|text` (global): output format. `json` is canonical.
+- `--all` (optional): include stale registry entries (entries older than the TTL). When omitted, stale entries are filtered out.
+- `--ttl <ms>` (optional): override TTL used to decide staleness for this invocation (default: 30000 ms).
+- `--request-id <uuid>` (optional): client-supplied requestId for correlation. If omitted, the client generates one.
+- `--timeout <ms>` (optional): discovery timeout. Defaults to global timeout.
+- `--auth-token <token>` (optional): used when querying endpoints to verify reachability.
+
+Behavioral rules
+- Default (no `--all`): return only entries where `now - lastSeenMs <= TTL`.
+- With `--all`: return all registry entries, but mark stale and unreachable entries with explicit status fields.
+- If an entry appears stale (lastSeenMs older than TTL), the entry's `status` becomes `"stale"`. A stale entry may still be reachable if the client can connect to its `listenAddr`. The client SHOULD attempt a lightweight reachability probe (e.g., `ctl-info`) only when `--all` is used or when an explicit `--probe` flag is present (to avoid unnecessary network calls during discovery).
+- If a previously-written registry file exists but the instance cannot be reached (connection refused, auth failure, etc.), the entry `status` becomes `"unreachable"` and an `error` object is included describing the failure.
+
+Output schema (JSON mode)
+Top-level envelope for `-o json`:
+
+```json
+{
+  "requestId": "550e8400-e29b-41d4-a716-446655440000",
+  "summary": {
+    "total": 3,
+    "online": 1,
+    "stale": 1,
+    "unreachable": 1
+  },
+  "instances": [
+    /* array of instance descriptors (see below) */
+  ],
+  "elapsedMs": 12
+}
+```
+
+Instance descriptor (list entry)
+```json
+{
+  "instanceId": "550e8400-e29b-41d4-a716-446655440000",
+  "pid": 12345,
+  "listenAddr": "127.0.0.1:54321",
+  "project": "/home/alice/my-repo",
+  "brokkctlVersion": "1.0.0",
+  "startedAt": 1690000000000,
+  "lastSeenMs": 1690000050000,
+  "platform": "linux",
+  "listenProtocol": "http",
+  "status": "online",
+  "stale": false,
+  "probe": {
+    "reachable": true,
+    "serverVersion": "1.0.0",
+    "latencyMs": 5
+  },
+  "error": null
+}
+```
+
+Field notes:
+- `status` (string): one of:
+  - `"online"` — lastSeen within TTL and probe (when performed) succeeded or not performed.
+  - `"stale"` — lastSeen older than TTL. When `--all` is used this is returned; otherwise stale entries are omitted.
+  - `"unreachable"` — entry exists in registry but a probe to `listenAddr` failed (network error, auth error, etc.).
+- `stale` (boolean): convenience boolean equivalent to `status == "stale"`.
+- `probe` (optional object): results of a lightweight reachability probe (present only when probes are performed). Includes `reachable` (bool), `serverVersion`, and `latencyMs`.
+- `error` (object|null): present when `status == "unreachable"` or when a probe returns an error. Follows canonical Error object shape (code/message/details).
+
+Example `probe` failure/error (embedded in `error`)
+```json
+"error": {
+  "code": "TRANSPORT_ERROR",
+  "message": "connection refused",
+  "details": {
+    "attemptedAddr": "127.0.0.1:54321",
+    "cause": "ECONNREFUSED"
+  }
+}
+```
+
+Behavior details for `--all`
+- When `--all` is supplied:
+  - Return all registry files, regardless of age.
+  - Mark entries older than TTL with `status: "stale"` and `stale: true`.
+  - Optionally perform reachability probes (see flags) to detect `unreachable` entries and populate `probe` and `error` fields. Probing increases latency and may require credentials if endpoints are secured; probes should only be performed when necessary (e.g., when `--probe` is explicitly passed, or when `--all --format json --verbose`).
+  - `unreachable` entries are included only in `--all` view (they may also appear as `stale` if age exceeds TTL).
+
+Examples
+
+1) Zero instances (no registry files / nothing discovered)
+
+Command:
+- `brokkctl instances list -o json`
+
+Output:
+```json
+{
+  "requestId": "generated-or-empty",
+  "summary": { "total": 0, "online": 0, "stale": 0, "unreachable": 0 },
+  "instances": [],
+  "elapsedMs": 5
+}
+```
+
+Behavior: The CLI should return exit code `0` (success) and a helpful `text` message when not in JSON mode, e.g., "No Brokk instances found. Run Brokk or use --instance to target an instance."
+
+2) Single online instance (normal case)
+
+Command:
+- `brokkctl instances list -o json`
+
+Output:
+```json
+{
+  "requestId": "550e8400-e29b-41d4-a716-446655440000",
+  "summary": { "total": 1, "online": 1, "stale": 0, "unreachable": 0 },
+  "instances": [
+    {
+      "instanceId": "550e8400-e29b-41d4-a716-446655440000",
+      "pid": 12345,
+      "listenAddr": "127.0.0.1:54321",
+      "project": "/home/alice/my-repo",
+      "brokkctlVersion": "1.0.0",
+      "startedAt": 1690000000000,
+      "lastSeenMs": 1690000050000,
+      "platform": "linux",
+      "listenProtocol": "http",
+      "status": "online",
+      "stale": false,
+      "probe": { "reachable": true, "serverVersion": "1.0.0", "latencyMs": 3 },
+      "error": null
+    }
+  ],
+  "elapsedMs": 8
+}
+```
+
+Behavior: Exit code `0`. In `text` mode, show a compact table with the instanceId, pid, listenAddr, project, and version.
+
+3) Many instances with mixed states (example using `--all`)
+
+Command:
+- `brokkctl instances list --all -o json --ttl 30000`
+
+Output:
+```json
+{
+  "requestId": "550e8400-e29b-41d4-a716-446655440001",
+  "summary": { "total": 3, "online": 1, "stale": 1, "unreachable": 1 },
+  "instances": [
+    {
+      "instanceId": "a1111111-1111-1111-1111-111111111111",
+      "pid": 11111,
+      "listenAddr": "127.0.0.1:54000",
+      "project": "/home/alice/project-a",
+      "brokkctlVersion": "1.1.0",
+      "startedAt": 1690000000000,
+      "lastSeenMs": 1690001050000,
+      "platform": "linux",
+      "listenProtocol": "http",
+      "status": "online",
+      "stale": false,
+      "probe": { "reachable": true, "serverVersion": "1.1.0", "latencyMs": 4 },
+      "error": null
+    },
+    {
+      "instanceId": "b2222222-2222-2222-2222-222222222222",
+      "pid": 22222,
+      "listenAddr": "/tmp/brokk-22222.sock",
+      "project": "/home/alice/project-b",
+      "brokkctlVersion": "1.0.0",
+      "startedAt": 1689990000000,
+      "lastSeenMs": 1689999000000,
+      "platform": "linux",
+      "listenProtocol": "unix",
+      "status": "stale",
+      "stale": true,
+      "probe": { "reachable": false, "latencyMs": 0 },
+      "error": null
+    },
+    {
+      "instanceId": "c3333333-3333-3333-3333-333333333333",
+      "pid": null,
+      "listenAddr": "127.0.0.1:54200",
+      "project": null,
+      "brokkctlVersion": "1.0.0",
+      "startedAt": 1689990000000,
+      "lastSeenMs": 1689995000000,
+      "platform": "linux",
+      "listenProtocol": "http",
+      "status": "unreachable",
+      "stale": true,
+      "probe": { "reachable": false, "latencyMs": 0 },
+      "error": {
+        "code": "TRANSPORT_ERROR",
+        "message": "connection refused",
+        "details": { "attemptedAddr": "127.0.0.1:54200", "cause": "ECONNREFUSED" }
+      }
+    }
+  ],
+  "elapsedMs": 60
+}
+```
+
+Notes on the example:
+- The first entry is current/online (within TTL).
+- The second entry is stale by age but probing did not produce a connection error (possibly the instance is paused or removed).
+- The third entry is stale and probing produced a transport-level error; it's marked `unreachable` and includes an `error` detailing the probe failure.
+- Clients should treat `status == "online"` as suitable for immediate operations. `stale` entries may be re-probed or pruned. `unreachable` entries indicate registry residue and can be pruned using `instances prune` (if appropriate permissions exist).
+
+Implementation hints
+- Keep `instances list` cheap by default: avoid network probes unless explicitly requested or when running `--all` with `--probe`.
+- Make `--all` the only flag that includes stale/unreachable entries; otherwise scripts will observe only currently-considered-live instances.
+- Provide `instances prune` to remove stale/unreachable registry files (guarded by ownership checks).
+- Always include `lastSeenMs` in output so callers can apply their own TTL logic.
+
 ## Appendix: Example Shapes
 
 Instance descriptor (discovery)
