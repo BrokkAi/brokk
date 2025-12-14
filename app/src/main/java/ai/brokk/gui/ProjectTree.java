@@ -390,8 +390,8 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                                 project.saveBuildDetails(newDetails);
 
                                 SwingUtilities.invokeLater(() -> {
-                                    ((DefaultTreeModel) getModel()).nodeStructureChanged(
-                                            (DefaultMutableTreeNode) getModel().getRoot());
+                                    ((DefaultTreeModel) getModel()).nodeStructureChanged((DefaultMutableTreeNode)
+                                            getModel().getRoot());
                                     repaint();
                                 });
                             } catch (Exception ex) {
@@ -892,42 +892,42 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
     }
 
     private boolean isDirectoryExcluded(String relativePath) {
-            String candidate = PathNormalizer.canonicalizeForProject(relativePath, project.getMasterRootPathForConfig());
-            Set<String> excludedDirs = project.getExcludedDirectories();
-            for (String excluded : excludedDirs) {
-                    String ex = PathNormalizer.canonicalizeForProject(excluded, project.getMasterRootPathForConfig());
-                    if (candidate.equals(ex)) {
-                            return true;
-                    }
+        String candidate = PathNormalizer.canonicalizeForProject(relativePath, project.getMasterRootPathForConfig());
+        Set<String> excludedDirs = project.getExcludedDirectories();
+        for (String excluded : excludedDirs) {
+            String ex = PathNormalizer.canonicalizeForProject(excluded, project.getMasterRootPathForConfig());
+            if (candidate.equals(ex)) {
+                return true;
             }
-            return false;
+        }
+        return false;
     }
 
     private boolean isUnderExcludedDirectory(String relativePath) {
-            String rp = PathNormalizer.canonicalizeForProject(relativePath, project.getMasterRootPathForConfig());
-            Set<String> excludedDirs = project.getExcludedDirectories();
-            for (String excluded : excludedDirs) {
-                    String ex = PathNormalizer.canonicalizeForProject(excluded, project.getMasterRootPathForConfig());
-                    if (rp.equals(ex) || rp.startsWith(ex + "/")) {
-                            return true;
-                    }
+        String rp = PathNormalizer.canonicalizeForProject(relativePath, project.getMasterRootPathForConfig());
+        Set<String> excludedDirs = project.getExcludedDirectories();
+        for (String excluded : excludedDirs) {
+            String ex = PathNormalizer.canonicalizeForProject(excluded, project.getMasterRootPathForConfig());
+            if (rp.equals(ex) || rp.startsWith(ex + "/")) {
+                return true;
             }
-            return false;
+        }
+        return false;
     }
 
     private @Nullable String findExcludingAncestor(String relativePath) {
-            String rp = PathNormalizer.canonicalizeForProject(relativePath, project.getMasterRootPathForConfig());
-            Set<String> excludedDirs = project.getExcludedDirectories();
-            String best = null;
-            for (String excluded : excludedDirs) {
-                    String ex = PathNormalizer.canonicalizeForProject(excluded, project.getMasterRootPathForConfig());
-                    if (rp.equals(ex) || rp.startsWith(ex + "/")) {
-                            if (best == null || ex.length() > best.length()) {
-                                    best = ex;
-                            }
-                    }
+        String rp = PathNormalizer.canonicalizeForProject(relativePath, project.getMasterRootPathForConfig());
+        Set<String> excludedDirs = project.getExcludedDirectories();
+        String best = null;
+        for (String excluded : excludedDirs) {
+            String ex = PathNormalizer.canonicalizeForProject(excluded, project.getMasterRootPathForConfig());
+            if (rp.equals(ex) || rp.startsWith(ex + "/")) {
+                if (best == null || ex.length() > best.length()) {
+                    best = ex;
+                }
             }
-            return best;
+        }
+        return best;
     }
 
     /**
