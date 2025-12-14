@@ -140,7 +140,7 @@ public interface IProject extends AutoCloseable {
     }
 
     default ModelConfig getModelConfig(ModelType modelType) {
-        throw new UnsupportedOperationException();
+        return new ModelConfig("test-model");
     }
 
     default void setModelConfig(ModelType modelType, ModelConfig config) {
