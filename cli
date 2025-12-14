@@ -2051,3 +2051,127 @@ Fan-out response (uses canonical envelopes)
 
 ---
 This specification is intentionally concise and implementation-agnostic while providing actionable rules for discovery, negotiation, compatibility, error handling, and output shapes. The next phase is a reference implementation that selects a discovery mechanism and wires the `ctl-info` endpoint on the Brokk side and a minimal `brokkctl` client that implements the negotiation and JSON-first output.
+
+## Appendix: Transport mapping and control-facade guidance
+
+This appendix maps each high-level `brokkctl` command area to the intended future automation surfaces (REST, MCP, AppleScript) and documents recommendations for keeping the in-process control facade transport-agnostic. The objective is that all transports reuse the same DTOs, identifiers and semantics so clients can migrate between REST/MCP/AppleScript without behavioral surprises.
+
+### High-level mapping (command → transport surfaces)
+
+- instances
+  - REST: GET /v1/instances, POST /v1/instances/prune
+  - MCP: command `instances.list` / `instances.prune` (canonical request envelope)
+  - AppleScript: `instancesList()` / `instancesPrune()` returning JSON string (or structured record)
+  - Notes: Discovery and registry semantics are identical across transports. `ctl-info` is the core per-instance REST endpoint; MCP should mirror that via `ctl-info` command.
+
+- projects
+  - REST: GET /v1/projects, POST /v1/projects/open
+  - MCP: command `projects.list` / `projects.open`
+  - AppleScript: `projectsList()` / `projectsOpen(path)` returning canonical JSON envelopes
+  - Notes: Use canonical project identity (`path` and optional `projectId`) across transports.
+
+- sessions
+  - REST: GET /v1/sessions/active, GET /v1/sessions, POST /v1/sessions, POST /v1/sessions/switch
+  - MCP: `sessions.active` / `sessions.list` / `sessions.create` / `sessions.switch`
+  - AppleScript: `sessionActive(projectPath)` / `sessionCreate(...)`
+  - Notes: Prefer `sessionId` as the authoritative selector in automation; `name` is convenience.
+
+- context
+  - REST: GET/POST/DELETE /v1/context
+  - MCP: `context.list` / `context.add` / `context.remove`
+  - AppleScript: `contextList(projectPath, sessionId)` and variants; content-heavy ops return or accept JSON payloads
+  - Notes: Use `contextId` and `relativePath` consistently. Large content should be uploaded/pushed over transport-specific mechanisms (HTTP body, MCP base64 or file descriptor, AppleScript file references).
+
+- execution (exec / jobs)
+  - REST: POST /v1/execution (start), POST /v1/execution/{jobId}/stop, GET /v1/execution/{jobId}/events (poll/stream)
+  - MCP: `execution.start` / `execution.stop` and an optional streaming channel (NDJSON lines on stdout)
+  - AppleScript: `execStart(...)` returns `jobId` and optionally a follow handle; streaming via callback/listener pattern that returns NDJSON string chunks
+  - Notes: Streaming semantics (NDJSON) must be identical across transports. REST can use SSE/Chunked NDJSON; MCP should stream one JSON object per line; AppleScript should expose a streaming adapter that returns the same JSON envelope content.
+
+- state
+  - REST: GET /v1/state
+  - MCP: `state.get`
+  - AppleScript: `stateGet(projectPath, sessionId)`
+  - Notes: Response schema must match control facade DTO for `execution` and `cancellable` fields.
+
+- history
+  - REST: GET /v1/history (paged), GET /v1/history/tail (stream)
+  - MCP: `history.get` / `history.tail` (NDJSON)
+  - AppleScript: `historyGet(...)` / `historyTail(...)` returning JSON events or NDJSON text
+  - Notes: Cursor semantics are per-instance and must be preserved across transports.
+
+### Transport-agnostic control facade design recommendations
+
+1. Single in-process API (Control Facade)
+   - Implement a single Java-facing control facade (e.g., `ControlFacade` or `CtlService`) that exposes strongly-typed methods for each command area:
+     - instances(): List<InstanceDto>
+     - openProject(path): ProjectOpenResultDto
+     - createSession(...): SessionDto
+     - addContext(...): ContextAddResultDto
+     - startExecution(JobSpec): JobDescriptorDto
+     - stopExecution(jobId, mode): StopResultDto
+     - getState(...): StateDto
+     - historyGet(...): HistoryPageDto
+   - Transport adapters (HTTP, MCP stdio, AppleScript bridge) should be thin wrappers that translate transport-specific wire formats into the control-facade DTOs and vice versa.
+
+2. Reuse canonical DTOs and envelopes
+   - Reuse the same canonical request and response envelopes defined in this spec for all transports:
+     - Request envelope: { requestId, createdAtMs, command, protocolVersion, payload }
+     - Per-instance result container and canonical Error object.
+   - Transport adapters only translate serialization (JSON, NDJSON, AppleScript native types), but not semantics.
+
+3. Stable, minimal identifiers
+   - Use stable primitive identifiers across transports:
+     - instanceId, sessionId, projectId, contextId, jobId, cursor tokens.
+   - Avoid embedding transient runtime objects (file descriptors, platform handles) in DTOs. Represent them as strings or opaque tokens.
+
+4. Avoid UI coupling
+   - DTOs returned by the facade must not contain UI objects or UI-specific state (Swing components, OS window handles, etc.). Provide only machine-friendly fields: normalized paths, timestamps, version strings, capability lists, and explicit flags (e.g., `readOnly`, `isActive`).
+   - If a UI-only field is useful for humans (e.g., friendly display name), mark it optional and non-authoritative (clients should not use it for programmatic decisions).
+
+5. Capability & version negotiation
+   - Expose `supportedCapabilities` and `brokkctlVersion` via `ctl-info` (or equivalent MCP `ctl-info` command) and use `Brokk-CTL-Version` header in all transports when supported.
+   - Transport adapters must forward the `Brokk-CTL-Version` header where applicable (HTTP). For MCP/AppleScript, include `protocolVersion` in the request envelope.
+
+6. Streaming parity
+   - Streaming semantics must be identical across transports:
+     - NDJSON line-per-event shape is canonical.
+     - Each event must include `requestId`, `instanceId`, `cursor`.
+     - Implementations should provide heartbeat lines for long-idle streams.
+   - REST should support SSE or chunked NDJSON; MCP should stream NDJSON over stdout; AppleScript bridges should provide a callback or a polling loop that yields the same NDJSON lines.
+
+7. Error model parity
+   - All transports must represent errors using the canonical Error object shape { code, message, details } in JSON mode. For streaming errors, emit an error envelope as a single NDJSON line.
+   - Exit code semantics apply to CLI tooling; transports should map internal error codes to the same canonical code names for machine clients.
+
+8. Content transfer strategies
+   - For large content (files, patches): prefer transport-agnostic references in DTOs (e.g., `artifactRef`, `uploadUrl`) rather than inlining large blobs in the core DTOs.
+   - REST may offer multipart or direct object storage upload URLs; MCP can agree on a follow-up `content.upload` command or base64-encoded bodies; AppleScript may pass a filesystem path that the instance can read (with permission checks).
+
+9. AppleScript-specific guidance
+   - Provide a small AppleScript adapter that converts script calls into the canonical control-facade calls and returns JSON strings or native AppleScript records that mirror DTO fields.
+   - Because AppleScript lacks streaming primitives, expose streaming via a helper that writes NDJSON lines to a file or a callback mechanism that AppleScript clients can poll.
+
+10. Security and auth consistency
+    - Across transports, respect the `Authorization: Bearer <token>` semantics or include `authToken` in the request envelope when transports don't use HTTP headers.
+    - The facade should perform consistent permission checks regardless of transport and return identical Error codes for permission-related failures.
+
+### Practical migration advice
+
+- First implement and stabilize the in-process control facade and DTOs.
+- Implement the REST adapter using the facade and reuse the same JSON DTOs for the wire format.
+- Implement an MCP adapter that accepts the canonical request envelope on stdin/stdout and streams NDJSON lines for events; reuse the same DTO JSON serialization code.
+- Implement AppleScript last as a thin bridge that translates AppleScript invocations into Control Facade calls and returns JSON/records; this minimizes AppleScript-specific complexity while preserving automation parity.
+
+### Quick reference: DTOs that must be stable and transport-agnostic
+
+- InstanceDto: { instanceId, pid, listenAddr, project, brokkctlVersion, startedAt, lastSeenMs, platform, listenProtocol }
+- ProjectDto: { path, projectId?, name?, lastOpenedMs?, status }
+- SessionDto: { sessionId, name, createdAtMs, lastActiveMs, isActive, project }
+- ContextEntryDto: { contextId, type, relativePath?, addedAtMs, sizeBytes, digest?, sessionId? }
+- JobSpec / JobDescriptorDto: { jobId, mode, startedAtMs, cursor?, followUrl? }
+- HistoryEventDto / StreamEventDto: { requestId, instanceId, jobId?, sequence, createdAtMs, eventType, text?, payload?, cursor }
+
+---
+
+Adhering to these mapping and facade principles will ensure Brokk's automation surfaces remain consistent, testable, and easy for external tools to adopt, whether they speak REST, MCP, or AppleScript.
