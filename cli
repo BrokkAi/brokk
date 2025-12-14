@@ -643,6 +643,255 @@ Implementation hints
 - Provide `instances prune` to remove stale/unreachable registry files (guarded by ownership checks).
 - Always include `lastSeenMs` in output so callers can apply their own TTL logic.
 
+## Projects commands — specification
+
+This section specifies `brokkctl projects list` and `brokkctl projects open`. These commands allow automation to enumerate projects known to running instances and to request that an instance open a particular project/workspace.
+
+Goals
+- Provide a machine-friendly enumeration of projects visible across discovered instances.
+- Support deterministic selectors for opening a project by `path` or `projectId`.
+- Represent duplicates (same project open in multiple instances) explicitly so callers can choose a target.
+- Return structured, actionable errors for common failure modes (not found, already open, permission denied, transport/auth errors).
+
+Common command semantics
+- Projects are identified by:
+  - `path` — canonical absolute filesystem path (string). Clients SHOULD normalize paths to a platform-canonical form before comparing.
+  - `projectId` — an opaque identifier assigned by an instance for an opened project (string). Not all instances may expose `projectId`; when absent `path` is the canonical identity.
+- `projects list` aggregates declarations from discovered instances. Each instance's report includes the workspace `path` and optional `projectId` and metadata (name, lastOpenedMs).
+- `projects open` requests that an instance open the project at a given `path` (or `projectId` for local-to-instance operations). The command targets one or more instances depending on `--instance`/`--all` flags.
+
+Global flags (inherit from top-level)
+- `--format json|text`, `--instance <selector>`, `--all`, `--timeout`, `--request-id`, `--auth-token`, etc.
+- `projects open` specific flags:
+  - `--path <abs-path>` — open project at specified absolute path (preferred).
+  - `--project-id <id>` — instance-local project id (used for intra-instance actions).
+  - `--create-if-missing` — if the instance does not have the project discovered, attempt to create/open it (may fail with permission or not-supported).
+  - `--wait <ms>` — wait for the instance to report the project as opened (useful for automation needing synchronous completion).
+
+Note: `projects open` semantics differ when targeting multiple instances. Opening the same path across multiple instances is allowed and is treated as independent operations per instance. Use `--all` to fan-out.
+
+projects list — behavior & schema
+- Default: return projects aggregated from non-stale instances only. Use `--all` to include entries from stale instances.
+- For each discovered instance, the instance should report zero or more project descriptors:
+  - `projectId` (string|null): instance-local identifier for the project.
+  - `path` (string): absolute canonical path to the project root.
+  - `name` (string|null): optional project display name (e.g., repository name).
+  - `lastOpenedMs` (number|null): epoch ms when instance last reported this project active/open.
+  - `status` (string): one of `open` or `closed` from the instance's perspective.
+  - `readOnly` (boolean, optional): whether the instance opened the project in read-only mode.
+  - `instanceId` (string): instance where this descriptor came from.
+
+Output envelope (JSON mode) — `projects list` top-level
+```json
+{
+  "requestId": "uuid",
+  "summary": { "totalProjects": 3, "uniquePaths": 2 },
+  "projects": [
+    {
+      "path": "/home/alice/project-a",
+      "name": "project-a",
+      "instances": [
+        {
+          "instanceId": "a111...",
+          "projectId": "p-123",
+          "status": "open",
+          "lastOpenedMs": 1690001050000,
+          "readOnly": false
+        },
+        {
+          "instanceId": "b222...",
+          "projectId": "p-555",
+          "status": "open",
+          "lastOpenedMs": 1690001000000,
+          "readOnly": true
+        }
+      ]
+    },
+    {
+      "path": "/home/alice/project-b",
+      "name": "project-b",
+      "instances": [
+        {
+          "instanceId": "c333...",
+          "projectId": null,
+          "status": "closed",
+          "lastOpenedMs": null
+        }
+      ]
+    }
+  ],
+  "elapsedMs": 25
+}
+```
+
+Notes:
+- `projects` is grouped by canonical `path` (the aggregation key). This allows callers to see duplicates across instances. For projects reported with different paths that normalize to the same canonical path, implementations SHOULD merge entries under the normalized path.
+- `summary.uniquePaths` counts canonical distinct paths after normalization.
+- If an instance reports a project but does not expose `projectId`, `projectId` should be null and callers should use `--instance` + `--path` to target that instance for `projects open`/other operations.
+
+Example: `projects list` zero projects
+```json
+{
+  "requestId": "gen",
+  "summary": { "totalProjects": 0, "uniquePaths": 0 },
+  "projects": [],
+  "elapsedMs": 4
+}
+```
+
+projects open — behavior & per-instance results
+- `projects open` is an operational command that may be targeted at:
+  - A single instance via `--instance <selector>` (recommended).
+  - Multiple instances via `--all` (fan-out; use with care).
+  - Auto-selected instance via `--auto-select`.
+- The client may pass `--path` or `--project-id`. If both are supplied, `--project-id` is interpreted as an instance-local id and `--path` must match the located project on that instance or the command should error with `INVALID_ARGS`.
+- If `--create-if-missing` is set, the instance may attempt to create or register an absent project. If unsupported, the instance returns `PROTOCOL_UNSUPPORTED_FEATURE` or `NOT_FOUND` depending on semantics.
+
+Per-instance result container (projects open)
+```json
+{
+  "instanceId": "a111...",
+  "status": "ok",
+  "data": {
+    "projectId": "p-123",
+    "path": "/home/alice/project-a",
+    "openedAtMs": 1690002000000
+  },
+  "error": null,
+  "elapsedMs": 120
+}
+```
+
+Error cases and canonical error codes
+- `NOT_FOUND` — requested path/projectId not found on the targeted instance.
+  - Example details: `{ "attemptedPath": "...", "reason": "not-in-workspace" }`
+- `ALREADY_OPEN` — instance already has the project open in an incompatible mode (e.g., same project open read-only but client requested write).
+  - Example details: `{ "currentMode": "read-only", "requestedMode": "read-write" }`
+- `PERMISSION_DENIED` — instance was denied access to open path (filesystem permission issues, sandboxing).
+  - Example details: `{ "attemptedPath": "...", "osError": "EACCES" }`
+- `PROTOCOL_UNSUPPORTED_FEATURE` — instance does not support `--create-if-missing` or other optional features.
+- `TRANSPORT_ERROR` / `UNAUTHORIZED` — as in overall transport/security failures.
+
+Fan-out aggregation for `projects open`
+- When `--all` is used, return the aggregate envelope described earlier: `summary` with requested/succeeded/failed and `results` array of per-instance containers. Mixed outcomes map to `PARTIAL_SUCCESS` exit code `4`.
+
+Examples
+
+1) Successful open on a single instance
+Command:
+- `brokkctl projects open --instance a111... --path /home/alice/project-a -o json`
+
+Output:
+```json
+{
+  "requestId": "req-1",
+  "results": [
+    {
+      "instanceId": "a111...",
+      "status": "ok",
+      "data": {
+        "projectId": "p-123",
+        "path": "/home/alice/project-a",
+        "openedAtMs": 1690002000000
+      },
+      "error": null,
+      "elapsedMs": 120
+    }
+  ],
+  "summary": { "requested": 1, "succeeded": 1, "failed": 0 }
+}
+```
+
+2) Project not found on targeted instance
+Command:
+- `brokkctl projects open --instance a111... --path /not/exist -o json`
+
+Output:
+```json
+{
+  "requestId": "req-2",
+  "results": [
+    {
+      "instanceId": "a111...",
+      "status": "error",
+      "data": null,
+      "error": {
+        "code": "NOT_FOUND",
+        "message": "Path '/not/exist' not found or not a supported workspace root on instance 'a111...'",
+        "details": { "attemptedPath": "/not/exist" }
+      },
+      "elapsedMs": 30
+    }
+  ],
+  "summary": { "requested": 1, "succeeded": 0, "failed": 1 }
+}
+```
+
+3) Already open (incompatible mode)
+Command:
+- `brokkctl projects open --instance b222... --path /home/alice/project-a --create-if-missing -o json`
+
+Output:
+```json
+{
+  "requestId": "req-3",
+  "results": [
+    {
+      "instanceId": "b222...",
+      "status": "error",
+      "data": null,
+      "error": {
+        "code": "ALREADY_OPEN",
+        "message": "Project is already open in read-only mode on this instance.",
+        "details": { "currentMode": "read-only", "requestedMode": "read-write" }
+      },
+      "elapsedMs": 5
+    }
+  ],
+  "summary": { "requested": 1, "succeeded": 0, "failed": 1 }
+}
+```
+
+4) Fan-out open with mixed outcomes
+Command:
+- `brokkctl projects open --all --path /shared/repo -o json --best-effort`
+
+Output:
+```json
+{
+  "requestId": "req-4",
+  "summary": { "requested": 3, "succeeded": 2, "failed": 1 },
+  "results": [
+    {
+      "instanceId": "a111...",
+      "status": "ok",
+      "data": { "projectId": "p-123", "path": "/shared/repo", "openedAtMs": 1690003000000 },
+      "error": null
+    },
+    {
+      "instanceId": "b222...",
+      "status": "ok",
+      "data": { "projectId": "p-555", "path": "/shared/repo", "openedAtMs": 1690003000100 },
+      "error": null
+    },
+    {
+      "instanceId": "c333...",
+      "status": "error",
+      "data": null,
+      "error": { "code": "PERMISSION_DENIED", "message": "Access denied to '/shared/repo'", "details": {} }
+    }
+  ],
+  "elapsedMs": 410
+}
+```
+
+Implementation guidance (projects)
+- Normalize paths for grouping and comparison. Prefer platform-canonical absolute paths.
+- Provide both `path`-first and `projectId`-first flows. When `projectId` is provided, require `--instance` to resolve it deterministically (projectId is instance-local).
+- When aggregating `projects list`, group results by normalized `path`. Include the per-instance descriptors under `instances`.
+- For `projects open`, prefer single-instance targeting for predictable behavior in scripts. If `--all` is used, make failure policy explicit via `--fail-fast`/`--best-effort`.
+- Report clear, machine-friendly error codes (NOT_FOUND, ALREADY_OPEN, PERMISSION_DENIED) and include useful `details` for automation.
+
 ## Appendix: Example Shapes
 
 Instance descriptor (discovery)
