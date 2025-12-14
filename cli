@@ -1444,6 +1444,211 @@ Implementation hints
 - For large content, avoid returning full file contents in `context list` by default; offer `--include-content` with explicit opt-in.
 - When supporting multi-instance fan-out, follow the established per-instance `results` + `summary` envelope and map mixed outcomes to `PARTIAL_SUCCESS` exit code `4`.
 
+## History commands — specification
+
+Purpose
+- Provide a machine-friendly, deterministic representation of session/output history produced by Brokk instances (LLM transcripts, task events, notifications, diffs, and related output).
+- Support both paged retrieval (`history get`) and streaming/tailing (`history tail --follow`) with NDJSON for tooling friendliness.
+- Define multi-instance aggregation and per-instance cursor semantics so automation can tail across multiple instances deterministically and resume without missing or duplicating events.
+
+Terminology
+- history entry / event: a single recorded output item (LLM text block, executor event, notification, diff, etc.) emitted by an instance and stored in session history.
+- sequence: monotonically-increasing integer sequence the instance assigns to events for a given session (instance-scoped).
+- cursor: opaque token provided by the server that encodes the resume position for continued paging or tailing. For multi-instance tails, clients will maintain one cursor per instance.
+- NDJSON event line: a single JSON object per line for streaming/tail mode.
+
+Canonical history entry shape (single event)
+- Each history event returned in `-o json` (non-streaming) or as an NDJSON line (streaming) SHOULD follow this shape:
+
+{
+  "instanceId": "550e8400-e29b-41d4-a716-446655440000",
+  "sessionId": "s-123",
+  "sequence": 12345,
+  "createdAtMs": 1690005000000,
+  "eventType": "assistant.output|user.input|job.event|notification|diff|file.patch",
+  "author": "assistant|user|system",
+  "text": "Partial or full textual output (may be null for structured events)",
+  "payload": { /* optional structured event data, e.g., { "jobId": "j-1", "phase": "planning", ... } */ },
+  "tags": ["stdout","final"],
+  "metadata": { "language":"java", "model":"gpt-4o-mini" },
+  "cursor": "opaque-instance-cursor-token"
+}
+
+Field notes
+- `instanceId` (string): origin instance (always present in multi-instance contexts).
+- `sessionId` (string|null): session this event belongs to; null for global/system events.
+- `sequence` (number): strictly monotonic integer assigned by the instance per session (or per-instance if session-scoped sequences are not available); useful for ordering and resumption.
+- `createdAtMs` (number): epoch ms timestamp of the event.
+- `eventType` (string): coarse event classification (enumerated values recommended).
+- `text` (string|null): human-usable textual portion; servers may chunk very long outputs across multiple events.
+- `payload` (object|null): structured event data for non-text events (job signals, diffs, diagnostics).
+- `cursor` (string): server-supplied opaque resume token representing the position immediately after this event (useful for tail and subsequent `history get` calls).
+
+history get — semantics & paging
+- Purpose: fetch a bounded page of historical events for a given session (or project/global scope when supported).
+- Inputs/common flags:
+  - `--instance <selector>` (single-instance recommended; `--all` supported for aggregation).
+  - `--session-id <id>` (required when scoping to a session).
+  - `--from-seq <n>` (inclusive start sequence) OR `--since-ms <ms>` (inclusive start timestamp). If omitted, server returns most-recent page.
+  - `--limit <n>` (page size, default: 100, max: server-defined).
+  - `--cursor <opaque-token>`: resume token previously returned by the server (preferred for correctness).
+  - `--order asc|desc` (optional; default: asc by sequence).
+  - `--event-type <...>` and `--tag <...>` filters (optional).
+  - `--request-id`, `--timeout`, `--auth-token`, `--format`.
+
+- Pagination model:
+  - Cursor-based paging is the recommended default: server returns `nextCursor` that clients can pass to fetch the next page. Cursor encodes both sequence and server-side pagination state.
+  - Additionally support limit + from-seq/from-ms for convenience, but `cursor` is authoritative for resumption.
+  - When `order=asc` and `cursor` points to position P, server returns events with sequence > P (or timestamp > P) up to `limit`. When `order=desc`, semantics reverse.
+
+- Non-streaming response (JSON mode)
+Top-level envelope:
+
+{
+  "requestId": "uuid",
+  "summary": { "returned": 3, "requested": 3 },
+  "events": [ /* array of history entry objects as above (ordered per `order`) */ ],
+  "nextCursor": "opaque-next-cursor-or-null",
+  "elapsedMs": 18
+}
+
+- Edge cases:
+  - If no events exist, `events` is empty and `nextCursor` is null.
+  - `nextCursor == null` signals end-of-history for the requested window.
+
+history tail — streaming semantics (`--follow`)
+- Purpose: stream (tail) new history events as they are produced by an instance. Use NDJSON for line-delimited streaming so tools can parse incrementally.
+- Inputs:
+  - `--instance <selector>` or `--all`
+  - `--session-id <id>` (session-scoped tail)
+  - `--cursor <opaque-token>` or `--since-seq <n>` / `--since-ms <ms>`: starting position; when omitted client receives new events only.
+  - `--request-id`, `--timeout`, `--auth-token`, `--format ndjson`
+  - `--follow`: enable streaming (server returns NDJSON).
+- Behavior:
+  - Server responds with one NDJSON object per event line. Each line is a self-contained event envelope (see canonical history entry shape). Events include `cursor` so the client can persist resume points.
+  - Servers SHOULD periodically emit heartbeat lines (e.g., `{ "type":"heartbeat", "nowMs": ... }`) or SSE comments in long idle periods to keep connections alive; chaseable by connection-level semantics.
+  - On connection close (client disconnect or server restart) the client may resume by issuing `history tail --cursor <last-cursor-per-instance>` for each instance it is following.
+
+NDJSON line shapes
+- Event line:
+{ "requestId":"...", "instanceId":"a111...", "sessionId":"s-1", "sequence": 100, "createdAtMs": 1690006000000, "eventType":"assistant.output", "text":"Partial reply", "payload":null, "cursor":"inst:a111:seq:100" }
+
+- Control line (heartbeats / info):
+{ "requestId":"...", "type":"heartbeat", "nowMs":1690006005000 }
+
+Multi-instance aggregation rules
+- For `--all` non-streaming `history get`:
+  - Return an aggregated envelope with `summary` and `events` array containing per-event `instanceId`. Ordering is by `createdAtMs` then by `instanceId` then `sequence` to make ordering deterministic across instances; but clients MUST treat per-instance sequence as authoritative for resumption.
+  - Provide `nextCursors` map when `cursor`-style pagination is used across instances:
+
+{
+  "requestId": "uuid",
+  "summary": { "returned": 6, "requested": 6 },
+  "events": [ ... ],
+  "nextCursors": { "a111...": "cursor-a111:200", "b222...": "cursor-b222:150" },
+  "elapsedMs": 50
+}
+
+- For `--all --follow` (tail across multiple instances):
+  - The server SHOULD stream events as they arrive from any instance, interleaving them by arrival time. Each event line MUST include `instanceId`, `sequence`, and `cursor`.
+  - Clients MUST maintain one cursor per instance. On reconnect or resume, clients supply a per-instance cursor map. For example, the client may pass `--cursor-file` or multiple `--cursor instanceId=opaqueCursor` parameters; the exact CLI parameterization is an implementation detail but the protocol must support per-instance cursors.
+  - When resuming, servers MUST honor the per-instance cursor values to avoid duplicates and should provide the first event with sequence > the provided cursor.
+
+Per-instance cursors in aggregated responses
+- For aggregated `history get`/pagination and for `history tail` resumability, servers SHOULD include `nextCursors` or include `cursor` on each event line. Clients should persist the last-seen cursor for each instance for reliable resume.
+
+Example: `history get` (single-instance)
+Command:
+- brokkctl history get --instance a111... --session-id s-1 --limit 3 -o json
+
+Response:
+{
+  "requestId": "req-100",
+  "summary": { "returned": 3, "requested": 3 },
+  "events": [
+    {
+      "instanceId": "a111...",
+      "sessionId": "s-1",
+      "sequence": 100,
+      "createdAtMs": 1690006000000,
+      "eventType": "user.input",
+      "author": "user",
+      "text": "Search for helper method",
+      "payload": null,
+      "tags": ["stdin"],
+      "metadata": {},
+      "cursor": "inst:a111:seq:100"
+    },
+    {
+      "instanceId": "a111...",
+      "sessionId": "s-1",
+      "sequence": 101,
+      "createdAtMs": 1690006001000,
+      "eventType": "assistant.output",
+      "author": "assistant",
+      "text": "I found two candidates...",
+      "payload": null,
+      "tags": ["stdout","partial"],
+      "metadata": {},
+      "cursor": "inst:a111:seq:101"
+    },
+    {
+      "instanceId": "a111...",
+      "sessionId": "s-1",
+      "sequence": 102,
+      "createdAtMs": 1690006002000,
+      "eventType": "assistant.output",
+      "author": "assistant",
+      "text": "Full patch applied in file X",
+      "payload": { "jobId":"j-9","status":"complete" },
+      "tags": ["stdout","final"],
+      "metadata": {},
+      "cursor": "inst:a111:seq:102"
+    }
+  ],
+  "nextCursor": "inst:a111:seq:102",
+  "elapsedMs": 12
+}
+
+Example: tailing across `--all` with per-instance cursors (NDJSON)
+- Client starts with cursors for instances `a111...` and `b222...` obtained earlier, then tails:
+
+Client invocation (conceptual):
+- brokkctl history tail --all --session-id s-1 --cursor a111=inst:a111:seq:102 --cursor b222=inst:b222:seq:148 --follow -o ndjson
+
+Server NDJSON stream (each line is a JSON object):
+
+Line 1 (event from a111):
+{ "requestId":"req-tail-1","instanceId":"a111...","sessionId":"s-1","sequence":103,"createdAtMs":1690006003000,"eventType":"assistant.output","author":"assistant","text":"Continuing...", "payload":null, "tags":["stdout"], "cursor":"inst:a111:seq:103" }
+
+Line 2 (event from b222):
+{ "requestId":"req-tail-1","instanceId":"b222...","sessionId":"s-1","sequence":149,"createdAtMs":1690006003500,"eventType":"assistant.output","author":"assistant","text":"Found a TODO in file Y", "payload":null, "tags":["stdout"], "cursor":"inst:b222:seq:149" }
+
+Line 3 (heartbeat/info):
+{ "requestId":"req-tail-1","type":"heartbeat","nowMs":1690006005000 }
+
+Line 4 (event from a111):
+{ "requestId":"req-tail-1","instanceId":"a111...","sessionId":"s-1","sequence":104,"createdAtMs":1690006007000,"eventType":"job.event","author":"system","text":null,"payload":{"jobId":"j-10","phase":"planning"},"cursor":"inst:a111:seq:104" }
+
+- On each line the client persists the `cursor` value for the corresponding `instanceId`. If the connection drops, the client reconnects and provides the last seen cursor for each instance so that the server resumes after those positions.
+
+Resumption protocol (recommended)
+- Persist last-seen cursor per instance.
+- On reconnect, call `history tail --all --cursor <instanceId>=<cursor>` for each instance.
+- Servers must return only events with sequence > provided cursor for that instance.
+
+Error handling in streaming
+- If an instance becomes unreachable during an aggregated tail:
+  - The server SHOULD emit an NDJSON error envelope for that instance: { "requestId":"...","instanceId":"b222...","error":{ "code":"TRANSPORT_ERROR","message":"connection lost","details":{} } }
+  - The overall TCP/HTTP connection remains open if other instances still stream events; clients may choose to retry probes for unreachable instances separately.
+- If `--fail-fast` is configured for multi-instance tails, client behavior governs whether to close other streams on first error. Default safe behavior is best-effort (keep streaming available events).
+
+Best practices & implementation hints
+- Prefer cursor-based resumption for correctness. Sequence numbers alone are useful for ordering but cursor tokens can encode server-side state (sharding, truncation).
+- For multi-instance aggregates, always include `instanceId` and `cursor` on each event so clients can resume precisely per-origin.
+- Keep NDJSON lines small and self-contained so line-by-line tools (jq, tail -f) work well.
+- Servers may truncate history to a retention window; cursors that fall before the window should cause the server to respond with a `cursorExpired` error and a suggested start position (e.g., `from-seq` or earliest available cursor).
+
 ## Appendix: Example Shapes
 
 Instance descriptor (discovery)
