@@ -12,6 +12,7 @@ import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.util.ContextSizeGuard;
 import ai.brokk.project.IProject;
 import ai.brokk.util.FileManagerUtil;
+import ai.brokk.util.PathNormalizer;
 import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
@@ -346,10 +347,13 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             Path rootAbs = project.getRoot().toAbsolutePath().normalize();
             Path dirAbs = targetDirectory.toPath().toAbsolutePath().normalize();
             Path rel = rootAbs.relativize(dirAbs).normalize();
-            if (rel.getNameCount() > 0) {
+            if (rel.getNameCount() > 0) { // avoid toggling the project root
                 String relStr = rel.toString();
                 boolean effectiveExcluded = isUnderExcludedDirectory(relStr);
-                boolean directlyExcluded = isDirectoryExcluded(relStr);
+                // Canonicalize relStr to align with settings' persistence format
+                String canonicalRel =
+                        PathNormalizer.canonicalizeForProject(relStr, project.getMasterRootPathForConfig());
+                boolean directlyExcluded = isDirectoryExcluded(canonicalRel);
                 String toggleLabel =
                         effectiveExcluded ? "Include in Code Intelligence" : "Exclude from Code Intelligence";
 
@@ -360,18 +364,20 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                     toggleCiItem.setToolTipText("Excluded via parent folder '" + ancestor + "'");
                 } else {
                     toggleCiItem.addActionListener(ev -> {
-                        final String finalRelStr = relStr;
+                        final String finalCanonicalRel = canonicalRel;
                         final boolean isExcludedNow = directlyExcluded;
                         contextManager.submitContextTask(() -> {
                             try {
                                 var currentDetails = project.loadBuildDetails();
                                 Set<String> excludesSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-                                excludesSet.addAll(currentDetails.excludedDirectories());
+                                // Canonicalize existing entries to ensure remove/add works across separators
+                                excludesSet.addAll(PathNormalizer.canonicalizeAllForProject(
+                                        currentDetails.excludedDirectories(), project.getMasterRootPathForConfig()));
 
                                 if (isExcludedNow) {
-                                    excludesSet.remove(finalRelStr);
+                                    excludesSet.remove(finalCanonicalRel);
                                 } else {
-                                    excludesSet.add(finalRelStr);
+                                    excludesSet.add(finalCanonicalRel);
                                 }
 
                                 var newDetails = new BuildAgent.BuildDetails(
@@ -384,8 +390,8 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                                 project.saveBuildDetails(newDetails);
 
                                 SwingUtilities.invokeLater(() -> {
-                                    ((DefaultTreeModel) getModel()).nodeStructureChanged((DefaultMutableTreeNode)
-                                            getModel().getRoot());
+                                    ((DefaultTreeModel) getModel()).nodeStructureChanged(
+                                            (DefaultMutableTreeNode) getModel().getRoot());
                                     repaint();
                                 });
                             } catch (Exception ex) {
@@ -886,33 +892,42 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
     }
 
     private boolean isDirectoryExcluded(String relativePath) {
-        Set<String> excludedDirs = project.getExcludedDirectories();
-        return excludedDirs.contains(relativePath);
+            String candidate = PathNormalizer.canonicalizeForProject(relativePath, project.getMasterRootPathForConfig());
+            Set<String> excludedDirs = project.getExcludedDirectories();
+            for (String excluded : excludedDirs) {
+                    String ex = PathNormalizer.canonicalizeForProject(excluded, project.getMasterRootPathForConfig());
+                    if (candidate.equals(ex)) {
+                            return true;
+                    }
+            }
+            return false;
     }
 
     private boolean isUnderExcludedDirectory(String relativePath) {
-        Set<String> excludedDirs = project.getExcludedDirectories();
-        String separator = File.separator;
-        for (String excluded : excludedDirs) {
-            if (relativePath.equals(excluded) || relativePath.startsWith(excluded + separator)) {
-                return true;
+            String rp = PathNormalizer.canonicalizeForProject(relativePath, project.getMasterRootPathForConfig());
+            Set<String> excludedDirs = project.getExcludedDirectories();
+            for (String excluded : excludedDirs) {
+                    String ex = PathNormalizer.canonicalizeForProject(excluded, project.getMasterRootPathForConfig());
+                    if (rp.equals(ex) || rp.startsWith(ex + "/")) {
+                            return true;
+                    }
             }
-        }
-        return false;
+            return false;
     }
 
     private @Nullable String findExcludingAncestor(String relativePath) {
-        Set<String> excludedDirs = project.getExcludedDirectories();
-        String separator = File.separator;
-        String best = null;
-        for (String excluded : excludedDirs) {
-            if (relativePath.equals(excluded) || relativePath.startsWith(excluded + separator)) {
-                if (best == null || excluded.length() > best.length()) {
-                    best = excluded;
-                }
+            String rp = PathNormalizer.canonicalizeForProject(relativePath, project.getMasterRootPathForConfig());
+            Set<String> excludedDirs = project.getExcludedDirectories();
+            String best = null;
+            for (String excluded : excludedDirs) {
+                    String ex = PathNormalizer.canonicalizeForProject(excluded, project.getMasterRootPathForConfig());
+                    if (rp.equals(ex) || rp.startsWith(ex + "/")) {
+                            if (best == null || ex.length() > best.length()) {
+                                    best = ex;
+                            }
+                    }
             }
-        }
-        return best;
+            return best;
     }
 
     /**
