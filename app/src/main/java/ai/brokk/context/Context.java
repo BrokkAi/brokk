@@ -1205,7 +1205,7 @@ public class Context {
      * Refreshes fragments whose source files intersect the provided set.
      *
      * @param maybeChanged     set of project files that may have changed
-     * @param codeAgentChanges
+     * @param action description string for Activity history
      * @return a new context with refreshed fragments, or this context if no changes occurred
      */
     @Blocking
