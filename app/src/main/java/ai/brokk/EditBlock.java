@@ -869,6 +869,14 @@ public class EditBlock {
             return file;
         }
 
+        // 1b. Authoritative path rule: if the provided name contains directories, do not fuzzy-match.
+        // Treat as "not found" so the caller can create the file explicitly.
+        final String normalizedStripped = stripped.replace('\\', '/');
+        if (normalizedStripped.contains("/")) {
+            throw new SymbolNotFoundException(
+                    "Filename '%s' could not be resolved to an existing file.".formatted(filename));
+        }
+
         // 2. Check editable files (case-insensitive basename match), then narrow by provided path if ambiguous
         var editableMatches = ctx.getAllFragmentsInDisplayOrder().stream()
                 .flatMap(f -> f.files().join().stream())
@@ -897,7 +905,6 @@ public class EditBlock {
 
         // 3. Check tracked files in git repo (substring match)
         var repo = cm.getRepo();
-        final String normalizedStripped = stripped.replace('\\', '/');
         var trackedMatches = repo.getTrackedFiles().stream()
                 .filter(f -> f.toString().replace('\\', '/').contains(normalizedStripped))
                 .toList();
