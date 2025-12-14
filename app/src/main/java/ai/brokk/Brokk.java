@@ -42,6 +42,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import javafx.application.Platform;
+import ai.brokk.ctl.CtlConfigPaths;
+import ai.brokk.ctl.InstanceRegistry;
+import java.util.UUID;
+import java.io.IOException;
+import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.Border;
 import org.apache.logging.log4j.LogManager;
@@ -82,6 +87,13 @@ public class Brokk {
 
     public static final String ICON_RESOURCE = "/brokk-icon.png";
     private static final SystemScaleProvider systemScaleProvider = new SystemScaleProviderImpl();
+
+    // Instance registry fields
+    private static @Nullable InstanceRegistry INSTANCE_REGISTRY = null;
+    private static final Object INSTANCE_REGISTRY_LOCK = new Object();
+    private static final long INSTANCE_REGISTRY_HEARTBEAT_MS = 1_000L;
+    private static final String INSTANCE_LISTEN_ADDR = "inprocess";
+    private static String INSTANCE_ID = null;
 
     // Helper record for argument parsing result
     private record ParsedArgs(boolean noProjectFlag, boolean noKeyFlag, @Nullable String projectPathArg) {}
@@ -389,6 +401,8 @@ public class Brokk {
                             } catch (Throwable t) {
                                 logger.debug("Failed to shutdown fragment executor in shutdown hook", t);
                             }
+                            // Best-effort stop instance registry on JVM shutdown
+                            stopInstanceRegistry();
                         },
                         "brokk-shutdown-hook"));
 
@@ -400,6 +414,13 @@ public class Brokk {
         BrokkConfigPaths.attemptMigration();
 
         setupSystemPropertiesAndIcon();
+
+        // Start instance registry early (best-effort)
+        try {
+            startInstanceRegistry();
+        } catch (Exception e) {
+            logger.warn("Failed to start instance registry: {}", e.getMessage(), e);
+        }
 
         if (MainProject.initializeOomFlag()) {
             logger.warn("Detected OutOfMemoryError from last session, clearing active sessions.");
@@ -482,74 +503,75 @@ public class Brokk {
     }
 
     /**
-     * Shows a modal dialog letting the user pick a project and opens it. If the user cancels the dialog, no project is
-     * opened.
-     *
-     * @param owner The parent frame (may be {@code null}).
-     * @return a CompletableFuture that completes with true if a project was opened, false otherwise.
+     * Starts the InstanceRegistry singleton if not already started.
      */
-    public static CompletableFuture<Boolean> promptAndOpenProject(@Nullable Frame owner) {
-        SwingUtil.runOnEdt(Brokk::hideSplashScreen); // Ensure splash screen is hidden before dialog
-        var selectedPathOpt =
-                requireNonNull(SwingUtil.runOnEdt(() -> OpenProjectDialog.showDialog(owner), Optional.<Path>empty()));
-
-        if (selectedPathOpt.isEmpty()) {
-            return CompletableFuture.completedFuture(false);
-        }
-
-        return new OpenProjectBuilder(selectedPathOpt.get()).open().exceptionally(ex -> {
-            logger.error("Failed to open project selected via dialog: {}", selectedPathOpt.get(), ex);
-            return false;
-        });
-    }
-
-    private static void showSplashScreen() {
-        assert SwingUtilities.isEventDispatchThread();
-        if (splashScreen != null) {
-            splashScreen.dispose(); // Should not happen if logic is correct
-        }
-        splashScreen = new JWindow();
-        Chrome.applyIcon(splashScreen); // Sets window icon for taskbar if applicable
-
-        var panel = new JPanel(new BorderLayout(15, 0)); // Horizontal gap
-        Border lineBorder = BorderFactory.createLineBorder(Color.GRAY);
-        Border emptyBorder = BorderFactory.createEmptyBorder(30, 50, 30, 50); // Padding
-        panel.setBorder(BorderFactory.createCompoundBorder(lineBorder, emptyBorder));
-
-        var iconUrl = Brokk.class.getResource(ICON_RESOURCE);
-        if (iconUrl != null) {
-            var icon = new ImageIcon(iconUrl);
-            // Scale icon to a reasonable size for splash, e.g., 64x64
-            Image scaledImage = icon.getImage().getScaledInstance(64, 64, Image.SCALE_SMOOTH);
-            JLabel iconLabel = new JLabel(new ImageIcon(scaledImage)); // Alignment handled by BorderLayout
-            panel.add(iconLabel, BorderLayout.WEST);
-        }
-
-        var label = new JLabel("Brokk " + BuildInfo.version, SwingConstants.LEFT); // Align text left
-        label.setFont(label.getFont().deriveFont(Font.BOLD, 18f)); // Larger font
-        panel.add(label, BorderLayout.CENTER);
-
-        splashScreen.add(panel);
-        splashScreen.pack();
-        splashScreen.setLocationRelativeTo(null); // Center on screen
-        splashScreen.setVisible(true);
-        splashScreen.toFront(); // Ensure it's on top
-    }
-
-    private static void hideSplashScreen() {
-        assert SwingUtilities.isEventDispatchThread();
-        if (splashScreen != null) {
-            splashScreen.setVisible(false);
-            splashScreen.dispose();
-            splashScreen = null;
+    public static void startInstanceRegistry() {
+        synchronized (INSTANCE_REGISTRY_LOCK) {
+            if (INSTANCE_REGISTRY != null) return;
+            try {
+                INSTANCE_ID = UUID.randomUUID().toString();
+                long pidLong = ProcessHandle.current().pid();
+                Integer pid = (pidLong <= Integer.MAX_VALUE) ? (int) pidLong : null;
+                CtlConfigPaths cfg = CtlConfigPaths.defaults();
+                InstanceRegistry reg = new InstanceRegistry(cfg, INSTANCE_ID, pid, INSTANCE_LISTEN_ADDR,
+                        List.of(), BuildInfo.version, INSTANCE_REGISTRY_HEARTBEAT_MS);
+                try {
+                    reg.start();
+                    INSTANCE_REGISTRY = reg;
+                    logger.info("Started InstanceRegistry with id {}", INSTANCE_ID);
+                    // initial projects update
+                    updateInstanceRegistryProjects();
+                } catch (IOException ioe) {
+                    logger.warn("Failed to start InstanceRegistry: {}", ioe.getMessage(), ioe);
+                }
+            } catch (Exception e) {
+                logger.warn("Failed to initialize instance registry: {}", e.getMessage(), e);
+            }
         }
     }
 
-    private static boolean isValidDirectory(Path path) {
-        try {
-            return Files.isDirectory(path.toRealPath());
-        } catch (IOException e) {
-            return false;
+    /**
+     * Stop the InstanceRegistry singleton if running.
+     */
+    public static void stopInstanceRegistry() {
+        synchronized (INSTANCE_REGISTRY_LOCK) {
+            if (INSTANCE_REGISTRY == null) return;
+            try {
+                INSTANCE_REGISTRY.stop();
+            } catch (Exception e) {
+                logger.warn("Error stopping InstanceRegistry: {}", e.getMessage(), e);
+            } finally {
+                INSTANCE_REGISTRY = null;
+                logger.info("InstanceRegistry stopped");
+            }
+        }
+    }
+
+    /**
+     * Recompute the currently open projects from openProjectWindows and update the InstanceRegistry record.
+     */
+    public static void updateInstanceRegistryProjects() {
+        synchronized (INSTANCE_REGISTRY_LOCK) {
+            if (INSTANCE_REGISTRY == null) return;
+            try {
+                List<String> projects = openProjectWindows.values().stream()
+                        .map(ch -> {
+                            try {
+                                var p = ch.getContextManager().getProject().getRoot().toAbsolutePath().normalize();
+                                return p.toString();
+                            } catch (Exception e) {
+                                return null;
+                            }
+                        })
+                        .filter(Objects::nonNull)
+                        .map(String::valueOf)
+                        .distinct()
+                        .sorted()
+                        .collect(Collectors.toList());
+                INSTANCE_REGISTRY.updateProjects(projects);
+            } catch (IOException e) {
+                logger.warn("Failed to update InstanceRegistry projects: {}", e.getMessage(), e);
+            }
         }
     }
 
@@ -566,6 +588,9 @@ public class Brokk {
                 "Data Retention Policy set to: " + contextManager.getProject().getDataRetentionPolicy());
 
         openProjectWindows.put(projectPath, io);
+
+        // Update InstanceRegistry projects immediately after window is registered
+        updateInstanceRegistryProjects();
 
         io.getFrame().addWindowListener(new WindowAdapter() {
             @Override
@@ -892,6 +917,9 @@ public class Brokk {
         }
         logger.debug("Removed project from open windows map: {}", projectPath);
 
+        // Update registry projects after removal
+        updateInstanceRegistryProjects();
+
         if (reOpeningProjects.contains(projectPath)) {
             CompletableFuture.runAsync(() -> MainProject.removeFromOpenProjectsListAndClearActiveSession(projectPath))
                     .exceptionally(ex -> {
@@ -942,6 +970,7 @@ public class Brokk {
             } catch (Throwable t) {
                 logger.debug("Error during fragment executor shutdown on window close", t);
             }
+            stopInstanceRegistry();
             System.exit(0);
         } else {
             // Other projects are still open or other projects are pending reopening.
@@ -1232,7 +1261,91 @@ public class Brokk {
             } catch (Throwable t) {
                 logger.debug("Error during fragment executor shutdown at exit()", t);
             }
+            // Stop registry before exit
+            stopInstanceRegistry();
             System.exit(0);
         }
+    }
+
+    /** Display a simple splash screen (best-effort). Safe to call multiple times. */
+    public static void showSplashScreen() {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                if (splashScreen != null) {
+                    return;
+                }
+                splashScreen = new JWindow();
+                var content = new JPanel(new BorderLayout());
+                JLabel lbl = new JLabel("<html><div style='text-align:center'>Brokk is starting...</div></html>", SwingConstants.CENTER);
+                lbl.setBorder(BorderFactory.createEmptyBorder(16, 32, 16, 32));
+                content.add(lbl, BorderLayout.CENTER);
+                splashScreen.getContentPane().add(content);
+                splashScreen.pack();
+                splashScreen.setLocationRelativeTo(null);
+                splashScreen.setVisible(true);
+            } catch (Throwable t) {
+                logger.debug("Failed to show splash screen (continuing without): {}", t.getMessage());
+            }
+        });
+    }
+
+    /** Hide splash screen if visible. */
+    public static void hideSplashScreen() {
+        SwingUtilities.invokeLater(() -> {
+            try {
+                if (splashScreen != null) {
+                    splashScreen.setVisible(false);
+                    splashScreen.dispose();
+                    splashScreen = null;
+                }
+            } catch (Throwable t) {
+                logger.debug("Failed to hide splash screen: {}", t.getMessage());
+            }
+        });
+    }
+
+    /**
+     * Lightweight validity check for a candidate project directory.
+     * Returns true if path is non-null and points to an existing directory.
+     */
+    public static boolean isValidDirectory(@Nullable Path p) {
+        if (p == null) return false;
+        try {
+            return Files.isDirectory(p);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Prompt the user to choose a project directory and open it. Returns a CompletableFuture that completes with
+     * true if a project was opened.
+     */
+    public static CompletableFuture<Boolean> promptAndOpenProject(@Nullable Frame owner) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                var selected = OpenProjectDialog.showDialog(owner);
+                if (selected.isPresent()) {
+                    Path p = selected.get();
+                    try {
+                        return new OpenProjectBuilder(p).open().get();
+                    } catch (Exception e) {
+                        logger.error("Failed to open project selected from prompt: {}", e.getMessage(), e);
+                        return false;
+                    }
+                }
+                return false;
+            } catch (Throwable t) {
+                logger.error("Error during promptAndOpenProject", t);
+                return false;
+            }
+        });
+    }
+
+    /**
+     * Convenience overload for callers that supply a JFrame reference.
+     */
+    public static CompletableFuture<Boolean> promptAndOpenProject(JFrame owner) {
+        return promptAndOpenProject((Frame) owner);
     }
 }
