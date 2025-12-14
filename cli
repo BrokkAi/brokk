@@ -89,12 +89,72 @@ Discovery semantics:
   - `project` (if available)
   - `brokkctlVersion` (protocol version the instance speaks)
   - `lastSeenMs` (timestamp hint for stability)
-- If multiple instances are found and no `--instance` selector is provided:
-  - Interactive TTY: prompt the user to choose
-  - Non-interactive: fail deterministically with an error asking the caller to specify `--instance` or `--auto-select`
-- Fan-out semantics:
-  - `instances list` is naturally fan-out.
-  - Operational commands target a single instance by default. If a command supports explicit multi-instance execution, results must include per-instance entries and a top-level summary.
+
+Registry location
+- The instance registry is per-user and uses the platform's conventional user config directory. Implementations SHOULD store instance records as individual files in a directory to avoid write-contention and to allow atomic add/remove. Recommended locations:
+  - Linux: `$XDG_CONFIG_HOME/brokk/instances/` (fallback: `$HOME/.config/brokk/instances/`)
+  - macOS: `~/Library/Application Support/Brokk/instances/`
+  - Windows: `%APPDATA%\Brokk\instances\`
+- Each instance writes a single file named `<instanceId>.json` into the registry directory. Files MUST be written atomically (write temporary file then rename) to avoid partial reads.
+
+Record schema
+- Each `<instanceId>.json` file is a JSON object with the following fields:
+  - `instanceId` (string, required): stable instance identifier (UUID recommended).
+  - `pid` (number|null): process id of the instance when available.
+  - `listenAddr` (string, required): transport address (e.g., `127.0.0.1:54321` or `/tmp/brokk.sock`).
+  - `project` (string|null): optional project/workspace root path.
+  - `brokkctlVersion` (string): protocol version the instance advertises (semantic-ish `MAJOR.MINOR.PATCH`).
+  - `supportedCapabilities` (optional array): capability descriptors the instance returns.
+  - `startedAt` (number): epoch ms when the instance started.
+  - `lastSeenMs` (number): epoch ms of the most recent heartbeat/update from the instance.
+  - `platform` (optional string): short platform hint (e.g., `linux`, `darwin`, `windows`).
+  - `listenProtocol` (optional string): e.g., `http`, `unix`, `namedpipe`.
+- Example file name: `550e8400-e29b-41d4-a716-446655440000.json`
+
+Heartbeat and TTL
+- Instances MUST update `lastSeenMs` periodically (heartbeat). A reasonable default heartbeat interval is 5 seconds.
+- `brokkctl` and other readers SHOULD consider an entry stale if `now - lastSeenMs > TTL`. Recommended default TTL: 30 seconds.
+- On clean shutdown the instance SHOULD remove its file from the registry directory. Files left behind (unremoved) will be treated as stale and will be pruned.
+
+Cleanup rules
+- Because instances may crash or be killed, registry cleanup is cooperative:
+  - Instances remove their file on clean exit.
+  - Readers (like `brokkctl`) SHOULD ignore stale entries older than TTL.
+  - `brokkctl` MAY expose a `instances prune` command that removes stale files (only when run by the same user who owns the registry directory).
+  - Implementations SHOULD provide safe atomic deletion (unlink) and avoid assuming permission to modify other users' entries.
+- Filesystem semantics:
+  - Use one file per instance to allow simple atomic create/replace/delete semantics.
+  - When updating, write to a temporary file and rename to replace the prior file atomically.
+
+Selection rules and CLI flags
+- `--instance <selector>`: select a specific instance. The selector formats supported SHOULD include:
+  - Instance ID (UUID): `550e84...`
+  - PID selector: `pid:12345`
+  - Listen address: `addr:127.0.0.1:54321` or raw `127.0.0.1:54321`
+  - Socket path: `socket:/tmp/brokk.sock`
+- `--all`: target all non-stale instances (fan-out). When used, results MUST be an aggregated shape with per-instance entries and a summary.
+- `--auto-select`: non-interactive, deterministic auto-selection. When present, choose the instance using this deterministic priority:
+  1. The sole non-stale instance, if exactly one exists.
+  2. Instance with most recent `lastSeenMs`.
+  3. Tie-breaker: highest `pid` (numeric) to make selection deterministic.
+- Default behavior (no selector and no `--all`):
+  - If zero non-stale instances found: return a deterministic error recommending `--instance` or `--auto-select`.
+  - If exactly one non-stale instance found: select it automatically.
+  - If multiple non-stale instances and running in an interactive TTY: prompt the user to choose.
+  - If multiple and non-interactive (e.g., scripts, CI): fail deterministically and require `--instance`, `--all`, or `--auto-select`.
+- Interaction semantics:
+  - Interactive prompts MUST include `instanceId`, `pid`, `listenAddr`, `project`, and `brokkctlVersion` to help the user choose.
+
+Fan-out semantics and aggregation
+- `instances list` is naturally fan-out and returns raw discovery records.
+- Operational commands target a single instance by default. If a command supports explicit multi-instance execution, results MUST include:
+  - `summary`: { requested, succeeded, failed }
+  - `results`: [{ instanceId, status, data?, error? }, ...]
+- Mixed outcomes map to exit code `3` (partial failure) when `-o json` is used; otherwise the CLI should surface a clear message and a non-zero exit code.
+
+Security:
+- The CLI must accept `--auth-token` and send `Authorization: Bearer <token>` to secured endpoints.
+- Tokens are local-only by default; remote deployments require appropriate operational security.
 
 Aggregation:
 - For fan-out calls, return:
