@@ -4,6 +4,7 @@ import ai.brokk.AnalyzerWrapper;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.TrackedFileChangeListener;
+import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
@@ -11,7 +12,6 @@ import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.util.ContextSizeGuard;
 import ai.brokk.project.IProject;
 import ai.brokk.util.FileManagerUtil;
-import ai.brokk.agents.BuildAgent;
 import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
@@ -211,7 +211,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                 }
             }
 
-            if (!targetFiles.isEmpty()) {
+            if (!targetFiles.isEmpty() || targetDirectoryFile != null) {
                 prepareAndShowContextMenu(e.getX(), e.getY(), targetFiles, bulk, targetDirectoryFile);
             }
         }
@@ -230,16 +230,15 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                     Rectangle bounds = getPathBounds(selectionPaths[0]);
                     if (bounds != null) {
                         var selectedFiles = getSelectedProjectFiles();
-                        if (!selectedFiles.isEmpty()) {
-                            File targetDirFile = null;
-                            DefaultMutableTreeNode node =
-                                    (DefaultMutableTreeNode) selectionPaths[0].getLastPathComponent();
-                            if (node.getUserObject() instanceof ProjectTreeNode treeNode) {
-                                File nf = treeNode.getFile();
-                                if (nf.isDirectory()) {
-                                    targetDirFile = nf;
-                                }
+                        File targetDirFile = null;
+                        DefaultMutableTreeNode node = (DefaultMutableTreeNode) selectionPaths[0].getLastPathComponent();
+                        if (node.getUserObject() instanceof ProjectTreeNode treeNode) {
+                            File nf = treeNode.getFile();
+                            if (nf.isDirectory()) {
+                                targetDirFile = nf;
                             }
+                        }
+                        if (!selectedFiles.isEmpty() || targetDirFile != null) {
                             prepareAndShowContextMenu(
                                     bounds.x,
                                     bounds.y + bounds.height,
@@ -265,9 +264,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             JPopupMenu contextMenu, List<ProjectFile> targetFiles, boolean bulk, @Nullable File targetDirectory) {
         contextMenu.removeAll();
 
-        if (targetFiles.isEmpty()) {
-            return;
-        }
+        boolean hasTargets = !targetFiles.isEmpty();
 
         // Add "Show History" item only for a single file and non-bulk usage
         if (!bulk && targetFiles.size() == 1) {
@@ -276,43 +273,45 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             contextMenu.addSeparator();
         }
 
-        boolean allFilesTracked = project.getRepo().getTrackedFiles().containsAll(targetFiles);
+        if (hasTargets) {
+            boolean allFilesTracked = project.getRepo().getTrackedFiles().containsAll(targetFiles);
 
-        String editLabel = bulk ? "Attach All" : "Attach";
-        String summarizeLabel = bulk ? "Summarize All" : "Summarize";
+            String editLabel = bulk ? "Attach All" : "Attach";
+            String summarizeLabel = bulk ? "Summarize All" : "Summarize";
 
-        JMenuItem editItem = new JMenuItem(editLabel);
-        editItem.addActionListener(ev -> {
-            ContextSizeGuard.checkAndConfirm(targetFiles, chrome, decision -> {
-                if (decision == ContextSizeGuard.Decision.ALLOW) {
-                    contextManager.submitContextTask(() -> contextManager.addFiles(targetFiles));
-                } else if (decision == ContextSizeGuard.Decision.CANCELLED) {
-                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "File addition cancelled");
-                }
-                // BLOCKED case already shows error dialog in checkAndConfirm
-            });
-        });
-        editItem.setEnabled(allFilesTracked);
-        contextMenu.add(editItem);
-
-        boolean canSummarize = anySummarizable(targetFiles);
-        if (canSummarize) {
-            JMenuItem summarizeItem = new JMenuItem(summarizeLabel);
-            summarizeItem.addActionListener(ev -> {
-                if (!contextManager.getAnalyzerWrapper().isReady()) {
-                    contextManager
-                            .getIo()
-                            .systemNotify(
-                                    AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
-                                    AnalyzerWrapper.ANALYZER_BUSY_TITLE,
-                                    JOptionPane.INFORMATION_MESSAGE);
-                    return;
-                }
-                contextManager.submitContextTask(() -> {
-                    contextManager.addSummaries(new HashSet<>(targetFiles), Collections.emptySet());
+            JMenuItem editItem = new JMenuItem(editLabel);
+            editItem.addActionListener(ev -> {
+                ContextSizeGuard.checkAndConfirm(targetFiles, chrome, decision -> {
+                    if (decision == ContextSizeGuard.Decision.ALLOW) {
+                        contextManager.submitContextTask(() -> contextManager.addFiles(targetFiles));
+                    } else if (decision == ContextSizeGuard.Decision.CANCELLED) {
+                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "File addition cancelled");
+                    }
+                    // BLOCKED case already shows error dialog in checkAndConfirm
                 });
             });
-            contextMenu.add(summarizeItem);
+            editItem.setEnabled(allFilesTracked);
+            contextMenu.add(editItem);
+
+            boolean canSummarize = anySummarizable(targetFiles);
+            if (canSummarize) {
+                JMenuItem summarizeItem = new JMenuItem(summarizeLabel);
+                summarizeItem.addActionListener(ev -> {
+                    if (!contextManager.getAnalyzerWrapper().isReady()) {
+                        contextManager
+                                .getIo()
+                                .systemNotify(
+                                        AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
+                                        AnalyzerWrapper.ANALYZER_BUSY_TITLE,
+                                        JOptionPane.INFORMATION_MESSAGE);
+                        return;
+                    }
+                    contextManager.submitContextTask(() -> {
+                        contextManager.addSummaries(new HashSet<>(targetFiles), Collections.emptySet());
+                    });
+                });
+                contextMenu.add(summarizeItem);
+            }
         }
 
         var openInItem = new JMenuItem(FileManagerUtil.fileManagerActionLabel());
@@ -344,153 +343,171 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
 
         // Add include/exclude toggle for Code Intelligence when right-clicking a directory
         if (targetDirectory != null && targetDirectory.isDirectory()) {
-            Path rel = project.getRoot().relativize(targetDirectory.toPath());
-            String relStr = rel.toString();
-            boolean currentlyExcluded = isDirectoryExcluded(relStr);
-            String toggleLabel = currentlyExcluded ? "Include in Code Intelligence" : "Exclude from Code Intelligence";
+            Path rootAbs = project.getRoot().toAbsolutePath().normalize();
+            Path dirAbs = targetDirectory.toPath().toAbsolutePath().normalize();
+            Path rel = rootAbs.relativize(dirAbs).normalize();
+            if (rel.getNameCount() > 0) {
+                String relStr = rel.toString();
+                boolean effectiveExcluded = isUnderExcludedDirectory(relStr);
+                boolean directlyExcluded = isDirectoryExcluded(relStr);
+                String toggleLabel =
+                        effectiveExcluded ? "Include in Code Intelligence" : "Exclude from Code Intelligence";
 
-            JMenuItem toggleCiItem = new JMenuItem(toggleLabel);
-            toggleCiItem.addActionListener(ev -> {
-                final String finalRelStr = relStr;
-                final boolean isExcludedNow = currentlyExcluded;
-                contextManager.submitContextTask(() -> {
+                JMenuItem toggleCiItem = new JMenuItem(toggleLabel);
+                if (effectiveExcluded && !directlyExcluded) {
+                    String ancestor = Objects.requireNonNullElse(findExcludingAncestor(relStr), "(parent)");
+                    toggleCiItem.setEnabled(false);
+                    toggleCiItem.setToolTipText("Excluded via parent folder '" + ancestor + "'");
+                } else {
+                    toggleCiItem.addActionListener(ev -> {
+                        final String finalRelStr = relStr;
+                        final boolean isExcludedNow = directlyExcluded;
+                        contextManager.submitContextTask(() -> {
+                            try {
+                                var currentDetails = project.loadBuildDetails();
+                                Set<String> excludesSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+                                excludesSet.addAll(currentDetails.excludedDirectories());
+
+                                if (isExcludedNow) {
+                                    excludesSet.remove(finalRelStr);
+                                } else {
+                                    excludesSet.add(finalRelStr);
+                                }
+
+                                var newDetails = new BuildAgent.BuildDetails(
+                                        currentDetails.buildLintCommand(),
+                                        currentDetails.testAllCommand(),
+                                        currentDetails.testSomeCommand(),
+                                        excludesSet,
+                                        currentDetails.environmentVariables());
+
+                                project.saveBuildDetails(newDetails);
+
+                                SwingUtilities.invokeLater(() -> {
+                                    ((DefaultTreeModel) getModel()).nodeStructureChanged((DefaultMutableTreeNode)
+                                            getModel().getRoot());
+                                    repaint();
+                                });
+                            } catch (Exception ex) {
+                                logger.error("Error toggling directory exclusion", ex);
+                                SwingUtilities.invokeLater(
+                                        () -> chrome.toolError("Failed to update exclusion: " + ex.getMessage()));
+                            }
+                        });
+                    });
+                }
+                contextMenu.add(toggleCiItem);
+            }
+        }
+
+        if (hasTargets) {
+            contextMenu.addSeparator();
+
+            JMenuItem deleteItem = new JMenuItem(targetFiles.size() == 1 ? "Delete File" : "Delete Files");
+            deleteItem.addActionListener(ev -> {
+                var filesToDelete = targetFiles;
+
+                contextManager.submitExclusiveAction(() -> {
                     try {
-                        var currentDetails = project.loadBuildDetails();
-                        Set<String> excludesSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-                        excludesSet.addAll(currentDetails.excludedDirectories());
-
-                        if (isExcludedNow) {
-                            excludesSet.remove(finalRelStr);
-                        } else {
-                            excludesSet.add(finalRelStr);
+                        var nonText = filesToDelete.stream()
+                                .filter(pf -> !pf.isText())
+                                .toList();
+                        if (!nonText.isEmpty()) {
+                            SwingUtilities.invokeLater(
+                                    () -> chrome.toolError("Only text files can be deleted with undo/redo support"));
+                            return;
                         }
 
-                        var newDetails = new BuildAgent.BuildDetails(
-                                currentDetails.buildLintCommand(),
-                                currentDetails.testAllCommand(),
-                                currentDetails.testSomeCommand(),
-                                excludesSet,
-                                currentDetails.environmentVariables());
+                        var trackedSet = project.hasGit() ? project.getRepo().getTrackedFiles() : Set.<ProjectFile>of();
+                        var deletedInfos = filesToDelete.stream()
+                                .map(pf -> {
+                                    var content = pf.exists() ? pf.read().orElse(null) : null;
+                                    if (content == null) {
+                                        return null;
+                                    }
+                                    boolean wasTracked = project.hasGit() && trackedSet.contains(pf);
+                                    return new ContextHistory.DeletedFile(pf, content, wasTracked);
+                                })
+                                .filter(Objects::nonNull)
+                                .toList();
 
-                        project.saveBuildDetails(newDetails);
+                        if (project.hasGit()) {
+                            project.getRepo().forceRemoveFiles(filesToDelete);
+                        } else {
+                            for (var pf : filesToDelete) {
+                                try {
+                                    Files.deleteIfExists(pf.absPath());
+                                } catch (Exception ex) {
+                                    var msg = "Failed to delete file: " + pf;
+                                    logger.error(msg, ex);
+                                    SwingUtilities.invokeLater(() -> chrome.toolError(msg));
+                                }
+                            }
+                        }
+
+                        String fileList =
+                                filesToDelete.stream().map(Object::toString).collect(Collectors.joining(", "));
+                        var description = "Deleted " + fileList;
+                        contextManager.pushContext(ctx -> ctx.withParsedOutput(null, description));
+
+                        if (!deletedInfos.isEmpty()) {
+                            var contextHistory = contextManager.getContextHistory();
+                            var frozenContext = contextHistory.liveContext();
+                            contextHistory.addEntryInfo(
+                                    frozenContext.id(), new ContextHistory.ContextHistoryEntryInfo(deletedInfos));
+                            contextManager
+                                    .getProject()
+                                    .getSessionManager()
+                                    .saveHistory(contextHistory, contextManager.getCurrentSessionId());
+                        }
 
                         SwingUtilities.invokeLater(() -> {
-                            ((DefaultTreeModel) getModel()).nodeStructureChanged(
-                                    (DefaultMutableTreeNode) getModel().getRoot());
-                            repaint();
+                            chrome.showNotification(
+                                    IConsoleIO.NotificationRole.INFO, "Deleted " + fileList + ". Use Ctrl+Z to undo.");
                         });
                     } catch (Exception ex) {
-                        logger.error("Error toggling directory exclusion", ex);
+                        logger.error("Error deleting selected files", ex);
                         SwingUtilities.invokeLater(
-                                () -> chrome.toolError("Failed to update exclusion: " + ex.getMessage()));
+                                () -> chrome.toolError("Error deleting selected files: " + ex.getMessage()));
                     }
                 });
             });
-            contextMenu.add(toggleCiItem);
-        }
+            contextMenu.add(deleteItem);
 
-        contextMenu.addSeparator();
+            contextMenu.addSeparator();
+            // Add "Run Tests in Shell" item
+            JMenuItem runTestsItem = new JMenuItem("Run Tests");
+            boolean hasTestFiles = targetFiles.stream().allMatch(ContextManager::isTestFile);
+            runTestsItem.setEnabled(hasTestFiles);
+            if (!hasTestFiles) {
+                runTestsItem.setToolTipText("Non-test files in selection");
+            }
 
-        JMenuItem deleteItem = new JMenuItem(targetFiles.size() == 1 ? "Delete File" : "Delete Files");
-        deleteItem.addActionListener(ev -> {
-            var filesToDelete = targetFiles;
+            runTestsItem.addActionListener(ev -> {
+                contextManager.submitLlmAction(() -> {
+                    var testProjectFiles = targetFiles.stream()
+                            .filter(ContextManager::isTestFile)
+                            .collect(Collectors.toSet());
 
-            contextManager.submitExclusiveAction(() -> {
-                try {
-                    var nonText =
-                            filesToDelete.stream().filter(pf -> !pf.isText()).toList();
-                    if (!nonText.isEmpty()) {
-                        SwingUtilities.invokeLater(
-                                () -> chrome.toolError("Only text files can be deleted with undo/redo support"));
-                        return;
-                    }
-
-                    var trackedSet = project.hasGit() ? project.getRepo().getTrackedFiles() : Set.<ProjectFile>of();
-                    var deletedInfos = filesToDelete.stream()
-                            .map(pf -> {
-                                var content = pf.exists() ? pf.read().orElse(null) : null;
-                                if (content == null) {
-                                    return null;
-                                }
-                                boolean wasTracked = project.hasGit() && trackedSet.contains(pf);
-                                return new ContextHistory.DeletedFile(pf, content, wasTracked);
-                            })
-                            .filter(Objects::nonNull)
-                            .toList();
-
-                    if (project.hasGit()) {
-                        project.getRepo().forceRemoveFiles(filesToDelete);
+                    if (testProjectFiles.isEmpty()) {
+                        // This case might occur if selection changes between menu population and action
+                        chrome.toolError("No test files were selected to run");
                     } else {
-                        for (var pf : filesToDelete) {
-                            try {
-                                Files.deleteIfExists(pf.absPath());
-                            } catch (Exception ex) {
-                                var msg = "Failed to delete file: " + pf;
-                                logger.error(msg, ex);
-                                SwingUtilities.invokeLater(() -> chrome.toolError(msg));
-                            }
+                        try {
+                            chrome.runTests(testProjectFiles);
+                        } catch (InterruptedException e) {
+                            logger.debug("Tests interrupted", e);
                         }
                     }
-
-                    String fileList =
-                            filesToDelete.stream().map(Object::toString).collect(Collectors.joining(", "));
-                    var description = "Deleted " + fileList;
-                    contextManager.pushContext(ctx -> ctx.withParsedOutput(null, description));
-
-                    if (!deletedInfos.isEmpty()) {
-                        var contextHistory = contextManager.getContextHistory();
-                        var frozenContext = contextHistory.liveContext();
-                        contextHistory.addEntryInfo(
-                                frozenContext.id(), new ContextHistory.ContextHistoryEntryInfo(deletedInfos));
-                        contextManager
-                                .getProject()
-                                .getSessionManager()
-                                .saveHistory(contextHistory, contextManager.getCurrentSessionId());
-                    }
-
-                    SwingUtilities.invokeLater(() -> {
-                        chrome.showNotification(
-                                IConsoleIO.NotificationRole.INFO, "Deleted " + fileList + ". Use Ctrl+Z to undo.");
-                    });
-                } catch (Exception ex) {
-                    logger.error("Error deleting selected files", ex);
-                    SwingUtilities.invokeLater(
-                            () -> chrome.toolError("Error deleting selected files: " + ex.getMessage()));
-                }
+                });
             });
-        });
-        contextMenu.add(deleteItem);
-
-        contextMenu.addSeparator();
-        // Add "Run Tests in Shell" item
-        JMenuItem runTestsItem = new JMenuItem("Run Tests");
-        boolean hasTestFiles = targetFiles.stream().allMatch(ContextManager::isTestFile);
-        runTestsItem.setEnabled(hasTestFiles);
-        if (!hasTestFiles) {
-            runTestsItem.setToolTipText("Non-test files in selection");
+            contextMenu.add(runTestsItem);
         }
 
-        runTestsItem.addActionListener(ev -> {
-            contextManager.submitLlmAction(() -> {
-                var testProjectFiles =
-                        targetFiles.stream().filter(ContextManager::isTestFile).collect(Collectors.toSet());
-
-                if (testProjectFiles.isEmpty()) {
-                    // This case might occur if selection changes between menu population and action
-                    chrome.toolError("No test files were selected to run");
-                } else {
-                    try {
-                        chrome.runTests(testProjectFiles);
-                    } catch (InterruptedException e) {
-                        logger.debug("Tests interrupted", e);
-                    }
-                }
-            });
-        });
-        contextMenu.add(runTestsItem);
-
         // Add Paste menu item
-        contextMenu.addSeparator();
+        if (contextMenu.getComponentCount() > 0) {
+            contextMenu.addSeparator();
+        }
         JMenuItem pasteItem = new JMenuItem("Paste");
         pasteItem.addActionListener(ev -> {
             // Determine target directory for paste
@@ -873,6 +890,31 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         return excludedDirs.contains(relativePath);
     }
 
+    private boolean isUnderExcludedDirectory(String relativePath) {
+        Set<String> excludedDirs = project.getExcludedDirectories();
+        String separator = File.separator;
+        for (String excluded : excludedDirs) {
+            if (relativePath.equals(excluded) || relativePath.startsWith(excluded + separator)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private @Nullable String findExcludingAncestor(String relativePath) {
+        Set<String> excludedDirs = project.getExcludedDirectories();
+        String separator = File.separator;
+        String best = null;
+        for (String excluded : excludedDirs) {
+            if (relativePath.equals(excluded) || relativePath.startsWith(excluded + separator)) {
+                if (best == null || excluded.length() > best.length()) {
+                    best = excluded;
+                }
+            }
+        }
+        return best;
+    }
+
     /**
      * Checks if the system clipboard contains files that can be pasted.
      *
@@ -1058,7 +1100,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                     String relativePathStr = relativePath.toString();
 
                     // Color CI-excluded directories and files (recursively)
-                    if (isUnderExcludedDirectory(relativePathStr)) {
+                    if (ProjectTree.this.isUnderExcludedDirectory(relativePathStr)) {
                         setForeground(ThemeColors.getColor(ThemeColors.CI_EXCLUDED_FOREGROUND));
                     } else if (file.isFile()) {
                         // Color untracked files red (only for files not under excluded dirs)
@@ -1074,17 +1116,6 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             }
 
             return this;
-        }
-
-        private boolean isUnderExcludedDirectory(String relativePath) {
-            Set<String> excludedDirs = project.getExcludedDirectories();
-            String separator = File.separator;
-            for (String excluded : excludedDirs) {
-                if (relativePath.equals(excluded) || relativePath.startsWith(excluded + separator)) {
-                    return true;
-                }
-            }
-            return false;
         }
     }
 
