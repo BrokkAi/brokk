@@ -292,6 +292,196 @@ public final class CtlCommands {
     }
 
     /**
+     * State get: report idle/running for a project.
+     */
+    public static int executeStateGet(
+            CtlConfigPaths cfg,
+            long ttlMs,
+            boolean includeAll,
+            String instanceSelector,
+            boolean autoSelect,
+            String requestId,
+            String projectPath,
+            PrintStream out,
+            PrintStream err) {
+
+        if (projectPath == null || projectPath.isBlank()) {
+            err.println("--path is required for state get");
+            return 2;
+        }
+
+        List<Map<String, Object>> targets;
+        try {
+            targets = selectTargetInstances(cfg, ttlMs, includeAll, instanceSelector, autoSelect, err);
+            if (targets == null) return 2;
+        } catch (IOException e) {
+            err.println("Failed to read instances: " + e.getMessage());
+            return 4;
+        }
+
+        Map<String, Object> envelope = new LinkedHashMap<>();
+        envelope.put("requestId", requestId == null ? "(auto)" : requestId);
+
+        List<Map<String, Object>> results = new ArrayList<>();
+        for (Map<String, Object> inst : targets) {
+            String instanceId = (String) inst.getOrDefault("instanceId", "");
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("instanceId", instanceId);
+
+            boolean running = false;
+            String jobId = "";
+            String mode = "";
+            boolean cancellable = false;
+
+            Object execsObj = inst.get("executions");
+            if (execsObj instanceof List) {
+                for (Object eo : (List<?>) execsObj) {
+                    if (eo instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> em = (Map<String, Object>) eo;
+                        String proj = em.getOrDefault("project", "").toString();
+                        String state = em.getOrDefault("state", "").toString().toLowerCase(Locale.ROOT);
+                        if (proj.equals(projectPath) && ("running".equals(state) || "starting".equals(state))) {
+                            running = true;
+                            jobId = em.getOrDefault("jobId", "").toString();
+                            mode = em.getOrDefault("mode", "").toString();
+                            Object can = em.get("cancellable");
+                            if (can instanceof Boolean) {
+                                cancellable = (Boolean) can;
+                            } else {
+                                cancellable = "running".equals(state);
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+
+            Map<String, Object> stateObj = new LinkedHashMap<>();
+            stateObj.put("state", running ? "running" : "idle");
+            if (running) {
+                stateObj.put("jobId", jobId);
+                stateObj.put("mode", mode);
+                stateObj.put("cancellable", cancellable);
+            }
+            r.put("status", "ok");
+            r.put("executionState", stateObj);
+            results.add(r);
+        }
+
+        envelope.put("results", results);
+        envelope.put("summary", Map.of("requestedInstances", results.size()));
+        out.println(Json.toJson(envelope));
+        return 0;
+    }
+
+    @SuppressWarnings("unchecked")
+    public static int executeHistoryGet(
+            CtlConfigPaths cfg,
+            long ttlMs,
+            boolean includeAll,
+            String instanceSelector,
+            boolean autoSelect,
+            String requestId,
+            String cursor,
+            int limit,
+            boolean follow,
+            String projectPath,
+            PrintStream out,
+            PrintStream err) {
+
+        List<Map<String, Object>> targets;
+        try {
+            targets = selectTargetInstances(cfg, ttlMs, includeAll, instanceSelector, autoSelect, err);
+            if (targets == null) return 2;
+        } catch (IOException e) {
+            err.println("Failed to read instances: " + e.getMessage());
+            return 4;
+        }
+
+        if (targets.isEmpty()) {
+            err.println("No instances available");
+            return 2;
+        }
+        if (targets.size() != 1) {
+            err.println("History get requires a single target instance (use --instance or --auto-select)");
+            return 2;
+        }
+
+        Map<String, Object> inst = targets.get(0);
+        String instanceId = (String) inst.getOrDefault("instanceId", "");
+
+        Object histObj = inst.get("history");
+        List<Map<String, Object>> events;
+        if (histObj instanceof List) {
+            events = new ArrayList<>();
+            for (Object o : (List<?>) histObj) {
+                if (o instanceof Map) {
+                    events.add((Map<String, Object>) o);
+                }
+            }
+        } else {
+            events = List.of();
+        }
+
+        // parse cursor of form "seq:<n>" or numeric string
+        long cursorSeq = 0L;
+        if (cursor != null && !cursor.isBlank()) {
+            String s = cursor.trim();
+            if (s.startsWith("seq:")) {
+                try {
+                    cursorSeq = Long.parseLong(s.substring(4));
+                } catch (NumberFormatException ignored) { cursorSeq = 0L; }
+            } else {
+                try {
+                    cursorSeq = Long.parseLong(s);
+                } catch (NumberFormatException ignored) { cursorSeq = 0L; }
+            }
+        }
+
+        // events expected to have a numeric "sequence" field
+        List<Map<String, Object>> sorted = new ArrayList<>(events);
+        sorted.sort(Comparator.comparingLong(m -> {
+            Number n = asNumber(m.get("sequence"));
+            return n == null ? 0L : n.longValue();
+        }));
+
+        List<Map<String, Object>> filtered = new ArrayList<>();
+        for (Map<String, Object> e : sorted) {
+            long seq = safeCastLong(e.get("sequence"), 0L);
+            if (seq > cursorSeq) {
+                Map<String, Object> evOut = new LinkedHashMap<>();
+                evOut.put("instanceId", instanceId);
+                evOut.put("sequence", seq);
+                evOut.put("createdAtMs", safeCastLong(e.get("createdAtMs"), 0L));
+                evOut.put("eventType", safeCastString(e.get("type")));
+                evOut.put("text", safeCastString(e.get("text")));
+                evOut.put("payload", e.getOrDefault("payload", null));
+                filtered.add(evOut);
+            }
+            if (filtered.size() >= limit) break;
+        }
+
+        if (follow) {
+            // NDJSON streaming: one JSON object per line
+            for (Map<String, Object> ev : filtered) {
+                out.println(Json.toJson(ev));
+            }
+            // follow currently does not block for new events in this minimal implementation
+            return 0;
+        } else {
+            Map<String, Object> envelope = new LinkedHashMap<>();
+            envelope.put("requestId", requestId == null ? "(auto)" : requestId);
+            envelope.put("events", filtered);
+            long nextCursor = filtered.isEmpty() ? cursorSeq : safeCastLong(filtered.get(filtered.size()-1).get("sequence"), cursorSeq);
+            envelope.put("nextCursor", "seq:" + nextCursor);
+            envelope.put("returned", filtered.size());
+            out.println(Json.toJson(envelope));
+            return 0;
+        }
+    }
+
+    /**
      * Read instance registry files and apply selection rules.
      *
      * Returns null (and prints to err) when the selection could not be resolved due to user error.
@@ -305,7 +495,7 @@ public final class CtlCommands {
             PrintStream err) throws IOException {
 
         Path instancesDir = cfg.getInstancesDir();
-        List<Path> files;
+        List<java.nio.file.Path> files;
         if (!Files.exists(instancesDir)) {
             Files.createDirectories(instancesDir);
         }

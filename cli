@@ -1,99 +1,157 @@
 package ai.brokk.ctl.cli;
 
 import ai.brokk.ctl.CtlConfigPaths;
-import ai.brokk.ctl.InstanceRecord;
 import ai.brokk.util.Json;
-import com.fasterxml.jackson.core.type.TypeReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.PrintStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 
 /**
- * Tests for exec start CLI behavior (Phase 1).
+ * Tests for state get and history get/tail behavior.
  */
-public class ExecStartTest {
+public class StateHistoryTest {
+
     @TempDir
-    Path tempDir;
+    Path tmp;
 
-    @Test
-    public void planStartReturnsJobIdAndCursor() throws Exception {
-        CtlConfigPaths cfg = CtlConfigPaths.forBaseConfigDir(tempDir);
-        Path instancesDir = cfg.ensureInstancesDirExists();
-
-        long now = System.currentTimeMillis();
-        // Instance with the target project but no running executions
-        InstanceRecord a = new InstanceRecord("id-a", 10, "addr-a", List.of("/proj/a"), "0.1.0", now - 500L, now - 200L);
-        java.nio.file.Files.writeString(instancesDir.resolve("id-a.json"), a.toJson());
-
-        ByteArrayOutputStream bout = new ByteArrayOutputStream();
-        int rc = BrokkCtlMain.run(new String[] {
-                "exec", "start",
-                "--mode", "plan",
-                "--instance", "id-a",
-                "--path", "/proj/a",
-                "--config-dir", tempDir.toString()
-        }, new PrintStream(bout), System.err);
-
-        assertEquals(0, rc);
-        String out = bout.toString().trim();
-        Map<String, Object> env = Json.fromJson(out, new TypeReference<Map<String, Object>>() {});
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> results = (List<Map<String, Object>>) env.get("results");
-        assertNotNull(results);
-        assertEquals(1, results.size());
-        Map<String, Object> r = results.get(0);
-        assertEquals("started", r.get("status"));
-        assertNotNull(r.get("jobId"));
-        assertNotNull(r.get("cursor"));
-        assertEquals("/proj/a", r.get("project"));
-        assertEquals("plan", r.get("mode"));
+    private static PrintStream ps(ByteArrayOutputStream baos) {
+        return new PrintStream(baos);
     }
 
     @Test
-    public void startReturnsBusyWhenExecutionExistsForProject() throws Exception {
-        CtlConfigPaths cfg = CtlConfigPaths.forBaseConfigDir(tempDir);
-        Path instancesDir = cfg.ensureInstancesDirExists();
-
-        long now = System.currentTimeMillis();
-        // Base instance
-        InstanceRecord a = new InstanceRecord("id-a", 10, "addr-a", List.of("/proj/a"), "0.1.0", now - 500L, now - 200L);
-
-        // Build JSON map from instance and inject a running execution for the same project
-        Map<String, Object> base = Json.fromJson(a.toJson(), new TypeReference<Map<String, Object>>() {});
-        Map<String, Object> running = new LinkedHashMap<>();
-        running.put("project", "/proj/a");
-        running.put("state", "running");
-        running.put("jobId", "job-1");
-        base.put("executions", List.of(running));
-
-        java.nio.file.Files.writeString(instancesDir.resolve("id-a.json"), Json.toJson(base));
+    public void testStateGet_runningDetected() throws Exception {
+        Path cfg = Files.createDirectory(tmp.resolve("cfg"));
+        // Create an instance file with an execution for project /proj running
+        Map<String, Object> inst = new LinkedHashMap<>();
+        inst.put("instanceId", "inst-1");
+        inst.put("pid", 12345);
+        inst.put("listenAddr", "http://localhost:1234/");
+        inst.put("projects", List.of("/proj"));
+        inst.put("brokkctlVersion", "0.1.0");
+        inst.put("startedAt", System.currentTimeMillis());
+        inst.put("lastSeenMs", System.currentTimeMillis());
+        Map<String, Object> exec = new LinkedHashMap<>();
+        exec.put("project", "/proj");
+        exec.put("state", "running");
+        exec.put("jobId", "job-1");
+        exec.put("mode", "plan");
+        exec.put("cancellable", true);
+        inst.put("executions", List.of(exec));
+        String json = Json.toJson(inst);
+        Files.writeString(cfg.resolve("inst-1.json"), json);
 
         ByteArrayOutputStream bout = new ByteArrayOutputStream();
-        int rc = BrokkCtlMain.run(new String[] {
-                "exec", "start",
-                "--mode", "plan",
-                "--instance", "id-a",
-                "--path", "/proj/a",
-                "--config-dir", tempDir.toString()
-        }, new PrintStream(bout), System.err);
+        ByteArrayOutputStream berr = new ByteArrayOutputStream();
 
-        assertEquals(0, rc);
-        String out = bout.toString().trim();
-        Map<String, Object> env = Json.fromJson(out, new TypeReference<Map<String, Object>>() {});
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> results = (List<Map<String, Object>>) env.get("results");
-        assertNotNull(results);
-        assertEquals(1, results.size());
+        int rc = BrokkCtlMain.run(new String[]{
+                "state", "get",
+                "--config-dir", cfg.toString(),
+                "--path", "/proj"
+        }, ps(bout), ps(berr));
+
+        assert rc == 0;
+        String out = bout.toString();
+        Map<String, Object> resp = Json.fromJson(out, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+        List<Map<String, Object>> results = (List<Map<String, Object>>) resp.get("results");
+        assert results.size() == 1;
         Map<String, Object> r = results.get(0);
-        assertEquals("busy", r.get("status"));
-        @SuppressWarnings("unchecked")
-        Map<String, Object> errObj = (Map<String, Object>) r.get("error");
-        assertNotNull(errObj);
-        assertEquals("BUSY", errObj.get("code"));
-        assertTrue(errObj.get("message").toString().contains("/proj/a"));
+        Map<String, Object> state = (Map<String, Object>) r.get("executionState");
+        assert "running".equals(state.get("state"));
+        assert "job-1".equals(state.get("jobId"));
+        assert Boolean.TRUE.equals(state.get("cancellable"));
+    }
+
+    @Test
+    public void testHistoryGet_paging() throws Exception {
+        Path cfg = Files.createDirectory(tmp.resolve("cfg2"));
+        Map<String, Object> inst = new LinkedHashMap<>();
+        inst.put("instanceId", "h-inst");
+        inst.put("pid", 111);
+        inst.put("listenAddr", "http://localhost:111/");
+        inst.put("projects", List.of("/p"));
+        inst.put("brokkctlVersion", "0.1.0");
+        inst.put("startedAt", System.currentTimeMillis());
+        inst.put("lastSeenMs", System.currentTimeMillis());
+
+        List<Map<String, Object>> history = new ArrayList<>();
+        for (int i = 1; i <= 10; i++) {
+            Map<String, Object> e = new LinkedHashMap<>();
+            e.put("sequence", i);
+            e.put("createdAtMs", System.currentTimeMillis() + i);
+            e.put("type", "line");
+            e.put("text", "event-" + i);
+            history.add(e);
+        }
+        inst.put("history", history);
+        Files.writeString(cfg.resolve("h-inst.json"), Json.toJson(inst));
+
+        ByteArrayOutputStream bout = new ByteArrayOutputStream();
+        ByteArrayOutputStream berr = new ByteArrayOutputStream();
+
+        int rc = BrokkCtlMain.run(new String[]{
+                "history", "get",
+                "--config-dir", cfg.toString(),
+                "--limit", "3",
+                "--cursor", "seq:3"
+        }, ps(bout), ps(berr));
+
+        assert rc == 0;
+        String out = bout.toString();
+        Map<String, Object> resp = Json.fromJson(out, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+        List<Map<String, Object>> events = (List<Map<String, Object>>) resp.get("events");
+        assert events.size() == 3;
+        assert ((Number) events.get(0).get("sequence")).longValue() == 4L;
+        assert "seq:6".equals(resp.get("nextCursor"));
+    }
+
+    @Test
+    public void testHistoryTail_ndjsonLines() throws Exception {
+        Path cfg = Files.createDirectory(tmp.resolve("cfg3"));
+        Map<String, Object> inst = new LinkedHashMap<>();
+        inst.put("instanceId", "tail-inst");
+        inst.put("pid", 222);
+        inst.put("listenAddr", "http://localhost:222/");
+        inst.put("projects", List.of("/p"));
+        inst.put("brokkctlVersion", "0.1.0");
+        inst.put("startedAt", System.currentTimeMillis());
+        inst.put("lastSeenMs", System.currentTimeMillis());
+
+        List<Map<String, Object>> history = new ArrayList<>();
+        for (int i = 1; i <= 5; i++) {
+            Map<String, Object> e = new LinkedHashMap<>();
+            e.put("sequence", i);
+            e.put("createdAtMs", System.currentTimeMillis() + i);
+            e.put("type", "line");
+            e.put("text", "tail-" + i);
+            history.add(e);
+        }
+        inst.put("history", history);
+        Files.writeString(cfg.resolve("tail-inst.json"), Json.toJson(inst));
+
+        ByteArrayOutputStream bout = new ByteArrayOutputStream();
+        ByteArrayOutputStream berr = new ByteArrayOutputStream();
+
+        int rc = BrokkCtlMain.run(new String[]{
+                "history", "tail",
+                "--config-dir", cfg.toString(),
+                "--follow"
+        }, ps(bout), ps(berr));
+
+        assert rc == 0;
+        String out = bout.toString().trim();
+        String[] lines = out.split("\\r?\\n");
+        assert lines.length == 5;
+        for (String line : lines) {
+            // each line must be valid JSON object
+            Map<String, Object> ev = Json.fromJson(line, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+            assert ev.containsKey("instanceId");
+            assert ev.containsKey("sequence");
+        }
     }
 }
