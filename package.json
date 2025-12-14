@@ -7,7 +7,7 @@
     "homepage": "https://brokk.ai",
     "repository": "https://github.com/BrokkAi/brokk",
     "version": "1.0.0",
-    "jdeployPrelaunchVersion": "v0.0.4",
+    "jdeployPrelaunchVersion": "v0.0.5",
     "jdeploy": {
         "jdk": false,
         "jdkProvider": "jbr",
