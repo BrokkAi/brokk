@@ -232,11 +232,10 @@ public final class PathNormalizer {
                 return null;
             }
 
-            Path projectAbs = projectRoot.toAbsolutePath().normalize();
-            Path norm = asSystemPath.normalize();
+            Path projectAbs = projectRoot.toAbsolutePath();
 
-            if (norm.startsWith(projectAbs)) {
-                Path rel = projectAbs.relativize(norm);
+            if (asSystemPath.startsWith(projectAbs)) {
+                Path rel = projectAbs.relativize(asSystemPath);
                 // Ensure forward slashes
                 String relStr = rel.toString().replace('\\', '/');
                 // Sanitize "./" and trailing '/'
