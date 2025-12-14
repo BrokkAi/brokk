@@ -436,7 +436,7 @@ public class ArchitectAgent {
         var modelsService = cm.getService();
 
         while (true) {
-            io.llmOutput("\n**Brokk Architect** is preparing the next actions…\n\n", ChatMessageType.AI, true, false);
+            io.showTransientMessage("Brokk Architect is preparing the next actions…");
 
             // Determine active models and their maximum allowed input tokens
             var models = new ArrayList<StreamingChatModel>();
@@ -501,6 +501,7 @@ public class ArchitectAgent {
             }
 
             // Ask the LLM for the next step
+            io.showTransientMessage("Brokk Architect is preparing the next actions…");
             var result = llm.sendRequest(messages, toolContext);
 
             // Handle errors, with special recovery for ContextTooLarge

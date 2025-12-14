@@ -6,7 +6,6 @@ import ai.brokk.project.MainProject;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -71,49 +70,6 @@ public class Service extends AbstractService implements ExceptionReporter.Report
 
         this.modelLocations = Map.copyOf(tempModelLocations);
         this.modelInfoMap = Map.copyOf(tempModelInfoMap);
-
-        // these should always be available
-        var quickCfg = project.getMainProject().getQuickModelConfig();
-        var qm = getModel(quickCfg);
-        if (qm == null) {
-            // Fallback to previous behavior if resolution fails
-            qm = getModel(new ModelConfig(GEMINI_2_0_FLASH, ReasoningLevel.DEFAULT));
-        }
-        quickModel = (qm == null) ? new UnavailableStreamingModel() : qm;
-
-        // Determine whether the user is on a free tier (balance < MINIMUM_PAID_BALANCE)
-        boolean freeTier = false;
-        try {
-            float balance = getUserBalance();
-            freeTier = balance < MINIMUM_PAID_BALANCE;
-            LogManager.getLogger(Service.class).info("User balance = {}, free‑tier = {}", balance, freeTier);
-        } catch (IOException | IllegalArgumentException e) {
-            LogManager.getLogger(Service.class)
-                    .warn("Unable to fetch user balance for quick‑edit model selection: {}", e.getMessage());
-        }
-
-        if (freeTier) {
-            LogManager.getLogger(Service.class)
-                    .info("Free tier detected – using quickModel for quick‑edit operations.");
-            quickEditModel = quickModel;
-        } else {
-            var qeCfg = project.getMainProject().getQuickEditModelConfig();
-            var qe = getModel(qeCfg);
-            if (qe == null) {
-                qe = getModel(new ModelConfig(GEMINI_2_5_FLASH, ReasoningLevel.DEFAULT));
-            }
-            quickEditModel = (qe == null) ? quickModel : qe;
-        }
-
-        // hard‑code quickest temperature to 0 so that Quick Context inference is reproducible
-        var qkCfg = project.getMainProject().getQuickestModelConfig();
-        var qqm = getModel(qkCfg, OpenAiChatRequestParameters.builder().temperature(0.0));
-        if (qqm == null) {
-            qqm = getModel(
-                    new ModelConfig(GEMINI_2_0_FLASH_LITE, ReasoningLevel.DEFAULT),
-                    OpenAiChatRequestParameters.builder().temperature(0.0));
-        }
-        quickestModel = (qqm == null) ? new UnavailableStreamingModel() : qqm;
 
         // STT model initialization
         var sttLocation = modelInfoMap.entrySet().stream()

@@ -277,24 +277,6 @@ public class ContextAgent {
         var llmUnanalyzed = cm.getLlm(new Llm.Options(model, "ContextAgent (Unanalyzed): %s".formatted(goal)));
         llmUnanalyzed.setOutput(io);
 
-        // Show status message based on which groups have work
-        int groupCount = (analyzedFiles.isEmpty() ? 0 : 1) + (unAnalyzedFiles.isEmpty() ? 0 : 1);
-        switch (groupCount) {
-            case 0 -> {}
-            case 1 ->
-                io.llmOutput(
-                        "\nProcessing " + (analyzedFiles.isEmpty() ? "**unanalyzed**" : "**analyzed**") + " files…\n\n",
-                        ChatMessageType.AI,
-                        false,
-                        true);
-            case 2 ->
-                io.llmOutput(
-                        "\nProcessing **analyzed** and **unanalyzed** files in parallel\nAnalyzed files reasoning:\n\n",
-                        ChatMessageType.AI,
-                        false,
-                        true);
-        }
-
         // Process each group in parallel
         LlmRecommendation[] results = new LlmRecommendation[2];
         Throwable[] errors = new Throwable[2];

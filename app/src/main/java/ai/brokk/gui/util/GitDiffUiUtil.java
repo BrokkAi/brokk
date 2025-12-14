@@ -394,7 +394,7 @@ public interface GitDiffUiUtil {
                     // Check if we already have a window showing this diff
                     var leftSource = new BufferSource.StringSource(
                             finalOldContent, finalBaseCommitTitle, file.toString(), finalBaseCommitId);
-                    var rightSource = new BufferSource.FileSource(file.absPath().toFile(), file.toString());
+                    var rightSource = new BufferSource.FileSource(file);
 
                     if (DiffWindowManager.tryRaiseExistingWindow(List.of(leftSource), List.of(rightSource))) {
                         return; // Existing window raised, don't create new one
@@ -583,7 +583,7 @@ public interface GitDiffUiUtil {
                     String commitContent = getFileContentOrEmpty(repo, commitInfo.id(), file);
                     leftSources.add(
                             new BufferSource.StringSource(commitContent, shortId, file.toString(), commitInfo.id()));
-                    rightSources.add(new BufferSource.FileSource(file.absPath().toFile(), file.toString()));
+                    rightSources.add(new BufferSource.FileSource(file));
                 }
 
                 SwingUtilities.invokeLater(() -> {

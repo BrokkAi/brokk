@@ -74,6 +74,10 @@ public final class MOPWebViewHost extends JPanel {
 
         record HideSpinner() implements HostCommand {}
 
+        record ShowTransientMessage(String message) implements HostCommand {}
+
+        record HideTransientMessage() implements HostCommand {}
+
         record SetTaskInProgress(boolean inProgress) implements HostCommand {}
 
         record Clear() implements HostCommand {}
@@ -358,6 +362,14 @@ public final class MOPWebViewHost extends JPanel {
         sendOrQueue(new HostCommand.HideSpinner(), bridge -> bridge.hideSpinner());
     }
 
+    public void showTransientMessage(String message) {
+        sendOrQueue(new HostCommand.ShowTransientMessage(message), bridge -> bridge.showTransientMessage(message));
+    }
+
+    public void hideTransientMessage() {
+        sendOrQueue(new HostCommand.HideTransientMessage(), MOPBridge::hideTransientMessage);
+    }
+
     public void setTaskInProgress(boolean inProgress) {
         sendOrQueue(new HostCommand.SetTaskInProgress(inProgress), bridge -> bridge.setTaskInProgress(inProgress));
     }
@@ -536,6 +548,8 @@ public final class MOPWebViewHost extends JPanel {
                     case HostCommand.SetZoom z -> bridge.setZoom(z.zoom());
                     case HostCommand.ShowSpinner s -> bridge.showSpinner(s.message());
                     case HostCommand.HideSpinner ignored -> bridge.hideSpinner();
+                    case HostCommand.ShowTransientMessage stm -> bridge.showTransientMessage(stm.message());
+                    case HostCommand.HideTransientMessage ignored -> bridge.hideTransientMessage();
                     case HostCommand.SetTaskInProgress stp -> bridge.setTaskInProgress(stp.inProgress());
                     case HostCommand.Clear ignored -> bridge.clear();
                     case HostCommand.HistoryReset ignored -> bridge.sendHistoryReset();

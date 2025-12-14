@@ -495,6 +495,22 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
+    @Blocking
+    @Nullable
+    public ContextHistory loadHistoryAndRefresh(UUID sessionId, IContextManager contextManager) {
+        var ch = loadHistory(sessionId, contextManager);
+        if (ch == null) {
+            return null;
+        }
+
+        var refreshed = ch.liveContext().copyAndRefresh("Load External Changes");
+        if (!refreshed.equals(ch.liveContext())) {
+            ch.pushContext(refreshed);
+        }
+
+        return ch;
+    }
+
     private ContextHistory loadHistoryInternal(UUID sessionId, IContextManager contextManager) throws IOException {
         var sessionHistoryPath = getSessionHistoryPath(sessionId);
         ContextHistory ch = HistoryIo.readZip(sessionHistoryPath, contextManager);

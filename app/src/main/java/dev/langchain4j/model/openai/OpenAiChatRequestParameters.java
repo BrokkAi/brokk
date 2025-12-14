@@ -38,6 +38,7 @@ public class OpenAiChatRequestParameters {
     private final Map<String, String> metadata;
     private final String serviceTier;
     private final String reasoningEffort;
+    private final String previousResponseId;
 
     private OpenAiChatRequestParameters(Builder builder) {
         this.modelName = builder.modelName;
@@ -59,6 +60,7 @@ public class OpenAiChatRequestParameters {
         this.metadata = copy(builder.metadata);
         this.serviceTier = builder.serviceTier;
         this.reasoningEffort = builder.reasoningEffort;
+        this.previousResponseId = builder.previousResponseId;
     }
 
     public String modelName() {
@@ -137,6 +139,10 @@ public class OpenAiChatRequestParameters {
         return reasoningEffort;
     }
 
+    public String previousResponseId() {
+        return previousResponseId;
+    }
+
     public OpenAiChatRequestParameters overrideWith(OpenAiChatRequestParameters that) {
         return OpenAiChatRequestParameters.builder()
                 .overrideWith(this)
@@ -167,7 +173,8 @@ public class OpenAiChatRequestParameters {
                 && Objects.equals(store, that.store)
                 && Objects.equals(metadata, that.metadata)
                 && Objects.equals(serviceTier, that.serviceTier)
-                && Objects.equals(reasoningEffort, that.reasoningEffort);
+                && Objects.equals(reasoningEffort, that.reasoningEffort)
+                && Objects.equals(previousResponseId, that.previousResponseId);
     }
 
     @Override
@@ -191,7 +198,8 @@ public class OpenAiChatRequestParameters {
                 store,
                 metadata,
                 serviceTier,
-                reasoningEffort);
+                reasoningEffort,
+                previousResponseId);
     }
 
     @Override
@@ -215,7 +223,8 @@ public class OpenAiChatRequestParameters {
                 + store + ", metadata="
                 + metadata + ", serviceTier="
                 + quoted(serviceTier) + ", reasoningEffort="
-                + quoted(reasoningEffort) + '}';
+                + quoted(reasoningEffort) + ", previousResponseId="
+                + quoted(previousResponseId) + '}';
     }
 
     public static Builder builder() {
@@ -243,6 +252,7 @@ public class OpenAiChatRequestParameters {
         private Map<String, String> metadata;
         private String serviceTier;
         private String reasoningEffort;
+        private String previousResponseId;
 
         public Builder overrideWith(OpenAiChatRequestParameters parameters) {
             modelName(getOrDefault(parameters.modelName(), modelName));
@@ -264,6 +274,7 @@ public class OpenAiChatRequestParameters {
             metadata(getOrDefault(parameters.metadata(), metadata));
             serviceTier(getOrDefault(parameters.serviceTier(), serviceTier));
             reasoningEffort(getOrDefault(parameters.reasoningEffort(), reasoningEffort));
+            previousResponseId(getOrDefault(parameters.previousResponseId(), previousResponseId));
             return this;
         }
 
@@ -388,6 +399,11 @@ public class OpenAiChatRequestParameters {
 
         public Builder reasoningEffort(String reasoningEffort) {
             this.reasoningEffort = reasoningEffort;
+            return this;
+        }
+
+        public Builder previousResponseId(String previousResponseId) {
+            this.previousResponseId = previousResponseId;
             return this;
         }
 

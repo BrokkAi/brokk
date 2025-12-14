@@ -620,7 +620,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
 
                 for (var file : orderedFiles) {
-                    var rightSource = new BufferSource.FileSource(file.absPath().toFile(), file.getFileName());
+                    var rightSource = new BufferSource.FileSource(file);
 
                     String headContent = "";
                     try {
@@ -639,14 +639,13 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                     // Create normalized sources for window raising check (use all files in consistent order)
                     var normalizedFiles = allFiles.stream()
                             .sorted((f1, f2) -> f1.getFileName().compareToIgnoreCase(f2.getFileName()))
-                            .collect(Collectors.toList());
+                            .toList();
 
                     var leftSources = new ArrayList<BufferSource>();
                     var rightSources = new ArrayList<BufferSource>();
 
                     for (var file : normalizedFiles) {
-                        var rightSource =
-                                new BufferSource.FileSource(file.absPath().toFile(), file.getFileName());
+                        var rightSource = new BufferSource.FileSource(file);
                         String headContent = "";
                         try {
                             var repo = contextManager.getProject().getRepo();

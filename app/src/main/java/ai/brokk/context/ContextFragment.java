@@ -45,6 +45,7 @@ import java.util.stream.Stream;
 import javax.imageio.ImageIO;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
@@ -694,6 +695,19 @@ public interface ContextFragment {
 
         public static GitFileFragment withId(ProjectFile file, String revision, String content, String existingId) {
             return new GitFileFragment(file, revision, content, existingId);
+        }
+
+        /**
+         * Create a GitFileFragment representing the content of the given file at the given revision.
+         * This reads the file content via the provided GitRepo. On error, falls back to empty content.
+         */
+        public static GitFileFragment fromCommit(ProjectFile file, String revision, ai.brokk.git.GitRepo repo) {
+            try {
+                var content = repo.getFileContent(revision, file);
+                return new GitFileFragment(file, revision, content);
+            } catch (GitAPIException e) {
+                throw new RuntimeException(e);
+            }
         }
 
         @Override

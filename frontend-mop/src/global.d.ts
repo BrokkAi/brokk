@@ -15,7 +15,9 @@ declare global {
       setTheme: (dark: boolean, isDevMode?: boolean, wrapMode?: boolean, zoom?: number) => void;
       showSpinner: (message?: string) => void;
       hideSpinner: () => void;
-      setTaskInProgress: (inProgress: boolean) => void,
+      setTaskInProgress: (inProgress: boolean) => void;
+      showTransientMessage: (msg: string) => void;
+      hideTransientMessage: () => void;
 
       // Search API
       setSearch: (query: string, caseSensitive: boolean) => void;
