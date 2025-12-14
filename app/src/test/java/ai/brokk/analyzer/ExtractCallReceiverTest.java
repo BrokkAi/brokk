@@ -21,11 +21,6 @@ public class ExtractCallReceiverTest {
             return Path.of("/test");
         }
 
-        @Override
-        public Path getMasterRootPathForConfig() {
-            return Path.of("/test");
-        }
-
         public String getName() {
             return "test";
         }

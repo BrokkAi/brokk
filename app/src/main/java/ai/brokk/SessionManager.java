@@ -37,6 +37,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public class SessionManager implements AutoCloseable {
@@ -462,6 +463,7 @@ public class SessionManager implements AutoCloseable {
         return false;
     }
 
+    @Blocking
     @Nullable
     public ContextHistory loadHistory(UUID sessionId, IContextManager contextManager) {
         var future = sessionExecutorByKey.submit(
@@ -477,6 +479,21 @@ public class SessionManager implements AutoCloseable {
             // tryLoadHistoryOrQuarantine already quarantines on failure.
             return null;
         }
+    }
+
+    @Nullable
+    public ContextHistory loadHistoryAndRefresh(UUID sessionId, IContextManager contextManager) {
+        var ch = loadHistory(sessionId, contextManager);
+        if (ch == null) {
+            return null;
+        }
+
+        var refreshed = ch.liveContext().copyAndRefresh("Load External Changes");
+        if (!refreshed.equals(ch.liveContext())) {
+            ch.pushContext(refreshed);
+        }
+
+        return ch;
     }
 
     private ContextHistory loadHistoryInternal(UUID sessionId, IContextManager contextManager) throws IOException {
@@ -659,7 +676,7 @@ public class SessionManager implements AutoCloseable {
         Path masterRootPath;
         if (GitRepoFactory.hasGitRepo(worktreeRoot)) {
             try (var tempRepo = new GitRepo(worktreeRoot)) {
-                masterRootPath = AbstractProject.determineMasterRootPath(worktreeRoot, tempRepo);
+                masterRootPath = tempRepo.getGitTopLevel();
             } catch (Exception e) {
                 logger.warn("Error determining git top level for {}: {}", worktreeRoot, e.getMessage());
                 return Optional.empty();

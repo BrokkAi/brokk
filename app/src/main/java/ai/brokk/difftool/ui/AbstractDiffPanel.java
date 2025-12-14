@@ -2,10 +2,16 @@ package ai.brokk.difftool.ui;
 
 import ai.brokk.difftool.node.JMDiffNode;
 import ai.brokk.gui.theme.GuiTheme;
+import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.util.SlidingWindowCache;
 import ai.brokk.util.SyntaxDetector;
+import java.awt.Component;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import javax.swing.JComponent;
+import javax.swing.SwingUtilities;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
@@ -14,10 +20,11 @@ import org.jetbrains.annotations.Nullable;
  * Base class for diff panel implementations with common functionality. This class provides default implementations for
  * common operations and maintains shared state between different diff view types.
  *
- * <p>Note: This extends AbstractContentPanel to leverage existing undo/redo infrastructure while adding IDiffPanel
+ * <p>Note: This extends AbstractContentPanel to leverage existing undo/redo infrastructure while providing diff panel
  * functionality.
  */
-public abstract class AbstractDiffPanel extends AbstractContentPanel implements IDiffPanel {
+public abstract class AbstractDiffPanel extends AbstractContentPanel
+        implements ThemeAware, SlidingWindowCache.Disposable {
     protected final BrokkDiffPanel parent;
     protected final GuiTheme theme;
 
@@ -32,46 +39,75 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
      */
     protected volatile boolean showGutterBlame = false;
 
+    /** Cached dirty state. Updated by recalcDirty(). */
+    protected volatile boolean dirty = false;
+
+    /**
+     * Index of the FileComparisonInfo this panel represents, or -1 when unknown.
+     *
+     * BrokkDiffPanel will assign this when caching/creating panels so blame and other per-file operations can
+     * retrieve revision metadata without relying on the global currentFileIndex.
+     */
+    private volatile int associatedFileIndex = -1;
+
     public AbstractDiffPanel(BrokkDiffPanel parent, GuiTheme theme) {
         this.parent = parent;
         this.theme = theme;
     }
 
-    // Common implementations from IDiffPanel
+    // Panel lifecycle - abstract methods that subclasses must implement
+    public abstract void resetAutoScrollFlag();
 
-    @Override
+    public abstract void resetToFirstDifference();
+
+    // Diff operations - abstract methods that subclasses must implement
+    public abstract void diff(boolean autoScroll);
+
+    // Editing and state - abstract methods that subclasses must implement
+    public abstract List<BufferDiffPanel.AggregatedChange> collectChangesForAggregation();
+
+    public abstract BufferDiffPanel.SaveResult writeChangedDocuments();
+
+    public abstract void finalizeAfterSaveAggregation(Set<String> successfulFiles);
+
+    /**
+     * Compute whether this panel has unsaved changes. Subclasses implement policy; the base class manages the
+     * mechanism via recalcDirty().
+     *
+     * @return true if there are unsaved changes
+     */
+    protected abstract boolean computeUnsavedChanges();
+
+    // UI - abstract methods that subclasses must implement
+    public abstract String getTitle();
+
+    // Common implementations
     public JComponent getComponent() {
         return this; // The panel itself is the component
     }
 
-    @Override
     @Nullable
     public JMDiffNode getDiffNode() {
         return diffNode;
     }
 
-    @Override
     public void setDiffNode(@Nullable JMDiffNode diffNode) {
         this.diffNode = diffNode;
     }
 
-    @Override
     public void markCreationContext(String context) {
         this.creationContext = context;
     }
 
-    @Override
     public String getCreationContext() {
         return creationContext;
     }
 
     /** Per-panel gutter blame controls. */
-    @Override
     public void setShowGutterBlame(boolean show) {
         this.showGutterBlame = show;
     }
 
-    @Override
     public boolean isShowGutterBlame() {
         return this.showGutterBlame;
     }
@@ -86,14 +122,37 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
     }
 
     // Default implementations that subclasses may override
-    @Override
     public void refreshComponentListeners() {
         // Default implementation - subclasses can override if needed
     }
 
-    @Override
     public void clearCaches() {
         // Default implementation - subclasses can override if needed
+    }
+
+    /**
+     * Recalculate dirty state and notify parent if state changed. This is the standard mechanism for updating unsaved
+     * change tracking. Call this after document modifications, saves, or undo/redo operations.
+     */
+    public final void recalcDirty() {
+        boolean newDirty = computeUnsavedChanges();
+        if (dirty != newDirty) {
+            dirty = newDirty;
+            onDirtyStateChanged(newDirty);
+        }
+    }
+
+    /**
+     * Hook called when dirty state transitions. Subclasses can override to notify parent or update UI.
+     *
+     * @param isDirty the new dirty state
+     */
+    protected void onDirtyStateChanged(boolean isDirty) {
+        // Default implementation: notify parent to update tab title and buttons
+        SwingUtilities.invokeLater(() -> {
+            parent.refreshTabTitle(this);
+            parent.updateUndoRedoButtons();
+        });
     }
 
     @Override
@@ -101,17 +160,12 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
         // Default cleanup - subclasses should override and call super
         removeAll();
         this.diffNode = null;
+        this.associatedFileIndex = -1;
     }
 
-    // IDiffPanel implementations that delegate to existing AbstractContentPanel methods
-    // These provide the bridge between IDiffPanel interface and existing functionality
-
-    // Navigation methods are already defined in AbstractContentPanel as abstract
-    // isAtFirstLogicalChange(), isAtLastLogicalChange(), goToLastLogicalChange()
-    // doUp(), doDown() are already implemented in AbstractContentPanel
-
-    // Undo/redo methods are already implemented in AbstractContentPanel
-    // isUndoEnabled(), doUndo(), isRedoEnabled(), doRedo()
+    public boolean atLeastOneSideEditable() {
+        return true;
+    }
 
     /**
      * Shared syntax detection logic for all diff panels. Chooses a syntax style for the current document based on its
@@ -175,8 +229,101 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
     }
 
     /**
+     * Apply a font size to a component by deriving from its current font. Best-effort: no-op if font is null.
+     *
+     * @param component component to update
+     * @param size font size in points
+     */
+    protected static void applyDerivedFont(Component component, float size) {
+        var font = component.getFont();
+        if (font != null) {
+            component.setFont(font.deriveFont(size));
+        }
+    }
+
+    /**
+     * Apply a font size to the diff gutter, including the blame font when supported.
+     *
+     * @param gutter gutter to update
+     * @param size font size in points
+     */
+    protected static void applyDerivedFontToGutter(DiffGutterComponent gutter, float size) {
+        applyDerivedFont(gutter, size);
+        try {
+            var font = gutter.getFont();
+            if (font != null) {
+                gutter.setBlameFont(font);
+            }
+        } catch (Throwable ignored) {
+            // Best-effort
+        }
+        gutter.revalidate();
+        gutter.repaint();
+        var parent = gutter.getParent();
+        if (parent != null) {
+            parent.revalidate();
+        }
+    }
+
+    /**
      * Abstract method for refreshing highlights and repainting the diff panel. Each implementation should handle its
      * own highlight refresh logic.
      */
     public abstract void reDisplay();
+
+    // Blame support - every diff panel must implement these methods
+
+    /**
+     * Apply blame information to this diff panel. The maps use 1-based line numbers as keys.
+     *
+     * @param leftMap blame information for the left/original side (may be empty)
+     * @param rightMap blame information for the right/revised side (may be empty)
+     */
+    public abstract void applyBlame(
+            Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> leftMap,
+            Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> rightMap);
+
+    /** Clear all blame information from this diff panel. */
+    public abstract void clearBlame();
+
+    /**
+     * Get the file path for which this panel should display blame information. Used to resolve the target file for
+     * blame operations. Returns null if blame is not applicable for this panel.
+     *
+     * @return the absolute path to the file to blame, or null if unavailable
+     */
+    @Nullable
+    public abstract java.nio.file.Path getTargetPathForBlame();
+
+    // Font support - every diff panel must implement
+
+    /**
+     * Apply a specific font size to all editors and gutters in this panel.
+     *
+     * @param size the font size in points
+     */
+    public abstract void applyEditorFontSize(float size);
+
+    /**
+     * Returns whether this panel has unsaved changes. The base implementation returns the cached dirty flag.
+     */
+    @Override
+    public final boolean hasUnsavedChanges() {
+        return dirty;
+    }
+
+    /**
+     * Associate this panel with a specific file index from BrokkDiffPanel.FileComparisonInfo list so that the panel
+     * can be used independently for operations that need revision metadata.
+     */
+    public void setAssociatedFileIndex(int index) {
+        this.associatedFileIndex = index;
+    }
+
+    /**
+     * Returns the associated file index or -1 if none assigned.
+     */
+    public int getAssociatedFileIndex() {
+        return associatedFileIndex;
+    }
 }

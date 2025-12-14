@@ -151,6 +151,11 @@ public class Context {
         var prefix = "  ".repeat(Math.max(0, indent));
         var sb = new StringBuilder();
         for (var cu : units) {
+            // Skip anonymous/lambda artifacts
+            if (cu.isAnonymous()) {
+                continue;
+            }
+
             // Use FQN for top-level entries, simple identifier for nested entries
             String name = indent == 0 ? cu.fqName() : cu.identifier();
             sb.append(prefix).append("- ").append(name);
@@ -158,7 +163,7 @@ public class Context {
             var children = analyzer.getDirectChildren(cu);
             if (!children.isEmpty()) {
                 sb.append("\n");
-                sb.append(buildRelatedIdentifiers(analyzer, children, indent + 2));
+                sb.append(buildRelatedIdentifiers(analyzer, children, indent + 1));
             }
             sb.append("\n");
         }
@@ -174,7 +179,17 @@ public class Context {
             int linesAdded,
             int linesDeleted,
             String oldContent,
-            String newContent) {}
+            String newContent) {
+        @Blocking
+        public String title() {
+            var files = fragment.files().join();
+            if (files != null && !files.isEmpty()) {
+                var pf = files.iterator().next();
+                return pf.getRelPath().toString();
+            }
+            return fragment.shortDescription().join();
+        }
+    }
 
     public static UUID newContextId() {
         return UuidCreator.getTimeOrderedEpoch();
@@ -1175,9 +1190,52 @@ public class Context {
         return withTaskList(json, action);
     }
 
+    /**
+     * Refreshes all computed fragments in this context without filtering.
+     * Equivalent to calling {@link #copyAndRefresh(Set, String)} with all fragments.
+     *
+     * @return a new context with refreshed fragments, or this context if no changes occurred
+     */
     @Blocking
-    public Context copyAndRefresh(Set<ProjectFile> changed) {
-        if (changed.isEmpty()) {
+    public Context copyAndRefresh(String action) {
+        return copyAndRefreshInternal(Set.copyOf(fragments), action);
+    }
+
+    /**
+     * Refreshes fragments whose source files intersect the provided set.
+     *
+     * @param maybeChanged     set of project files that may have changed
+     * @param action description string for Activity history
+     * @return a new context with refreshed fragments, or this context if no changes occurred
+     */
+    @Blocking
+    public Context copyAndRefresh(Set<ProjectFile> maybeChanged, String action) {
+        if (maybeChanged.isEmpty()) {
+            return this;
+        }
+
+        // Map each fragment to the set of ProjectFiles it contains
+        var fragmentsToRefresh = new HashSet<ContextFragment>();
+        for (var f : fragments) {
+            if (!Collections.disjoint(f.files().join(), maybeChanged)) {
+                fragmentsToRefresh.add(f);
+            }
+        }
+
+        return copyAndRefreshInternal(fragmentsToRefresh, action);
+    }
+
+    /**
+     * Core refresh logic: refreshes the specified fragments and tracks content changes via diff.
+     * Handles remapping read-only membership for replaced fragments.
+     *
+     * @param maybeChanged the set of fragments to potentially refresh
+     * @param action the action description for this refresh operation
+     * @return a new context with refreshed fragments, or this context if no changes occurred
+     */
+    @Blocking
+    private Context copyAndRefreshInternal(Set<ContextFragment> maybeChanged, String action) {
+        if (maybeChanged.isEmpty()) {
             return this;
         }
 
@@ -1188,22 +1246,24 @@ public class Context {
         var replacementMap = new HashMap<ContextFragment, ContextFragment>();
 
         for (var f : fragments) {
-            // Refresh computed fragments whose referenced files intersect the changed set
-            boolean intersects = !Collections.disjoint(f.files().join(), changed);
-            if (intersects) {
+            ContextFragment fragmentToAdd = f;
+
+            if (maybeChanged.contains(f)) {
                 var refreshed = f.refreshCopy();
                 if (refreshed != f) {
-                    anyReplaced = true;
-                    replacementMap.put(f, refreshed);
-                    newFragments.add(refreshed);
-                } else {
-                    // If refresh returns the same instance, add exactly once
-                    newFragments.add(f);
+                    // Check if content actually differs using DiffService
+                    var diffFuture = DiffService.computeDiff(f, refreshed);
+                    var diffEntry = diffFuture.join();
+                    if (diffEntry != null) {
+                        // Content actually changed; mark as replaced
+                        anyReplaced = true;
+                        replacementMap.put(f, refreshed);
+                        fragmentToAdd = refreshed;
+                    }
                 }
-            } else {
-                // Unaffected fragments are preserved as-is
-                newFragments.add(f);
             }
+
+            newFragments.add(fragmentToAdd);
         }
 
         // Create a new Context only if any fragment actually changed, or parsed output is present.
@@ -1230,7 +1290,7 @@ public class Context {
                 newFragments,
                 taskHistory,
                 parsedOutput,
-                CompletableFuture.completedFuture("Load external changes"),
+                CompletableFuture.completedFuture(action),
                 this.groupId,
                 this.groupLabel,
                 newReadOnly);

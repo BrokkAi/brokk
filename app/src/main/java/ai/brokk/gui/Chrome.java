@@ -366,10 +366,6 @@ public class Chrome
                 NotificationRole.INFO, "Opening project at " + getProject().getRoot());
 
         // Test runner persistence and panel
-        // Note: test_runs.json is intentionally workspace-specific (using getRoot()) rather than shared
-        // at the master root. Each subdirectory in a monorepo may have distinct test suites, and test
-        // runs are local metrics tied to specific code execution. Unlike sessions (shared collaborative
-        // conversations), test history should remain isolated between different projects/modules.
         var brokkDir = getProject().getRoot().resolve(AbstractProject.BROKK_DIR);
         var testRunsStore = new FileBasedTestRunsStore(brokkDir.resolve("test_runs.json"));
         this.testRunnerPanel = new TestRunnerPanel(this, testRunsStore);
@@ -497,7 +493,6 @@ public class Chrome
                 projectFilesPanel.updatePanel();
                 return null;
             });
-
         } else {
             gitCommitTab = null;
             gitLogTab = null;
@@ -831,10 +826,8 @@ public class Chrome
 
         // Clean up any orphaned clone operations from previous sessions
         if (getProject() instanceof MainProject) {
-            Path dependenciesRoot = getProject()
-                    .getMasterRootPathForConfig()
-                    .resolve(AbstractProject.BROKK_DIR)
-                    .resolve(AbstractProject.DEPENDENCIES_DIR);
+            Path dependenciesRoot =
+                    getProject().getRoot().resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
             CloneOperationTracker.cleanupOrphanedClones(dependenciesRoot);
         }
 
@@ -1174,18 +1167,20 @@ public class Chrome
                 logger.trace("updateGitRepo: using fallback branch label '{}'", branchToDisplay);
             }
             final String display = branchToDisplay;
-            try {
-                // Redundancy guard: only refresh if the displayed branch text actually changed
-                if (lastDisplayedBranchLabel != null && lastDisplayedBranchLabel.equals(display)) {
-                    logger.trace("updateGitRepo: branch unchanged ({}), skipping InstructionsPanel refresh", display);
-                    return;
+            // Only refresh branch UI if it actually changed (avoid redundant UI updates)
+            boolean branchUiNeedsRefresh =
+                    lastDisplayedBranchLabel == null || !lastDisplayedBranchLabel.equals(display);
+            if (branchUiNeedsRefresh) {
+                try {
+                    refreshBranchUi(display);
+                    lastDisplayedBranchLabel = display;
+                } catch (Exception ex) {
+                    logger.warn("updateGitRepo: failed to refresh InstructionsPanel branch UI: {}", ex.getMessage());
                 }
-                // Delegate branch UI updates to the branch selector hosted in Chrome
-                refreshBranchUi(display);
-                lastDisplayedBranchLabel = display;
-            } catch (Exception ex) {
-                logger.warn("updateGitRepo: failed to refresh InstructionsPanel branch UI: {}", ex.getMessage());
+            } else {
+                logger.trace("updateGitRepo: branch unchanged ({}), skipping branch UI refresh", display);
             }
+            // Continue to update git panels even if branch unchanged (e.g., new commits)
         }
 
         // Update individual Git-related panels and log what is being updated
@@ -2258,6 +2253,16 @@ public class Chrome
     @Override
     public void hideSessionSwitchSpinner() {
         SwingUtilities.invokeLater(historyOutputPanel::hideSessionSwitchSpinner);
+    }
+
+    @Override
+    public void showTransientMessage(String message) {
+        SwingUtilities.invokeLater(() -> historyOutputPanel.showTransientMessage(message));
+    }
+
+    @Override
+    public void hideTransientMessage() {
+        SwingUtilities.invokeLater(historyOutputPanel::hideTransientMessage);
     }
 
     public void focusInput() {

@@ -103,7 +103,7 @@ public class TestProject implements IProject {
 
     @Override
     public Path getMasterRootPathForConfig() {
-        return root;
+        return getRoot();
     }
 
     @Override
