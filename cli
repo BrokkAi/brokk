@@ -1177,6 +1177,273 @@ Implementation notes (sessions)
 - Sessions should be lightweight to create (fast), and servers should instrument `createdAtMs` and `lastActiveMs` for automation usage.
 - Always include `project` scoping in returned session descriptors so callers can correlate a session to a canonical project path and optional `projectId`.
 
+## Context commands — specification
+
+Purpose
+- Manage session-scoped or project-scoped contextual data that seeds LLM reasoning: files, class/method fragments, free-form text, or other content artifacts. These commands let automation enumerate, add, and remove context entries used by executions.
+
+Common flags / selectors
+- Global flags apply (`--format`, `--instance`, `--all`, `--timeout`, `--request-id`, `--auth-token`, etc.).
+- Context-specific selectors:
+  - `--path <abs-path>` — canonical project path to scope the operation (required when the instance has multiple open projects).
+  - `--project-id <id>` — instance-local project id to scope operations (preferred when available).
+  - `--session-id <id>` — session to which the context will be added / from which it will be listed or removed. If omitted, commands act against the active session for the selected project (subject to `sessions active` rules).
+  - `--scope <session|job|global>` (optional) — explicit scope hint. Default: `session`.
+- Addressing files / content:
+  - For file-backed context, address files by `relativePath` (string) relative to the project root. Examples: `src/main/java/com/acme/Foo.java`, `README.md`.
+  - For inline/free-text context, supply `--text` or `--stdin` or `--file @/absolute/path/to/local/file` (client-side convenience; server receives content in payload).
+  - Optional `--id <id>`: let the client supply a stable id for the new context entry (server may reject on collision). Servers MUST return assigned `contextId` when not supplied.
+  - Optional `--metadata` (JSON): free-form object for tags, language, or hinting (e.g., `{ "language": "java", "type": "class" }`).
+  - Optional `--line-range start:end` (e.g., `10:50`) or `--char-range start:end` to add a snippet from a file rather than whole file (server may respond with `PROTOCOL_UNSUPPORTED_FEATURE` if unsupported).
+
+Design principles
+- Keep `context list` cheap; avoid retrieving full file contents unless requested.
+- Use `relativePath` for file identity when possible; use `contextId` for stable addressing of added entries.
+- Server responses should include both `contextId` and `relativePath` (when applicable) so callers can correlate entries added now vs existing library content.
+
+Commands
+
+1) `context list`
+
+Purpose
+- Enumerate context entries visible to the selected project + session scope.
+
+Inputs / Flags
+- `--format json|text`
+- `--instance`, `--path`/`--project-id`, `--session-id` or active session semantics
+- `--type <file|text|class|method|diff|all>` (optional) to filter by kind
+- `--limit <n>`, `--offset <n>` for paging (optional)
+- `--request-id`, `--timeout`, `--auth-token`
+
+Behavior
+- Return entries scoped to the resolved project and session (or global scope when `--scope global`).
+- By default return metadata only (no full content). Support an optional `--include-content` to return contents or snippets.
+- Normalize `relativePath` output to platform-canonical form.
+
+Output schema (JSON mode)
+Top-level:
+```json
+{
+  "requestId": "uuid",
+  "summary": { "total": 3 },
+  "context": [
+    {
+      "contextId": "ctx-1",
+      "type": "file",
+      "relativePath": "src/main/java/com/acme/Foo.java",
+      "addedBy": "user",
+      "addedAtMs": 1690001000000,
+      "sizeBytes": 1234,
+      "snippet": "public class Foo { ... }",
+      "sessionId": "s-123",
+      "tags": ["important"],
+      "metadata": { "language": "java" }
+    },
+    {
+      "contextId": "ctx-2",
+      "type": "text",
+      "relativePath": null,
+      "addedBy": "user",
+      "addedAtMs": 1690002000000,
+      "sizeBytes": 234,
+      "snippet": "Design note: We should...",
+      "sessionId": "s-123",
+      "tags": [],
+      "metadata": { "source": "paste" }
+    }
+  ],
+  "elapsedMs": 12
+}
+```
+
+Field notes:
+- `contextId` (string): stable server-assigned id for the context entry.
+- `type` (string): one of `file`, `text`, `class`, `method`, `diff`, etc.
+- `relativePath` (string|null): path relative to project root when applicable.
+- `snippet` (string|null): short excerpt for display; controlled by server and may be truncated.
+- `sessionId` (string|null): session-scoped id; null for global scope.
+- `metadata` (object|null): server/caller provided metadata.
+
+2) `context add`
+
+Purpose
+- Add one or more context entries to a session/project. Commonly used to seed files, snippets, or textual hints before submitting jobs.
+
+Inputs / Flags
+- `--instance`, `--path`/`--project-id`, `--session-id` (or use active session)
+- One or more content sources:
+  - `--file <relativePath>` — instruct server to read the file contents from the project workspace (preferred where server has access).
+  - `--stdin` and `--text "<content>"` — inline text provided by the client.
+  - `--from <local-file>` — client uploads a local file (transport detail).
+- `--id <id>` (optional) — desired context id (server may reject duplicates).
+- `--overwrite` (optional) — when adding an entry whose `relativePath` already exists, overwrite server-side content. Default: do not overwrite; return `ALREADY_EXISTS`.
+- `--type <file|text|class|method|diff>` (optional)
+- `--metadata` (optional)
+- `--request-id`, `--timeout`, `--auth-token`
+
+Behavior
+- The server attempts to add each provided entry; operations are per-entry and reported individually. For file-based adds (`--file`), the server reads content at that path inside the project workspace; if the file is not present or not readable return `NOT_FOUND` or `PERMISSION_DENIED`.
+- When `--overwrite` is not specified and a `relativePath` already exists as context for the same session/scope, return `ALREADY_EXISTS` for that entry.
+- If the content is identical to an existing entry (bytewise equality or canonicalized equivalence), treat as idempotent no-op and return `status: "ok"` with `idempotent: true` (see Idempotency section).
+
+Per-instance result container (context add)
+```json
+{
+  "requestId": "req-ctx-add-1",
+  "summary": { "requested": 2, "succeeded": 1, "failed": 1 },
+  "results": [
+    {
+      "instanceId": "a111...",
+      "status": "ok",
+      "data": {
+        "contextId": "ctx-100",
+        "relativePath": "src/main/java/com/acme/Foo.java",
+        "addedAtMs": 1690004000000,
+        "idempotent": false
+      },
+      "error": null,
+      "elapsedMs": 45
+    },
+    {
+      "instanceId": "a111...",
+      "status": "error",
+      "data": null,
+      "error": {
+        "code": "ALREADY_EXISTS",
+        "message": "Context entry for 'src/main/java/com/acme/Foo.java' already exists (use --overwrite to replace).",
+        "details": { "existingContextId": "ctx-77" }
+      },
+      "elapsedMs": 5
+    }
+  ],
+  "elapsedMs": 60
+}
+```
+
+3) `context remove`
+
+Purpose
+- Remove one or more context entries from a session/project. Useful for cleanup or replacing stale content.
+
+Inputs / Flags
+- `--instance`, `--path`/`--project-id`, `--session-id` (or active session)
+- Target addressing (one of):
+  - `--context-id <id>` — remove by server-assigned id (recommended).
+  - `--file <relativePath>` — remove by relative path.
+  - `--all` — remove all context entries in the selected session/scope (dangerous; requires explicit opt-in).
+- `--require-exists` (optional): cause removal to fail if an addressed entry does not exist. Default behavior: idempotent success on missing entries (see Idempotency).
+- `--request-id`, `--timeout`, `--auth-token`
+
+Per-instance result container (context remove)
+```json
+{
+  "requestId": "req-ctx-rm-1",
+  "summary": { "requested": 2, "succeeded": 2, "failed": 0 },
+  "results": [
+    {
+      "instanceId": "a111...",
+      "status": "ok",
+      "data": {
+        "removed": [
+          { "contextId": "ctx-100", "relativePath": "src/main/java/com/acme/Foo.java" }
+        ],
+        "skipped": []
+      },
+      "error": null,
+      "elapsedMs": 30
+    },
+    {
+      "instanceId": "a111...",
+      "status": "ok",
+      "data": {
+        "removed": [],
+        "skipped": [
+          { "query": "src/main/java/com/acme/Missing.java", "reason": "not-found" }
+        ]
+      },
+      "error": null,
+      "elapsedMs": 6
+    }
+  ],
+  "elapsedMs": 40
+}
+```
+
+Output notes:
+- `removed` is an array of successful deletions with `contextId` and `relativePath` where known.
+- `skipped` is an array of requested targets that were not present and therefore skipped (idempotent path). When `--require-exists` is used these would be reported as per-entry errors instead.
+
+Idempotency semantics (clarified)
+- Add:
+  - Adding an entry with the same `relativePath` and identical content as an existing entry should be treated as a no-op and return success with `idempotent: true`.
+  - Adding with same `relativePath` but different content without `--overwrite` returns `ALREADY_EXISTS`.
+  - With `--overwrite`, server replaces existing content and returns success with `idempotent: false` and the new `contextId`/`revision` (if revisions are supported).
+- Remove:
+  - Removing a non-existent `contextId` or `relativePath` is a no-op and should return success by default (idempotent), listing the target in `skipped`. If caller passes `--require-exists`, server returns `NOT_FOUND` for that target instead.
+- List:
+  - Purely observational; repeated calls produce stable metadata unless the server's state changes.
+
+Error codes (relevant)
+- `INVALID_ARGS` — bad flags or mutually-exclusive options.
+- `NOT_FOUND` — when `--require-exists` is set and target is missing, or `--session-id`/`--project-id` point to nothing.
+- `ALREADY_EXISTS` — add attempted without `--overwrite` against existing `relativePath`.
+- `PERMISSION_DENIED` — server cannot read the workspace file or lacks permission to mutate session-scoped context.
+- `PROTOCOL_UNSUPPORTED_FEATURE` — server does not support requested flags (e.g., `--line-range`).
+- `TRANSPORT_ERROR` / `UNAUTHORIZED` — as previously defined.
+
+Examples
+
+1) Add local file by relative path (single-instance)
+Command:
+- `brokkctl context add --path /home/alice/repo --session-id s-123 --file src/main/java/com/acme/Foo.java -o json`
+
+Response (simplified single-instance):
+```json
+{
+  "requestId": "req-ctx-add-1",
+  "results": [
+    {
+      "instanceId": "a111...",
+      "status": "ok",
+      "data": {
+        "contextId": "ctx-100",
+        "relativePath": "src/main/java/com/acme/Foo.java",
+        "addedAtMs": 1690004000000,
+        "idempotent": false
+      },
+      "error": null
+    }
+  ],
+  "summary": { "requested": 1, "succeeded": 1, "failed": 0 }
+}
+```
+
+2) Remove by `contextId` with idempotent semantics
+Command:
+- `brokkctl context remove --path /home/alice/repo --session-id s-123 --context-id ctx-100 -o json`
+
+Response:
+```json
+{
+  "requestId": "req-ctx-rm-1",
+  "results": [
+    {
+      "instanceId": "a111...",
+      "status": "ok",
+      "data": { "removed": [{ "contextId": "ctx-100", "relativePath": "src/main/java/com/acme/Foo.java" }], "skipped": [] },
+      "error": null
+    }
+  ],
+  "summary": { "requested": 1, "succeeded": 1, "failed": 0 }
+}
+```
+
+Implementation hints
+- Prefer `contextId` for long-lived automation; allow `relativePath` for convenience when the caller and server share the same workspace layout.
+- Servers should compute and expose a lightweight `digest` (e.g., SHA-256) or `revision` for content entries to make idempotency checks cheap for clients.
+- For large content, avoid returning full file contents in `context list` by default; offer `--include-content` with explicit opt-in.
+- When supporting multi-instance fan-out, follow the established per-instance `results` + `summary` envelope and map mixed outcomes to `PARTIAL_SUCCESS` exit code `4`.
+
 ## Appendix: Example Shapes
 
 Instance descriptor (discovery)
