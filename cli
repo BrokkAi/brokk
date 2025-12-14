@@ -59,12 +59,14 @@ This spec is implementation-agnostic: discovery can be implemented by registry, 
 Top-level command: `brokkctl`
 
 Global flags:
-- `--discover` (implicit) — find instances on the local machine
-- `--instance <id|pid|selector>` — target a specific instance
-- `-o, --output {json,pretty}` — output format (default: `pretty`)
-- `--timeout <ms>` — discovery/request timeout
-- `--auth-token <token>` — token for secured endpoints
-- `--allow-incompatible` — opt-in to proceed when MAJOR protocol versions differ (dangerous; explicit opt-in)
+- `--format json|text` — output format; `json` is the canonical machine-friendly default. `text` yields human-oriented pretty output.
+- `--instance <selector>` — target a specific instance. Supported selector forms: instanceId (UUID), `pid:<n>`, `addr:<host:port>`, `socket:<path>`.
+- `--all` — target all non-stale instances (fan-out).
+- `--timeout <ms>` — overall timeout in milliseconds for discovery and per-request network operations (default: 30000).
+- `--fail-fast` / `--best-effort` — fan-out failure policy. `--fail-fast` aborts on first failure (default); `--best-effort` attempts all targets and returns an aggregated result (partial success possible).
+- `--protocol-version <MAJOR.MINOR.PATCH>` — advertise a specific client protocol version via the `Brokk-CTL-Version` header; if omitted the client will use its built-in version.
+- `--auth-token <token>` — send `Authorization: Bearer <token>` to secured endpoints.
+- `--allow-incompatible` — explicitly allow proceeding when client MAJOR > server MAJOR (dangerous; requires opt-in).
 
 Example subcommands (conceptual):
 - `brokkctl instances list` — list discovered instances
@@ -168,26 +170,32 @@ Security:
 
 ## Output & Exit Codes
 
-- `-o json` is the canonical machine format.
-- Human-friendly output (`pretty`) is optional and a presentation-layer concern.
-- Streaming events: NDJSON (newline-delimited JSON) is recommended for line-by-line processing.
-- Exit codes (suggested):
-  - `0` — success
-  - `1` — general error (invalid args, network failure)
-  - `2` — cancelled / interrupted
-  - `3` — partial failure in multi-instance calls
+- `--format json` is the canonical machine format (use NDJSON for streaming/event feeds when `--follow` or similar is used).
+- Human-friendly output (`text`) is a presentation-layer concern.
+- For streaming events prefer NDJSON (newline-delimited JSON) for line-by-line tooling compatibility.
 
-Errors returned in JSON MUST follow a consistent shape when `-o json` is requested:
+Exit code mapping (recommended):
+- `0` — SUCCESS: All requested operations succeeded.
+- `1` — USER_ERROR: Invalid arguments, missing required flags, or other client-side usage errors.
+- `2` — TRANSPORT_ERROR: Network-level failures, request timeouts, or discovery failures.
+- `3` — AUTH_ERROR: Authentication/authorization failures (e.g., 401/403).
+- `4` — PARTIAL_SUCCESS: Fan-out operations completed with a mix of successes and failures.
 
+Semantics and rules:
+- Any non-zero exit code indicates failure for automation. `4` explicitly denotes partial success and allows callers to detect mixed outcomes.
+- `--fail-fast`: the CLI should return immediately on the first error using the appropriate error category code (USER_ERROR/TRANSPORT_ERROR/AUTH_ERROR).
+- `--best-effort`: the CLI should attempt all targets and then:
+  - If at least one target succeeded and at least one failed, return `4` (PARTIAL_SUCCESS).
+  - If all targets failed, return the highest-priority non-zero error encountered. Priority order for collapsing multiple error types: AUTH_ERROR (3) > TRANSPORT_ERROR (2) > USER_ERROR (1).
+- In `json` mode error responses MUST follow the structured shape:
 {
   "error": {
-    "code": "INVALID_ARGS",
+    "code": "USER_ERROR",
     "message": "Detailed text",
     "details": { ... optional ... }
   }
 }
-
-For fan-out responses, include per-instance `error` objects and a top-level `summary`.
+- For fan-out responses include a `summary` and per-instance `results` (each result may include `error`); in mixed-outcome cases return exit code `4`.
 
 ## Versioning Strategy — `brokkctl` Protocol
 
