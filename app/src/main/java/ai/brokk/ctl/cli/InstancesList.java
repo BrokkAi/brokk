@@ -30,6 +30,8 @@ public final class InstancesList {
             CtlConfigPaths cfg,
             long ttlMs,
             boolean includeAll,
+            String instanceSelector,
+            boolean autoSelect,
             String requestId,
             PrintStream out,
             PrintStream err) {
@@ -48,7 +50,7 @@ public final class InstancesList {
             }
         } catch (IOException e) {
             err.println("Failed to list instances directory: " + e.getMessage());
-            return 2;
+            return 4; // TRANSPORT_ERROR for IO listing failures
         }
 
         int totalInstances = files.size();
@@ -56,12 +58,16 @@ public final class InstancesList {
         int staleCount = 0;
         long now = System.currentTimeMillis();
 
+        List<String> readFailures = new ArrayList<>();
+        List<String> parseFailures = new ArrayList<>();
+
         for (Path p : files) {
             String content;
             try {
                 content = Files.readString(p);
             } catch (IOException e) {
                 // Cannot read, count in total but skip
+                readFailures.add(p.getFileName().toString());
                 continue;
             }
 
@@ -70,6 +76,7 @@ public final class InstancesList {
                 data = Json.fromJson(content, Map.class);
             } catch (Exception e) {
                 // Parse failure: count in totalInstances but skip
+                parseFailures.add(p.getFileName().toString());
                 continue;
             }
 
@@ -112,13 +119,43 @@ public final class InstancesList {
         // Sort deterministically by instanceId ascending
         parsedInstances.sort(Comparator.comparing(m -> (String) m.getOrDefault("instanceId", "")));
 
-        List<Map<String, Object>> toReturn;
-        if (includeAll) {
-            toReturn = parsedInstances;
+        // Determine candidates based on includeAll vs TTL filtering
+        List<Map<String, Object>> nonStale = parsedInstances.stream()
+                .filter(m -> Boolean.FALSE.equals(m.get("stale")))
+                .collect(Collectors.toList());
+
+        List<Map<String, Object>> candidates = includeAll ? parsedInstances : nonStale;
+
+        // Apply instance selector if provided (comma-separated allowed)
+        final Set<String> selectorSet;
+        if (instanceSelector != null && !instanceSelector.isBlank()) {
+            selectorSet = Arrays.stream(instanceSelector.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
         } else {
-            toReturn = parsedInstances.stream()
-                    .filter(m -> Boolean.FALSE.equals(m.get("stale")))
+            selectorSet = null;
+        }
+
+        List<Map<String, Object>> toReturn;
+        if (selectorSet != null) {
+            final Set<String> sel = selectorSet; // capture into effectively-final local for lambda
+            toReturn = candidates.stream()
+                    .filter(m -> sel.contains((String) m.getOrDefault("instanceId", "")))
                     .collect(Collectors.toList());
+            if (toReturn.isEmpty()) {
+                err.println("No instances matched selector: " + instanceSelector);
+                return 2; // USER_ERROR
+            }
+        } else if (autoSelect) {
+            if (candidates.size() == 1) {
+                toReturn = List.of(candidates.get(0));
+            } else {
+                err.println("Auto-select ambiguous: found " + candidates.size() + " candidate instances");
+                return 2; // USER_ERROR for ambiguous auto-select
+            }
+        } else {
+            toReturn = candidates;
         }
 
         Map<String, Object> summary = new LinkedHashMap<>();
@@ -126,6 +163,8 @@ public final class InstancesList {
         summary.put("returnedInstances", toReturn.size());
         summary.put("staleInstances", staleCount);
         summary.put("ttlMs", ttlMs);
+        summary.put("parseFailures", parseFailures.size());
+        summary.put("readFailures", readFailures.size());
 
         Map<String, Object> envelope = new LinkedHashMap<>();
         envelope.put("requestId", requestId == null ? "(auto)" : requestId);
@@ -133,8 +172,27 @@ public final class InstancesList {
         envelope.put("instances", toReturn);
         envelope.put("elapsedMs", System.currentTimeMillis() - start);
 
+        // Provide details for skipped files when present
+        if (!parseFailures.isEmpty() || !readFailures.isEmpty()) {
+            Map<String, Object> skipped = new LinkedHashMap<>();
+            skipped.put("parseFailures", parseFailures);
+            skipped.put("readFailures", readFailures);
+            envelope.put("skippedFiles", skipped);
+        }
+
         out.println(Json.toJson(envelope));
-        return 0;
+
+        // Exit code mapping:
+        // 0 = success (no read/parse failures)
+        // 3 = partial success (parse failures present)
+        // 4 = transport error (read failures present)
+        if (!readFailures.isEmpty()) {
+            return 4;
+        } else if (!parseFailures.isEmpty()) {
+            return 3;
+        } else {
+            return 0;
+        }
     }
 
     private static String safeCastString(Object o) {
