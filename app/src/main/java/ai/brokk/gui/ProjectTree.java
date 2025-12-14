@@ -7,8 +7,8 @@ import ai.brokk.TrackedFileChangeListener;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
-import ai.brokk.gui.util.ContextSizeGuard;
 import ai.brokk.gui.mop.ThemeColors;
+import ai.brokk.gui.util.ContextSizeGuard;
 import ai.brokk.project.IProject;
 import ai.brokk.util.FileManagerUtil;
 import java.awt.*;
@@ -964,7 +964,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         }
     }
 
-    /** Custom cell renderer that colors untracked files red */
+    /** Custom cell renderer that colors untracked files red and CI-excluded items gray */
     private class ProjectTreeCellRenderer extends DefaultTreeCellRenderer {
         @Override
         public Component getTreeCellRendererComponent(
@@ -983,19 +983,14 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                         setIcon(getLeafIcon());
                     }
 
-                    // Color CI-excluded directories
-                    if (file.isDirectory()) {
-                        Path relativePath = project.getRoot().relativize(file.toPath());
-                        String relativePathStr = relativePath.toString();
-                        Set<String> excludedDirs = project.getExcludedDirectories();
-                        if (excludedDirs.contains(relativePathStr)) {
-                            setForeground(ThemeColors.getColor(ThemeColors.CI_EXCLUDED_FOREGROUND));
-                        }
-                    }
+                    Path relativePath = project.getRoot().relativize(file.toPath());
+                    String relativePathStr = relativePath.toString();
 
-                    // Color untracked files red (only for files, not directories)
-                    if (file.isFile()) {
-                        Path relativePath = project.getRoot().relativize(file.toPath());
+                    // Color CI-excluded directories and files (recursively)
+                    if (isUnderExcludedDirectory(relativePathStr)) {
+                        setForeground(ThemeColors.getColor(ThemeColors.CI_EXCLUDED_FOREGROUND));
+                    } else if (file.isFile()) {
+                        // Color untracked files red (only for files not under excluded dirs)
                         ProjectFile projectFile = new ProjectFile(project.getRoot(), relativePath);
                         if (!project.getRepo().getTrackedFiles().contains(projectFile)) {
                             setForeground(Color.RED);
@@ -1008,6 +1003,17 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             }
 
             return this;
+        }
+
+        private boolean isUnderExcludedDirectory(String relativePath) {
+            Set<String> excludedDirs = project.getExcludedDirectories();
+            String separator = File.separator;
+            for (String excluded : excludedDirs) {
+                if (relativePath.equals(excluded) || relativePath.startsWith(excluded + separator)) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 
