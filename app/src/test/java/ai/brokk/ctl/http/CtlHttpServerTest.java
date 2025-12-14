@@ -112,6 +112,59 @@ public class CtlHttpServerTest {
             // server currently advertises a few capabilities; ensure exec.start is present
             assertTrue(caps.stream().anyMatch(x -> "exec.start".equals(x.toString())), "supportedCapabilities should include exec.start");
 
+            // server should include Brokk-CTL-Version header matching instance record
+            assertEquals(rec.brokkctlVersion, respOk.headers().firstValue("Brokk-CTL-Version").orElse(""));
+
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    public void testCtlInfoRejectsHigherMinorVersion(@TempDir Path tempDir) throws Exception {
+        List<String> projects = List.of();
+        InstanceRecord rec = new InstanceRecord(
+                "instance-456",
+                null,
+                "127.0.0.1:0",
+                projects,
+                "0.1.0-test",
+                System.currentTimeMillis(),
+                System.currentTimeMillis()
+        );
+
+        CtlConfigPaths paths = CtlConfigPaths.forBaseConfigDir(tempDir);
+        CtlKeyManager keyManager = new CtlKeyManager(paths);
+
+        CtlHttpServer server = new CtlHttpServer(rec, keyManager, "127.0.0.1", 0);
+        try {
+            server.start();
+            int port = server.getPort();
+            String base = "http://127.0.0.1:" + port;
+
+            String correctKey = keyManager.loadOrCreateKey();
+            HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
+
+            // client advertises a higher minor version (0.2.0) while server is 0.1.x
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(base + "/v1/ctl-info"))
+                    .header("Brokk-CTL-Key", correctKey)
+                    .header("Brokk-CTL-Version", "0.2.0")
+                    .GET()
+                    .build();
+
+            HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
+            assertEquals(409, resp.statusCode(), "expected 409 when client minor > server minor");
+
+            Map<String, Object> body = Json.fromJson(resp.body(), new TypeReference<>() {});
+            assertEquals("PROTOCOL_UNSUPPORTED_FEATURE", body.get("error"));
+            Object caps = body.get("supportedCapabilities");
+            assertTrue(caps instanceof List);
+            assertFalse(((List<?>) caps).isEmpty());
+
+            // server should still return its own version header
+            assertEquals(rec.brokkctlVersion, resp.headers().firstValue("Brokk-CTL-Version").orElse(""));
+
         } finally {
             server.stop(0);
         }

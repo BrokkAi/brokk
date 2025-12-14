@@ -9,30 +9,32 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.stream.Collectors;
 
-/**
- * Implements the `instances list` command.
- *
- * Behavior:
- *  - Reads *.json files from the instances directory (Cfg.getInstancesDir()).
- *  - totalInstances counts all .json files seen (even if parsing fails).
- *  - A file that cannot be parsed is skipped (but counted in totalInstances).
- *  - An instance is considered stale iff (now - lastSeenMs) > ttlMs.
- *  - If includeAll == false, stale instances are excluded from "instances" array.
- *  - If includeAll == true, stale instances are included and marked with "status":"stale".
- *
- * Output: single JSON envelope printed to the provided PrintStream.
- */
 public final class InstancesList {
     private InstancesList() {}
 
     @SuppressWarnings("unchecked")
     public static int execute(
-            CtlConfigPaths cfg,
+            ai.brokk.ctl.CtlConfigPaths cfg,
             long ttlMs,
             boolean includeAll,
             String instanceSelector,
             boolean autoSelect,
             String requestId,
+            PrintStream out,
+            PrintStream err) {
+        // maintain backward-compatible signature: default allowIncompatible = false
+        return execute(cfg, ttlMs, includeAll, instanceSelector, autoSelect, requestId, false, out, err);
+    }
+
+    @SuppressWarnings("unchecked")
+    public static int execute(
+            ai.brokk.ctl.CtlConfigPaths cfg,
+            long ttlMs,
+            boolean includeAll,
+            String instanceSelector,
+            boolean autoSelect,
+            String requestId,
+            boolean allowIncompatible,
             PrintStream out,
             PrintStream err) {
 
@@ -73,7 +75,7 @@ public final class InstancesList {
 
             Map<String, Object> data;
             try {
-                data = Json.fromJson(content, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+                data = ai.brokk.util.Json.fromJson(content, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
             } catch (Exception e) {
                 // Parse failure: count in totalInstances but skip
                 parseFailures.add(p.getFileName().toString());
@@ -114,6 +116,20 @@ public final class InstancesList {
             instOut.put("status", stale ? "stale" : "ok");
 
             parsedInstances.add(instOut);
+        }
+
+        // Version compatibility check: ensure instances have compatible MAJOR unless allowIncompatible
+        String clientVersion = BrokkCtlMain.BROKK_CTL_VERSION;
+        int clientMajor = parseMajor(clientVersion);
+        for (Map<String, Object> inst : parsedInstances) {
+            String instVer = safeCastString(inst.get("brokkctlVersion"));
+            if (instVer != null && !instVer.isBlank()) {
+                int instMajor = parseMajor(instVer);
+                if (instMajor != clientMajor && !allowIncompatible) {
+                    err.println("Incompatible brokkctl major version for instance: " + inst.getOrDefault("instanceId", "") + " (instance=" + instVer + " client=" + clientVersion + ")");
+                    return 2; // USER_ERROR: gate on major mismatch
+                }
+            }
         }
 
         // Sort deterministically by instanceId ascending
@@ -180,7 +196,7 @@ public final class InstancesList {
             envelope.put("skippedFiles", skipped);
         }
 
-        out.println(Json.toJson(envelope));
+        out.println(ai.brokk.util.Json.toJson(envelope));
 
         // Exit code mapping:
         // 0 = success (no read/parse failures)
@@ -213,5 +229,17 @@ public final class InstancesList {
     private static long safeCastLong(Object o, long def) {
         Number n = asNumber(o);
         return n == null ? def : n.longValue();
+    }
+
+    private static int parseMajor(String v) {
+        if (v == null) return 0;
+        String cleaned = v.replaceAll("[^0-9\\.]", "");
+        if (cleaned.isBlank()) return 0;
+        String[] parts = cleaned.split("\\.");
+        try {
+            return parts.length > 0 && !parts[0].isBlank() ? Integer.parseInt(parts[0]) : 0;
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 }
