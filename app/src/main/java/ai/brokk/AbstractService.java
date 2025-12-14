@@ -666,7 +666,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     public StreamingChatModel getModel(ModelType type) {
-        var cfg = project.getMainProject().getModelConfig(type);
+        var cfg = project.getModelConfig(type);
         var model = getModel(cfg);
         if (model != null) {
             return model;
