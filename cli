@@ -1444,6 +1444,209 @@ Implementation hints
 - For large content, avoid returning full file contents in `context list` by default; offer `--include-content` with explicit opt-in.
 - When supporting multi-instance fan-out, follow the established per-instance `results` + `summary` envelope and map mixed outcomes to `PARTIAL_SUCCESS` exit code `4`.
 
+## State commands — specification
+
+Purpose
+- Query the execution state for a given project/session on one or more Brokk instances. This command is useful for automation that needs to determine whether an instance is idle and safe to submit work, or is already running work and whether that work can be cancelled.
+
+Command
+- `brokkctl state get`
+
+Global and command flags
+- `--format json|text` — output format; `json` is canonical.
+- `--instance <selector>` — select a specific instance (see selection rules).
+- `--all` — query all non-stale instances (fan-out).
+- `--path <abs-path>` or `--project-id <id>` — project scope (required; see semantics).
+- `--session-id <id>` — optional session selector. If omitted, the instance's active session for the given project will be used when available (see semantics).
+- `--require-active` — if set, treat missing active session as an error (USER_ERROR); otherwise `data.active` will be returned false.
+- `--request-id <uuid>` — client-provided correlation id (optional).
+- `--timeout <ms>` — overall timeout for discovery and per-request network ops.
+- `--auth-token <token>` — bearer token for auth when required.
+- `--fail-fast` / `--best-effort` — fan-out failure policy.
+
+Selectors / scoping semantics
+- Project scope is required for `state get`. The caller must provide either `--path` or `--project-id`.
+- `--session-id` is optional. When omitted the server SHOULD resolve to the active session for the provided project:
+  - If an active session exists: state is returned for that session.
+  - If no active session exists:
+    - Default behavior: return `status: "ok"` with `data.active == false` and no execution running.
+    - If `--require-active` is used: return `status: "error"` with code `NOT_FOUND`.
+- For deterministic automation prefer specifying both `--path` and `--session-id`. For multi-instance operations use `--instance` or `--all` with explicit failure policy.
+
+Behavior
+- `state get` must be cheap and typically only returns metadata about currently running execution (if any). Servers SHOULD avoid expensive calculations when answering this query.
+- When `--all` is used the client must aggregate results using the canonical fan-out envelope (`summary`, `results[]`) described elsewhere.
+- If the instance can be reached but has no knowledge of the supplied project or session, the server returns a per-instance `NOT_FOUND` error (or `data.active == false` when using the non-failing default).
+- If the instance is running an execution but is not able to share details due to security/policy, it should return `status: "ok"` with `data.masked == true` and minimal fields (e.g., `mode` omitted, `cancellable` false) and include an `error` with `code: "PERMISSION_DENIED"` in `details` only when appropriate for automation.
+
+Execution state JSON schema (command → per-instance result)
+Per-instance result container (canonical fields from the spec still apply):
+
+```json
+{
+  "instanceId": "550e8400-e29b-41d4-a716-446655440000",
+  "listenAddr": "127.0.0.1:54321",
+  "status": "ok",
+  "data": {
+    "project": "/home/alice/project-a",
+    "sessionId": "s-123",
+    "active": true,
+    "execution": {
+      "state": "running",            // "idle" | "running"
+      "mode": "ask",                // "ask" | "plan" | "code" | "lutz"
+      "jobId": "j-9",               // optional: server job id when running
+      "startedAtMs": 1690006000000, // epoch ms when execution started; null if idle
+      "cancellable": true,          // whether client-initiated cancellation is possible
+      "progress": {                 // optional progress information
+        "phase": "planning",        // string: current phase name
+        "percent": 42.5             // number from 0.0–100.0 when available
+      },
+      "details": {                  // optional string/object for diagnostics
+        "note": "running external planner"
+      }
+    }
+  },
+  "error": null,
+  "elapsedMs": 6
+}
+```
+
+Field notes
+- `data.active` (boolean): whether a session is active / selected for the supplied project.
+- `execution.state`: coarse runtime state: `"idle"` or `"running"`.
+- `execution.mode`: logical mode of execution. Canonical enumerated values: `"ask"`, `"plan"`, `"code"`, `"lutz"`. (Implementations may include other mode strings; clients should treat unknown mode strings as opaque capability hints.)
+- `execution.startedAtMs`: epoch ms when the current execution started; null for idle.
+- `execution.cancellable`: whether client can meaningfully request a cancellation for the running job (mapped to `execution.cancel`/`execution stop` semantics).
+- `execution.jobId`: server-provided job identifier to use with cross-request correlate/cancel operations.
+- `execution.progress`: optional progress information. Servers may omit if not available.
+
+Per-instance error shapes
+- If the instance cannot be reached: per-instance result with `status: "error"` and canonical `error` object (e.g., `TRANSPORT_ERROR`).
+- If project not found on instance: `error.code == "NOT_FOUND"` and `error.details.attemptedPath`.
+- If session not found and `--require-active` used: `error.code == "NOT_FOUND"` describing missing active session.
+- If feature unsupported: `error.code == "PROTOCOL_UNSUPPORTED_FEATURE"`.
+
+Aggregate (fan-out) response
+- When `--all` is used return the standard fan-out envelope:
+  - `requestId`, `summary` (requested/succeeded/failed), `results` (per-instance containers), `elapsedMs`.
+- Mixed outcomes map to exit code `4` (PARTIAL_SUCCESS) in JSON mode, or a non-zero exit otherwise per overall exit-code mapping.
+
+Examples
+
+1) Idle session (single instance)
+
+Command:
+- `brokkctl state get --instance a111... --path /home/alice/project-a -o json`
+
+Output:
+```json
+{
+  "requestId": "req-state-1",
+  "results": [
+    {
+      "instanceId": "a111...",
+      "status": "ok",
+      "data": {
+        "project": "/home/alice/project-a",
+        "sessionId": "s-123",
+        "active": true,
+        "execution": {
+          "state": "idle",
+          "mode": null,
+          "jobId": null,
+          "startedAtMs": null,
+          "cancellable": false
+        }
+      },
+      "error": null,
+      "elapsedMs": 3
+    }
+  ],
+  "summary": { "requested": 1, "succeeded": 1, "failed": 0 }
+}
+```
+
+2) Running execution (single instance)
+
+Command:
+- `brokkctl state get --instance a111... --path /home/alice/project-a --session-id s-123 -o json`
+
+Output:
+```json
+{
+  "requestId": "req-state-2",
+  "results": [
+    {
+      "instanceId": "a111...",
+      "status": "ok",
+      "data": {
+        "project": "/home/alice/project-a",
+        "sessionId": "s-123",
+        "active": true,
+        "execution": {
+          "state": "running",
+          "mode": "plan",
+          "jobId": "j-42",
+          "startedAtMs": 1690007000000,
+          "cancellable": true,
+          "progress": { "phase": "planning", "percent": 12.0 },
+          "details": { "planner": "fast-planner-v2" }
+        }
+      },
+      "error": null,
+      "elapsedMs": 12
+    }
+  ],
+  "summary": { "requested": 1, "succeeded": 1, "failed": 0 }
+}
+```
+
+3) Missing active session (default, non-failing)
+
+Command:
+- `brokkctl state get --instance a111... --path /home/alice/project-a -o json`
+
+Output:
+```json
+{
+  "requestId": "req-state-3",
+  "results": [
+    {
+      "instanceId": "a111...",
+      "status": "ok",
+      "data": {
+        "project": "/home/alice/project-a",
+        "sessionId": null,
+        "active": false,
+        "execution": {
+          "state": "idle",
+          "mode": null,
+          "jobId": null,
+          "startedAtMs": null,
+          "cancellable": false
+        }
+      },
+      "error": null,
+      "elapsedMs": 2
+    }
+  ],
+  "summary": { "requested": 1, "succeeded": 1, "failed": 0 }
+}
+```
+
+Implementation hints
+- Servers should implement `ctl-info` and a lightweight `state` endpoint (e.g., `GET /v1/state?project=...&sessionId=...`) that returns the above per-instance shape.
+- Keep `state get` response small and suitable for frequent polling by automation.
+- Use `execution.jobId` so `brokkctl execution cancel --job <jobId>` or equivalent can correlate and cancel running jobs.
+
+Security and privacy
+- Do not expose sensitive execution internals by default. If a server masks details for security reasons, set `execution.cancellable` conservatively (usually `false`) and include a `details.maskedReason` or `error` as appropriate.
+
+Exit codes
+- On success: `0` when all targeted instances returned `status: "ok"`.
+- On per-instance mixed results: `4` (PARTIAL_SUCCESS) in JSON mode.
+- On transport/auth errors: appropriate mapping per the JSON exit-code mapping defined earlier.
+
 ## History commands — specification
 
 Purpose
