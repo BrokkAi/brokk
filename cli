@@ -1,101 +1,99 @@
 package ai.brokk.ctl.cli;
 
 import ai.brokk.ctl.CtlConfigPaths;
+import ai.brokk.ctl.InstanceRecord;
+import ai.brokk.util.Json;
+import com.fasterxml.jackson.core.type.TypeReference;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.file.Path;
+import java.util.*;
 
 /**
- * Minimal CLI entrypoint used by tests.
- *
- * Supports:
- *   instances list [--ttl <ms>] [--all] [--config-dir <path>] [--request-id <id>]
- *
- * Delegates behavior to InstancesList.execute(...) and returns its exit code.
+ * Tests for exec start CLI behavior (Phase 1).
  */
-public final class BrokkCtlMain {
-    private BrokkCtlMain() {}
+public class ExecStartTest {
+    @TempDir
+    Path tempDir;
 
-    /**
-     * Run the minimal brokkctl CLI command subset needed for tests.
-     *
-     * @param args  command-line style args (e.g. "instances", "list", "--ttl", "1000")
-     * @param out   stdout target
-     * @param err   stderr target
-     * @return exit code (0 success, non-zero error)
-     */
-    public static int run(String[] args, PrintStream out, PrintStream err) {
-        if (args == null || args.length < 2) {
-            err.println("Missing command. Expected: instances list");
-            return 2;
-        }
+    @Test
+    public void planStartReturnsJobIdAndCursor() throws Exception {
+        CtlConfigPaths cfg = CtlConfigPaths.forBaseConfigDir(tempDir);
+        Path instancesDir = cfg.ensureInstancesDirExists();
 
-        String cmd0 = args[0];
-        String cmd1 = args[1];
+        long now = System.currentTimeMillis();
+        // Instance with the target project but no running executions
+        InstanceRecord a = new InstanceRecord("id-a", 10, "addr-a", List.of("/proj/a"), "0.1.0", now - 500L, now - 200L);
+        java.nio.file.Files.writeString(instancesDir.resolve("id-a.json"), a.toJson());
 
-        if (!"instances".equals(cmd0) || !"list".equals(cmd1)) {
-            err.println("Unsupported command. Only 'instances list' is implemented in tests.");
-            return 2;
-        }
+        ByteArrayOutputStream bout = new ByteArrayOutputStream();
+        int rc = BrokkCtlMain.run(new String[] {
+                "exec", "start",
+                "--mode", "plan",
+                "--instance", "id-a",
+                "--path", "/proj/a",
+                "--config-dir", tempDir.toString()
+        }, new PrintStream(bout), System.err);
 
-        // defaults
-        long ttlMs = 1000L;
-        boolean includeAll = false;
-        String configDir = null;
-        String requestId = null;
+        assertEquals(0, rc);
+        String out = bout.toString().trim();
+        Map<String, Object> env = Json.fromJson(out, new TypeReference<Map<String, Object>>() {});
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> results = (List<Map<String, Object>>) env.get("results");
+        assertNotNull(results);
+        assertEquals(1, results.size());
+        Map<String, Object> r = results.get(0);
+        assertEquals("started", r.get("status"));
+        assertNotNull(r.get("jobId"));
+        assertNotNull(r.get("cursor"));
+        assertEquals("/proj/a", r.get("project"));
+        assertEquals("plan", r.get("mode"));
+    }
 
-        // parse flags starting at index 2
-        for (int i = 2; i < args.length; i++) {
-            String a = args[i];
-            switch (a) {
-                case "--ttl":
-                    if (i + 1 >= args.length) {
-                        err.println("--ttl requires a numeric argument");
-                        return 2;
-                    }
-                    String ttlArg = args[++i];
-                    try {
-                        ttlMs = Long.parseLong(ttlArg);
-                    } catch (NumberFormatException nfe) {
-                        err.println("Invalid ttl value: " + ttlArg);
-                        return 2;
-                    }
-                    break;
-                case "--all":
-                    includeAll = true;
-                    break;
-                case "--config-dir":
-                    if (i + 1 >= args.length) {
-                        err.println("--config-dir requires a path argument");
-                        return 2;
-                    }
-                    configDir = args[++i];
-                    break;
-                case "--request-id":
-                    if (i + 1 >= args.length) {
-                        err.println("--request-id requires an identifier");
-                        return 2;
-                    }
-                    requestId = args[++i];
-                    break;
-                default:
-                    err.println("Unknown flag: " + a);
-                    return 2;
-            }
-        }
+    @Test
+    public void startReturnsBusyWhenExecutionExistsForProject() throws Exception {
+        CtlConfigPaths cfg = CtlConfigPaths.forBaseConfigDir(tempDir);
+        Path instancesDir = cfg.ensureInstancesDirExists();
 
-        CtlConfigPaths cfg;
-        try {
-            if (configDir != null && !configDir.isBlank()) {
-                cfg = CtlConfigPaths.forBaseConfigDir(Path.of(configDir));
-            } else {
-                cfg = CtlConfigPaths.defaults();
-            }
-        } catch (Exception e) {
-            err.println("Failed to resolve config dir: " + e.getMessage());
-            return 2;
-        }
+        long now = System.currentTimeMillis();
+        // Base instance
+        InstanceRecord a = new InstanceRecord("id-a", 10, "addr-a", List.of("/proj/a"), "0.1.0", now - 500L, now - 200L);
 
-        return InstancesList.execute(cfg, ttlMs, includeAll, requestId, out, err);
+        // Build JSON map from instance and inject a running execution for the same project
+        Map<String, Object> base = Json.fromJson(a.toJson(), new TypeReference<Map<String, Object>>() {});
+        Map<String, Object> running = new LinkedHashMap<>();
+        running.put("project", "/proj/a");
+        running.put("state", "running");
+        running.put("jobId", "job-1");
+        base.put("executions", List.of(running));
+
+        java.nio.file.Files.writeString(instancesDir.resolve("id-a.json"), Json.toJson(base));
+
+        ByteArrayOutputStream bout = new ByteArrayOutputStream();
+        int rc = BrokkCtlMain.run(new String[] {
+                "exec", "start",
+                "--mode", "plan",
+                "--instance", "id-a",
+                "--path", "/proj/a",
+                "--config-dir", tempDir.toString()
+        }, new PrintStream(bout), System.err);
+
+        assertEquals(0, rc);
+        String out = bout.toString().trim();
+        Map<String, Object> env = Json.fromJson(out, new TypeReference<Map<String, Object>>() {});
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> results = (List<Map<String, Object>>) env.get("results");
+        assertNotNull(results);
+        assertEquals(1, results.size());
+        Map<String, Object> r = results.get(0);
+        assertEquals("busy", r.get("status"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> errObj = (Map<String, Object>) r.get("error");
+        assertNotNull(errObj);
+        assertEquals("BUSY", errObj.get("code"));
+        assertTrue(errObj.get("message").toString().contains("/proj/a"));
     }
 }

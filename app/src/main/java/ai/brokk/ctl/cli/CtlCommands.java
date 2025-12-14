@@ -198,6 +198,99 @@ public final class CtlCommands {
         return 0;
     }
 
+    public static int executeExecStart(
+            CtlConfigPaths cfg,
+            long ttlMs,
+            boolean includeAll,
+            String instanceSelector,
+            boolean autoSelect,
+            String requestId,
+            String mode,
+            String projectPath,
+            PrintStream out,
+            PrintStream err) {
+
+        if (mode == null || mode.isBlank()) {
+            err.println("--mode is required for exec start");
+            return 2;
+        }
+        String m = mode.trim().toLowerCase(Locale.ROOT);
+        if (!"plan".equals(m) && !"lutz".equals(m)) {
+            err.println("Unsupported mode: " + mode + ". Supported: plan, lutz");
+            return 2;
+        }
+
+        if (projectPath == null || projectPath.isBlank()) {
+            err.println("--path is required for exec start");
+            return 2;
+        }
+
+        List<Map<String, Object>> targets;
+        try {
+            targets = selectTargetInstances(cfg, ttlMs, includeAll, instanceSelector, autoSelect, err);
+            if (targets == null) return 2;
+        } catch (IOException e) {
+            err.println("Failed to read instances: " + e.getMessage());
+            return 4;
+        }
+
+        Map<String, Object> envelope = new LinkedHashMap<>();
+        envelope.put("requestId", requestId == null ? "(auto)" : requestId);
+
+        List<Map<String, Object>> results = new ArrayList<>();
+        for (Map<String, Object> inst : targets) {
+            String instanceId = (String) inst.getOrDefault("instanceId", "");
+            boolean busy = false;
+            String existingJobId = "";
+
+            Object execsObj = inst.get("executions");
+            if (execsObj instanceof List) {
+                for (Object eo : (List<?>) execsObj) {
+                    if (eo instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> em = (Map<String, Object>) eo;
+                        String proj = em.getOrDefault("project", "").toString();
+                        String state = em.getOrDefault("state", "").toString().toLowerCase(Locale.ROOT);
+                        if (proj.equals(projectPath) && ("running".equals(state) || "starting".equals(state))) {
+                            busy = true;
+                            existingJobId = em.getOrDefault("jobId", "").toString();
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (busy) {
+                Map<String, Object> r = new LinkedHashMap<>();
+                r.put("instanceId", instanceId);
+                r.put("status", "busy");
+                Map<String, Object> errObj = new LinkedHashMap<>();
+                errObj.put("code", "BUSY");
+                errObj.put("message", "An execution is already running for project: " + projectPath);
+                Map<String, Object> details = new LinkedHashMap<>();
+                details.put("existingJobId", existingJobId);
+                errObj.put("details", details);
+                r.put("error", errObj);
+                results.add(r);
+            } else {
+                String jobId = java.util.UUID.randomUUID().toString();
+                Map<String, Object> r = new LinkedHashMap<>();
+                r.put("instanceId", instanceId);
+                r.put("status", "started");
+                r.put("jobId", jobId);
+                r.put("cursor", jobId + ":0");
+                r.put("mode", m);
+                r.put("project", projectPath);
+                results.add(r);
+            }
+        }
+
+        envelope.put("results", results);
+        envelope.put("summary", Map.of("requestedInstances", targets.size()));
+        out.println(Json.toJson(envelope));
+        return 0;
+    }
+
     /**
      * Read instance registry files and apply selection rules.
      *

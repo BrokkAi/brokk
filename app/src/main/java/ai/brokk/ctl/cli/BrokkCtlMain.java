@@ -47,6 +47,8 @@ public final class BrokkCtlMain {
                   String pathArg = null;
                   String sessionArg = null;
                   String nameArg = null;
+                  // exec-specific
+                  String modeArg = null;
 
                   // parse flags starting at index 2
                   for (int i = 2; i < args.length; i++) {
@@ -113,6 +115,13 @@ public final class BrokkCtlMain {
                                         }
                                         nameArg = args[++i];
                                         break;
+                                 case "--mode":
+                                        if (i + 1 >= args.length) {
+                                               err.println("--mode requires a value (e.g. plan,lutz)");
+                                               return 2;
+                                        }
+                                        modeArg = args[++i];
+                                        break;
                                  default:
                                         err.println("Unknown flag: " + a);
                                         return 2;
@@ -142,8 +151,10 @@ public final class BrokkCtlMain {
                           return CtlCommands.executeSessionCreate(cfg, ttlMs, includeAll, instanceSelector, autoSelect, requestId, nameArg, out, err);
                   } else if ("sessions".equals(cmd0) && "switch".equals(cmd1)) {
                           return CtlCommands.executeSessionSwitch(cfg, ttlMs, includeAll, instanceSelector, autoSelect, requestId, sessionArg, out, err);
+                  } else if ("exec".equals(cmd0) && "start".equals(cmd1)) {
+                          return CtlCommands.executeExecStart(cfg, ttlMs, includeAll, instanceSelector, autoSelect, requestId, modeArg, pathArg, out, err);
                   } else {
-                          err.println("Unsupported command. Only 'instances list', 'projects open', and 'sessions {active,create,switch}' are implemented in tests.");
+                          err.println("Unsupported command. Only 'instances list', 'projects open', 'exec start' and 'sessions {active,create,switch}' are implemented in tests.");
                           return 2;
                   }
            }
