@@ -1,137 +1,242 @@
-#!/usr/bin/env bash
-#
-# Helper script to launch Brokk CLI from the most-recent build artifact.
-# Scans app/build/libs for the latest brokk-*.jar and runs the CLI.
+# brokkctl — CLI Controller Specification (Spike)
 
-set -euo pipefail
+This document specifies a small, focused CLI controller — working name `brokkctl` — that discovers and talks to running Brokk desktop processes and presents a machine-friendly, JSON-first automation surface. This is a specification-only spike: it defines the surface, semantics, and versioning rules needed to implement a CLI controller and compatible MCP/REST/AppleScript endpoints. It does not prescribe implementation details or require changes to Brokk internals.
 
-# Determine the directory this script lives in, resolving any symlinks.
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-LIB_DIR="$SCRIPT_DIR/app/build/libs"
+## Overview
 
-# Ensure at least one brokk-*.jar exists
-if ! ls "$LIB_DIR"/brokk-*.jar &>/dev/null; then
-  echo "Error: No brokk-*.jar found in $LIB_DIR" >&2
-  exit 1
-fi
+`brokkctl` is an orchestration layer intended for automation and scripting. Its responsibilities are:
 
-# Use the most recently modified brokk-*.jar as the classpath
-CLASSPATH="$(ls -t "$LIB_DIR"/brokk-*.jar | head -n 1)"
+- Discover local Brokk instances that expose a control endpoint.
+- Send commands to one or more instances and aggregate responses.
+- Provide a stable, machine-readable JSON API for automation; human-friendly output is optional.
+- Negotiate capabilities and compatibility via a lightweight protocol version.
 
-# Determine which BrokkCli class exists in the JAR
-if jar -tf "$CLASSPATH" | grep -q '^ai/brokk/cli/BrokkCli\.class$'; then
-  CLASS_NAME="ai.brokk.cli.BrokkCli"
-elif jar -tf "$CLASSPATH" | grep -q '^io/github/jbellis/brokk/cli/BrokkCli\.class$'; then
-  CLASS_NAME="io.github.jbellis.brokk.cli.BrokkCli"
-else
-  echo "Error: BrokkCli class not found in $CLASSPATH" >&2
-  exit 1
-fi
+This spec is implementation-agnostic: discovery can be implemented by registry, socket probing, mDNS, or another platform-appropriate mechanism. The important part is the semantics and compatibility guarantees offered to clients.
 
-# Launch BrokkCli.
-# We use PGC because it's more space-efficient than the default G1,
-# and in cli mode we're not latency sensitive.
-# Remote debugger is ENABLED by default. Disable via --no-debug or BROKK_DEBUG=false.
-# Supported CLI flags:
-#   --debug[=PORT]         enable JDWP on PORT (default 5005)
-#   --debug-port=PORT      same as --debug=PORT
-#   --debug-suspend        wait for debugger to attach before starting
-#   --no-debug             disable JDWP (overrides env/default)
-# Env vars:
-#   BROKK_DEBUG=true|false|PORT  enable/disable debug; PORT overrides port (true/1/yes/on; false/0/no/off)
-#   BROKK_DEBUG_PORT=PORT        port to listen on (default 5005)
-#   BROKK_DEBUG_SUSPEND=y|n      whether to suspend on start (default n)
-declare -a JVM_ARGS=()
-declare -a APP_ARGS=()
-DEBUG_ENABLED=false
-DEBUG_PORT="${BROKK_DEBUG_PORT:-5005}"
-DEBUG_SUSPEND="${BROKK_DEBUG_SUSPEND:-n}"
-# Environment override for debug behavior
-if [[ -n "${BROKK_DEBUG:-}" ]]; then
-  brokk_debug_lc="$(printf '%s' "${BROKK_DEBUG}" | tr '[:upper:]' '[:lower:]')"
-  case "${brokk_debug_lc}" in
-    false|0|no|off)
-      DEBUG_ENABLED=false
-      ;;
-    true|1|yes|on)
-      DEBUG_ENABLED=true
-      ;;
-    *)
-      if [[ "${BROKK_DEBUG}" =~ ^[0-9]+$ ]]; then
-        DEBUG_ENABLED=true
-        DEBUG_PORT="${BROKK_DEBUG}"
-      else
-        # Unknown value; keep default enabled
-        DEBUG_ENABLED=true
-      fi
-      ;;
-  esac
-fi
-for arg in "$@"; do
-  case "$arg" in
-    --debug)
-      DEBUG_ENABLED=true
-      ;;
-    --debug=*)
-      DEBUG_ENABLED=true
-      DEBUG_PORT="${arg#--debug=}"
-      ;;
-    --debug-port=*)
-      DEBUG_ENABLED=true
-      DEBUG_PORT="${arg#--debug-port=}"
-      ;;
-    --debug-suspend)
-      DEBUG_ENABLED=true
-      DEBUG_SUSPEND="y"
-      ;;
-    --no-debug)
-      DEBUG_ENABLED=false
-      ;;
-    -X*|-D*)
-      JVM_ARGS+=("$arg")
-      ;;
-    *)
-      APP_ARGS+=("$arg")
-      ;;
-  esac
-done
+## Goals
 
-# Build the final JVM argument list, adding a default -Xmx1G unless the caller
-# already supplied an explicit -Xmx option.
-declare -a EFFECTIVE_JVM_ARGS=("-ea" "-XX:+UseParallelGC")
+- Define a stable, machine-friendly CLI surface for common automation tasks:
+  - Instance discovery and selection
+  - Project open/list/get actions
+  - Session create/list/get/import/export
+  - Context manipulation (add files/classes/methods/text)
+  - Querying session output / history
+  - Execution control: submit/stream/cancel jobs (ASK, SEARCH, CODE, ARCHITECT, LUTZ)
+- Make JSON the canonical output mode (`-o json`), with NDJSON for streaming event feeds.
+- Support multi-instance fan-out with well-defined per-instance and aggregate results.
+- Provide a versioned protocol and compatibility policy enabling graceful client and server evolution.
+- Produce a concise, testable spec to guide implementations in the application and a standalone `brokkctl` tool.
 
-# Always use test logging configuration
-EFFECTIVE_JVM_ARGS+=("-Dlog4j.configurationFile=$SCRIPT_DIR/app/src/test/resources/log4j2-test.xml")
+## Non-goals
 
-xmx_specified=false
-for arg in "${JVM_ARGS[@]-}"; do
-  if [[ $arg == -Xmx* ]]; then
-    xmx_specified=true
-    break
-  fi
-done
-if ! $xmx_specified; then
-  EFFECTIVE_JVM_ARGS+=("-Xmx1G")
-fi
-# Append any user-supplied JVM args (which may include their own -Xmx)
-EFFECTIVE_JVM_ARGS+=(${JVM_ARGS[@]+"${JVM_ARGS[@]}"})
+- This is a spec-only spike. It does not modify application core logic, private storage formats, or internal behavior.
+- The spec does not mandate a discovery transport (mDNS vs sockets vs registry). Implementers choose platform-appropriate mechanisms.
+- This document does not provide exhaustive CLI UX text (help output). Those are implementation details.
+- No runtime behavioral changes to the Brokk desktop application are required by this spec.
 
-# Add JDWP agent if debugging is enabled and not already specified by the user
-jdwp_specified=false
-for arg in "${JVM_ARGS[@]-}"; do
-  if [[ $arg == -agentlib:jdwp* || $arg == -Xrunjdwp* ]]; then
-    jdwp_specified=true
-    break
-  fi
-done
-if $DEBUG_ENABLED && ! $jdwp_specified; then
-  EFFECTIVE_JVM_ARGS+=("-agentlib:jdwp=transport=dt_socket,server=y,suspend=$DEBUG_SUSPEND,address=*:$DEBUG_PORT")
-  echo "Debugging enabled on port $DEBUG_PORT (suspend=$DEBUG_SUSPEND)" >&2
-fi
+## Terminology
 
-# Launch BrokkCli with the determined class name
-exec java \
-     "${EFFECTIVE_JVM_ARGS[@]}" \
-     -cp "$CLASSPATH" \
-     "$CLASS_NAME" \
-     "${APP_ARGS[@]-}"
+- instance  
+  A running Brokk process that exposes a local control endpoint (MCP/HTTP/stdio). An instance is identified by an `instanceId` and a discovery descriptor (listen address, PID when available, socket path, etc.).
+
+- project  
+  The code workspace currently open in an instance. This is typically a repository root or workspace folder.
+
+- session  
+  A Brokk session (user session) representing a workspace snapshot, context, configuration, and transcript/history. Sessions are created, imported, exported, and selected inside an instance.
+
+- context  
+  Additional data seeded into a session to influence LLM reasoning: files, class summaries, method sources, or free-form text fragments. Context entries are addressable (IDs) and may be session- or job-scoped.
+
+- history  
+  The session transcript and action history: sequence of task entries, LLM outputs, notifications, diffs, and related metadata. Useful for resuming work or exporting results.
+
+- execution (job)  
+  A unit of work submitted to an instance for processing. Executions have modes (ASK, SEARCH, CODE, ARCHITECT, LUTZ), accept a `JobSpec` (sessionId, taskInput, models, flags), produce streamable events, and end with a `JobStatus` and optional diff.
+
+## CLI Command Surface (conceptual)
+
+Top-level command: `brokkctl`
+
+Global flags:
+- `--discover` (implicit) — find instances on the local machine
+- `--instance <id|pid|selector>` — target a specific instance
+- `-o, --output {json,pretty}` — output format (default: `pretty`)
+- `--timeout <ms>` — discovery/request timeout
+- `--auth-token <token>` — token for secured endpoints
+- `--allow-incompatible` — opt-in to proceed when MAJOR protocol versions differ (dangerous; explicit opt-in)
+
+Example subcommands (conceptual):
+- `brokkctl instances list` — list discovered instances
+- `brokkctl project open --path <path>` — open a project in an instance
+- `brokkctl sessions create --name <name>` — create a session
+- `brokkctl sessions import --file <session.zip>` — import a session zip
+- `brokkctl context add-file --path <relPath>` — add files to session context
+- `brokkctl execution submit --session <id> --mode <MODE> --planner-model <model> --task "..."` — submit a job
+- `brokkctl execution events --job <jobId> --follow` — stream job events (NDJSON)
+- `brokkctl execution cancel --job <jobId>` — cancel job
+- `brokkctl history get --session <id> --limit N` — fetch session history
+
+All commands must support `-o json` and return structured JSON for automation. Streaming endpoints should use NDJSON or SSE with an option to pass through raw server stream.
+
+## Discovery & Multi-instance Handling
+
+Discovery semantics:
+- `brokkctl` must discover zero or more instances and return descriptors with:
+  - `instanceId` (string)
+  - `pid` (optional)
+  - `listenAddr` (host:port or socket path)
+  - `project` (if available)
+  - `brokkctlVersion` (protocol version the instance speaks)
+  - `lastSeenMs` (timestamp hint for stability)
+- If multiple instances are found and no `--instance` selector is provided:
+  - Interactive TTY: prompt the user to choose
+  - Non-interactive: fail deterministically with an error asking the caller to specify `--instance` or `--auto-select`
+- Fan-out semantics:
+  - `instances list` is naturally fan-out.
+  - Operational commands target a single instance by default. If a command supports explicit multi-instance execution, results must include per-instance entries and a top-level summary.
+
+Aggregation:
+- For fan-out calls, return:
+  - `summary`: { requested, succeeded, failed }
+  - `results`: [{ instanceId, status, data?, error? }, ...]
+- Mixed outcomes map to exit code `3` (partial failure) when `-o json` is used; otherwise the CLI should surface a clear message and a non-zero exit code.
+
+Security:
+- The CLI must accept `--auth-token` and send `Authorization: Bearer <token>` to secured endpoints.
+- Tokens are local-only by default; remote deployments require appropriate operational security.
+
+## Output & Exit Codes
+
+- `-o json` is the canonical machine format.
+- Human-friendly output (`pretty`) is optional and a presentation-layer concern.
+- Streaming events: NDJSON (newline-delimited JSON) is recommended for line-by-line processing.
+- Exit codes (suggested):
+  - `0` — success
+  - `1` — general error (invalid args, network failure)
+  - `2` — cancelled / interrupted
+  - `3` — partial failure in multi-instance calls
+
+Errors returned in JSON MUST follow a consistent shape when `-o json` is requested:
+
+{
+  "error": {
+    "code": "INVALID_ARGS",
+    "message": "Detailed text",
+    "details": { ... optional ... }
+  }
+}
+
+For fan-out responses, include per-instance `error` objects and a top-level `summary`.
+
+## Versioning Strategy — `brokkctl` Protocol
+
+To enable safe evolution between clients (`brokkctl`) and instances, we introduce a lightweight protocol version header and negotiation rules.
+
+Header name:
+- `Brokk-CTL-Version` — included on discovery and all subsequent control requests/responses.
+
+Version format:
+- Semantic-ish: `MAJOR.MINOR.PATCH` (e.g., `1.0.0`).
+  - MAJOR: breaking changes
+  - MINOR: backward-compatible feature additions
+  - PATCH: bug fixes only
+
+Compatibility rules:
+- Same MAJOR: client and server MAY attempt to proceed.
+  - If server.MINOR >= client.MINOR: expected to support client's requested features.
+  - If server.MINOR < client.MINOR: the server must return a structured error describing unsupported features (error code `PROTOCOL_UNSUPPORTED_FEATURE`) and list supported capabilities; the client should either degrade or abort.
+- Different MAJOR:
+  - If client.MAJOR < server.MAJOR: server MAY support older clients; client should be prepared for `PROTOCOL_UNSUPPORTED_FEATURE` errors.
+  - If client.MAJOR > server.MAJOR: client SHOULD refuse to proceed automatically. Require `--allow-incompatible` to proceed (explicit opt-in).
+- PATCH differences are safe; do not affect protocol semantics.
+
+Negotiation:
+- Discovery descriptors MUST include `brokkctlVersion`.
+- Clients SHOULD include `Brokk-CTL-Version: <client-version>` in requests.
+- Servers SHOULD respond with a `Brokk-CTL-Version` response header equal to their implemented version.
+- If a requested capability is missing, the server responds with `HTTP 409` (or other appropriate status) and a JSON error body containing:
+  - `code: "PROTOCOL_UNSUPPORTED_FEATURE"`
+  - `message: "Feature X requires brokkctl >= MAJOR.MINOR"`
+  - optional `supportedCapabilities` list with minimal required versions.
+
+Backward-compatibility policies (quick reference):
+- Client MAJOR == Server MAJOR:
+  - Server.MINOR < Client.MINOR → client must detect unsupported capability errors and either degrade or abort with a clear explanation.
+  - Server.MINOR >= Client.MINOR → features should work.
+- Client MAJOR != Server MAJOR:
+  - Client.MAJOR > Server.MAJOR → require explicit `--allow-incompatible`.
+  - Client.MAJOR < Server.MAJOR → proceed but handle server-provided errors.
+- Always expose server `brokkctlVersion` in CLI output so automation can adapt.
+
+Capabilities declaration:
+- Servers SHOULD expose a discovery endpoint (e.g., `GET /v1/ctl-info`) returning:
+  - `brokkctlVersion` (string)
+  - `instanceId`, `pid`, `project`, `listenAddr`
+  - `supportedCapabilities`: [{ "name": "sessions.import", "minVersion": "1.1.0" }, ...]
+- Clients can use `supportedCapabilities` to decide safe fallbacks.
+
+## Error Model
+
+- Always return structured JSON errors in `-o json` mode.
+- Distinguish discovery/network-level errors from operation-level errors.
+- For fan-out operations return per-instance `error` and a top-level `summary`.
+- Use consistent, enumerated error codes (e.g., `INVALID_ARGS`, `NOT_FOUND`, `UNAUTHORIZED`, `BUSY`, `PROTOCOL_UNSUPPORTED_FEATURE`, `INTERNAL_ERROR`).
+
+## Next Steps (implementation hints)
+
+- Implement a `ctl-info` discovery/health endpoint in the application that returns `brokkctlVersion`, instance metadata, and capabilities.
+- Choose a platform-appropriate discovery mechanism for local instances.
+- Implement `-o json` surfaces first; add human-friendly formatting later.
+- Add tests that exercise negotiation rules:
+  - Client requesting a MINOR-level feature against a lower-MINOR server
+  - Major version mismatch handling and `--allow-incompatible` opt-in
+  - Fan-out aggregation with mixed results
+- Document recommended exit codes and JSON shapes for consumers (CI scripts, orchestration systems).
+
+## Appendix: Example Shapes
+
+Instance descriptor (discovery)
+```json
+{
+  "instanceId": "550e8400-e29b-41d4-a716-446655440000",
+  "pid": 12345,
+  "listenAddr": "127.0.0.1:54321",
+  "project": "/home/alice/my-repo",
+  "brokkctlVersion": "1.0.0",
+  "lastSeenMs": 1690000000000
+}
+```
+
+Fan-out response
+```json
+{
+  "summary": { "requested": 3, "succeeded": 2, "failed": 1 },
+  "results": [
+    { "instanceId":"a","status":"ok","data":{...} },
+    { "instanceId":"b","status":"ok","data":{...} },
+    { "instanceId":"c","status":"error","error":{"code":"BUSY","message":"instance is busy"} }
+  ]
+}
+```
+
+Protocol unsupported feature error
+```json
+{
+  "error": {
+    "code": "PROTOCOL_UNSUPPORTED_FEATURE",
+    "message": "Feature 'sessions.import' requires brokkctl >= 1.1.0 (server: 1.0.0)",
+    "details": {
+      "serverVersion": "1.0.0",
+      "requiredVersion": "1.1.0",
+      "supportedCapabilities": [
+        { "name": "sessions.create", "minVersion": "1.0.0" }
+      ]
+    }
+  }
+}
+```
+
+---
+
+This specification is intentionally concise and implementation-agnostic while providing actionable rules for discovery, negotiation, compatibility, error handling, and output shapes. The next phase is a reference implementation that selects a discovery mechanism and wires the `ctl-info` endpoint on the Brokk side and a minimal `brokkctl` client that implements the negotiation and JSON-first output.
