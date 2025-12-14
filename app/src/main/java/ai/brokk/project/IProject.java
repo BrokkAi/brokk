@@ -1,6 +1,7 @@
 package ai.brokk.project;
 
 import ai.brokk.AbstractService.ModelConfig;
+import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IssueProvider;
 import ai.brokk.SessionManager;
@@ -415,6 +416,36 @@ public interface IProject extends AutoCloseable {
     }
 
     default IConsoleIO getConsoleIO() {
+        throw new UnsupportedOperationException();
+    }
+
+    default void saveLiveDependencies(Set<Path> dependencyTopLevelDirs) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Updates the live dependencies set. If an analyzer is provided, also pauses/resumes
+     * the watcher, computes file diffs, and updates the analyzer.
+     *
+     * @param newLiveDependencyDirs the complete desired set of live dependency directories
+     * @param analyzerWrapper the analyzer to update, or null for persistence-only (CLI usage)
+     * @return CompletableFuture that completes when all operations are done
+     */
+    default CompletableFuture<Void> updateLiveDependencies(
+            Set<Path> newLiveDependencyDirs, @Nullable IAnalyzerWrapper analyzerWrapper) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Adds a dependency to the live set (merge semantics).
+     * Used after importing a new dependency.
+     *
+     * @param dependencyName the name of the dependency directory to add
+     * @param analyzerWrapper the analyzer to update, or null for persistence-only (CLI usage)
+     * @return CompletableFuture that completes when the operation is done
+     */
+    default CompletableFuture<Void> addLiveDependency(
+            String dependencyName, @Nullable IAnalyzerWrapper analyzerWrapper) {
         throw new UnsupportedOperationException();
     }
 
