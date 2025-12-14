@@ -892,6 +892,291 @@ Implementation guidance (projects)
 - For `projects open`, prefer single-instance targeting for predictable behavior in scripts. If `--all` is used, make failure policy explicit via `--fail-fast`/`--best-effort`.
 - Report clear, machine-friendly error codes (NOT_FOUND, ALREADY_OPEN, PERMISSION_DENIED) and include useful `details` for automation.
 
+## Sessions commands — specification
+
+This section specifies the `sessions active`, `sessions list`, `sessions create`, and `sessions switch` commands. Sessions are first-class automation entities and are commonly required for execution and context operations. The commands below describe required selectors, session identifiers, output schemas, and expected behavior when no active session exists.
+
+Principles
+- Sessions are scoped to an instance and to a project opened in that instance (project scope matters for determinism).
+- Many session operations require a project selector to disambiguate which project context they apply to. When the project is not supplied and the instance reports multiple open projects, the CLI should require an explicit `--path` or `--project-id`.
+- Session identifiers:
+  - `sessionId` (string): instance-unique opaque id for a session.
+  - `name` (string, optional): human-friendly session name; not guaranteed unique across instances.
+- `--instance` is required for any session operation that uses `sessionId` unless `--all` is explicitly used (fan-out cases require per-instance session ids or names with instance context).
+
+Global flags (inherit)
+- `--format json|text`, `--instance <selector>`, `--all`, `--timeout`, `--request-id`, `--auth-token`, etc.
+- `sessions` command specific flags:
+  - `--path <abs-path>` — project path to scope session operations (preferred).
+  - `--project-id <id>` — instance-local project id to scope session operations.
+  - `--session-id <id>` — target a specific session by id.
+  - `--name <name>` — for create or switch by name (may be ambiguous; prefer `--session-id`).
+  - `--create-if-missing` — create session when switching or selecting if not present (behavior depends on server capability).
+
+Behavioral conventions
+- Deterministic scoping:
+  - If `--instance` is omitted and multiple non-stale instances match discovery, fail with `USER_ERROR` and require `--instance`, `--all`, or `--auto-select`.
+  - If project scope is ambiguous (multiple open projects in the chosen instance) and `--path`/`--project-id` is not provided, fail with `USER_ERROR` and instruct to provide `--path` or `--project-id`.
+- Fan-out rules:
+  - `--all` may be used to perform the command across all non-stale instances. Results MUST be aggregated as described earlier.
+  - For multi-instance `sessions switch` with `--all`, the client must specify session identifiers per instance (e.g., via a mapping file) or rely on `name` matching; ambiguity may result in per-instance `NOT_FOUND` or `AMBIGUOUS` errors.
+
+### sessions active
+
+Purpose
+- Return the currently active session for the selected instance/project (if any). Useful for tooling that wants to target the presently active workspace session.
+
+Inputs
+- `--instance <selector>` (optional, auto-selected per rules).
+- `--path <abs-path>` or `--project-id <id>` (required when the instance has multiple open projects).
+- `--request-id <uuid>`, `--timeout`, `--auth-token`, `--format`.
+
+Behavior
+- If an active session exists for the specified project on the instance, return a single per-instance result with `status: "ok"` and `data` containing the session descriptor.
+- If no active session exists, return `status: "ok"` with `data: null` and an explicit `active: false` or return `status: "error"` with code `NOT_FOUND` depending on invocation semantics:
+  - Preferred: `status: "ok"` and `data: { "active": false, "message": "No active session" }`. This is more automation-friendly (no need to treat absence as an error).
+  - If caller used `--require-active`, return `status: "error"` code `NOT_FOUND` and message indicating missing active session.
+
+Output schema (JSON mode)
+Per-instance success envelope when active:
+```json
+{
+  "instanceId": "a111...",
+  "status": "ok",
+  "data": {
+    "sessionId": "s-123",
+    "name": "interactive",
+    "createdAtMs": 1690002000000,
+    "lastActiveMs": 1690003000000,
+    "project": { "path": "/home/alice/project-a", "projectId": "p-123" },
+    "readOnly": false
+  },
+  "error": null,
+  "elapsedMs": 4
+}
+```
+
+When no active session:
+```json
+{
+  "instanceId": "a111...",
+  "status": "ok",
+  "data": { "active": false, "message": "No active session for project '/home/alice/project-a'" },
+  "error": null,
+  "elapsedMs": 2
+}
+```
+
+If `--require-active` is used:
+```json
+{
+  "instanceId": "a111...",
+  "status": "error",
+  "data": null,
+  "error": { "code": "NOT_FOUND", "message": "No active session for project '/home/alice/project-a'" },
+  "elapsedMs": 2
+}
+```
+
+Exit codes:
+- No active session in default mode: overall exit `0` (success) because the request succeeded, but `data.active` is false.
+- With `--require-active`: exit `1` (USER_ERROR) or `NOT_FOUND` semantic mapped per project conventions.
+
+### sessions list
+
+Purpose
+- List sessions known to an instance for a given project scope. Useful for enumerating saved sessions, autosaved snapshots, or historical session artifacts.
+
+Inputs
+- `--instance <selector>` (recommended for determinism).
+- `--path <abs-path>` or `--project-id <id>` (project selector required unless the instance exposes only one project).
+- `--limit <n>` (optional): limit results.
+- `--request-id`, `--timeout`, `--format`, `--auth-token`.
+
+Behavior
+- Return all sessions for the specified project reported by the instance. When `--all` is used, aggregate across instances and group by normalized path.
+- Each session descriptor should include `sessionId`, `name`, `createdAtMs`, `lastActiveMs`, `sizeBytes` (optional), `tags` (optional), and a boolean `isActive` (true if the session is currently active).
+
+Output envelope (JSON mode)
+Single-instance response:
+```json
+{
+  "requestId": "req-10",
+  "summary": { "total": 2 },
+  "sessions": [
+    {
+      "sessionId": "s-123",
+      "name": "interactive",
+      "createdAtMs": 1690002000000,
+      "lastActiveMs": 1690003000000,
+      "isActive": true,
+      "tags": ["work-in-progress"]
+    },
+    {
+      "sessionId": "s-122",
+      "name": "pre-merge",
+      "createdAtMs": 1689000000000,
+      "lastActiveMs": 1689001000000,
+      "isActive": false
+    }
+  ],
+  "elapsedMs": 8
+}
+```
+
+Multi-instance `--all` aggregated response:
+```json
+{
+  "requestId": "req-11",
+  "summary": { "total": 3 },
+  "sessions": [
+    {
+      "instanceId": "a111...",
+      "sessionId": "s-123",
+      "name": "interactive",
+      "createdAtMs": 1690002000000,
+      "lastActiveMs": 1690003000000,
+      "isActive": true
+    },
+    {
+      "instanceId": "b222...",
+      "sessionId": "s-999",
+      "name": "interactive",
+      "createdAtMs": 1690005000000,
+      "lastActiveMs": 1690005005000,
+      "isActive": true
+    },
+    {
+      "instanceId": "a111...",
+      "sessionId": "s-122",
+      "name": "pre-merge",
+      "createdAtMs": 1689000000000,
+      "lastActiveMs": 1689001000000,
+      "isActive": false
+    }
+  ],
+  "elapsedMs": 40
+}
+```
+
+Edge cases:
+- If no sessions exist for the project, return an empty `sessions` array and `summary.total == 0` (exit 0).
+
+### sessions create
+
+Purpose
+- Create a new session for a project on an instance. Sessions may be ephemeral or persisted depending on server capabilities.
+
+Inputs
+- `--instance <selector>` (recommended/deterministic).
+- `--path <abs-path>` or `--project-id <id>` (project scope required).
+- `--name <name>` (optional): session display name.
+- `--tags <comma-separated>` (optional): metadata tags.
+- `--request-id`, `--timeout`, `--auth-token`, `--wait <ms>` (optional): wait for session to be fully initialized.
+
+Behavior
+- The instance validates project scope and creates a session. On success, return per-instance result with `status: "ok"` and `data` containing the created session descriptor (including `sessionId`).
+- If the requested project is not found, return `NOT_FOUND`.
+- If a session with the same name already exists and the server rejects duplicates, return `ALREADY_EXISTS` with helpful `details`.
+
+Per-instance result schema (success):
+```json
+{
+  "instanceId": "a111...",
+  "status": "ok",
+  "data": {
+    "sessionId": "s-200",
+    "name": "feature-x",
+    "createdAtMs": 1690004000000,
+    "isActive": true,
+    "project": { "path": "/home/alice/project-a", "projectId": "p-123" }
+  },
+  "error": null,
+  "elapsedMs": 120
+}
+```
+
+Error examples:
+- `NOT_FOUND` — project does not exist on the instance.
+- `ALREADY_EXISTS` — session with the given name exists and duplicate creation is disallowed.
+- `PERMISSION_DENIED` — insufficient permission to create session (sandboxed environment).
+
+Exit code:
+- On success: `0`.
+- On failure: appropriate non-zero mapped code (USER_ERROR, TRANSPORT_ERROR, etc.) or `4` for mixed fan-out results.
+
+### sessions switch
+
+Purpose
+- Switch the active session for a project on an instance. This operation sets which session subsequent execution and context additions target.
+
+Inputs
+- `--instance <selector>` (recommended).
+- `--path <abs-path>` or `--project-id <id>` (project scope required when ambiguous).
+- Either `--session-id <id>` (preferred) or `--name <name>` (less deterministic).
+- `--create-if-missing` (optional): if the requested session name does not exist, create it (server may refuse with `PROTOCOL_UNSUPPORTED_FEATURE`).
+- `--wait <ms>` (optional): wait until the server reports the session as active.
+- `--request-id`, `--timeout`, `--auth-token`.
+
+Behavior
+- If the session exists, the server activates it and returns `status: "ok"` with `data` containing the now-active session descriptor.
+- If the session does not exist:
+  - If `--create-if-missing` is set and supported: create and activate a new session (return `ok` with data).
+  - Otherwise return `NOT_FOUND`.
+- If switching would be a no-op (already active), return `status: "ok"` with `data` indicating `alreadyActive: true` and current session descriptor.
+- For multi-instance `--all`, apply per-instance rules; ambiguous `--name` matches may yield per-instance `AMBIGUOUS` or `NOT_FOUND` errors.
+
+Per-instance success response:
+```json
+{
+  "instanceId": "a111...",
+  "status": "ok",
+  "data": {
+    "sessionId": "s-123",
+    "name": "interactive",
+    "activatedAtMs": 1690005000000,
+    "previousSessionId": "s-122",
+    "project": { "path": "/home/alice/project-a", "projectId": "p-123" },
+    "alreadyActive": false
+  },
+  "error": null,
+  "elapsedMs": 30
+}
+```
+
+No-op response when already active:
+```json
+{
+  "instanceId": "a111...",
+  "status": "ok",
+  "data": { "alreadyActive": true, "sessionId": "s-123", "name": "interactive" },
+  "error": null,
+  "elapsedMs": 1
+}
+```
+
+Error example when session not found:
+```json
+{
+  "instanceId": "a111...",
+  "status": "error",
+  "data": null,
+  "error": { "code": "NOT_FOUND", "message": "Session 'feature-x' not found for project '/home/alice/project-a'" },
+  "elapsedMs": 5
+}
+```
+
+Exit codes:
+- Success: `0`.
+- `NOT_FOUND` without `--create-if-missing`: `1` (USER_ERROR) or mapped `NOT_FOUND`.
+- Mixed fan-out results: `4` (PARTIAL_SUCCESS) and include aggregated `summary`.
+
+Implementation notes (sessions)
+- Require explicit project scoping to avoid ambiguous cross-project session activation.
+- Prefer `sessionId` for precise operations; accept `name` for convenience but warn about ambiguity in documentation and interactive prompts.
+- Sessions should be lightweight to create (fast), and servers should instrument `createdAtMs` and `lastActiveMs` for automation usage.
+- Always include `project` scoping in returned session descriptors so callers can correlate a session to a canonical project path and optional `projectId`.
+
 ## Appendix: Example Shapes
 
 Instance descriptor (discovery)
