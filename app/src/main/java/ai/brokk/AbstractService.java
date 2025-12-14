@@ -694,8 +694,8 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     public boolean isOnline() {
         boolean hasUsableModel = modelLocations.keySet().stream().anyMatch(name -> !UNAVAILABLE.equals(name));
-        boolean quickModelAvailable = !(quickModel() instanceof UnavailableStreamingModel);
-        return hasUsableModel && quickModelAvailable;
+        boolean quickestModelAvailable = !(quickestModel() instanceof UnavailableStreamingModel);
+        return hasUsableModel && quickestModelAvailable;
     }
 
     /** Interface for speech-to-text operations. */
