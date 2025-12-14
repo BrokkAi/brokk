@@ -73,7 +73,7 @@ public final class InstancesList {
 
             Map<String, Object> data;
             try {
-                data = Json.fromJson(content, Map.class);
+                data = Json.fromJson(content, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
             } catch (Exception e) {
                 // Parse failure: count in totalInstances but skip
                 parseFailures.add(p.getFileName().toString());

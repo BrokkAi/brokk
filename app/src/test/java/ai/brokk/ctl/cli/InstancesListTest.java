@@ -47,7 +47,7 @@ public class InstancesListTest {
         assertFalse(out.isEmpty());
 
         @SuppressWarnings("unchecked")
-        Map<String, Object> envelope = Json.fromJson(out, Map.class);
+        Map<String, Object> envelope = Json.fromJson(out, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
         assertNotNull(envelope.get("summary"));
         @SuppressWarnings("unchecked")
         Map<String, Object> summary = (Map<String, Object>) envelope.get("summary");
@@ -74,7 +74,7 @@ public class InstancesListTest {
         assertFalse(out2.isEmpty());
 
         @SuppressWarnings("unchecked")
-        Map<String, Object> env2 = Json.fromJson(out2, Map.class);
+        Map<String, Object> env2 = Json.fromJson(out2, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
         @SuppressWarnings("unchecked")
         java.util.List<Map<String, Object>> allInstances = (java.util.List<Map<String, Object>>) env2.get("instances");
         assertEquals(3, allInstances.size(), "Expected all instances when --all specified");
@@ -114,7 +114,7 @@ public class InstancesListTest {
         assertEquals(0, rc);
         String out = bout.toString().trim();
         @SuppressWarnings("unchecked")
-        Map<String, Object> envelope = Json.fromJson(out, Map.class);
+        Map<String, Object> envelope = Json.fromJson(out, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
         @SuppressWarnings("unchecked")
         java.util.List<Map<String, Object>> instances = (java.util.List<Map<String, Object>>) envelope.get("instances");
         assertEquals(1, instances.size());
@@ -130,7 +130,7 @@ public class InstancesListTest {
         assertEquals(0, rc2);
         String out2 = bout2.toString().trim();
         @SuppressWarnings("unchecked")
-        Map<String, Object> env2 = Json.fromJson(out2, Map.class);
+        Map<String, Object> env2 = Json.fromJson(out2, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
         @SuppressWarnings("unchecked")
         java.util.List<Map<String, Object>> instances2 = (java.util.List<Map<String, Object>>) env2.get("instances");
         assertEquals(1, instances2.size());
@@ -160,7 +160,7 @@ public class InstancesListTest {
 
         String out = bout.toString().trim();
         @SuppressWarnings("unchecked")
-        Map<String, Object> envelope = Json.fromJson(out, Map.class);
+        Map<String, Object> envelope = Json.fromJson(out, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
         @SuppressWarnings("unchecked")
         Map<String, Object> summary = (Map<String, Object>) envelope.get("summary");
         assertEquals(3, ((Number) summary.get("totalInstances")).intValue());
