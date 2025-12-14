@@ -259,4 +259,14 @@ public final class WorktreeProject extends AbstractProject {
     public void setAutoUpdateGitDependencies(boolean enabled) {
         parent.setAutoUpdateGitDependencies(enabled);
     }
+
+    @Override
+    public AbstractService.ModelConfig getModelConfig(ModelProperties.ModelType modelType) {
+        return parent.getModelConfig(modelType);
+    }
+
+    @Override
+    public void setModelConfig(ModelProperties.ModelType modelType, AbstractService.ModelConfig config) {
+        parent.setModelConfig(modelType, config);
+    }
 }
