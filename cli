@@ -21,7 +21,8 @@ This spec is implementation-agnostic: discovery can be implemented by registry, 
   - Session create/list/get/import/export
   - Context manipulation (add files/classes/methods/text)
   - Querying session output / history
-  - Execution control: submit/stream/cancel jobs (ASK, SEARCH, CODE, ARCHITECT, LUTZ)
+  - Execution control: run one-off executions (ASK, CODE) and plan/run task lists (PLAN, LUTZ)
+  - Task list management: CRUD the current session task list and control task execution (start/stop/status)
 - Make JSON the canonical output mode (`-o json`), with NDJSON for streaming event feeds.
 - Support multi-instance fan-out with well-defined per-instance and aggregate results.
 - Provide a versioned protocol and compatibility policy enabling graceful client and server evolution.
@@ -40,7 +41,10 @@ This spec is implementation-agnostic: discovery can be implemented by registry, 
   A running Brokk process that exposes a local control endpoint (MCP/HTTP/stdio). An instance is identified by an `instanceId` and a discovery descriptor (listen address, PID when available, socket path, etc.).
 
 - project  
-  The code workspace currently open in an instance. This is typically a repository root or workspace folder.
+  A code workspace opened in an instance. Instances may have zero, one, or multiple projects open at the same time.
+
+- projects  
+  The set of projects currently open in an instance. When a single "active" project is needed for display or default scoping, instances may additionally report a `project` field as a convenience alias for the most recently active project.
 
 - session  
   A Brokk session (user session) representing a workspace snapshot, context, configuration, and transcript/history. Sessions are created, imported, exported, and selected inside an instance.
@@ -51,8 +55,11 @@ This spec is implementation-agnostic: discovery can be implemented by registry, 
 - history  
   The session transcript and action history: sequence of task entries, LLM outputs, notifications, diffs, and related metadata. Useful for resuming work or exporting results.
 
-- execution (job)  
-  A unit of work submitted to an instance for processing. Executions have modes (ASK, SEARCH, CODE, ARCHITECT, LUTZ), accept a `JobSpec` (sessionId, taskInput, models, flags), produce streamable events, and end with a `JobStatus` and optional diff.
+- execution  
+  A unit of work submitted to an instance for processing. Executions have modes (ASK, CODE, PLAN, LUTZ), accept a session-scoped request (instructions + optional model/run options), may produce streamable events, and end with a terminal status plus optional artifacts (diffs, task lists, etc.).
+
+- task list  
+  A session-scoped ordered list of tasks representing work items for a project/session. PLAN and LUTZ create or update the current session task list. LUTZ may additionally execute the task list automatically. The task list supports CRUD operations via brokkctl so automation can inspect, edit, and control it.
 
 ## CLI Command Surface (conceptual)
 
@@ -65,7 +72,6 @@ Global flags:
 - `--timeout <ms>` — overall timeout in milliseconds for discovery and per-request network operations (default: 30000).
 - `--fail-fast` / `--best-effort` — fan-out failure policy. `--fail-fast` aborts on first failure (default); `--best-effort` attempts all targets and returns an aggregated result (partial success possible).
 - `--protocol-version <MAJOR.MINOR.PATCH>` — advertise a specific client protocol version via the `Brokk-CTL-Version` header; if omitted the client will use its built-in version.
-- `--auth-token <token>` — send `Authorization: Bearer <token>` to secured endpoints.
 - `--allow-incompatible` — explicitly allow proceeding when client MAJOR > server MAJOR (dangerous; requires opt-in).
 
 Example subcommands (conceptual):
@@ -88,7 +94,8 @@ Discovery semantics:
   - `instanceId` (string)
   - `pid` (optional)
   - `listenAddr` (host:port or socket path)
-  - `project` (if available)
+  - `projects` (if available): array of open project/workspace root paths
+  - `project` (optional): convenience alias for the active/most-recent project path (clients should prefer `projects`)
   - `brokkctlVersion` (protocol version the instance speaks)
   - `lastSeenMs` (timestamp hint for stability)
 
@@ -99,12 +106,31 @@ Registry location
   - Windows: `%APPDATA%\Brokk\instances\`
 - Each instance writes a single file named `<instanceId>.json` into the registry directory. Files MUST be written atomically (write temporary file then rename) to avoid partial reads.
 
+Local shared key
+- Because this controller is used locally, it does not use bearer tokens. Instead, the instance and `brokkctl` authenticate using a shared local key stored on disk in a well-known per-user location.
+- Recommended key file locations:
+  - Linux: `$XDG_CONFIG_HOME/brokk/ctl.key` (fallback: `$HOME/.config/brokk/ctl.key`)
+  - macOS: `~/Library/Application Support/Brokk/ctl.key`
+  - Windows: `%APPDATA%\Brokk\ctl.key`
+- Key format:
+  - UTF-8 text file containing a single opaque random string (for example, 32+ bytes of randomness encoded as hex or base64url).
+  - No trailing metadata; readers should trim whitespace.
+- Generation:
+  - On first run, `brokkctl` (or the first instance) SHOULD create the key file if absent.
+  - File permissions SHOULD be user-only (best-effort per platform).
+- Request authentication:
+  - HTTP clients MUST send `Brokk-CTL-Key: <key>` on each request to an instance control endpoint.
+  - Instances MUST read the key file and compare for equality (after trimming). If missing or mismatched, reject with `UNAUTHORIZED`.
+- Rotation:
+  - Deleting the file rotates the key; new key creation invalidates existing clients until they reload the file.
+
 Record schema
 - Each `<instanceId>.json` file is a JSON object with the following fields:
   - `instanceId` (string, required): stable instance identifier (UUID recommended).
   - `pid` (number|null): process id of the instance when available.
   - `listenAddr` (string, required): transport address (e.g., `127.0.0.1:54321` or `/tmp/brokk.sock`).
-  - `project` (string|null): optional project/workspace root path.
+  - `projects` (array|null): optional list of open project/workspace root paths.
+  - `project` (string|null): optional active/most-recent project path (convenience alias; clients should prefer `projects`).
   - `brokkctlVersion` (string): protocol version the instance advertises (semantic-ish `MAJOR.MINOR.PATCH`).
   - `supportedCapabilities` (optional array): capability descriptors the instance returns.
   - `startedAt` (number): epoch ms when the instance started.
@@ -145,7 +171,9 @@ Selection rules and CLI flags
   - If multiple non-stale instances and running in an interactive TTY: prompt the user to choose.
   - If multiple and non-interactive (e.g., scripts, CI): fail deterministically and require `--instance`, `--all`, or `--auto-select`.
 - Interaction semantics:
-  - Interactive prompts MUST include `instanceId`, `pid`, `listenAddr`, `project`, and `brokkctlVersion` to help the user choose.
+  - Interactive prompts MUST include `instanceId`, `pid`, `listenAddr`, and `brokkctlVersion`, and either:
+    - the `project` convenience field when present, or
+    - a compact summary of `projects` (for example: active + count, or first N paths + count) to help the user choose.
 
 Fan-out semantics and aggregation
 - `instances list` is naturally fan-out and returns raw discovery records.
@@ -155,18 +183,21 @@ Fan-out semantics and aggregation
 - Mixed outcomes map to exit code `3` (partial failure) when `-o json` is used; otherwise the CLI should surface a clear message and a non-zero exit code.
 
 Security:
-- The CLI must accept `--auth-token` and send `Authorization: Bearer <token>` to secured endpoints.
-- Tokens are local-only by default; remote deployments require appropriate operational security.
+- This controller is intended for local-only automation.
+- Each instance and `brokkctl` MUST authenticate requests using a shared local key stored on disk (see "Local shared key"):
+  - `brokkctl` loads the key from a well-known per-user file prior to each request.
+  - The instance reads the same file and compares its contents to the key provided on the request.
+  - If the keys do not match, the instance rejects the request with `UNAUTHORIZED`.
+- Wire format:
+  - HTTP transports MUST send `Brokk-CTL-Key: <key>` on every request.
+  - Non-HTTP transports (MCP/AppleScript) MUST include `ctlKey` in the canonical request envelope payload or a transport-equivalent metadata channel.
+- This mechanism is designed to prevent accidental leakage if an endpoint is reachable over HTTP; it is not intended as a remote security boundary.
 
 Aggregation:
 - For fan-out calls, return:
   - `summary`: { requested, succeeded, failed }
   - `results`: [{ instanceId, status, data?, error? }, ...]
 - Mixed outcomes map to exit code `3` (partial failure) when `-o json` is used; otherwise the CLI should surface a clear message and a non-zero exit code.
-
-Security:
-- The CLI must accept `--auth-token` and send `Authorization: Bearer <token>` to secured endpoints.
-- Tokens are local-only by default; remote deployments require appropriate operational security.
 
 ## Output & Exit Codes
 
@@ -240,9 +271,14 @@ Backward-compatibility policies (quick reference):
 Capabilities declaration:
 - Servers SHOULD expose a discovery endpoint (e.g., `GET /v1/ctl-info`) returning:
   - `brokkctlVersion` (string)
-  - `instanceId`, `pid`, `project`, `listenAddr`
-  - `supportedCapabilities`: [{ "name": "sessions.import", "minVersion": "1.1.0" }, ...]
+  - `instanceId`, `pid`, `projects`, `listenAddr`
+  - `supportedCapabilities`: [{ "name": "sessions.switch", "minVersion": "1.0.0" }, ...]
 - Clients can use `supportedCapabilities` to decide safe fallbacks.
+- Servers MAY additionally expose phase capabilities to simplify client logic:
+  - `{ "name": "phase.1", "minVersion": "1.0.0" }`
+  - `{ "name": "phase.2", "minVersion": "1.0.0" }`
+  - `{ "name": "phase.3", "minVersion": "1.0.0" }`
+  These are convenience markers only; the authoritative source of truth is the set of supported command capabilities.
 
 ## Error Model
 
@@ -251,11 +287,58 @@ Capabilities declaration:
 - For fan-out operations return per-instance `error` and a top-level `summary`.
 - Use consistent, enumerated error codes (e.g., `INVALID_ARGS`, `NOT_FOUND`, `UNAUTHORIZED`, `BUSY`, `PROTOCOL_UNSUPPORTED_FEATURE`, `INTERNAL_ERROR`).
 
+## Phased rollout plan (MVP -> full surface)
+
+This spec is intentionally larger than the initial implementation. Implementations SHOULD roll out in phases, and MUST declare supported commands via `supportedCapabilities` (see Versioning Strategy) so clients can degrade gracefully.
+
+### Phase 1 (MVP: Claude Code delegation)
+
+Goal: allow a local tool to delegate larger work to Brokk, by ensuring a project is open, creating/selecting a session, starting a PLAN/LUTZ run, and retrieving status/output.
+
+Required commands and behaviors:
+- `instances list`
+  - Must return non-stale instances and their `projects` array (when available).
+- `projects open`
+  - Must open a project by absolute `--path`.
+- `sessions active`, `sessions create`, `sessions switch`
+  - Must allow deterministic session selection by `--session-id` and creation by `--name`.
+- `exec start`
+  - Must support at least `--mode plan` and SHOULD support `--mode lutz`.
+  - Must return a `jobId` and a way to retrieve events (either streaming or poll).
+- `state get`
+  - Must report idle vs running and include `jobId` when running (if available).
+- `history get` (required) and `history tail --follow` (recommended)
+  - Must provide sufficient output for a delegating client to summarize progress and results.
+- Error/compatibility requirements:
+  - Servers MUST return `PROTOCOL_UNSUPPORTED_FEATURE` when asked for commands/flags they do not support.
+  - Servers SHOULD include `supportedCapabilities` entries for each Phase 1 command.
+
+Optional but recommended in Phase 1:
+- NDJSON streaming for `exec start --follow` or `history tail --follow`.
+
+### Phase 2 (Task list introspection and manual control)
+
+Goal: allow callers to inspect and adjust the PLAN-generated task list and manually start/stop task execution.
+
+Commands:
+- `tasks get`, `tasks set`, `tasks add`, `tasks update`, `tasks remove`, `tasks clear`
+- `taskrun start`, `taskrun stop`, `taskrun status`
+
+### Phase 3 (Full surface / multi-instance workflows)
+
+Goal: expand support for broader automation use cases and operational robustness.
+
+Commands and capabilities:
+- `context list/add/remove` advanced options (`--line-range`, content upload, etc.)
+- richer history filtering/paging and cross-instance tails
+- explicit `instances prune`
+- best-effort multi-instance fan-out for operational commands where safe
+
 ## Next Steps (implementation hints)
 
 - Implement a `ctl-info` discovery/health endpoint in the application that returns `brokkctlVersion`, instance metadata, and capabilities.
 - Choose a platform-appropriate discovery mechanism for local instances.
-- Implement `-o json` surfaces first; add human-friendly formatting later.
+- Implement Phase 1 JSON-first surfaces first; add human-friendly formatting later.
 - Add tests that exercise negotiation rules:
   - Client requesting a MINOR-level feature against a lower-MINOR server
   - Major version mismatch handling and `--allow-incompatible` opt-in
@@ -436,13 +519,12 @@ Inputs / Flags
 - `--ttl <ms>` (optional): override TTL used to decide staleness for this invocation (default: 30000 ms).
 - `--request-id <uuid>` (optional): client-supplied requestId for correlation. If omitted, the client generates one.
 - `--timeout <ms>` (optional): discovery timeout. Defaults to global timeout.
-- `--auth-token <token>` (optional): used when querying endpoints to verify reachability.
 
 Behavioral rules
 - Default (no `--all`): return only entries where `now - lastSeenMs <= TTL`.
 - With `--all`: return all registry entries, but mark stale and unreachable entries with explicit status fields.
 - If an entry appears stale (lastSeenMs older than TTL), the entry's `status` becomes `"stale"`. A stale entry may still be reachable if the client can connect to its `listenAddr`. The client SHOULD attempt a lightweight reachability probe (e.g., `ctl-info`) only when `--all` is used or when an explicit `--probe` flag is present (to avoid unnecessary network calls during discovery).
-- If a previously-written registry file exists but the instance cannot be reached (connection refused, auth failure, etc.), the entry `status` becomes `"unreachable"` and an `error` object is included describing the failure.
+- If a previously-written registry file exists but the instance cannot be reached (connection refused, key mismatch, etc.), the entry `status` becomes `"unreachable"` and an `error` object is included describing the failure.
 
 Output schema (JSON mode)
 Top-level envelope for `-o json`:
@@ -469,6 +551,7 @@ Instance descriptor (list entry)
   "instanceId": "550e8400-e29b-41d4-a716-446655440000",
   "pid": 12345,
   "listenAddr": "127.0.0.1:54321",
+  "projects": ["/home/alice/my-repo"],
   "project": "/home/alice/my-repo",
   "brokkctlVersion": "1.0.0",
   "startedAt": 1690000000000,
@@ -548,7 +631,7 @@ Output:
       "instanceId": "550e8400-e29b-41d4-a716-446655440000",
       "pid": 12345,
       "listenAddr": "127.0.0.1:54321",
-      "project": "/home/alice/my-repo",
+      "projects": ["/home/alice/my-repo", "/home/alice/my-other-repo"],
       "brokkctlVersion": "1.0.0",
       "startedAt": 1690000000000,
       "lastSeenMs": 1690000050000,
@@ -581,6 +664,7 @@ Output:
       "instanceId": "a1111111-1111-1111-1111-111111111111",
       "pid": 11111,
       "listenAddr": "127.0.0.1:54000",
+      "projects": ["/home/alice/project-a"],
       "project": "/home/alice/project-a",
       "brokkctlVersion": "1.1.0",
       "startedAt": 1690000000000,
@@ -596,6 +680,7 @@ Output:
       "instanceId": "b2222222-2222-2222-2222-222222222222",
       "pid": 22222,
       "listenAddr": "/tmp/brokk-22222.sock",
+      "projects": ["/home/alice/project-b"],
       "project": "/home/alice/project-b",
       "brokkctlVersion": "1.0.0",
       "startedAt": 1689990000000,
@@ -611,6 +696,7 @@ Output:
       "instanceId": "c3333333-3333-3333-3333-333333333333",
       "pid": null,
       "listenAddr": "127.0.0.1:54200",
+      "projects": null,
       "project": null,
       "brokkctlVersion": "1.0.0",
       "startedAt": 1689990000000,
@@ -661,7 +747,7 @@ Common command semantics
 - `projects open` requests that an instance open the project at a given `path` (or `projectId` for local-to-instance operations). The command targets one or more instances depending on `--instance`/`--all` flags.
 
 Global flags (inherit from top-level)
-- `--format json|text`, `--instance <selector>`, `--all`, `--timeout`, `--request-id`, `--auth-token`, etc.
+- `--format json|text`, `--instance <selector>`, `--all`, `--timeout`, `--request-id`, etc.
 - `projects open` specific flags:
   - `--path <abs-path>` — open project at specified absolute path (preferred).
   - `--project-id <id>` — instance-local project id (used for intra-instance actions).
@@ -905,7 +991,7 @@ Principles
 - `--instance` is required for any session operation that uses `sessionId` unless `--all` is explicitly used (fan-out cases require per-instance session ids or names with instance context).
 
 Global flags (inherit)
-- `--format json|text`, `--instance <selector>`, `--all`, `--timeout`, `--request-id`, `--auth-token`, etc.
+- `--format json|text`, `--instance <selector>`, `--all`, `--timeout`, `--request-id`, etc.
 - `sessions` command specific flags:
   - `--path <abs-path>` — project path to scope session operations (preferred).
   - `--project-id <id>` — instance-local project id to scope session operations.
@@ -991,7 +1077,7 @@ Inputs
 - `--instance <selector>` (recommended for determinism).
 - `--path <abs-path>` or `--project-id <id>` (project selector required unless the instance exposes only one project).
 - `--limit <n>` (optional): limit results.
-- `--request-id`, `--timeout`, `--format`, `--auth-token`.
+- `--request-id`, `--timeout`, `--format`.
 
 Behavior
 - Return all sessions for the specified project reported by the instance. When `--all` is used, aggregate across instances and group by normalized path.
@@ -1183,7 +1269,7 @@ Purpose
 - Manage session-scoped or project-scoped contextual data that seeds LLM reasoning: files, class/method fragments, free-form text, or other content artifacts. These commands let automation enumerate, add, and remove context entries used by executions.
 
 Common flags / selectors
-- Global flags apply (`--format`, `--instance`, `--all`, `--timeout`, `--request-id`, `--auth-token`, etc.).
+- Global flags apply (`--format`, `--instance`, `--all`, `--timeout`, `--request-id`, etc.).
 - Context-specific selectors:
   - `--path <abs-path>` — canonical project path to scope the operation (required when the instance has multiple open projects).
   - `--project-id <id>` — instance-local project id to scope operations (preferred when available).
@@ -1213,7 +1299,7 @@ Inputs / Flags
 - `--instance`, `--path`/`--project-id`, `--session-id` or active session semantics
 - `--type <file|text|class|method|diff|all>` (optional) to filter by kind
 - `--limit <n>`, `--offset <n>` for paging (optional)
-- `--request-id`, `--timeout`, `--auth-token`
+- `--request-id`, `--timeout`
 
 Behavior
 - Return entries scoped to the resolved project and session (or global scope when `--scope global`).
@@ -1279,7 +1365,7 @@ Inputs / Flags
 - `--overwrite` (optional) — when adding an entry whose `relativePath` already exists, overwrite server-side content. Default: do not overwrite; return `ALREADY_EXISTS`.
 - `--type <file|text|class|method|diff>` (optional)
 - `--metadata` (optional)
-- `--request-id`, `--timeout`, `--auth-token`
+- `--request-id`, `--timeout`
 
 Behavior
 - The server attempts to add each provided entry; operations are per-entry and reported individually. For file-based adds (`--file`), the server reads content at that path inside the project workspace; if the file is not present or not readable return `NOT_FOUND` or `PERMISSION_DENIED`.
@@ -1332,7 +1418,7 @@ Inputs / Flags
   - `--file <relativePath>` — remove by relative path.
   - `--all` — remove all context entries in the selected session/scope (dangerous; requires explicit opt-in).
 - `--require-exists` (optional): cause removal to fail if an addressed entry does not exist. Default behavior: idempotent success on missing entries (see Idempotency).
-- `--request-id`, `--timeout`, `--auth-token`
+- `--request-id`, `--timeout`
 
 Per-instance result container (context remove)
 ```json
@@ -1446,18 +1532,34 @@ Implementation hints
 
 ## Execution commands — specification
 
+This section covers one-off executions (`exec`) and task-list execution (`taskrun`). PLAN and LUTZ differ from ASK and CODE in that they produce (and may later consume) a session task list, so the CLI also exposes task list CRUD (`tasks ...`).
+
 Purpose
 - Submit, monitor, and stop executions (jobs) on one or more Brokk instances. Support multiple logical modes and both stream-first (NDJSON) and pollable APIs so automation can either follow live output or fetch events after the fact.
 
 Commands (conceptual)
-- `brokkctl exec start --mode <MODE> --session-id <id> --task "<text>" [--model-overrides ...] [--request-id <uuid>] [-o json|ndjson] [--follow]`
+One-off executions:
+- `brokkctl exec start --mode <ask|code|plan|lutz> --session-id <id> --task "<text>" [--model-overrides ...] [--request-id <uuid>] [-o json|ndjson] [--follow]`
 - `brokkctl exec stop --job <jobId> [--graceful|--immediate] [--request-id <uuid>] [-o json]`
 
+Task list management (CRUD):
+- `brokkctl tasks get [--session-id <id>]`
+- `brokkctl tasks set --file <tasks.json> [--session-id <id>] [--replace]`
+- `brokkctl tasks add --title "<text>" [--after <taskId>] [--session-id <id>]`
+- `brokkctl tasks update --task-id <taskId> [--title "..."] [--status todo|doing|done|blocked] [--notes "..."]`
+- `brokkctl tasks remove --task-id <taskId>`
+- `brokkctl tasks clear [--confirm]`
+
+Task list execution control (service-like, per project):
+- `brokkctl taskrun start [--session-id <id>] [--from-task <taskId>] [--request-id <uuid>] [-o json|ndjson] [--follow]`
+- `brokkctl taskrun stop [--graceful|--immediate] [--request-id <uuid>] [-o json]`
+- `brokkctl taskrun status [-o json]`
+
 Supported modes
-- `ask` — single-turn question/answer style jobs.
-- `plan` — multi-step planning/execution with explicit planner phases.
-- `code` — code-modifying or patching jobs (diffs, file edits).
-- `lutz` — long-running, possibly interactive or exploratory executions (specialized mode).
+- `ask` — read-only. Takes text instructions and runs the LLM using the current session context. Does not modify files.
+- `code` — read/write. Takes text instructions and runs the LLM using the current session context. May modify files to complete the task (patches/diffs).
+- `plan` — read-only. Takes text instructions, performs an agentic search over the project sources, adds appropriate files to the session context, and creates or updates the session task list. Does not modify files. The primary output artifact is the task list.
+- `lutz` — plan + run. Same as `plan`, but automatically begins executing the resulting task list in order when planning completes.
 Clients MUST treat mode names as opaque capability hints for unknown/extended modes.
 
 Common flags / selectors
@@ -1473,7 +1575,7 @@ Common flags / selectors
 - `--fail-fast` / `--best-effort` — fan-out failure policy.
 
 Exec start — request shape (client → instance)
-Canonical JSON client request envelope (also used in wire/HTTP POST body for `execution.submit`):
+Canonical JSON client request envelope:
 
 {
   "requestId": "550e8400-e29b-41d4-a716-446655440000",
@@ -1481,22 +1583,17 @@ Canonical JSON client request envelope (also used in wire/HTTP POST body for `ex
   "command": "execution.start",
   "protocolVersion": "1.0.0",
   "payload": {
-    "mode": "plan",                       // "ask" | "plan" | "code" | "lutz"
-    "sessionId": "s-123",                 // optional when scoped by --instance and active session is acceptable
+    "mode": "plan",                       // "ask" | "code" | "plan" | "lutz"
+    "sessionId": "s-123",                 // if provided and differs from the current session for the project, the instance will switch sessions first
     "task": "Refactor module X to reduce duplication and add tests.",
-    "inputs": {                           // optional structured inputs
-      "prompt": "Write a small plan...",
-      "files": [ "src/foo.java" ]
-    },
-    "modelOverrides": {                   // optional model overrides (machines may ignore unknown fields)
+    "modelOverrides": {                   // optional model overrides (instances may ignore unknown keys)
       "planner": "gpt-4o-mini",
       "composer": "gpt-4o",
-      "editor": "code-davinci-003"
+      "editor": "gpt-4o"
     },
     "runOptions": {
-      "timeoutMs": 120000,                // per-job execution timeout
+      "timeoutMs": 120000,
       "maxTokens": 4096,
-      "allowPartial": true,               // accept partial results when applicable
       "preserveHistory": true
     },
     "meta": { "tag": "ci-run", "priority": "low" }
@@ -1504,12 +1601,18 @@ Canonical JSON client request envelope (also used in wire/HTTP POST body for `ex
 }
 
 Exec start — immediate response (non-streaming or initial handshake)
-- On success the instance returns a canonical per-instance result container (see "Canonical per-instance result container" in this spec) with `status: "ok"` and `data` containing at minimum:
-  - `jobId` (string) — server-assigned job id
+- On success the instance returns a canonical per-instance result container with `status: "ok"` and `data` containing at minimum:
+  - `jobId` (string) — server-assigned job id for this execution
   - `mode` (string)
   - `startedAtMs` (number)
-  - `cursor` (string|null) — opaque token pointing to the stream position immediately after any pre-start events (useful when polling)
-  - `followUrl` (string|null) — optional direct URL to follow stream (when server supports streamed endpoints)
+  - `cursor` (string|null) — opaque token pointing to the stream position immediately after any pre-start events
+  - `followUrl` (string|null) — optional direct URL to follow stream
+
+Mode-specific output notes:
+- `ask`: output is assistant text/events only; no filesystem changes.
+- `code`: output may include patch/diff artifacts and file edit events.
+- `plan`: output MUST include an updated session task list artifact (either inline in the terminal event payload, or as a `taskListRef` pointing to retrievable task list content).
+- `lutz`: output includes the same task list artifact as `plan`, plus subsequent task execution events as the task list runs.
 - If `--follow` was requested and the server supports streaming, the HTTP response may be an NDJSON stream (see Streaming below). In that case the initial NDJSON lines SHOULD include a `job.started` event and subsequent events for job progress/output.
 
 Exec start — poll-driven mode
@@ -1550,20 +1653,27 @@ Each streamed event (or polled history event) SHOULD follow this canonical envel
 }
 
 EventType semantics
-- job.started — emitted when the job is accepted and begins. Payload includes `mode`, `jobId`, and optional server hints.
-- job.stdout / job.stderr — textual output streams emitted by the job. Servers SHOULD chunk output into reasonably-sized pieces and mark `isFinal` when the chunk completes a logical unit.
-- job.progress — structured progress updates. Payload should include `phase` and `percent` when available.
-- job.event — job-local structured events (planner decisions, internal milestones, patch application notices). Payload is implementation-specific but should be machine-friendly.
-- job.complete — terminal event. Payload must include `status` (`success`|`failed`|`cancelled`) and may include `result` object (diffs, artifact references).
-- job.error — unrecoverable error; equivalent to a failed `job.complete` but intended for transport-level or protocol errors; includes canonical `error` object with `code`, `message`, `details`.
+- job.started — emitted when the execution is accepted and begins. Payload includes `mode` and optional server hints.
+- job.stdout / job.stderr — textual output streams emitted by the execution.
+- job.progress — structured progress updates.
+- job.event — structured events:
+  - `plan.taskList.updated` when PLAN/LUTZ updates the session task list.
+  - `code.patch.applied` when CODE applies an edit.
+  - `taskrun.task.started` / `taskrun.task.completed` when a task list run advances through tasks.
+- job.complete — terminal event. Payload must include `status` (`success`|`failed`|`cancelled`) and MAY include:
+  - `taskList` (inline) or `taskListRef` (reference) for PLAN/LUTZ
+  - `diffRef` / `patchSummary` for CODE
+- job.error — unrecoverable error; includes canonical error object.
 
 Polling / History compatibility
 - All streamed events MUST also be representable via `history get`/paging APIs (cursor-friendly), so clients choosing to poll can obtain the same semantic events. Events returned via polling must include the `cursor` so clients can resume.
 
 Exec stop — semantics and flags
-- `--graceful` (default when unspecified): request polite cancellation allowing the current internal phase to finish or checkpoint, with a server-configured short timeout for graceful shutdown. Servers SHOULD attempt to produce a `job.complete` with `status: "cancelled"` and any partial results that are safe to emit.
-- `--immediate`: request immediate abort. Server should attempt to abort ASAP; behavior is best-effort and may not be supported for all modes. Immediate aborts may produce `job.error` or `job.complete` with `status: "cancelled"` depending on server semantics.
+- `--graceful` (default when unspecified): request polite cancellation allowing the current internal phase to finish or checkpoint. Servers SHOULD attempt to produce a `job.complete` with `status: "cancelled"` and any partial results that are safe to emit.
+- `--immediate`: request immediate abort. Best-effort; may not be supported for all modes.
 - `--force` (rare): stronger immediate semantics; servers may refuse unless explicitly authorized.
+
+Note: Stopping a one-off execution (`ask`, `code`, `plan`, `lutz`) addresses a specific `jobId`. Stopping a task list run (`taskrun stop`) addresses the currently running task list execution for the project (if any).
 
 Exec stop — request shape (client → instance)
 {
@@ -1583,7 +1693,13 @@ Exec stop — response shape
 - If stop is requested while streaming follow is active, the stream SHOULD emit a final `job.complete` or `job.error` event and then the server may close the connection.
 
 Idempotency and races
-- `exec stop` should be idempotent: stopping an already-stopped job returns success with `stopped:false` or explicit `ALREADY_COMPLETED` error depending on `--require-exists`-like semantics. Clients should be resilient to races where a job completes between the client's `stop` request and the server's handling.
+- `exec stop` should be idempotent: stopping an already-stopped job returns success with `stopped:false` or explicit `ALREADY_COMPLETED` error depending on semantics.
+- Project-level single execution rule:
+  - Each project may have at most one running execution at a time.
+  - If a start request targets a session while another session is currently executing for the same project, the server MUST reject with `BUSY` (or `ALREADY_RUNNING`) and include details describing the running execution (jobId, mode, sessionId if permitted).
+- Session switching behavior for project-scoped execution control:
+  - For `execution.start` and `taskrun start/stop`, if `payload.sessionId` is provided and differs from the current session for the project, the instance switches the UI/current session first, then performs the requested action.
+  - For `taskrun status`, if the requested session is not the current session for the project, the status is deterministically `stopped` (because only the current session can be executing).
 
 Model overrides and capability negotiation
 - Clients may pass `modelOverrides` on `exec start`. Servers declare supported override keys via `supportedCapabilities` on `ctl-info` (e.g., `"execution.modelOverrides": ["planner","editor"]`). If an unsupported override is requested, the server responds with `PROTOCOL_UNSUPPORTED_FEATURE` with useful details.
@@ -1612,7 +1728,143 @@ Operational notes
 - Servers should document per-mode cancellation semantics in `supportedCapabilities` so clients can make informed stop requests.
 
 Compatibility with existing history/state APIs
-- Job events MUST be emit-able into the `history` subsystem so `history get`/`history tail` can return the same events as the live stream. Servers that cannot or choose not to store full history should document this (e.g., `ephemeralStreamsOnly` capability) and clearly expose cursors that are only valid for live connections.
+- Execution events (including task list updates and task list run progress) MUST be emit-able into the `history` subsystem so `history get`/`history tail` can return the same events as the live stream.
+- Servers that cannot or choose not to store full history should document this (e.g., `ephemeralStreamsOnly` capability) and clearly expose cursors that are only valid for live connections.
+
+## Task list commands — specification
+
+Purpose
+- Provide CRUD operations for the current session task list, since PLAN and LUTZ create or update it and LUTZ/task execution consumes it.
+
+Task list model (canonical)
+- A task list is an ordered list of tasks for a session.
+- Each task MUST have a stable `taskId` (string) for reliable automation edits.
+- Minimal task shape:
+
+```json
+{
+  "taskId": "t-1",
+  "title": "Add unit tests for Foo",
+  "status": "todo",
+  "notes": "Focus on edge cases",
+  "createdAtMs": 1690000000000,
+  "updatedAtMs": 1690000100000
+}
+```
+
+Common selectors
+- `--instance <selector>`
+- `--path <abs-path>` or `--project-id <id>` (project scope)
+- `--session-id <id>` (optional; if omitted, operate on the active session for the project)
+
+### tasks get
+
+- Returns the task list for the resolved session.
+
+Response (JSON):
+```json
+{
+  "requestId": "req-tasks-1",
+  "results": [
+    {
+      "instanceId": "a111...",
+      "status": "ok",
+      "data": {
+        "sessionId": "s-123",
+        "tasks": [
+          { "taskId": "t-1", "title": "Inspect Foo", "status": "done", "notes": null, "createdAtMs": 1690000000000, "updatedAtMs": 1690000050000 },
+          { "taskId": "t-2", "title": "Refactor Bar", "status": "todo", "notes": null, "createdAtMs": 1690000060000, "updatedAtMs": 1690000060000 }
+        ]
+      },
+      "error": null
+    }
+  ],
+  "summary": { "requested": 1, "succeeded": 1, "failed": 0 }
+}
+```
+
+### tasks set
+
+- Replaces the task list for the resolved session (authoritative overwrite). Servers MAY support partial patch/update, but replace is canonical for automation.
+
+Request payload:
+```json
+{
+  "command": "tasks.set",
+  "payload": {
+    "sessionId": "s-123",
+    "replace": true,
+    "tasks": [
+      { "taskId": "t-1", "title": "Do X", "status": "todo", "notes": null }
+    ]
+  }
+}
+```
+
+Errors
+- `NOT_FOUND` if session not found.
+- `BUSY` if the project is currently executing a task list (servers may require stopping first).
+- `INVALID_ARGS` if task ids are duplicated or invalid.
+
+### tasks add / update / remove / clear
+
+- `tasks add` appends or inserts a task.
+- `tasks update` edits fields of a task.
+- `tasks remove` deletes a task by `taskId`.
+- `tasks clear` removes all tasks (requires explicit confirmation in CLI UX).
+
+All return per-instance result containers and use canonical error codes (`NOT_FOUND`, `BUSY`, `INVALID_ARGS`, `PERMISSION_DENIED`).
+
+## Task list execution control — specification (`taskrun`)
+
+Purpose
+- Start/stop/status for executing the current session task list for a project. This behaves like a single service per project: only one task run may be active for a project at a time.
+
+### taskrun start
+
+Behavior
+- Resolves the project and session. If a `--session-id` is provided and differs from the project's current session, the instance switches the current session first (reflected in desktop UI), then starts executing that session task list.
+- If another session is currently executing for the same project, return `BUSY`.
+
+Response data (success):
+```json
+{
+  "taskRunId": "tr-1",
+  "jobId": "j-42",
+  "sessionId": "s-123",
+  "startedAtMs": 1690006000000
+}
+```
+
+Streaming
+- When `--follow` is used, stream NDJSON events using the same event envelope as executions, with taskrun events under `job.event` payload types (e.g., `taskrun.task.started`).
+
+### taskrun stop
+
+Behavior
+- Stops the currently running task run for the project. If `--session-id` is provided and differs from the current session, the instance switches first, then attempts to stop (typically resulting in `stopped:false` unless that session is the one running).
+
+### taskrun status
+
+Behavior
+- Returns status for the project's current session task run.
+- If the requested session is not the current session for the project, status is deterministically `stopped`.
+
+Status data shape:
+```json
+{
+  "sessionId": "s-123",
+  "state": "running",
+  "jobId": "j-42",
+  "startedAtMs": 1690006000000,
+  "currentTaskId": "t-2",
+  "cancellable": true
+}
+```
+
+Errors
+- `BUSY` when attempting `taskrun start` while already running.
+- `NOT_FOUND` if project/session not found (unless using the non-failing "inactive means stopped" semantics).
 
 ## State commands — specification
 
@@ -1631,7 +1883,6 @@ Global and command flags
 - `--require-active` — if set, treat missing active session as an error (USER_ERROR); otherwise `data.active` will be returned false.
 - `--request-id <uuid>` — client-provided correlation id (optional).
 - `--timeout <ms>` — overall timeout for discovery and per-request network ops.
-- `--auth-token <token>` — bearer token for auth when required.
 - `--fail-fast` / `--best-effort` — fan-out failure policy.
 
 Selectors / scoping semantics
@@ -1867,7 +2118,7 @@ history get — semantics & paging
   - `--cursor <opaque-token>`: resume token previously returned by the server (preferred for correctness).
   - `--order asc|desc` (optional; default: asc by sequence).
   - `--event-type <...>` and `--tag <...>` filters (optional).
-  - `--request-id`, `--timeout`, `--auth-token`, `--format`.
+  - `--request-id`, `--timeout`, `--format`.
 
 - Pagination model:
   - Cursor-based paging is the recommended default: server returns `nextCursor` that clients can pass to fetch the next page. Cursor encodes both sequence and server-side pagination state.
@@ -1895,7 +2146,7 @@ history tail — streaming semantics (`--follow`)
   - `--instance <selector>` or `--all`
   - `--session-id <id>` (session-scoped tail)
   - `--cursor <opaque-token>` or `--since-seq <n>` / `--since-ms <ms>`: starting position; when omitted client receives new events only.
-  - `--request-id`, `--timeout`, `--auth-token`, `--format ndjson`
+  - `--request-id`, `--timeout`, `--format ndjson`
   - `--follow`: enable streaming (server returns NDJSON).
 - Behavior:
   - Server responds with one NDJSON object per event line. Each line is a self-contained event envelope (see canonical history entry shape). Events include `cursor` so the client can persist resume points.
@@ -2153,7 +2404,11 @@ This appendix maps each high-level `brokkctl` command area to the intended futur
    - Because AppleScript lacks streaming primitives, expose streaming via a helper that writes NDJSON lines to a file or a callback mechanism that AppleScript clients can poll.
 
 10. Security and auth consistency
-    - Across transports, respect the `Authorization: Bearer <token>` semantics or include `authToken` in the request envelope when transports don't use HTTP headers.
+    - This controller is intended for local-only usage. Prefer a simple shared local key rather than bearer tokens.
+    - Across transports:
+      - HTTP: send `Brokk-CTL-Key: <key>` on every request.
+      - MCP/AppleScript: include `ctlKey` in the request envelope (or equivalent metadata channel).
+    - The shared key must be stored in a well-known per-user location on disk that both the instance and `brokkctl` can read.
     - The facade should perform consistent permission checks regardless of transport and return identical Error codes for permission-related failures.
 
 ### Practical migration advice
@@ -2165,7 +2420,7 @@ This appendix maps each high-level `brokkctl` command area to the intended futur
 
 ### Quick reference: DTOs that must be stable and transport-agnostic
 
-- InstanceDto: { instanceId, pid, listenAddr, project, brokkctlVersion, startedAt, lastSeenMs, platform, listenProtocol }
+- InstanceDto: { instanceId, pid, listenAddr, projects?, project?, brokkctlVersion, startedAt, lastSeenMs, platform, listenProtocol }
 - ProjectDto: { path, projectId?, name?, lastOpenedMs?, status }
 - SessionDto: { sessionId, name, createdAtMs, lastActiveMs, isActive, project }
 - ContextEntryDto: { contextId, type, relativePath?, addedAtMs, sizeBytes, digest?, sessionId? }
