@@ -1,5 +1,6 @@
 package ai.brokk.project;
 
+import ai.brokk.AbstractService;
 import ai.brokk.IssueProvider;
 import ai.brokk.SessionManager;
 import ai.brokk.agents.BuildAgent;
