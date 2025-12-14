@@ -1192,23 +1192,24 @@ public class Context {
 
     /**
      * Refreshes all computed fragments in this context without filtering.
-     * Equivalent to calling {@link #copyAndRefresh(Set)} with all fragments.
+     * Equivalent to calling {@link #copyAndRefresh(Set, String)} with all fragments.
      *
      * @return a new context with refreshed fragments, or this context if no changes occurred
      */
     @Blocking
-    public Context copyAndRefresh() {
-        return copyAndRefreshInternal(Set.copyOf(fragments));
+    public Context copyAndRefresh(String action) {
+        return copyAndRefreshInternal(Set.copyOf(fragments), action);
     }
 
     /**
      * Refreshes fragments whose source files intersect the provided set.
      *
-     * @param maybeChanged set of project files that may have changed
+     * @param maybeChanged     set of project files that may have changed
+     * @param action description string for Activity history
      * @return a new context with refreshed fragments, or this context if no changes occurred
      */
     @Blocking
-    public Context copyAndRefresh(Set<ProjectFile> maybeChanged) {
+    public Context copyAndRefresh(Set<ProjectFile> maybeChanged, String action) {
         if (maybeChanged.isEmpty()) {
             return this;
         }
@@ -1221,7 +1222,7 @@ public class Context {
             }
         }
 
-        return copyAndRefreshInternal(fragmentsToRefresh);
+        return copyAndRefreshInternal(fragmentsToRefresh, action);
     }
 
     /**
@@ -1229,10 +1230,11 @@ public class Context {
      * Handles remapping read-only membership for replaced fragments.
      *
      * @param maybeChanged the set of fragments to potentially refresh
+     * @param action the action description for this refresh operation
      * @return a new context with refreshed fragments, or this context if no changes occurred
      */
     @Blocking
-    private Context copyAndRefreshInternal(Set<ContextFragment> maybeChanged) {
+    private Context copyAndRefreshInternal(Set<ContextFragment> maybeChanged, String action) {
         if (maybeChanged.isEmpty()) {
             return this;
         }
@@ -1288,7 +1290,7 @@ public class Context {
                 newFragments,
                 taskHistory,
                 parsedOutput,
-                CompletableFuture.completedFuture("Load external changes"),
+                CompletableFuture.completedFuture(action),
                 this.groupId,
                 this.groupLabel,
                 newReadOnly);
