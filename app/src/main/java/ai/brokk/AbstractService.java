@@ -67,8 +67,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     // location -> model info (inner map is also immutable)
     protected Map<String, Map<String, Object>> modelInfoMap = Map.of();
 
-    // Default models - instance fields
-    protected StreamingChatModel quickestModel = new UnavailableStreamingModel();
+    // Special models
     protected SpeechToTextModel sttModel = new UnavailableSTT();
 
     public AbstractService(IProject project) {
@@ -647,7 +646,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     public StreamingChatModel quickestModel() {
-        return quickestModel;
+        return getModel(ModelType.QUICKEST);
     }
 
     public StreamingChatModel quickModel() {

@@ -3,11 +3,9 @@ package ai.brokk;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
-import ai.brokk.project.ModelProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -72,16 +70,6 @@ public class Service extends AbstractService implements ExceptionReporter.Report
 
         this.modelLocations = Map.copyOf(tempModelLocations);
         this.modelInfoMap = Map.copyOf(tempModelInfoMap);
-
-        // hard‑code quickest temperature to 0 so that Quick Context inference is reproducible
-        var qkCfg = project.getMainProject().getModelConfig(ModelProperties.ModelType.QUICKEST);
-        var qqm = getModel(qkCfg, OpenAiChatRequestParameters.builder().temperature(0.0));
-        if (qqm == null) {
-            qqm = getModel(
-                    new ModelConfig(GEMINI_2_0_FLASH_LITE, ReasoningLevel.DEFAULT),
-                    OpenAiChatRequestParameters.builder().temperature(0.0));
-        }
-        quickestModel = (qqm == null) ? new UnavailableStreamingModel() : qqm;
 
         // STT model initialization
         var sttLocation = modelInfoMap.entrySet().stream()
