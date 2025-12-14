@@ -373,15 +373,23 @@ public final class DiffService {
             // Compute left content based on left reference
             String leftContent = "";
             if (!leftRef.isBlank()) {
-                var leftFrag = ContextFragment.GitFileFragment.fromCommit(file, leftRef, gitRepo);
-                leftContent = leftFrag.text().join();
+                if ("WORKING".equals(leftRef)) {
+                    leftContent = file.read().orElse("");
+                } else {
+                    var leftFrag = ContextFragment.GitFileFragment.fromCommit(file, leftRef, gitRepo);
+                    leftContent = leftFrag.text().join();
+                }
             }
 
             // Compute right content based on right reference
             String rightContent = "";
             if (!rightRef.isBlank()) {
-                var rightFrag = ContextFragment.GitFileFragment.fromCommit(file, rightRef, gitRepo);
-                rightContent = rightFrag.text().join();
+                if ("WORKING".equals(rightRef)) {
+                    rightContent = file.read().orElse("");
+                } else {
+                    var rightFragTmp = ContextFragment.GitFileFragment.fromCommit(file, rightRef, gitRepo);
+                    rightContent = rightFragTmp.text().join();
+                }
             }
 
             // Compute line counts
@@ -398,8 +406,10 @@ public final class DiffService {
             totalDeleted += deleted;
 
             // Build DiffEntry using the right-side fragment as representative
-            var rightFrag = ContextFragment.GitFileFragment.fromCommit(file, rightRef, gitRepo);
-            var de = new Context.DiffEntry(rightFrag, "", added, deleted, leftContent, rightContent);
+            ContextFragment.GitFileFragment rightFragForEntry = "WORKING".equals(rightRef)
+                    ? new ContextFragment.GitFileFragment(file, "WORKING", rightContent)
+                    : ContextFragment.GitFileFragment.fromCommit(file, rightRef, gitRepo);
+            var de = new Context.DiffEntry(rightFragForEntry, "", added, deleted, leftContent, rightContent);
             perFileChanges.add(de);
         }
 
