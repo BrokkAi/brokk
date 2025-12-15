@@ -281,6 +281,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             list.setVisibleRowCount(visibleRowCount);
             list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
             list.setCellRenderer(new SessionInfoRenderer());
+            // Prototype for efficient cell sizing - avoids calling renderer on all cells.
+            // Name content doesn't affect width (scroll pane is fixed at 360px), just need non-empty for height.
+            list.setPrototypeCellValue(
+                    new SessionInfo(UUID.randomUUID(), "X", System.currentTimeMillis(), System.currentTimeMillis()));
 
             // Select current session in the list
             var currentSessionId = contextManager.getCurrentSessionId();
