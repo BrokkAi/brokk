@@ -3178,7 +3178,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
                     }
                 })
-                .thenApply(result -> {
+                .thenApplyAsync(result -> {
                     // Precompute titles/contents and sorting OFF the EDT
                     List<AggregatedFileChange> prepared = prepareAggregatedFileChanges(result);
                     // Update UI on EDT
