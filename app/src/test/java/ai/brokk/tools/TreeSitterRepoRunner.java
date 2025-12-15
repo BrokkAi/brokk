@@ -150,6 +150,8 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
     private final MemoryMXBean memoryBean = ManagementFactory.getMemoryMXBean();
     private final List<GarbageCollectorMXBean> gcBeans = ManagementFactory.getGarbageCollectorMXBeans();
 
+    private static final String GC_THRASHING_REASON = "GC thrashing";
+
     @CommandLine.Option(
             names = {"--memory-profile", "--memory"},
             description = "Enable detailed memory profiling")
@@ -377,6 +379,10 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
                 System.out.println("✓ Analysis completed successfully");
             }
 
+            if (failOnThrashing && result.failed && GC_THRASHING_REASON.equals(result.failureReason)) {
+                throw new RuntimeException("GC thrashing detected");
+            }
+
         } catch (OutOfMemoryError e) {
             System.out.println("❌ OutOfMemoryError - scalability limit reached");
             results.recordOOM(project, language, maxFiles);
@@ -400,6 +406,9 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
                 System.out.println("📊 Incremental failure result saved");
             } catch (Exception ex) {
                 System.err.println("⚠ Failed to save incremental failure result: " + ex.getMessage());
+            }
+            if ("GC thrashing detected".equals(e.getMessage())) {
+                throw new RuntimeException(e);
             }
         }
     }
@@ -447,6 +456,10 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
                 System.out.println("✓ Analysis completed successfully");
             }
 
+            if (failOnThrashing && result.failed && GC_THRASHING_REASON.equals(result.failureReason)) {
+                throw new RuntimeException("GC thrashing detected");
+            }
+
         } catch (OutOfMemoryError e) {
             System.out.println("❌ OutOfMemoryError - scalability limit reached");
             results.recordOOM(project, language, maxFiles);
@@ -492,6 +505,9 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
                 System.out.println("📊 Incremental failure result saved");
             } catch (Exception ex) {
                 System.err.println("⚠ Failed to save incremental failure result: " + ex.getMessage());
+            }
+            if ("GC thrashing detected".equals(e.getMessage())) {
+                throw new RuntimeException(e);
             }
         }
     }
@@ -602,14 +618,15 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
                     : memoryBean.getHeapMemoryUsage().getUsed();
             var memoryDelta = peakMemory - startMemory;
 
+            boolean thrashing = failOnThrashing && isGcThrashing(gcTimeDelta, analyzerDuration);
             return new BaselineResult(
                     files.size(),
                     declarations.size(),
                     analyzerDuration,
-                    memoryDelta / (1024.0 * 1024.0), // Convert to MB
-                    peakMemory / (1024.0 * 1024.0), // Convert to MB
-                    false,
-                    null,
+                    memoryDelta / (1024.0 * 1024.0),
+                    peakMemory / (1024.0 * 1024.0),
+                    thrashing,
+                    thrashing ? GC_THRASHING_REASON : null,
                     gcCollectionsDelta,
                     gcTimeDelta,
                     discovery.discoveryTime(),
@@ -716,11 +733,18 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
                     System.out.println(generateStagingDiagram(result.stageTiming));
                 }
 
+                if (failOnThrashing && result.failed && GC_THRASHING_REASON.equals(result.failureReason)) {
+                    throw new RuntimeException("GC thrashing detected");
+                }
+
             } catch (Exception e) {
                 var target = testProject != null ? testProject : testDirectory.toString();
                 System.err.printf("❌ FAILED: %s (%s) - %s%n", target, testLanguage, e.getMessage());
                 if (verbose) {
                     e.printStackTrace();
+                }
+                if ("GC thrashing detected".equals(e.getMessage())) {
+                    throw e;
                 }
             }
         }
@@ -822,6 +846,13 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
 
                 System.out.print(detailedResults);
                 logEntries.add(detailedResults);
+
+                if (failOnThrashing && result.failed && GC_THRASHING_REASON.equals(result.failureReason)) {
+                    String warn2 = "⚠ GC thrashing detected; exiting due to --fail-on-thrashing\n";
+                    System.out.print(warn2);
+                    logEntries.add(warn2);
+                    throw new RuntimeException("GC thrashing detected");
+                }
 
                 // Check for exponential growth
                 if (fileCount > 1000 && result.peakMemoryMB > fileCount * 2.0) { // >2 MB per file indicates trouble
@@ -998,6 +1029,15 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
         long getPeak() {
             return peak.get();
         }
+    }
+
+    private boolean isGcThrashing(long gcTimeMs, Duration analysisDuration) {
+        long analysisMs = analysisDuration.toMillis();
+        if (analysisMs <= 0) {
+            return false;
+        }
+        double ratio = (double) gcTimeMs / analysisMs;
+        return gcTimeMs >= 500 && ratio >= 0.6;
     }
 
     private void drawStageLine(
