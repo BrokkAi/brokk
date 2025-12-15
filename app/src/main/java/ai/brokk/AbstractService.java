@@ -58,7 +58,8 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public static final String GEMINI_2_0_FLASH_LITE = "gemini-2.0-flash-lite";
 
     // these models are defined for low-latency use cases that don't require high intelligence
-    private static final Set<String> SYSTEM_ONLY_MODELS = Set.of("gemini-2.0-flash-lite", "gpt-5-nano", "claude-haiku-3");
+    private static final Set<String> SYSTEM_ONLY_MODELS =
+            Set.of("gemini-2.0-flash-lite", "gpt-5-nano", "claude-haiku-3");
 
     protected final Logger logger = LogManager.getLogger(AbstractService.class);
     protected final ObjectMapper objectMapper = new ObjectMapper();
