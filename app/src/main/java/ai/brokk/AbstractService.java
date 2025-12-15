@@ -46,11 +46,13 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     // Model name constants
     public static final String GPT_5 = "gpt-5";
     public static final String GPT_5_2 = "gpt-5.2";
-    public static final String GEMINI_2_5_PRO = "gemini-2.5-pro";
+    public static final String GEMINI_3_PRO_PREVIEW = "gemini-3-pro-preview";
     public static final String GEMINI_2_0_FLASH = "gemini-2.0-flash";
+    public static final String GEMINI_2_5_FLASH = "gemini-2.5-flash";
     public static final String GPT_5_NANO = "gpt-5-nano";
     public static final String GPT_5_MINI = "gpt-5-mini";
     public static final String GCF_1 = "grok-code-fast-1";
+    public static final String HAIKU_3 = "claude-haiku-3";
     public static final String HAIKU_4_5 = "claude-haiku-4-5";
     public static final String OPUS_4_5 = "claude-opus-4-5";
     public static final String GEMINI_2_0_FLASH_LITE = "gemini-2.0-flash-lite";
