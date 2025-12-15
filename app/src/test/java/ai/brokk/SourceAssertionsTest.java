@@ -19,7 +19,6 @@ public class SourceAssertionsTest {
     @Test
     void searchAgent_does_not_reference_appendTaskList() throws Exception {
         String src = read("src/main/java/ai/brokk/agents/SearchAgent.java");
-        assertFalse(src.contains("appendTaskList("),
-                "SearchAgent must not reference appendTaskList");
+        assertFalse(src.contains("appendTaskList("), "SearchAgent must not reference appendTaskList");
     }
 }

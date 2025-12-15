@@ -46,7 +46,8 @@ public final class AutoPlayGateDialog extends BaseThemedDialog {
         root.setLayout(new BorderLayout(8, 8));
         root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        String introText = "There are incomplete tasks in this session. Running Lutz or Plan will replace your current task list. Continue?";
+        String introText =
+                "There are incomplete tasks in this session. Running Lutz or Plan will replace your current task list. Continue?";
 
         var intro = new JTextArea(introText);
         intro.setEditable(false);
@@ -62,7 +63,8 @@ public final class AutoPlayGateDialog extends BaseThemedDialog {
         taskTextArea.setEditable(false);
         taskTextArea.setLineWrap(true);
         taskTextArea.setWrapStyleWord(true);
-        var taskText = String.join("\n\n", incompleteTasks.stream().map(t -> "• " + t).toList());
+        var taskText =
+                String.join("\n\n", incompleteTasks.stream().map(t -> "• " + t).toList());
         taskTextArea.setText(taskText);
         taskTextArea.setCaretPosition(0);
 

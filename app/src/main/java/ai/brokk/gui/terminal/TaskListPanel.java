@@ -2845,51 +2845,51 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     public void showAutoPlayGateDialogAndAct(Set<String> preExistingIncompleteTasks) {
-         if (!SwingUtilities.isEventDispatchThread()) {
-              SwingUtilities.invokeLater(() -> this.showAutoPlayGateDialogAndAct(preExistingIncompleteTasks));
-              return;
-         }
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> this.showAutoPlayGateDialogAndAct(preExistingIncompleteTasks));
+            return;
+        }
 
-         // Trigger a load; defer the rest until the model is actually updated.
-         loadTasksForCurrentSession();
+        // Trigger a load; defer the rest until the model is actually updated.
+        loadTasksForCurrentSession();
 
-         runAfterModelRefresh(() -> {
-              try {
-                   if (model.isEmpty()) {
-                        return;
-                   }
+        runAfterModelRefresh(() -> {
+            try {
+                if (model.isEmpty()) {
+                    return;
+                }
 
-                   // If no pre-existing incomplete tasks, auto-execute without prompting
-                   if (preExistingIncompleteTasks.isEmpty()) {
-                        var totalTasks = countIncompleteTasks();
-                        logger.debug("EZ-mode auto-executing {} tasks (no pre-existing incomplete tasks)", totalTasks);
-                        runArchitectOnAll();
-                        return;
-                   }
+                // If no pre-existing incomplete tasks, auto-execute without prompting
+                if (preExistingIncompleteTasks.isEmpty()) {
+                    var totalTasks = countIncompleteTasks();
+                    logger.debug("EZ-mode auto-executing {} tasks (no pre-existing incomplete tasks)", totalTasks);
+                    runArchitectOnAll();
+                    return;
+                }
 
-                   // Collect deduplicated pre-existing incomplete task texts
-                   var texts = collectTaskTexts(preExistingIncompleteTasks);
-                   if (texts.isEmpty()) {
-                        return;
-                   }
+                // Collect deduplicated pre-existing incomplete task texts
+                var texts = collectTaskTexts(preExistingIncompleteTasks);
+                if (texts.isEmpty()) {
+                    return;
+                }
 
-                   logger.debug(
-                             "EZ-mode showing dialog: {} pre-existing tasks (total {} incomplete)",
-                             texts.size(),
-                             countIncompleteTasks());
+                logger.debug(
+                        "EZ-mode showing dialog: {} pre-existing tasks (total {} incomplete)",
+                        texts.size(),
+                        countIncompleteTasks());
 
-                   var choice = AutoPlayGateDialog.show(SwingUtilities.getWindowAncestor(this), texts);
-                   handleAutoPlayChoice(choice, texts);
-              } catch (Exception ex) {
-                   logger.debug("Error showing EZ-mode auto-play gate dialog", ex);
-                   try {
-                        String msg = "Could not open the auto-play dialog: "
-                                  + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
-                        chrome.toolError(msg, "Auto-play");
-                   } catch (Exception notifyEx) {
-                        logger.debug("Failed to show toolError for auto-play gate dialog failure", notifyEx);
-                   }
-              }
-         });
+                var choice = AutoPlayGateDialog.show(SwingUtilities.getWindowAncestor(this), texts);
+                handleAutoPlayChoice(choice, texts);
+            } catch (Exception ex) {
+                logger.debug("Error showing EZ-mode auto-play gate dialog", ex);
+                try {
+                    String msg = "Could not open the auto-play dialog: "
+                            + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+                    chrome.toolError(msg, "Auto-play");
+                } catch (Exception notifyEx) {
+                    logger.debug("Failed to show toolError for auto-play gate dialog failure", notifyEx);
+                }
+            }
+        });
     }
 }

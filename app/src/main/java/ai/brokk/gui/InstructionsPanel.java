@@ -26,6 +26,8 @@ import ai.brokk.gui.components.TokenUsageBar;
 import ai.brokk.gui.dialogs.SettingsAdvancedPanel;
 import ai.brokk.gui.dialogs.SettingsDialog;
 import ai.brokk.gui.dialogs.AutoPlayGateDialog;
+import ai.brokk.gui.dialogs.SettingsDialog;
+import ai.brokk.gui.dialogs.SettingsGlobalPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -1869,65 +1871,64 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private void executeSearchInternal(String query, String action) {
-            final var modelToUse = selectDropdownModelOrShowError("Search");
-            if (modelToUse == null) {
-                    logger.debug("Model selection failed for Search action: contextHasImages={}", contextHasImages());
-                    updateButtonStates();
-                    return;
+        final var modelToUse = selectDropdownModelOrShowError("Search");
+        if (modelToUse == null) {
+            logger.debug("Model selection failed for Search action: contextHasImages={}", contextHasImages());
+            updateButtonStates();
+            return;
+        }
+
+        autoClearCompletedTasks();
+
+        // Derive objective from action
+        SearchAgent.Objective objective;
+        if (ACTION_PLAN.equals(action)) {
+            objective = SearchAgent.Objective.TASKS_ONLY;
+        } else {
+            // Default to Lutz for ACTION_LUTZ and any other value
+            objective = SearchAgent.Objective.LUTZ;
+        }
+
+        // Gate on pre-existing incomplete tasks for BOTH Lutz and Plan.
+        // If there are incomplete tasks in the current session, require confirmation to replace them.
+        var preExistingIncompleteTasks = contextManager.liveContext().getTaskListDataOrEmpty().tasks().stream()
+                .filter(t -> !t.done())
+                .map(TaskList.TaskItem::text)
+                .collect(Collectors.toSet());
+
+        if (!preExistingIncompleteTasks.isEmpty()) {
+            var owner = SwingUtilities.getWindowAncestor(this);
+            var choice = AutoPlayGateDialog.showReplaceOnly(owner, preExistingIncompleteTasks);
+            if (choice != AutoPlayGateDialog.UserChoice.REPLACE_AND_CONTINUE) {
+                return; // User cancelled; do not proceed
             }
+        }
 
-            autoClearCompletedTasks();
+        var future = submitAction(action, query, scope -> {
+            assert !query.isBlank();
 
-            // Derive objective from action
-            SearchAgent.Objective objective;
-            if (ACTION_PLAN.equals(action)) {
-                    objective = SearchAgent.Objective.TASKS_ONLY;
-            } else {
-                    // Default to Lutz for ACTION_LUTZ and any other value
-                    objective = SearchAgent.Objective.LUTZ;
+            var cm2 = chrome.getContextManager();
+            var context = cm2.liveContext();
+            SearchAgent agent = new SearchAgent(context, query, modelToUse, objective, scope);
+            try {
+                agent.scanInitialContext();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return new TaskResult(
+                        cm2,
+                        "Search: " + query,
+                        cm2.getIo().getLlmRawMessages(),
+                        cm2.liveContext(),
+                        new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
+                        new TaskResult.TaskMeta(
+                                TaskResult.Type.SEARCH, Service.ModelConfig.from(modelToUse, cm2.getService())));
             }
-
-            // Gate on pre-existing incomplete tasks for BOTH Lutz and Plan.
-            // If there are incomplete tasks in the current session, require confirmation to replace them.
-            var preExistingIncompleteTasks = contextManager.liveContext().getTaskListDataOrEmpty().tasks().stream()
-                            .filter(t -> !t.done())
-                            .map(TaskList.TaskItem::text)
-                            .collect(Collectors.toSet());
-
-            if (!preExistingIncompleteTasks.isEmpty()) {
-                    var owner = SwingUtilities.getWindowAncestor(this);
-                    var choice = AutoPlayGateDialog.showReplaceOnly(owner, preExistingIncompleteTasks);
-                    if (choice != AutoPlayGateDialog.UserChoice.REPLACE_AND_CONTINUE) {
-                            return; // User cancelled; do not proceed
-                    }
-            }
-
-            var future = submitAction(action, query, scope -> {
-                assert !query.isBlank();
-
-                var cm2 = chrome.getContextManager();
-                var context = cm2.liveContext();
-                SearchAgent agent = new SearchAgent(context, query, modelToUse, objective, scope);
-                try {
-                    agent.scanInitialContext();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return new TaskResult(
-                            cm2,
-                            "Search: " + query,
-                            cm2.getIo().getLlmRawMessages(),
-                            cm2.liveContext(),
-                            new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
-                            new TaskResult.TaskMeta(
-                                    TaskResult.Type.SEARCH, Service.ModelConfig.from(modelToUse, cm2.getService())));
-                }
-                return agent.execute();
-            });
-            if (ACTION_LUTZ.equals(action) && !GlobalUiSettings.isAdvancedMode()) {
-                future.thenRun(() -> SwingUtilities.invokeLater(() ->
-                        chrome.getTaskListPanel().runAllAfterModelRefresh()
-                ));
-            }
+            return agent.execute();
+        });
+        if (ACTION_LUTZ.equals(action) && !GlobalUiSettings.isAdvancedMode()) {
+            future.thenRun(() ->
+                    SwingUtilities.invokeLater(() -> chrome.getTaskListPanel().runAllAfterModelRefresh()));
+        }
     }
 
     /**
