@@ -168,10 +168,11 @@ public class McpUtils {
     public static List<McpSchema.Tool> fetchTools(URL url, @Nullable String bearerToken, @Nullable Path projectRoot)
             throws IOException {
         try {
-            return withMcpSyncClient(url, bearerToken, projectRoot, client -> {
-                McpSchema.ListToolsResult toolsResult = client.listTools();
-                return toolsResult.tools();
-            });
+            return withMcpAsyncClient(
+                    url,
+                    bearerToken,
+                    projectRoot,
+                    client -> client.listTools().map(McpSchema.ListToolsResult::tools));
         } catch (Exception e) {
             logger.error("Failed to fetch tools from MCP server at {}: {}", url, e.getMessage());
             throw new IOException(
@@ -183,10 +184,12 @@ public class McpUtils {
             String command, List<String> arguments, Map<String, String> env, @Nullable Path projectRoot)
             throws IOException {
         try {
-            return withMcpSyncClient(command, arguments, env, projectRoot, client -> {
-                McpSchema.ListToolsResult toolsResult = client.listTools();
-                return toolsResult.tools();
-            });
+            return withMcpAsyncClient(
+                    command,
+                    arguments,
+                    env,
+                    projectRoot,
+                    client -> client.listTools().map(McpSchema.ListToolsResult::tools));
         } catch (Exception e) {
             logger.error(
                     "Failed to fetch tools from MCP server on command '{} {}': {}",
