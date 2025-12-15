@@ -576,8 +576,7 @@ public class AttachContextDialog extends BaseThemedDialog {
 
         ContextFragment frag;
         if (summarizeCheck.isSelected()) {
-            frag = new ContextFragment.SummaryFragment(
-                    cm, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
+            frag = new ContextFragment.SummaryFragment(cm, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
         } else {
             frag = new ContextFragment.CodeFragment(cm, cu);
         }
