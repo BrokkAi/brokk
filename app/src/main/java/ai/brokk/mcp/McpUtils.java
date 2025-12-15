@@ -2,6 +2,7 @@ package ai.brokk.mcp;
 
 import ai.brokk.util.Environment;
 import io.modelcontextprotocol.client.McpClient;
+import io.modelcontextprotocol.client.McpAsyncClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.client.transport.ServerParameters;
@@ -18,6 +19,7 @@ import java.util.Map;
 import java.util.function.Function;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import reactor.core.publisher.Mono;
 import org.jetbrains.annotations.Nullable;
 
 public class McpUtils {
@@ -59,6 +61,24 @@ public class McpUtils {
         final var transport = buildTransport(command, arguments, env);
         return McpClient.sync(transport)
                 .loggingConsumer(logger::debug)
+                .capabilities(McpSchema.ClientCapabilities.builder().roots(true).build())
+                .requestTimeout(Duration.ofSeconds(10))
+                .build();
+    }
+
+    private static McpAsyncClient buildAsyncClient(URL url, @Nullable String bearerToken) {
+        final var transport = buildTransport(url, bearerToken);
+        return McpClient.async(transport)
+                .loggingConsumer(msg -> { logger.debug(msg); return Mono.empty(); })
+                .capabilities(McpSchema.ClientCapabilities.builder().roots(true).build())
+                .requestTimeout(Duration.ofSeconds(10))
+                .build();
+    }
+
+    private static McpAsyncClient buildAsyncClient(String command, List<String> arguments, Map<String, String> env) {
+        final var transport = buildTransport(command, arguments, env);
+        return McpClient.async(transport)
+                .loggingConsumer(msg -> { logger.debug(msg); return Mono.empty(); })
                 .capabilities(McpSchema.ClientCapabilities.builder().roots(true).build())
                 .requestTimeout(Duration.ofSeconds(10))
                 .build();
