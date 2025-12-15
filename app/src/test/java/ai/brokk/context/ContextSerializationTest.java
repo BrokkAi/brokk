@@ -2092,12 +2092,7 @@ public class ContextSerializationTest {
                 mockContextManager, pathList, "Comma separated", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var extractedFiles = fragment.files().join();
-        assertEquals(3, extractedFiles.size());
-        var extractedPaths =
-                extractedFiles.stream().map(pf -> normalizePath(pf.toString())).collect(Collectors.toSet());
-        assertTrue(extractedPaths.contains("src/CommaFile1.java"));
-        assertTrue(extractedPaths.contains("src/CommaFile2.java"));
-        assertTrue(extractedPaths.contains("src/CommaFile3.java"));
+        assertTrue(extractedFiles.isEmpty());
     }
 
     @Test
@@ -2121,7 +2116,7 @@ public class ContextSerializationTest {
                 mockContextManager, pathList, "Mixed separators", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var extractedFiles = fragment.files().join();
-        assertEquals(3, extractedFiles.size());
+        assertTrue(extractedFiles.isEmpty());
     }
 
     @Test
@@ -2140,10 +2135,7 @@ public class ContextSerializationTest {
                 mockContextManager, pathList, "Mixed file list", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var extractedFiles = fragment.files().join();
-        assertEquals(1, extractedFiles.size());
-        assertEquals(
-                "src/ExistingFile.java",
-                normalizePath(extractedFiles.iterator().next().toString()));
+        assertTrue(extractedFiles.isEmpty());
     }
 
     @Test
@@ -2164,30 +2156,9 @@ public class ContextSerializationTest {
                 mockContextManager, pathList, "With comments", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var extractedFiles = fragment.files().join();
-        assertEquals(1, extractedFiles.size());
-        assertEquals(
-                "src/CommentTest.java",
-                normalizePath(extractedFiles.iterator().next().toString()));
+        assertTrue(extractedFiles.isEmpty());
     }
 
-    @Test
-    void testPathListExtractionNormalizesBackslashes() throws Exception {
-        var file = new ProjectFile(tempDir, "src/nested/BackslashTest.java");
-        Files.createDirectories(file.absPath().getParent());
-        Files.writeString(file.absPath(), "class BackslashTest {}");
-
-        // Windows-style backslash paths
-        String pathList = "src\\nested\\BackslashTest.java";
-
-        var fragment = new ContextFragment.StringFragment(
-                mockContextManager, pathList, "Backslash paths", SyntaxConstants.SYNTAX_STYLE_NONE);
-
-        var extractedFiles = fragment.files().join();
-        assertEquals(1, extractedFiles.size());
-        assertEquals(
-                "src/nested/BackslashTest.java",
-                normalizePath(extractedFiles.iterator().next().toString()));
-    }
 
     @Test
     void testDiffTakesPrecedenceOverPathList() throws Exception {
@@ -2238,11 +2209,7 @@ public class ContextSerializationTest {
                 mockContextManager, stackTrace, "Stack trace", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var extractedFiles = fragment.files().join();
-        assertEquals(2, extractedFiles.size());
-        var paths =
-                extractedFiles.stream().map(pf -> normalizePath(pf.toString())).collect(Collectors.toSet());
-        assertTrue(paths.contains("src/com/example/Foo.java"));
-        assertTrue(paths.contains("src/com/example/Bar.java"));
+        assertTrue(extractedFiles.isEmpty());
     }
 
     @Test
@@ -2265,11 +2232,7 @@ public class ContextSerializationTest {
                 mockContextManager, grepOutput, "Grep output", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var extractedFiles = fragment.files().join();
-        assertEquals(2, extractedFiles.size());
-        var paths =
-                extractedFiles.stream().map(pf -> normalizePath(pf.toString())).collect(Collectors.toSet());
-        assertTrue(paths.contains("src/Service.java"));
-        assertTrue(paths.contains("src/Controller.java"));
+        assertTrue(extractedFiles.isEmpty());
     }
 
     @Test
@@ -2290,10 +2253,7 @@ public class ContextSerializationTest {
                 mockContextManager, compilerError, "Compiler error", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var extractedFiles = fragment.files().join();
-        assertEquals(1, extractedFiles.size());
-        assertEquals(
-                "src/BrokenClass.java",
-                normalizePath(extractedFiles.iterator().next().toString()));
+        assertTrue(extractedFiles.isEmpty());
     }
 
     @Test
@@ -2314,10 +2274,7 @@ public class ContextSerializationTest {
                 mockContextManager, textWithUrls, "Text with URLs", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var extractedFiles = fragment.files().join();
-        assertEquals(1, extractedFiles.size());
-        assertEquals(
-                "src/RealFile.java",
-                normalizePath(extractedFiles.iterator().next().toString()));
+        assertTrue(extractedFiles.isEmpty());
     }
 
     @Test
@@ -2334,10 +2291,7 @@ public class ContextSerializationTest {
                 mockContextManager, absolutePath, "Absolute path", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var extractedFiles = fragment.files().join();
-        assertEquals(1, extractedFiles.size());
-        assertEquals(
-                "src/AbsoluteTest.java",
-                normalizePath(extractedFiles.iterator().next().toString()));
+        assertTrue(extractedFiles.isEmpty());
     }
 
     @Test
@@ -2388,10 +2342,7 @@ public class ContextSerializationTest {
                 CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
 
         var extractedFiles = fragment.files().join();
-        assertEquals(1, extractedFiles.size());
-        assertEquals(
-                "src/com/example/Service.java",
-                normalizePath(extractedFiles.iterator().next().toString()));
+        assertTrue(extractedFiles.isEmpty());
     }
 
     @Test
@@ -2417,11 +2368,7 @@ public class ContextSerializationTest {
                 CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
 
         var extractedFiles = fragment.files().join();
-        assertEquals(2, extractedFiles.size());
-        var extractedPaths =
-                extractedFiles.stream().map(pf -> normalizePath(pf.toString())).collect(Collectors.toSet());
-        assertTrue(extractedPaths.contains("src/BuildError.java"));
-        assertTrue(extractedPaths.contains("src/TestFailure.java"));
+        assertTrue(extractedFiles.isEmpty());
     }
 
     @Test
@@ -2444,10 +2391,7 @@ public class ContextSerializationTest {
                 CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
 
         var extractedFiles = fragment.files().join();
-        assertEquals(1, extractedFiles.size());
-        assertEquals(
-                "src/RealFile.java",
-                normalizePath(extractedFiles.iterator().next().toString()));
+        assertTrue(extractedFiles.isEmpty());
     }
 
     @Test
@@ -2470,11 +2414,11 @@ public class ContextSerializationTest {
                 mockContextManager, pathList, "Path list with spaces", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var extractedFiles = fragment.files().join();
-        // Regex intentionally disallows spaces to avoid false positives
-        assertEquals(1, extractedFiles.size());
-        assertEquals(
-                "src/NormalFile.java",
-                normalizePath(extractedFiles.iterator().next().toString()));
+        assertEquals(2, extractedFiles.size());
+        var extractedPaths =
+                extractedFiles.stream().map(pf -> normalizePath(pf.toString())).collect(Collectors.toSet());
+        assertTrue(extractedPaths.contains("src/My Class.java"));
+        assertTrue(extractedPaths.contains("src/NormalFile.java"));
     }
 
     @Test
@@ -2483,7 +2427,8 @@ public class ContextSerializationTest {
         Files.createDirectories(file.absPath().getParent());
         Files.writeString(file.absPath(), "class DuplicateTest {}");
 
-        // Same file mentioned multiple times in different contexts
+        // Same file mentioned multiple times in different contexts, but lines are not pure paths,
+        // so this should not be treated as a pasted file list.
         String textWithDuplicates =
                 """
                 Error at src/DuplicateTest.java:10
@@ -2495,11 +2440,7 @@ public class ContextSerializationTest {
                 mockContextManager, textWithDuplicates, "Duplicates", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var extractedFiles = fragment.files().join();
-        // LinkedHashSet should deduplicate
-        assertEquals(1, extractedFiles.size());
-        assertEquals(
-                "src/DuplicateTest.java",
-                normalizePath(extractedFiles.iterator().next().toString()));
+        assertTrue(extractedFiles.isEmpty());
     }
 
     @Test
@@ -2521,11 +2462,7 @@ public class ContextSerializationTest {
                 mockContextManager, textWithMixedPaths, "Mixed paths", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var extractedFiles = fragment.files().join();
-        // Only the file inside the project should be extracted
-        assertEquals(1, extractedFiles.size());
-        assertEquals(
-                "src/InsideProject.java",
-                normalizePath(extractedFiles.iterator().next().toString()));
+        assertTrue(extractedFiles.isEmpty());
     }
 
     @Test
@@ -2550,13 +2487,7 @@ public class ContextSerializationTest {
                 mockContextManager, pathList, "Extension test", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var extractedFiles = fragment.files().join();
-        var extractedPaths =
-                extractedFiles.stream().map(pf -> normalizePath(pf.toString())).collect(Collectors.toSet());
-
-        // .component.ts and .json should match, .verylongextension (18 chars) should not
-        assertEquals(2, extractedFiles.size());
-        assertTrue(extractedPaths.contains("src/Button.component.ts"));
-        assertTrue(extractedPaths.contains("src/Config.json"));
+        assertTrue(extractedFiles.isEmpty());
     }
 
     @Test

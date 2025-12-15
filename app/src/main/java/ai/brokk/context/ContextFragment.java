@@ -38,10 +38,10 @@ import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
+import java.util.regex.Pattern;
 import javax.imageio.ImageIO;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -215,59 +215,52 @@ public interface ContextFragment {
     }
 
     /**
-     * Private helper class for file path extraction from arbitrary text.
-     * Encapsulates the regex pattern and extraction logic.
+     * Private helper class for file path extraction from pasted file lists.
+     * Uses a strict line-by-line lookup: every non-empty line must exactly match
+     * a project-relative path for an existing ProjectFile, or no files are returned.
      */
     static final class FilePathExtractor {
         private FilePathExtractor() {} // Prevent instantiation
-
-        // Pattern to find file-path-like strings in any text context.
-        // Matches: /abs/path/file.ext, C:\path\file.ext, path/to/file.ext, file.ext
-        // Handles: stack traces (Foo.java:42), grep output (src/Foo.java:10:), git status, etc.
-        private static final Pattern FILE_PATH_PATTERN = Pattern.compile(
-                "((?:/|[a-zA-Z]:[\\\\/])?" // Optional absolute prefix (Unix / or Windows C:\)
-                        + "[a-zA-Z0-9_][a-zA-Z0-9_.\\-/\\\\~]*" // Path body (~ for Windows short names)
-                        + "\\.[a-zA-Z0-9]{1,10})" // Extension (1-10 chars)
-                        + "(?=[:\\s\"'(),\\]}>]|$)" // Followed by delimiter or end
-                );
 
         static Set<ProjectFile> extract(String text, @Nullable IContextManager contextManager) {
             if (text.isBlank() || contextManager == null) {
                 return Set.of();
             }
 
-            // Get project root; return empty if not available (e.g., test mocks)
-            Path projectRoot;
             try {
-                projectRoot = contextManager.getProject().getRoot();
+                contextManager.getProject().getRoot();
             } catch (UnsupportedOperationException e) {
                 return Set.of();
             }
+
             Set<ProjectFile> files = new LinkedHashSet<>();
-            var matcher = FILE_PATH_PATTERN.matcher(text);
+            boolean hasNonEmptyLine = false;
 
-            while (matcher.find()) {
-                // Skip if this looks like part of a URL (preceded by ://)
-                int start = matcher.start();
-                if (start >= 3 && text.substring(start - 3, start).equals("://")) {
+            for (String line : text.lines().toList()) {
+                String trimmed = line.trim();
+                if (trimmed.isEmpty()) {
                     continue;
                 }
+                hasNonEmptyLine = true;
 
-                String candidate = matcher.group(1);
-                // Canonicalize path (normalize separators, collapse segments, relativize if absolute)
-                String path = PathNormalizer.canonicalizeForProject(candidate, projectRoot);
-                if (path.isEmpty()) {
-                    continue;
-                }
+                ProjectFile projectFile;
                 try {
-                    var projectFile = contextManager.toFile(path);
-                    if (projectFile.exists()) {
-                        files.add(projectFile);
-                    }
+                    projectFile = contextManager.toFile(trimmed);
                 } catch (Exception e) {
-                    // Invalid path, skip
+                    return Set.of();
                 }
+
+                if (!projectFile.exists()) {
+                    return Set.of();
+                }
+
+                files.add(projectFile);
             }
+
+            if (!hasNonEmptyLine) {
+                return Set.of();
+            }
+
             return files;
         }
     }
