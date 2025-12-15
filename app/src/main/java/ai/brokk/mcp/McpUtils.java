@@ -27,6 +27,14 @@ public class McpUtils {
 
     private static final Logger logger = LogManager.getLogger(McpUtils.class);
 
+    /**
+     * Timeout for MCP requests.
+     * 60 seconds is chosen to accommodate long-running tools and avoid spurious timeouts,
+     * while still providing a reasonable upper bound for requests in typical usage.
+     * Used consistently for both sync and async clients.
+     */
+    private static final Duration MCP_REQUEST_TIMEOUT = Duration.ofSeconds(60);
+
     private static McpClientTransport buildTransport(URL url, @Nullable String bearerToken) {
         final String baseUrl;
         if (url.getPort() == -1 || url.getPort() == url.getDefaultPort()) {
@@ -35,6 +43,7 @@ public class McpUtils {
             baseUrl = url.getProtocol() + "://" + url.getHost() + ":" + url.getPort();
         }
 
+        // only add /mpc when nothing is specified (some servers may not have i.e. /doc)
         String endpointPath = url.getPath();
         if (endpointPath == null || endpointPath.isEmpty()) {
             endpointPath = "/mcp";
@@ -69,7 +78,7 @@ public class McpUtils {
         return McpClient.sync(transport)
                 .loggingConsumer(logger::debug)
                 .capabilities(McpSchema.ClientCapabilities.builder().roots(true).build())
-                .requestTimeout(Duration.ofSeconds(60))
+                .requestTimeout(MCP_REQUEST_TIMEOUT)
                 .build();
     }
 
@@ -78,7 +87,7 @@ public class McpUtils {
         return McpClient.sync(transport)
                 .loggingConsumer(logger::debug)
                 .capabilities(McpSchema.ClientCapabilities.builder().roots(true).build())
-                .requestTimeout(Duration.ofSeconds(60))
+                .requestTimeout(MCP_REQUEST_TIMEOUT)
                 .build();
     }
 
@@ -90,7 +99,7 @@ public class McpUtils {
                     return Mono.empty();
                 })
                 .capabilities(McpSchema.ClientCapabilities.builder().roots(true).build())
-                .requestTimeout(Duration.ofSeconds(60))
+                .requestTimeout(MCP_REQUEST_TIMEOUT)
                 .build();
     }
 
@@ -102,7 +111,7 @@ public class McpUtils {
                     return Mono.empty();
                 })
                 .capabilities(McpSchema.ClientCapabilities.builder().roots(true).build())
-                .requestTimeout(Duration.ofSeconds(60))
+                .requestTimeout(MCP_REQUEST_TIMEOUT)
                 .build();
     }
 
@@ -301,91 +310,6 @@ public class McpUtils {
         } else {
             throw new IOException(
                     "Unsupported MCP server type: " + server.getClass().getName());
-        }
-    }
-
-    public static Mono<McpSchema.CallToolResult> callToolReactive(
-            McpServer server, String toolName, Map<String, Object> arguments, @Nullable Path projectRoot) {
-        if (server instanceof HttpMcpServer httpMcpServer) {
-            final URL url = httpMcpServer.url();
-            return Mono.defer(() -> {
-                        final McpAsyncClient client = buildAsyncClient(url, httpMcpServer.bearerToken());
-                        Mono<Void> addRoot = projectRoot != null
-                                ? client.addRoot(new McpSchema.Root(projectRoot.toUri().toString(), "Project root path."))
-                                : Mono.empty();
-                        return client.initialize()
-                                .then(addRoot)
-                                .then(client.callTool(new McpSchema.CallToolRequest(toolName, arguments)))
-                                .doOnError(e -> {
-                                    Throwable rootCause = e;
-                                    while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
-                                        rootCause = rootCause.getCause();
-                                    }
-                                    String rootMessage = rootCause.getMessage() != null
-                                            ? rootCause.getMessage()
-                                            : rootCause.getClass().getSimpleName();
-                                    logger.error(
-                                            "Failed to call tool '{}' from MCP server at {}: {} (root cause: {})",
-                                            toolName,
-                                            url,
-                                            e.getMessage(),
-                                            rootMessage);
-                                })
-                                .onErrorMap(e -> {
-                                    Throwable rootCause = e;
-                                    while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
-                                        rootCause = rootCause.getCause();
-                                    }
-                                    String rootMessage = rootCause.getMessage() != null
-                                            ? rootCause.getMessage()
-                                            : rootCause.getClass().getSimpleName();
-                                    return new IOException(
-                                            "Failed to call tool '" + toolName + "' from " + url + ": " + rootMessage
-                                                    + ". Ensure the server is a stateless, streamable HTTP MCP server.",
-                                            e);
-                                })
-                                .doFinally(signal -> client.closeGracefully());
-                    });
-        } else if (server instanceof StdioMcpServer stdioMcpServer) {
-            return Mono.defer(() -> {
-                        final McpAsyncClient client =
-                                buildAsyncClient(stdioMcpServer.command(), stdioMcpServer.args(), stdioMcpServer.env());
-                        Mono<Void> addRoot = projectRoot != null
-                                ? client.addRoot(new McpSchema.Root(projectRoot.toUri().toString(), "Project root path."))
-                                : Mono.empty();
-                        return client.initialize()
-                                .then(addRoot)
-                                .then(client.callTool(new McpSchema.CallToolRequest(toolName, arguments)))
-                                .doOnError(e -> {
-                                    Throwable rootCause = e;
-                                    while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
-                                        rootCause = rootCause.getCause();
-                                    }
-                                    String rootMessage = rootCause.getMessage() != null
-                                            ? rootCause.getMessage()
-                                            : rootCause.getClass().getSimpleName();
-                                    logger.error(
-                                            "Failed to call tool '{}' from MCP server on command '{} {}': {} (root cause: {})",
-                                            toolName,
-                                            stdioMcpServer.command(),
-                                            String.join(" ", stdioMcpServer.args()),
-                                            e.getMessage(),
-                                            rootMessage);
-                                })
-                                .onErrorMap(e -> {
-                                    Throwable rootCause = e;
-                                    while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
-                                        rootCause = rootCause.getCause();
-                                    }
-                                    String rootMessage = rootCause.getMessage() != null
-                                            ? rootCause.getMessage()
-                                            : rootCause.getClass().getSimpleName();
-                                    return new IOException("Failed to call tool '" + toolName + "': " + rootMessage, e);
-                                })
-                                .doFinally(signal -> client.closeGracefully());
-                    });
-        } else {
-            return Mono.error(new IOException("Unsupported MCP server type: " + server.getClass().getName()));
         }
     }
 
