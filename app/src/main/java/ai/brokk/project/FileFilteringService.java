@@ -9,7 +9,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -139,14 +138,12 @@ public final class FileFilteringService {
 
     /** Represents a pre-compiled file pattern for efficient matching. */
     private sealed interface CompiledPattern {
-        String original();
-
         /** Simple name matches exact filename OR directory prefix (fast path). */
-        record SimpleName(String original, String lowerName) implements CompiledPattern {}
+        record SimpleName(String lowerName) implements CompiledPattern {}
 
-        record Extension(String original, String lowerSuffix) implements CompiledPattern {}
+        record Extension(String lowerSuffix) implements CompiledPattern {}
 
-        record Glob(String original, Pattern regex, boolean matchFullPath) implements CompiledPattern {}
+        record Glob(Pattern regex, boolean matchFullPath) implements CompiledPattern {}
     }
 
     /**
@@ -212,14 +209,13 @@ public final class FileFilteringService {
     private static List<CompiledPattern> compilePatterns(Set<String> patterns) {
         var compiled = new ArrayList<CompiledPattern>();
         for (String rawPattern : patterns) {
-            if (rawPattern == null) continue;
             String pattern = rawPattern.trim();
             if (pattern.isEmpty()) continue;
 
             // Simple name match (e.g., "node_modules", "package-lock.json")
             // Matches exact filename OR directory prefix
             if (!pattern.contains("*") && !pattern.contains("?") && !pattern.contains("/")) {
-                compiled.add(new CompiledPattern.SimpleName(pattern, pattern.toLowerCase(Locale.ROOT)));
+                compiled.add(new CompiledPattern.SimpleName(pattern.toLowerCase(Locale.ROOT)));
                 continue;
             }
 
@@ -227,7 +223,7 @@ public final class FileFilteringService {
             if (pattern.startsWith("*.") && !pattern.contains("/")) {
                 String suffix = pattern.substring(1);
                 if (!suffix.contains("*") && !suffix.contains("?")) {
-                    compiled.add(new CompiledPattern.Extension(pattern, suffix.toLowerCase(Locale.ROOT)));
+                    compiled.add(new CompiledPattern.Extension(suffix.toLowerCase(Locale.ROOT)));
                     continue;
                 }
             }
@@ -236,7 +232,7 @@ public final class FileFilteringService {
             try {
                 String lowerPattern = pattern.toLowerCase(Locale.ROOT);
                 var regex = globToRegex(lowerPattern);
-                compiled.add(new CompiledPattern.Glob(pattern, regex, pattern.contains("/")));
+                compiled.add(new CompiledPattern.Glob(regex, pattern.contains("/")));
             } catch (Exception e) {
                 logger.debug("Invalid glob pattern '{}': {}", pattern, e.getMessage());
             }
@@ -484,7 +480,8 @@ public final class FileFilteringService {
                         case CompiledPattern.Extension ext ->
                             // Extension patterns only apply to files, not directories
                             !isDirectory && lowerName.endsWith(ext.lowerSuffix());
-                        case CompiledPattern.Glob g -> g.regex().matcher(lowerPath).matches();
+                        case CompiledPattern.Glob g ->
+                            g.regex().matcher(lowerPath).matches();
                     };
             if (matched) {
                 return true;

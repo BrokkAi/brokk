@@ -389,11 +389,7 @@ public class BuildAgent {
                 .collect(Collectors.toSet());
 
         this.reportedDetails = new BuildDetails(
-                buildLintCommand,
-                testAllCommand,
-                testSomeCommand,
-                finalPatterns,
-                defaultEnvForProject());
+                buildLintCommand, testAllCommand, testSomeCommand, finalPatterns, defaultEnvForProject());
         logger.debug("reportBuildDetails tool executed. Exclusion patterns: {}", finalPatterns);
         return "Build details report received and processed.";
     }
@@ -424,10 +420,7 @@ public class BuildAgent {
 
         @VisibleForTesting
         public BuildDetails(
-                String buildLintCommand,
-                String testAllCommand,
-                String testSomeCommand,
-                Set<String> exclusionPatterns) {
+                String buildLintCommand, String testAllCommand, String testSomeCommand, Set<String> exclusionPatterns) {
             this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, Map.of());
         }
 

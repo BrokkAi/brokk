@@ -806,11 +806,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         }
 
         var newDetails = new BuildAgent.BuildDetails(
-                newBuildLint,
-                newTestAll,
-                newTestSome,
-                baseDetails.exclusionPatterns(),
-                envVars);
+                newBuildLint, newTestAll, newTestSome, baseDetails.exclusionPatterns(), envVars);
 
         // Compare against what's currently saved on disk
         var currentDetails = project.loadBuildDetails();

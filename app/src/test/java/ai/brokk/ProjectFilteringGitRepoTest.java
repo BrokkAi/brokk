@@ -2117,8 +2117,8 @@ class ProjectFilteringGitRepoTest {
         var project = new MainProject(tempDir);
 
         // Set both directory and file pattern exclusions (unified in exclusionPatterns)
-        var buildDetails = new BuildAgent.BuildDetails(
-                "", "", "", Set.of("vendor", "package-lock.json", "*.svg"), Map.of());
+        var buildDetails =
+                new BuildAgent.BuildDetails("", "", "", Set.of("vendor", "package-lock.json", "*.svg"), Map.of());
         project.saveBuildDetails(buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2143,8 +2143,8 @@ class ProjectFilteringGitRepoTest {
         var project = new MainProject(tempDir);
 
         // Save build details with exclusion patterns
-        var buildDetails = new BuildAgent.BuildDetails(
-                "build", "test", "test {{files}}", Set.of("yarn.lock", "*.svg"), Map.of());
+        var buildDetails =
+                new BuildAgent.BuildDetails("build", "test", "test {{files}}", Set.of("yarn.lock", "*.svg"), Map.of());
         project.saveBuildDetails(buildDetails);
 
         // Reload and verify patterns are preserved
@@ -2208,8 +2208,7 @@ class ProjectFilteringGitRepoTest {
 
         // Save build details with uppercase extension pattern and exact filename
         // These should match case-insensitively
-        var buildDetails =
-                new BuildAgent.BuildDetails("", "", "", Set.of("*.SVG", "package-lock.json"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("*.SVG", "package-lock.json"), Map.of());
         project.saveBuildDetails(buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2419,8 +2418,7 @@ class ProjectFilteringGitRepoTest {
         var project = new MainProject(tempDir);
 
         // Empty/whitespace patterns should be ignored, trimmed pattern should work
-        var buildDetails =
-                new BuildAgent.BuildDetails("", "", "", Set.of("  ", "\t", "", "  *.xml  "), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("  ", "\t", "", "  *.xml  "), Map.of());
         project.saveBuildDetails(buildDetails);
 
         var allFiles = project.getAllFiles();

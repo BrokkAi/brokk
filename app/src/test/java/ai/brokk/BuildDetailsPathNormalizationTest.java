@@ -80,8 +80,7 @@ public class BuildDetailsPathNormalizationTest {
 
         // Assert: canonicalized exclusions in order
         var expectedCanonicalOrder = List.of("bin", "gradle", "build", "subdir/vendor", "/nbdist", "absUnder");
-        assertEquals(
-                expectedCanonicalOrder.size(), parsed1.exclusionPatterns().size(), "Unexpected excludes size");
+        assertEquals(expectedCanonicalOrder.size(), parsed1.exclusionPatterns().size(), "Unexpected excludes size");
         assertIterableEquals(
                 expectedCanonicalOrder, parsed1.exclusionPatterns(), "Exclusions not canonicalized as expected");
 
