@@ -38,10 +38,10 @@ import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
-import java.util.regex.Pattern;
 import javax.imageio.ImageIO;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -206,63 +206,46 @@ public interface ContextFragment {
     }
 
     /**
-     * Extracts ProjectFile references by scanning text for file-path-like patterns.
-     * Works with stack traces, grep output, compiler errors, git status, plain paths, etc.
-     * Uses PathNormalizer for cross-OS path canonicalization.
+     * Extracts ProjectFile references from a pasted list of file paths.
+     * Performs a strict line-by-line lookup where each non-empty line must exactly match a
+     * project-relative path. Lines containing embedded paths (compiler errors, stack traces,
+     * grep output) are intentionally not matched to avoid false positives. Lines that do not
+     * resolve to existing ProjectFile instances are ignored. Returns all matched files, or an
+     * empty set if none are found or the context manager/project root are not available.
      */
     static Set<ProjectFile> extractFilesFromPathList(String text, @Nullable IContextManager contextManager) {
-        return FilePathExtractor.extract(text, contextManager);
-    }
-
-    /**
-     * Private helper class for file path extraction from pasted file lists.
-     * Uses a strict line-by-line lookup: every non-empty line must exactly match
-     * a project-relative path for an existing ProjectFile, or no files are returned.
-     */
-    static final class FilePathExtractor {
-        private FilePathExtractor() {} // Prevent instantiation
-
-        static Set<ProjectFile> extract(String text, @Nullable IContextManager contextManager) {
-            if (text.isBlank() || contextManager == null) {
-                return Set.of();
-            }
-
-            try {
-                contextManager.getProject().getRoot();
-            } catch (UnsupportedOperationException e) {
-                return Set.of();
-            }
-
-            Set<ProjectFile> files = new LinkedHashSet<>();
-            boolean hasNonEmptyLine = false;
-
-            for (String line : text.lines().toList()) {
-                String trimmed = line.trim();
-                if (trimmed.isEmpty()) {
-                    continue;
-                }
-                hasNonEmptyLine = true;
-
-                ProjectFile projectFile;
-                try {
-                    projectFile = contextManager.toFile(trimmed);
-                } catch (Exception e) {
-                    return Set.of();
-                }
-
-                if (!projectFile.exists()) {
-                    return Set.of();
-                }
-
-                files.add(projectFile);
-            }
-
-            if (!hasNonEmptyLine) {
-                return Set.of();
-            }
-
-            return files;
+        if (text.isBlank() || contextManager == null) {
+            return Set.of();
         }
+
+        try {
+            contextManager.getProject().getRoot();
+        } catch (UnsupportedOperationException e) {
+            return Set.of();
+        }
+
+        Set<ProjectFile> files = new LinkedHashSet<>();
+        for (String line : text.lines().toList()) {
+            var trimmed = line.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+
+            ProjectFile projectFile;
+            try {
+                projectFile = contextManager.toFile(trimmed);
+            } catch (Exception e) {
+                continue;
+            }
+
+            if (!projectFile.exists()) {
+                continue;
+            }
+
+            files.add(projectFile);
+        }
+
+        return files.isEmpty() ? Set.of() : files;
     }
 
     /**
