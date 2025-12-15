@@ -1,8 +1,8 @@
 package ai.brokk.mcp;
 
 import ai.brokk.util.Environment;
-import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpAsyncClient;
+import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.client.transport.ServerParameters;
@@ -19,8 +19,8 @@ import java.util.Map;
 import java.util.function.Function;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import reactor.core.publisher.Mono;
 import org.jetbrains.annotations.Nullable;
+import reactor.core.publisher.Mono;
 
 public class McpUtils {
 
@@ -82,7 +82,10 @@ public class McpUtils {
     private static McpAsyncClient buildAsyncClient(URL url, @Nullable String bearerToken) {
         final var transport = buildTransport(url, bearerToken);
         return McpClient.async(transport)
-                .loggingConsumer(msg -> { logger.debug(msg); return Mono.empty(); })
+                .loggingConsumer(msg -> {
+                    logger.debug(msg);
+                    return Mono.empty();
+                })
                 .capabilities(McpSchema.ClientCapabilities.builder().roots(true).build())
                 .requestTimeout(Duration.ofSeconds(10))
                 .build();
@@ -91,7 +94,10 @@ public class McpUtils {
     private static McpAsyncClient buildAsyncClient(String command, List<String> arguments, Map<String, String> env) {
         final var transport = buildTransport(command, arguments, env);
         return McpClient.async(transport)
-                .loggingConsumer(msg -> { logger.debug(msg); return Mono.empty(); })
+                .loggingConsumer(msg -> {
+                    logger.debug(msg);
+                    return Mono.empty();
+                })
                 .capabilities(McpSchema.ClientCapabilities.builder().roots(true).build())
                 .requestTimeout(Duration.ofSeconds(10))
                 .build();
@@ -138,7 +144,8 @@ public class McpUtils {
         try {
             client.initialize().block();
             if (projectRoot != null) {
-                client.addRoot(new McpSchema.Root(projectRoot.toUri().toString(), "Project root path.")).block();
+                client.addRoot(new McpSchema.Root(projectRoot.toUri().toString(), "Project root path."))
+                        .block();
             }
             return function.apply(client).block();
         } finally {
@@ -156,7 +163,8 @@ public class McpUtils {
         try {
             client.initialize().block();
             if (projectRoot != null) {
-                client.addRoot(new McpSchema.Root(projectRoot.toUri().toString(), "Project root path.")).block();
+                client.addRoot(new McpSchema.Root(projectRoot.toUri().toString(), "Project root path."))
+                        .block();
             }
             return function.apply(client).block();
         } finally {
@@ -182,19 +190,24 @@ public class McpUtils {
             throws IOException {
         try {
             return withMcpAsyncClient(
-                    url,
-                    bearerToken,
-                    projectRoot,
-                    client -> client.listTools().map(McpSchema.ListToolsResult::tools));
+                    url, bearerToken, projectRoot, client -> client.listTools().map(McpSchema.ListToolsResult::tools));
         } catch (Exception e) {
             Throwable rootCause = e;
             while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
                 rootCause = rootCause.getCause();
             }
-            String rootMessage = rootCause.getMessage() != null ? rootCause.getMessage() : rootCause.getClass().getSimpleName();
-            logger.error("Failed to fetch tools from MCP server at {}: {} (root cause: {})", url, e.getMessage(), rootMessage);
+            String rootMessage = rootCause.getMessage() != null
+                    ? rootCause.getMessage()
+                    : rootCause.getClass().getSimpleName();
+            logger.error(
+                    "Failed to fetch tools from MCP server at {}: {} (root cause: {})",
+                    url,
+                    e.getMessage(),
+                    rootMessage);
             throw new IOException(
-                    "Failed to fetch tools from " + url + ": " + rootMessage + ". Ensure the server is a stateless, streamable HTTP MCP server.", e);
+                    "Failed to fetch tools from " + url + ": " + rootMessage
+                            + ". Ensure the server is a stateless, streamable HTTP MCP server.",
+                    e);
         }
     }
 
@@ -202,18 +215,16 @@ public class McpUtils {
             String command, List<String> arguments, Map<String, String> env, @Nullable Path projectRoot)
             throws IOException {
         try {
-            return withMcpAsyncClient(
-                    command,
-                    arguments,
-                    env,
-                    projectRoot,
-                    client -> client.listTools().map(McpSchema.ListToolsResult::tools));
+            return withMcpAsyncClient(command, arguments, env, projectRoot, client -> client.listTools()
+                    .map(McpSchema.ListToolsResult::tools));
         } catch (Exception e) {
             Throwable rootCause = e;
             while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
                 rootCause = rootCause.getCause();
             }
-            String rootMessage = rootCause.getMessage() != null ? rootCause.getMessage() : rootCause.getClass().getSimpleName();
+            String rootMessage = rootCause.getMessage() != null
+                    ? rootCause.getMessage()
+                    : rootCause.getClass().getSimpleName();
             logger.error(
                     "Failed to fetch tools from MCP server on command '{} {}': {} (root cause: {})",
                     command,
@@ -240,10 +251,19 @@ public class McpUtils {
                 while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
                     rootCause = rootCause.getCause();
                 }
-                String rootMessage = rootCause.getMessage() != null ? rootCause.getMessage() : rootCause.getClass().getSimpleName();
-                logger.error("Failed to call tool '{}' from MCP server at {}: {} (root cause: {})", toolName, url, e.getMessage(), rootMessage);
+                String rootMessage = rootCause.getMessage() != null
+                        ? rootCause.getMessage()
+                        : rootCause.getClass().getSimpleName();
+                logger.error(
+                        "Failed to call tool '{}' from MCP server at {}: {} (root cause: {})",
+                        toolName,
+                        url,
+                        e.getMessage(),
+                        rootMessage);
                 throw new IOException(
-                        "Failed to call tool '" + toolName + "' from " + url + ": " + rootMessage + ". Ensure the server is a stateless, streamable HTTP MCP server.", e);
+                        "Failed to call tool '" + toolName + "' from " + url + ": " + rootMessage
+                                + ". Ensure the server is a stateless, streamable HTTP MCP server.",
+                        e);
             }
         } else if (server instanceof StdioMcpServer stdioMcpServer) {
             try {
@@ -258,7 +278,9 @@ public class McpUtils {
                 while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
                     rootCause = rootCause.getCause();
                 }
-                String rootMessage = rootCause.getMessage() != null ? rootCause.getMessage() : rootCause.getClass().getSimpleName();
+                String rootMessage = rootCause.getMessage() != null
+                        ? rootCause.getMessage()
+                        : rootCause.getClass().getSimpleName();
                 logger.error(
                         "Failed to call tool '{}' from MCP server on command '{} {}': {} (root cause: {})",
                         toolName,
@@ -275,8 +297,8 @@ public class McpUtils {
     }
 
     public static McpSchema.CallToolResult callTool(
-                McpServer server, String toolName, Map<String, Object> arguments, @Nullable Path projectRoot)
-                throws IOException {
-          return callToolAsync(server, toolName, arguments, projectRoot);
+            McpServer server, String toolName, Map<String, Object> arguments, @Nullable Path projectRoot)
+            throws IOException {
+        return callToolAsync(server, toolName, arguments, projectRoot);
     }
 }

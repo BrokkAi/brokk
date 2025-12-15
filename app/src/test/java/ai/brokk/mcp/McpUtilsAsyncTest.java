@@ -1,10 +1,8 @@
 package ai.brokk.mcp;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.modelcontextprotocol.spec.McpSchema;
 import java.io.IOException;
 import java.net.URI;
 import java.util.List;
@@ -18,9 +16,8 @@ public class McpUtilsAsyncTest {
         HttpMcpServer server =
                 new HttpMcpServer("HTTP Fail", URI.create("http://127.0.0.1:1").toURL(), null, null);
 
-        IOException ex = assertThrows(
-                IOException.class,
-                () -> McpUtils.callToolAsync(server, "any-tool", Map.of(), null));
+        IOException ex =
+                assertThrows(IOException.class, () -> McpUtils.callToolAsync(server, "any-tool", Map.of(), null));
 
         assertTrue(ex.getMessage().startsWith("Failed to call tool 'any-tool' from"));
         assertTrue(ex.getMessage().contains("Ensure the server is a stateless, streamable HTTP MCP server."));
@@ -28,16 +25,11 @@ public class McpUtilsAsyncTest {
 
     @Test
     void callToolAsync_stdio_failure_wraps_ioe_with_expected_message() throws Exception {
-        StdioMcpServer server = new StdioMcpServer(
-                "STDIO Fail",
-                "definitely-not-a-real-mcp-binary-xyz-123",
-                List.of(),
-                Map.of(),
-                null);
+        StdioMcpServer server =
+                new StdioMcpServer("STDIO Fail", "definitely-not-a-real-mcp-binary-xyz-123", List.of(), Map.of(), null);
 
-        IOException ex = assertThrows(
-                IOException.class,
-                () -> McpUtils.callToolAsync(server, "any-tool", Map.of(), null));
+        IOException ex =
+                assertThrows(IOException.class, () -> McpUtils.callToolAsync(server, "any-tool", Map.of(), null));
 
         assertTrue(ex.getMessage().startsWith("Failed to call tool 'any-tool':"));
     }
@@ -56,9 +48,8 @@ public class McpUtilsAsyncTest {
             }
         };
 
-        IOException ex = assertThrows(
-                IOException.class,
-                () -> McpUtils.callToolAsync(unsupported, "any-tool", Map.of(), null));
+        IOException ex =
+                assertThrows(IOException.class, () -> McpUtils.callToolAsync(unsupported, "any-tool", Map.of(), null));
 
         assertTrue(ex.getMessage().startsWith("Unsupported MCP server type: "));
     }
