@@ -191,7 +191,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     private final IProject project;
     private final Language language;
-    protected final Set<Path> normalizedExcludedPaths;
 
     /**
      * Stores information about a definition found by a query match, including associated modifier keywords and
@@ -324,15 +323,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         this.language = language;
         // Register listener early so it receives progress during construction
         progressListener = listener;
-        this.normalizedExcludedPaths = project.getExcludedDirectories().stream()
-                .map(Path::of)
-                .map(p -> p.isAbsolute()
-                        ? p.normalize()
-                        : project.getRoot().resolve(p).toAbsolutePath().normalize())
-                .collect(Collectors.toUnmodifiableSet());
-        if (!this.normalizedExcludedPaths.isEmpty()) {
-            log.debug("Normalized excluded paths: {}", this.normalizedExcludedPaths);
-        }
 
         // Initialize query using a ThreadLocal for thread safety
         // The supplier will use the appropriate getQueryResource() from the subclass
@@ -546,13 +536,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         this.project = project;
         this.language = language;
         this.progressListener = listener;
-
-        this.normalizedExcludedPaths = project.getExcludedDirectories().stream()
-                .map(Path::of)
-                .map(p -> p.isAbsolute()
-                        ? p.normalize()
-                        : project.getRoot().resolve(p).toAbsolutePath().normalize())
-                .collect(Collectors.toUnmodifiableSet());
 
         this.query = ThreadLocal.withInitial(() -> {
             String rawQueryString = loadResource(getQueryResource());
@@ -3412,15 +3395,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         long detectStartMs = System.currentTimeMillis();
 
         // files currently on disk that this analyser is interested in
+        // (getAllFiles() already applies exclusion pattern filtering)
         Set<ProjectFile> currentFiles = project.getAllFiles().stream()
                 .filter(pf -> {
-                    Path abs = pf.absPath().toAbsolutePath().normalize();
-                    if (normalizedExcludedPaths.stream().anyMatch(abs::startsWith)) {
-                        return false;
-                    }
-                    String p = abs.toString();
-                    boolean matches = language.getExtensions().stream().anyMatch(p::endsWith);
-                    return matches;
+                    var p = pf.absPath().toAbsolutePath().normalize().toString();
+                    return language.getExtensions().stream().anyMatch(p::endsWith);
                 })
                 .collect(Collectors.toSet());
 

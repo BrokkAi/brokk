@@ -349,10 +349,7 @@ public class Languages {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
-            var excludedPaths = project.getExcludedDirectories().stream()
-                    .map(Path::of)
-                    .collect(Collectors.toSet());
-            return new SqlAnalyzer(project, excludedPaths);
+            return new SqlAnalyzer(project);
         }
 
         @Override
