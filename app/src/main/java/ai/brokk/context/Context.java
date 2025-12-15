@@ -452,11 +452,10 @@ public class Context {
                 .map(EditableFileWithMtime::fragment);
 
         Stream<ContextFragment> otherEditable = fragments.stream()
-                .filter(f -> !(f instanceof ContextFragment.ProjectPathFragment) && f.getType().isEditable());
+                .filter(f -> !(f instanceof ContextFragment.ProjectPathFragment)
+                        && f.getType().isEditable());
 
-        return Streams.concat(
-                        otherEditable,
-                        sortedProjectFiles.map(ContextFragment.class::cast))
+        return Streams.concat(otherEditable, sortedProjectFiles.map(ContextFragment.class::cast))
                 .filter(cf -> !markedReadonlyFragments.contains(cf));
     }
 
