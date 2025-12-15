@@ -27,10 +27,22 @@ public class McpUtils {
     private static final Logger logger = LogManager.getLogger(McpUtils.class);
 
     private static McpClientTransport buildTransport(URL url, @Nullable String bearerToken) {
-        var transportBuilder = HttpClientStreamableHttpTransport.builder(url.toString())
+        final String baseUrl;
+        if (url.getPort() == -1 || url.getPort() == url.getDefaultPort()) {
+            baseUrl = url.getProtocol() + "://" + url.getHost();
+        } else {
+            baseUrl = url.getProtocol() + "://" + url.getHost() + ":" + url.getPort();
+        }
+
+        String endpoint = url.getPath();
+        if (endpoint == null || endpoint.isEmpty()) {
+            endpoint = "/";
+        }
+
+        var transportBuilder = HttpClientStreamableHttpTransport.builder(baseUrl)
                 .resumableStreams(true)
                 .openConnectionOnStartup(false)
-                .endpoint("");
+                .endpoint(endpoint);
         if (bearerToken != null) {
             final String token;
             if (!bearerToken.startsWith("Bearer ")) token = "Bearer " + bearerToken;
