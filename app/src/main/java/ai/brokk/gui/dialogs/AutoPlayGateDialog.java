@@ -16,27 +16,37 @@ import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * Modal dialog for EZ-mode auto-play task gating.
- * Prompts user to execute all tasks, clean existing and run, or cancel.
- */
 public final class AutoPlayGateDialog extends BaseThemedDialog {
     private final Set<String> incompleteTasks;
+    private final Mode mode;
     private UserChoice choice = UserChoice.CANCEL;
+
+    /** Modes for dialog button layout/semantics. */
+    private enum Mode {
+        FULL,          // legacy: Execute All / Clean and Run / Cancel
+        REPLACE_ONLY   // new: Replace and Continue / Cancel
+    }
 
     /** User's choice from the dialog. */
     public enum UserChoice {
-        /** Execute all incomplete tasks. */
+        /** Execute all incomplete tasks (legacy FULL mode). */
         EXECUTE_ALL,
-        /** Remove pre-existing tasks and execute remaining. */
+        /** Remove pre-existing tasks and execute remaining (legacy FULL mode). */
         CLEAN_AND_RUN,
+        /** Replace existing task list and proceed (REPLACE_ONLY mode). */
+        REPLACE_AND_CONTINUE,
         /** Cancel the operation. */
         CANCEL
     }
 
     private AutoPlayGateDialog(@Nullable Window owner, Set<String> incompleteTasks) {
+        this(owner, incompleteTasks, Mode.FULL);
+    }
+
+    private AutoPlayGateDialog(@Nullable Window owner, Set<String> incompleteTasks, Mode mode) {
         super(owner, "Incomplete Tasks", Dialog.ModalityType.APPLICATION_MODAL);
         this.incompleteTasks = incompleteTasks;
+        this.mode = mode;
 
         buildUI();
         pack();
@@ -48,7 +58,12 @@ public final class AutoPlayGateDialog extends BaseThemedDialog {
         root.setLayout(new BorderLayout(8, 8));
         root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        var intro = new JTextArea("There are incomplete tasks in this session. What would you like to do?");
+        String introText = switch (mode) {
+            case REPLACE_ONLY -> "There are incomplete tasks in this session. Running this will replace your current task list. Continue?";
+            case FULL -> "There are incomplete tasks in this session. What would you like to do?";
+        };
+
+        var intro = new JTextArea(introText);
         intro.setEditable(false);
         intro.setOpaque(false);
         intro.setLineWrap(true);
@@ -62,8 +77,7 @@ public final class AutoPlayGateDialog extends BaseThemedDialog {
         taskTextArea.setEditable(false);
         taskTextArea.setLineWrap(true);
         taskTextArea.setWrapStyleWord(true);
-        var taskText =
-                String.join("\n\n", incompleteTasks.stream().map(t -> "• " + t).toList());
+        var taskText = String.join("\n\n", incompleteTasks.stream().map(t -> "• " + t).toList());
         taskTextArea.setText(taskText);
         taskTextArea.setCaretPosition(0);
 
@@ -75,42 +89,78 @@ public final class AutoPlayGateDialog extends BaseThemedDialog {
         root.add(listPanel, BorderLayout.CENTER);
 
         var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-        var executeBtn = new MaterialButton("Execute all tasks now");
-        SwingUtil.applyPrimaryButtonStyle(executeBtn);
-        var removeBtn = new MaterialButton("Clean existing and run");
-        var cancelBtn = new MaterialButton("Cancel");
-        buttons.add(executeBtn);
-        buttons.add(removeBtn);
-        buttons.add(cancelBtn);
-        root.add(buttons, BorderLayout.SOUTH);
 
-        executeBtn.addActionListener(e -> {
-            choice = UserChoice.EXECUTE_ALL;
-            dispose();
-        });
-        removeBtn.addActionListener(e -> {
-            choice = UserChoice.CLEAN_AND_RUN;
-            dispose();
-        });
-        cancelBtn.addActionListener(e -> {
-            choice = UserChoice.CANCEL;
-            dispose();
-        });
+        if (mode == Mode.REPLACE_ONLY) {
+            var replaceBtn = new MaterialButton("Replace and Continue");
+            SwingUtil.applyPrimaryButtonStyle(replaceBtn);
+            var cancelBtn = new MaterialButton("Cancel");
+            buttons.add(replaceBtn);
+            buttons.add(cancelBtn);
+            root.add(buttons, BorderLayout.SOUTH);
 
-        getRootPane().setDefaultButton(executeBtn);
+            replaceBtn.addActionListener(e -> {
+                choice = UserChoice.REPLACE_AND_CONTINUE;
+                dispose();
+            });
+            cancelBtn.addActionListener(e -> {
+                choice = UserChoice.CANCEL;
+                dispose();
+            });
+
+            getRootPane().setDefaultButton(replaceBtn);
+        } else {
+            var executeBtn = new MaterialButton("Execute all tasks now");
+            SwingUtil.applyPrimaryButtonStyle(executeBtn);
+            var removeBtn = new MaterialButton("Clean existing and run");
+            var cancelBtn = new MaterialButton("Cancel");
+            buttons.add(executeBtn);
+            buttons.add(removeBtn);
+            buttons.add(cancelBtn);
+            root.add(buttons, BorderLayout.SOUTH);
+
+            executeBtn.addActionListener(e -> {
+                choice = UserChoice.EXECUTE_ALL;
+                dispose();
+            });
+            removeBtn.addActionListener(e -> {
+                choice = UserChoice.CLEAN_AND_RUN;
+                dispose();
+            });
+            cancelBtn.addActionListener(e -> {
+                choice = UserChoice.CANCEL;
+                dispose();
+            });
+
+            getRootPane().setDefaultButton(executeBtn);
+        }
     }
 
     /**
-     * Shows the auto-play gate dialog and returns the user's choice.
+     * Shows the auto-play gate dialog (FULL mode) and returns the user's choice.
      * Must be called on EDT.
      *
      * @param parent Parent component for dialog positioning
      * @param incompleteTasks Set of incomplete task texts to display
-     * @return User's choice (EXECUTE_ALL, CLEAN_AND_RUN, or CANCEL)
+     * @return User's choice
      */
     public static UserChoice show(@Nullable Window parent, Set<String> incompleteTasks) {
         assert SwingUtilities.isEventDispatchThread() : "AutoPlayGateDialog.show must be called on EDT";
-        var dialog = new AutoPlayGateDialog(parent, incompleteTasks);
+        var dialog = new AutoPlayGateDialog(parent, incompleteTasks, Mode.FULL);
+        dialog.setVisible(true); // Blocks until dialog is closed
+        return dialog.choice;
+    }
+
+    /**
+     * Shows the replace-only gating dialog and returns the user's choice.
+     * Must be called on EDT.
+     *
+     * @param parent Parent window for dialog positioning
+     * @param incompleteTasks Set of incomplete task texts to display
+     * @return User's choice (REPLACE_AND_CONTINUE or CANCEL)
+     */
+    public static UserChoice showReplaceOnly(@Nullable Window parent, Set<String> incompleteTasks) {
+        assert SwingUtilities.isEventDispatchThread() : "AutoPlayGateDialog.showReplaceOnly must be called on EDT";
+        var dialog = new AutoPlayGateDialog(parent, incompleteTasks, Mode.REPLACE_ONLY);
         dialog.setVisible(true); // Blocks until dialog is closed
         return dialog.choice;
     }

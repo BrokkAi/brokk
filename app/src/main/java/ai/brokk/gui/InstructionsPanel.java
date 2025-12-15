@@ -25,6 +25,7 @@ import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.components.TokenUsageBar;
 import ai.brokk.gui.dialogs.SettingsAdvancedPanel;
 import ai.brokk.gui.dialogs.SettingsDialog;
+import ai.brokk.gui.dialogs.AutoPlayGateDialog;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -1868,65 +1869,60 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private void executeSearchInternal(String query, String action) {
-        final var modelToUse = selectDropdownModelOrShowError("Search");
-        if (modelToUse == null) {
-            logger.debug("Model selection failed for Search action: contextHasImages={}", contextHasImages());
-            updateButtonStates();
-            return;
-        }
+            final var modelToUse = selectDropdownModelOrShowError("Search");
+            if (modelToUse == null) {
+                    logger.debug("Model selection failed for Search action: contextHasImages={}", contextHasImages());
+                    updateButtonStates();
+                    return;
+            }
 
-        autoClearCompletedTasks();
+            autoClearCompletedTasks();
 
-        // Derive objective and auto-execute behavior from action
-        SearchAgent.Objective objective;
-        boolean shouldAutoExecuteTasks;
-        if (ACTION_PLAN.equals(action)) {
-            objective = SearchAgent.Objective.TASKS_ONLY;
-            shouldAutoExecuteTasks = false;
-        } else {
-            // Default to Lutz for ACTION_LUTZ and any other value
-            objective = SearchAgent.Objective.LUTZ;
-            shouldAutoExecuteTasks = true;
-        }
+            // Derive objective from action
+            SearchAgent.Objective objective;
+            if (ACTION_PLAN.equals(action)) {
+                    objective = SearchAgent.Objective.TASKS_ONLY;
+            } else {
+                    // Default to Lutz for ACTION_LUTZ and any other value
+                    objective = SearchAgent.Objective.LUTZ;
+            }
 
-        // CRITICAL: Capture pre-existing incomplete tasks BEFORE submitAction to avoid race condition.
-        // SearchAgent will modify the task list, so we must capture the state before that happens.
-        final var preExistingIncompleteTasks = contextManager.liveContext().getTaskListDataOrEmpty().tasks().stream()
-                .filter(t -> !t.done())
-                .map(TaskList.TaskItem::text)
-                .collect(Collectors.toSet());
+            // Gate on pre-existing incomplete tasks for BOTH Lutz and Plan.
+            // If there are incomplete tasks in the current session, require confirmation to replace them.
+            var preExistingIncompleteTasks = contextManager.liveContext().getTaskListDataOrEmpty().tasks().stream()
+                            .filter(t -> !t.done())
+                            .map(TaskList.TaskItem::text)
+                            .collect(Collectors.toSet());
 
-        submitAction(action, query, scope -> {
+            if (!preExistingIncompleteTasks.isEmpty()) {
+                    var owner = SwingUtilities.getWindowAncestor(this);
+                    var choice = AutoPlayGateDialog.showReplaceOnly(owner, preExistingIncompleteTasks);
+                    if (choice != AutoPlayGateDialog.UserChoice.REPLACE_AND_CONTINUE) {
+                            return; // User cancelled; do not proceed
+                    }
+            }
+
+            submitAction(action, query, scope -> {
                     assert !query.isBlank();
 
                     var cm = chrome.getContextManager();
                     var context = cm.liveContext();
                     SearchAgent agent = new SearchAgent(context, query, modelToUse, objective, scope);
                     try {
-                        agent.scanInitialContext();
+                            agent.scanInitialContext();
                     } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        return new TaskResult(
-                                cm,
-                                "Search: " + query,
-                                cm.getIo().getLlmRawMessages(),
-                                cm.liveContext(),
-                                new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
-                                new TaskResult.TaskMeta(
-                                        TaskResult.Type.SEARCH, Service.ModelConfig.from(modelToUse, cm.getService())));
+                            Thread.currentThread().interrupt();
+                            return new TaskResult(
+                                            cm,
+                                            "Search: " + query,
+                                            cm.getIo().getLlmRawMessages(),
+                                            cm.liveContext(),
+                                            new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
+                                            new TaskResult.TaskMeta(
+                                                            TaskResult.Type.SEARCH, Service.ModelConfig.from(modelToUse, cm.getService())));
                     }
                     return agent.execute();
-                })
-                .thenAccept(unused -> {
-                    // Explicit second phase: trigger task execution if appropriate
-                    // Lutz Mode (shouldAutoExecuteTasks=true) auto-executes in EZ mode
-                    // Plan Mode (shouldAutoExecuteTasks=false) shows tasks but does not execute
-                    if (shouldAutoExecuteTasks && !GlobalUiSettings.isAdvancedMode()) {
-                        logger.debug("EZ-mode: start aut play");
-                        SwingUtilities.invokeLater(() ->
-                                chrome.getTaskListPanel().showAutoPlayGateDialogAndAct(preExistingIncompleteTasks));
-                    }
-                });
+            });
     }
 
     /**
