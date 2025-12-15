@@ -51,6 +51,12 @@
 (class_definition
   name: (identifier) @class.name) @class.definition
 
+; Decorated class definition (any nesting level)
+(decorated_definition
+  definition: (class_definition
+    name: (identifier) @class.name)
+) @class.definition
+
 ; Type hierarchy: capture superclasses for inheritance resolution
 (class_definition
   name: (identifier) @type.name
@@ -62,6 +68,13 @@
 (module
   (function_definition
     name: (identifier) @function.name) @function.definition)
+
+; Decorated function definition at module level
+(module
+  (decorated_definition
+    definition: (function_definition
+      name: (identifier) @function.name)
+  ) @function.definition)
 
 ; Function definitions inside module-level control flow (conditionals, exception handling, context managers, loops)
 (module
@@ -75,6 +88,41 @@
    (with_statement (block (function_definition name: (identifier) @function.name) @function.definition))
    (for_statement (block (function_definition name: (identifier) @function.name) @function.definition))
    (while_statement (block (function_definition name: (identifier) @function.name) @function.definition))])
+
+; Decorated function definitions inside module-level control flow
+(module
+  [(if_statement (block (decorated_definition
+                           definition: (function_definition name: (identifier) @function.name)
+                        ) @function.definition))
+   (if_statement (else_clause (block (decorated_definition
+                           definition: (function_definition name: (identifier) @function.name)
+                        ) @function.definition)))
+   (if_statement (elif_clause (block (decorated_definition
+                           definition: (function_definition name: (identifier) @function.name)
+                        ) @function.definition)))
+   (try_statement (block (decorated_definition
+                           definition: (function_definition name: (identifier) @function.name)
+                        ) @function.definition))
+   (try_statement (except_clause (block (decorated_definition
+                           definition: (function_definition name: (identifier) @function.name)
+                        ) @function.definition)))
+   (try_statement (else_clause (block (decorated_definition
+                           definition: (function_definition name: (identifier) @function.name)
+                        ) @function.definition)))
+   (try_statement (finally_clause (block (decorated_definition
+                           definition: (function_definition name: (identifier) @function.name)
+                        ) @function.definition)))
+   (with_statement (block (decorated_definition
+                           definition: (function_definition name: (identifier) @function.name)
+                        ) @function.definition))
+   (for_statement (block (decorated_definition
+                           definition: (function_definition name: (identifier) @function.name)
+                        ) @function.definition))
+   (while_statement (block (decorated_definition
+                           definition: (function_definition name: (identifier) @function.name)
+                        ) @function.definition))])
+
+
 
 ; Method definition (function_definition directly inside a class's body block)
 ; This also captures static methods if they are structured as function_definition within class body.
