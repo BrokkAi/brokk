@@ -137,6 +137,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private boolean queueActive = false;
     private @Nullable List<Integer> currentRunOrder = null;
     private @Nullable ListDataListener autoPlayListener = null;
+    private @Nullable ListDataListener modelRefreshListener = null;
 
     public TaskListPanel(Chrome chrome) {
         super(new BorderLayout(4, 0));
@@ -1003,6 +1004,64 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     /**
+     * Run the given action after the model has been (re)populated as a result of an async refresh.
+     * If the model already has elements, the action is scheduled immediately on the EDT.
+     * This installs a one-shot ListDataListener that fires on the first addition/change event, then removes itself.
+     */
+    private void runAfterModelRefresh(Runnable action) {
+        assert SwingUtilities.isEventDispatchThread() : "runAfterModelRefresh must run on EDT";
+
+        // Remove any existing refresh listener to avoid stacking callbacks
+        if (modelRefreshListener != null) {
+            try {
+                model.removeListDataListener(modelRefreshListener);
+            } catch (Exception ex) {
+                logger.debug("Error removing existing modelRefreshListener", ex);
+            }
+            modelRefreshListener = null;
+        }
+
+        // If the model is already populated, run the action on the next tick
+        if (model.getSize() > 0) {
+            SwingUtilities.invokeLater(action);
+            return;
+        }
+
+        // Otherwise, wait for the next add/change to the model, then fire once
+        modelRefreshListener = new ListDataListener() {
+            private boolean fired = false;
+
+            private void fireOnce() {
+                if (fired) return;
+                fired = true;
+                try {
+                    model.removeListDataListener(this);
+                } catch (Exception ignore) {
+                    // ignore
+                }
+                modelRefreshListener = null;
+                SwingUtilities.invokeLater(action);
+            }
+
+            @Override
+            public void intervalAdded(ListDataEvent e) {
+                fireOnce();
+            }
+
+            @Override
+            public void intervalRemoved(ListDataEvent e) {
+                // Intentionally ignore remove events to avoid triggering during the clear phase.
+            }
+
+            @Override
+            public void contentsChanged(ListDataEvent e) {
+                fireOnce();
+            }
+        };
+        model.addListDataListener(modelRefreshListener);
+    }
+
+    /**
      * Reset all ephemeral UI and model state when switching sessions to avoid
      * stale running/queued flags and fragment tracking leaking into the new session.
      * Must be called on the EDT.
@@ -1025,6 +1084,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 logger.debug("Error removing autoPlayListener during session switch", ex);
             }
             autoPlayListener = null;
+        }
+
+        // Remove any pending model refresh listener as well
+        if (modelRefreshListener != null) {
+            try {
+                model.removeListDataListener(modelRefreshListener);
+            } catch (Exception ex) {
+                logger.debug("Error removing modelRefreshListener during session switch", ex);
+            }
+            modelRefreshListener = null;
         }
 
         // Clear the model and transient fragment marker until the new session is loaded
@@ -2340,6 +2409,18 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     @Override
     public void removeNotify() {
+        // Clean up model refresh listener early to prevent leaks when panel is removed
+        if (modelRefreshListener != null) {
+            try {
+                logger.debug("removeNotify: removing modelRefreshListener");
+                model.removeListDataListener(modelRefreshListener);
+                logger.debug("removeNotify: modelRefreshListener cleared");
+            } catch (Exception e) {
+                logger.debug("Error removing modelRefreshListener on removeNotify", e);
+            }
+            modelRefreshListener = null;
+        }
+
         // Clean up auto-play listener early to prevent leaks when panel is removed
         if (autoPlayListener != null) {
             try {
@@ -2751,57 +2832,52 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
     }
 
-    /**
-     * Shows EZ-mode dialog prompting the user to execute, remove, or cancel incomplete tasks.
-     * @param preExistingIncompleteTasks Set of pre-existing task texts to show in dialog (empty = auto-execute without dialog)
-     */
     public void showAutoPlayGateDialogAndAct(Set<String> preExistingIncompleteTasks) {
-        if (!SwingUtilities.isEventDispatchThread()) {
-            SwingUtilities.invokeLater(() -> this.showAutoPlayGateDialogAndAct(preExistingIncompleteTasks));
-            return;
-        }
+         if (!SwingUtilities.isEventDispatchThread()) {
+              SwingUtilities.invokeLater(() -> this.showAutoPlayGateDialogAndAct(preExistingIncompleteTasks));
+              return;
+         }
 
-        // Ensure model is up-to-date before checking it.
-        // This fixes a race condition where the model update from setTaskList
-        // may not have completed yet due to nested invokeLater calls.
-        loadTasksForCurrentSession();
+         // Trigger a load; defer the rest until the model is actually updated.
+         loadTasksForCurrentSession();
 
-        try {
-            if (model.isEmpty()) {
-                return;
-            }
+         runAfterModelRefresh(() -> {
+              try {
+                   if (model.isEmpty()) {
+                        return;
+                   }
 
-            // If no pre-existing incomplete tasks, auto-execute without prompting
-            if (preExistingIncompleteTasks.isEmpty()) {
-                var totalTasks = countIncompleteTasks();
-                logger.debug("EZ-mode auto-executing {} tasks (no pre-existing incomplete tasks)", totalTasks);
-                runArchitectOnAll();
-                return;
-            }
+                   // If no pre-existing incomplete tasks, auto-execute without prompting
+                   if (preExistingIncompleteTasks.isEmpty()) {
+                        var totalTasks = countIncompleteTasks();
+                        logger.debug("EZ-mode auto-executing {} tasks (no pre-existing incomplete tasks)", totalTasks);
+                        runArchitectOnAll();
+                        return;
+                   }
 
-            // Collect deduplicated pre-existing incomplete task texts
-            var texts = collectTaskTexts(preExistingIncompleteTasks);
-            if (texts.isEmpty()) {
-                return;
-            }
+                   // Collect deduplicated pre-existing incomplete task texts
+                   var texts = collectTaskTexts(preExistingIncompleteTasks);
+                   if (texts.isEmpty()) {
+                        return;
+                   }
 
-            logger.debug(
-                    "EZ-mode showing dialog: {} pre-existing tasks (total {} incomplete)",
-                    texts.size(),
-                    countIncompleteTasks());
+                   logger.debug(
+                             "EZ-mode showing dialog: {} pre-existing tasks (total {} incomplete)",
+                             texts.size(),
+                             countIncompleteTasks());
 
-            // Show dialog and handle user choice
-            var choice = AutoPlayGateDialog.show(SwingUtilities.getWindowAncestor(this), texts);
-            handleAutoPlayChoice(choice, texts);
-        } catch (Exception ex) {
-            logger.debug("Error showing EZ-mode auto-play gate dialog", ex);
-            try {
-                String msg = "Could not open the auto-play dialog: "
-                        + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
-                chrome.toolError(msg, "Auto-play");
-            } catch (Exception notifyEx) {
-                logger.debug("Failed to show toolError for auto-play gate dialog failure", notifyEx);
-            }
-        }
+                   var choice = AutoPlayGateDialog.show(SwingUtilities.getWindowAncestor(this), texts);
+                   handleAutoPlayChoice(choice, texts);
+              } catch (Exception ex) {
+                   logger.debug("Error showing EZ-mode auto-play gate dialog", ex);
+                   try {
+                        String msg = "Could not open the auto-play dialog: "
+                                  + (ex.getMessage() == null ? ex.toString() : ex.getMessage());
+                        chrome.toolError(msg, "Auto-play");
+                   } catch (Exception notifyEx) {
+                        logger.debug("Failed to show toolError for auto-play gate dialog failure", notifyEx);
+                   }
+              }
+         });
     }
 }
