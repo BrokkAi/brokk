@@ -1,9 +1,10 @@
 package ai.brokk.mcp;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.util.Environment;
 import io.modelcontextprotocol.client.McpAsyncClient;
 import io.modelcontextprotocol.client.McpClient;
-import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.client.transport.ServerParameters;
 import io.modelcontextprotocol.client.transport.StdioClientTransport;
@@ -73,24 +74,6 @@ public class McpUtils {
         return new StdioClientTransport(params);
     }
 
-    private static McpSyncClient buildSyncClient(URL url, @Nullable String bearerToken) {
-        final var transport = buildTransport(url, bearerToken);
-        return McpClient.sync(transport)
-                .loggingConsumer(logger::debug)
-                .capabilities(McpSchema.ClientCapabilities.builder().roots(true).build())
-                .requestTimeout(MCP_REQUEST_TIMEOUT)
-                .build();
-    }
-
-    private static McpSyncClient buildSyncClient(String command, List<String> arguments, Map<String, String> env) {
-        final var transport = buildTransport(command, arguments, env);
-        return McpClient.sync(transport)
-                .loggingConsumer(logger::debug)
-                .capabilities(McpSchema.ClientCapabilities.builder().roots(true).build())
-                .requestTimeout(MCP_REQUEST_TIMEOUT)
-                .build();
-    }
-
     private static McpAsyncClient buildAsyncClient(URL url, @Nullable String bearerToken) {
         final var transport = buildTransport(url, bearerToken);
         return McpClient.async(transport)
@@ -115,38 +98,6 @@ public class McpUtils {
                 .build();
     }
 
-    private static <T> T withMcpSyncClient(
-            URL url, @Nullable String bearerToken, @Nullable Path projectRoot, Function<McpSyncClient, T> function) {
-        final var client = buildSyncClient(url, bearerToken);
-        try {
-            client.initialize();
-            if (projectRoot != null) {
-                client.addRoot(new McpSchema.Root(projectRoot.toUri().toString(), "Project root path."));
-            }
-            return function.apply(client);
-        } finally {
-            client.closeGracefully();
-        }
-    }
-
-    private static <T> T withMcpSyncClient(
-            String command,
-            List<String> arguments,
-            Map<String, String> env,
-            @Nullable Path projectRoot,
-            Function<McpSyncClient, T> function) {
-        final var client = buildSyncClient(command, arguments, env);
-        try {
-            client.initialize();
-            if (projectRoot != null) {
-                client.addRoot(new McpSchema.Root(projectRoot.toUri().toString(), "Project root path."));
-            }
-            return function.apply(client);
-        } finally {
-            client.closeGracefully();
-        }
-    }
-
     private static <T> T withMcpAsyncClient(
             URL url,
             @Nullable String bearerToken,
@@ -159,7 +110,7 @@ public class McpUtils {
                 client.addRoot(new McpSchema.Root(projectRoot.toUri().toString(), "Project root path."))
                         .block();
             }
-            return function.apply(client).block();
+            return requireNonNull(function.apply(client).block());
         } finally {
             client.closeGracefully();
         }
@@ -178,7 +129,7 @@ public class McpUtils {
                 client.addRoot(new McpSchema.Root(projectRoot.toUri().toString(), "Project root path."))
                         .block();
             }
-            return function.apply(client).block();
+            return requireNonNull(function.apply(client).block());
         } finally {
             client.closeGracefully();
         }
