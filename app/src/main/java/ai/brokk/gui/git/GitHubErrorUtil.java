@@ -1,5 +1,7 @@
 package ai.brokk.gui.git;
 
+import static java.util.Objects.requireNonNull;
+
 import java.util.Locale;
 import org.jetbrains.annotations.Nullable;
 import org.kohsuke.github.HttpException;
@@ -57,8 +59,8 @@ public final class GitHubErrorUtil {
                             if (!hasBase || !hasHead) {
                                 return true;
                             }
-                            var baseLower = baseBranch.toLowerCase(Locale.ROOT);
-                            var headLower = headBranch.toLowerCase(Locale.ROOT);
+                            var baseLower = requireNonNull(baseBranch).toLowerCase(Locale.ROOT);
+                            var headLower = requireNonNull(headBranch).toLowerCase(Locale.ROOT);
                             if (msgLower.contains(baseLower) && msgLower.contains(headLower)) {
                                 return true;
                             }
@@ -82,13 +84,13 @@ public final class GitHubErrorUtil {
      * Formats a user-friendly message for a "no commits between" pull request validation error.
      */
     public static String formatNoCommitsBetweenError(String baseBranch, String headBranch) {
-        return "No commits to include in pull request between '"
+        return "GitHub reports no commits to include in a pull request between '"
                 + headBranch
                 + "' and '"
                 + baseBranch
                 + "'. Make new commits on '"
                 + headBranch
-                + "' or select a different target branch.";
+                + "', push them to GitHub, or select a different target branch.";
     }
 
     /**
