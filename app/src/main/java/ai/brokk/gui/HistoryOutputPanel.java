@@ -3418,7 +3418,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private static record AggregatedFileChange(String path, String leftContent, String rightContent) {}
+    private record AggregatedFileChange(String path, String leftContent, String rightContent) {}
 
     private static List<AggregatedFileChange> prepareAggregatedFileChanges(DiffService.CumulativeChanges res) {
         var list = new ArrayList<>(res.perFileChanges());
