@@ -733,9 +733,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     public Set<ProjectFile> applyFiltering(Set<ProjectFile> files) {
         // Always apply baseline exclusions and file patterns, regardless of Git presence
         var buildDetails = loadBuildDetails();
-        Set<String> rawExclusions = buildDetails.excludedDirectories();
-        Set<String> filePatterns = buildDetails.excludedFilePatterns();
-        return fileFilteringService.filterFiles(files, rawExclusions, filePatterns);
+        return fileFilteringService.filterFiles(files, buildDetails.exclusionPatterns());
     }
 
     @Override
@@ -770,10 +768,11 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
-    public Set<String> getExcludedDirectories() {
+    public Set<String> getExclusionPatterns() {
         var exclusions = new HashSet<String>();
-        exclusions.addAll(loadBuildDetails().excludedDirectories());
+        exclusions.addAll(loadBuildDetails().exclusionPatterns());
 
+        // Also exclude non-live dependencies
         var dependenciesDir = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
         if (!Files.exists(dependenciesDir) || !Files.isDirectory(dependenciesDir)) {
             return exclusions;
@@ -798,18 +797,13 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
-    public Set<String> getExcludedFilePatterns() {
-        return loadBuildDetails().excludedFilePatterns();
-    }
-
-    @Override
-    public boolean isFileExcludedByPattern(ProjectFile file) {
-        var patterns = getExcludedFilePatterns();
+    public boolean isPathExcluded(String relativePath) {
+        var patterns = getExclusionPatterns();
         // Check if cache is still valid
         if (!patterns.equals(cachedPatternSet)) {
             cachedPatternSet = patterns;
             cachedPatternMatcher = FileFilteringService.createPatternMatcher(patterns);
         }
-        return cachedPatternMatcher.matches(file);
+        return cachedPatternMatcher.isPathExcluded(relativePath);
     }
 }

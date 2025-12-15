@@ -2039,7 +2039,7 @@ class ProjectFilteringGitRepoTest {
         var project = new MainProject(tempDir);
 
         // Set file pattern exclusion for exact filename
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("package-lock.json"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("package-lock.json"), Map.of());
         project.saveBuildDetails(buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2065,7 +2065,7 @@ class ProjectFilteringGitRepoTest {
         var project = new MainProject(tempDir);
 
         // Set file pattern exclusions for extension patterns
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("*.svg", "*.min.js"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("*.svg", "*.min.js"), Map.of());
         project.saveBuildDetails(buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2091,7 +2091,7 @@ class ProjectFilteringGitRepoTest {
         var project = new MainProject(tempDir);
 
         // Set file pattern exclusion for path glob
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("**/test/resources/**"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("**/test/resources/**"), Map.of());
         project.saveBuildDetails(buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2116,9 +2116,9 @@ class ProjectFilteringGitRepoTest {
 
         var project = new MainProject(tempDir);
 
-        // Set both directory and file pattern exclusions
+        // Set both directory and file pattern exclusions (unified in exclusionPatterns)
         var buildDetails = new BuildAgent.BuildDetails(
-                "", "", "", Set.of("vendor"), Set.of("package-lock.json", "*.svg"), Map.of());
+                "", "", "", Set.of("vendor", "package-lock.json", "*.svg"), Map.of());
         project.saveBuildDetails(buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2142,15 +2142,15 @@ class ProjectFilteringGitRepoTest {
 
         var project = new MainProject(tempDir);
 
-        // Save build details with file patterns
+        // Save build details with exclusion patterns
         var buildDetails = new BuildAgent.BuildDetails(
-                "build", "test", "test {{files}}", Set.of(), Set.of("yarn.lock", "*.svg"), Map.of());
+                "build", "test", "test {{files}}", Set.of("yarn.lock", "*.svg"), Map.of());
         project.saveBuildDetails(buildDetails);
 
         // Reload and verify patterns are preserved
         var loaded = project.loadBuildDetails();
-        assertTrue(loaded.excludedFilePatterns().contains("yarn.lock"));
-        assertTrue(loaded.excludedFilePatterns().contains("*.svg"));
+        assertTrue(loaded.exclusionPatterns().contains("yarn.lock"));
+        assertTrue(loaded.exclusionPatterns().contains("*.svg"));
 
         // Verify filtering still works
         var allFiles = project.getAllFiles();
@@ -2175,7 +2175,7 @@ class ProjectFilteringGitRepoTest {
         var project = new MainProject(tempDir);
 
         // Save build details with *.* pattern - should match any file with an extension
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("*.*"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("*.*"), Map.of());
         project.saveBuildDetails(buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2209,7 +2209,7 @@ class ProjectFilteringGitRepoTest {
         // Save build details with uppercase extension pattern and exact filename
         // These should match case-insensitively
         var buildDetails =
-                new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("*.SVG", "package-lock.json"), Map.of());
+                new BuildAgent.BuildDetails("", "", "", Set.of("*.SVG", "package-lock.json"), Map.of());
         project.saveBuildDetails(buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2241,7 +2241,7 @@ class ProjectFilteringGitRepoTest {
 
         // Include an invalid glob pattern alongside valid ones
         // Invalid pattern should be skipped, valid patterns should still work
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("[invalid", "*.xml"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("[invalid", "*.xml"), Map.of());
         project.saveBuildDetails(buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2271,7 +2271,7 @@ class ProjectFilteringGitRepoTest {
         var project = new MainProject(tempDir);
 
         // Pattern *.* should exclude dotfiles (they have "extensions")
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("*.*"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("*.*"), Map.of());
         project.saveBuildDetails(buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2300,7 +2300,7 @@ class ProjectFilteringGitRepoTest {
         var project = new MainProject(tempDir);
 
         // *.js should exclude both dotfile and regular file with .js extension
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("*.js"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("*.js"), Map.of());
         project.saveBuildDetails(buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2328,7 +2328,7 @@ class ProjectFilteringGitRepoTest {
         var project = new MainProject(tempDir);
 
         // Uppercase extension patterns should match lowercase files
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("**/*.JSON", "**/*.MD"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("**/*.JSON", "**/*.MD"), Map.of());
         project.saveBuildDetails(buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2358,7 +2358,7 @@ class ProjectFilteringGitRepoTest {
         var project = new MainProject(tempDir);
 
         // Pattern "src/test/resources" should only match exact path, not as prefix
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("src/test/resources"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("src/test/resources"), Map.of());
         project.saveBuildDetails(buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2391,7 +2391,7 @@ class ProjectFilteringGitRepoTest {
         var project = new MainProject(tempDir);
 
         // Add file pattern "*.java" - should exclude tracked files solely due to pattern
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("*.java"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("*.java"), Map.of());
         project.saveBuildDetails(buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2420,7 +2420,7 @@ class ProjectFilteringGitRepoTest {
 
         // Empty/whitespace patterns should be ignored, trimmed pattern should work
         var buildDetails =
-                new BuildAgent.BuildDetails("", "", "", Set.of(), Set.of("  ", "\t", "", "  *.xml  "), Map.of());
+                new BuildAgent.BuildDetails("", "", "", Set.of("  ", "\t", "", "  *.xml  "), Map.of());
         project.saveBuildDetails(buildDetails);
 
         var allFiles = project.getAllFiles();

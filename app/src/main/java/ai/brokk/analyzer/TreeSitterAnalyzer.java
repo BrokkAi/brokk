@@ -324,7 +324,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         this.language = language;
         // Register listener early so it receives progress during construction
         progressListener = listener;
-        this.normalizedExcludedPaths = project.getExcludedDirectories().stream()
+        // Filter exclusion patterns for directory-like entries (no wildcards)
+        this.normalizedExcludedPaths = project.getExclusionPatterns().stream()
+                .filter(p -> !p.contains("*") && !p.contains("?")) // Only simple names/paths
                 .map(Path::of)
                 .map(p -> p.isAbsolute()
                         ? p.normalize()
@@ -547,7 +549,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         this.language = language;
         this.progressListener = listener;
 
-        this.normalizedExcludedPaths = project.getExcludedDirectories().stream()
+        // Filter exclusion patterns for directory-like entries (no wildcards)
+        this.normalizedExcludedPaths = project.getExclusionPatterns().stream()
+                .filter(p -> !p.contains("*") && !p.contains("?")) // Only simple names/paths
                 .map(Path::of)
                 .map(p -> p.isAbsolute()
                         ? p.normalize()

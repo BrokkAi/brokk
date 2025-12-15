@@ -45,21 +45,19 @@ public final class FileFilteringService {
     }
 
     /**
-     * Filter files by baseline exclusions and gitignore rules.
-     * rawExclusions should come from BuildDetails.excludedDirectories() (un-normalized).
+     * Filter files by exclusion patterns and gitignore rules.
+     * exclusionPatterns should come from BuildDetails.exclusionPatterns().
+     *
+     * <p>Pattern semantics:
+     * <ul>
+     *   <li>Simple names (no wildcards, no slash): match directory prefix OR exact filename
+     *   <li>Extension patterns (*.ext): match files by extension
+     *   <li>Glob patterns: full path or filename matching depending on presence of /
+     * </ul>
      */
-    public Set<ProjectFile> filterFiles(Set<ProjectFile> files, Set<String> rawExclusions) {
-        return filterFiles(files, rawExclusions, Set.of());
-    }
-
-    /**
-     * Filter files by baseline exclusions, file patterns, and gitignore rules.
-     * rawExclusions should come from BuildDetails.excludedDirectories() (un-normalized).
-     * filePatterns should come from BuildDetails.excludedFilePatterns() (glob patterns like *.svg, package-lock.json).
-     */
-    public Set<ProjectFile> filterFiles(Set<ProjectFile> files, Set<String> rawExclusions, Set<String> filePatterns) {
-        // Normalize baseline exclusions
-        var baselineExclusions = rawExclusions.stream()
+    public Set<ProjectFile> filterFiles(Set<ProjectFile> files, Set<String> exclusionPatterns) {
+        // Normalize patterns: strip leading slashes, trailing slashes, normalize separators
+        var normalizedPatterns = exclusionPatterns.stream()
                 .map(s -> toUnixPath(s).trim())
                 .map(s -> s.startsWith("/") ? s.substring(1) : s)
                 .map(s -> s.startsWith("./") ? s.substring(2) : s)
@@ -67,34 +65,16 @@ public final class FileFilteringService {
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.toSet());
 
-        // Also create normalized-from-raw-leading set for tolerant matching
-        Set<String> rawLeadingSlashExclusions = rawExclusions.stream()
-                .map(String::trim)
-                .filter(s -> s.startsWith("/"))
+        // Pre-compile patterns once for efficient matching across all files
+        var compiledPatterns = compilePatterns(normalizedPatterns);
+
+        Set<ProjectFile> patternFiltered = files.stream()
+                .filter(file -> !matchesFilePatternStatic(file, compiledPatterns))
                 .collect(Collectors.toSet());
 
-        Set<String> normalizedFromRawLeading = rawLeadingSlashExclusions.stream()
-                .map(s -> s.substring(1))
-                .map(FileFilteringService::toUnixPath)
-                .map(String::trim)
-                .map(s -> s.endsWith("/") ? s.substring(0, s.length() - 1) : s)
-                .filter(s -> !s.isEmpty())
-                .collect(Collectors.toSet());
-
-        Set<String> unionNormalized = new HashSet<>(baselineExclusions);
-        unionNormalized.addAll(normalizedFromRawLeading);
-
-        // Pre-compile file patterns once for efficient matching across all files
-        var compiledPatterns = compilePatterns(filePatterns);
-
-        Set<ProjectFile> baselineFiltered = files.stream()
-                .filter(file -> !isBaselineExcluded(file, unionNormalized))
-                .filter(file -> !matchesFilePattern(file, compiledPatterns))
-                .collect(Collectors.toSet());
-
-        // If no Git repo, return baseline-filtered only
+        // If no Git repo, return pattern-filtered only
         if (!(repo instanceof GitRepo gitRepo)) {
-            return baselineFiltered;
+            return patternFiltered;
         }
 
         var gitTopLevel = gitRepo.getGitTopLevel();
@@ -104,12 +84,12 @@ public final class FileFilteringService {
         if (!root.startsWith(workTreeRoot)) {
             logger.warn(
                     "Project root {} is outside git working tree {}; gitignore filtering skipped", root, workTreeRoot);
-            return baselineFiltered;
+            return patternFiltered;
         }
 
         var fixedGitignorePairs = computeFixedGitignorePairs(gitRepo, gitTopLevel);
 
-        return baselineFiltered.stream()
+        return patternFiltered.stream()
                 .filter(file -> {
                     // do not filter out deps
                     var isDep = file.getRelPath()
@@ -154,30 +134,15 @@ public final class FileFilteringService {
     }
 
     // -------------------------
-    // Internal helper methods (port of previous logic)
+    // Internal helper methods
     // -------------------------
-
-    private boolean isBaselineExcluded(ProjectFile file, Set<String> baselineExclusions) {
-        String fileRel = toUnixPath(file.getRelPath());
-        for (String exclusion : baselineExclusions) {
-            String ex = toUnixPath(exclusion);
-            while (ex.startsWith("./")) ex = ex.substring(2);
-            if (ex.startsWith("/")) ex = ex.substring(1);
-            if (ex.endsWith("/")) ex = ex.substring(0, ex.length() - 1);
-            if (ex.isEmpty()) continue;
-
-            if (fileRel.equals(ex) || fileRel.startsWith(ex + "/")) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     /** Represents a pre-compiled file pattern for efficient matching. */
     private sealed interface CompiledPattern {
         String original();
 
-        record ExactFilename(String original, String lowerName) implements CompiledPattern {}
+        /** Simple name matches exact filename OR directory prefix (fast path). */
+        record SimpleName(String original, String lowerName) implements CompiledPattern {}
 
         record Extension(String original, String lowerSuffix) implements CompiledPattern {}
 
@@ -195,8 +160,17 @@ public final class FileFilteringService {
             this.compiledPatterns = compiledPatterns;
         }
 
+        /** Check if a file matches any exclusion pattern. */
         public boolean matches(ProjectFile file) {
             return matchesFilePatternStatic(file, compiledPatterns);
+        }
+
+        /**
+         * Check if a path is excluded (for directory prefix matching).
+         * Uses fast prefix matching for SimpleName patterns.
+         */
+        public boolean isPathExcluded(String relativePath) {
+            return isPathExcludedStatic(relativePath, compiledPatterns);
         }
 
         public boolean isEmpty() {
@@ -220,8 +194,8 @@ public final class FileFilteringService {
      *
      * <p>Pattern semantics (all matching is case-insensitive):
      * <ul>
-     *   <li><b>Exact filename</b> (no wildcards, no slash): matched against filename only.
-     *       Example: {@code package-lock.json}
+     *   <li><b>Simple name</b> (no wildcards, no slash): matches exact filename OR directory prefix.
+     *       Example: {@code node_modules} excludes dir and contents, {@code package-lock.json} excludes file.
      *   <li><b>Extension pattern</b> ({@code *.ext} without additional wildcards in suffix):
      *       matched against filename only. Example: {@code *.svg}, {@code *.min.js}
      *   <li><b>Glob pattern</b> (contains {@code *}, {@code ?}, or {@code /}):
@@ -239,9 +213,10 @@ public final class FileFilteringService {
             String pattern = rawPattern.trim();
             if (pattern.isEmpty()) continue;
 
-            // Exact filename match (e.g., "package-lock.json")
+            // Simple name match (e.g., "node_modules", "package-lock.json")
+            // Matches exact filename OR directory prefix
             if (!pattern.contains("*") && !pattern.contains("?") && !pattern.contains("/")) {
-                compiled.add(new CompiledPattern.ExactFilename(pattern, pattern.toLowerCase(Locale.ROOT)));
+                compiled.add(new CompiledPattern.SimpleName(pattern, pattern.toLowerCase(Locale.ROOT)));
                 continue;
             }
 
@@ -264,35 +239,6 @@ public final class FileFilteringService {
             }
         }
         return compiled;
-    }
-
-    /** Check if a file matches any of the pre-compiled patterns. */
-    private boolean matchesFilePattern(ProjectFile file, List<CompiledPattern> compiledPatterns) {
-        if (compiledPatterns.isEmpty()) {
-            return false;
-        }
-
-        String filePath = toUnixPath(file.getRelPath());
-        String fileName = file.getFileName();
-        String lowerFileName = fileName.toLowerCase(Locale.ROOT);
-        String lowerFilePath = filePath.toLowerCase(Locale.ROOT);
-
-        for (var cp : compiledPatterns) {
-            boolean matched =
-                    switch (cp) {
-                        case CompiledPattern.ExactFilename ef -> lowerFileName.equals(ef.lowerName());
-                        case CompiledPattern.Extension ext -> lowerFileName.endsWith(ext.lowerSuffix());
-                        case CompiledPattern.Glob g ->
-                            g.regex()
-                                    .matcher(g.matchFullPath() ? lowerFilePath : lowerFileName)
-                                    .matches();
-                    };
-            if (matched) {
-                logger.trace("File {} excluded by pattern: {}", filePath, cp.original());
-                return true;
-            }
-        }
-        return false;
     }
 
     /**
@@ -486,12 +432,49 @@ public final class FileFilteringService {
         for (var cp : compiledPatterns) {
             boolean matched =
                     switch (cp) {
-                        case CompiledPattern.ExactFilename ef -> lowerFileName.equals(ef.lowerName());
+                        case CompiledPattern.SimpleName sn ->
+                            // Match exact filename OR file is under a directory with this name
+                            lowerFileName.equals(sn.lowerName())
+                                    || lowerFilePath.startsWith(sn.lowerName() + "/")
+                                    || lowerFilePath.contains("/" + sn.lowerName() + "/");
                         case CompiledPattern.Extension ext -> lowerFileName.endsWith(ext.lowerSuffix());
                         case CompiledPattern.Glob g ->
                             g.regex()
                                     .matcher(g.matchFullPath() ? lowerFilePath : lowerFileName)
                                     .matches();
+                    };
+            if (matched) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Check if a path (file or directory) is excluded by any pattern.
+     * Uses fast prefix matching for SimpleName patterns.
+     */
+    private static boolean isPathExcludedStatic(String relativePath, List<CompiledPattern> compiledPatterns) {
+        if (compiledPatterns.isEmpty()) {
+            return false;
+        }
+
+        String path = toUnixPath(relativePath);
+        String lowerPath = path.toLowerCase(Locale.ROOT);
+        int lastSlash = lowerPath.lastIndexOf('/');
+        String lowerName = lastSlash >= 0 ? lowerPath.substring(lastSlash + 1) : lowerPath;
+
+        for (var cp : compiledPatterns) {
+            boolean matched =
+                    switch (cp) {
+                        case CompiledPattern.SimpleName sn ->
+                            // Path equals the name, or starts with name/, or contains /name/
+                            lowerPath.equals(sn.lowerName())
+                                    || lowerPath.startsWith(sn.lowerName() + "/")
+                                    || lowerPath.contains("/" + sn.lowerName() + "/")
+                                    || lowerPath.endsWith("/" + sn.lowerName());
+                        case CompiledPattern.Extension ext -> lowerName.endsWith(ext.lowerSuffix());
+                        case CompiledPattern.Glob g -> g.regex().matcher(lowerPath).matches();
                     };
             if (matched) {
                 return true;

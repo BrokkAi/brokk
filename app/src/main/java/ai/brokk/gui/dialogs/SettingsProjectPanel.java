@@ -215,8 +215,16 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private void populateBuildTab(SettingsDialog.SettingsData data) {
         // Build details - use pre-loaded data
         if (data.buildDetails() != null) {
-            updateExcludedDirectories(data.buildDetails().excludedDirectories());
-            updateExcludedFilePatterns(data.buildDetails().excludedFilePatterns());
+            // Split exclusion patterns: simple names go to directories, patterns with wildcards go to file patterns
+            var exclusions = data.buildDetails().exclusionPatterns();
+            var directories = exclusions.stream()
+                    .filter(p -> !p.contains("*") && !p.contains("?"))
+                    .toList();
+            var filePatterns = exclusions.stream()
+                    .filter(p -> p.contains("*") || p.contains("?"))
+                    .toList();
+            updateExcludedDirectories(directories);
+            updateExcludedFilePatterns(filePatterns);
         } else {
             updateExcludedDirectories(List.of());
             updateExcludedFilePatterns(List.of());
@@ -1397,38 +1405,42 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         try {
             var currentDetails = project.loadBuildDetails();
 
-            // Directory exclusions
+            // Directory exclusions (simple names/paths without wildcards)
             var rawExclusions = Collections.list(excludedDirectoriesListModel.elements());
             var canonicalized =
                     PathNormalizer.canonicalizeAllForProject(rawExclusions, project.getMasterRootPathForConfig());
-            // Preserve case-insensitive de-duplication for stability in UI and persistence
-            Set<String> excludesSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-            excludesSet.addAll(canonicalized);
 
-            // File pattern exclusions
+            // File pattern exclusions (patterns with wildcards)
             var rawPatterns = Collections.list(excludedFilePatternsListModel.elements());
-            Set<String> patternsSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-            patternsSet.addAll(rawPatterns);
+
+            // Merge both into unified exclusion patterns
+            Set<String> exclusionPatterns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+            exclusionPatterns.addAll(canonicalized);
+            exclusionPatterns.addAll(rawPatterns);
 
             var newDetails = new BuildDetails(
                     currentDetails.buildLintCommand(),
                     currentDetails.testAllCommand(),
                     currentDetails.testSomeCommand(),
-                    excludesSet,
-                    patternsSet,
+                    exclusionPatterns,
                     currentDetails.environmentVariables());
 
             if (!newDetails.equals(currentDetails)) {
                 project.saveBuildDetails(newDetails);
                 logger.debug(
-                        "Saved CI exclusions from Code Intelligence panel into BuildDetails: dirs={}, patterns={}",
-                        excludesSet,
-                        patternsSet);
+                        "Saved CI exclusions from Code Intelligence panel into BuildDetails: patterns={}",
+                        exclusionPatterns);
             }
 
-            // Refresh the UI to reflect canonicalized values
-            updateExcludedDirectories(excludesSet);
-            updateExcludedFilePatterns(patternsSet);
+            // Refresh the UI to reflect canonicalized values (split back for display)
+            var directories = exclusionPatterns.stream()
+                    .filter(p -> !p.contains("*") && !p.contains("?"))
+                    .toList();
+            var filePatterns = exclusionPatterns.stream()
+                    .filter(p -> p.contains("*") || p.contains("?"))
+                    .toList();
+            updateExcludedDirectories(directories);
+            updateExcludedFilePatterns(filePatterns);
         } catch (Exception e) {
             logger.warn("Failed to persist CI exclusions before applying build settings: {}", e.toString(), e);
         }

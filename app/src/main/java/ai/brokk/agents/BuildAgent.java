@@ -23,6 +23,9 @@ import ai.brokk.util.Environment;
 import ai.brokk.util.EnvironmentPython;
 import ai.brokk.util.ExecutorConfig;
 import ai.brokk.util.Messages;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
@@ -317,30 +320,31 @@ public class BuildAgent {
                 %s
                 Only fall back to the bare command (`gradle`, `mvn` …) when no wrapper script is present.
 
-                A baseline set of excluded directories has been established from build conventions and .gitignore.
-                When you use `reportBuildDetails`, the `excludedDirectories` parameter should contain *additional* directories
+                A baseline set of exclusions has been established from build conventions and .gitignore.
+                When you use `reportBuildDetails`, the `exclusionPatterns` parameter should contain *additional* patterns
                 you identify that should be excluded from code intelligence, beyond this baseline.
-                IMPORTANT: Only provide literal directory paths for excludedDirectories. DO NOT use glob patterns there.
 
-                Additionally, identify file patterns that should be excluded from code intelligence analysis.
-                Use the `excludedFilePatterns` parameter to specify glob patterns for files that add cost without value.
+                The `exclusionPatterns` parameter accepts two types of patterns:
+                - Simple names (e.g., 'node_modules', 'vendor', 'package-lock.json') exclude directories with that name (and all contents) OR files with that exact name
+                - Glob patterns (e.g., '*.svg', '**/test/resources/**') match file paths using wildcards
+
                 Look for patterns specific to this project. Examples of common exclusions include:
                 - Lock files (e.g., package-lock.json, yarn.lock, Cargo.lock, poetry.lock, go.sum)
                 - Binary/media files (e.g., *.svg, *.png, *.woff, *.ttf)
                 - Minified files (e.g., *.min.js, *.min.css)
-                - Generated code from build tools (e.g., protobuf outputs, code generator outputs in generated/ or gen/ directories)
-                - Vendored dependencies (e.g., **/vendor/**, **/node_modules/** if not gitignored)
+                - Generated code directories (e.g., generated, gen)
+                - Vendored dependencies (e.g., vendor, node_modules if not gitignored)
                 - Large test data files (e.g., **/testdata/*.json, **/fixtures/*.xml) - but NOT test code itself
                 - Large data files or logs
 
-                Use `**/` prefix for directory patterns that should match at any depth (e.g., `**/build/**`, `**/node_modules/**`, `**/target/**` match both `build/` and `subproject/build/`).
+                Use `**/` prefix for patterns that should match at any depth (e.g., `**/build/**` matches both `build/` and `subproject/build/`).
 
                 Do NOT exclude: configuration files, type definitions (*.d.ts, ddl files, etc), schema files (OpenAPI, GraphQL, Protobuf sources, etc), or test code.
 
                 This project's primary language is %s. Consider language-specific exclusions that are appropriate.
 
                 Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
-                The reportBuildDetails tool expects exactly five parameters: buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, and excludedFilePatterns.
+                The reportBuildDetails tool expects exactly four parameters: buildLintCommand, testAllCommand, testSomeCommand, and exclusionPatterns.
                 """
                         .formatted(
                                 wrapperScriptInstruction,
@@ -369,38 +373,28 @@ public class BuildAgent {
                             "Command template to run specific tests using Mustache templating. Should use either a {{classes}}, {{fqclasses}}, or a {{files}} variable. Again, if no class- or file- based framework is in use, leave it blank.")
                     String testSomeCommand,
             @P(
-                            "List of directories to exclude from code intelligence (e.g., generated code, build artifacts). Use literal paths, not glob patterns.")
-                    List<String> excludedDirectories,
-            @P(
-                            "List of file patterns to exclude from code intelligence (e.g., '*.svg', 'package-lock.json', '**/test/resources/**'). Glob patterns are allowed here.")
-                    List<String> excludedFilePatterns) {
+                            "List of patterns to exclude from code intelligence. Simple names (e.g., 'node_modules', 'vendor') exclude directories and exact filenames. Glob patterns (e.g., '*.svg', '**/test/resources/**') match file paths.")
+                    List<String> exclusionPatterns) {
         // Combine baseline excluded directories with those suggested by the LLM
-        // Filter out glob patterns defensively for directory exclusions
-        var finalDirExcludes = Stream.concat(this.currentExcludedDirectories.stream(), excludedDirectories.stream())
+        var finalPatterns = Stream.concat(this.currentExcludedDirectories.stream(), exclusionPatterns.stream())
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
-                .filter(s -> !containsGlobPattern(s))
-                .map(s -> Path.of(s).normalize())
-                .map(Path::toString)
-                .collect(Collectors.toSet());
-
-        // Process file patterns (glob patterns are allowed here)
-        var finalFilePatterns = excludedFilePatterns.stream()
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
+                .map(s -> {
+                    // Normalize simple directory names (no wildcards, no path separators)
+                    if (!containsGlobPattern(s) && !s.contains("/") && !s.contains("\\")) {
+                        return Path.of(s).normalize().toString();
+                    }
+                    return s;
+                })
                 .collect(Collectors.toSet());
 
         this.reportedDetails = new BuildDetails(
                 buildLintCommand,
                 testAllCommand,
                 testSomeCommand,
-                finalDirExcludes,
-                finalFilePatterns,
+                finalPatterns,
                 defaultEnvForProject());
-        logger.debug(
-                "reportBuildDetails tool executed. Excluded directories: {}, File patterns: {}",
-                finalDirExcludes,
-                finalFilePatterns);
+        logger.debug("reportBuildDetails tool executed. Exclusion patterns: {}", finalPatterns);
         return "Build details report received and processed.";
     }
 
@@ -418,13 +412,13 @@ public class BuildAgent {
     }
 
     /** Holds semi-structured information about a project's build process */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record BuildDetails(
             String buildLintCommand,
             String testAllCommand,
             String testSomeCommand,
-            @JsonDeserialize(as = java.util.LinkedHashSet.class) Set<String> excludedDirectories,
             @JsonDeserialize(as = java.util.LinkedHashSet.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
-                    Set<String> excludedFilePatterns,
+                    Set<String> exclusionPatterns,
             @JsonDeserialize(as = java.util.LinkedHashMap.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
                     Map<String, String> environmentVariables) {
 
@@ -433,11 +427,39 @@ public class BuildAgent {
                 String buildLintCommand,
                 String testAllCommand,
                 String testSomeCommand,
-                Set<String> excludedDirectories) {
-            this(buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, Set.of(), Map.of());
+                Set<String> exclusionPatterns) {
+            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, Map.of());
         }
 
-        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), Set.of(), Map.of());
+        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), Map.of());
+
+        /**
+         * Migrate legacy excludedDirectories to exclusionPatterns.
+         * Called during JSON deserialization for backward compatibility.
+         */
+        @JsonCreator
+        public static BuildDetails fromJson(
+                @JsonProperty("buildLintCommand") String buildLintCommand,
+                @JsonProperty("testAllCommand") String testAllCommand,
+                @JsonProperty("testSomeCommand") String testSomeCommand,
+                @JsonProperty("exclusionPatterns") Set<String> exclusionPatterns,
+                @JsonProperty("excludedDirectories") Set<String> excludedDirectories,
+                @JsonProperty("environmentVariables") Map<String, String> environmentVariables) {
+            // Migrate legacy excludedDirectories to exclusionPatterns
+            Set<String> patterns = new java.util.LinkedHashSet<>();
+            if (exclusionPatterns != null) {
+                patterns.addAll(exclusionPatterns);
+            }
+            if (excludedDirectories != null) {
+                patterns.addAll(excludedDirectories);
+            }
+            return new BuildDetails(
+                    buildLintCommand != null ? buildLintCommand : "",
+                    testAllCommand != null ? testAllCommand : "",
+                    testSomeCommand != null ? testSomeCommand : "",
+                    patterns,
+                    environmentVariables != null ? environmentVariables : Map.of());
+        }
     }
 
     /** Determine the best verification command using the provided Context (no reliance on CM.topContext()). */

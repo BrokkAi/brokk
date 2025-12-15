@@ -349,8 +349,11 @@ public class Languages {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
-            var excludedDirStrings = project.getExcludedDirectories();
-            var excludedPaths = excludedDirStrings.stream().map(Path::of).collect(Collectors.toSet());
+            // Filter exclusion patterns for directory-like entries (no wildcards)
+            var excludedPaths = project.getExclusionPatterns().stream()
+                    .filter(p -> !p.contains("*") && !p.contains("?"))
+                    .map(Path::of)
+                    .collect(Collectors.toSet());
             return new SqlAnalyzer(project, excludedPaths);
         }
 

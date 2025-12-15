@@ -81,9 +81,9 @@ public class BuildDetailsPathNormalizationTest {
         // Assert: canonicalized exclusions in order
         var expectedCanonicalOrder = List.of("bin", "gradle", "build", "subdir/vendor", "/nbdist", "absUnder");
         assertEquals(
-                expectedCanonicalOrder.size(), parsed1.excludedDirectories().size(), "Unexpected excludes size");
+                expectedCanonicalOrder.size(), parsed1.exclusionPatterns().size(), "Unexpected excludes size");
         assertIterableEquals(
-                expectedCanonicalOrder, parsed1.excludedDirectories(), "Exclusions not canonicalized as expected");
+                expectedCanonicalOrder, parsed1.exclusionPatterns(), "Exclusions not canonicalized as expected");
 
         // Assert: JSON stability across subsequent save of canonical content
         project.saveBuildDetails(parsed1);
@@ -93,20 +93,19 @@ public class BuildDetailsPathNormalizationTest {
     }
 
     @Test
-    void testLegacyJson_withoutFilePatterns_loadsWithEmptySet() throws Exception {
-        // Old JSON format without excludedFilePatterns field - should deserialize with empty set
+    void testLegacyJson_migratesExcludedDirectories() throws Exception {
+        // Old JSON format with excludedDirectories - should migrate to exclusionPatterns
         String oldJson =
                 """
             {"buildLintCommand":"mvn compile","testAllCommand":"mvn test","testSomeCommand":"",\
-            "excludedDirectories":["target"],"environmentVariables":{}}
+            "excludedDirectories":["target","build"],"environmentVariables":{}}
             """;
 
         var details = MAPPER.readValue(oldJson, BuildAgent.BuildDetails.class);
 
-        assertNotNull(details.excludedFilePatterns(), "excludedFilePatterns should not be null");
-        assertTrue(details.excludedFilePatterns().isEmpty(), "excludedFilePatterns should be empty for legacy JSON");
+        // Legacy excludedDirectories should be migrated to exclusionPatterns
         assertEquals("mvn compile", details.buildLintCommand());
-        assertEquals(Set.of("target"), details.excludedDirectories());
+        assertEquals(Set.of("target", "build"), details.exclusionPatterns());
     }
 
     @Test
@@ -136,13 +135,13 @@ public class BuildDetailsPathNormalizationTest {
         // Assert: canonicalization occurred on load
         // Expected: "build", "/nbdist" remains absolute (outside project), "foo", "out"
         Set<String> expectedCanonical = Set.of("build", "/nbdist", "foo", "out");
-        assertEquals(expectedCanonical, loaded.excludedDirectories(), "Loaded exclusions should be canonicalized");
+        assertEquals(expectedCanonical, loaded.exclusionPatterns(), "Loaded exclusions should be canonicalized");
 
         // Act: save back and ensure canonical JSON now persisted
         project.saveBuildDetails(loaded);
         Properties props2 = loadProps(propsFile);
         var persisted = parseDetailsFromProps(props2);
-        assertEquals(expectedCanonical, persisted.excludedDirectories(), "Persisted exclusions should be canonical");
+        assertEquals(expectedCanonical, persisted.exclusionPatterns(), "Persisted exclusions should be canonical");
 
         // Optional stability check on rewrite
         String jsonAfterRewrite = props2.getProperty("buildDetailsJson");

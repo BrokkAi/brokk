@@ -411,19 +411,22 @@ public interface IProject extends AutoCloseable {
         return Set.of();
     }
 
-    default Set<String> getExcludedDirectories() {
-        return Set.of();
-    }
-
-    default Set<String> getExcludedFilePatterns() {
+    /**
+     * Returns the set of exclusion patterns for code intelligence.
+     * Patterns can be simple names (e.g., "node_modules") or globs (e.g., "*.svg").
+     */
+    default Set<String> getExclusionPatterns() {
         return Set.of();
     }
 
     /**
-     * Check if a file matches any excluded file pattern.
+     * Check if a path (file or directory) is excluded by any pattern.
      * Implementations should cache compiled patterns for efficiency.
+     *
+     * @param relativePath the relative path to check (e.g., "src/main/java" or "node_modules/foo/bar.js")
+     * @return true if the path is excluded
      */
-    default boolean isFileExcludedByPattern(ProjectFile file) {
+    default boolean isPathExcluded(String relativePath) {
         return false;
     }
 
