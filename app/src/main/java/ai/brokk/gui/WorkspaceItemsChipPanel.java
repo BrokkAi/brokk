@@ -2,9 +2,9 @@ package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.gui.FragmentColorUtils.ChipKind;
 import ai.brokk.gui.search.ScrollingUtils;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -205,21 +205,16 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
                 MainProject.getForceToolEmulation(),
                 readOnly);
 
-        boolean force = MainProject.getForceToolEmulation();
-
-        var visibleFragments =
-                fragments.stream().filter(f -> force || hasRenderableContent(f)).toList();
-
-        var summaries = visibleFragments.stream()
-                .filter(f -> classify(f) == WorkspaceChip.ChipKind.SUMMARY)
+        var summaries = fragments.stream()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.SKELETON)
                 .toList();
-        var nonSummaryFragments = visibleFragments.stream()
-                .filter(f -> classify(f) != WorkspaceChip.ChipKind.SUMMARY)
+        var nonSummaryFragments = fragments.stream()
+                .filter(f -> f.getType() != ContextFragment.FragmentType.SKELETON)
                 .toList();
 
         logger.debug(
                 "updateChips: {} visible ({} summaries, {} others) out of {}",
-                visibleFragments.size(),
+                fragments.size(),
                 summaries.size(),
                 nonSummaryFragments.size(),
                 fragments.size());
@@ -230,13 +225,6 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
         }
 
         var orderIds = nonSummaryFragments.stream().map(ContextFragment::id).toList();
-
-        boolean anyRenderableSummary = summaries.stream().anyMatch(f -> force || hasRenderableContent(f));
-        var renderableSummaries = anyRenderableSummary
-                ? summaries.stream()
-                        .filter(f -> force || hasRenderableContent(f))
-                        .toList()
-                : java.util.List.<ContextFragment>of();
 
         SwingUtilities.invokeLater(() -> {
             // Snapshot current ids to avoid races and inconsistent views during add/remove planning.
@@ -259,21 +247,15 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
 
             for (var frag : toAddFrags) {
                 var chip = createChip(frag);
-                if (chip != null) {
-                    add(chip);
-                    chipById.put(frag.id(), chip);
-                }
+                add(chip);
+                chipById.put(frag.id(), chip);
             }
 
             int z = 0;
             for (var id : orderIds) {
                 var chip = chipById.get(id);
                 if (chip != null) {
-                    try {
-                        setComponentZOrder(chip, z++);
-                    } catch (Exception ex) {
-                        logger.debug("Failed to set component z-order for fragment: {}", id, ex);
-                    }
+                    setComponentZOrder(chip, z++);
                 }
             }
 
@@ -284,30 +266,20 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
                 }
             }
 
-            if (!anyRenderableSummary) {
+            if (summaries.isEmpty()) {
                 if (syntheticSummaryChip != null) {
                     remove(syntheticSummaryChip);
                     syntheticSummaryChip = null;
                 }
+            } else if (syntheticSummaryChip == null) {
+                syntheticSummaryChip = createSyntheticSummaryChip(summaries);
+                add(syntheticSummaryChip);
             } else {
-                if (renderableSummaries.isEmpty()) {
-                    logger.debug("No renderable summaries for synthetic chip; skipping.");
-                } else if (syntheticSummaryChip == null) {
-                    syntheticSummaryChip = createSyntheticSummaryChip(renderableSummaries);
-                    if (syntheticSummaryChip != null) {
-                        add(syntheticSummaryChip);
-                    }
-                } else {
-                    syntheticSummaryChip.updateSummaries(renderableSummaries);
-                }
+                syntheticSummaryChip.updateSummaries(summaries);
+            }
 
-                if (syntheticSummaryChip != null) {
-                    try {
-                        setComponentZOrder(syntheticSummaryChip, getComponentCount() - 1);
-                    } catch (Exception ex) {
-                        logger.debug("Failed to set component z-order for synthetic summary chip", ex);
-                    }
-                }
+            if (syntheticSummaryChip != null) {
+                setComponentZOrder(syntheticSummaryChip, getComponentCount() - 1);
             }
 
             revalidate();
@@ -324,76 +296,33 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
         });
     }
 
-    private WorkspaceChip.ChipKind classify(ContextFragment fragment) {
+    private ChipKind classify(ContextFragment fragment) {
+        if (!fragment.isValid()) {
+            return ChipKind.INVALID;
+        }
         if (fragment.getType().isEditable()) {
-            return WorkspaceChip.ChipKind.EDIT;
+            return ChipKind.EDIT;
         }
         if (fragment.getType() == ContextFragment.FragmentType.SKELETON) {
-            return WorkspaceChip.ChipKind.SUMMARY;
+            return ChipKind.SUMMARY;
         }
         if (fragment.getType() == ContextFragment.FragmentType.HISTORY) {
-            return WorkspaceChip.ChipKind.HISTORY;
+            return ChipKind.HISTORY;
         }
-        return WorkspaceChip.ChipKind.OTHER;
+        return ChipKind.OTHER;
     }
 
-    /**
-     * Conservative predicate deciding whether a fragment has visible/renderable content.
-     * <p>
-     * Rules:
-     * - Immediately return true for ComputedFragment or any dynamic fragment.
-     * - Always keep output fragments (history / outputs).
-     * - For static non-computed text fragments: require non-blank text.
-     * - For static non-text fragments: require at least an image, at least one file, or a non-empty description.
-     * <p>
-     * Any exception during evaluation causes the method to return true (fail-safe: show the fragment).
-     */
-    private boolean hasRenderableContent(ContextFragment f) {
-        try {
-            // Always render output fragments (e.g., HISTORY, TASK, SEARCH) even while async text/desc is loading
-            if (f.getType().isOutput()) {
-                return true;
-            }
-
-            if (f.isText()) {
-                String txt = f.text().renderNowOr("(Loading text...)");
-                return !txt.trim().isEmpty();
-            } else {
-                boolean hasImage = f instanceof ContextFragment.ImageFragment;
-                Set<ProjectFile> files = f.files().renderNowOr(Set.of());
-                String desc = f.description().renderNowOr("(Loading image...)");
-                return hasImage || !files.isEmpty() || !desc.trim().isEmpty();
-            }
-        } catch (Exception ex) {
-            logger.debug("hasRenderableContent threw for fragment {}", f, ex);
-            return true;
-        }
-    }
-
-    private @Nullable WorkspaceChip createChip(ContextFragment fragment) {
-        if (!MainProject.getForceToolEmulation() && !hasRenderableContent(fragment)) {
-            logger.debug("Skipping creation of chip for fragment (no renderable content): {}", fragment);
-            return null;
-        }
+    private WorkspaceChip createChip(ContextFragment fragment) {
         var kind = classify(fragment);
-        var chip = new WorkspaceChip(chrome, contextManager, () -> readOnly, onHover, onRemoveFragment, fragment, kind);
+        var chip = new WorkspaceChip(
+                chrome, contextManager, () -> readOnly, onHover, onRemoveFragment, Set.of(fragment), kind);
         chip.setBorder(new EmptyBorder(0, 0, 0, 0));
         return chip;
     }
 
-    private @Nullable WorkspaceChip.SummaryChip createSyntheticSummaryChip(List<ContextFragment> summaries) {
-        if (summaries.isEmpty()) return null;
-
-        var renderableSummaries = summaries.stream()
-                .filter(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f))
-                .toList();
-        if (renderableSummaries.isEmpty()) {
-            logger.debug("No renderable summaries for synthetic chip; skipping creation.");
-            return null;
-        }
-
+    private WorkspaceChip.SummaryChip createSyntheticSummaryChip(List<ContextFragment> summaries) {
         var chip = new WorkspaceChip.SummaryChip(
-                chrome, contextManager, () -> readOnly, onHover, onRemoveFragment, renderableSummaries);
+                chrome, contextManager, () -> readOnly, onHover, onRemoveFragment, summaries);
         chip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         return chip;
     }

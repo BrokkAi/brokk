@@ -704,9 +704,10 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             return this.segments;
         }
 
-        // Compute token totals only for text-like and output fragments
+        // Compute token totals only for text-like and output fragments, excluding INVALID chips
         var usable = fragments.stream()
                 .filter(f -> f.isText() || f.getType().isOutput())
+                .filter(f -> FragmentColorUtils.classify(f) != FragmentColorUtils.ChipKind.INVALID)
                 .toList();
 
         if (usable.isEmpty()) {
@@ -870,16 +871,16 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             if (w.width <= 0) continue;
 
             if (w.item.isSummaryGroup) {
-                Color bg = FragmentColorUtils.getBackgroundColor(FragmentColorUtils.FragmentKind.SUMMARY, isDark);
+                Color bg = FragmentColorUtils.getBackgroundColor(FragmentColorUtils.ChipKind.SUMMARY, isDark);
                 Set<ContextFragment> segmentFrags = Set.copyOf(summaries);
                 out.add(new Segment(x, w.width, bg, segmentFrags, true));
             } else if (w.item.isOther) {
-                Color bg = FragmentColorUtils.getBackgroundColor(FragmentColorUtils.FragmentKind.OTHER, isDark);
+                Color bg = FragmentColorUtils.getBackgroundColor(FragmentColorUtils.ChipKind.OTHER, isDark);
                 Set<ContextFragment> segmentFrags = Set.copyOf(small);
                 out.add(new Segment(x, w.width, bg, segmentFrags, false));
             } else {
                 ContextFragment frag = Objects.requireNonNull(w.item.frag);
-                FragmentColorUtils.FragmentKind kind = FragmentColorUtils.classify(frag);
+                FragmentColorUtils.ChipKind kind = FragmentColorUtils.classify(frag);
                 Color bg = FragmentColorUtils.getBackgroundColor(kind, isDark);
                 Set<ContextFragment> segmentFrags = Set.of(frag);
                 out.add(new Segment(x, w.width, bg, segmentFrags, false));

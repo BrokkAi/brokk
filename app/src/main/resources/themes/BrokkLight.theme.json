@@ -108,6 +108,10 @@
       "chip_tasklist_fg": "#0D4752",
       "chip_tasklist_border": "#79D0D6",
 
+      "chip_invalid_bg": "#F8E8E8",
+      "chip_invalid_fg": "#8B3A3A",
+      "chip_invalid_border": "#D4A0A0",
+
       "windowBorder": {
         "enabled": false,
         "color": "#808080",
