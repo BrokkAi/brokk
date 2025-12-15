@@ -46,7 +46,7 @@ public final class AutoPlayGateDialog extends BaseThemedDialog {
         root.setLayout(new BorderLayout(8, 8));
         root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        String introText = "There are incomplete tasks in this session. This action will replace your current task list. Continue?";
+        String introText = "There are incomplete tasks in this session. Running Lutz or Plan will replace your current task list. Continue?";
 
         var intro = new JTextArea(introText);
         intro.setEditable(false);

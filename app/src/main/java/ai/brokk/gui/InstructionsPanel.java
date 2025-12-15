@@ -2604,9 +2604,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         private static final String MODE_TOOLTIP_ASK =
                 "<b>Ask Mode:</b> An Ask agent giving you general purpose answers to a question or a request based on the files in your context.";
         private static final String MODE_TOOLTIP_LUTZ =
-                "<b>Lutz Mode:</b> Performs an \"agentic\" search across your entire project to find code relevant to your prompt and will generate a plan for you by creating a list of tasks.";
+                "<b>Lutz Mode:</b> Performs an \"agentic\" search across your entire project to find code relevant to your prompt and will generate a plan for you by creating a list of tasks. If you have incomplete tasks, Brokk will ask you to confirm replacing the current task list before proceeding. Appending to existing task lists is hidden for now and reserved for future Architect-only usage.";
         private static final String MODE_TOOLTIP_PLAN =
-                "<b>Plan Mode:</b> Performs an agentic search and generates a task list without auto-executing tasks.";
+                "<b>Plan Mode:</b> Performs an agentic search and generates a task list without auto-executing tasks. If you have incomplete tasks, Brokk will ask you to confirm replacing the current task list before proceeding. Appending to existing task lists is hidden for now and reserved for future Architect-only usage.";
         private boolean dropdownEnabled = true;
 
         public ActionSplitButton(Supplier<Boolean> isActionRunning, String defaultMode) {
@@ -3103,12 +3103,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     case ACTION_PLAN -> {
                         title = "Plan Mode";
                         desc =
-                                "Plan: Performs an agentic search across your entire project, gathers the right context, and generates a task list without auto-executing the tasks.";
+                                "Plan: Performs an agentic search across your entire project, gathers the right context, and generates a task list without auto-executing the tasks. If you have incomplete tasks, you will be asked to confirm replacing the current task list before proceeding. Appending to the existing list is hidden for now and reserved for future Architect-only usage.";
                     }
                     case ACTION_LUTZ -> {
                         title = "Lutz Mode";
                         desc =
-                                "Lutz: Performs an \"agentic\" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding. It is a great way to kick off work with strong context and a clear plan.";
+                                "Lutz: Performs an \"agentic\" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding. It is a great way to kick off work with strong context and a clear plan. If you have incomplete tasks, you will be asked to confirm replacing the current task list before proceeding. Appending to the existing list is hidden for now and reserved for future Architect-only usage.";
                     }
                     default -> {
                         title = "Lutz Mode";

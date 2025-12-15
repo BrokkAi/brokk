@@ -468,7 +468,8 @@ public class WorkspaceTools {
 
     /**
      * Append new tasks to the existing task list without modifying or removing existing tasks.
-     * Deprecated: reserved for future Architect usage and not exposed as a tool.
+     * Deprecated: hidden for now (not exposed to Search/Plan flows); reserved for future Architect-only usage.
+     * Prefer {@link #createOrReplaceTaskList(String, java.util.List)} in current flows where replacement is intended.
      */
     @Deprecated
     public String appendTaskList(
