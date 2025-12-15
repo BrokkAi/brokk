@@ -419,6 +419,14 @@ public interface IProject extends AutoCloseable {
         return Set.of();
     }
 
+    /**
+     * Check if a file matches any excluded file pattern.
+     * Implementations should cache compiled patterns for efficiency.
+     */
+    default boolean isFileExcludedByPattern(ProjectFile file) {
+        return false;
+    }
+
     default IConsoleIO getConsoleIO() {
         throw new UnsupportedOperationException();
     }

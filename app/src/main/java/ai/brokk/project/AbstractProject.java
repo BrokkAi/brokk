@@ -60,6 +60,11 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     // File filtering service that encapsulates baseline exclusions + gitignore handling.
     protected final FileFilteringService fileFilteringService;
 
+    // Cached pattern matcher for file exclusions (invalidated when patterns change)
+    private Set<String> cachedPatternSet = Set.of();
+    private FileFilteringService.FilePatternMatcher cachedPatternMatcher =
+            FileFilteringService.createPatternMatcher(Set.of());
+
     public AbstractProject(Path root) {
         assert root.isAbsolute() : root;
         this.root = root.toAbsolutePath().normalize();
@@ -795,5 +800,16 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     public Set<String> getExcludedFilePatterns() {
         return loadBuildDetails().excludedFilePatterns();
+    }
+
+    @Override
+    public boolean isFileExcludedByPattern(ProjectFile file) {
+        var patterns = getExcludedFilePatterns();
+        // Check if cache is still valid
+        if (!patterns.equals(cachedPatternSet)) {
+            cachedPatternSet = patterns;
+            cachedPatternMatcher = FileFilteringService.createPatternMatcher(patterns);
+        }
+        return cachedPatternMatcher.matches(file);
     }
 }

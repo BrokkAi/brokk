@@ -185,6 +185,37 @@ public final class FileFilteringService {
     }
 
     /**
+     * A cacheable pattern matcher that holds pre-compiled patterns.
+     * Create once via {@link #createPatternMatcher(Set)} and reuse for multiple file checks.
+     */
+    public static final class FilePatternMatcher {
+        private final List<CompiledPattern> compiledPatterns;
+
+        private FilePatternMatcher(List<CompiledPattern> compiledPatterns) {
+            this.compiledPatterns = compiledPatterns;
+        }
+
+        public boolean matches(ProjectFile file) {
+            return matchesFilePatternStatic(file, compiledPatterns);
+        }
+
+        public boolean isEmpty() {
+            return compiledPatterns.isEmpty();
+        }
+    }
+
+    /**
+     * Create a reusable pattern matcher from a set of patterns.
+     * The returned matcher can be cached and reused for efficient repeated matching.
+     */
+    public static FilePatternMatcher createPatternMatcher(Set<String> patterns) {
+        if (patterns.isEmpty()) {
+            return new FilePatternMatcher(List.of());
+        }
+        return new FilePatternMatcher(compilePatterns(patterns));
+    }
+
+    /**
      * Pre-compile file patterns for efficient reuse across many files.
      *
      * <p>Pattern semantics (all matching is case-insensitive):
@@ -435,7 +466,7 @@ public final class FileFilteringService {
      * @return true if the file matches any pattern
      */
     public static boolean matchesAnyFilePattern(ProjectFile file, Set<String> patterns) {
-        if (patterns == null || patterns.isEmpty()) {
+        if (patterns.isEmpty()) {
             return false;
         }
         var compiled = compilePatterns(patterns);

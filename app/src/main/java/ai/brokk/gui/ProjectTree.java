@@ -10,7 +10,6 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.util.ContextSizeGuard;
-import ai.brokk.project.FileFilteringService;
 import ai.brokk.project.IProject;
 import ai.brokk.util.FileManagerUtil;
 import ai.brokk.util.PathNormalizer;
@@ -933,8 +932,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
     }
 
     private boolean isMatchedByFilePattern(ProjectFile projectFile) {
-        Set<String> patterns = project.getExcludedFilePatterns();
-        return FileFilteringService.matchesAnyFilePattern(projectFile, patterns);
+        return project.isFileExcludedByPattern(projectFile);
     }
 
     /**
