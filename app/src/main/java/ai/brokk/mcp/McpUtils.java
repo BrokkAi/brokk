@@ -174,9 +174,14 @@ public class McpUtils {
                     projectRoot,
                     client -> client.listTools().map(McpSchema.ListToolsResult::tools));
         } catch (Exception e) {
-            logger.error("Failed to fetch tools from MCP server at {}: {}", url, e.getMessage());
+            Throwable rootCause = e;
+            while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
+                rootCause = rootCause.getCause();
+            }
+            String rootMessage = rootCause.getMessage() != null ? rootCause.getMessage() : rootCause.getClass().getSimpleName();
+            logger.error("Failed to fetch tools from MCP server at {}: {} (root cause: {})", url, e.getMessage(), rootMessage);
             throw new IOException(
-                    "Failed to fetch tools. Ensure the server is a stateless, streamable HTTP MCP server.", e);
+                    "Failed to fetch tools from " + url + ": " + rootMessage + ". Ensure the server is a stateless, streamable HTTP MCP server.", e);
         }
     }
 
@@ -191,12 +196,18 @@ public class McpUtils {
                     projectRoot,
                     client -> client.listTools().map(McpSchema.ListToolsResult::tools));
         } catch (Exception e) {
+            Throwable rootCause = e;
+            while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
+                rootCause = rootCause.getCause();
+            }
+            String rootMessage = rootCause.getMessage() != null ? rootCause.getMessage() : rootCause.getClass().getSimpleName();
             logger.error(
-                    "Failed to fetch tools from MCP server on command '{} {}': {}",
+                    "Failed to fetch tools from MCP server on command '{} {}': {} (root cause: {})",
                     command,
                     String.join(" ", arguments),
-                    e.getMessage());
-            throw new IOException("Failed to fetch tools.", e);
+                    e.getMessage(),
+                    rootMessage);
+            throw new IOException("Failed to fetch tools: " + rootMessage, e);
         }
     }
 
@@ -212,9 +223,14 @@ public class McpUtils {
                         projectRoot,
                         client -> client.callTool(new McpSchema.CallToolRequest(toolName, arguments)));
             } catch (Exception e) {
-                logger.error("Failed to call tool '{}' from MCP server at {}: {}", toolName, url, e.getMessage());
+                Throwable rootCause = e;
+                while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
+                    rootCause = rootCause.getCause();
+                }
+                String rootMessage = rootCause.getMessage() != null ? rootCause.getMessage() : rootCause.getClass().getSimpleName();
+                logger.error("Failed to call tool '{}' from MCP server at {}: {} (root cause: {})", toolName, url, e.getMessage(), rootMessage);
                 throw new IOException(
-                        "Failed to fetch tools. Ensure the server is a stateless, streamable HTTP MCP server.", e);
+                        "Failed to call tool '" + toolName + "' from " + url + ": " + rootMessage + ". Ensure the server is a stateless, streamable HTTP MCP server.", e);
             }
         } else if (server instanceof StdioMcpServer stdioMcpServer) {
             try {
@@ -225,13 +241,19 @@ public class McpUtils {
                         projectRoot,
                         client -> client.callTool(new McpSchema.CallToolRequest(toolName, arguments)));
             } catch (Exception e) {
+                Throwable rootCause = e;
+                while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
+                    rootCause = rootCause.getCause();
+                }
+                String rootMessage = rootCause.getMessage() != null ? rootCause.getMessage() : rootCause.getClass().getSimpleName();
                 logger.error(
-                        "Failed to call tool '{}' from MCP server on command '{} {}': {} ",
+                        "Failed to call tool '{}' from MCP server on command '{} {}': {} (root cause: {})",
                         toolName,
                         stdioMcpServer.command(),
                         String.join(" ", stdioMcpServer.args()),
-                        e.getMessage());
-                throw new IOException("Failed to fetch tools.", e);
+                        e.getMessage(),
+                        rootMessage);
+                throw new IOException("Failed to call tool '" + toolName + "': " + rootMessage, e);
             }
         } else {
             throw new IOException(

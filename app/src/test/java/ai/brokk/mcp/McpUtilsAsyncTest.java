@@ -22,9 +22,8 @@ public class McpUtilsAsyncTest {
                 IOException.class,
                 () -> McpUtils.callToolAsync(server, "any-tool", Map.of(), null));
 
-        assertEquals(
-                "Failed to fetch tools. Ensure the server is a stateless, streamable HTTP MCP server.",
-                ex.getMessage());
+        assertTrue(ex.getMessage().startsWith("Failed to call tool 'any-tool' from"));
+        assertTrue(ex.getMessage().contains("Ensure the server is a stateless, streamable HTTP MCP server."));
     }
 
     @Test
@@ -40,7 +39,7 @@ public class McpUtilsAsyncTest {
                 IOException.class,
                 () -> McpUtils.callToolAsync(server, "any-tool", Map.of(), null));
 
-        assertEquals("Failed to fetch tools.", ex.getMessage());
+        assertTrue(ex.getMessage().startsWith("Failed to call tool 'any-tool':"));
     }
 
     @Test
