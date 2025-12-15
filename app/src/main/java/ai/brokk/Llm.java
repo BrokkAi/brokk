@@ -19,6 +19,7 @@ import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.exception.HttpException;
 import dev.langchain4j.exception.NonRetriableException;
+import dev.langchain4j.exception.PaymentRequiredException;
 import dev.langchain4j.exception.RetriableException;
 import dev.langchain4j.internal.ExceptionMapper;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -466,6 +467,10 @@ public class Llm {
 
         // At this point, latch has been counted down and we have a result or an error
         var error = errorRef.get();
+        // Reload list of available models if user has exhausted his budget
+        if (error instanceof PaymentRequiredException && contextManager instanceof ContextManager cm) {
+            cm.reloadService();
+        }
 
         if (error != null) {
             // If no partial text, just return null response
@@ -622,6 +627,9 @@ public class Llm {
         Throwable lastError = null;
         int attempt = 0;
         var messages = Messages.forLlm(rawMessages);
+        if (messages.isEmpty()) {
+            throw new IllegalArgumentException("Cannot send request with empty message list");
+        }
 
         StreamingResult response;
         while (attempt++ < maxAttempts) {

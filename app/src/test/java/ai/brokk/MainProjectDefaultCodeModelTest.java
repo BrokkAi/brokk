@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import ai.brokk.AbstractService.ModelConfig;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -60,7 +61,7 @@ class MainProjectDefaultCodeModelTest {
 
     @Test
     void testDefaultCodeModelIsClaudeHaiku45() {
-        ModelConfig config = testProject.getCodeModelConfig();
+        ModelConfig config = testProject.getModelConfig(ModelProperties.ModelType.CODE);
 
         assertNotNull(config, "Code model config should not be null");
         assertEquals(

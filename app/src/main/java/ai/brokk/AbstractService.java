@@ -5,6 +5,7 @@ import static java.lang.Math.min;
 
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties.ModelType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
 import dev.langchain4j.agent.tool.ToolSpecification;
@@ -44,13 +45,14 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     // Model name constants
     public static final String GPT_5 = "gpt-5";
+    public static final String GPT_5_2 = "gpt-5.2";
     public static final String GEMINI_2_5_PRO = "gemini-2.5-pro";
     public static final String GEMINI_2_0_FLASH = "gemini-2.0-flash";
-    public static final String GEMINI_2_5_FLASH = "gemini-2.5-flash";
     public static final String GPT_5_NANO = "gpt-5-nano";
     public static final String GPT_5_MINI = "gpt-5-mini";
-    public static final String SONNET_4_5 = "claude-sonnet-4-5";
+    public static final String GCF_1 = "grok-code-fast-1";
     public static final String HAIKU_4_5 = "claude-haiku-4-5";
+    public static final String OPUS_4_5 = "claude-opus-4-5";
     public static final String GEMINI_2_0_FLASH_LITE = "gemini-2.0-flash-lite";
 
     // these models are defined for low-latency use cases that don't require high intelligence
@@ -65,10 +67,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     // location -> model info (inner map is also immutable)
     protected Map<String, Map<String, Object>> modelInfoMap = Map.of();
 
-    // Default models - instance fields
-    protected StreamingChatModel quickModel = new UnavailableStreamingModel();
-    protected StreamingChatModel quickestModel = new UnavailableStreamingModel();
-    protected StreamingChatModel quickEditModel = new UnavailableStreamingModel();
+    // Special models
     protected SpeechToTextModel sttModel = new UnavailableSTT();
 
     public AbstractService(IProject project) {
@@ -501,7 +500,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     public boolean isLazy(StreamingChatModel model) {
         String modelName = nameOf(model);
-        return !(modelName.contains("gpt-5") && !modelName.contains("mini") && !modelName.contains("nano"));
+        return modelName.contains("haiku") || modelName.contains("flash");
     }
 
     public boolean requiresEmulatedTools(StreamingChatModel model) {
@@ -647,15 +646,15 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     public StreamingChatModel quickestModel() {
-        return quickestModel;
+        return getModel(ModelType.QUICKEST);
     }
 
     public StreamingChatModel quickModel() {
-        return quickModel;
+        return getModel(ModelType.QUICK);
     }
 
     public StreamingChatModel quickEditModel() {
-        return quickEditModel;
+        return getModel(ModelType.QUICK_EDIT);
     }
 
     public SpeechToTextModel sttModel() {
@@ -663,27 +662,29 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     public StreamingChatModel getScanModel() {
-        // First attempt: use project-configured scan model if available
-        try {
-            var cfg = project.getMainProject().getScanModelConfig();
-            var model = getModel(cfg);
-            if (model != null) {
-                return model;
-            }
-        } catch (Exception e) {
-            logger.debug(
-                    "Failed to get project-configured scan model, falling back to dynamic selection: {}",
-                    e.getMessage());
+        return getModel(ModelType.SCAN);
+    }
+
+    public StreamingChatModel getModel(ModelType type) {
+        var cfg = project.getModelConfig(type);
+        var model = getModel(cfg);
+        if (model != null) {
+            return model;
         }
 
-        // Fallback: dynamic selection preferring GEMINI_2_5_FLASH if available, else GPT_5_MINI
-        var modelName = modelLocations.containsKey(GEMINI_2_5_FLASH) ? GEMINI_2_5_FLASH : GPT_5_MINI;
-        var model = getModel(new ModelConfig(modelName, ReasoningLevel.DEFAULT));
-        if (model == null) {
-            logger.error("Failed to get scan model '{}'", modelName);
-            return new UnavailableStreamingModel();
+        cfg = type.defaultConfig();
+        model = getModel(cfg);
+        if (model != null) {
+            return model;
         }
-        return model;
+
+        cfg = type.freeConfig();
+        model = getModel(cfg);
+        if (model != null) {
+            return model;
+        }
+
+        return new UnavailableStreamingModel();
     }
 
     public boolean hasSttModel() {
@@ -692,8 +693,8 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     public boolean isOnline() {
         boolean hasUsableModel = modelLocations.keySet().stream().anyMatch(name -> !UNAVAILABLE.equals(name));
-        boolean quickModelAvailable = !(quickModel instanceof UnavailableStreamingModel);
-        return hasUsableModel && quickModelAvailable;
+        boolean quickestModelAvailable = !(quickestModel() instanceof UnavailableStreamingModel);
+        return hasUsableModel && quickestModelAvailable;
     }
 
     /** Interface for speech-to-text operations. */

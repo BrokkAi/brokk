@@ -166,6 +166,12 @@ public class ImportDependencyDialog {
 
             tabbedPane.addChangeListener(e -> updateImportButtonState());
 
+            // Select the tab for the project's primary language if available
+            var buildLanguage = project.getBuildLanguage();
+            if (languagePanels.containsKey(buildLanguage)) {
+                tabbedPane.setSelectedComponent(languagePanels.get(buildLanguage));
+            }
+
             mainPanel.add(tabbedPane, BorderLayout.CENTER);
 
             // Buttons
@@ -518,6 +524,10 @@ public class ImportDependencyDialog {
                 }
             }
 
+            // Close dialog immediately - copy will run in background
+            dialog.dispose();
+            bringDependenciesDialogToFront();
+
             chrome.getContextManager().submitBackgroundTask("Copying directory: " + sourcePath.getFileName(), () -> {
                 try {
                     Files.createDirectories(dependenciesRoot);
@@ -535,22 +545,15 @@ public class ImportDependencyDialog {
                     DependencyUpdater.writeLocalPathDependencyMetadata(
                             targetPath, sourcePath.toAbsolutePath().normalize());
                     SwingUtilities.invokeLater(() -> {
-                        dialog.dispose();
                         chrome.showNotification(
                                 IConsoleIO.NotificationRole.INFO,
                                 "Directory copied to " + targetPath + ". Reopen project to incorporate the new files.");
                         if (listener != null) listener.dependencyImportFinished(depName);
-                        bringDependenciesDialogToFront();
                     });
                 } catch (IOException ex) {
                     logger.error("Error copying directory {} to {}", sourcePath, targetPath, ex);
                     SwingUtilities.invokeLater(() -> {
-                        JOptionPane.showMessageDialog(
-                                dialog,
-                                "Error copying directory: " + ex.getMessage(),
-                                "Error",
-                                JOptionPane.ERROR_MESSAGE);
-                        importButton.setEnabled(true);
+                        chrome.toolError("Error copying directory: " + ex.getMessage(), "Error");
                     });
                 }
                 return null;
@@ -592,6 +595,10 @@ public class ImportDependencyDialog {
                 SwingUtilities.invokeLater(() -> listener.dependencyImportStarted(repoName));
             }
 
+            // Close dialog immediately - clone will run in background
+            dialog.dispose();
+            bringDependenciesDialogToFront();
+
             chrome.getContextManager().submitBackgroundTask("Cloning repository: " + repoUrl, () -> {
                 try {
                     Files.createDirectories(dependenciesRoot);
@@ -623,12 +630,10 @@ public class ImportDependencyDialog {
                         CloneOperationTracker.unregisterCloneOperation(targetPath);
 
                         SwingUtilities.invokeLater(() -> {
-                            dialog.dispose();
                             chrome.showNotification(
                                     IConsoleIO.NotificationRole.INFO,
                                     "Repository " + repoName + " imported successfully.");
                             if (listener != null) listener.dependencyImportFinished(repoName);
-                            bringDependenciesDialogToFront();
                         });
                     } catch (Exception postCloneException) {
                         CloneOperationTracker.unregisterCloneOperation(targetPath);
@@ -648,7 +653,6 @@ public class ImportDependencyDialog {
 
                     SwingUtilities.invokeLater(() -> {
                         chrome.toolError("Failed to import repository: " + ex.getMessage(), "Import Error");
-                        importButton.setEnabled(true);
                     });
                 }
                 return null;
