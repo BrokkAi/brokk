@@ -116,6 +116,41 @@ public class McpUtils {
         }
     }
 
+    private static <T> T withMcpAsyncClient(
+            URL url,
+            @Nullable String bearerToken,
+            @Nullable Path projectRoot,
+            Function<McpAsyncClient, Mono<T>> function) {
+        final var client = buildAsyncClient(url, bearerToken);
+        try {
+            client.initialize().block();
+            if (projectRoot != null) {
+                client.addRoot(new McpSchema.Root(projectRoot.toUri().toString(), "Project root path.")).block();
+            }
+            return function.apply(client).block();
+        } finally {
+            client.closeGracefully();
+        }
+    }
+
+    private static <T> T withMcpAsyncClient(
+            String command,
+            List<String> arguments,
+            Map<String, String> env,
+            @Nullable Path projectRoot,
+            Function<McpAsyncClient, Mono<T>> function) {
+        final var client = buildAsyncClient(command, arguments, env);
+        try {
+            client.initialize().block();
+            if (projectRoot != null) {
+                client.addRoot(new McpSchema.Root(projectRoot.toUri().toString(), "Project root path.")).block();
+            }
+            return function.apply(client).block();
+        } finally {
+            client.closeGracefully();
+        }
+    }
+
     public static List<McpSchema.Tool> fetchTools(McpServer server) throws IOException {
         if (server instanceof HttpMcpServer httpMcpServer) {
             return fetchTools(httpMcpServer.url(), httpMcpServer.bearerToken(), null);
