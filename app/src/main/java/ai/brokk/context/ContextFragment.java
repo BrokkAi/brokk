@@ -21,8 +21,12 @@ import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.util.*;
+import com.github.difflib.unifieddiff.UnifiedDiff;
+import com.github.difflib.unifieddiff.UnifiedDiffFile;
+import com.github.difflib.unifieddiff.UnifiedDiffReader;
 import dev.langchain4j.data.message.ChatMessage;
 import java.awt.*;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -41,6 +45,7 @@ import java.util.stream.Stream;
 import javax.imageio.ImageIO;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
@@ -692,6 +697,19 @@ public interface ContextFragment {
             return new GitFileFragment(file, revision, content, existingId);
         }
 
+        /**
+         * Create a GitFileFragment representing the content of the given file at the given revision.
+         * This reads the file content via the provided GitRepo. On error, falls back to empty content.
+         */
+        public static GitFileFragment fromCommit(ProjectFile file, String revision, ai.brokk.git.GitRepo repo) {
+            try {
+                var content = repo.getFileContent(revision, file);
+                return new GitFileFragment(file, revision, content);
+            } catch (GitAPIException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
         @Override
         public FragmentType getType() {
             return FragmentType.GIT_FILE;
@@ -1010,6 +1028,7 @@ public interface ContextFragment {
     }
 
     class StringFragment extends AbstractStaticFragment {
+
         public StringFragment(IContextManager contextManager, String text, String description, String syntaxStyle) {
             this(
                     FragmentUtils.calculateContentHash(
@@ -1017,12 +1036,125 @@ public interface ContextFragment {
                     contextManager,
                     text,
                     description,
-                    syntaxStyle);
+                    syntaxStyle,
+                    extractFilesFromDiff(text, contextManager));
         }
 
         public StringFragment(
                 String id, IContextManager contextManager, String text, String description, String syntaxStyle) {
-            super(id, contextManager, new FragmentSnapshot(description, description, text, syntaxStyle));
+            super(
+                    id,
+                    contextManager,
+                    new FragmentSnapshot(
+                            description,
+                            description,
+                            text,
+                            syntaxStyle,
+                            Set.of(),
+                            extractFilesFromDiff(text, contextManager),
+                            (List<Byte>) null));
+        }
+
+        /**
+         * Extracts ProjectFile references from diff content using java-diff-utils.
+         * <p>
+         * Delegates to {@link #extractFilesFromUnifiedDiff(String, IContextManager)}, which parses unified diffs via
+         * java-diff-utils and returns an empty set on parse errors or unrecognized input.
+         */
+        private static Set<ProjectFile> extractFilesFromDiff(String text, IContextManager contextManager) {
+            return extractFilesFromUnifiedDiff(text, contextManager);
+        }
+
+        /**
+         * Extracts ProjectFile references using java-diff-utils UnifiedDiffReader.
+         * Returns an empty set if parsing fails or yields no recognizable file paths.
+         */
+        private static Set<ProjectFile> extractFilesFromUnifiedDiff(String text, IContextManager contextManager) {
+            if (text.isBlank()) {
+                return Set.of();
+            }
+
+            try (ByteArrayInputStream in = new ByteArrayInputStream(text.getBytes(StandardCharsets.UTF_8))) {
+                UnifiedDiff diff = UnifiedDiffReader.parseUnifiedDiff(in);
+                if (diff == null) {
+                    return Set.of();
+                }
+
+                Set<ProjectFile> files = new LinkedHashSet<>();
+                for (UnifiedDiffFile udf : diff.getFiles()) {
+                    String rawPath = primaryPathFromUnifiedDiffFile(udf);
+                    String normalized = normalizeDiffPath(rawPath);
+                    if (normalized == null) {
+                        continue;
+                    }
+                    ProjectFile projectFile = contextManager.toFile(normalized);
+                    if (projectFile.exists()) {
+                        files.add(projectFile);
+                    }
+                }
+                return files;
+            } catch (Exception e) {
+                return Set.of();
+            }
+        }
+
+        /**
+         * Picks the most appropriate path from a UnifiedDiffFile, preferring the "to" path and
+         * falling back to the "from" path (for deletions/renames).
+         */
+        private static @Nullable String primaryPathFromUnifiedDiffFile(UnifiedDiffFile file) {
+            String path = file.getToFile();
+            if (path == null || path.isBlank() || "/dev/null".equals(path.trim())) {
+                path = file.getFromFile();
+            }
+            return path;
+        }
+
+        /**
+         * Normalizes a diff path by trimming, stripping leading a/ or b/ prefixes and ignoring /dev/null.
+         */
+        private static @Nullable String normalizeDiffPath(@Nullable String rawPath) {
+            if (rawPath == null) return null;
+
+            String path = rawPath.trim();
+            if (path.isEmpty() || "/dev/null".equals(path)) {
+                return null;
+            }
+            if (path.startsWith("a/") || path.startsWith("b/")) {
+                path = path.substring(2);
+            }
+            return path;
+        }
+
+        public StringFragment(
+                IContextManager contextManager,
+                String text,
+                String description,
+                String syntaxStyle,
+                Set<ProjectFile> files) {
+            this(
+                    FragmentUtils.calculateContentHash(
+                            FragmentType.STRING, description, text, syntaxStyle, StringFragment.class.getName()),
+                    contextManager,
+                    text,
+                    description,
+                    syntaxStyle,
+                    files);
+        }
+
+        public StringFragment(
+                String id,
+                IContextManager contextManager,
+                String text,
+                String description,
+                String syntaxStyle,
+                Set<ProjectFile> files) {
+            super(
+                    id,
+                    contextManager,
+                    new FragmentSnapshot(
+                            description, description, text, syntaxStyle, Set.of(), Set.copyOf(files), (List<Byte>)
+                                    null));
         }
 
         @Override
@@ -1722,7 +1854,6 @@ public interface ContextFragment {
         FILE_SKELETONS
     }
 
-    // Formatter class kept for logic reuse
     class SkeletonFragmentFormatter {
         public record Request(
                 @Nullable CodeUnit primaryTarget,
@@ -1742,23 +1873,35 @@ public interface ContextFragment {
 
         private String formatSummaryWithAncestors(
                 CodeUnit cu, List<CodeUnit> ancestorList, Map<CodeUnit, String> skeletons) {
-            Map<CodeUnit, String> primary = new LinkedHashMap<>();
-            skeletons.forEach((k, v) -> {
-                if (k.fqName().equals(cu.fqName())) primary.put(k, v);
-            });
             var sb = new StringBuilder();
-            String primaryFormatted = formatSkeletonsByPackage(primary);
-            if (!primaryFormatted.isEmpty()) sb.append(primaryFormatted).append("\n\n");
-            if (!ancestorList.isEmpty()) {
-                String ancestorNames =
-                        ancestorList.stream().map(CodeUnit::shortName).collect(Collectors.joining(", "));
-                sb.append("// Direct ancestors of ")
-                        .append(cu.shortName())
-                        .append(": ")
-                        .append(ancestorNames)
-                        .append("\n\n");
+
+            boolean isCuAnonymous = cu.isAnonymous();
+
+            if (!isCuAnonymous) {
+                String primarySkeleton = skeletons.get(cu);
+                if (primarySkeleton != null && !primarySkeleton.isEmpty()) {
+                    Map<CodeUnit, String> primary = new LinkedHashMap<>();
+                    primary.put(cu, primarySkeleton);
+                    String primaryFormatted = formatSkeletonsByPackage(primary);
+                    if (!primaryFormatted.isEmpty()) sb.append(primaryFormatted).append("\n\n");
+                }
+            }
+
+            var filteredAncestors =
+                    ancestorList.stream().filter(anc -> !anc.isAnonymous()).toList();
+
+            if (!filteredAncestors.isEmpty()) {
+                if (!isCuAnonymous) {
+                    String ancestorNames =
+                            filteredAncestors.stream().map(CodeUnit::shortName).collect(Collectors.joining(", "));
+                    sb.append("// Direct ancestors of ")
+                            .append(cu.shortName())
+                            .append(": ")
+                            .append(ancestorNames)
+                            .append("\n\n");
+                }
                 Map<CodeUnit, String> ancestorsMap = new LinkedHashMap<>();
-                ancestorList.forEach(anc -> {
+                filteredAncestors.forEach(anc -> {
                     String sk = skeletons.get(anc);
                     if (sk != null) ancestorsMap.put(anc, sk);
                 });
@@ -1770,13 +1913,18 @@ public interface ContextFragment {
 
         private String formatSkeletonsByPackage(Map<CodeUnit, String> skeletons) {
             if (skeletons.isEmpty()) return "";
+
             var skeletonsByPackage = skeletons.entrySet().stream()
+                    .filter(e -> !e.getKey().isAnonymous())
                     .collect(Collectors.groupingBy(
                             e -> e.getKey().packageName().isEmpty()
                                     ? "(default package)"
                                     : e.getKey().packageName(),
                             Collectors.toMap(
                                     Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new)));
+
+            if (skeletonsByPackage.isEmpty()) return "";
+
             return skeletonsByPackage.entrySet().stream()
                     .sorted(Map.Entry.comparingByKey())
                     .map(pkgEntry -> "package " + pkgEntry.getKey() + ";\n\n"

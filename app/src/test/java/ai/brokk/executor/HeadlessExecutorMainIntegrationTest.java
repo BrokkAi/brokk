@@ -53,6 +53,8 @@ class HeadlessExecutorMainIntegrationTest {
         // Create a minimal .brokk/project.properties file for MainProject
         var brokkDir = workspaceDir.resolve(".brokk");
         Files.createDirectories(brokkDir);
+        // Ensure llm-history directory exists so LLM logging (tests) can write history files without error
+        Files.createDirectories(brokkDir.resolve("llm-history"));
         var propsFile = brokkDir.resolve("project.properties");
         Files.writeString(propsFile, "# Minimal properties for test\n");
 

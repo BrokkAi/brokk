@@ -285,7 +285,7 @@ public class SearchAgent {
             long turnStartTime = System.currentTimeMillis();
 
             // Decide next action(s)
-            io.llmOutput("\n**Brokk Search** is preparing the next actions…\n\n", ChatMessageType.AI, true, false);
+            io.showTransientMessage("Brokk Search is preparing the next actions…");
             var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
 
             long llmTimeMs = System.currentTimeMillis() - turnStartTime;
@@ -389,7 +389,9 @@ public class SearchAgent {
                                 taskMeta());
                     } else if (termReq.name().equals("callCodeAgent")) {
                         if (codeAgentJustSucceeded) {
-                            return createResult(termReq.name(), goal);
+                            // code agent already appended output to history, empty messages are skipped by scope.append
+                            return TaskResult.humanResult(
+                                    cm, "CodeAgent finished", List.of(), context, TaskResult.StopReason.SUCCESS);
                         }
                         // If CodeAgent did not succeed, continue planning/search loop
                     } else {
@@ -851,10 +853,10 @@ public class SearchAgent {
                   Large/noisy/mixed = long, multi-file, logs/traces/issues, big diffs, UI/test noise, unfocused content.
 
                 Keep rule:
-                - KEEP only if it is short, focused, directly relevant, AND keeping it is clearer than summarizing.
+                - KEEP only if it is short, focused, directly relevant, AND keeping it is clearer than summarizing (i.e. to much information loss on summary).
 
                 fragment.explanation (string) format:
-                - Summary: 2–4 identifier-first bullets (files/methods and why they matter).
+                - Summary: information needed to solve the goal (e.g. descriptions, file paths, class names, method names, code snippets, stack traces)
                 - Reason: one short sentence why dropped.
                 - No implementation instructions.
 

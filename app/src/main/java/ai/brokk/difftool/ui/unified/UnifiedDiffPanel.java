@@ -2,10 +2,8 @@ package ai.brokk.difftool.ui.unified;
 
 import ai.brokk.difftool.node.JMDiffNode;
 import ai.brokk.difftool.ui.AbstractDiffPanel;
-import ai.brokk.difftool.ui.BlameService.BlameInfo;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferDiffPanel;
-import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.ui.CompositeHighlighter;
 import ai.brokk.difftool.ui.DiffGutterComponent;
 import ai.brokk.difftool.ui.JMHighlighter;
@@ -16,6 +14,8 @@ import ai.brokk.project.MainProject;
 import java.awt.BorderLayout;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -35,15 +35,6 @@ import org.jetbrains.annotations.Nullable;
  */
 public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(UnifiedDiffPanel.class);
-
-    // Legacy fields for backward compatibility (deprecated)
-    @Deprecated
-    @Nullable
-    private final BufferSource leftSource;
-
-    @Deprecated
-    @Nullable
-    private final BufferSource rightSource;
 
     private final RSyntaxTextArea textArea;
     private final RTextScrollPane scrollPane;
@@ -104,9 +95,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     public UnifiedDiffPanel(BrokkDiffPanel parent, GuiTheme theme, JMDiffNode diffNode) {
         super(parent, theme);
 
-        this.leftSource = null;
-        this.rightSource = null;
-
         // Create text area for unified diff display (using custom class for font preservation)
         this.textArea = new UnifiedEditorArea();
         this.scrollPane = new RTextScrollPane(textArea);
@@ -118,34 +106,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
         setupUI();
         setDiffNode(diffNode);
-    }
-
-    /**
-     * Legacy constructor using BufferSource (deprecated - use JMDiffNode constructor instead). This constructor is
-     * retained for backward compatibility.
-     *
-     * @param parent The parent BrokkDiffPanel
-     * @param theme The GUI theme
-     * @param leftSource Source for left side
-     * @param rightSource Source for right side
-     */
-    @Deprecated
-    public UnifiedDiffPanel(BrokkDiffPanel parent, GuiTheme theme, BufferSource leftSource, BufferSource rightSource) {
-        super(parent, theme);
-        this.leftSource = leftSource;
-        this.rightSource = rightSource;
-
-        // Create text area for unified diff display (using custom class for font preservation)
-        this.textArea = new UnifiedEditorArea();
-        this.scrollPane = new RTextScrollPane(textArea);
-
-        // Initialize highlighting system similar to FilePanel
-        this.jmHighlighter = new JMHighlighter();
-        this.compositeHighlighter = new CompositeHighlighter(jmHighlighter);
-        textArea.setHighlighter(compositeHighlighter);
-
-        setupUI();
-        generateDiffFromBufferSources();
     }
 
     /** Set up the UI components and layout. */
@@ -242,59 +202,8 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         reDisplay();
     }
 
-    /** Generate the unified diff content from BufferSources (legacy approach). */
-    @Deprecated
-    private void generateDiffFromBufferSources() {
-        if (leftSource == null || rightSource == null) {
-            logger.error("Cannot generate diff from BufferSources - one or both sources are null");
-            throw new IllegalStateException("Cannot generate diff - BufferSources are null");
-        }
-
-        // Generate the UnifiedDiffDocument for line number metadata
-        this.unifiedDocument = UnifiedDiffGenerator.generateUnifiedDiff(leftSource, rightSource, contextMode);
-
-        // Extract plain text manually for legacy approach - fix interlaced line issue
-        var textBuilder = new StringBuilder();
-        for (var diffLine : unifiedDocument.getFilteredLines()) {
-            String content = diffLine.getContent();
-            // Don't double-add newlines - the content should be clean line content
-            textBuilder.append(content);
-            textBuilder.append('\n');
-        }
-
-        // Remove trailing newline if present
-        if (textBuilder.length() > 0 && textBuilder.charAt(textBuilder.length() - 1) == '\n') {
-            textBuilder.setLength(textBuilder.length() - 1);
-        }
-
-        String plainTextContent = textBuilder.toString();
-        textArea.setText(plainTextContent);
-
-        // Link the UnifiedDiffDocument to the custom line number list
-        if (customLineNumberList != null) {
-            customLineNumberList.setUnifiedDocument(unifiedDocument);
-            customLineNumberList.setDarkTheme(getTheme().isDarkTheme());
-            customLineNumberList.setContextMode(contextMode);
-        }
-
-        // Create navigator with defensive checks
-        if (plainTextContent != null) {
-            this.navigator = new UnifiedDiffNavigator(plainTextContent, textArea);
-        } else {
-            logger.warn("Cannot create navigator: plainTextContent is null");
-            this.navigator = null;
-        }
-
-        // Apply syntax highlighting only (diff coloring disabled)
-        applySyntaxHighlighting();
-
-        // Apply diff highlights after content is set
-        reDisplay();
-    }
-
     @Override
     public void setDiffNode(@Nullable JMDiffNode diffNode) {
-
         super.setDiffNode(diffNode);
         if (diffNode != null) {
             generateDiffFromDiffNode(diffNode);
@@ -312,6 +221,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             // Clear highlights when no content
             removeHighlights();
         }
+        recalcDirty();
     }
 
     /** Apply syntax highlighting based on detected file type using FilePanel's approach. */
@@ -345,15 +255,12 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         // Previous asymmetric approach (regenerate for FULL_CONTEXT, filter for STANDARD_3_LINES)
         // caused issues when switching from FULL_CONTEXT back to STANDARD_3_LINES
         {
-
             // Regenerate the document with the target context mode
             var diffNode = getDiffNode();
             if (diffNode != null) {
                 generateDiffFromDiffNode(diffNode);
-            } else if (leftSource != null && rightSource != null) {
-                generateDiffFromBufferSources();
             } else {
-                logger.warn("No source available for regenerating diff");
+                logger.warn("No diff node available for regenerating diff");
             }
 
             // Update text area display after regeneration
@@ -417,11 +324,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     // IDiffPanel implementation
 
     @Override
-    public boolean isUnifiedView() {
-        return true;
-    }
-
-    @Override
     public void resetAutoScrollFlag() {
         this.autoScrollFlag = true;
     }
@@ -483,7 +385,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
     @Override
     public String getTitle() {
-        // Try to get title from JMDiffNode first (preferred)
+        // Get title from JMDiffNode
         var diffNode = getDiffNode();
         if (diffNode != null) {
             var nodeName = diffNode.getName();
@@ -497,22 +399,15 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             }
         }
 
-        // Fallback to legacy BufferSource approach
-        if (leftSource != null && rightSource != null) {
-            var leftName = leftSource.title();
-            var rightName = rightSource.title();
-            var title = leftName.equals(rightName) ? leftName : leftName + " vs " + rightName;
-            // Add unified indicator
-            return title + " (Unified)";
-        }
-
-        // Ultimate fallback
+        // Fallback if no diff node
         return "Unified Diff";
     }
 
+    /**
+     * Compute whether this panel has unsaved changes. Unified diff panels are read-only, so always false.
+     */
     @Override
-    public boolean hasUnsavedChanges() {
-        // TODO: Implement change tracking for editing support
+    protected boolean computeUnsavedChanges() {
         return false; // Read-only for now
     }
 
@@ -536,11 +431,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     @Override
     public void doRedo() {
         // TODO: Implement
-    }
-
-    @Override
-    public void recalcDirty() {
-        // TODO: Implement change tracking
     }
 
     @Override
@@ -710,23 +600,6 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         return customLineNumberList;
     }
 
-    /**
-     * Set gutter blame map for the unified line-number component. The map keys are 1-based document line numbers,
-     * values are BlameInfo-like records (author + sha).
-     */
-    public void setGutterBlameData(Map<Integer, BlameInfo> blameData) {
-        if (customLineNumberList != null) {
-            customLineNumberList.setBlameLines(blameData);
-        }
-    }
-
-    /** Set left/old file blame data for the gutter (used for deletions). */
-    public void setGutterLeftBlameData(Map<Integer, BlameInfo> blameData) {
-        if (customLineNumberList != null) {
-            customLineNumberList.setLeftBlameLines(blameData);
-        }
-    }
-
     /** Show or hide gutter blame in this unified panel. */
     @Override
     public void setShowGutterBlame(boolean show) {
@@ -770,5 +643,62 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         } catch (Exception e) {
             logger.warn("Error during unified diff reDisplay: {}", e.getMessage(), e);
         }
+    }
+
+    @Override
+    public void applyBlame(
+            Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> leftMap,
+            Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> rightMap) {
+        if (customLineNumberList != null) {
+            customLineNumberList.setLeftBlameLines(leftMap);
+            customLineNumberList.setBlameLines(rightMap);
+            customLineNumberList.setShowBlame(isShowGutterBlame());
+        }
+    }
+
+    @Override
+    public void clearBlame() {
+        if (customLineNumberList != null) {
+            customLineNumberList.clearBlame();
+            customLineNumberList.setShowBlame(false);
+        }
+    }
+
+    @Override
+    @Nullable
+    public Path getTargetPathForBlame() {
+        var diffNode = getDiffNode();
+        if (diffNode == null) {
+            return null;
+        }
+
+        var rightNode = diffNode.getBufferNodeRight();
+        if (rightNode == null) {
+            return null;
+        }
+
+        var doc = rightNode.getDocument();
+        String name = doc.getName();
+        if (name.isBlank()) {
+            return null;
+        }
+
+        var targetPath = Paths.get(name);
+        if (!targetPath.isAbsolute()) {
+            return targetPath.toAbsolutePath().normalize();
+        }
+        return targetPath.normalize();
+    }
+
+    @Override
+    public void applyEditorFontSize(float size) {
+        applyDerivedFont(textArea, size);
+
+        var gutter = customLineNumberList;
+        if (gutter != null) {
+            applyDerivedFontToGutter(gutter, size);
+        }
+
+        scrollPane.revalidate();
     }
 }

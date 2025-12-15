@@ -1,5 +1,6 @@
 package ai.brokk.project;
 
+import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
@@ -25,6 +26,7 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import javax.swing.JFrame;
 import org.apache.logging.log4j.LogManager;
@@ -61,17 +63,17 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     public AbstractProject(Path root) {
         assert root.isAbsolute() : root;
         this.root = root.toAbsolutePath().normalize();
-        boolean hasGit = GitRepoFactory.hasGitRepo(this.root);
-        this.repo = hasGit ? new GitRepo(this.root) : new LocalFileRepo(this.root);
+        this.repo = GitRepoFactory.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root);
 
         this.workspacePropertiesFile = this.root.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
         this.workspaceProps = new Properties();
 
         // Determine masterRootPathForConfig based on this.root and this.repo
-        if (this.repo instanceof GitRepo gitRepoInstance) {
-            this.masterRootPathForConfig = determineMasterRootPath(this.root, gitRepoInstance);
+        if (this.repo instanceof GitRepo gitRepoInstance && gitRepoInstance.isWorktree()) {
+            this.masterRootPathForConfig =
+                    gitRepoInstance.getGitTopLevel().toAbsolutePath().normalize();
         } else {
-            this.masterRootPathForConfig = this.root;
+            this.masterRootPathForConfig = this.root; // Already absolute and normalized by caller
         }
         logger.debug("Project root: {}, Master root for config/sessions: {}", this.root, this.masterRootPathForConfig);
 
@@ -95,39 +97,6 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     public Path getMasterRootPathForConfig() {
         return masterRootPathForConfig;
-    }
-
-    /**
-     * Returns the .brokk configuration directory path.
-     * This directory contains project configuration, sessions, and llm-history.
-     * Uses masterRootPathForConfig, so may be shared across worktrees.
-     */
-    public final Path getConfigDir() {
-        return masterRootPathForConfig.resolve(BROKK_DIR);
-    }
-
-    /**
-     * Returns the sessions directory path.
-     * Sessions are stored under the shared config location.
-     */
-    public final Path getSessionsDir() {
-        return getConfigDir().resolve(SESSIONS_DIR);
-    }
-
-    /**
-     * Returns the dependencies directory path.
-     * Dependencies are stored under the shared config location.
-     */
-    public final Path getDependenciesDir() {
-        return getConfigDir().resolve(DEPENDENCIES_DIR);
-    }
-
-    /**
-     * Returns the LLM history directory path.
-     * LLM history is stored under the shared config location.
-     */
-    public final Path getLlmHistoryDir() {
-        return getConfigDir().resolve("llm-history");
     }
 
     @Override
@@ -182,9 +151,73 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
+    public CompletableFuture<Void> updateLiveDependencies(
+            Set<Path> newLiveDependencyDirs, @Nullable IAnalyzerWrapper analyzerWrapper) {
+        return CompletableFuture.supplyAsync(() -> {
+            // If analyzer provided, pause watcher and compute prev files
+            Set<ProjectFile> prevFiles = null;
+            if (analyzerWrapper != null) {
+                analyzerWrapper.pause();
+                prevFiles = new HashSet<>();
+                for (var d : getLiveDependencies()) {
+                    prevFiles.addAll(d.files());
+                }
+            }
+
+            // Always persist
+            saveLiveDependencies(newLiveDependencyDirs);
+
+            // If analyzer provided, compute diff and update
+            if (analyzerWrapper != null) {
+                var nextFiles = new HashSet<ProjectFile>();
+                for (var d : getLiveDependencies()) {
+                    nextFiles.addAll(d.files());
+                }
+
+                // Symmetric difference: files that changed (added or removed)
+                var changedFiles = new HashSet<>(nextFiles);
+                changedFiles.removeAll(prevFiles);
+                var removedFiles = new HashSet<>(prevFiles);
+                removedFiles.removeAll(nextFiles);
+                changedFiles.addAll(removedFiles);
+
+                if (!changedFiles.isEmpty()) {
+                    try {
+                        analyzerWrapper.updateFiles(changedFiles).get();
+                    } catch (Exception e) {
+                        logger.error("Error updating analyzer with dependency changes", e);
+                    }
+                }
+
+                analyzerWrapper.resume();
+            }
+
+            return null;
+        });
+    }
+
+    @Override
     public abstract Set<Dependency> getLiveDependencies();
 
+    @Override
     public abstract void saveLiveDependencies(Set<Path> dependencyTopLevelDirs);
+
+    @Override
+    public CompletableFuture<Void> addLiveDependency(
+            String dependencyName, @Nullable IAnalyzerWrapper analyzerWrapper) {
+        // Build new live set = current live deps + new dependency
+        var liveDependencyTopLevelDirs = new HashSet<Path>();
+        for (var dep : getLiveDependencies()) {
+            liveDependencyTopLevelDirs.add(dep.root().absPath());
+        }
+        var newDepDir = masterRootPathForConfig
+                .resolve(BROKK_DIR)
+                .resolve(DEPENDENCIES_DIR)
+                .resolve(dependencyName);
+        liveDependencyTopLevelDirs.add(newDepDir);
+
+        return updateLiveDependencies(liveDependencyTopLevelDirs, analyzerWrapper);
+    }
 
     @Override
     public final List<String> loadTextHistory() {
@@ -210,7 +243,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
         var history = new ArrayList<>(loadTextHistory());
         history.removeIf(i -> i.equals(item));
-        history.addFirst(item);
+        history.add(0, item);
         if (history.size() > maxItems) {
             history = new ArrayList<>(history.subList(0, maxItems));
         }
@@ -600,7 +633,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
     @Override
     public Set<ProjectFile> getAllOnDiskDependencies() {
-        var dependenciesPath = getDependenciesDir();
+        var dependenciesPath = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
         if (!Files.exists(dependenciesPath) || !Files.isDirectory(dependenciesPath)) {
             return Set.of();
         }
@@ -670,7 +703,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     private Set<ProjectFile> getAllFilesRaw() {
         var trackedFiles = repo.getTrackedFiles();
 
-        var dependenciesPath = getDependenciesDir();
+        var dependenciesPath = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
         if (!Files.exists(dependenciesPath) || !Files.isDirectory(dependenciesPath)) {
             return trackedFiles;
         }
@@ -736,7 +769,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         var exclusions = new HashSet<String>();
         exclusions.addAll(loadBuildDetails().excludedDirectories());
 
-        var dependenciesDir = getDependenciesDir();
+        var dependenciesDir = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
         if (!Files.exists(dependenciesDir) || !Files.isDirectory(dependenciesDir)) {
             return exclusions;
         }
@@ -757,22 +790,5 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
 
         return exclusions;
-    }
-
-    /**
-     * Determines the master root path for configuration based on project root.
-     * This is the canonical location for .brokk config, sessions, and llm-history.
-     *
-     * <p>Each project (including worktrees) uses its own projectRoot for config storage.
-     * This provides clear isolation - worktrees don't share config with main repos via
-     * path inference. The parent/child relationship is established explicitly via
-     * WorktreeProject, not via shared config paths.
-     *
-     * @param projectRoot The project root path (must be absolute and normalized)
-     * @param gitRepo The git repository instance (unused, kept for API compatibility)
-     * @return The path where config should be stored (always projectRoot)
-     */
-    public static Path determineMasterRootPath(Path projectRoot, GitRepo gitRepo) {
-        return projectRoot;
     }
 }

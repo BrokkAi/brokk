@@ -8,6 +8,7 @@ import dev.langchain4j.exception.InvalidRequestException;
 import dev.langchain4j.exception.LangChain4jException;
 import dev.langchain4j.exception.ModelNotFoundException;
 import dev.langchain4j.exception.NetworkException;
+import dev.langchain4j.exception.PaymentRequiredException;
 import dev.langchain4j.exception.RateLimitException;
 import dev.langchain4j.exception.TimeoutException;
 import dev.langchain4j.exception.UnresolvedModelServerException;
@@ -80,6 +81,9 @@ public interface ExceptionMapper {
             }
             if (httpStatusCode == 401 || httpStatusCode == 403) {
                 return new AuthenticationException(cause);
+            }
+            if (httpStatusCode == 402) {
+                return new PaymentRequiredException(cause);
             }
             if (httpStatusCode == 404) {
                 return new ModelNotFoundException(cause);

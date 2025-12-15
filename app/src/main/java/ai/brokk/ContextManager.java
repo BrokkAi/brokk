@@ -267,10 +267,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.currentSessionId = SessionManager.newSessionId();
     }
 
-    /**
-     * Initializes the current session by loading its history or creating a new one. This is typically called for
-     * standard project openings. This method is synchronous but intended to be called from a background task.
-     */
     private void initializeCurrentSessionAndHistory(boolean forceNew) {
         // load last active session, if present
         var lastActiveSessionId = ((AbstractProject) project).getLastActiveSession();
@@ -291,7 +287,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.currentSessionId = sessionIdToLoad; // Set currentSessionId here
 
         // load session contents
-        var loadedCH = sessionManager.loadHistory(currentSessionId, this);
+        var loadedCH = sessionManager.loadHistoryAndRefresh(currentSessionId, this);
         if (loadedCH == null) {
             if (forceNew) {
                 contextHistory = new ContextHistory(new Context(this));
@@ -378,7 +374,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Create watch service using factory (selects best implementation for platform)
         var watchService = WatchServiceFactory.create(
                 project.getRoot(),
-                project.hasGit() ? project.getRepo().getWorkTreeRoot() : null,
+                project.hasGit() ? project.getRepo().getGitTopLevel() : null,
                 globalGitignorePath,
                 List.of() // Start with empty listeners
                 );
@@ -453,7 +449,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // handleTrackedFileChange().
                 // This method is kept for backward compatibility only.
                 logger.debug("AnalyzerListener.onTrackedFileChange fired (backward compatibility path)");
-                handleTrackedFileChange(Set.of()); // Empty set since we don't have specific files from this path
+                handleTrackedFileChange(project.getAllFiles());
             }
 
             @Override
@@ -533,8 +529,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * responsibility to ContextManager where it belongs.
      */
     IWatchService.Listener createFileWatchListener() {
-        Path workTreeRoot = project.hasGit() ? project.getRepo().getWorkTreeRoot() : null;
-        FileWatcherHelper helper = new FileWatcherHelper(project.getRoot(), workTreeRoot);
+        Path gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
+        FileWatcherHelper helper = new FileWatcherHelper(project.getRoot(), gitRepoRoot);
 
         return new IWatchService.Listener() {
             @Override
@@ -1001,7 +997,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Future<?> resetContextToAsync(Context targetContext) {
         return submitExclusiveAction(() -> {
             var newLive = Context.createFrom(
-                    targetContext, liveContext(), liveContext().getTaskHistory());
+                            targetContext, liveContext(), liveContext().getTaskHistory())
+                    .copyAndRefresh("Copy from History");
             contextHistory.pushContext(newLive);
             contextHistory.addResetEdge(targetContext, newLive);
             SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
@@ -1016,7 +1013,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public Future<?> resetContextToIncludingHistoryAsync(Context targetContext) {
         return submitExclusiveAction(() -> {
-            var newLive = Context.createFrom(targetContext, liveContext(), targetContext.getTaskHistory());
+            var newLive = Context.createFrom(targetContext, liveContext(), targetContext.getTaskHistory())
+                    .copyAndRefresh("Copy from History");
             contextHistory.pushContext(newLive);
             contextHistory.addResetEdge(targetContext, newLive);
             SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
@@ -1086,15 +1084,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     modifiedCtx = modifiedCtx.addFragments(fragmentsToAdd);
                 }
                 return Context.createWithId(
-                        Context.newContextId(),
-                        this,
-                        modifiedCtx.allFragments().toList(),
-                        newHistory,
-                        null,
-                        CompletableFuture.completedFuture(actionMessage),
-                        currentLiveCtx.getGroupId(),
-                        currentLiveCtx.getGroupLabel(),
-                        currentLiveCtx.getMarkedReadonlyFragments().collect(Collectors.toSet()));
+                                Context.newContextId(),
+                                this,
+                                modifiedCtx.allFragments().toList(),
+                                newHistory,
+                                null,
+                                CompletableFuture.completedFuture(actionMessage),
+                                currentLiveCtx.getGroupId(),
+                                currentLiveCtx.getGroupLabel(),
+                                currentLiveCtx.getMarkedReadonlyFragments().collect(Collectors.toSet()))
+                        .copyAndRefresh("Copy from History");
             });
 
             io.showNotification(IConsoleIO.NotificationRole.INFO, actionMessage);
@@ -2162,6 +2161,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return A new TaskEntry with both log and summary, or the original entry if compression fails.
      * @throws InterruptedException if the operation is cancelled
      */
+    @Blocking
     public TaskEntry compressHistory(TaskEntry entry) throws InterruptedException {
         if (entry.isCompressed()) {
             return entry;
@@ -2425,7 +2425,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var sessionManager = project.getSessionManager();
         var newSessionInfo = sessionManager.newSession(newSessionName);
         updateActiveSession(newSessionInfo.id());
-        var ctx = newContextFrom(sourceContext);
+        var ctx = newContextFrom(sourceContext).copyAndRefresh("Load External Changes");
+
         // the intent is that we save a history to the new session that initializeCurrentSessionAndHistory will pull in
         // later
         var ch = new ContextHistory(ctx);
@@ -2455,7 +2456,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                     // 2. Create the initial context for the new session.
                     // Only its top-level action/parsedOutput will be changed to reflect it's a new session.
-                    var initialContextForNewSession = newContextFrom(sourceContext);
+                    var initialContextForNewSession =
+                            newContextFrom(sourceContext).copyAndRefresh("Load External Changes");
 
                     // 3. Initialize the ContextManager's history for the new session with this single context.
                     // Context should already be live from migration logic
@@ -2535,7 +2537,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .orElse("(Unknown Name)");
         logger.debug("Switched to session: {} ({})", sessionName, sessionId);
 
-        ContextHistory loadedCh = sessionManager.loadHistory(sessionId, this);
+        ContextHistory loadedCh = sessionManager.loadHistoryAndRefresh(sessionId, this);
 
         if (loadedCh == null) {
             io.toolError("Error while loading history for session '%s'.".formatted(sessionName));
@@ -2602,13 +2604,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 });
     }
 
-    /**
-     * Copies an existing session with a new name and switches to it asynchronously.
-     *
-     * @param originalSessionId The UUID of the session to copy
-     * @param originalSessionName The name of the session to copy
-     * @return A CompletableFuture representing the completion of the session copy task
-     */
     public CompletableFuture<Void> copySessionAsync(UUID originalSessionId, String originalSessionName) {
         return submitExclusiveAction(() -> {
                     var sessionManager = project.getSessionManager();
@@ -2628,14 +2623,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
                             originalSessionId,
                             copiedSessionInfo.name(),
                             copiedSessionInfo.id());
-                    var loadedCh = sessionManager.loadHistory(copiedSessionInfo.id(), this);
+                    var loadedCh = sessionManager.loadHistoryAndRefresh(copiedSessionInfo.id(), this);
                     assert loadedCh != null && !loadedCh.getHistory().isEmpty()
                             : "Copied session history should not be null or empty";
-                    final ContextHistory nnLoadedCh = requireNonNull(
+                    contextHistory = requireNonNull(
                             loadedCh, "Copied session history (loadedCh) should not be null after assertion");
-                    this.contextHistory = nnLoadedCh;
-                    updateActiveSession(copiedSessionInfo.id());
 
+                    updateActiveSession(copiedSessionInfo.id());
                     finalizeSessionActivation(copiedSessionInfo.id());
                 })
                 .exceptionally(e -> {
@@ -2791,6 +2785,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     @Override
+    @Blocking
     public void compressHistory() throws InterruptedException {
         io.disableHistoryPanel();
         try {

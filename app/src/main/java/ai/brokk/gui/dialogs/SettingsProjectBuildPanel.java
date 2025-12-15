@@ -265,17 +265,20 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildConfigPanel.add(buildTimeoutSpinner, buildGbc);
 
         // Infer/Verify buttons
-        var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         inferBuildDetailsButton.setActionCommand(ACTION_INFER);
+        inferBuildDetailsButton.setName("inferBuildDetailsButton");
         buttonsPanel.add(inferBuildDetailsButton);
         var verifyBuildButton = new MaterialButton("Verify Configuration");
+        verifyBuildButton.setName("verifyBuildButton");
         verifyBuildButton.addActionListener(e -> verifyBuildConfiguration());
         buttonsPanel.add(verifyBuildButton);
+
         buildGbc.gridx = 1;
         buildGbc.gridy = buildRow++;
-        buildGbc.weightx = 0.0;
+        buildGbc.weightx = 1.0;
         buildGbc.weighty = 0.0;
-        buildGbc.fill = GridBagConstraints.NONE;
+        buildGbc.fill = GridBagConstraints.HORIZONTAL;
         buildGbc.anchor = GridBagConstraints.WEST;
         buildConfigPanel.add(buttonsPanel, buildGbc);
 

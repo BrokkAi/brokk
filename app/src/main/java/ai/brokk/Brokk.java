@@ -346,14 +346,14 @@ public class Brokk {
             MainProject parentProject = null;
             if (GitRepoFactory.hasGitRepo(worktreePath)) { // Redundant check, but safe
                 try (GitRepo wtRepo = new GitRepo(worktreePath)) { // isWorktree already confirmed by partitioning
-                    Path correspondingMainPath = wtRepo.getCorrespondingMainRepoPath(worktreePath);
-                    parentProject = (MainProject) findOpenProjectByPath(correspondingMainPath);
+                    Path gitTopLevel = wtRepo.getGitTopLevel();
+                    parentProject = (MainProject) findOpenProjectByPath(gitTopLevel);
                     if (parentProject == null) {
                         logger.warn(
                                 "During startup, could not find an already open parent project for worktree {} (expected at {}). "
                                         + "Worktree will attempt to find/open its parent or open standalone if necessary.",
                                 worktreePath.getFileName(),
-                                correspondingMainPath.getFileName());
+                                gitTopLevel.getFileName());
                     }
                 } catch (Exception e) {
                     logger.warn(

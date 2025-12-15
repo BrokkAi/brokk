@@ -259,8 +259,23 @@ public final class MainProject extends AbstractProject {
 
     private static synchronized void saveGlobalProperties(Properties props) {
         try {
-            if (loadGlobalProperties().equals(props)) {
+            var existingProps = loadGlobalProperties();
+            if (existingProps.equals(props)) {
                 return;
+            }
+            // Log brokkApiKey changes to help diagnose disappearing key issues
+            var existingKey = existingProps.getProperty("brokkApiKey", "");
+            var newKey = props.getProperty("brokkApiKey", "");
+            if (!existingKey.equals(newKey)) {
+                if (newKey.isEmpty() && !existingKey.isEmpty()) {
+                    logger.warn(
+                            "brokkApiKey is being REMOVED from global properties. Stack trace for diagnosis:",
+                            new Exception("brokkApiKey removal trace"));
+                } else if (!newKey.isEmpty() && existingKey.isEmpty()) {
+                    logger.info("brokkApiKey is being SET in global properties");
+                } else {
+                    logger.info("brokkApiKey is being CHANGED in global properties");
+                }
             }
             AtomicWrites.atomicSaveProperties(GLOBAL_PROPERTIES_PATH, props, "Brokk global configuration");
             globalPropertiesCache = (Properties) props.clone();
@@ -412,109 +427,17 @@ public final class MainProject extends AbstractProject {
         }
     }
 
-    private ModelConfig getModelConfigInternal(ModelType modelType) {
+    @Override
+    public ModelConfig getModelConfig(ModelType modelType) {
         var props = loadGlobalProperties();
         return ModelProperties.getModelConfig(props, modelType);
     }
 
-    /**
-     * Returns the code-defined default ModelConfig for the Quick role.
-     *
-     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
-     * persisted user settings or overrides.
-     */
-    public static ModelConfig getDefaultQuickModelConfig() {
-        return ModelProperties.ModelType.QUICK.preferredConfig();
-    }
-
-    /**
-     * Returns the code-defined default ModelConfig for the Quick Edit role.
-     *
-     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
-     * persisted user settings or overrides.
-     */
-    public static ModelConfig getDefaultQuickEditModelConfig() {
-        return ModelProperties.ModelType.QUICK_EDIT.preferredConfig();
-    }
-
-    /**
-     * Returns the code-defined default ModelConfig for the Quickest role.
-     *
-     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
-     * persisted user settings or overrides.
-     */
-    public static ModelConfig getDefaultQuickestModelConfig() {
-        return ModelProperties.ModelType.QUICKEST.preferredConfig();
-    }
-
-    /**
-     * Returns the code-defined default ModelConfig for the Scan role.
-     *
-     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
-     * persisted user settings or overrides.
-     */
-    public static ModelConfig getDefaultScanModelConfig() {
-        return ModelProperties.ModelType.SCAN.preferredConfig();
-    }
-
-    private void setModelConfigInternal(ModelType modelType, ModelConfig config) {
+    @Override
+    public void setModelConfig(ModelType modelType, ModelConfig config) {
         var props = loadGlobalProperties();
         ModelProperties.setModelConfig(props, modelType, config);
         saveGlobalProperties(props);
-    }
-
-    @Override
-    public ModelConfig getQuickModelConfig() {
-        return getModelConfigInternal(ModelType.QUICK);
-    }
-
-    @Override
-    public void setQuickModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.QUICK, config);
-    }
-
-    @Override
-    public ModelConfig getCodeModelConfig() {
-        return getModelConfigInternal(ModelType.CODE);
-    }
-
-    @Override
-    public void setCodeModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.CODE, config);
-    }
-
-    @Override
-    public ModelConfig getArchitectModelConfig() {
-        return getModelConfigInternal(ModelType.ARCHITECT);
-    }
-
-    @Override
-    public void setArchitectModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.ARCHITECT, config);
-    }
-
-    public ModelConfig getQuickEditModelConfig() {
-        return getModelConfigInternal(ModelType.QUICK_EDIT);
-    }
-
-    public void setQuickEditModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.QUICK_EDIT, config);
-    }
-
-    public ModelConfig getQuickestModelConfig() {
-        return getModelConfigInternal(ModelType.QUICKEST);
-    }
-
-    public void setQuickestModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.QUICKEST, config);
-    }
-
-    public ModelConfig getScanModelConfig() {
-        return getModelConfigInternal(ModelType.SCAN);
-    }
-
-    public void setScanModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.SCAN, config);
     }
 
     @Override
@@ -948,7 +871,7 @@ public final class MainProject extends AbstractProject {
         try {
             return StartupOpenMode.valueOf(val);
         } catch (IllegalArgumentException e) {
-            return StartupOpenMode.LAST;
+            return StartupOpenMode.ALL;
         }
     }
 
@@ -1660,7 +1583,11 @@ public final class MainProject extends AbstractProject {
     // Grouped settings records for atomic batch saving
     public record ServiceSettings(String brokkApiKey, LlmProxySetting proxySetting, boolean forceToolEmulation) {
         public void applyTo(Properties props) {
+            var existingKey = props.getProperty("brokkApiKey", "");
             if (brokkApiKey.isBlank()) {
+                if (!existingKey.isBlank()) {
+                    logger.info("ServiceSettings.applyTo: removing brokkApiKey (blank key in settings record)");
+                }
                 props.remove("brokkApiKey");
             } else {
                 props.setProperty("brokkApiKey", brokkApiKey.trim());
@@ -1750,8 +1677,12 @@ public final class MainProject extends AbstractProject {
     }
 
     public static void setBrokkKey(String key) {
+        logger.info(
+                "setBrokkKey called with key={}",
+                key.isBlank() ? "(blank)" : "(non-blank, length=" + key.length() + ")");
         var props = loadGlobalProperties();
         if (key.isBlank()) {
+            logger.info("setBrokkKey: removing brokkApiKey (blank key provided)");
             props.remove("brokkApiKey");
         } else {
             props.setProperty("brokkApiKey", key.trim());
@@ -1979,7 +1910,7 @@ public final class MainProject extends AbstractProject {
             try (var tempRepo = new GitRepo(projectDir)) {
                 isWorktree = tempRepo.isWorktree();
                 if (isWorktree) {
-                    pathForRecentProjectsMap = tempRepo.getMainRepoRoot();
+                    pathForRecentProjectsMap = tempRepo.getGitTopLevel();
                 }
             } catch (Exception e) {
                 logger.warn(
@@ -2052,7 +1983,7 @@ public final class MainProject extends AbstractProject {
             try (var tempRepo = new GitRepo(projectDir)) {
                 isWorktree = tempRepo.isWorktree();
                 if (isWorktree) {
-                    mainProjectPathKey = tempRepo.getMainRepoRoot();
+                    mainProjectPathKey = tempRepo.getGitTopLevel();
                 }
             } catch (Exception e) {
                 logger.warn(

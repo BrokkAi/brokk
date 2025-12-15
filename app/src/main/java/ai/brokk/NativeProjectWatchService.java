@@ -1,5 +1,7 @@
 package ai.brokk;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.analyzer.ProjectFile;
 import io.methvin.watcher.DirectoryChangeEvent;
 import io.methvin.watcher.DirectoryWatcher;
@@ -10,10 +12,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -52,14 +56,14 @@ public class NativeProjectWatchService implements IWatchService {
     private volatile DirectoryWatcher watcher;
 
     private volatile boolean running = true;
-    private volatile int pauseCount = 0;
 
     @Nullable
     private volatile Thread watcherThread;
 
-    // Debouncing fields
+    // Debouncing fields - all guarded by 'lock'
     private final ScheduledExecutorService debounceExecutor;
-    private final Object debounceLock = new Object();
+    private final ReentrantLock lock = new ReentrantLock();
+    private int pauseCount = 0;
     private EventBatch accumulatedBatch = new EventBatch();
 
     @Nullable
@@ -143,18 +147,19 @@ public class NativeProjectWatchService implements IWatchService {
             // Wait for the initial future to complete
             try {
                 delayNotificationsUntilCompleted.get();
-            } catch (Exception e) {
-                logger.error("Error while waiting for the initial Future to complete", e);
+            } catch (InterruptedException e) {
+                logger.info("Watcher setup interrupted while waiting for initialization to complete");
+                Thread.currentThread().interrupt();
                 return;
+            } catch (ExecutionException e) {
+                throw new RuntimeException(e);
             }
 
+            // Start watching (blocks until watcher is closed)
             logger.info("Starting native directory watcher for: {}", root);
-            watcher.watch(); // This blocks until watcher is closed
-
+            requireNonNull(watcher).watch();
         } catch (IOException e) {
             logger.error("Error setting up native directory watcher", e);
-        } catch (Exception e) {
-            logger.error("Error starting native directory watcher", e);
         }
     }
 
@@ -203,43 +208,46 @@ public class NativeProjectWatchService implements IWatchService {
     }
 
     private void handleEvent(DirectoryChangeEvent event) {
-        // Skip processing if paused or not running
-        if (pauseCount > 0 || !running) {
+        // If we're not running, ignore events.
+        if (!running) {
             return;
         }
 
+        Path changedPath = event.path();
+        DirectoryChangeEvent.EventType eventType = event.eventType();
+
+        logger.trace("File event: {} on {}", eventType, changedPath);
+
+        lock.lock();
         try {
-            Path changedPath = event.path();
-            DirectoryChangeEvent.EventType eventType = event.eventType();
+            // Always buffer events under lock
+            if (shouldInvalidateForGitignoreChange(changedPath)) {
+                accumulatedBatch.untrackedGitignoreChanged = true;
+            }
 
-            logger.trace("File event: {} on {}", eventType, changedPath);
+            // Convert to ProjectFile - handle paths outside root (e.g., global gitignore)
+            try {
+                Path relativePath = root.relativize(changedPath);
+                accumulatedBatch.files.add(new ProjectFile(root, relativePath));
+            } catch (IllegalArgumentException e) {
+                // Path is outside root, skip it for now
+                logger.trace("Skipping event for path outside root: {}", changedPath);
+                return;
+            }
 
-            synchronized (debounceLock) {
-                // Check if this is an untracked gitignore change
-                if (shouldInvalidateForGitignoreChange(changedPath)) {
-                    accumulatedBatch.untrackedGitignoreChanged = true;
-                }
-
-                // Convert to ProjectFile - handle paths outside root (e.g., global gitignore)
-                try {
-                    Path relativePath = root.relativize(changedPath);
-                    accumulatedBatch.files.add(new ProjectFile(root, relativePath));
-                } catch (IllegalArgumentException e) {
-                    // Path is outside root, skip it for now
-                    logger.trace("Skipping event for path outside root: {}", changedPath);
-                    return;
-                }
-
+            // Conditionally schedule flush only if not paused
+            if (pauseCount == 0) {
                 // Cancel existing flush and schedule new one
                 if (pendingFlush != null) {
                     pendingFlush.cancel(false);
                 }
                 pendingFlush = debounceExecutor.schedule(
                         this::flushAccumulatedEvents, DEBOUNCE_DELAY_MS, TimeUnit.MILLISECONDS);
+            } else {
+                logger.trace("Watcher is paused; buffering event for {}", changedPath);
             }
-
-        } catch (Exception e) {
-            logger.error("Error handling directory change event", e);
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -248,54 +256,98 @@ public class NativeProjectWatchService implements IWatchService {
      * Called by the debounce executor after DEBOUNCE_DELAY_MS of inactivity.
      */
     private void flushAccumulatedEvents() {
-        EventBatch batchToNotify;
+        lock.lock();
+        try {
+            // If paused, don't flush
+            if (pauseCount > 0) {
+                pendingFlush = null;
+                logger.trace("Flush suppressed because watcher is paused; keeping events buffered");
+                return;
+            }
 
-        synchronized (debounceLock) {
             // If there's nothing to notify, return early
             if (accumulatedBatch.files.isEmpty() && !accumulatedBatch.untrackedGitignoreChanged) {
+                pendingFlush = null;
                 return;
             }
 
             // Swap out the batch and reset
-            batchToNotify = accumulatedBatch;
+            EventBatch batchToNotify = accumulatedBatch;
             accumulatedBatch = new EventBatch();
             pendingFlush = null;
-        }
 
-        logger.debug("Flushing {} accumulated file events", batchToNotify.files.size());
-        notifyFilesChanged(batchToNotify);
+            // Notify listeners while holding the lock to guarantee pause() semantics
+            logger.debug("Flushing {} accumulated file events", batchToNotify.files.size());
+            notifyFilesChanged(batchToNotify);
+        } finally {
+            lock.unlock();
+        }
     }
 
     private void notifyFilesChanged(EventBatch batch) {
         for (Listener listener : listeners) {
-            try {
-                listener.onFilesChanged(batch);
-            } catch (Exception e) {
-                logger.error(
-                        "Error notifying listener {} of file changes",
-                        listener.getClass().getSimpleName(),
-                        e);
-            }
+            listener.onFilesChanged(batch);
         }
     }
 
     @Override
-    public synchronized void pause() {
+    public void pause() {
         logger.debug("Pausing native directory watcher");
-        pauseCount++;
-    }
 
-    @Override
-    public synchronized void resume() {
-        logger.debug("Resuming native directory watcher");
-        if (pauseCount > 0) {
-            pauseCount--;
+        if (lock.isHeldByCurrentThread()) {
+            throw new IllegalStateException("Cannot call pause() from within a listener callback");
+        }
+
+        lock.lock();
+        try {
+            pauseCount++;
+
+            // Cancel any pending flush
+            if (pendingFlush != null) {
+                pendingFlush.cancel(false);
+                pendingFlush = null;
+                logger.trace("Canceled pending flush due to pause; events will remain buffered");
+            }
+        } finally {
+            lock.unlock();
         }
     }
 
     @Override
-    public synchronized boolean isPaused() {
-        return pauseCount > 0;
+    public void resume() {
+        logger.debug("Resuming native directory watcher");
+
+        if (lock.isHeldByCurrentThread()) {
+            throw new IllegalStateException("Cannot call resume() from within a listener callback");
+        }
+
+        lock.lock();
+        try {
+            if (pauseCount > 0) {
+                pauseCount--;
+                // Atomically check if we should trigger flush
+                if (pauseCount == 0) {
+                    // Cancel any existing scheduled flush
+                    if (pendingFlush != null) {
+                        pendingFlush.cancel(false);
+                    }
+                    // Schedule immediate flush on the debounce executor thread
+                    pendingFlush = debounceExecutor.schedule(this::flushAccumulatedEvents, 0, TimeUnit.MILLISECONDS);
+                }
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    @Override
+    public boolean isPaused() {
+        lock.lock();
+        try {
+            return pauseCount > 0;
+        } finally {
+            lock.unlock();
+        }
     }
 
     @Override
@@ -311,9 +363,20 @@ public class NativeProjectWatchService implements IWatchService {
     }
 
     @Override
-    public synchronized void close() {
+    public void close() {
         running = false;
-        pauseCount = 0;
+
+        // Cancel any pending flush to avoid it running while we are shutting down.
+        lock.lock();
+        try {
+            pauseCount = 0;
+            if (pendingFlush != null) {
+                pendingFlush.cancel(false);
+                pendingFlush = null;
+            }
+        } finally {
+            lock.unlock();
+        }
 
         // Shutdown debounce executor
         debounceExecutor.shutdown();
@@ -326,6 +389,7 @@ public class NativeProjectWatchService implements IWatchService {
             Thread.currentThread().interrupt();
         }
 
+        // closing watcher signals thread to exit
         if (watcher != null) {
             try {
                 logger.info("Closing native directory watcher for: {}", root);

@@ -100,6 +100,25 @@ public interface IConsoleIO {
 
     default void hideSessionSwitchSpinner() {}
 
+    /**
+     * Shows a transient message overlay in the output panel.
+     * Transient messages are temporary notifications that can be dismissed or replaced.
+     * Default implementation is a no-op; GUI consoles should override.
+     *
+     * @param message The message to display
+     */
+    default void showTransientMessage(String message) {
+        // no-op by default
+    }
+
+    /**
+     * Hides any currently displayed transient message.
+     * Default implementation is a no-op; GUI consoles should override.
+     */
+    default void hideTransientMessage() {
+        // no-op by default
+    }
+
     default List<ChatMessage> getLlmRawMessages() {
         throw new UnsupportedOperationException();
     }

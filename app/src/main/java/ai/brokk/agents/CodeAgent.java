@@ -290,7 +290,7 @@ public class CodeAgent {
             }
 
             // Refresh context fragments for any files that were modified (so LLM sees current contents)
-            context = context.copyAndRefresh(es.changedFiles());
+            context = context.copyAndRefresh(es.changedFiles(), "CodeAgent Changes");
 
             if (applyOutcome instanceof Step.Retry retryApply) {
                 cs = retryApply.cs();
@@ -920,8 +920,10 @@ public class CodeAgent {
             IProblem.CannotInferElidedTypes,
             IProblem.CannotInferInvocationType,
             IProblem.GenericInferenceError,
-            IProblem.MissingTypeForInference
+            IProblem.MissingTypeForInference,
             // Verified by PJ-19 (missing external type via var inference ignored)
+            IProblem.IncompatibleMethodReference
+            // PJ-22: method ref return type vs generic descriptor mismatch without full classpath
             );
 
     /**
