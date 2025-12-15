@@ -350,7 +350,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             Path rel = rootAbs.relativize(dirAbs).normalize();
             if (rel.getNameCount() > 0) { // avoid toggling the project root
                 String relStr = rel.toString();
-                boolean effectiveExcluded = project.isPathExcluded(relStr);
+                boolean effectiveExcluded = project.isPathExcluded(relStr, true);
                 // Canonicalize relStr to align with settings' persistence format
                 String canonicalRel =
                         PathNormalizer.canonicalizeForProject(relStr, project.getMasterRootPathForConfig());
@@ -1121,7 +1121,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                     String relativePathStr = relativePath.toString();
 
                     // Color CI-excluded paths (directories and files) grey
-                    if (project.isPathExcluded(relativePathStr)) {
+                    if (project.isPathExcluded(relativePathStr, file.isDirectory())) {
                         setForeground(ThemeColors.getColor(ThemeColors.CI_EXCLUDED_FOREGROUND));
                     } else if (file.isFile()) {
                         // Color untracked files red (only for files not excluded)

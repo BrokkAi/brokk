@@ -797,13 +797,13 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
-    public boolean isPathExcluded(String relativePath) {
+    public boolean isPathExcluded(String relativePath, boolean isDirectory) {
         var patterns = getExclusionPatterns();
         // Check if cache is still valid
         if (!patterns.equals(cachedPatternSet)) {
             cachedPatternSet = patterns;
             cachedPatternMatcher = FileFilteringService.createPatternMatcher(patterns);
         }
-        return cachedPatternMatcher.isPathExcluded(relativePath);
+        return cachedPatternMatcher.isPathExcluded(relativePath, isDirectory);
     }
 }

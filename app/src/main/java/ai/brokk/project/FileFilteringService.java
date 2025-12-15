@@ -168,9 +168,12 @@ public final class FileFilteringService {
         /**
          * Check if a path is excluded (for directory prefix matching).
          * Uses fast prefix matching for SimpleName patterns.
+         *
+         * @param relativePath the path to check
+         * @param isDirectory true if the path is a directory (skips Extension pattern checks)
          */
-        public boolean isPathExcluded(String relativePath) {
-            return isPathExcludedStatic(relativePath, compiledPatterns);
+        public boolean isPathExcluded(String relativePath, boolean isDirectory) {
+            return isPathExcludedStatic(relativePath, compiledPatterns, isDirectory);
         }
 
         public boolean isEmpty() {
@@ -453,8 +456,13 @@ public final class FileFilteringService {
     /**
      * Check if a path (file or directory) is excluded by any pattern.
      * Uses fast prefix matching for SimpleName patterns.
+     *
+     * @param relativePath the path to check
+     * @param compiledPatterns pre-compiled patterns
+     * @param isDirectory true if the path is a directory (skips Extension pattern checks)
      */
-    private static boolean isPathExcludedStatic(String relativePath, List<CompiledPattern> compiledPatterns) {
+    private static boolean isPathExcludedStatic(
+            String relativePath, List<CompiledPattern> compiledPatterns, boolean isDirectory) {
         if (compiledPatterns.isEmpty()) {
             return false;
         }
@@ -473,7 +481,9 @@ public final class FileFilteringService {
                                     || lowerPath.startsWith(sn.lowerName() + "/")
                                     || lowerPath.contains("/" + sn.lowerName() + "/")
                                     || lowerPath.endsWith("/" + sn.lowerName());
-                        case CompiledPattern.Extension ext -> lowerName.endsWith(ext.lowerSuffix());
+                        case CompiledPattern.Extension ext ->
+                            // Extension patterns only apply to files, not directories
+                            !isDirectory && lowerName.endsWith(ext.lowerSuffix());
                         case CompiledPattern.Glob g -> g.regex().matcher(lowerPath).matches();
                     };
             if (matched) {

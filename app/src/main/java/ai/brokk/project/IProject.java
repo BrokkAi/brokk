@@ -444,9 +444,10 @@ public interface IProject extends AutoCloseable {
      * Implementations should cache compiled patterns for efficiency.
      *
      * @param relativePath the relative path to check (e.g., "src/main/java" or "node_modules/foo/bar.js")
+     * @param isDirectory true if the path is a directory (skips Extension pattern checks like *.svg)
      * @return true if the path is excluded
      */
-    default boolean isPathExcluded(String relativePath) {
+    default boolean isPathExcluded(String relativePath, boolean isDirectory) {
         return false;
     }
 
