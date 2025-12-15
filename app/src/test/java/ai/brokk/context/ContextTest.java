@@ -105,7 +105,7 @@ class ContextTest {
         var projectFragA = new ContextFragment.ProjectPathFragment(pfA, contextManager);
         var projectFragB = new ContextFragment.ProjectPathFragment(pfB, contextManager);
 
-        // Other editable path fragment
+        // External path fragment
         var extPath = tempDir.resolve("external.txt");
         Files.writeString(extPath, "external");
         var extFrag = new ContextFragment.ExternalPathFragment(new ExternalFile(extPath), contextManager);
@@ -124,17 +124,15 @@ class ContextTest {
         // Order: editable virtuals first (CodeFragment), then other editable path fragments (External),
         // then project path fragments ordered by mtime (older A then newer B).
         var editable = ctx.getEditableFragments().toList();
-        assertEquals(4, editable.size(), "All editable fragments should be present before read-only filtering");
-        assertTrue(editable.get(0) instanceof ContextFragment.CodeFragment, "Editable virtuals should come first");
-        assertTrue(
-                editable.get(1) instanceof ContextFragment.ExternalPathFragment, "Other editable path fragments next");
-        assertEquals(projectFragA, editable.get(2), "Older project file should come before newer");
-        assertEquals(projectFragB, editable.get(3), "Newer project file should be last");
+        assertEquals(3, editable.size(), "All editable fragments should be present before read-only filtering");
+        assertInstanceOf(ContextFragment.CodeFragment.class, editable.get(0), "Editable virtuals should come first");
+        assertEquals(projectFragA, editable.get(1), "Older project file should come before newer");
+        assertEquals(projectFragB, editable.get(2), "Newer project file should be last");
 
         // Mark CodeFragment as read-only and verify it drops from editable
         var ctx2 = ctx.setReadonly(codeFrag, true);
         var editable2 = ctx2.getEditableFragments().toList();
-        assertEquals(3, editable2.size(), "Read-only fragments should be filtered out");
+        assertEquals(2, editable2.size(), "Read-only fragments should be filtered out");
         assertFalse(editable2.stream().anyMatch(f -> f instanceof ContextFragment.CodeFragment));
         assertTrue(ctx2.isMarkedReadonly(codeFrag), "Read-only state should be tracked");
     }
