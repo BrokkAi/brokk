@@ -170,6 +170,11 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
     @CommandLine.Option(names = "--stats", description = "Show stage timing diagram (if supported)")
     private boolean showStats = false;
 
+    @CommandLine.Option(
+            names = "--fail-on-thrashing",
+            description = "Exit with non-zero status if prolonged GC thrashing is detected (coarse check)")
+    private boolean failOnThrashing = false;
+
     @CommandLine.Option(names = "--cleanup", description = "Clean up reports before running command")
     private boolean cleanupReports = false;
 
