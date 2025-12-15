@@ -1902,27 +1902,32 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     }
             }
 
-            submitAction(action, query, scope -> {
-                    assert !query.isBlank();
+            var future = submitAction(action, query, scope -> {
+                assert !query.isBlank();
 
-                    var cm = chrome.getContextManager();
-                    var context = cm.liveContext();
-                    SearchAgent agent = new SearchAgent(context, query, modelToUse, objective, scope);
-                    try {
-                            agent.scanInitialContext();
-                    } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            return new TaskResult(
-                                            cm,
-                                            "Search: " + query,
-                                            cm.getIo().getLlmRawMessages(),
-                                            cm.liveContext(),
-                                            new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
-                                            new TaskResult.TaskMeta(
-                                                            TaskResult.Type.SEARCH, Service.ModelConfig.from(modelToUse, cm.getService())));
-                    }
-                    return agent.execute();
+                var cm2 = chrome.getContextManager();
+                var context = cm2.liveContext();
+                SearchAgent agent = new SearchAgent(context, query, modelToUse, objective, scope);
+                try {
+                    agent.scanInitialContext();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return new TaskResult(
+                            cm2,
+                            "Search: " + query,
+                            cm2.getIo().getLlmRawMessages(),
+                            cm2.liveContext(),
+                            new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
+                            new TaskResult.TaskMeta(
+                                    TaskResult.Type.SEARCH, Service.ModelConfig.from(modelToUse, cm2.getService())));
+                }
+                return agent.execute();
             });
+            if (ACTION_LUTZ.equals(action) && !GlobalUiSettings.isAdvancedMode()) {
+                future.thenRun(() -> SwingUtilities.invokeLater(() ->
+                        chrome.getTaskListPanel().runAllAfterModelRefresh()
+                ));
+            }
     }
 
     /**

@@ -1774,6 +1774,18 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     /**
+     * Wait for the model to refresh and then run all tasks in order.
+     * Safe to call from any thread.
+     */
+    public void runAllAfterModelRefresh() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::runAllAfterModelRefresh);
+            return;
+        }
+        runAfterModelRefresh(this::runArchitectOnAll);
+    }
+
+    /**
      * TransferHandler for in-place reordering via drag-and-drop. Keeps data locally and performs MOVE operations within
      * the same list.
      */
