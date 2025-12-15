@@ -152,6 +152,10 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
 
     private static final String GC_THRASHING_REASON = "GC thrashing";
 
+    // Thresholds for coarse GC thrashing detection
+    private static final long GC_THRASH_MIN_TIME_MS = 500L;      // minimum total GC time during analysis
+    private static final double GC_THRASH_RATIO_THRESHOLD = 0.6; // GC time as a fraction of analysis duration
+
     @CommandLine.Option(
             names = {"--memory-profile", "--memory"},
             description = "Enable detailed memory profiling")
@@ -1032,12 +1036,12 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
     }
 
     private boolean isGcThrashing(long gcTimeMs, Duration analysisDuration) {
-        long analysisMs = analysisDuration.toMillis();
-        if (analysisMs <= 0) {
-            return false;
-        }
-        double ratio = (double) gcTimeMs / analysisMs;
-        return gcTimeMs >= 500 && ratio >= 0.6;
+            long analysisMs = analysisDuration.toMillis();
+            if (analysisMs <= 0) {
+                    return false;
+            }
+            double ratio = (double) gcTimeMs / analysisMs;
+            return gcTimeMs >= GC_THRASH_MIN_TIME_MS && ratio >= GC_THRASH_RATIO_THRESHOLD;
     }
 
     private void drawStageLine(
