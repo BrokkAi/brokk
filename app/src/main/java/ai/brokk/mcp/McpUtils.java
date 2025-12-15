@@ -29,7 +29,7 @@ public class McpUtils {
     private static McpClientTransport buildTransport(URL url, @Nullable String bearerToken) {
         var transportBuilder = HttpClientStreamableHttpTransport.builder(url.toString())
                 .resumableStreams(true)
-                .openConnectionOnStartup(true);
+                .openConnectionOnStartup(false);
         if (bearerToken != null) {
             final String token;
             if (!bearerToken.startsWith("Bearer ")) token = "Bearer " + bearerToken;
