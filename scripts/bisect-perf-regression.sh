@@ -200,8 +200,10 @@ midpoint_on_path() {
   local good="$1"
   local bad="$2"
   # List commits on ancestry path from good (exclusive) to bad (inclusive)
-  local -a commits
-  mapfile -t commits < <(git -C "${REPO_ROOT}" rev-list --ancestry-path "${good}..${bad}")
+  local -a commits=()
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && commits+=("$line")
+  done < <(git -C "${REPO_ROOT}" rev-list --ancestry-path "${good}..${bad}")
   local n="${#commits[@]}"
   if [[ "$n" -eq 0 ]]; then
     echo ""
@@ -237,6 +239,16 @@ ensure_output_flag() {
   else
     printf "%s --output %s" "$args" "$outdir"
   fi
+}
+
+# Bash 3.2 compatibility: avoid mapfile/readarray and associative arrays; use while-read loops and on-demand lookups instead.
+results_dir_for_sha() {
+  local sha="$1"
+  printf "%s\n" "${WORKDIR}/results/${sha}"
+}
+
+short_sha() {
+  git -C "${REPO_ROOT}" rev-parse --short "$1"
 }
 
 # Runs the baseline at a given commit, collecting ITERATIONS JSON files into:
@@ -478,7 +490,7 @@ parse_args() {
     echo -e "${YELLOW}Note: --runner-args provided; overriding --mode ${MODE}.${NC}" >&2
   elif [[ -n "${MODE}" && "${USER_PROVIDED_RUNNER_ARGS}" != "true" ]]; then
     if [[ "${MODE}" == "fast" ]]; then
-      RUNNER_ARGS="run-baselines --max-files 100 --warm-up-iterations 1 --iterations 1 --json"
+      RUNNER_ARGS="full --max-files 100 --warm-up-iterations 1 --iterations 1 --json"
       if [[ "${USER_SET_ITER}" != "true" ]]; then
         ITERATIONS=1
       fi
@@ -575,8 +587,10 @@ main() {
 
   # Bisect loop using linear ancestry path (--reverse) and midpoint retries on inconclusive results.
   # Build the ancestry path from GOOD..BAD, oldest->newest, and include GOOD at the start.
-  local -a PATH_COMMITS
-  mapfile -t PATH_COMMITS < <(git -C "${REPO_ROOT}" rev-list --ancestry-path "${good_sha}..${bad_sha}" --reverse)
+  local -a PATH_COMMITS=()
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && PATH_COMMITS+=("$line")
+  done < <(git -C "${REPO_ROOT}" rev-list --ancestry-path "${good_sha}..${bad_sha}" --reverse)
   PATH_COMMITS=( "${good_sha}" "${PATH_COMMITS[@]}" )
   local n="${#PATH_COMMITS[@]}"
   if [[ "${n}" -lt 2 ]]; then
@@ -584,13 +598,7 @@ main() {
     exit 1
   fi
 
-  # Cache result directories and short SHAs for tested commits.
-  declare -A DIRS
-  declare -A SHORTS
-  DIRS["${good_sha}"]="${good_dir}"
-  DIRS["${bad_sha}"]="${bad_dir}"
-  SHORTS["${good_sha}"]="${good_sha_short}"
-  SHORTS["${bad_sha}"]="${bad_sha_short}"
+  # Cache removed for Bash 3.2 compatibility; results and short SHAs are derived on demand.
 
   local lo=0
   local hi=$(( n - 1 ))
@@ -601,32 +609,32 @@ main() {
     local lo_sha="${PATH_COMMITS[$lo]}"
     local hi_sha="${PATH_COMMITS[$hi]}"
 
-    if [[ -z "${SHORTS[${mid_sha}]:-}" ]]; then
-      SHORTS["${mid_sha}"]="$(git -C "${REPO_ROOT}" rev-parse --short "${mid_sha}")"
-    fi
-    local mid_short="${SHORTS[${mid_sha}]}"
-    local lo_short="${SHORTS[${lo_sha}]}"
-    local hi_short="${SHORTS[${hi_sha}]}"
+    local mid_short
+    mid_short="$(short_sha "${mid_sha}")"
+    local lo_short
+    lo_short="$(short_sha "${lo_sha}")"
+    local hi_short
+    hi_short="$(short_sha "${hi_sha}")"
 
     echo -e "${GREEN}Testing midpoint ${mid_sha} (${mid_short}) between ${lo_short}..${hi_short}${NC}"
 
     # Ensure results exist for midpoint
-    local mid_dir="${DIRS[${mid_sha}]:-}"
-    if [[ -z "${mid_dir}" ]] || [[ ! -d "${mid_dir}" ]]; then
+    local mid_dir
+    mid_dir="$(results_dir_for_sha "${mid_sha}")"
+    if [[ ! -d "${mid_dir}" ]]; then
       if ! mid_dir="$(run_commit "${mid_sha}")"; then
         echo -e "${YELLOW}Failed to run ${mid_short}; treating as inconclusive and retrying if allowed...${NC}" >&2
         mid_dir=""
-      fi
-      if [[ -n "${mid_dir}" ]]; then
-        DIRS["${mid_sha}"]="${mid_dir}"
       fi
     fi
 
     # Compare GOOD (lo) vs MID
     local status="unknown"
-    if [[ -n "${DIRS[${lo_sha}]:-}" ]] && [[ -n "${DIRS[${mid_sha}]:-}" ]]; then
+    local lo_dir
+    lo_dir="$(results_dir_for_sha "${lo_sha}")"
+    if [[ -n "${lo_dir}" ]] && [[ -d "${lo_dir}" ]] && [[ -n "${mid_dir}" ]] && [[ -d "${mid_dir}" ]]; then
       local cmp_json
-      cmp_json="$(compare_dirs_json "${DIRS[${lo_sha}]}" "${DIRS[${mid_sha}]}" "${lo_short}" "${mid_short}")"
+      cmp_json="$(compare_dirs_json "${lo_dir}" "${mid_dir}" "${lo_short}" "${mid_short}")"
       echo -e "${BLUE}[Compare] ${lo_short} -> ${mid_short}${NC}"
       print_compare_summary "${lo_short}" "${mid_short}" "${cmp_json}"
       status="$(status_from_json <<< "${cmp_json}")"
@@ -638,9 +646,8 @@ main() {
       while (( attempt <= RETRIES )); do
         echo -e "${YELLOW}Inconclusive midpoint result (${status}) for ${mid_short}; retry ${attempt}/${RETRIES}...${NC}"
         if mid_dir="$(run_commit "${mid_sha}")"; then
-          DIRS["${mid_sha}"]="${mid_dir}"
           local cmp_json
-          cmp_json="$(compare_dirs_json "${DIRS[${lo_sha}]}" "${DIRS[${mid_sha}]}" "${lo_short}" "${mid_short}")"
+          cmp_json="$(compare_dirs_json "${lo_dir}" "${mid_dir}" "${lo_short}" "${mid_short}")"
           echo -e "${BLUE}[Compare] ${lo_short} -> ${mid_short}${NC}"
           print_compare_summary "${lo_short}" "${mid_short}" "${cmp_json}"
           status="$(status_from_json <<< "${cmp_json}")"
@@ -675,8 +682,10 @@ main() {
   local final_bad_sha="${PATH_COMMITS[$hi]}"
   local final_good_short="$(git -C "${REPO_ROOT}" rev-parse --short "${final_good_sha}")"
   local final_bad_short="$(git -C "${REPO_ROOT}" rev-parse --short "${final_bad_sha}")"
-  local final_good_dir="${DIRS[${final_good_sha}]}"
-  local final_bad_dir="${DIRS[${final_bad_sha}]}"
+  local final_good_dir
+  final_good_dir="$(results_dir_for_sha "${final_good_sha}")"
+  local final_bad_dir
+  final_bad_dir="$(results_dir_for_sha "${final_bad_sha}")"
 
   local report_md="${WORKDIR}/final-report.md"
   BASE_SHA_SHORT="${final_good_short}" \
