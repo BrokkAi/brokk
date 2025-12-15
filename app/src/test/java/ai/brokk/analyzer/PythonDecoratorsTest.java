@@ -11,7 +11,8 @@ public final class PythonDecoratorsTest {
 
     @Test
     void testDecoratedTopLevelFunctionAndClass() throws Exception {
-        String py = """
+        String py =
+                """
                 def deco1(x):
                     return x
 
@@ -43,44 +44,49 @@ public final class PythonDecoratorsTest {
 
             // Top-level decorated function
             assertTrue(
-                    declarations.stream()
-                            .filter(CodeUnit::isFunction)
-                            .anyMatch(cu -> cu.fqName().equals("decorators.top_func")),
+                    declarations.stream().filter(CodeUnit::isFunction).anyMatch(cu -> cu.fqName()
+                            .equals("decorators.top_func")),
                     () -> "Missing decorators.top_func. Found: "
-                            + declarations.stream().map(CodeUnit::fqName).sorted().collect(Collectors.joining(", ")))
-                    ;
+                            + declarations.stream()
+                                    .map(CodeUnit::fqName)
+                                    .sorted()
+                                    .collect(Collectors.joining(", ")));
 
             // Top-level decorated class
             assertTrue(
-                    declarations.stream()
-                            .filter(CodeUnit::isClass)
-                            .anyMatch(cu -> cu.fqName().equals("decorators.TopClass")),
+                    declarations.stream().filter(CodeUnit::isClass).anyMatch(cu -> cu.fqName()
+                            .equals("decorators.TopClass")),
                     () -> "Missing decorators.TopClass. Found: "
-                            + declarations.stream().map(CodeUnit::fqName).sorted().collect(Collectors.joining(", ")))
-                    ;
+                            + declarations.stream()
+                                    .map(CodeUnit::fqName)
+                                    .sorted()
+                                    .collect(Collectors.joining(", ")));
 
             // Methods inside TopClass
             assertTrue(
-                    declarations.stream()
-                            .filter(CodeUnit::isFunction)
-                            .anyMatch(cu -> cu.fqName().equals("decorators.TopClass.method")),
+                    declarations.stream().filter(CodeUnit::isFunction).anyMatch(cu -> cu.fqName()
+                            .equals("decorators.TopClass.method")),
                     () -> "Missing decorators.TopClass.method. Found: "
-                            + declarations.stream().map(CodeUnit::fqName).sorted().collect(Collectors.joining(", ")))
-                    ;
+                            + declarations.stream()
+                                    .map(CodeUnit::fqName)
+                                    .sorted()
+                                    .collect(Collectors.joining(", ")));
 
             assertTrue(
-                    declarations.stream()
-                            .filter(CodeUnit::isFunction)
-                            .anyMatch(cu -> cu.fqName().equals("decorators.TopClass.static_m")),
+                    declarations.stream().filter(CodeUnit::isFunction).anyMatch(cu -> cu.fqName()
+                            .equals("decorators.TopClass.static_m")),
                     () -> "Missing decorators.TopClass.static_m. Found: "
-                            + declarations.stream().map(CodeUnit::fqName).sorted().collect(Collectors.joining(", ")))
-                    ;
+                            + declarations.stream()
+                                    .map(CodeUnit::fqName)
+                                    .sorted()
+                                    .collect(Collectors.joining(", ")));
         }
     }
 
     @Test
     void testDecoratedNestedInFunctionAndClass() throws Exception {
-        String py = """
+        String py =
+                """
                 def deco1(x):
                     return x
 
@@ -105,27 +111,30 @@ public final class PythonDecoratorsTest {
 
             // Decorated class nested inside a top-level function
             assertTrue(
-                    declarations.stream()
-                            .filter(CodeUnit::isClass)
-                            .anyMatch(cu -> cu.fqName().equals("decorators.outer$Inner")),
+                    declarations.stream().filter(CodeUnit::isClass).anyMatch(cu -> cu.fqName()
+                            .equals("decorators.outer$Inner")),
                     () -> "Missing decorators.outer$Inner. Found: "
-                            + declarations.stream().map(CodeUnit::fqName).sorted().collect(Collectors.joining(", ")))
-                    ;
+                            + declarations.stream()
+                                    .map(CodeUnit::fqName)
+                                    .sorted()
+                                    .collect(Collectors.joining(", ")));
 
             // Decorated method inside the nested class
             assertTrue(
-                    declarations.stream()
-                            .filter(CodeUnit::isFunction)
-                            .anyMatch(cu -> cu.fqName().equals("decorators.outer$Inner.im")),
+                    declarations.stream().filter(CodeUnit::isFunction).anyMatch(cu -> cu.fqName()
+                            .equals("decorators.outer$Inner.im")),
                     () -> "Missing decorators.outer$Inner.im. Found: "
-                            + declarations.stream().map(CodeUnit::fqName).sorted().collect(Collectors.joining(", ")))
-                    ;
+                            + declarations.stream()
+                                    .map(CodeUnit::fqName)
+                                    .sorted()
+                                    .collect(Collectors.joining(", ")));
         }
     }
 
     @Test
     void testDecoratedDeclarationsInTopLevelConditional() throws Exception {
-        String py = """
+        String py =
+                """
                 def deco1(x):
                     return x
 
@@ -151,21 +160,23 @@ public final class PythonDecoratorsTest {
 
             // Decorated function inside top-level if
             assertTrue(
-                    declarations.stream()
-                            .filter(CodeUnit::isFunction)
-                            .anyMatch(cu -> cu.fqName().equals("decorators.cond_func")),
+                    declarations.stream().filter(CodeUnit::isFunction).anyMatch(cu -> cu.fqName()
+                            .equals("decorators.cond_func")),
                     () -> "Missing decorators.cond_func. Found: "
-                            + declarations.stream().map(CodeUnit::fqName).sorted().collect(Collectors.joining(", ")))
-                    ;
+                            + declarations.stream()
+                                    .map(CodeUnit::fqName)
+                                    .sorted()
+                                    .collect(Collectors.joining(", ")));
 
             // Decorated class inside top-level if
             assertTrue(
-                    declarations.stream()
-                            .filter(CodeUnit::isClass)
-                            .anyMatch(cu -> cu.fqName().equals("decorators.CondClass")),
+                    declarations.stream().filter(CodeUnit::isClass).anyMatch(cu -> cu.fqName()
+                            .equals("decorators.CondClass")),
                     () -> "Missing decorators.CondClass. Found: "
-                            + declarations.stream().map(CodeUnit::fqName).sorted().collect(Collectors.joining(", ")))
-                    ;
+                            + declarations.stream()
+                                    .map(CodeUnit::fqName)
+                                    .sorted()
+                                    .collect(Collectors.joining(", ")));
         }
     }
 }
