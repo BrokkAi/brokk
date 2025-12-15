@@ -466,9 +466,11 @@ public class WorkspaceTools {
         return formattedTaskList;
     }
 
-    @Tool(
-            value =
-                    "Append new tasks to the existing task list without modifying or removing existing tasks. Use this when you want to extend the current task list incrementally.")
+    /**
+     * Append new tasks to the existing task list without modifying or removing existing tasks.
+     * Deprecated: reserved for future Architect usage and not exposed as a tool.
+     */
+    @Deprecated
     public String appendTaskList(
             @P("Explanation of why these tasks are being added, formatted in Markdown.") String explanation,
             @P(TASK_LIST_GUIDANCE) List<String> tasks) {

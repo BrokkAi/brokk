@@ -275,7 +275,6 @@ public class SearchAgent {
             var globalTerminals = new ArrayList<String>();
             if (allowedTerminals.contains(Terminal.TASK_LIST)) {
                 globalTerminals.add("createOrReplaceTaskList");
-                globalTerminals.add("appendTaskList");
             }
 
             // Merge allowed names with agent terminals and global terminals
@@ -559,8 +558,7 @@ public class SearchAgent {
             finals.add(
                     """
                     - Use createOrReplaceTaskList(String explanation, List<String> tasks) to replace the entire task list when the request involves code changes. Titles are summarized automatically from task text; pass task texts only. Completed tasks from the previous list are implicitly dropped. Produce a clear, minimal, incremental, and testable sequence of tasks that an Architect/Code agent can execute, once you understand where all the necessary pieces live.
-                    - Use appendTaskList(String explanation, List<String> tasks) to add new tasks without modifying existing ones. Titles are summarized automatically from task text; pass task texts only. Use this when you want to extend the current task list incrementally.
-                      Guidance for both:
+                      Guidance:
                         - Each task should be self-contained and verifiable via code review or automated tests.
                         - Prefer adding or updating automated tests to demonstrate behavior; if automation is not a good fit, it is acceptable to omit tests rather than prescribe manual steps.
                         - Keep the project buildable and testable after each step.
@@ -622,7 +620,7 @@ public class SearchAgent {
 
                         You can call multiple non-final tools in a single turn. Provide a list of separate tool calls,
                         each with its own name and arguments (add summaries, drop fragments, etc).
-                        Final actions (answer, createOrReplaceTaskList, appendTaskList, workspaceComplete, abortSearch) must be the ONLY tool in a turn.
+                        Final actions (answer, createOrReplaceTaskList, workspaceComplete, abortSearch) must be the ONLY tool in a turn.
                         If you include a final together with other tools, the final will be ignored for this turn.
                         It is NOT your objective to write code.
 
@@ -645,7 +643,7 @@ public class SearchAgent {
                     The Workspace is full or execution was interrupted.
                     Finalize now using the best available information.
                     Prefer answer(String) when no code changes are needed.
-                    For code-change requests, use createOrReplaceTaskList(String explanation, List<String> tasks) when replacing the entire list (completed tasks will be dropped), or appendTaskList(String explanation, List<String> tasks) to add tasks without modifying existing ones. Titles are summarized automatically from task text; pass task texts only. Otherwise use abortSearch with reasons.
+                    For code-change requests, use createOrReplaceTaskList(String explanation, List<String> tasks) to replace the entire list (completed tasks will be dropped). Titles are summarized automatically from task text; pass task texts only. Otherwise use abortSearch with reasons.
                     </beast-mode>
                     """;
         }
@@ -725,7 +723,7 @@ public class SearchAgent {
                 new TerminalObjective(
                         "instructions",
                         """
-                    Deliver a task list using the createOrReplaceTaskList(List<String>) or appendTaskList(List<String>) tool.
+                    Deliver a task list using the createOrReplaceTaskList(String explanation, List<String> tasks) tool.
                     """);
             case WORKSPACE_ONLY ->
                 new TerminalObjective(
@@ -742,13 +740,13 @@ public class SearchAgent {
                     In all cases, find and add appropriate source context to the Workspace so that you do not have to guess. Then,
                       - Prefer answer(String) when no code changes are needed.
                       - Prefer callCodeAgent(String) if the requested change is small.
-                      - Otherwise, decompose the problem with createOrReplaceTaskList(String explanation, List<String> tasks) or appendTaskList(String explanation, List<String> tasks); do not attempt to write code yet.
+                      - Otherwise, decompose the problem with createOrReplaceTaskList(String explanation, List<String> tasks); do not attempt to write code yet.
                     """);
         };
     }
 
     private enum ToolCategory {
-        TERMINAL, // answer, createOrReplaceTaskList, appendTaskList, workspaceComplete, abortSearch
+        TERMINAL, // answer, createOrReplaceTaskList, workspaceComplete, abortSearch
         WORKSPACE_HYGIENE, // dropWorkspaceFragments, appendNote (safe to pair with terminals)
         RESEARCH // everything else (blocks terminals)
     }
@@ -759,7 +757,6 @@ public class SearchAgent {
                     "askForClarification",
                     "callCodeAgent",
                     "createOrReplaceTaskList",
-                    "appendTaskList",
                     "workspaceComplete",
                     "abortSearch" -> ToolCategory.TERMINAL;
             case "dropWorkspaceFragments", "appendNote" -> ToolCategory.WORKSPACE_HYGIENE;
@@ -794,7 +791,7 @@ public class SearchAgent {
             case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries" -> 8;
 
             case "callCodeAgent" -> 99;
-            case "createOrReplaceTaskList", "appendTaskList" -> 100;
+            case "createOrReplaceTaskList" -> 100;
             case "answer", "askForClarification", "workspaceComplete" -> 101; // should never co-occur
             case "abortSearch" -> 200;
             default -> 9;
