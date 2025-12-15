@@ -415,6 +415,10 @@ public interface IProject extends AutoCloseable {
         return Set.of();
     }
 
+    default Set<String> getExcludedFilePatterns() {
+        return Set.of();
+    }
+
     default IConsoleIO getConsoleIO() {
         throw new UnsupportedOperationException();
     }

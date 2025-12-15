@@ -201,7 +201,7 @@ public final class FileFilteringService {
      * <p>Note: {@code *.*} matches any file with a dot in its name, including dotfiles
      * like {@code .gitignore} and {@code .env}.
      */
-    private List<CompiledPattern> compilePatterns(Set<String> patterns) {
+    private static List<CompiledPattern> compilePatterns(Set<String> patterns) {
         var compiled = new ArrayList<CompiledPattern>();
         for (String rawPattern : patterns) {
             if (rawPattern == null) continue;
@@ -424,6 +424,49 @@ public final class FileFilteringService {
     /** Normalize a string path to use forward slashes. */
     public static String toUnixPath(String path) {
         return path.replace('\\', '/');
+    }
+
+    /**
+     * Check if a file matches any of the given patterns.
+     * Patterns are compiled on each call; for repeated checks, callers should cache compiled patterns.
+     *
+     * @param file the project file to check
+     * @param patterns the set of patterns to check against
+     * @return true if the file matches any pattern
+     */
+    public static boolean matchesAnyFilePattern(ProjectFile file, Set<String> patterns) {
+        if (patterns == null || patterns.isEmpty()) {
+            return false;
+        }
+        var compiled = compilePatterns(patterns);
+        return matchesFilePatternStatic(file, compiled);
+    }
+
+    private static boolean matchesFilePatternStatic(ProjectFile file, List<CompiledPattern> compiledPatterns) {
+        if (compiledPatterns.isEmpty()) {
+            return false;
+        }
+
+        String filePath = toUnixPath(file.getRelPath());
+        String fileName = file.getFileName();
+        String lowerFileName = fileName.toLowerCase(Locale.ROOT);
+        String lowerFilePath = filePath.toLowerCase(Locale.ROOT);
+
+        for (var cp : compiledPatterns) {
+            boolean matched =
+                    switch (cp) {
+                        case CompiledPattern.ExactFilename ef -> lowerFileName.equals(ef.lowerName());
+                        case CompiledPattern.Extension ext -> lowerFileName.endsWith(ext.lowerSuffix());
+                        case CompiledPattern.Glob g ->
+                            g.regex()
+                                    .matcher(g.matchFullPath() ? lowerFilePath : lowerFileName)
+                                    .matches();
+                    };
+            if (matched) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @VisibleForTesting

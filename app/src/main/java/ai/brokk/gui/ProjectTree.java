@@ -10,6 +10,7 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.util.ContextSizeGuard;
+import ai.brokk.project.FileFilteringService;
 import ai.brokk.project.IProject;
 import ai.brokk.util.FileManagerUtil;
 import ai.brokk.util.PathNormalizer;
@@ -385,6 +386,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                                         currentDetails.testAllCommand(),
                                         currentDetails.testSomeCommand(),
                                         excludesSet,
+                                        currentDetails.excludedFilePatterns(),
                                         currentDetails.environmentVariables());
 
                                 project.saveBuildDetails(newDetails);
@@ -930,6 +932,11 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         return best;
     }
 
+    private boolean isMatchedByFilePattern(ProjectFile projectFile) {
+        Set<String> patterns = project.getExcludedFilePatterns();
+        return FileFilteringService.matchesAnyFilePattern(projectFile, patterns);
+    }
+
     /**
      * Checks if the system clipboard contains files that can be pasted.
      *
@@ -1118,9 +1125,12 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                     if (ProjectTree.this.isUnderExcludedDirectory(relativePathStr)) {
                         setForeground(ThemeColors.getColor(ThemeColors.CI_EXCLUDED_FOREGROUND));
                     } else if (file.isFile()) {
-                        // Color untracked files red (only for files not under excluded dirs)
-                        ProjectFile projectFile = new ProjectFile(project.getRoot(), relativePath);
-                        if (!project.getRepo().getTrackedFiles().contains(projectFile)) {
+                        var projectFile = new ProjectFile(project.getRoot(), relativePath);
+                        // Check if file matches excluded file patterns
+                        if (ProjectTree.this.isMatchedByFilePattern(projectFile)) {
+                            setForeground(ThemeColors.getColor(ThemeColors.CI_EXCLUDED_FOREGROUND));
+                        } else if (!project.getRepo().getTrackedFiles().contains(projectFile)) {
+                            // Color untracked files red (only for files not under excluded dirs or patterns)
                             setForeground(Color.RED);
                         }
                     }

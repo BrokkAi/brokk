@@ -791,4 +791,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
         return exclusions;
     }
+
+    @Override
+    public Set<String> getExcludedFilePatterns() {
+        return loadBuildDetails().excludedFilePatterns();
+    }
 }
