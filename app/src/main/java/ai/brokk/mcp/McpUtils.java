@@ -197,13 +197,13 @@ public class McpUtils {
         }
     }
 
-    public static McpSchema.CallToolResult callTool(
+    public static McpSchema.CallToolResult callToolAsync(
             McpServer server, String toolName, Map<String, Object> arguments, @Nullable Path projectRoot)
             throws IOException {
         if (server instanceof HttpMcpServer httpMcpServer) {
             final URL url = httpMcpServer.url();
             try {
-                return withMcpSyncClient(
+                return withMcpAsyncClient(
                         url,
                         httpMcpServer.bearerToken(),
                         projectRoot,
@@ -215,7 +215,7 @@ public class McpUtils {
             }
         } else if (server instanceof StdioMcpServer stdioMcpServer) {
             try {
-                return withMcpSyncClient(
+                return withMcpAsyncClient(
                         stdioMcpServer.command(),
                         stdioMcpServer.args(),
                         stdioMcpServer.env(),
@@ -234,5 +234,11 @@ public class McpUtils {
             throw new IOException(
                     "Unsupported MCP server type: " + server.getClass().getName());
         }
+    }
+
+    public static McpSchema.CallToolResult callTool(
+                McpServer server, String toolName, Map<String, Object> arguments, @Nullable Path projectRoot)
+                throws IOException {
+          return callToolAsync(server, toolName, arguments, projectRoot);
     }
 }
