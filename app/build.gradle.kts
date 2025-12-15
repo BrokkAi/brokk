@@ -618,11 +618,18 @@ tasks.register<JavaExec>("runTreeSitterRepoRunner") {
     classpath = sourceSets.test.get().runtimeClasspath
     // Additional JVM args specific to repository runner; baseline adds -ea and -Dbrokk.devmode=true
     jvmArgumentProviders.add(object : CommandLineArgumentProvider {
-        override fun asArguments(): Iterable<String> = listOf(
-            "-Xmx8g",
-            "-XX:+UseZGC",
-            "-XX:+UnlockExperimentalVMOptions"
-        )
+        override fun asArguments(): Iterable<String> {
+            val runnerXmxProp = (project.findProperty("runnerXmx") as String?)?.trim()
+            val runnerXmxEnv = System.getenv("RUNNER_XMX")?.trim()
+            val runnerXmx = (runnerXmxProp?.takeIf { it.isNotEmpty() }
+                ?: runnerXmxEnv?.takeIf { it.isNotEmpty() }
+                ?: "8g")
+            return listOf(
+                "-Xmx$runnerXmx",
+                "-XX:+UseZGC",
+                "-XX:+UnlockExperimentalVMOptions"
+            )
+        }
     })
     if (project.hasProperty("args")) {
         args((project.property("args") as String).split(" "))
