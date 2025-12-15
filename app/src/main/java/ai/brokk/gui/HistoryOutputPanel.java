@@ -3418,6 +3418,16 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
     }
 
+    /**
+     * Holds precomputed file change data (file path and left/right contents) for a single file.
+     * <p>
+     * This is used to avoid blocking the Event Dispatch Thread (EDT) during UI construction
+     * by preparing all file change data in advance.
+     *
+     * @param path         the file path of the changed file
+     * @param leftContent  the content of the file before the change (the "left" side of the diff)
+     * @param rightContent the content of the file after the change (the "right" side of the diff)
+     */
     private record AggregatedFileChange(String path, String leftContent, String rightContent) {}
 
     private static List<AggregatedFileChange> prepareAggregatedFileChanges(DiffService.CumulativeChanges res) {
