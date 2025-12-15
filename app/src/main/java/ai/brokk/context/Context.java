@@ -433,22 +433,19 @@ public class Context {
                 .filter(ContextFragment.ProjectPathFragment.class::isInstance)
                 .map(ContextFragment.ProjectPathFragment.class::cast)
                 .map(pf -> {
-                    if (pf.file().exists()) {
-                        try {
-                            return new EditableFileWithMtime(pf, pf.file().mtime());
-                        } catch (IOException e) {
-                            logger.warn(
-                                    "Could not get mtime for editable file [{}], it will be excluded from ordered editable fragments.",
-                                    pf.shortDescription().renderNowOr(toString()),
-                                    e);
-                            return new EditableFileWithMtime(pf, -1L);
-                        }
-                    } else {
-                        logger.warn(
-                                "Could not get mtime for editable file [{}] as it no longer exists. It will be excluded from ordered editable fragments.",
-                                pf.shortDescription().renderNowOr(toString()));
+                    // exists() and mtime() are both a syscall, so we just call the latter and catch errors
+                    long mtime;
+                    try {
+                        mtime = pf.file().mtime();
+                    } catch (IOException e) {
+                        // this is expected to happen when deserializing old Sessions so we leave it at debug
+                        logger.debug(
+                                "Could not get mtime for editable file [{}], it will be excluded from ordered editable fragments.",
+                                pf.shortDescription().renderNowOr(toString()),
+                                e);
                         return new EditableFileWithMtime(pf, -1L);
                     }
+                    return new EditableFileWithMtime(pf, mtime);
                 })
                 .filter(mf -> mf.mtime() >= 0)
                 .sorted(Comparator.comparingLong(EditableFileWithMtime::mtime))
