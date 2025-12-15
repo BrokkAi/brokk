@@ -3101,7 +3101,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     }
 
                     try {
-                        Set<IGitRepo.ModifiedFile> fileSet = new java.util.HashSet<>();
+                        // use map: deduplicate by file path, preferring working tree status over branch/commit status
+                        // => don't show a file twice when the state in the 2 branchses differs
+                        Map<Object, IGitRepo.ModifiedFile> fileMap = new HashMap<>();
                         String leftCommitSha = null;
                         String currentBranch = gitRepo.getCurrentBranch();
 
@@ -3114,10 +3116,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 // Get files changed between branches
                                 var branchChanges =
                                         gitRepo.listFilesChangedBetweenBranches(currentBranch, defaultBranchRef);
-                                fileSet.addAll(branchChanges);
+                                for (var mf : branchChanges) {
+                                    fileMap.putIfAbsent(mf.file(), mf);
+                                }
 
-                                // Union with working tree changes
-                                fileSet.addAll(gitRepo.getModifiedFiles());
+                                // Union with working tree changes (prefer working tree status)
+                                for (var mf : gitRepo.getModifiedFiles()) {
+                                    fileMap.put(mf.file(), mf);
+                                }
 
                                 // Get merge base for left content
                                 leftCommitSha = gitRepo.getMergeBase(currentBranch, defaultBranchRef);
@@ -3129,14 +3135,20 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
                                 // Get files changed between HEAD and upstream
                                 var upstreamChanges = gitRepo.listFilesChangedBetweenCommits("HEAD", upstreamRef);
-                                fileSet.addAll(upstreamChanges);
+                                for (var mf : upstreamChanges) {
+                                    fileMap.putIfAbsent(mf.file(), mf);
+                                }
 
-                                // Union with working tree changes
-                                fileSet.addAll(gitRepo.getModifiedFiles());
+                                // Union with working tree changes (prefer working tree status)
+                                for (var mf : gitRepo.getModifiedFiles()) {
+                                    fileMap.put(mf.file(), mf);
+                                }
                             }
                             case DEFAULT_LOCAL_ONLY -> {
                                 // Only working tree changes
-                                fileSet.addAll(gitRepo.getModifiedFiles());
+                                for (var mf : gitRepo.getModifiedFiles()) {
+                                    fileMap.put(mf.file(), mf);
+                                }
                                 leftCommitSha = "HEAD";
                             }
                             case DETACHED, NO_BASELINE -> {
@@ -3144,6 +3156,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 throw new AssertionError();
                             }
                         }
+
+                        // Deduplicated set of files to summarize
+                        var fileSet = new java.util.HashSet<>(fileMap.values());
 
                         // Use DiffService to summarize changes between baseline and working tree
                         var summarizedChanges =
