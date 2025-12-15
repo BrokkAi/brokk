@@ -3077,122 +3077,124 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     private CompletableFuture<DiffService.CumulativeChanges> refreshCumulativeChangesAsync() {
-        return contextManager
-                .submitBackgroundTask("Compute branch-based changes", () -> {
-                    var repoOpt = repo();
-                    if (repoOpt.isEmpty()) {
-                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
-                    }
+            return contextManager
+                            .submitBackgroundTask("Compute branch-based changes", () -> {
+                                    var repoOpt = repo();
+                                    if (repoOpt.isEmpty()) {
+                                            return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
+                                    }
 
-                    var repo = repoOpt.get();
+                                    var repo = repoOpt.get();
 
-                    // Branch-specific methods require GitRepo, not just IGitRepo
-                    if (!(repo instanceof ai.brokk.git.GitRepo gitRepo)) {
-                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
-                    }
+                                    // Branch-specific methods require GitRepo, not just IGitRepo
+                                    if (!(repo instanceof ai.brokk.git.GitRepo gitRepo)) {
+                                            return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
+                                    }
 
-                    var baseline = computeBaselineForChanges();
-                    lastBaselineLabel = baseline.displayLabel();
-                    lastBaselineMode = baseline.mode();
+                                    var baseline = computeBaselineForChanges();
+                                    lastBaselineLabel = baseline.displayLabel();
+                                    lastBaselineMode = baseline.mode();
 
-                    // Handle cases with no baseline
-                    if (baseline.mode() == BaselineMode.DETACHED || baseline.mode() == BaselineMode.NO_BASELINE) {
-                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
-                    }
+                                    // Handle cases with no baseline
+                                    if (baseline.mode() == BaselineMode.DETACHED || baseline.mode() == BaselineMode.NO_BASELINE) {
+                                            return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
+                                    }
 
-                    try {
-                        Set<IGitRepo.ModifiedFile> fileSet = new java.util.HashSet<>();
-                        String leftCommitSha = null;
-                        String currentBranch = gitRepo.getCurrentBranch();
+                                    try {
+                                            Set<IGitRepo.ModifiedFile> fileSet = new java.util.HashSet<>();
+                                            String leftCommitSha = null;
+                                            String currentBranch = gitRepo.getCurrentBranch();
 
-                        switch (baseline.mode()) {
-                            case NON_DEFAULT_BRANCH -> {
-                                String defaultBranch = baseline.baselineRef();
-                                // Use fully-qualified ref to avoid ambiguity with tags
-                                String defaultBranchRef = "refs/heads/" + defaultBranch;
+                                            switch (baseline.mode()) {
+                                                    case NON_DEFAULT_BRANCH -> {
+                                                            String defaultBranch = baseline.baselineRef();
+                                                            // Use fully-qualified ref to avoid ambiguity with tags
+                                                            String defaultBranchRef = "refs/heads/" + defaultBranch;
 
-                                // Get files changed between branches
-                                var branchChanges =
-                                        gitRepo.listFilesChangedBetweenBranches(currentBranch, defaultBranchRef);
-                                fileSet.addAll(branchChanges);
+                                                            // Get files changed between branches
+                                                            var branchChanges =
+                                                                            gitRepo.listFilesChangedBetweenBranches(currentBranch, defaultBranchRef);
+                                                            fileSet.addAll(branchChanges);
 
-                                // Union with working tree changes
-                                fileSet.addAll(gitRepo.getModifiedFiles());
+                                                            // Union with working tree changes
+                                                            fileSet.addAll(gitRepo.getModifiedFiles());
 
-                                // Get merge base for left content
-                                leftCommitSha = gitRepo.getMergeBase(currentBranch, defaultBranchRef);
-                            }
-                            case DEFAULT_WITH_UPSTREAM -> {
-                                String upstreamRef = baseline.baselineRef();
-                                leftCommitSha =
-                                        gitRepo.resolveToCommit(upstreamRef).getName();
+                                                            // Get merge base for left content
+                                                            leftCommitSha = gitRepo.getMergeBase(currentBranch, defaultBranchRef);
+                                                    }
+                                                    case DEFAULT_WITH_UPSTREAM -> {
+                                                            String upstreamRef = baseline.baselineRef();
+                                                            leftCommitSha =
+                                                                            gitRepo.resolveToCommit(upstreamRef).getName();
 
-                                // Get files changed between HEAD and upstream
-                                var upstreamChanges = gitRepo.listFilesChangedBetweenCommits("HEAD", upstreamRef);
-                                fileSet.addAll(upstreamChanges);
+                                                            // Get files changed between HEAD and upstream
+                                                            var upstreamChanges = gitRepo.listFilesChangedBetweenCommits("HEAD", upstreamRef);
+                                                            fileSet.addAll(upstreamChanges);
 
-                                // Union with working tree changes
-                                fileSet.addAll(gitRepo.getModifiedFiles());
-                            }
-                            case DEFAULT_LOCAL_ONLY -> {
-                                // Only working tree changes
-                                fileSet.addAll(gitRepo.getModifiedFiles());
-                                leftCommitSha = "HEAD";
-                            }
-                            case DETACHED, NO_BASELINE -> {
-                                // Earlier guard already returns empty results for these modes.
-                                throw new AssertionError();
-                            }
-                        }
+                                                            // Union with working tree changes
+                                                            fileSet.addAll(gitRepo.getModifiedFiles());
+                                                    }
+                                                    case DEFAULT_LOCAL_ONLY -> {
+                                                            // Only working tree changes
+                                                            fileSet.addAll(gitRepo.getModifiedFiles());
+                                                            leftCommitSha = "HEAD";
+                                                    }
+                                                    case DETACHED, NO_BASELINE -> {
+                                                            // Earlier guard already returns empty results for these modes.
+                                                            throw new AssertionError();
+                                                    }
+                                            }
 
-                        // Use DiffService to summarize changes between baseline and working tree
-                        var summarizedChanges =
-                                DiffService.summarizeDiff(repo, requireNonNull(leftCommitSha), "WORKING", fileSet);
-                        var perFileChanges = summarizedChanges.perFileChanges();
-                        int totalAdded = summarizedChanges.totalAdded();
-                        int totalDeleted = summarizedChanges.totalDeleted();
+                                            // Use DiffService to summarize changes between baseline and working tree
+                                            var summarizedChanges =
+                                                            DiffService.summarizeDiff(repo, requireNonNull(leftCommitSha), "WORKING", fileSet);
+                                            var perFileChanges = summarizedChanges.perFileChanges();
+                                            int totalAdded = summarizedChanges.totalAdded();
+                                            int totalDeleted = summarizedChanges.totalDeleted();
 
-                        GitWorkflow.PushPullState pushPullState = null;
-                        try {
-                            boolean hasUpstream = gitRepo.hasUpstreamBranch(currentBranch);
-                            boolean canPush;
-                            Set<String> unpushedCommitIds = new HashSet<>();
-                            if (hasUpstream) {
-                                unpushedCommitIds.addAll(gitRepo.remote().getUnpushedCommitIds(currentBranch));
-                                canPush = !unpushedCommitIds.isEmpty();
-                            } else {
-                                // Can push to create upstream branch
-                                canPush = true;
-                            }
-                            pushPullState =
-                                    new GitWorkflow.PushPullState(hasUpstream, hasUpstream, canPush, unpushedCommitIds);
-                        } catch (Exception e) {
-                            logger.debug("Failed to evaluate push/pull state for branch {}", currentBranch, e);
-                        }
+                                            GitWorkflow.PushPullState pushPullState = null;
+                                            try {
+                                                    boolean hasUpstream = gitRepo.hasUpstreamBranch(currentBranch);
+                                                    boolean canPush;
+                                                    Set<String> unpushedCommitIds = new HashSet<>();
+                                                    if (hasUpstream) {
+                                                            unpushedCommitIds.addAll(gitRepo.remote().getUnpushedCommitIds(currentBranch));
+                                                            canPush = !unpushedCommitIds.isEmpty();
+                                                    } else {
+                                                            // Can push to create upstream branch
+                                                            canPush = true;
+                                                    }
+                                                    pushPullState =
+                                                                    new GitWorkflow.PushPullState(hasUpstream, hasUpstream, canPush, unpushedCommitIds);
+                                            } catch (Exception e) {
+                                                    logger.debug("Failed to evaluate push/pull state for branch {}", currentBranch, e);
+                                            }
 
-                        return new DiffService.CumulativeChanges(
-                                perFileChanges.size(), totalAdded, totalDeleted, perFileChanges, pushPullState);
+                                            return new DiffService.CumulativeChanges(
+                                                            perFileChanges.size(), totalAdded, totalDeleted, perFileChanges, pushPullState);
 
-                    } catch (Exception e) {
-                        logger.warn("Failed to compute branch-based changes", e);
-                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
-                    }
-                })
-                .thenApply(result -> {
-                    // Update UI on EDT
-                    SwingUtilities.invokeLater(() -> {
-                        lastCumulativeChanges = result;
-                        setChangesTabTitleAndTooltip(result);
-                        updateChangesTabContent(result);
-                    });
-                    return result;
-                });
+                                    } catch (Exception e) {
+                                            logger.warn("Failed to compute branch-based changes", e);
+                                            return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
+                                    }
+                            })
+                            .thenApply(result -> {
+                                    // Precompute titles/contents and sorting OFF the EDT
+                                    List<AggregatedFileChange> prepared = prepareAggregatedFileChanges(result);
+                                    // Update UI on EDT
+                                    SwingUtilities.invokeLater(() -> {
+                                            lastCumulativeChanges = result;
+                                            setChangesTabTitleAndTooltip(result);
+                                            updateChangesTabContentUi(result, prepared);
+                                    });
+                                    return result;
+                            });
     }
 
-    // Build and insert the aggregated multi-file diff panel into the Changes tab.
+    // Build and insert the aggregated multi-file diff panel into the Changes tab using precomputed data.
     // Must be called on the EDT.
-    private void updateChangesTabContent(DiffService.CumulativeChanges res) {
-        assert SwingUtilities.isEventDispatchThread() : "updateChangesTabContent must run on EDT";
+    private void updateChangesTabContentUi(DiffService.CumulativeChanges res, List<AggregatedFileChange> prepared) {
+        assert SwingUtilities.isEventDispatchThread() : "updateChangesTabContentUi must run on EDT";
         var container = changesTabPlaceholder;
         if (container == null) {
             return;
@@ -3233,7 +3235,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
 
         try {
-            var aggregatedPanel = buildAggregatedChangesPanel(res);
+            var aggregatedPanel = buildAggregatedChangesPanel(res, prepared);
             container.setLayout(new BorderLayout());
             container.add(aggregatedPanel, BorderLayout.CENTER);
         } catch (Throwable t) {
@@ -3249,9 +3251,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         container.repaint();
     }
 
-    // Constructs a panel containing a summary header and a BrokkDiffPanel with per-file comparisons.
-    // Sets aggregatedChangesPanel to the created BrokkDiffPanel for lifecycle management.
-    private JPanel buildAggregatedChangesPanel(DiffService.CumulativeChanges res) {
+    private JPanel buildAggregatedChangesPanel(DiffService.CumulativeChanges res, List<AggregatedFileChange> prepared) {
         var wrapper = new JPanel(new BorderLayout());
 
         // Build header with baseline label and buttons
@@ -3390,18 +3390,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 .setInitialFileIndex(0)
                 .setForceFileTree(true);
 
-        // Stable order by display file path
-        var changes = new ArrayList<>(res.perFileChanges());
-        changes.sort(Comparator.comparing(Context.DiffEntry::title));
-
-        for (var change : changes) {
-            String path = change.title();
-            String leftContent = change.oldContent();
-            String rightContent = change.newContent();
-
-            // Use non-ref titles to avoid accidental git ref resolution; keep filename for syntax highlighting.
-            BufferSource left = new BufferSource.StringSource(leftContent, "", path, null);
-            BufferSource right = new BufferSource.StringSource(rightContent, "", path, null);
+        // Use precomputed list in stable order; do not call Context.DiffEntry::title here
+        for (var fc : prepared) {
+            BufferSource left = new BufferSource.StringSource(fc.leftContent(), "", fc.path(), null);
+            BufferSource right = new BufferSource.StringSource(fc.rightContent(), "", fc.path(), null);
             builder.addComparison(left, right);
         }
 
@@ -3424,6 +3416,18 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         } catch (Throwable t) {
             return "";
         }
+    }
+
+    private static record AggregatedFileChange(String path, String leftContent, String rightContent) {}
+
+    private static List<AggregatedFileChange> prepareAggregatedFileChanges(DiffService.CumulativeChanges res) {
+        var list = new ArrayList<>(res.perFileChanges());
+        list.sort(Comparator.comparing(Context.DiffEntry::title));
+        var out = new ArrayList<AggregatedFileChange>(list.size());
+        for (var change : list) {
+            out.add(new AggregatedFileChange(change.title(), change.oldContent(), change.newContent()));
+        }
+        return out;
     }
 
     /**
