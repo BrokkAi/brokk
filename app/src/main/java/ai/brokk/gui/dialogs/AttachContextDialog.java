@@ -350,7 +350,7 @@ public class AttachContextDialog extends BaseThemedDialog {
         // Update checkbox visibility for each tab
         includeSubfoldersCheck.setVisible(getActiveTab() == TabType.FOLDERS);
         includeTestFilesCheck.setVisible(getActiveTab() == TabType.USAGES);
-        summarizeCheck.setVisible(getActiveTab() != TabType.FOLDERS && getActiveTab() != TabType.METHODS);
+        summarizeCheck.setVisible(true);
 
         searchField.requestFocusInWindow();
     }
@@ -497,6 +497,16 @@ public class AttachContextDialog extends BaseThemedDialog {
             return;
         }
 
+        if (summarizeCheck.isSelected()) {
+            Set<ContextFragment> fragments = selected.stream()
+                    .map(pf -> (ContextFragment) new ContextFragment.SummaryFragment(
+                            cm, pf.getRelPath().toString(), ContextFragment.SummaryType.FILE_SKELETONS))
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            selection = fragments;
+            dispose();
+            return;
+        }
+
         Set<ContextFragment> fragments = selected.stream()
                 .map(pf -> (ContextFragment) new ContextFragment.ProjectPathFragment(pf, cm))
                 .collect(Collectors.toCollection(LinkedHashSet::new));
@@ -564,7 +574,13 @@ public class AttachContextDialog extends BaseThemedDialog {
 
         var cu = opt.get();
 
-        var frag = new ContextFragment.CodeFragment(cm, cu);
+        ContextFragment frag;
+        if (summarizeCheck.isSelected()) {
+            frag = new ContextFragment.SummaryFragment(
+                    cm, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
+        } else {
+            frag = new ContextFragment.CodeFragment(cm, cu);
+        }
         selection = Set.of(frag);
         dispose();
     }
