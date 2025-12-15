@@ -451,15 +451,11 @@ public class Context {
                 .sorted(Comparator.comparingLong(EditableFileWithMtime::mtime))
                 .map(EditableFileWithMtime::fragment);
 
-        Stream<ContextFragment> otherEditablePathFragments = fragments.stream()
-                .filter(f -> f.getType().isPath() && !(f instanceof ContextFragment.ProjectPathFragment));
-
-        Stream<ContextFragment> editableVirtuals = fragments.stream()
-                .filter(f -> !f.getType().isPath() && f.getType().isEditable());
+        Stream<ContextFragment> otherEditable = fragments.stream()
+                .filter(f -> !(f instanceof ContextFragment.ProjectPathFragment) && f.getType().isEditable());
 
         return Streams.concat(
-                        editableVirtuals,
-                        otherEditablePathFragments,
+                        otherEditable,
                         sortedProjectFiles.map(ContextFragment.class::cast))
                 .filter(cf -> !markedReadonlyFragments.contains(cf));
     }
