@@ -1120,19 +1120,26 @@ public abstract class CodePrompts {
         var rows = new ArrayList<String>();
         int priority = 1;
 
+        // Conflicts
         if (flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)) {
             rows.add(
                     "| " + priority++
                             + " | `BRK_CONFLICT_n` | Resolving regions wrapped in BRK_CONFLICT markers when fixing merge conflicts |");
         }
-        if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
-            rows.add("| " + priority++
-                    + " | `BRK_FUNCTION` | Replacing a complete, non-overloaded method (signature + body) |");
-            rows.add("| " + priority++ + " | `BRK_CLASS` | Replacing the entire body of a class-like declaration |");
-        }
 
+        // Line edits
         rows.add("| " + priority++
                 + " | Line-based | Default choice for localized edits and adding new code to existing files |");
+
+        // syntax-based (same priority)
+        if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
+            rows.add("| " + priority
+                    + " | `BRK_FUNCTION` | Replacing a complete, non-overloaded method (signature + body) |");
+            rows.add("| " + priority + " | `BRK_CLASS` | Replacing the entire body of a class-like declaration |");
+            priority++;
+        }
+
+        // entire file
         rows.add("| " + priority
                 + " | `BRK_ENTIRE_FILE` | Creating a new file or intentionally rewriting most of an existing file |");
 

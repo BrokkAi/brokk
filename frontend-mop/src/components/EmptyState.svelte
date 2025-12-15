@@ -21,20 +21,9 @@
     },
   ];
 
-  function formatLanguages(langs?: string | string[]): string | null {
-    if (!langs) return null;
-    return Array.isArray(langs) ? langs.join(", ") : langs;
-  }
-
   function pluralize(n: number, singular: string, plural?: string): string {
     return n === 1 ? singular : (plural ?? `${singular}s`);
   }
-
-  let depCount: number | undefined;
-  $: depCount =
-    $envStore.nativeFileCount !== undefined && $envStore.totalFileCount !== undefined
-      ? Math.max($envStore.totalFileCount - $envStore.nativeFileCount, 0)
-      : undefined;
 </script>
 
 <div class="empty-state">
@@ -69,32 +58,32 @@
       <div class="env-label">Project</div>
       <div class="env-value">
         {$envStore.projectName ?? 'unknown'}
-        {#if $envStore.nativeFileCount !== undefined || $envStore.totalFileCount !== undefined}
-          <span class="env-muted">
-            (
-            {#if $envStore.nativeFileCount !== undefined && $envStore.totalFileCount !== undefined}
-              {$envStore.nativeFileCount} {pluralize($envStore.nativeFileCount, 'file', 'files')}, {depCount} {pluralize(depCount ?? 0, 'dep', 'deps')}
-            {:else if $envStore.nativeFileCount !== undefined}
-              {$envStore.nativeFileCount} {pluralize($envStore.nativeFileCount, 'file', 'files')}
-            {:else}
-              total files with deps
-            {/if}
-            )
-          </span>
+        {#if $envStore.analyzerLanguages && $envStore.analyzerLanguages.length > 0}
+          {@const analyzedCount = $envStore.analyzerLanguages.reduce((sum, lang) => sum + lang.fileCount, 0)}
+          {@const unanalyzedCount = ($envStore.totalFileCount ?? 0) - analyzedCount}
+          <span class="env-muted">(analyzed: {analyzedCount}, unanalyzed: {unanalyzedCount})</span>
+        {:else if $envStore.totalFileCount !== undefined}
+          <span class="env-muted">(total files: {$envStore.totalFileCount})</span>
         {/if}
       </div>
     </div>
 
-    <div class="env-row">
-      <div class="env-label">Analyzer</div>
+    <div class="env-row analyzer-row">
+      <div class="env-label">Analyzers</div>
       <div class="env-value">
         {#if $envStore.analyzerReady}
           <span class="env-badge ready">Ready</span>
-          {#if formatLanguages($envStore.analyzerLanguages)}
-            <span class="env-muted"> — {formatLanguages($envStore.analyzerLanguages)}</span>
-          {/if}
         {:else}
           <span class="env-badge progress">Building...</span>
+        {/if}
+        {#if $envStore.analyzerLanguages && $envStore.analyzerLanguages.length > 0}
+          <div class="languages-list">
+            {#each $envStore.analyzerLanguages as lang}
+              <div class="language-item">
+                {lang.name} ({lang.fileCount} {pluralize(lang.fileCount, 'file', 'files')}, {lang.depCount} {pluralize(lang.depCount, 'dep', 'deps')})
+              </div>
+            {/each}
+          </div>
         {/if}
       </div>
     </div>
@@ -251,5 +240,26 @@
     border-color: var(--git-changed);
     background: color-mix(in srgb, var(--git-changed) 15%, transparent);
     font-weight: 600;
+  }
+
+  .analyzer-row .env-value {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.5rem;
+  }
+
+  .languages-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-top: 0.25rem;
+    padding-left: 1.5rem;
+  }
+
+  .language-item {
+    font-size: 0.9rem;
+    color: var(--chat-text);
+    opacity: 0.9;
   }
 </style>

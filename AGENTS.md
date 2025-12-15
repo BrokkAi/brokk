@@ -48,6 +48,7 @@ with try/catch is unnecessary and futile; don't do that.
    - Use `assertCodeEquals`/`assertCodeStartsWith`/`assertCodeEndsWith`/`assertCodeContains` for code string comparisons.
    - These helpers normalize line endings and trim outer whitespace, making tests stable across platforms and editors.
    - Avoid direct assertEquals on raw multi-line code output.
+2. We have standard mock versions of common interfaces: TestAnalyzer, TestConsoleIO, TestContextManager, TestGitRepo, TestProject. Ask the user to add these to the Workspace rather than rolling your own.
 
 ## GUI standards
 

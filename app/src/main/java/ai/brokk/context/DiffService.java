@@ -3,6 +3,7 @@ package ai.brokk.context;
 import ai.brokk.ExceptionReporter;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.util.ContentDiffUtils;
 import java.time.Duration;
@@ -171,68 +172,86 @@ public final class DiffService {
                 .findFirst()
                 .orElse(null);
 
+        // If this fragment is new-only and is a PathFragment that is tracked by Git, suppress the diff.
         if (otherFragment == null) {
-            // No matching fragment in 'other'
-            // - For non-text fragments (e.g., images), don't emit a diff here.
-            // - For PathFragments: only show a diff if it's a new, untracked file in Git.
             if (!thisFragment.isText()) {
+                // Non-text new fragments are not diffed here.
                 return CompletableFuture.completedFuture(null);
             }
 
-            if (!(thisFragment instanceof ContextFragment.PathFragment)) {
+            if (thisFragment instanceof ContextFragment.PathFragment) {
+                var repo = curr.getContextManager().getRepo();
+                if (!isNewFileInGit(thisFragment, repo)) {
+                    // Path fragment exists only in 'curr' but is tracked in Git; suppress diff here.
+                    return CompletableFuture.completedFuture(null);
+                }
+            }
+        }
+
+        // Delegate to the general-purpose computeDiff helper which handles text vs image parity,
+        // content extraction, and diff computation.
+        return computeDiff(otherFragment, thisFragment).exceptionally(ex -> {
+            var desc = thisFragment.shortDescription().renderNowOr(thisFragment.toString());
+            logger.warn("Error computing diff for fragment '{}'", desc, ex);
+            return null;
+        });
+    }
+
+    @Blocking
+    public static CompletableFuture<Context.DiffEntry> computeDiff(
+            @Nullable ContextFragment oldFragment, ContextFragment newFragment) {
+        // If fragments don't share the same source, we can't sensibly diff them here.
+        if (oldFragment != null && !newFragment.hasSameSource(oldFragment)) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        // New-only fragment (old == null)
+        if (oldFragment == null) {
+            if (!newFragment.isText()) {
+                // Non-text new fragments are not diffed here.
                 return CompletableFuture.completedFuture(null);
             }
-
-            var repo = curr.getContextManager().getRepo();
-            if (!isNewFileInGit(thisFragment, repo)) {
-                // Path fragment exists only in 'curr' but is tracked in Git; suppress diff here.
-                return CompletableFuture.completedFuture(null);
-            }
-
-            // Text fragment newly added: diff against empty, preferring snapshot text
-            return extractFragmentContentAsync(thisFragment).thenApply(newContent -> {
-                var oldName = "old/" + thisFragment.shortDescription().renderNowOr("");
-                var newName = "new/" + thisFragment.shortDescription().renderNowOr("");
+            return extractFragmentContentAsync(newFragment).thenApply(newContent -> {
+                var oldName = "old/" + newFragment.shortDescription().renderNowOr("");
+                var newName = "new/" + newFragment.shortDescription().renderNowOr("");
                 var result = ContentDiffUtils.computeDiffResult("", newContent, oldName, newName);
                 if (result.diff().isEmpty()) {
                     return null;
                 }
                 return new Context.DiffEntry(
-                        thisFragment, result.diff(), result.added(), result.deleted(), "", newContent);
+                        newFragment, result.diff(), result.added(), result.deleted(), "", newContent);
             });
         }
 
-        // Image fragments: compare bytes (prefer frozen snapshot bytes)
-        assert thisFragment.isText() == otherFragment.isText();
-        if (!thisFragment.isText()) {
-            var entry = computeImageDiffEntry(thisFragment, otherFragment);
+        // Both fragments present: ensure text/image parity
+        assert oldFragment.isText() == newFragment.isText();
+        if (!newFragment.isText()) {
+            var entry = computeImageDiffEntry(newFragment, oldFragment);
             return CompletableFuture.completedFuture(entry);
         }
 
-        // Extract text content asynchronously for both sides, preferring snapshots
-        var oldContentFuture = extractFragmentContentAsync(otherFragment);
-        var newContentFuture = extractFragmentContentAsync(thisFragment);
+        // Text fragments: extract contents asynchronously and compute diff
+        var oldContentFuture = extractFragmentContentAsync(oldFragment);
+        var newContentFuture = extractFragmentContentAsync(newFragment);
 
-        // Text fragments: compute textual diff
         return oldContentFuture.thenCombine(newContentFuture, (oldContent, newContent) -> {
             int oldLineCount =
                     oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
             int newLineCount =
                     newContent.isEmpty() ? 0 : (int) newContent.lines().count();
             logger.trace(
-                    "computeDiff: fragment='{}' ctxId={} oldLines={} newLines={}",
-                    thisFragment.shortDescription().renderNowOr(""),
-                    curr.id(),
+                    "computeDiff: fragment='{}' oldLines={} newLines={}",
+                    newFragment.shortDescription().renderNowOr(""),
                     oldLineCount,
                     newLineCount);
 
-            var oldName = "old/" + thisFragment.shortDescription().renderNowOr("");
-            var newName = "new/" + thisFragment.shortDescription().renderNowOr("");
+            var oldName = "old/" + newFragment.shortDescription().renderNowOr("");
+            var newName = "new/" + newFragment.shortDescription().renderNowOr("");
             var result = ContentDiffUtils.computeDiffResult(oldContent, newContent, oldName, newName);
 
             logger.trace(
                     "computeDiff: fragment='{}' added={} deleted={} diffEmpty={}",
-                    thisFragment.shortDescription().renderNowOr(""),
+                    newFragment.shortDescription().renderNowOr(""),
                     result.added(),
                     result.deleted(),
                     result.diff().isEmpty());
@@ -242,7 +261,7 @@ public final class DiffService {
             }
 
             return new Context.DiffEntry(
-                    thisFragment, result.diff(), result.added(), result.deleted(), oldContent, newContent);
+                    newFragment, result.diff(), result.added(), result.deleted(), oldContent, newContent);
         });
     }
 
@@ -321,5 +340,94 @@ public final class DiffService {
         return diffs.stream()
                 .flatMap(de -> de.fragment().files().join().stream())
                 .collect(Collectors.toSet());
+    }
+
+    /**
+     * Summarizes cumulative changes between two Git references for a given set of files.
+     * Handles git IO errors gracefully by skipping problematic files rather than failing the entire operation.
+     *
+     * @param repo the Git repository
+     * @param leftRef the baseline commit/branch reference (left/old side)
+     * @param rightRef the target commit/branch reference (right/new side)
+     * @param files the set of modified files to diff
+     * @return CumulativeChanges with per-file diffs and aggregated statistics
+     */
+    @Blocking
+    public static CumulativeChanges summarizeDiff(
+            IGitRepo repo, String leftRef, String rightRef, Set<IGitRepo.ModifiedFile> files) {
+        if (!(repo instanceof ai.brokk.git.GitRepo gitRepo)) {
+            return new CumulativeChanges(0, 0, 0, List.of());
+        }
+
+        if (files.isEmpty()) {
+            return new CumulativeChanges(0, 0, 0, List.of());
+        }
+
+        List<Context.DiffEntry> perFileChanges = new ArrayList<>();
+        int totalAdded = 0;
+        int totalDeleted = 0;
+
+        for (var modFile : files) {
+            var file = modFile.file();
+
+            // Compute left content based on left reference
+            String leftContent = "";
+            if (!leftRef.isBlank()) {
+                if ("WORKING".equals(leftRef)) {
+                    leftContent = file.read().orElse("");
+                } else {
+                    var leftFrag = ContextFragment.GitFileFragment.fromCommit(file, leftRef, gitRepo);
+                    leftContent = leftFrag.text().join();
+                }
+            }
+
+            // Compute right content based on right reference
+            String rightContent = "";
+            if (!rightRef.isBlank()) {
+                if ("WORKING".equals(rightRef)) {
+                    rightContent = file.read().orElse("");
+                } else {
+                    var rightFragTmp = ContextFragment.GitFileFragment.fromCommit(file, rightRef, gitRepo);
+                    rightContent = rightFragTmp.text().join();
+                }
+            }
+
+            // Compute line counts
+            var diffRes = ContentDiffUtils.computeDiffResult(leftContent, rightContent, "old", "new");
+            int added = diffRes.added();
+            int deleted = diffRes.deleted();
+
+            // Skip if no changes
+            if (added == 0 && deleted == 0) {
+                continue;
+            }
+
+            totalAdded += added;
+            totalDeleted += deleted;
+
+            // Build DiffEntry using the right-side fragment as representative
+            ContextFragment.GitFileFragment rightFragForEntry = "WORKING".equals(rightRef)
+                    ? new ContextFragment.GitFileFragment(file, "WORKING", rightContent)
+                    : ContextFragment.GitFileFragment.fromCommit(file, rightRef, gitRepo);
+            var de = new Context.DiffEntry(rightFragForEntry, "", added, deleted, leftContent, rightContent);
+            perFileChanges.add(de);
+        }
+
+        return new CumulativeChanges(perFileChanges.size(), totalAdded, totalDeleted, perFileChanges);
+    }
+
+    /** Cumulative changes summary across multiple files. */
+    public record CumulativeChanges(
+            int filesChanged,
+            int totalAdded,
+            int totalDeleted,
+            List<Context.DiffEntry> perFileChanges,
+            @Nullable GitWorkflow.PushPullState pushPullState) {
+
+        /** Convenience constructor without pushPullState. */
+        public CumulativeChanges(
+                int filesChanged, int totalAdded, int totalDeleted, List<Context.DiffEntry> perFileChanges) {
+            this(filesChanged, totalAdded, totalDeleted, perFileChanges, null);
+        }
     }
 }

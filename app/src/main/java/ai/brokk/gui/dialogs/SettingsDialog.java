@@ -11,6 +11,7 @@ import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.MainProject.DataRetentionPolicy;
+import ai.brokk.project.ModelProperties;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
@@ -470,7 +471,7 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
 
             // If empty, create default and save
             if (project != null && models.isEmpty()) {
-                var currentCodeConfig = project.getMainProject().getCodeModelConfig();
+                var currentCodeConfig = project.getMainProject().getModelConfig(ModelProperties.ModelType.CODE);
                 var defaultAlias = "default";
                 var defaultFavorite = new Service.FavoriteModel(defaultAlias, currentCodeConfig);
                 models = List.of(defaultFavorite);

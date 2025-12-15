@@ -806,7 +806,11 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             if (editor instanceof ThemeAware themeAware) {
                 themeAware.applyTheme(guiTheme);
             } else {
+                var existingFont = editor.getFont();
                 theme.apply(editor);
+                if (existingFont != null) {
+                    editor.setFont(existingFont);
+                }
             }
             reDisplay();
         });
