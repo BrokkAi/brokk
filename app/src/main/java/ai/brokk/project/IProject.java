@@ -420,6 +420,26 @@ public interface IProject extends AutoCloseable {
     }
 
     /**
+     * Returns exclusion patterns that are simple directory/file names (no wildcards).
+     * Convenience method for callers that need Path-based exclusions.
+     */
+    default Set<String> getExcludedDirectories() {
+        return getExclusionPatterns().stream()
+                .filter(p -> !p.contains("*") && !p.contains("?"))
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * Returns exclusion patterns that contain wildcards (glob patterns).
+     * Convenience method for callers that need only glob-style patterns.
+     */
+    default Set<String> getExcludedGlobPatterns() {
+        return getExclusionPatterns().stream()
+                .filter(p -> p.contains("*") || p.contains("?"))
+                .collect(Collectors.toSet());
+    }
+
+    /**
      * Check if a path (file or directory) is excluded by any pattern.
      * Implementations should cache compiled patterns for efficiency.
      *
