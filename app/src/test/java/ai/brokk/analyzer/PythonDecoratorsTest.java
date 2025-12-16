@@ -179,4 +179,147 @@ public final class PythonDecoratorsTest {
                                     .collect(Collectors.joining(", ")));
         }
     }
+
+    @Test
+    void testDoubleDecoratedTopLevelFunctionAndClass() throws Exception {
+        String py =
+                """
+                def deco1(x):
+                    return x
+
+                def deco2(x):
+                    return x
+
+                @deco1
+                @deco2
+                def top_func():
+                    pass
+
+                @deco1
+                @deco2
+                class TopClass:
+                    pass
+                """;
+        try (var project = InlineTestProjectCreator.code(py, "decorators.py").build()) {
+            var analyzer = new PythonAnalyzer(project);
+            assertNotNull(analyzer, "Analyzer should be initialized");
+            assertNotNull(project, "Project should be initialized");
+
+            ProjectFile file = new ProjectFile(project.getRoot(), "decorators.py");
+            Set<CodeUnit> declarations = analyzer.getDeclarations(file);
+
+            assertTrue(
+                    declarations.stream().filter(CodeUnit::isFunction).anyMatch(cu -> cu.fqName()
+                            .equals("decorators.top_func")),
+                    () -> "Missing decorators.top_func. Found: "
+                            + declarations.stream()
+                                    .map(CodeUnit::fqName)
+                                    .sorted()
+                                    .collect(Collectors.joining(", ")));
+
+            assertTrue(
+                    declarations.stream().filter(CodeUnit::isClass).anyMatch(cu -> cu.fqName()
+                            .equals("decorators.TopClass")),
+                    () -> "Missing decorators.TopClass. Found: "
+                            + declarations.stream()
+                                    .map(CodeUnit::fqName)
+                                    .sorted()
+                                    .collect(Collectors.joining(", ")));
+        }
+    }
+
+    @Test
+    void testDoubleDecoratedDeclarationsInTopLevelConditional() throws Exception {
+        String py =
+                """
+                def deco1(x):
+                    return x
+
+                def deco2(x):
+                    return x
+
+                if True:
+                    @deco1
+                    @deco2
+                    def cond_func():
+                        pass
+
+                    @deco1
+                    @deco2
+                    class CondClass:
+                        pass
+                """;
+        try (var project = InlineTestProjectCreator.code(py, "decorators.py").build()) {
+            var analyzer = new PythonAnalyzer(project);
+            assertNotNull(analyzer, "Analyzer should be initialized");
+            assertNotNull(project, "Project should be initialized");
+
+            ProjectFile file = new ProjectFile(project.getRoot(), "decorators.py");
+            Set<CodeUnit> declarations = analyzer.getDeclarations(file);
+
+            assertTrue(
+                    declarations.stream().filter(CodeUnit::isFunction).anyMatch(cu -> cu.fqName()
+                            .equals("decorators.cond_func")),
+                    () -> "Missing decorators.cond_func. Found: "
+                            + declarations.stream()
+                                    .map(CodeUnit::fqName)
+                                    .sorted()
+                                    .collect(Collectors.joining(", ")));
+
+            assertTrue(
+                    declarations.stream().filter(CodeUnit::isClass).anyMatch(cu -> cu.fqName()
+                            .equals("decorators.CondClass")),
+                    () -> "Missing decorators.CondClass. Found: "
+                            + declarations.stream()
+                                    .map(CodeUnit::fqName)
+                                    .sorted()
+                                    .collect(Collectors.joining(", ")));
+        }
+    }
+
+    @Test
+    void testDoubleDecoratedNestedClassInFunction() throws Exception {
+        String py =
+                """
+                def deco1(x):
+                    return x
+
+                def deco2(x):
+                    return x
+
+                def outer():
+                    @deco1
+                    @deco2
+                    class Inner:
+                        def im(self):
+                            pass
+                    return Inner
+                """;
+        try (var project = InlineTestProjectCreator.code(py, "decorators.py").build()) {
+            var analyzer = new PythonAnalyzer(project);
+            assertNotNull(analyzer, "Analyzer should be initialized");
+            assertNotNull(project, "Project should be initialized");
+
+            ProjectFile file = new ProjectFile(project.getRoot(), "decorators.py");
+            Set<CodeUnit> declarations = analyzer.getDeclarations(file);
+
+            assertTrue(
+                    declarations.stream().filter(CodeUnit::isClass).anyMatch(cu -> cu.fqName()
+                            .equals("decorators.outer$Inner")),
+                    () -> "Missing decorators.outer$Inner. Found: "
+                            + declarations.stream()
+                                    .map(CodeUnit::fqName)
+                                    .sorted()
+                                    .collect(Collectors.joining(", ")));
+
+            assertTrue(
+                    declarations.stream().filter(CodeUnit::isFunction).anyMatch(cu -> cu.fqName()
+                            .equals("decorators.outer$Inner.im")),
+                    () -> "Missing decorators.outer$Inner.im. Found: "
+                            + declarations.stream()
+                                    .map(CodeUnit::fqName)
+                                    .sorted()
+                                    .collect(Collectors.joining(", ")));
+        }
+    }
 }
