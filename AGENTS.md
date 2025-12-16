@@ -58,6 +58,3 @@ with try/catch is unnecessary and futile; don't do that.
 1. **Buttons**: Use ai.brokk.gui.components.MaterialButton instead of JButton. Use ai.brokk.gui.components.MaterialToggleButton instead of JToggleButton.
 1. **Dialogs**: When building dialogs have buttons on the bottom. Start with a primary action button such as Ok or Done. It should have the following function applied to it ai.brokk.gui.SwingUtil.applyPrimaryButtonStyle(javax.swing.AbstractButton b). Next it should have a cancel button which is a normal ai.brokk.gui.components.MaterialButton with the text Cancel.
 1. **Notifications**: Use IConsoleIO.showNotification for informational messages, and IConsoleIO.toolError for modal errors. If you do not have the IConsoleIO API available in the Workspace, stop and ask the user to provide it.
-
-
-test
