@@ -3194,20 +3194,23 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     }
                 })
                 .thenApply(result -> {
+                    // Precompute titles/contents and sorting OFF the EDT
+                    List<Map.Entry<String, Context.DiffEntry>> preparedSummaries = preparePerFileSummaries(result);
                     // Update UI on EDT
                     SwingUtilities.invokeLater(() -> {
                         lastCumulativeChanges = result;
                         setChangesTabTitleAndTooltip(result);
-                        updateChangesTabContent(result);
+                        updateChangesTabContentUi(result, preparedSummaries);
                     });
                     return result;
                 });
     }
 
-    // Build and insert the aggregated multi-file diff panel into the Changes tab.
+    // Build and insert the aggregated multi-file diff panel into the Changes tab using precomputed data.
     // Must be called on the EDT.
-    private void updateChangesTabContent(DiffService.CumulativeChanges res) {
-        assert SwingUtilities.isEventDispatchThread() : "updateChangesTabContent must run on EDT";
+    private void updateChangesTabContentUi(
+            DiffService.CumulativeChanges res, List<Map.Entry<String, Context.DiffEntry>> prepared) {
+        assert SwingUtilities.isEventDispatchThread() : "updateChangesTabContentUi must run on EDT";
         var container = changesTabPlaceholder;
         if (container == null) {
             return;
@@ -3248,7 +3251,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
 
         try {
-            var aggregatedPanel = buildAggregatedChangesPanel(res);
+            var aggregatedPanel = buildAggregatedChangesPanel(res, prepared);
             container.setLayout(new BorderLayout());
             container.add(aggregatedPanel, BorderLayout.CENTER);
         } catch (Throwable t) {
@@ -3264,9 +3267,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         container.repaint();
     }
 
-    // Constructs a panel containing a summary header and a BrokkDiffPanel with per-file comparisons.
-    // Sets aggregatedChangesPanel to the created BrokkDiffPanel for lifecycle management.
-    private JPanel buildAggregatedChangesPanel(DiffService.CumulativeChanges res) {
+    private JPanel buildAggregatedChangesPanel(
+            DiffService.CumulativeChanges res, List<Map.Entry<String, Context.DiffEntry>> prepared) {
         var wrapper = new JPanel(new BorderLayout());
 
         // Build header with baseline label and buttons
@@ -3405,18 +3407,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 .setInitialFileIndex(0)
                 .setForceFileTree(true);
 
-        // Stable order by display file path
-        var changes = new ArrayList<>(res.perFileChanges());
-        changes.sort(Comparator.comparing(Context.DiffEntry::title));
-
-        for (var change : changes) {
-            String path = change.title();
-            String leftContent = change.oldContent();
-            String rightContent = change.newContent();
-
-            // Use non-ref titles to avoid accidental git ref resolution; keep filename for syntax highlighting.
-            BufferSource left = new BufferSource.StringSource(leftContent, "", path, null);
-            BufferSource right = new BufferSource.StringSource(rightContent, "", path, null);
+        // Use precomputed list in stable order; do not call Context.DiffEntry::title here
+        for (var entry : prepared) {
+            String path = entry.getKey();
+            Context.DiffEntry de = entry.getValue();
+            BufferSource left = new BufferSource.StringSource(de.oldContent(), "", path, null);
+            BufferSource right = new BufferSource.StringSource(de.newContent(), "", path, null);
             builder.addComparison(left, right);
         }
 
@@ -3439,6 +3435,23 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         } catch (Throwable t) {
             return "";
         }
+    }
+
+    private static List<Map.Entry<String, Context.DiffEntry>> preparePerFileSummaries(
+            DiffService.CumulativeChanges res) {
+        var list = new ArrayList<Map.Entry<String, Context.DiffEntry>>(
+                res.perFileChanges().size());
+        var seen = new HashSet<String>();
+        for (var de : res.perFileChanges()) {
+            String title = de.title();
+            if (!seen.add(title)) {
+                logger.warn("Duplicate cumulative change title '{}' detected; skipping extra entry.", title);
+                continue;
+            }
+            list.add(Map.entry(title, de));
+        }
+        list.sort(Comparator.comparing(Map.Entry::getKey));
+        return list;
     }
 
     /**
