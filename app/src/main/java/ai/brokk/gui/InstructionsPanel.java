@@ -1871,64 +1871,95 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private void executeSearchInternal(String query, String action) {
-        final var modelToUse = selectDropdownModelOrShowError("Search");
-        if (modelToUse == null) {
-            logger.debug("Model selection failed for Search action: contextHasImages={}", contextHasImages());
-            updateButtonStates();
-            return;
-        }
-
-        autoClearCompletedTasks();
-
-        // Derive objective from action
-        SearchAgent.Objective objective;
-        if (ACTION_PLAN.equals(action)) {
-            objective = SearchAgent.Objective.TASKS_ONLY;
-        } else {
-            // Default to Lutz for ACTION_LUTZ and any other value
-            objective = SearchAgent.Objective.LUTZ;
-        }
-
-        // Gate on pre-existing incomplete tasks for BOTH Lutz and Plan.
-        // If there are incomplete tasks in the current session, require confirmation to replace them.
-        var preExistingIncompleteTasks = contextManager.liveContext().getTaskListDataOrEmpty().tasks().stream()
-                .filter(t -> !t.done())
-                .map(TaskList.TaskItem::text)
-                .collect(Collectors.toSet());
-
-        if (!preExistingIncompleteTasks.isEmpty()) {
-            var owner = SwingUtilities.getWindowAncestor(this);
-            var choice = AutoPlayGateDialog.showReplaceOnly(owner, preExistingIncompleteTasks);
-            if (choice != AutoPlayGateDialog.UserChoice.REPLACE_AND_CONTINUE) {
-                return; // User cancelled; do not proceed
+            final var modelToUse = selectDropdownModelOrShowError("Search");
+            if (modelToUse == null) {
+                    logger.debug("Model selection failed for Search action: contextHasImages={}", contextHasImages());
+                    updateButtonStates();
+                    return;
             }
-        }
 
-        var future = submitAction(action, query, scope -> {
-            assert !query.isBlank();
+            autoClearCompletedTasks();
 
-            var cm2 = chrome.getContextManager();
-            var context = cm2.liveContext();
-            SearchAgent agent = new SearchAgent(context, query, modelToUse, objective, scope);
-            try {
-                agent.scanInitialContext();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return new TaskResult(
-                        cm2,
-                        "Search: " + query,
-                        cm2.getIo().getLlmRawMessages(),
-                        cm2.liveContext(),
-                        new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
-                        new TaskResult.TaskMeta(
-                                TaskResult.Type.SEARCH, Service.ModelConfig.from(modelToUse, cm2.getService())));
+            // Derive objective from action
+            SearchAgent.Objective objective;
+            if (ACTION_PLAN.equals(action)) {
+                    objective = SearchAgent.Objective.TASKS_ONLY;
+            } else {
+                    // Default to Lutz for ACTION_LUTZ and any other value
+                    objective = SearchAgent.Objective.LUTZ;
             }
-            return agent.execute();
-        });
-        if (ACTION_LUTZ.equals(action) && !GlobalUiSettings.isAdvancedMode()) {
-            future.thenRun(() ->
-                    SwingUtilities.invokeLater(() -> chrome.getTaskListPanel().runAllAfterModelRefresh()));
-        }
+
+            submitAction(action, query, scope -> {
+                    assert !query.isBlank();
+
+                    var cm2 = chrome.getContextManager();
+                    var context = cm2.liveContext();
+
+                    // Capture pre-existing incomplete task texts BEFORE agent execution
+                    var preExistingIncompleteTasks = context.getTaskListDataOrEmpty().tasks().stream()
+                                    .filter(t -> !t.done())
+                                    .map(TaskList.TaskItem::text)
+                                    .collect(Collectors.toSet());
+
+                    SearchAgent agent = new SearchAgent(context, query, modelToUse, objective, scope);
+                    try {
+                            agent.scanInitialContext();
+                    } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            return new TaskResult(
+                                            cm2,
+                                            "Search: " + query,
+                                            cm2.getIo().getLlmRawMessages(),
+                                            cm2.liveContext(),
+                                            new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
+                                            new TaskResult.TaskMeta(
+                                                            TaskResult.Type.SEARCH, Service.ModelConfig.from(modelToUse, cm2.getService())));
+                    }
+
+                    var result = agent.execute();
+
+                    // Determine if the agent created or replaced a task list.
+                    // Compare pre-existing incomplete task texts with the new incomplete task texts.
+                    var newTasks = result.context().getTaskListDataOrEmpty().tasks();
+                    var newIncompleteTexts = newTasks.stream()
+                                    .filter(t -> !t.done())
+                                    .map(TaskList.TaskItem::text)
+                                    .collect(Collectors.toSet());
+
+                    boolean createdOrReplacedTaskList =
+                                    !newIncompleteTexts.isEmpty() && !newIncompleteTexts.equals(preExistingIncompleteTasks);
+
+                    // Post-execution dialog: show only if a new task list was created/replaced by the agent.
+                    // For EZ-mode Lutz: auto-play only if (a) success, (b) new tasks created/replaced,
+                    // and (c) either no pre-existing tasks OR user confirms replacement.
+                    if (createdOrReplacedTaskList) {
+                            boolean isLutzEz = ACTION_LUTZ.equals(action) && !GlobalUiSettings.isAdvancedMode();
+                            boolean success = result.stopDetails().reason() == TaskResult.StopReason.SUCCESS;
+
+                            if (!preExistingIncompleteTasks.isEmpty()) {
+                                    final AutoPlayGateDialog.UserChoice[] choice = new AutoPlayGateDialog.UserChoice[1];
+                                    try {
+                                            SwingUtilities.invokeAndWait(() -> {
+                                                    var owner = SwingUtilities.getWindowAncestor(this);
+                                                    choice[0] = AutoPlayGateDialog.showReplaceOnly(owner, preExistingIncompleteTasks);
+                                            });
+                                    } catch (Exception ex) {
+                                            logger.debug("Error showing replace-only gate dialog", ex);
+                                    }
+
+                                    if (isLutzEz && success && choice != null
+                                                    && choice[0] == AutoPlayGateDialog.UserChoice.REPLACE_AND_CONTINUE) {
+                                            SwingUtilities.invokeLater(() -> chrome.getTaskListPanel().runAllAfterModelRefresh());
+                                    }
+                            } else {
+                                    if (isLutzEz && success) {
+                                            SwingUtilities.invokeLater(() -> chrome.getTaskListPanel().runAllAfterModelRefresh());
+                                    }
+                            }
+                    }
+
+                    return result;
+            });
     }
 
     /**
