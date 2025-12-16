@@ -3,6 +3,7 @@ package ai.brokk;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.testutil.InlineTestProjectCreator;
@@ -178,5 +179,78 @@ public class AnalyzerUtilSelectionTest {
         ContextFragment.UsageFragment u = (ContextFragment.UsageFragment) frag.get();
         assertEquals("com.acme.Foo", u.targetIdentifier(), "Target identifier should be the input/class FQN");
         assertFalse(u.includeTestFiles(), "includeTestFiles should be false as passed");
+    }
+
+    // (f) Edge cases: empty/blank input
+
+    @Test
+    void emptyInput_returnsEmpty() {
+        assertTrue(AnalyzerUtil.selectFileFragment(cm, "   ", false).isEmpty(), "File selection should be empty");
+        assertTrue(
+                AnalyzerUtil.selectFolderFragments(cm, "   ", false, false).isEmpty(),
+                "Folder selection should be empty");
+        assertTrue(
+                AnalyzerUtil.selectClassFragment(analyzer, cm, "   ", false).isEmpty(),
+                "Class selection should be empty");
+        assertTrue(
+                AnalyzerUtil.selectMethodFragment(analyzer, cm, "   ", false).isEmpty(),
+                "Method selection should be empty");
+        assertTrue(
+                AnalyzerUtil.selectUsageFragment(analyzer, cm, "   ", false, false).isEmpty(),
+                "Usage selection should be empty");
+    }
+
+    // (g) Edge cases: analyzer == null
+
+    @Test
+    void nullAnalyzer_returnsEmptyForClassMethodUsage() {
+        IAnalyzer nullAnalyzer = null;
+        assertTrue(
+                AnalyzerUtil.selectClassFragment(nullAnalyzer, cm, "Foo", false).isEmpty(),
+                "Class selection should be empty when analyzer is null");
+        assertTrue(
+                AnalyzerUtil.selectMethodFragment(nullAnalyzer, cm, "Foo.bar", false).isEmpty(),
+                "Method selection should be empty when analyzer is null");
+        assertTrue(
+                AnalyzerUtil.selectUsageFragment(nullAnalyzer, cm, "Foo", false, false).isEmpty(),
+                "Usage selection should be empty when analyzer is null");
+    }
+
+    // (h) Edge cases: folder input normalization
+
+    @Test
+    void folderInput_isNormalized() {
+        Set<ContextFragment> a = AnalyzerUtil.selectFolderFragments(cm, "/src/main/java/", true, false);
+        Set<ContextFragment> b = AnalyzerUtil.selectFolderFragments(cm, "src\\main\\java\\", true, false);
+        Set<ContextFragment> c = AnalyzerUtil.selectFolderFragments(cm, "\\src\\main\\java", true, false);
+
+        assertEquals(2, a.size(), "Expected two files under src/main/java with subfolders");
+        assertEquals(2, b.size(), "Expected two files under src/main/java with subfolders");
+        assertEquals(2, c.size(), "Expected two files under src/main/java with subfolders");
+
+        assertTrue(a.stream().allMatch(f -> f instanceof ContextFragment.ProjectPathFragment));
+        assertTrue(b.stream().allMatch(f -> f instanceof ContextFragment.ProjectPathFragment));
+        assertTrue(c.stream().allMatch(f -> f instanceof ContextFragment.ProjectPathFragment));
+    }
+
+    // (i) Edge cases: no matches for classes/methods/usages
+
+    @Test
+    void noMatch_returnsEmptyForClassesAndMethods() {
+        assertTrue(
+                AnalyzerUtil.selectClassFragment(analyzer, cm, "com.acme.DoesNotExist", false).isEmpty(),
+                "No matching class should return empty");
+        assertTrue(
+                AnalyzerUtil.selectMethodFragment(analyzer, cm, "com.acme.DoesNotExist.method", false).isEmpty(),
+                "No matching method should return empty");
+    }
+
+    @Test
+    void usage_noMatch_returnsUsageFragmentWithRawInput() {
+        var frag = AnalyzerUtil.selectUsageFragment(analyzer, cm, "noSuchSymbol", false, false);
+        assertTrue(frag.isPresent(), "Expected UsageFragment to be returned even when no symbol was found");
+        assertTrue(frag.get() instanceof ContextFragment.UsageFragment, "Expected UsageFragment");
+        ContextFragment.UsageFragment u = (ContextFragment.UsageFragment) frag.get();
+        assertEquals("noSuchSymbol", u.targetIdentifier(), "Target identifier should be the raw input");
     }
 }

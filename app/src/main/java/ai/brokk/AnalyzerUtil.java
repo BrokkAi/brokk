@@ -237,6 +237,10 @@ public class AnalyzerUtil {
      */
     public static Set<ContextFragment> selectFolderFragments(
             IContextManager cm, String input, boolean includeSubfolders, boolean summarize) {
+        if (input == null || input.trim().isEmpty()) {
+            return Set.of();
+        }
+
         var rel = input.replace("\\", "/");
         rel = rel.startsWith("/") ? rel.substring(1) : rel;
         rel = rel.endsWith("/") ? rel.substring(0, rel.length() - 1) : rel;
@@ -383,6 +387,7 @@ public class AnalyzerUtil {
     public static Optional<ContextFragment> selectUsageFragment(
             IAnalyzer analyzer, IContextManager cm, String input, boolean includeTestFiles, boolean summarize) {
         if (analyzer == null) return Optional.empty();
+        if (input == null || input.trim().isEmpty()) return Optional.empty();
 
         Optional<CodeUnit> exactMethod = analyzer.getDefinitions(input).stream()
                 .filter(CodeUnit::isFunction)
