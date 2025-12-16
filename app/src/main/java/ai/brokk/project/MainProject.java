@@ -127,6 +127,9 @@ public final class MainProject extends AbstractProject {
     private static volatile Boolean isDataShareAllowedCache = null;
 
     @Nullable
+    private static volatile String headlessBrokkApiKeyOverride = null;
+
+    @Nullable
     @VisibleForTesting
     public static Properties globalPropertiesCache = null; // protected by synchronized
 
@@ -1670,8 +1673,30 @@ public final class MainProject extends AbstractProject {
     }
 
     public static String getBrokkKey() {
+        // Check headless executor override first (process-scoped)
+        String override = headlessBrokkApiKeyOverride;
+        if (override != null && !override.isBlank()) {
+            return override;
+        }
+        // Fall back to global properties
         var props = loadGlobalProperties();
         return props.getProperty("brokkApiKey", "");
+    }
+
+    /**
+     * Set a process-scoped override for the Brokk API key.
+     * Used by headless executors to use a per-executor API key instead of the global config.
+     * If set to a non-blank value, getBrokkKey() will return this override instead of
+     * reading from global properties.
+     *
+     * @param key the API key override, or null/blank to clear the override
+     */
+    public static void setHeadlessBrokkApiKeyOverride(@Nullable String key) {
+        headlessBrokkApiKeyOverride = key;
+        isDataShareAllowedCache = null; // Clear cache since key changed
+        logger.debug(
+                "Set headless Brokk API key override: {}",
+                (key != null && !key.isBlank()) ? "(non-blank, length=" + key.length() + ")" : "(cleared)");
     }
 
     public static void setBrokkKey(String key) {
