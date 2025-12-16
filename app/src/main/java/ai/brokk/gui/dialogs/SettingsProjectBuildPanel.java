@@ -779,8 +779,10 @@ public class SettingsProjectBuildPanel extends JPanel {
 
     public boolean applySettings() {
         // Persist build-related settings to project.
-        // Use pendingBuildDetails if available (from recent BuildAgent run), otherwise load from project
-        var baseDetails = pendingBuildDetails != null ? pendingBuildDetails : project.loadBuildDetails();
+        // Use pendingBuildDetails for build commands if available (from recent BuildAgent run),
+        // but always read exclusion patterns from disk (saveCiExclusions() just updated them)
+        var diskDetails = project.loadBuildDetails();
+        var baseDetails = pendingBuildDetails != null ? pendingBuildDetails : diskDetails;
         var newBuildLint = buildCleanCommandField.getText();
         var newTestAll = allTestsCommandField.getText();
         var newTestSome = someTestsCommandField.getText();
@@ -803,8 +805,9 @@ public class SettingsProjectBuildPanel extends JPanel {
             envVars.put("VIRTUAL_ENV", ".venv");
         }
 
+        // Always use exclusion patterns from disk - Code Intelligence panel is the source of truth
         var newDetails = new BuildAgent.BuildDetails(
-                newBuildLint, newTestAll, newTestSome, baseDetails.exclusionPatterns(), envVars);
+                newBuildLint, newTestAll, newTestSome, diskDetails.exclusionPatterns(), envVars);
 
         // Compare against what's currently saved on disk
         var currentDetails = project.loadBuildDetails();
