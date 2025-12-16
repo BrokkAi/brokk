@@ -24,6 +24,7 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.Insets;
+import java.awt.Polygon;
 import java.awt.RenderingHints;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -88,8 +89,8 @@ public class WorkspaceChip extends JPanel {
     protected final @Nullable Consumer<ContextFragment> onRemoveFragment;
     protected final ChipKind kind;
 
-    private Color borderColor = Color.GRAY;
-    private final int arc = 12;
+    protected Color borderColor = Color.GRAY;
+    protected static final int arc = 12;
 
     // Maximum characters to display on a chip label before truncating.
     // This keeps the chip (and its close button) visible even for very long descriptions.
@@ -844,10 +845,22 @@ public class WorkspaceChip extends JPanel {
      */
     public static final class SummaryChip extends WorkspaceChip {
 
+        /**
+         * Enum representing the validity state of summary fragments in this chip.
+         */
+        private enum ValidityState {
+            ALL_VALID,
+            MIXED,
+            ALL_INVALID
+        }
+
         @SuppressWarnings("NullAway.Init") // Initialized in constructor
         private List<ContextFragment> summaryFragments;
 
         private int invalidSummaryCount = 0;
+
+        /** Tracks validity state for painting */
+        private ValidityState validityState = ValidityState.ALL_VALID;
 
         public SummaryChip(
                 Chrome chrome,
@@ -875,6 +888,7 @@ public class WorkspaceChip extends JPanel {
         protected void setFragmentsInternal(Set<ContextFragment> fragments) {
             super.setFragmentsInternal(fragments);
             this.summaryFragments = List.copyOf(fragments);
+            updateValidityState();
         }
 
         @Override
@@ -897,8 +911,235 @@ public class WorkspaceChip extends JPanel {
             this.invalidSummaryCount =
                     (int) newSummaries.stream().filter(f -> !f.isValid()).count();
             super.setFragmentsInternal(new LinkedHashSet<>(newSummaries));
+            updateValidityState();
             bindComputed();
             refreshLabelAndTooltip();
+        }
+
+        private void updateValidityState() {
+            long invalidCount =
+                    summaryFragments.stream().filter(f -> !f.isValid()).count();
+            if (invalidCount == 0) {
+                validityState = ValidityState.ALL_VALID;
+            } else if (invalidCount == summaryFragments.size()) {
+                validityState = ValidityState.ALL_INVALID;
+            } else {
+                validityState = ValidityState.MIXED;
+            }
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            if (validityState == ValidityState.ALL_VALID || validityState == ValidityState.ALL_INVALID) {
+                // All valid or all invalid: use standard painting from parent
+                super.paintComponent(g);
+                return;
+            }
+
+            // Mixed case: diagonal split painting with 45-degree line through center
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+                int w = getWidth();
+                int h = getHeight();
+
+                // Get colors for both halves
+                Color summaryBg = ThemeColors.getColor(ThemeColors.CHIP_SUMMARY_BACKGROUND);
+                Color invalidBg = ThemeColors.getColor(ThemeColors.CHIP_INVALID_BACKGROUND);
+
+                // Calculate 45-degree line endpoints through center
+                // Line goes from bottom-left toward top-right (forward slash shape)
+                int centerX = w / 2;
+                int centerY = h / 2;
+                int halfDiag = Math.max(w, h); // Ensure line extends beyond chip bounds
+
+                // 45-degree line: for each unit right, go one unit up
+                int x1 = centerX - halfDiag;
+                int y1 = centerY + halfDiag;
+                int x2 = centerX + halfDiag;
+                int y2 = centerY - halfDiag;
+
+                Polygon rightPoly = new Polygon();
+                rightPoly.addPoint(x1, y1);
+                rightPoly.addPoint(x2, y2);
+                rightPoly.addPoint(w + halfDiag, h + halfDiag);
+                rightPoly.addPoint(-halfDiag, h + halfDiag);
+
+                Polygon leftPoly = new Polygon();
+                leftPoly.addPoint(x1, y1);
+                leftPoly.addPoint(x2, y2);
+                leftPoly.addPoint(w + halfDiag, -halfDiag);
+                leftPoly.addPoint(-halfDiag, -halfDiag);
+
+                // Draw bottom-left half with valid (summary) color
+                g2.setClip(leftPoly);
+                g2.setColor(summaryBg);
+                g2.fillRoundRect(0, 0, w - 1, h - 1, arc, arc);
+
+                // Draw top-right half with invalid color
+                g2.setClip(rightPoly);
+                g2.setColor(invalidBg);
+                g2.fillRoundRect(0, 0, w - 1, h - 1, arc, arc);
+
+                // Reset clip for child painting
+                g2.setClip(null);
+            } finally {
+                g2.dispose();
+            }
+
+            // Paint children (label, close button, etc.) - skip JPanel's paintComponent to avoid
+            // overwriting our custom background
+            paintChildren(g);
+        }
+
+        @Override
+        protected void paintBorder(Graphics g) {
+            if (validityState == ValidityState.ALL_VALID || validityState == ValidityState.ALL_INVALID) {
+                super.paintBorder(g);
+                return;
+            }
+
+            // Mixed case: draw border with a 45-degree diagonal line through center
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                int w = getWidth();
+                int h = getHeight();
+
+                // Use summary border color for consistency
+                Color summaryBorder = ThemeColors.getColor(ThemeColors.CHIP_SUMMARY_BORDER);
+                g2.setColor(summaryBorder);
+                g2.drawRoundRect(0, 0, w - 1, h - 1, arc, arc);
+
+                // Draw the 45-degree diagonal line through center (forward slash shape)
+                int centerX = w / 2;
+                int centerY = h / 2;
+                int halfLen = Math.min(w, h) / 2;
+
+                // Line from bottom-left to top-right, clipped to chip bounds
+                int x1 = centerX - halfLen;
+                int y1 = centerY + halfLen;
+                int x2 = centerX + halfLen;
+                int y2 = centerY - halfLen;
+
+                Color invalidBorder = ThemeColors.getColor(ThemeColors.CHIP_INVALID_BORDER);
+                g2.setColor(invalidBorder);
+                g2.setStroke(new BasicStroke(1.0f));
+                g2.drawLine(x1, y1, x2, y2);
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        @Override
+        public void applyTheme() {
+            updateValidityState();
+
+            if (validityState == ValidityState.ALL_INVALID) {
+                // All invalid: use invalid colors
+                Color bg = ThemeColors.getColor(ThemeColors.CHIP_INVALID_BACKGROUND);
+                Color fg = ThemeColors.getColor(ThemeColors.CHIP_INVALID_FOREGROUND);
+                Color border = ThemeColors.getColor(ThemeColors.CHIP_INVALID_BORDER);
+
+                setBackground(bg);
+                label.setForeground(fg);
+                borderColor = border;
+
+                int h = Math.max(label.getPreferredSize().height - 6, 10);
+                separator.setBackground(border);
+                separator.setPreferredSize(new Dimension(separator.getPreferredSize().width, h));
+                separator.revalidate();
+                separator.repaint();
+
+                closeButton.setIcon(buildCloseIconForChip(bg));
+                updateReadOnlyIcon();
+                revalidate();
+                repaint();
+            } else if (validityState == ValidityState.MIXED) {
+                // Mixed: use summary foreground for text readability, but background is painted custom
+                Color summaryBg = ThemeColors.getColor(ThemeColors.CHIP_SUMMARY_BACKGROUND);
+                Color summaryFg = ThemeColors.getColor(ThemeColors.CHIP_SUMMARY_FOREGROUND);
+                Color summaryBorder = ThemeColors.getColor(ThemeColors.CHIP_SUMMARY_BORDER);
+
+                setBackground(summaryBg); // Base background for any unpainted areas
+                label.setForeground(summaryFg);
+                borderColor = summaryBorder;
+
+                int h = Math.max(label.getPreferredSize().height - 6, 10);
+                separator.setBackground(summaryBorder);
+                separator.setPreferredSize(new Dimension(separator.getPreferredSize().width, h));
+                separator.revalidate();
+                separator.repaint();
+
+                closeButton.setIcon(buildCloseIconForChip(summaryBg));
+                updateReadOnlyIcon();
+                revalidate();
+                repaint();
+            } else {
+                // All valid: use standard summary colors via parent
+                super.applyTheme();
+            }
+        }
+
+        private Icon buildCloseIconForChip(Color chipBackground) {
+            int targetW = 10;
+            int targetH = 10;
+
+            boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
+            if (isHighContrast) {
+                BufferedImage icon = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g2 = icon.createGraphics();
+                try {
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    Color iconColor = ai.brokk.difftool.utils.ColorUtil.contrastingText(chipBackground);
+                    g2.setColor(iconColor);
+                    g2.setStroke(new BasicStroke(1.2f));
+                    g2.drawLine(2, 2, targetW - 3, targetH - 3);
+                    g2.drawLine(2, targetH - 3, targetW - 3, 2);
+                } finally {
+                    g2.dispose();
+                }
+                return new ImageIcon(icon);
+            }
+
+            Icon uiIcon = javax.swing.UIManager.getIcon("Brokk.close");
+            if (uiIcon == null) {
+                uiIcon = Icons.CLOSE;
+            }
+
+            Icon source = uiIcon;
+            Image scaled;
+            if (source instanceof ImageIcon ii) {
+                scaled = ii.getImage().getScaledInstance(targetW, targetH, Image.SCALE_SMOOTH);
+            } else {
+                int w = Math.max(1, source.getIconWidth());
+                int h = Math.max(1, source.getIconHeight());
+                BufferedImage buf = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g2 = buf.createGraphics();
+                try {
+                    source.paintIcon(null, g2, 0, 0);
+                } finally {
+                    g2.dispose();
+                }
+                scaled = buf.getScaledInstance(targetW, targetH, Image.SCALE_SMOOTH);
+            }
+
+            if (scaled == null) {
+                BufferedImage fallback = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g2 = fallback.createGraphics();
+                try {
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(Color.GRAY);
+                    g2.drawLine(1, 1, targetW - 2, targetH - 2);
+                    g2.drawLine(1, targetH - 2, targetW - 2, 1);
+                } finally {
+                    g2.dispose();
+                }
+                return new ImageIcon(fallback);
+            }
+
+            return new ImageIcon(scaled);
         }
 
         @Override
