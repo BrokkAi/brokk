@@ -913,10 +913,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     } else {
                         rows++;
                         lineWidth = w;
-                        if (rows >= 2) break;
+                        int maxRows = GlobalUiSettings.isVerticalActivityLayout() ? 3 : 2;
+                        if (rows >= maxRows) break;
                     }
                 }
-                return Math.max(1, Math.min(2, rows));
+                int maxRows = GlobalUiSettings.isVerticalActivityLayout() ? 3 : 2;
+                return Math.max(1, Math.min(maxRows, rows));
             }
 
             @Override

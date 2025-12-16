@@ -376,8 +376,14 @@ public final class DiffService {
                 if ("WORKING".equals(leftRef)) {
                     leftContent = file.read().orElse("");
                 } else {
-                    var leftFrag = ContextFragment.GitFileFragment.fromCommit(file, leftRef, gitRepo);
-                    leftContent = leftFrag.text().join();
+                    try {
+                        var leftFrag = ContextFragment.GitFileFragment.fromCommit(file, leftRef, gitRepo);
+                        leftContent = leftFrag.text().join();
+                    } catch (RuntimeException e) {
+                        // File doesn't exist at leftRef (new file) - treat as empty baseline
+                        logger.debug("File {} not found at {}, treating as new file", file, leftRef);
+                        leftContent = "";
+                    }
                 }
             }
 
@@ -387,8 +393,14 @@ public final class DiffService {
                 if ("WORKING".equals(rightRef)) {
                     rightContent = file.read().orElse("");
                 } else {
-                    var rightFragTmp = ContextFragment.GitFileFragment.fromCommit(file, rightRef, gitRepo);
-                    rightContent = rightFragTmp.text().join();
+                    try {
+                        var rightFragTmp = ContextFragment.GitFileFragment.fromCommit(file, rightRef, gitRepo);
+                        rightContent = rightFragTmp.text().join();
+                    } catch (RuntimeException e) {
+                        // File doesn't exist at rightRef (deleted file) - treat as empty right side
+                        logger.debug("File {} not found at {}, treating as deleted file", file, rightRef);
+                        rightContent = "";
+                    }
                 }
             }
 
@@ -406,9 +418,18 @@ public final class DiffService {
             totalDeleted += deleted;
 
             // Build DiffEntry using the right-side fragment as representative
-            ContextFragment.GitFileFragment rightFragForEntry = "WORKING".equals(rightRef)
-                    ? new ContextFragment.GitFileFragment(file, "WORKING", rightContent)
-                    : ContextFragment.GitFileFragment.fromCommit(file, rightRef, gitRepo);
+            ContextFragment.GitFileFragment rightFragForEntry;
+            if ("WORKING".equals(rightRef)) {
+                rightFragForEntry = new ContextFragment.GitFileFragment(file, "WORKING", rightContent);
+            } else {
+                try {
+                    rightFragForEntry = ContextFragment.GitFileFragment.fromCommit(file, rightRef, gitRepo);
+                } catch (RuntimeException e) {
+                    // File doesn't exist at rightRef (e.g., deleted) - synthesize with current computed rightContent
+                    rightFragForEntry = new ContextFragment.GitFileFragment(file, rightRef, rightContent);
+                }
+            }
+
             var de = new Context.DiffEntry(rightFragForEntry, "", added, deleted, leftContent, rightContent);
             perFileChanges.add(de);
         }
