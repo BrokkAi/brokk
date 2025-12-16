@@ -49,6 +49,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
 import org.apache.commons.text.StringEscapeUtils;
 import org.apache.logging.log4j.LogManager;
@@ -417,37 +418,10 @@ public class WorkspaceChip extends JPanel {
     }
 
     public void applyTheme() {
-        Color bg;
-        Color fg;
-        Color border;
-
-        switch (kind) {
-            case INVALID -> {
-                bg = ThemeColors.getColor(ThemeColors.CHIP_INVALID_BACKGROUND);
-                fg = ThemeColors.getColor(ThemeColors.CHIP_INVALID_FOREGROUND);
-                border = ThemeColors.getColor(ThemeColors.CHIP_INVALID_BORDER);
-            }
-            case EDIT -> {
-                bg = ThemeColors.getColor(ThemeColors.CHIP_EDIT_BACKGROUND);
-                fg = ThemeColors.getColor(ThemeColors.CHIP_EDIT_FOREGROUND);
-                border = ThemeColors.getColor(ThemeColors.CHIP_EDIT_BORDER);
-            }
-            case SUMMARY -> {
-                bg = ThemeColors.getColor(ThemeColors.CHIP_SUMMARY_BACKGROUND);
-                fg = ThemeColors.getColor(ThemeColors.CHIP_SUMMARY_FOREGROUND);
-                border = ThemeColors.getColor(ThemeColors.CHIP_SUMMARY_BORDER);
-            }
-            case HISTORY -> {
-                bg = ThemeColors.getColor(ThemeColors.CHIP_HISTORY_BACKGROUND);
-                fg = ThemeColors.getColor(ThemeColors.CHIP_HISTORY_FOREGROUND);
-                border = ThemeColors.getColor(ThemeColors.CHIP_HISTORY_BORDER);
-            }
-            default -> {
-                bg = ThemeColors.getColor(ThemeColors.CHIP_OTHER_BACKGROUND);
-                fg = ThemeColors.getColor(ThemeColors.CHIP_OTHER_FOREGROUND);
-                border = ThemeColors.getColor(ThemeColors.CHIP_OTHER_BORDER);
-            }
-        }
+        boolean isDarkTheme = UIManager.getBoolean("laf.dark");
+        Color bg = FragmentColorUtils.getBackgroundColor(kind, isDarkTheme);
+        Color fg = FragmentColorUtils.getForegroundColor(kind, isDarkTheme);
+        Color border = FragmentColorUtils.getBorderColor(kind, isDarkTheme);
 
         // Special styling for Task List: dedicated color scheme
         ContextFragment fragment = getPrimaryFragment();
@@ -873,6 +847,8 @@ public class WorkspaceChip extends JPanel {
         @SuppressWarnings("NullAway.Init") // Initialized in constructor
         private List<ContextFragment> summaryFragments;
 
+        private int invalidSummaryCount = 0;
+
         public SummaryChip(
                 Chrome chrome,
                 ContextManager contextManager,
@@ -918,6 +894,8 @@ public class WorkspaceChip extends JPanel {
             }
 
             this.summaryFragments = new ArrayList<>(newSummaries);
+            this.invalidSummaryCount =
+                    (int) newSummaries.stream().filter(f -> !f.isValid()).count();
             super.setFragmentsInternal(new LinkedHashSet<>(newSummaries));
             bindComputed();
             refreshLabelAndTooltip();
@@ -1086,12 +1064,12 @@ public class WorkspaceChip extends JPanel {
             }
 
             // Add "Drop Invalid Summaries" if there are any invalid summaries
-            var invalidSummaries =
-                    summaryFragments.stream().filter(f -> !f.isValid()).toList();
-            if (!invalidSummaries.isEmpty()) {
-                String dropInvalidLabel = invalidSummaries.size() == 1
+            if (invalidSummaryCount > 0) {
+                var invalidSummaries =
+                        summaryFragments.stream().filter(f -> !f.isValid()).toList();
+                String dropInvalidLabel = invalidSummaryCount == 1
                         ? "Drop Invalid Summary"
-                        : "Drop Invalid Summaries (" + invalidSummaries.size() + ")";
+                        : "Drop Invalid Summaries (" + invalidSummaryCount + ")";
                 JMenuItem dropInvalidItem = new JMenuItem(dropInvalidLabel);
                 dropInvalidItem.addActionListener(e -> {
                     if (!ensureMutatingAllowed()) {
