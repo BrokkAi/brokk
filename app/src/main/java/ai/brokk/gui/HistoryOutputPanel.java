@@ -15,6 +15,7 @@ import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.components.SplitButton;
@@ -3103,7 +3104,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     try {
                         // use map: deduplicate by file path, preferring working tree status over branch/commit status
                         // => don't show a file twice when the state in the 2 branchses differs
-                        Map<Object, IGitRepo.ModifiedFile> fileMap = new HashMap<>();
+                        Map<ProjectFile, IGitRepo.ModifiedFile> fileMap = new HashMap<>();
                         String leftCommitSha = null;
                         String currentBranch = gitRepo.getCurrentBranch();
 
