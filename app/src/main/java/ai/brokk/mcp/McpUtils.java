@@ -36,6 +36,23 @@ public class McpUtils {
      */
     private static final Duration MCP_REQUEST_TIMEOUT = Duration.ofSeconds(60);
 
+    private static Throwable getRootCause(Throwable t) {
+        Throwable r = t;
+        while (r.getCause() != null && r.getCause() != r) {
+            r = r.getCause();
+        }
+        return r;
+    }
+
+    private static String getRootCauseMessage(Throwable t) {
+        Throwable r = getRootCause(t);
+        String msg = r.getMessage();
+        if (msg == null || msg.isBlank()) {
+            return r.getClass().getSimpleName();
+        }
+        return msg;
+    }
+
     private static McpClientTransport buildTransport(URL url, @Nullable String bearerToken) {
         final String baseUrl;
         if (url.getPort() == -1 || url.getPort() == url.getDefaultPort()) {
@@ -44,7 +61,7 @@ public class McpUtils {
             baseUrl = url.getProtocol() + "://" + url.getHost() + ":" + url.getPort();
         }
 
-        // only add /mpc when nothing is specified (some servers may not have i.e. /doc)
+        // only add /mcp when nothing is specified (some servers may not have i.e. /doc)
         String endpointPath = url.getPath();
         if (endpointPath == null || endpointPath.isEmpty()) {
             endpointPath = "/mcp";
@@ -158,13 +175,7 @@ public class McpUtils {
             return withMcpAsyncClient(
                     url, bearerToken, projectRoot, client -> client.listTools().map(McpSchema.ListToolsResult::tools));
         } catch (Exception e) {
-            Throwable rootCause = e;
-            while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
-                rootCause = rootCause.getCause();
-            }
-            String rootMessage = rootCause.getMessage() != null
-                    ? rootCause.getMessage()
-                    : rootCause.getClass().getSimpleName();
+            String rootMessage = getRootCauseMessage(e);
             logger.error(
                     "Failed to fetch tools from MCP server at {}: {} (root cause: {})",
                     url,
@@ -185,13 +196,7 @@ public class McpUtils {
             return withMcpAsyncClient(command, arguments, env, projectRoot, client -> client.listTools()
                     .map(McpSchema.ListToolsResult::tools));
         } catch (Exception e) {
-            Throwable rootCause = e;
-            while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
-                rootCause = rootCause.getCause();
-            }
-            String rootMessage = rootCause.getMessage() != null
-                    ? rootCause.getMessage()
-                    : rootCause.getClass().getSimpleName();
+            String rootMessage = getRootCauseMessage(e);
             logger.error(
                     "Failed to fetch tools from MCP server on command '{} {}': {} (root cause: {})",
                     command,
@@ -215,13 +220,7 @@ public class McpUtils {
                         projectRoot,
                         client -> client.callTool(new McpSchema.CallToolRequest(toolName, arguments)));
             } catch (Exception e) {
-                Throwable rootCause = e;
-                while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
-                    rootCause = rootCause.getCause();
-                }
-                String rootMessage = rootCause.getMessage() != null
-                        ? rootCause.getMessage()
-                        : rootCause.getClass().getSimpleName();
+                String rootMessage = getRootCauseMessage(e);
                 logger.error(
                         "Failed to call tool '{}' from MCP server at {}: {} (root cause: {})",
                         toolName,
@@ -242,13 +241,7 @@ public class McpUtils {
                         projectRoot,
                         client -> client.callTool(new McpSchema.CallToolRequest(toolName, arguments)));
             } catch (Exception e) {
-                Throwable rootCause = e;
-                while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
-                    rootCause = rootCause.getCause();
-                }
-                String rootMessage = rootCause.getMessage() != null
-                        ? rootCause.getMessage()
-                        : rootCause.getClass().getSimpleName();
+                String rootMessage = getRootCauseMessage(e);
                 logger.error(
                         "Failed to call tool '{}' from MCP server on command '{} {}': {} (root cause: {})",
                         toolName,
