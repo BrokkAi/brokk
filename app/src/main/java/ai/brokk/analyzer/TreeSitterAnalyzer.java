@@ -2105,7 +2105,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     node.getEndPoint().getRow(),
                     node.getStartByte());
 
-            var finalRange = (cu.isClass() || cu.isFunction()) ? expandRangeWithComments(node, false) : originalRange;
+            var finalRange = (cu.isClass() || cu.isFunction()) ? expandRangeWithComments(node, sourceContent, false) : originalRange;
 
             localSourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(finalRange);
             localCuByFqName.put(cu.fqName(), cu);
@@ -3698,10 +3698,46 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Expands a source range to include contiguous leading metadata (comments and attribute-like nodes) immediately
-     * preceding the declaration node. Operates directly on the provided declaration node.
+     * Finds the byte offset of the start of the line containing the given byte offset.
+     * Scans backward from the offset to find the preceding newline (or beginning of file).
+     *
+     * @param byteOffset the byte offset to find the line start for
+     * @param sourceContent the source content wrapper
+     * @return the byte offset of the first character on the line (after the newline, or 0 if at file start)
      */
-    protected Range expandRangeWithComments(TSNode declarationNode, boolean ignoredIncludeOnlyDocLike) {
+    private int findLineStartByte(int byteOffset, SourceContent sourceContent) {
+        if (byteOffset <= 0) {
+            return 0;
+        }
+
+        byte[] bytes = sourceContent.utf8Bytes();
+        if (byteOffset > bytes.length) {
+            byteOffset = bytes.length;
+        }
+
+        // Scan backward from byteOffset - 1 to find the preceding newline
+        for (int i = byteOffset - 1; i >= 0; i--) {
+            if (bytes[i] == '\n') {
+                // Found newline; line starts after it
+                return i + 1;
+            }
+        }
+
+        // No newline found; line starts at beginning of file
+        return 0;
+    }
+
+    /**
+     * Expands a source range to include contiguous leading metadata (comments and attribute-like nodes) immediately
+     * preceding the declaration node. Backs up to the start of the line containing the first metadata node
+     * to capture any indentation.
+     *
+     * @param declarationNode the declaration node to expand
+     * @param sourceContent the source content wrapper for byte offset calculations
+     * @param ignoredIncludeOnlyDocLike unused parameter for backward compatibility
+     * @return the expanded range with commentStartByte including leading indentation
+     */
+    protected Range expandRangeWithComments(TSNode declarationNode, SourceContent sourceContent, boolean ignoredIncludeOnlyDocLike) {
         var originalRange = new Range(
                 declarationNode.getStartByte(),
                 declarationNode.getEndByte(),
@@ -3728,14 +3764,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         // Reverse to get earliest-first
         Collections.reverse(leading);
-        int newStartByte = leading.getFirst().getStartByte();
+        int firstMetadataNodeStartByte = leading.getFirst().getStartByte();
+
+        // Back up to the start of the line containing the first metadata node to include indentation
+        int commentStartByte = findLineStartByte(firstMetadataNodeStartByte, sourceContent);
 
         Range expandedRange = new Range(
                 originalRange.startByte(),
                 originalRange.endByte(),
                 originalRange.startLine(),
                 originalRange.endLine(),
-                newStartByte);
+                commentStartByte);
 
         log.trace(
                 "Expanded range for node. Body range [{}, {}], comment range starts at {} (added {} preceding metadata nodes)",
