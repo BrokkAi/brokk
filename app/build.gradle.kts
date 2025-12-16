@@ -23,12 +23,17 @@ java {
 
 application {
     mainClass.set("ai.brokk.Brokk")
-    applicationDefaultJvmArgs = listOf(
+    applicationDefaultJvmArgs = buildList {
         // enable feature flags; JavaExec baseline supplies other args
-        "-Dbrokk.servicetiers=true",
-        "-Dbrokk.architectshell=true",
-        "-Dwatch.service.polling=true"
-    )
+        add("-Dbrokk.servicetiers=true")
+        add("-Dbrokk.architectshell=true")
+        add("-Dwatch.service.polling=true")
+        // JDK 25+ requires explicit flags for unsafe memory access and native access
+        if (JavaVersion.current() >= JavaVersion.VERSION_24) {
+            add("--sun-misc-unsafe-memory-access=allow")
+            add("--enable-native-access=javafx.graphics,javafx.media,javafx.web,ALL-UNNAMED")
+        }
+    }
 }
 
 javafx {
