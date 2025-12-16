@@ -7,8 +7,13 @@ import java.awt.Dialog;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Window;
+import java.awt.event.KeyEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.util.Set;
 import javax.swing.BorderFactory;
+import javax.swing.JComponent;
+import javax.swing.KeyStroke;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
@@ -18,27 +23,49 @@ import org.jetbrains.annotations.Nullable;
 
 public final class AutoPlayGateDialog extends BaseThemedDialog {
     private final Set<String> incompleteTasks;
-    private UserChoice choice = UserChoice.CANCEL;
+    private UserChoice choice = UserChoice.KEEP_OLD;
 
     /** User's choice from the dialog. */
     public enum UserChoice {
-        /** Replace existing task list and proceed (keep only new tasks). */
-        REPLACE_AND_CONTINUE,
-        /** Append the new tasks to the existing task list and proceed. */
-        APPEND,
-        /** Cancel the operation. */
-        CANCEL,
         /** Keep only the existing tasks (discard newly generated tasks). */
         KEEP_OLD,
         /** Keep only the newly generated tasks (replace existing). */
         KEEP_NEW,
         /** Keep both existing and newly generated tasks (merge/deduplicate). */
-        KEEP_BOTH
+        KEEP_BOTH,
+
+        /**
+         * Legacy alias for KEEP_NEW.
+         * Deprecated: the dialog no longer offers this label; use KEEP_NEW instead.
+         */
+        @Deprecated
+        REPLACE_AND_CONTINUE,
+
+        /**
+         * Legacy alias for KEEP_BOTH.
+         * Deprecated: the dialog no longer offers this label; use KEEP_BOTH instead.
+         */
+        @Deprecated
+        APPEND,
+
+        /**
+         * Legacy alias for KEEP_OLD.
+         * Deprecated: the dialog no longer offers a cancel action; ESC/close maps to KEEP_OLD.
+         */
+        @Deprecated
+        CANCEL
     }
 
     private AutoPlayGateDialog(@Nullable Window owner, Set<String> incompleteTasks) {
         super(owner, "New Tasks Found", Dialog.ModalityType.APPLICATION_MODAL);
         this.incompleteTasks = incompleteTasks;
+
+        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+        addWindowListener(new WindowAdapter() {
+            @Override public void windowClosing(WindowEvent e) {
+                choice = UserChoice.KEEP_OLD;
+            }
+        });
 
         buildUI();
         pack();
@@ -84,10 +111,10 @@ public final class AutoPlayGateDialog extends BaseThemedDialog {
         root.add(listPanel, BorderLayout.CENTER);
 
         var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-        var keepOldBtn = new MaterialButton("Keep Existing Tasks");
-        var keepNewBtn = new MaterialButton("Use New Tasks");
+        var keepOldBtn = new MaterialButton("Keep existing tasks");
+        var keepNewBtn = new MaterialButton("Use new tasks");
         SwingUtil.applyPrimaryButtonStyle(keepNewBtn);
-        var keepBothBtn = new MaterialButton("Keep Both (Merge)");
+        var keepBothBtn = new MaterialButton("Keep both (merge)");
         buttons.add(keepOldBtn);
         buttons.add(keepNewBtn);
         buttons.add(keepBothBtn);
@@ -107,6 +134,14 @@ public final class AutoPlayGateDialog extends BaseThemedDialog {
         });
 
         getRootPane().setDefaultButton(keepNewBtn);
+
+        getRootPane().registerKeyboardAction(
+                evt -> {
+                    choice = UserChoice.KEEP_OLD;
+                    dispose();
+                },
+                KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
+                JComponent.WHEN_IN_FOCUSED_WINDOW);
     }
 
     /**
@@ -115,7 +150,7 @@ public final class AutoPlayGateDialog extends BaseThemedDialog {
      *
      * @param parent Parent component for dialog positioning
      * @param incompleteTasks Set of incomplete task texts to display
-     * @return User's choice (REPLACE_AND_CONTINUE or CANCEL)
+     * @return User's choice (KEEP_OLD, KEEP_NEW, or KEEP_BOTH)
      */
     public static UserChoice show(@Nullable Window parent, Set<String> incompleteTasks) {
         assert SwingUtilities.isEventDispatchThread() : "AutoPlayGateDialog.show must be called on EDT";
@@ -130,7 +165,7 @@ public final class AutoPlayGateDialog extends BaseThemedDialog {
      *
      * @param parent Parent window for dialog positioning
      * @param incompleteTasks Set of incomplete task texts to display
-     * @return User's choice (REPLACE_AND_CONTINUE or CANCEL)
+     * @return User's choice (KEEP_OLD, KEEP_NEW, or KEEP_BOTH)
      */
     public static UserChoice showReplaceOnly(@Nullable Window parent, Set<String> incompleteTasks) {
         assert SwingUtilities.isEventDispatchThread() : "AutoPlayGateDialog.showReplaceOnly must be called on EDT";
