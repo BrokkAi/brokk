@@ -247,14 +247,9 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 return;
             }
 
-            // Determine a safe owner Frame for the CommitDialog:
-            // - prefer the immediate window ancestor if it's a Frame (typical for the main UI)
-            // - otherwise fall back to the main application frame (chrome.getFrame())
-            Window ancestor = SwingUtilities.getWindowAncestor(GitCommitTab.this);
-            Frame ownerFrame = (ancestor instanceof Frame f) ? f : chrome.getFrame();
-
+            Window owner = SwingUtilities.getWindowAncestor(GitCommitTab.this);
             CommitDialog dialog = new CommitDialog(
-                    ownerFrame,
+                    owner,
                     chrome,
                     contextManager,
                     workflowService,
