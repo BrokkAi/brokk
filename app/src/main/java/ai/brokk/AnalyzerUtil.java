@@ -7,7 +7,6 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.analyzer.SourceCodeProvider;
-import ai.brokk.IContextManager;
 import ai.brokk.context.ContextFragment;
 import java.nio.file.Path;
 import java.util.*;
@@ -215,259 +214,255 @@ public class AnalyzerUtil {
     }
 
     /**
-         * Builds a fragment for a single file selection.
-         *
-         * <p>When {@code summarize} is true, a {@link ContextFragment.SummaryFragment} is returned with
-         * {@link ContextFragment.SummaryType#FILE_SKELETONS}. Otherwise returns a
-         * {@link ContextFragment.ProjectPathFragment}.
-         *
-         * @param cm the context manager used to resolve the {@link ProjectFile} and construct fragments
-         * @param input a project-relative path (normalized internally); blank or non-project paths yield empty
-         * @param summarize whether to create a summary ({@link ContextFragment.SummaryFragment}) instead of a file fragment
-         * @return an Optional containing either {@link ContextFragment.ProjectPathFragment} or
-         *         {@link ContextFragment.SummaryFragment}; empty if the file is not part of the project
-         */
+     * Builds a fragment for a single file selection.
+     *
+     * <p>When {@code summarize} is true, a {@link ContextFragment.SummaryFragment} is returned with
+     * {@link ContextFragment.SummaryType#FILE_SKELETONS}. Otherwise returns a
+     * {@link ContextFragment.ProjectPathFragment}.
+     *
+     * @param cm the context manager used to resolve the {@link ProjectFile} and construct fragments
+     * @param input a project-relative path (normalized internally); blank or non-project paths yield empty
+     * @param summarize whether to create a summary ({@link ContextFragment.SummaryFragment}) instead of a file fragment
+     * @return an Optional containing either {@link ContextFragment.ProjectPathFragment} or
+     *         {@link ContextFragment.SummaryFragment}; empty if the file is not part of the project
+     */
     public static Optional<ContextFragment> selectFileFragment(IContextManager cm, String input, boolean summarize) {
-                        ProjectFile chosen = cm.toFile(input);
-                        if (!cm.getProject().getAllFiles().contains(chosen)) {
-                                            return Optional.empty();
-                        }
+        ProjectFile chosen = cm.toFile(input);
+        if (!cm.getProject().getAllFiles().contains(chosen)) {
+            return Optional.empty();
+        }
 
-                        ContextFragment frag = summarize
-                                                                ? new ContextFragment.SummaryFragment(
-                                                                                                        cm, chosen.getRelPath().toString(), ContextFragment.SummaryType.FILE_SKELETONS)
-                                                                : new ContextFragment.ProjectPathFragment(chosen, cm);
-                        return Optional.of(frag);
+        ContextFragment frag = summarize
+                ? new ContextFragment.SummaryFragment(
+                        cm, chosen.getRelPath().toString(), ContextFragment.SummaryType.FILE_SKELETONS)
+                : new ContextFragment.ProjectPathFragment(chosen, cm);
+        return Optional.of(frag);
     }
 
     /**
-         * Builds fragments for a folder selection.
-         *
-         * <p>When {@code summarize} is true, a {@link ContextFragment.SummaryFragment} is created per file with
-         * {@link ContextFragment.SummaryType#FILE_SKELETONS}. Otherwise returns a
-         * {@link ContextFragment.ProjectPathFragment} per file.
-         *
-         * @param cm the context manager used to resolve files and construct fragments
-         * @param input a project-relative folder path (various separators and leading/trailing slashes are normalized)
-         * @param includeSubfolders if true, include files in subdirectories; otherwise only direct children are included
-         * @param summarize whether to return summary fragments ({@link ContextFragment.SummaryFragment}) instead of file fragments
-         * @return an ordered Set of fragments (one per file) or an empty set if no files matched
-         */
+     * Builds fragments for a folder selection.
+     *
+     * <p>When {@code summarize} is true, a {@link ContextFragment.SummaryFragment} is created per file with
+     * {@link ContextFragment.SummaryType#FILE_SKELETONS}. Otherwise returns a
+     * {@link ContextFragment.ProjectPathFragment} per file.
+     *
+     * @param cm the context manager used to resolve files and construct fragments
+     * @param input a project-relative folder path (various separators and leading/trailing slashes are normalized)
+     * @param includeSubfolders if true, include files in subdirectories; otherwise only direct children are included
+     * @param summarize whether to return summary fragments ({@link ContextFragment.SummaryFragment}) instead of file fragments
+     * @return an ordered Set of fragments (one per file) or an empty set if no files matched
+     */
     public static Set<ContextFragment> selectFolderFragments(
-                                            IContextManager cm, String input, boolean includeSubfolders, boolean summarize) {
-                        if (input == null || input.trim().isEmpty()) {
-                                            return Set.of();
-                        }
+            IContextManager cm, String input, boolean includeSubfolders, boolean summarize) {
+        if (input.trim().isEmpty()) {
+            return Set.of();
+        }
 
-                        var rel = input.replace("\\", "/");
-                        rel = rel.startsWith("/") ? rel.substring(1) : rel;
-                        rel = rel.endsWith("/") ? rel.substring(0, rel.length() - 1) : rel;
+        var rel = input.replace("\\", "/");
+        rel = rel.startsWith("/") ? rel.substring(1) : rel;
+        rel = rel.endsWith("/") ? rel.substring(0, rel.length() - 1) : rel;
 
-                        Path relPath = Path.of(rel);
+        Path relPath = Path.of(rel);
 
-                        Set<ProjectFile> all = cm.getProject().getAllFiles();
-                        Set<ProjectFile> selected = new LinkedHashSet<>();
-                        for (var pf : all) {
-                                            Path fileRel = pf.getRelPath();
-                                            if (includeSubfolders) {
-                                                                if (fileRel.startsWith(relPath)) {
-                                                                                    selected.add(pf);
-                                                                }
-                                            } else {
-                                                                Path parent = fileRel.getParent();
-                                                                if (Objects.equals(parent, relPath)) {
-                                                                                    selected.add(pf);
-                                                                }
-                                            }
-                        }
+        Set<ProjectFile> all = cm.getProject().getAllFiles();
+        Set<ProjectFile> selected = new LinkedHashSet<>();
+        for (var pf : all) {
+            Path fileRel = pf.getRelPath();
+            if (includeSubfolders) {
+                if (fileRel.startsWith(relPath)) {
+                    selected.add(pf);
+                }
+            } else {
+                Path parent = fileRel.getParent();
+                if (Objects.equals(parent, relPath)) {
+                    selected.add(pf);
+                }
+            }
+        }
 
-                        if (selected.isEmpty()) {
-                                            return Set.of();
-                        }
+        if (selected.isEmpty()) {
+            return Set.of();
+        }
 
-                        if (summarize) {
-                                            return selected.stream()
-                                                                                    .map(pf -> (ContextFragment) new ContextFragment.SummaryFragment(
-                                                                                                                            cm, pf.getRelPath().toString(), ContextFragment.SummaryType.FILE_SKELETONS))
-                                                                                    .collect(Collectors.toCollection(LinkedHashSet::new));
-                        }
+        if (summarize) {
+            return selected.stream()
+                    .map(pf -> (ContextFragment) new ContextFragment.SummaryFragment(
+                            cm, pf.getRelPath().toString(), ContextFragment.SummaryType.FILE_SKELETONS))
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+        }
 
-                        return selected.stream()
-                                                                .map(pf -> (ContextFragment) new ContextFragment.ProjectPathFragment(pf, cm))
-                                                                .collect(Collectors.toCollection(LinkedHashSet::new));
+        return selected.stream()
+                .map(pf -> (ContextFragment) new ContextFragment.ProjectPathFragment(pf, cm))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     /**
-                 * Builds a fragment for a class selection.
-                 *
-                 * <p>Attempts resolution in this order:
-                 * <ol>
-                 *   <li>Exact definition by fully qualified name</li>
-                 *   <li>Search-based lookup</li>
-                 *   <li>Fallback scan of all declarations for matching short or fully qualified name</li>
-                 * </ol>
-                 *
-                 * <p>When {@code summarize} is true, returns a {@link ContextFragment.SummaryFragment} with
-                 * {@link ContextFragment.SummaryType#CODEUNIT_SKELETON}; otherwise returns a {@link ContextFragment.CodeFragment}.
-                 *
-                 * @param analyzer the analyzer used to resolve definitions; if null, returns empty
-                 * @param cm the context manager used to construct fragments
-                 * @param input a class name (short or fully qualified)
-                 * @param summarize whether to return a summary ({@link ContextFragment.SummaryFragment}) instead of a code fragment
-                 * @return an Optional containing {@link ContextFragment.CodeFragment} or {@link ContextFragment.SummaryFragment};
-                 *         empty if no matching class is found
-                 */
+     * Builds a fragment for a class selection.
+     *
+     * <p>Attempts resolution in this order:
+     * <ol>
+     *   <li>Exact definition by fully qualified name</li>
+     *   <li>Search-based lookup</li>
+     *   <li>Fallback scan of all declarations for matching short or fully qualified name</li>
+     * </ol>
+     *
+     * <p>When {@code summarize} is true, returns a {@link ContextFragment.SummaryFragment} with
+     * {@link ContextFragment.SummaryType#CODEUNIT_SKELETON}; otherwise returns a {@link ContextFragment.CodeFragment}.
+     *
+     * @param analyzer the analyzer used to resolve definitions; if null, returns empty
+     * @param cm the context manager used to construct fragments
+     * @param input a class name (short or fully qualified)
+     * @param summarize whether to return a summary ({@link ContextFragment.SummaryFragment}) instead of a code fragment
+     * @return an Optional containing {@link ContextFragment.CodeFragment} or {@link ContextFragment.SummaryFragment};
+     *         empty if no matching class is found
+     */
     public static Optional<ContextFragment> selectClassFragment(
-                                                                                                            IAnalyzer analyzer, IContextManager cm, String input, boolean summarize) {
-                                                        if (analyzer == null) return Optional.empty();
+            IAnalyzer analyzer, IContextManager cm, String input, boolean summarize) {
 
-                                                        Optional<CodeUnit> opt =
-                                                                                                                                                                analyzer.getDefinitions(input).stream().filter(CodeUnit::isClass).findFirst();
+        Optional<CodeUnit> opt = analyzer.getDefinitions(input).stream()
+                .filter(CodeUnit::isClass)
+                .findFirst();
 
-                                                        if (opt.isEmpty()) {
-                                                                                                            opt = analyzer.searchDefinitions(input).stream().filter(CodeUnit::isClass).findFirst();
-                                                        }
-                                                        if (opt.isEmpty()) {
-                                                                                                            String suffix = "." + input;
-                                                                                                            opt = analyzer.getAllDeclarations().stream()
-                                                                                                                                                                                                                    .filter(CodeUnit::isClass)
-                                                                                                                                                                                                                    .filter(cu -> cu.shortName().equals(input)
-                                                                                                                                                                                                                                                                                                                            || cu.fqName().equals(input)
-                                                                                                                                                                                                                                                                                                                            || cu.fqName().endsWith(suffix))
-                                                                                                                                                                                                                    .findFirst();
-                                                        }
-                                                        if (opt.isEmpty()) {
-                                                                                                            return Optional.empty();
-                                                        }
+        if (opt.isEmpty()) {
+            opt = analyzer.searchDefinitions(input).stream()
+                    .filter(CodeUnit::isClass)
+                    .findFirst();
+        }
+        if (opt.isEmpty()) {
+            String suffix = "." + input;
+            opt = analyzer.getAllDeclarations().stream()
+                    .filter(CodeUnit::isClass)
+                    .filter(cu -> cu.shortName().equals(input)
+                            || cu.fqName().equals(input)
+                            || cu.fqName().endsWith(suffix))
+                    .findFirst();
+        }
+        if (opt.isEmpty()) {
+            return Optional.empty();
+        }
 
-                                                        CodeUnit cu = opt.get();
-                                                        ContextFragment frag = summarize
-                                                                                                                                                                ? new ContextFragment.SummaryFragment(
-                                                                                                                                                                                                                                                                        cm, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON)
-                                                                                                                                                                : new ContextFragment.CodeFragment(cm, cu);
-                                                        return Optional.of(frag);
+        CodeUnit cu = opt.get();
+        ContextFragment frag = summarize
+                ? new ContextFragment.SummaryFragment(cm, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON)
+                : new ContextFragment.CodeFragment(cm, cu);
+        return Optional.of(frag);
     }
 
     /**
-                         * Builds a fragment for a method selection.
-                         *
-                         * <p>Attempts resolution in this order:
-                         * <ol>
-                         *   <li>Exact definition by fully qualified name</li>
-                         *   <li>Search-based lookup</li>
-                         *   <li>Autocomplete-based lookup</li>
-                         *   <li>Fallback scan of all declarations</li>
-                         *   <li>Fallback scan of members of all classes</li>
-                         * </ol>
-                         *
-                         * <p>When {@code summarize} is true, returns a {@link ContextFragment.SummaryFragment} with
-                         * {@link ContextFragment.SummaryType#CODEUNIT_SKELETON}; otherwise returns a {@link ContextFragment.CodeFragment}.
-                         *
-                         * @param analyzer the analyzer used to resolve definitions; if null, returns empty
-                         * @param cm the context manager used to construct fragments
-                         * @param input a method name (short or fully qualified)
-                         * @param summarize whether to return a summary ({@link ContextFragment.SummaryFragment}) instead of a code fragment
-                         * @return an Optional containing {@link ContextFragment.CodeFragment} or {@link ContextFragment.SummaryFragment};
-                         *         empty if no matching method is found
-                         */
+     * Builds a fragment for a method selection.
+     *
+     * <p>Attempts resolution in this order:
+     * <ol>
+     *   <li>Exact definition by fully qualified name</li>
+     *   <li>Search-based lookup</li>
+     *   <li>Autocomplete-based lookup</li>
+     *   <li>Fallback scan of all declarations</li>
+     *   <li>Fallback scan of members of all classes</li>
+     * </ol>
+     *
+     * <p>When {@code summarize} is true, returns a {@link ContextFragment.SummaryFragment} with
+     * {@link ContextFragment.SummaryType#CODEUNIT_SKELETON}; otherwise returns a {@link ContextFragment.CodeFragment}.
+     *
+     * @param analyzer the analyzer used to resolve definitions; if null, returns empty
+     * @param cm the context manager used to construct fragments
+     * @param input a method name (short or fully qualified)
+     * @param summarize whether to return a summary ({@link ContextFragment.SummaryFragment}) instead of a code fragment
+     * @return an Optional containing {@link ContextFragment.CodeFragment} or {@link ContextFragment.SummaryFragment};
+     *         empty if no matching method is found
+     */
     public static Optional<ContextFragment> selectMethodFragment(
-                                                                                                                                                                            IAnalyzer analyzer, IContextManager cm, String input, boolean summarize) {
-                                                                                        if (analyzer == null) return Optional.empty();
+            IAnalyzer analyzer, IContextManager cm, String input, boolean summarize) {
 
-                                                                                        // 1) Exact definition by fully qualified name
-                                                                                        Optional<CodeUnit> opt = analyzer.getDefinitions(input).stream()
-                                                                                                                                                                                                                                                                .filter(CodeUnit::isFunction)
-                                                                                                                                                                                                                                                                .findFirst();
+        // 1) Exact definition by fully qualified name
+        Optional<CodeUnit> opt = analyzer.getDefinitions(input).stream()
+                .filter(CodeUnit::isFunction)
+                .findFirst();
 
-                                                                                        // 2) Search-based lookup
-                                                                                        if (opt.isEmpty()) {
-                                                                                                                                                                            opt = analyzer.searchDefinitions(input).stream()
-                                                                                                                                                                                                                                                                                                                                                    .filter(CodeUnit::isFunction)
-                                                                                                                                                                                                                                                                                                                                                    .findFirst();
-                                                                                        }
+        // 2) Search-based lookup
+        if (opt.isEmpty()) {
+            opt = analyzer.searchDefinitions(input).stream()
+                    .filter(CodeUnit::isFunction)
+                    .findFirst();
+        }
 
-                                                                                        // 3) Autocomplete-based lookup (helps when only short name is provided)
-                                                                                        if (opt.isEmpty()) {
-                                                                                                                                                                            opt = analyzer.autocompleteDefinitions(input).stream()
-                                                                                                                                                                                                                                                                                                                                                    .filter(CodeUnit::isFunction)
-                                                                                                                                                                                                                                                                                                                                                    .findFirst();
-                                                                                        }
+        // 3) Autocomplete-based lookup (helps when only short name is provided)
+        if (opt.isEmpty()) {
+            opt = analyzer.autocompleteDefinitions(input).stream()
+                    .filter(CodeUnit::isFunction)
+                    .findFirst();
+        }
 
-                                                                                        // 4) Fallback: scan all declarations for functions matching short name or fqName suffix
-                                                                                        if (opt.isEmpty()) {
-                                                                                                                                                                            String suffix = "." + input;
-                                                                                                                                                                            opt = analyzer.getAllDeclarations().stream()
-                                                                                                                                                                                                                                                                                                                                                    .filter(CodeUnit::isFunction)
-                                                                                                                                                                                                                                                                                                                                                    .filter(cu ->
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            cu.shortName().equals(input)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    || cu.fqName().equals(input)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    || cu.fqName().endsWith(suffix))
-                                                                                                                                                                                                                                                                                                                                                    .findFirst();
-                                                                                        }
+        // 4) Fallback: scan all declarations for functions matching short name or fqName suffix
+        if (opt.isEmpty()) {
+            String suffix = "." + input;
+            opt = analyzer.getAllDeclarations().stream()
+                    .filter(CodeUnit::isFunction)
+                    .filter(cu -> cu.shortName().equals(input)
+                            || cu.fqName().equals(input)
+                            || cu.fqName().endsWith(suffix))
+                    .findFirst();
+        }
 
-                                                                                        // 5) Additional fallback: scan members of all classes for matching methods
-                                                                                        if (opt.isEmpty()) {
-                                                                                                                                                                            String suffix = "." + input;
-                                                                                                                                                                            opt = analyzer.getAllDeclarations().stream()
-                                                                                                                                                                                                                                                                                                                                                    .filter(CodeUnit::isClass)
-                                                                                                                                                                                                                                                                                                                                                    .flatMap(cls -> analyzer.getMembersInClass(cls).stream())
-                                                                                                                                                                                                                                                                                                                                                    .filter(CodeUnit::isFunction)
-                                                                                                                                                                                                                                                                                                                                                    .filter(cu ->
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            cu.shortName().equals(input)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    || cu.fqName().equals(input)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    || cu.fqName().endsWith(suffix))
-                                                                                                                                                                                                                                                                                                                                                    .findFirst();
-                                                                                        }
+        // 5) Additional fallback: scan members of all classes for matching methods
+        if (opt.isEmpty()) {
+            String suffix = "." + input;
+            opt = analyzer.getAllDeclarations().stream()
+                    .filter(CodeUnit::isClass)
+                    .flatMap(cls -> analyzer.getMembersInClass(cls).stream())
+                    .filter(CodeUnit::isFunction)
+                    .filter(cu -> cu.shortName().equals(input)
+                            || cu.fqName().equals(input)
+                            || cu.fqName().endsWith(suffix))
+                    .findFirst();
+        }
 
-                                                                                        if (opt.isEmpty()) {
-                                                                                                                                                                            return Optional.empty();
-                                                                                        }
+        if (opt.isEmpty()) {
+            return Optional.empty();
+        }
 
-                                                                                        CodeUnit cu = opt.get();
-                                                                                        ContextFragment frag = summarize
-                                                                                                                                                                                                                                                                ? new ContextFragment.SummaryFragment(
-                                                                                                                                                                                                                                                                                                                                                                                                                                        cm, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON)
-                                                                                                                                                                                                                                                                : new ContextFragment.CodeFragment(cm, cu);
-                                                                                        return Optional.of(frag);
+        CodeUnit cu = opt.get();
+        ContextFragment frag = summarize
+                ? new ContextFragment.SummaryFragment(cm, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON)
+                : new ContextFragment.CodeFragment(cm, cu);
+        return Optional.of(frag);
     }
 
     /**
-         * Builds a fragment for a usage selection.
-         *
-         * <p>If the input resolves to a method and {@code summarize} is true, returns a
-         * {@link ContextFragment.CallGraphFragment} showing callees at depth 1. Otherwise returns a
-         * {@link ContextFragment.UsageFragment}. If no symbol can be resolved, a {@link ContextFragment.UsageFragment}
-         * is still created using the raw input.
-         *
-         * @param analyzer the analyzer used to resolve the target symbol; if null, returns empty
-         * @param cm the context manager used to construct fragments
-         * @param input a symbol identifier (short or fully qualified); blank yields empty
-         * @param includeTestFiles whether to include tests when building the {@link ContextFragment.UsageFragment}
-         * @param summarize whether to return a {@link ContextFragment.CallGraphFragment} for a method target
-         * @return an Optional containing {@link ContextFragment.CallGraphFragment} (for summarize+method) or
-         *         {@link ContextFragment.UsageFragment}; empty if analyzer is null or input is blank
-         */
+     * Builds a fragment for a usage selection.
+     *
+     * <p>If the input resolves to a method and {@code summarize} is true, returns a
+     * {@link ContextFragment.CallGraphFragment} showing callees at depth 1. Otherwise returns a
+     * {@link ContextFragment.UsageFragment}. If no symbol can be resolved, a {@link ContextFragment.UsageFragment}
+     * is still created using the raw input.
+     *
+     * @param analyzer the analyzer used to resolve the target symbol; if null, returns empty
+     * @param cm the context manager used to construct fragments
+     * @param input a symbol identifier (short or fully qualified); blank yields empty
+     * @param includeTestFiles whether to include tests when building the {@link ContextFragment.UsageFragment}
+     * @param summarize whether to return a {@link ContextFragment.CallGraphFragment} for a method target
+     * @return an Optional containing {@link ContextFragment.CallGraphFragment} (for summarize+method) or
+     *         {@link ContextFragment.UsageFragment}; empty if analyzer is null or input is blank
+     */
     public static Optional<ContextFragment> selectUsageFragment(
-                                            IAnalyzer analyzer, IContextManager cm, String input, boolean includeTestFiles, boolean summarize) {
-                        if (analyzer == null) return Optional.empty();
-                        if (input == null || input.trim().isEmpty()) return Optional.empty();
+            IAnalyzer analyzer, IContextManager cm, String input, boolean includeTestFiles, boolean summarize) {
+        if (input.trim().isEmpty()) return Optional.empty();
 
-                        Optional<CodeUnit> exactMethod = analyzer.getDefinitions(input).stream()
-                                                                .filter(CodeUnit::isFunction)
-                                                                .findFirst();
-                        Optional<CodeUnit> any = exactMethod.isPresent()
-                                                                ? exactMethod
-                                                                : analyzer.getDefinitions(input).stream()
-                                                                                                        .findFirst()
-                                                                                                        .or(() -> analyzer.searchDefinitions(input).stream().findFirst());
+        Optional<CodeUnit> exactMethod = analyzer.getDefinitions(input).stream()
+                .filter(CodeUnit::isFunction)
+                .findFirst();
+        Optional<CodeUnit> any = exactMethod.isPresent()
+                ? exactMethod
+                : analyzer.getDefinitions(input).stream()
+                        .findFirst()
+                        .or(() -> analyzer.searchDefinitions(input).stream().findFirst());
 
-                        if (summarize && any.isPresent() && any.get().isFunction()) {
-                                            var methodFqn = any.get().fqName();
-                                            return Optional.of(new ContextFragment.CallGraphFragment(cm, methodFqn, 1, false));
-                        }
+        if (summarize && any.isPresent() && any.get().isFunction()) {
+            var methodFqn = any.get().fqName();
+            return Optional.of(new ContextFragment.CallGraphFragment(cm, methodFqn, 1, false));
+        }
 
-                        var target = any.map(CodeUnit::fqName).orElse(input);
-                        return Optional.of(new ContextFragment.UsageFragment(cm, target, includeTestFiles));
+        var target = any.map(CodeUnit::fqName).orElse(input);
+        return Optional.of(new ContextFragment.UsageFragment(cm, target, includeTestFiles));
     }
 
     public record CodeWithSource(String code, CodeUnit source) {

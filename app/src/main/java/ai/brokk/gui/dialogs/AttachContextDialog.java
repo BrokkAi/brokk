@@ -1,9 +1,9 @@
 package ai.brokk.gui.dialogs;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.Completions;
 import ai.brokk.ContextManager;
 import ai.brokk.FuzzyMatcher;
-import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
@@ -30,10 +30,7 @@ import java.awt.event.WindowEvent;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.ButtonGroup;
