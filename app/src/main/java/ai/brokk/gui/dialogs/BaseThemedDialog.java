@@ -43,7 +43,8 @@ public class BaseThemedDialog extends JDialog {
         contentPane.setLayout(new BorderLayout());
         contentPane.add(contentRoot, BorderLayout.CENTER);
 
-        applyThemedTitleBar(title);
+        // FIXME: invokeLater works around a bug in JDK 21; it seems to be unnecessary in 25
+        SwingUtilities.invokeLater(() -> applyThemedTitleBar(title));
 
         addWindowListener(new WindowAdapter() {
             @Override
