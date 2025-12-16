@@ -946,19 +946,22 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         this.addExcludedDirButton.addActionListener(e -> {
             String newDir = JOptionPane.showInputDialog(
                     parentDialog,
-                    "Enter directory to exclude (e.g., target/, build/):",
+                    "Enter directory to exclude (e.g., target, build, node_modules):",
                     "Add Excluded Directory",
                     JOptionPane.PLAIN_MESSAGE);
             if (newDir != null && !newDir.trim().isEmpty()) {
-                String trimmedNewDir = newDir.trim();
-                List<String> currentElements = Collections.list(excludedDirectoriesListModel.elements());
-                if (!currentElements.contains(trimmedNewDir)) { // Avoid duplicates
-                    currentElements.add(trimmedNewDir);
-                }
-                currentElements.sort(String::compareToIgnoreCase);
+                // Canonicalize: strip trailing slashes, normalize separators
+                String canonicalDir = PathNormalizer.canonicalizeForProject(
+                        newDir.trim(), chrome.getProject().getMasterRootPathForConfig());
+                if (!canonicalDir.isBlank()) {
+                    // Use case-insensitive set for proper deduplication
+                    var unique = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
+                    unique.addAll(Collections.list(excludedDirectoriesListModel.elements()));
+                    unique.add(canonicalDir);
 
-                excludedDirectoriesListModel.clear();
-                currentElements.forEach(excludedDirectoriesListModel::addElement);
+                    excludedDirectoriesListModel.clear();
+                    unique.forEach(excludedDirectoriesListModel::addElement);
+                }
             }
         });
         this.removeExcludedDirButton.addActionListener(e -> {

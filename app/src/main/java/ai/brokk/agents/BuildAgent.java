@@ -325,19 +325,19 @@ public class BuildAgent {
                 you identify that should be excluded from code intelligence, beyond this baseline.
 
                 The `exclusionPatterns` parameter accepts two types of patterns:
-                - Simple names (e.g., 'node_modules', 'vendor', 'package-lock.json') exclude directories with that name (and all contents) OR files with that exact name
-                - Glob patterns (e.g., '*.svg', '**/test/resources/**') match file paths using wildcards
+                - Directory names (PREFERRED): e.g., 'build', 'node_modules', 'vendor', '.gradle'.
+                  A directory name automatically matches at any depth in the project.
+                  For example, 'build' matches 'build/', 'build/foo.class', AND 'subproject/build/'.
+                - Glob patterns (only when needed): e.g., '*.svg', '*.min.js' for file extensions.
+                  Use globs ONLY for extension patterns. Do NOT use '**/' prefix - directory names already match at any depth.
 
                 Look for patterns specific to this project. Examples of common exclusions include:
                 - Lock files (e.g., package-lock.json, yarn.lock, Cargo.lock, poetry.lock, go.sum)
                 - Binary/media files (e.g., *.svg, *.png, *.woff, *.ttf)
                 - Minified files (e.g., *.min.js, *.min.css)
-                - Generated code directories (e.g., generated, gen)
+                - Generated code directories (e.g., generated, gen) - use directory name, NOT **/generated/**
                 - Vendored dependencies (e.g., vendor, node_modules if not gitignored)
-                - Large test data files (e.g., **/testdata/*.json, **/fixtures/*.xml) - but NOT test code itself
                 - Large data files or logs
-
-                Use `**/` prefix for patterns that should match at any depth (e.g., `**/build/**` matches both `build/` and `subproject/build/`).
 
                 Do NOT exclude: configuration files, type definitions (*.d.ts, ddl files, etc), schema files (OpenAPI, GraphQL, Protobuf sources, etc), or test code.
 
@@ -373,8 +373,11 @@ public class BuildAgent {
                             "Command template to run specific tests using Mustache templating. Should use either a {{classes}}, {{fqclasses}}, or a {{files}} variable. Again, if no class- or file- based framework is in use, leave it blank.")
                     String testSomeCommand,
             @P(
-                            "List of patterns to exclude from code intelligence. Simple names (e.g., 'node_modules', 'vendor') exclude directories and exact filenames. Glob patterns (e.g., '*.svg', '**/test/resources/**') match file paths.")
+                            "List of patterns to exclude from code intelligence. PREFER directory names (e.g., 'build', 'node_modules', 'vendor') which match at any depth. Only use glob patterns (e.g., '*.svg') for file extensions. Do NOT use **/dir/** patterns.")
                     List<String> exclusionPatterns) {
+        // DEBUG: print raw values from LLM
+        System.out.println("[BuildAgent DEBUG] Raw exclusionPatterns from LLM: " + exclusionPatterns);
+        System.out.println("[BuildAgent DEBUG] currentExcludedDirectories (baseline): " + currentExcludedDirectories);
         // Combine baseline excluded directories with those suggested by the LLM
         var finalPatterns = Stream.concat(this.currentExcludedDirectories.stream(), exclusionPatterns.stream())
                 .map(String::trim)
@@ -388,6 +391,7 @@ public class BuildAgent {
                 })
                 .collect(Collectors.toSet());
 
+        System.out.println("[BuildAgent DEBUG] Final merged exclusionPatterns: " + finalPatterns);
         this.reportedDetails = new BuildDetails(
                 buildLintCommand, testAllCommand, testSomeCommand, finalPatterns, defaultEnvForProject());
         logger.debug("reportBuildDetails tool executed. Exclusion patterns: {}", finalPatterns);
@@ -432,12 +436,12 @@ public class BuildAgent {
          */
         @JsonCreator
         public static BuildDetails fromJson(
-                @JsonProperty("buildLintCommand") String buildLintCommand,
-                @JsonProperty("testAllCommand") String testAllCommand,
-                @JsonProperty("testSomeCommand") String testSomeCommand,
-                @JsonProperty("exclusionPatterns") Set<String> exclusionPatterns,
-                @JsonProperty("excludedDirectories") Set<String> excludedDirectories,
-                @JsonProperty("environmentVariables") Map<String, String> environmentVariables) {
+                @JsonProperty("buildLintCommand") @Nullable String buildLintCommand,
+                @JsonProperty("testAllCommand") @Nullable String testAllCommand,
+                @JsonProperty("testSomeCommand") @Nullable String testSomeCommand,
+                @JsonProperty("exclusionPatterns") @Nullable Set<String> exclusionPatterns,
+                @JsonProperty("excludedDirectories") @Nullable Set<String> excludedDirectories,
+                @JsonProperty("environmentVariables") @Nullable Map<String, String> environmentVariables) {
             // Migrate legacy excludedDirectories to exclusionPatterns
             Set<String> patterns = new java.util.LinkedHashSet<>();
             if (exclusionPatterns != null) {
