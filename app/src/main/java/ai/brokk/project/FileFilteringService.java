@@ -453,6 +453,14 @@ public final class FileFilteringService {
      * Check if a path (file or directory) is excluded by any pattern.
      * Uses fast prefix matching for SimpleName patterns.
      *
+     * <p>Pattern matching behavior aligns with {@link #matchesFilePatternStatic}:
+     * <ul>
+     *   <li>SimpleName: matches path prefix or exact name
+     *   <li>Extension: matches filename suffix (files only)
+     *   <li>Glob with {@code matchFullPath=true}: matches against full path
+     *   <li>Glob with {@code matchFullPath=false}: matches against name component only
+     * </ul>
+     *
      * @param relativePath the path to check
      * @param compiledPatterns pre-compiled patterns
      * @param isDirectory true if the path is a directory (skips Extension pattern checks)
@@ -481,7 +489,8 @@ public final class FileFilteringService {
                             // Extension patterns only apply to files, not directories
                             !isDirectory && lowerName.endsWith(ext.lowerSuffix());
                         case CompiledPattern.Glob g ->
-                            g.regex().matcher(lowerPath).matches();
+                            // Respect matchFullPath: path globs match full path, filename globs match name only
+                            g.regex().matcher(g.matchFullPath() ? lowerPath : lowerName).matches();
                     };
             if (matched) {
                 return true;
