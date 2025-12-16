@@ -216,26 +216,25 @@ class BuildAgentTest {
             git.commit().setMessage("Initial commit").call();
         }
 
-        // Create project and test isDirectoryIgnored method
+        // Create project and test isGitignored method
         var project = new MainProject(tempDir);
 
         // Verify empty directory is NOT ignored
-        assertFalse(project.isDirectoryIgnored(Path.of("tests/fixtures")), "Empty directory should NOT be ignored");
-        assertFalse(project.isDirectoryIgnored(Path.of("tests")), "Parent of empty directory should NOT be ignored");
+        assertFalse(project.isGitignored(Path.of("tests/fixtures")), "Empty directory should NOT be ignored");
+        assertFalse(project.isGitignored(Path.of("tests")), "Parent of empty directory should NOT be ignored");
 
         // Verify directory with only non-code files is NOT ignored
         assertFalse(
-                project.isDirectoryIgnored(Path.of("docs/images")),
+                project.isGitignored(Path.of("docs/images")),
                 "Directory with only non-code files should NOT be ignored");
-        assertFalse(project.isDirectoryIgnored(Path.of("docs")), "Parent of non-code directory should NOT be ignored");
+        assertFalse(project.isGitignored(Path.of("docs")), "Parent of non-code directory should NOT be ignored");
 
         // Verify directory with code is NOT ignored
-        assertFalse(project.isDirectoryIgnored(Path.of("src")), "Directory with code should NOT be ignored");
+        assertFalse(project.isGitignored(Path.of("src")), "Directory with code should NOT be ignored");
 
         // Verify actually gitignored directory IS ignored
-        assertTrue(project.isDirectoryIgnored(Path.of("build")), "Gitignored directory SHOULD be ignored");
-        assertTrue(
-                project.isDirectoryIgnored(Path.of("build/output")), "Nested gitignored directory SHOULD be ignored");
+        assertTrue(project.isGitignored(Path.of("build")), "Gitignored directory SHOULD be ignored");
+        assertTrue(project.isGitignored(Path.of("build/output")), "Nested gitignored directory SHOULD be ignored");
 
         project.close();
     }

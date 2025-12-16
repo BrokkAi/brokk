@@ -99,16 +99,6 @@ public final class FileFilteringService {
     }
 
     /**
-     * Determine if a directory is ignored by gitignore rules.
-     * Returns false on error.
-     * @deprecated Use {@link #isGitignored(Path)} instead
-     */
-    @Deprecated
-    public boolean isDirectoryIgnored(Path directoryRelPath) {
-        return isGitignored(directoryRelPath);
-    }
-
-    /**
      * Determine if a path (file or directory) is ignored by gitignore rules.
      * Returns false on error or if no git repo.
      */
@@ -500,7 +490,9 @@ public final class FileFilteringService {
                             !isDirectory && lowerName.endsWith(ext.lowerSuffix());
                         case CompiledPattern.Glob g ->
                             // Respect matchFullPath: path globs match full path, filename globs match name only
-                            g.regex().matcher(g.matchFullPath() ? lowerPath : lowerName).matches();
+                            g.regex()
+                                    .matcher(g.matchFullPath() ? lowerPath : lowerName)
+                                    .matches();
                     };
             if (matched) {
                 return true;

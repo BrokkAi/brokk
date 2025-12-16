@@ -747,12 +747,6 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
-    @Deprecated
-    public boolean isDirectoryIgnored(Path directoryRelPath) {
-        return isGitignored(directoryRelPath);
-    }
-
-    @Override
     public boolean isGitignored(Path relPath) {
         if (!(repo instanceof GitRepo)) {
             return false; // No git repo = nothing is ignored
