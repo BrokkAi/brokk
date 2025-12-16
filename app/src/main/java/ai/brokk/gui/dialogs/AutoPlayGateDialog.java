@@ -27,11 +27,17 @@ public final class AutoPlayGateDialog extends BaseThemedDialog {
         /** Append the new tasks to the existing task list and proceed. */
         APPEND,
         /** Cancel the operation. */
-        CANCEL
+        CANCEL,
+        /** Keep only the existing tasks (discard newly generated tasks). */
+        KEEP_OLD,
+        /** Keep only the newly generated tasks (replace existing). */
+        KEEP_NEW,
+        /** Keep both existing and newly generated tasks (merge/deduplicate). */
+        KEEP_BOTH
     }
 
     private AutoPlayGateDialog(@Nullable Window owner, Set<String> incompleteTasks) {
-        super(owner, "Replace Task List", Dialog.ModalityType.APPLICATION_MODAL);
+        super(owner, "New Tasks Found", Dialog.ModalityType.APPLICATION_MODAL);
         this.incompleteTasks = incompleteTasks;
 
         buildUI();
@@ -45,10 +51,11 @@ public final class AutoPlayGateDialog extends BaseThemedDialog {
         root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         String introText =
-                "There are incomplete tasks in this session. Choose how to proceed:\n\n"
-                        + "- Keep Only New: replace your current task list with the newly generated tasks.\n"
-                        + "- Append New Tasks: add the newly generated tasks to your existing incomplete tasks.\n"
-                        + "- Cancel: do nothing.";
+                "New tasks were generated, and you already have incomplete tasks.\n"
+                        + "How would you like to proceed?\n\n"
+                        + "- Keep existing tasks: discard the newly generated tasks and keep your current list.\n"
+                        + "- Use new tasks: replace your current list with the newly generated tasks.\n"
+                        + "- Keep both (merge): append new incomplete tasks to your existing incomplete tasks (deduplicated).";
 
         var intro = new JTextArea(introText);
         intro.setEditable(false);
@@ -58,7 +65,7 @@ public final class AutoPlayGateDialog extends BaseThemedDialog {
         root.add(intro, BorderLayout.NORTH);
 
         var listPanel = new JPanel(new BorderLayout(6, 6));
-        listPanel.add(new JLabel("Incomplete tasks:"), BorderLayout.NORTH);
+        listPanel.add(new JLabel("Existing incomplete tasks:"), BorderLayout.NORTH);
 
         var taskTextArea = new JTextArea();
         taskTextArea.setEditable(false);
@@ -77,29 +84,29 @@ public final class AutoPlayGateDialog extends BaseThemedDialog {
         root.add(listPanel, BorderLayout.CENTER);
 
         var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-        var replaceBtn = new MaterialButton("Keep Only New");
-        SwingUtil.applyPrimaryButtonStyle(replaceBtn);
-        var appendBtn = new MaterialButton("Append New Tasks");
-        var cancelBtn = new MaterialButton("Cancel");
-        buttons.add(replaceBtn);
-        buttons.add(appendBtn);
-        buttons.add(cancelBtn);
+        var keepOldBtn = new MaterialButton("Keep Existing Tasks");
+        var keepNewBtn = new MaterialButton("Use New Tasks");
+        SwingUtil.applyPrimaryButtonStyle(keepNewBtn);
+        var keepBothBtn = new MaterialButton("Keep Both (Merge)");
+        buttons.add(keepOldBtn);
+        buttons.add(keepNewBtn);
+        buttons.add(keepBothBtn);
         root.add(buttons, BorderLayout.SOUTH);
 
-        replaceBtn.addActionListener(e -> {
-            choice = UserChoice.REPLACE_AND_CONTINUE;
+        keepOldBtn.addActionListener(e -> {
+            choice = UserChoice.KEEP_OLD;
             dispose();
         });
-        appendBtn.addActionListener(e -> {
-            choice = UserChoice.APPEND;
+        keepNewBtn.addActionListener(e -> {
+            choice = UserChoice.KEEP_NEW;
             dispose();
         });
-        cancelBtn.addActionListener(e -> {
-            choice = UserChoice.CANCEL;
+        keepBothBtn.addActionListener(e -> {
+            choice = UserChoice.KEEP_BOTH;
             dispose();
         });
 
-        getRootPane().setDefaultButton(replaceBtn);
+        getRootPane().setDefaultButton(keepNewBtn);
     }
 
     /**

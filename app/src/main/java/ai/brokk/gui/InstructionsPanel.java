@@ -86,6 +86,7 @@ import org.fife.ui.autocomplete.AutoCompletion;
 import org.fife.ui.autocomplete.Completion;
 import org.fife.ui.autocomplete.DefaultCompletionProvider;
 import org.fife.ui.autocomplete.ShorthandCompletion;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -1871,131 +1872,106 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private void executeSearchInternal(String query, String action) {
-            final var modelToUse = selectDropdownModelOrShowError("Search");
-            if (modelToUse == null) {
-                    logger.debug("Model selection failed for Search action: contextHasImages={}", contextHasImages());
-                    updateButtonStates();
-                    return;
+        final var modelToUse = selectDropdownModelOrShowError("Search");
+        if (modelToUse == null) {
+            logger.debug("Model selection failed for Search action: contextHasImages={}", contextHasImages());
+            updateButtonStates();
+            return;
+        }
+
+        autoClearCompletedTasks();
+
+        // Derive objective from action
+        SearchAgent.Objective objective = ACTION_PLAN.equals(action)
+                ? SearchAgent.Objective.TASKS_ONLY
+                : SearchAgent.Objective.LUTZ;
+
+        submitAction(action, query, scope -> {
+            assert !query.isBlank();
+
+            var cm = chrome.getContextManager();
+            var context = cm.liveContext();
+
+            // Snapshot BEFORE running agent (full data + incomplete set)
+            TaskListSnapshot before = snapshotCurrentTaskList(context);
+
+            SearchAgent agent = new SearchAgent(context, query, modelToUse, objective, scope);
+            try {
+                agent.scanInitialContext();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return new TaskResult(
+                        cm,
+                        "Search: " + query,
+                        cm.getIo().getLlmRawMessages(),
+                        cm.liveContext(),
+                        new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
+                        new TaskResult.TaskMeta(TaskResult.Type.SEARCH, Service.ModelConfig.from(modelToUse, cm.getService())));
             }
 
-            autoClearCompletedTasks();
+            var result = agent.execute();
+            boolean success = result.stopDetails().reason() == TaskResult.StopReason.SUCCESS;
 
-            // Derive objective from action
-            SearchAgent.Objective objective;
-            if (ACTION_PLAN.equals(action)) {
-                    objective = SearchAgent.Objective.TASKS_ONLY;
+            // Compute AFTER state from the result's context
+            var afterData = result.context().getTaskListDataOrEmpty();
+
+            boolean changedByAgent = agentCreatedOrReplacedTasks(before, afterData);
+
+            // Show dialog only when the agent produced a different list and there were pre-existing incomplete tasks.
+            if (changedByAgent && !before.incompleteTexts().isEmpty()) {
+                final AutoPlayGateDialog.UserChoice[] choiceHolder = new AutoPlayGateDialog.UserChoice[1];
+                try {
+                    SwingUtilities.invokeAndWait(() -> {
+                        var owner = SwingUtilities.getWindowAncestor(this);
+                        choiceHolder[0] = AutoPlayGateDialog.show(owner, before.incompleteTexts());
+                    });
+                } catch (Exception ex) {
+                    logger.debug("Error showing gate dialog", ex);
+                    choiceHolder[0] = AutoPlayGateDialog.UserChoice.KEEP_OLD;
+                }
+
+                AutoPlayGateDialog.UserChoice choice = choiceHolder[0] == null
+                        ? AutoPlayGateDialog.UserChoice.KEEP_OLD
+                        : choiceHolder[0];
+
+                // Apply user's choice for ALL modes (Lutz EZ, Lutz Advanced, Plan)
+                TaskList.TaskListData finalData = applyGateChoice(choice, before, afterData);
+
+                // Auto-run only in Lutz EZ if successful and there are incomplete tasks available
+                boolean isLutzEz = ACTION_LUTZ.equals(action) && !GlobalUiSettings.isAdvancedMode();
+                if (isLutzEz && success && hasIncomplete(finalData)) {
+                    SwingUtilities.invokeLater(() -> chrome.getTaskListPanel().runAllAfterModelRefresh());
+                }
             } else {
-                    // Default to Lutz for ACTION_LUTZ and any other value
-                    objective = SearchAgent.Objective.LUTZ;
+                // No gating needed. Auto-run only in Lutz EZ if successful.
+                boolean isLutzEz = ACTION_LUTZ.equals(action) && !GlobalUiSettings.isAdvancedMode();
+                if (isLutzEz && success) {
+                    SwingUtilities.invokeLater(() -> chrome.getTaskListPanel().runAllAfterModelRefresh());
+                }
             }
 
-            submitAction(action, query, scope -> {
-                    assert !query.isBlank();
+            return result;
+        });
+    }
 
-                    var cm2 = chrome.getContextManager();
-                    var context = cm2.liveContext();
+    private static ArrayList<TaskList.TaskItem> getTaskItems(List<TaskList.TaskItem> preExistingIncompleteItems, List<TaskList.TaskItem> newIncompleteItems, Set<String> preExistingIncompleteTasks) {
+        var seen = new java.util.LinkedHashSet<String>();
+        var combined = new ArrayList<TaskList.TaskItem>(preExistingIncompleteItems.size() + newIncompleteItems.size());
 
-                    // Capture pre-existing incomplete tasks BEFORE agent execution
-                    var preExistingIncompleteItems = context.getTaskListDataOrEmpty().tasks().stream()
-                                    .filter(t -> !t.done())
-                                    .toList();
-                    var preExistingIncompleteTasks = preExistingIncompleteItems.stream()
-                                    .map(TaskList.TaskItem::text)
-                                    .collect(Collectors.toSet());
-
-                    SearchAgent agent = new SearchAgent(context, query, modelToUse, objective, scope);
-                    try {
-                            agent.scanInitialContext();
-                    } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            return new TaskResult(
-                                            cm2,
-                                            "Search: " + query,
-                                            cm2.getIo().getLlmRawMessages(),
-                                            cm2.liveContext(),
-                                            new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
-                                            new TaskResult.TaskMeta(
-                                                            TaskResult.Type.SEARCH, Service.ModelConfig.from(modelToUse, cm2.getService())));
-                    }
-
-                    var result = agent.execute();
-
-                    // Determine if the agent created or replaced a task list.
-                    // Compare pre-existing incomplete task texts with the new incomplete task texts.
-                    var newTasks = result.context().getTaskListDataOrEmpty().tasks();
-                    var newIncompleteTexts = newTasks.stream()
-                                    .filter(t -> !t.done())
-                                    .map(TaskList.TaskItem::text)
-                                    .collect(Collectors.toSet());
-
-                    boolean createdOrReplacedTaskList =
-                                    !newIncompleteTexts.isEmpty() && !newIncompleteTexts.equals(preExistingIncompleteTasks);
-
-                    // Post-execution dialog: show only if a new task list was created/replaced by the agent.
-                    // For EZ-mode Lutz: auto-play only if (a) success, (b) new tasks created/replaced,
-                    // and the user selects Replace or Append (when pre-existing tasks were present).
-                    if (createdOrReplacedTaskList) {
-                            boolean isLutzEz = ACTION_LUTZ.equals(action) && !GlobalUiSettings.isAdvancedMode();
-                            boolean success = result.stopDetails().reason() == TaskResult.StopReason.SUCCESS;
-
-                            if (!preExistingIncompleteTasks.isEmpty()) {
-                                    final AutoPlayGateDialog.UserChoice[] choice = new AutoPlayGateDialog.UserChoice[1];
-                                    try {
-                                            SwingUtilities.invokeAndWait(() -> {
-                                                    var owner = SwingUtilities.getWindowAncestor(this);
-                                                    choice[0] = AutoPlayGateDialog.show(owner, preExistingIncompleteTasks);
-                                            });
-                                    } catch (Exception ex) {
-                                            logger.debug("Error showing gate dialog", ex);
-                                    }
-
-                                    if (isLutzEz && success && choice != null) {
-                                            if (choice[0] == AutoPlayGateDialog.UserChoice.REPLACE_AND_CONTINUE) {
-                                                    SwingUtilities.invokeLater(() -> chrome.getTaskListPanel().runAllAfterModelRefresh());
-                                            } else if (choice[0] == AutoPlayGateDialog.UserChoice.APPEND) {
-                                                    // Build combined list: pre-existing incomplete items + truly new items (dedup by text)
-                                                    var newTasksAll = result.context().getTaskListDataOrEmpty().tasks();
-                                                    var newIncompleteItems = newTasksAll.stream()
-                                                                    .filter(t -> !t.done())
-                                                                    .toList();
-
-                                                    // Deduplicate by task text, preserving order: pre-existing first, then new
-                                                    var seen = new java.util.LinkedHashSet<String>();
-                                                    var combined = new java.util.ArrayList<TaskList.TaskItem>(preExistingIncompleteItems.size() + newIncompleteItems.size());
-
-                                                    for (var it : preExistingIncompleteItems) {
-                                                            String text = it.text().strip();
-                                                            if (!text.isEmpty() && seen.add(text)) {
-                                                                    // Preserve original title/text/done=false (pre-existing were incomplete)
-                                                                    combined.add(new TaskList.TaskItem(it.title(), it.text(), false));
-                                                            }
-                                                    }
-                                                    for (var it : newIncompleteItems) {
-                                                            String text = it.text().strip();
-                                                            if (!text.isEmpty() && !preExistingIncompleteTasks.contains(text) && seen.add(text)) {
-                                                                    combined.add(new TaskList.TaskItem(it.title(), it.text(), false));
-                                                            }
-                                                    }
-
-                                                    SwingUtilities.invokeLater(() -> {
-                                                            try {
-                                                                    chrome.getContextManager().setTaskList(new TaskList.TaskListData(combined), "Appended new tasks to existing");
-                                                            } finally {
-                                                                    chrome.getTaskListPanel().runAllAfterModelRefresh();
-                                                            }
-                                                    });
-                                            }
-                                            // CANCEL -> do nothing
-                                    }
-                            } else {
-                                    if (isLutzEz && success) {
-                                            SwingUtilities.invokeLater(() -> chrome.getTaskListPanel().runAllAfterModelRefresh());
-                                    }
-                            }
-                    }
-
-                    return result;
-            });
+        for (var it : preExistingIncompleteItems) {
+                String text = it.text().strip();
+                if (!text.isEmpty() && seen.add(text)) {
+                        // Preserve original title/text/done=false (pre-existing were incomplete)
+                        combined.add(new TaskList.TaskItem(it.title(), it.text(), false));
+                }
+        }
+        for (var it : newIncompleteItems) {
+                String text = it.text().strip();
+                if (!text.isEmpty() && !preExistingIncompleteTasks.contains(text) && seen.add(text)) {
+                        combined.add(new TaskList.TaskItem(it.title(), it.text(), false));
+                }
+        }
+        return combined;
     }
 
     /**
@@ -3400,5 +3376,96 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             Icon processedIcon = ColorUtil.createHighContrastIcon(icon, getBackground(), isHighContrast);
             super.setIcon(processedIcon);
         }
+    }
+
+    // --- Task list gating helpers (extracted for clarity) ---
+
+    private record TaskListSnapshot(TaskList.TaskListData data, Set<String> incompleteTexts) {}
+
+    private TaskListSnapshot snapshotCurrentTaskList(Context ctx) {
+        var data = ctx.getTaskListDataOrEmpty();
+        return new TaskListSnapshot(data, incompleteTextSet(data));
+    }
+
+    private static Set<String> incompleteTextSet(TaskList.TaskListData data) {
+        var set = new java.util.LinkedHashSet<String>();
+        for (var it : data.tasks()) {
+            if (!it.done()) {
+                var t = it.text() == null ? "" : it.text().strip();
+                if (!t.isEmpty()) set.add(t);
+            }
+        }
+        return set;
+    }
+
+    private static boolean agentCreatedOrReplacedTasks(TaskListSnapshot before, TaskList.TaskListData after) {
+        var afterIncomplete = incompleteTextSet(after);
+        return !afterIncomplete.isEmpty() && !afterIncomplete.equals(before.incompleteTexts());
+    }
+
+    private TaskList.TaskListData applyGateChoice(
+            AutoPlayGateDialog.UserChoice choice, TaskListSnapshot before, TaskList.TaskListData after) {
+        var cm = chrome.getContextManager();
+
+        TaskList.TaskListData finalData;
+        switch (choice) {
+            case KEEP_NEW -> {
+                finalData = after;
+                cm.setTaskList(finalData, "Use new tasks");
+            }
+            case KEEP_BOTH -> {
+                finalData = mergeTaskLists(before.data(), after);
+                cm.setTaskList(finalData, "Merged existing and new tasks");
+            }
+            case KEEP_OLD, CANCEL -> {
+                finalData = before.data();
+                cm.setTaskList(finalData, "Kept existing tasks");
+            }
+            case REPLACE_AND_CONTINUE -> {
+                // Back-compat: treat as KEEP_NEW
+                finalData = after;
+                cm.setTaskList(finalData, "Use new tasks");
+            }
+            case APPEND -> {
+                // Back-compat: treat as KEEP_BOTH
+                finalData = mergeTaskLists(before.data(), after);
+                cm.setTaskList(finalData, "Merged existing and new tasks");
+            }
+            default -> {
+                finalData = before.data();
+                cm.setTaskList(finalData, "Kept existing tasks");
+            }
+        }
+        return finalData;
+    }
+
+    private static TaskList.TaskListData mergeTaskLists(
+            TaskList.TaskListData before, TaskList.TaskListData after) {
+        // Preserve the entire previous list ordering and status; append NEW incomplete tasks not already present.
+        var existing = new java.util.ArrayList<>(before.tasks());
+        var seenIncomplete = new java.util.LinkedHashSet<String>();
+        for (var it : before.tasks()) {
+            if (!it.done()) {
+                var t = it.text() == null ? "" : it.text().strip();
+                if (!t.isEmpty()) seenIncomplete.add(t);
+            }
+        }
+        for (var it : after.tasks()) {
+            if (!it.done()) {
+                var t = it.text() == null ? "" : it.text().strip();
+                if (!t.isEmpty() && !seenIncomplete.contains(t)) {
+                    existing.add(new TaskList.TaskItem(it.title(), it.text(), false));
+                    seenIncomplete.add(t);
+                }
+            }
+        }
+        return new TaskList.TaskListData(existing);
+    }
+
+    private static boolean hasIncomplete(TaskList.TaskListData data) {
+        for (var it : data.tasks()) {
+            if (!it.done()) return true;
+        }
+        return false;
     }
 }
