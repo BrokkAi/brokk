@@ -1553,7 +1553,8 @@ public final class HeadlessExecutorMain {
             System.out.println("  execId:      " + execId);
             System.out.println("  listenAddr:  " + listenAddr);
             System.out.println("  workspaceDir: " + workspaceDir);
-            System.out.println("  brokkApiKey:  " + (brokkApiKey != null && !brokkApiKey.isBlank() ? "(provided)" : "(using global config)"));
+            System.out.println("  brokkApiKey:  "
+                    + (brokkApiKey != null && !brokkApiKey.isBlank() ? "(provided)" : "(using global config)"));
             System.out.println();
             System.out.println("Health check endpoints (no auth required):");
             System.out.println("  GET /health/live  - executor liveness probe");
