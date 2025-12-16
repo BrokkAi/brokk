@@ -1579,9 +1579,25 @@ public final class HeadlessExecutorMain {
             System.out.println("  proxySetting: "
                     + (proxySetting != null ? proxySetting.name() : "(using global config)"));
             System.out.println();
-            System.out.println("Health check endpoints (no auth required):");
-            System.out.println("  GET /health/live  - executor liveness probe");
-            System.out.println("  GET /health/ready - returns 503 until a session is loaded");
+            System.out.println("Available HTTP Endpoints:");
+            System.out.println();
+            System.out.println("  Unauthenticated (Health & Info):");
+            System.out.println("    GET  /health/live       - executor liveness probe");
+            System.out.println("    GET  /health/ready      - readiness probe (503 until session loaded)");
+            System.out.println("    GET  /v1/executor       - executor info and protocol version");
+            System.out.println();
+            System.out.println("  Authenticated (require Authorization header):");
+            System.out.println("    POST /v1/sessions                 - create a new session by name");
+            System.out.println("    PUT  /v1/sessions                 - import/load a session from zip");
+            System.out.println("    POST /v1/jobs                     - create and start a job");
+            System.out.println("    GET  /v1/jobs/{jobId}             - get job status");
+            System.out.println("    GET  /v1/jobs/{jobId}/events      - stream job execution events");
+            System.out.println("    POST /v1/jobs/{jobId}/cancel      - cancel job execution");
+            System.out.println("    GET  /v1/jobs/{jobId}/diff        - get git diff for job");
+            System.out.println("    POST /v1/context/files            - add files to session context");
+            System.out.println("    POST /v1/context/classes          - add class summaries to context");
+            System.out.println("    POST /v1/context/methods          - add method sources to context");
+            System.out.println("    POST /v1/context/text             - add pasted text to context");
             System.out.println();
 
             // Create and start executor
