@@ -95,6 +95,21 @@ jobs:
         run: |
           ${{ env.CI_TOOLS }}/run-treesitter-repos.sh full --output "${{ env.REPORT_ROOT }}/head" --max-files 1000 --json --warm-up-iterations 1 --iterations 3
 
+      - id: coarse_memory
+        name: Coarse memory regression test (HEAD)
+        if: steps.check_commits.outputs.should_skip == 'false'
+        run: |
+          set +e
+          RUNNER_XMX=100M "${{ env.CI_TOOLS }}/run-treesitter-repos.sh" directory --project intellij-community --language java --max-files 1800 --iterations 1 --warm-up-iterations 0 --fail-on-thrashing --stats --verbose
+          exit_code=$?
+          # restore errexit just in case
+          set -e
+          if [ "$exit_code" -eq 0 ]; then
+            echo "coarse_memory_ok=true" >> $GITHUB_OUTPUT
+          else
+            echo "coarse_memory_ok=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Clean build artifacts
         if: steps.check_commits.outputs.should_skip == 'false'
         run: ./gradlew clean
@@ -159,5 +174,6 @@ jobs:
               "fps_change_pct": "${{ steps.compare.outputs.fps_change_pct }}",
               "fps_change_str": "${{ steps.compare.outputs.fps_change_str }}",
               "fps_status": "${{ steps.compare.outputs.fps_status }}",
-              "fps_status_emoji": "${{ steps.compare.outputs.fps_status_emoji }}"
+              "fps_status_emoji": "${{ steps.compare.outputs.fps_status_emoji }}",
+              "coarse_memory_ok": "${{ steps.coarse_memory.outputs.coarse_memory_ok }}"
             }
