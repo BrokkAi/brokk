@@ -4,6 +4,7 @@ import static ai.brokk.SessionManager.SessionInfo;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.*;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -15,7 +16,6 @@ import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.components.SplitButton;
@@ -3117,10 +3117,15 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 // Get merge base first - this is the fork point
                                 leftCommitSha = gitRepo.getMergeBase(currentBranch, defaultBranchRef);
 
-                                // Get files changed on our side only (merge-base to HEAD)
-                                var myChanges = gitRepo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
-                                for (var mf : myChanges) {
-                                    fileMap.putIfAbsent(mf.file(), mf);
+                                // Get files changed on our side only (merge-base to HEAD) when merge-base exists
+                                if (leftCommitSha != null) {
+                                    var myChanges = gitRepo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
+                                    for (var mf : myChanges) {
+                                        fileMap.putIfAbsent(mf.file(), mf);
+                                    }
+                                } else {
+                                    // Fallback: no merge-base found; restrict baseline to HEAD (working tree only)
+                                    leftCommitSha = "HEAD";
                                 }
 
                                 // Union with working tree changes (prefer working tree status)
@@ -3134,10 +3139,15 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 // Use merge-base as baseline to show only our changes
                                 leftCommitSha = gitRepo.getMergeBase("HEAD", upstreamRef);
 
-                                // Get files changed on our side only (merge-base to HEAD)
-                                var myChanges = gitRepo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
-                                for (var mf : myChanges) {
-                                    fileMap.putIfAbsent(mf.file(), mf);
+                                // Get files changed on our side only (merge-base to HEAD) when merge-base exists
+                                if (leftCommitSha != null) {
+                                    var myChanges = gitRepo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
+                                    for (var mf : myChanges) {
+                                        fileMap.putIfAbsent(mf.file(), mf);
+                                    }
+                                } else {
+                                    // Fallback: no merge-base found; restrict baseline to HEAD (working tree only)
+                                    leftCommitSha = "HEAD";
                                 }
 
                                 // Union with working tree changes (prefer working tree status)
