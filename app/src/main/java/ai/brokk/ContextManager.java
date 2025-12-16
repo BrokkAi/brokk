@@ -1634,16 +1634,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
             new GitWorkflow(this).performAutoCommit(prompt);
             compressHistory(); // synchronous
-            var ctx = markTaskDoneAndPersist(result.context(), task);
+            var ctx = markTaskDone(result.context(), task);
             result = result.withContext(ctx);
         }
 
         return result;
     }
 
-    /** Replace the given task with its 'done=true' variant and persist the task list for the current session. */
-    private Context markTaskDoneAndPersist(Context context, TaskList.TaskItem task) {
-        var tasks = getTaskList().tasks();
+    /** Replace the given task with its 'done=true' variant. */
+    private Context markTaskDone(Context context, TaskList.TaskItem task) {
+        var tasks = context.getTaskListDataOrEmpty().tasks();
 
         // Find index: prefer exact match, fall back to first incomplete task with matching text
         int idx = tasks.indexOf(task);
