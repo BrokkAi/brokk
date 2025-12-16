@@ -7,6 +7,9 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.analyzer.SourceCodeProvider;
+import ai.brokk.IContextManager;
+import ai.brokk.context.ContextFragment;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -209,6 +212,152 @@ public class AnalyzerUtil {
      */
     public static Optional<String> extractCallReceiver(IAnalyzer analyzer, String reference) {
         return analyzer.extractCallReceiver(reference);
+    }
+
+    /**
+     * Build a fragment for a single file selection.
+     * Returns Optional.empty() if the file is not part of the project.
+     */
+    public static Optional<ContextFragment> selectFileFragment(IContextManager cm, String input, boolean summarize) {
+        ProjectFile chosen = cm.toFile(input);
+        if (!cm.getProject().getAllFiles().contains(chosen)) {
+            return Optional.empty();
+        }
+
+        ContextFragment frag = summarize
+                ? new ContextFragment.SummaryFragment(
+                        cm, chosen.getRelPath().toString(), ContextFragment.SummaryType.FILE_SKELETONS)
+                : new ContextFragment.ProjectPathFragment(chosen, cm);
+        return Optional.of(frag);
+    }
+
+    /**
+     * Build fragments for a folder selection.
+     * Returns an empty set if no files match the input.
+     */
+    public static Set<ContextFragment> selectFolderFragments(
+            IContextManager cm, String input, boolean includeSubfolders, boolean summarize) {
+        var rel = input.replace("\\", "/");
+        rel = rel.startsWith("/") ? rel.substring(1) : rel;
+        rel = rel.endsWith("/") ? rel.substring(0, rel.length() - 1) : rel;
+
+        Path relPath = Path.of(rel);
+
+        Set<ProjectFile> all = cm.getProject().getAllFiles();
+        Set<ProjectFile> selected = new LinkedHashSet<>();
+        for (var pf : all) {
+            Path fileRel = pf.getRelPath();
+            if (includeSubfolders) {
+                if (fileRel.startsWith(relPath)) {
+                    selected.add(pf);
+                }
+            } else {
+                Path parent = fileRel.getParent();
+                if (Objects.equals(parent, relPath)) {
+                    selected.add(pf);
+                }
+            }
+        }
+
+        if (selected.isEmpty()) {
+            return Set.of();
+        }
+
+        if (summarize) {
+            return selected.stream()
+                    .map(pf -> (ContextFragment) new ContextFragment.SummaryFragment(
+                            cm, pf.getRelPath().toString(), ContextFragment.SummaryType.FILE_SKELETONS))
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+        }
+
+        return selected.stream()
+                .map(pf -> (ContextFragment) new ContextFragment.ProjectPathFragment(pf, cm))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    /**
+     * Build a fragment for a class selection.
+     * Returns Optional.empty() if no matching class is found or analyzer is null.
+     */
+    public static Optional<ContextFragment> selectClassFragment(
+            IAnalyzer analyzer, IContextManager cm, String input, boolean summarize) {
+        if (analyzer == null) return Optional.empty();
+
+        Optional<CodeUnit> opt = analyzer.getDefinitions(input).stream()
+                .filter(CodeUnit::isClass)
+                .findFirst();
+        if (opt.isEmpty()) {
+            var s = analyzer.searchDefinitions(input).stream()
+                    .filter(CodeUnit::isClass)
+                    .findFirst();
+            opt = s;
+        }
+        if (opt.isEmpty()) {
+            return Optional.empty();
+        }
+
+        var cu = opt.get();
+        ContextFragment frag = summarize
+                ? new ContextFragment.SummaryFragment(
+                        cm, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON)
+                : new ContextFragment.CodeFragment(cm, cu);
+        return Optional.of(frag);
+    }
+
+    /**
+     * Build a fragment for a method selection.
+     * Returns Optional.empty() if no matching method is found or analyzer is null.
+     */
+    public static Optional<ContextFragment> selectMethodFragment(
+            IAnalyzer analyzer, IContextManager cm, String input, boolean summarize) {
+        if (analyzer == null) return Optional.empty();
+
+        Optional<CodeUnit> opt = analyzer.getDefinitions(input).stream()
+                .filter(CodeUnit::isFunction)
+                .findFirst();
+        if (opt.isEmpty()) {
+            var s = analyzer.searchDefinitions(input).stream()
+                    .filter(CodeUnit::isFunction)
+                    .findFirst();
+            opt = s;
+        }
+        if (opt.isEmpty()) {
+            return Optional.empty();
+        }
+
+        var cu = opt.get();
+        ContextFragment frag = summarize
+                ? new ContextFragment.SummaryFragment(
+                        cm, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON)
+                : new ContextFragment.CodeFragment(cm, cu);
+        return Optional.of(frag);
+    }
+
+    /**
+     * Build a fragment for a usage selection.
+     * Returns Optional.empty() if analyzer is null. When no symbol is found, a UsageFragment is still created using
+     * the raw input (preserving existing behavior).
+     */
+    public static Optional<ContextFragment> selectUsageFragment(
+            IAnalyzer analyzer, IContextManager cm, String input, boolean includeTestFiles, boolean summarize) {
+        if (analyzer == null) return Optional.empty();
+
+        Optional<CodeUnit> exactMethod = analyzer.getDefinitions(input).stream()
+                .filter(CodeUnit::isFunction)
+                .findFirst();
+        Optional<CodeUnit> any = exactMethod.isPresent()
+                ? exactMethod
+                : analyzer.getDefinitions(input).stream()
+                        .findFirst()
+                        .or(() -> analyzer.searchDefinitions(input).stream().findFirst());
+
+        if (summarize && any.isPresent() && any.get().isFunction()) {
+            var methodFqn = any.get().fqName();
+            return Optional.of(new ContextFragment.CallGraphFragment(cm, methodFqn, 1, false));
+        }
+
+        var target = any.map(CodeUnit::fqName).orElse(input);
+        return Optional.of(new ContextFragment.UsageFragment(cm, target, includeTestFiles));
     }
 
     public record CodeWithSource(String code, CodeUnit source) {

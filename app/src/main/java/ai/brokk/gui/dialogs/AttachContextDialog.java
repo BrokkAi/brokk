@@ -3,6 +3,7 @@ package ai.brokk.gui.dialogs;
 import ai.brokk.Completions;
 import ai.brokk.ContextManager;
 import ai.brokk.FuzzyMatcher;
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.*;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
@@ -447,70 +448,15 @@ public class AttachContextDialog extends BaseThemedDialog {
     }
 
     private void confirmFile(String input) {
-        ProjectFile chosen = cm.toFile(input);
-        if (!cm.getProject().getAllFiles().contains(chosen)) {
-            selection = null;
-            dispose();
-            return;
-        }
-
-        ContextFragment frag;
-        if (summarizeCheck.isSelected()) {
-            // Return a summary fragment for the selected file (FILE_SKELETONS) using the relative path identifier
-            frag = new ContextFragment.SummaryFragment(
-                    cm, chosen.getRelPath().toString(), ContextFragment.SummaryType.FILE_SKELETONS);
-        } else {
-            frag = new ContextFragment.ProjectPathFragment(chosen, cm);
-        }
-
-        selection = Set.of(frag);
+        var frag = AnalyzerUtil.selectFileFragment(cm, input, summarizeCheck.isSelected());
+        selection = frag.map(Set::of).orElse(null);
         dispose();
     }
 
     private void confirmFolder(String input) {
-        var rel = input.replace("\\", "/");
-        rel = rel.startsWith("/") ? rel.substring(1) : rel;
-        rel = rel.endsWith("/") ? rel.substring(0, rel.length() - 1) : rel;
-
-        var includeSubfolders = includeSubfoldersCheck.isSelected();
-        var relPath = Path.of(rel);
-
-        Set<ProjectFile> all = cm.getProject().getAllFiles();
-        Set<ProjectFile> selected = new LinkedHashSet<>();
-        for (var pf : all) {
-            Path fileRel = pf.getRelPath();
-            if (includeSubfolders) {
-                if (fileRel.startsWith(relPath)) {
-                    selected.add(pf);
-                }
-            } else {
-                Path parent = fileRel.getParent();
-                if (Objects.equals(parent, relPath)) {
-                    selected.add(pf);
-                }
-            }
-        }
-
-        if (selected.isEmpty()) {
-            selection = null;
-            dispose();
-            return;
-        }
-
-        if (summarizeCheck.isSelected()) {
-            Set<ContextFragment> fragments = selected.stream()
-                    .map(pf -> (ContextFragment) new ContextFragment.SummaryFragment(
-                            cm, pf.getRelPath().toString(), ContextFragment.SummaryType.FILE_SKELETONS))
-                    .collect(Collectors.toCollection(LinkedHashSet::new));
-            selection = fragments;
-            dispose();
-            return;
-        }
-
-        Set<ContextFragment> fragments = selected.stream()
-                .map(pf -> (ContextFragment) new ContextFragment.ProjectPathFragment(pf, cm))
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-        selection = fragments;
+        Set<ContextFragment> fragments = AnalyzerUtil.selectFolderFragments(
+                cm, input, includeSubfoldersCheck.isSelected(), summarizeCheck.isSelected());
+        selection = fragments.isEmpty() ? null : fragments;
         dispose();
     }
 
@@ -521,31 +467,8 @@ public class AttachContextDialog extends BaseThemedDialog {
             dispose();
             return;
         }
-
-        Optional<CodeUnit> opt = analyzer.getDefinitions(input).stream()
-                .filter(CodeUnit::isClass)
-                .findFirst();
-        if (opt.isEmpty()) {
-            var s = analyzer.searchDefinitions(input).stream()
-                    .filter(CodeUnit::isClass)
-                    .findFirst();
-            opt = s;
-        }
-        if (opt.isEmpty()) {
-            selection = null;
-            dispose();
-            return;
-        }
-
-        var cu = opt.get();
-
-        ContextFragment frag;
-        if (summarizeCheck.isSelected()) {
-            frag = new ContextFragment.SummaryFragment(cm, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
-        } else {
-            frag = new ContextFragment.CodeFragment(cm, cu);
-        }
-        selection = Set.of(frag);
+        var frag = AnalyzerUtil.selectClassFragment(analyzer, cm, input, summarizeCheck.isSelected());
+        selection = frag.map(Set::of).orElse(null);
         dispose();
     }
 
@@ -556,31 +479,8 @@ public class AttachContextDialog extends BaseThemedDialog {
             dispose();
             return;
         }
-
-        Optional<CodeUnit> opt = analyzer.getDefinitions(input).stream()
-                .filter(CodeUnit::isFunction)
-                .findFirst();
-        if (opt.isEmpty()) {
-            var s = analyzer.searchDefinitions(input).stream()
-                    .filter(CodeUnit::isFunction)
-                    .findFirst();
-            opt = s;
-        }
-        if (opt.isEmpty()) {
-            selection = null;
-            dispose();
-            return;
-        }
-
-        var cu = opt.get();
-
-        ContextFragment frag;
-        if (summarizeCheck.isSelected()) {
-            frag = new ContextFragment.SummaryFragment(cm, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
-        } else {
-            frag = new ContextFragment.CodeFragment(cm, cu);
-        }
-        selection = Set.of(frag);
+        var frag = AnalyzerUtil.selectMethodFragment(analyzer, cm, input, summarizeCheck.isSelected());
+        selection = frag.map(Set::of).orElse(null);
         dispose();
     }
 
@@ -591,29 +491,9 @@ public class AttachContextDialog extends BaseThemedDialog {
             dispose();
             return;
         }
-
-        // Find best matching symbol (class or method). Prefer method if exact.
-        Optional<CodeUnit> exactMethod = analyzer.getDefinitions(input).stream()
-                .filter(CodeUnit::isFunction)
-                .findFirst();
-        Optional<CodeUnit> any = exactMethod.isPresent()
-                ? exactMethod
-                : analyzer.getDefinitions(input).stream()
-                        .findFirst()
-                        .or(() -> analyzer.searchDefinitions(input).stream().findFirst());
-
-        if (summarizeCheck.isSelected() && any.isPresent() && any.get().isFunction()) {
-            var methodFqn = any.get().fqName();
-            var frag = new ContextFragment.CallGraphFragment(cm, methodFqn, 1, false);
-            selection = Set.of(frag);
-            dispose();
-            return;
-        }
-
-        var target = any.map(CodeUnit::fqName).orElse(input);
-
-        var frag = new ContextFragment.UsageFragment(cm, target, includeTestFilesCheck.isSelected());
-        selection = Set.of(frag);
+        var frag = AnalyzerUtil.selectUsageFragment(
+                analyzer, cm, input, includeTestFilesCheck.isSelected(), summarizeCheck.isSelected());
+        selection = frag.map(Set::of).orElse(null);
         dispose();
     }
 
