@@ -73,6 +73,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.*;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
@@ -223,6 +224,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     @Nullable
     private BaselineMode lastBaselineMode;
+
+    // Holds an in-flight computation of cumulative changes so concurrent callers can reuse it
+    private final AtomicReference<CompletableFuture<DiffService.CumulativeChanges>> changesComputationRef =
+            new AtomicReference<>();
+    // Sequence number for background cumulative-changes jobs. Incremented each time a fresh job is started.
+    // Volatile so EDT-updates can observe the latest value; increment happens inside a synchronized block.
+    private volatile long changesJobSeq = 0L;
 
     /**
      * Constructs a new HistoryOutputPane.
@@ -3076,9 +3084,38 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
     }
 
+    // Compute the branch-based changes in the background. Coalesce concurrent callers so we don't run the same
+    // expensive computation multiple times in parallel. Updates the "Changes" tab title and content on the EDT.
     private CompletableFuture<DiffService.CumulativeChanges> refreshCumulativeChangesAsync() {
-        return contextManager
-                .submitBackgroundTask("Compute branch-based changes", () -> {
+        // Fast-path: if a computation is already in-flight and not completed, reuse it.
+        var existing = changesComputationRef.get();
+        if (existing != null && !existing.isDone()) {
+            logger.debug("Reusing in-flight cumulative changes computation (seq={})", changesJobSeq);
+            return existing;
+        }
+
+        // Attempt to become the single starter of a new computation.
+        for (; ; ) {
+            existing = changesComputationRef.get();
+            if (existing != null && !existing.isDone()) {
+                logger.debug("Reusing in-flight cumulative changes computation");
+                return existing;
+            }
+
+            // Placeholder future that we'll complete when the background work finishes.
+            CompletableFuture<DiffService.CumulativeChanges> placeholder = new CompletableFuture<>();
+
+            // If we win the race to install the placeholder, we start the background work exactly once.
+            if (changesComputationRef.compareAndSet(existing, placeholder)) {
+                // Bump job sequence (synchronized to ensure atomic increment) and log start with seq.
+                final long jobSeq;
+                synchronized (this) {
+                    changesJobSeq++;
+                    jobSeq = changesJobSeq;
+                }
+                logger.debug("Starting new cumulative changes computation (seq={})", jobSeq);
+
+                var bgFuture = contextManager.submitBackgroundTask("Compute branch-based changes", () -> {
                     var repoOpt = repo();
                     if (repoOpt.isEmpty()) {
                         return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
@@ -3177,16 +3214,37 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         logger.warn("Failed to compute branch-based changes", e);
                         return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
                     }
-                })
-                .thenApply(result -> {
-                    // Update UI on EDT
+                });
+
+                // Chain: when background finishes, complete placeholder and update UI (guarded by sequence check).
+                final long seqLocal = jobSeq;
+                bgFuture.whenComplete((result, ex) -> {
+                    if (ex != null) {
+                        placeholder.completeExceptionally(ex);
+                        return;
+                    }
+                    placeholder.complete(result);
+
+                    // Guard UI update against stale jobs: only update if sequence hasn't moved on.
+                    if (seqLocal != changesJobSeq) {
+                        logger.debug(
+                                "Skipping stale cumulative changes UI update (job seq {} vs current {})",
+                                seqLocal,
+                                changesJobSeq);
+                        return;
+                    }
+
                     SwingUtilities.invokeLater(() -> {
                         lastCumulativeChanges = result;
                         setChangesTabTitleAndTooltip(result);
                         updateChangesTabContent(result);
                     });
-                    return result;
                 });
+
+                return placeholder;
+            }
+            // Lost the race; loop around and pick up the winner's future.
+        }
     }
 
     // Build and insert the aggregated multi-file diff panel into the Changes tab.
