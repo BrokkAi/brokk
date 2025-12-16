@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -1525,7 +1526,7 @@ public final class HeadlessExecutorMain {
             @Nullable MainProject.LlmProxySetting proxySetting = null;
             if (proxySettingStr != null && !proxySettingStr.isBlank()) {
                 try {
-                    proxySetting = MainProject.LlmProxySetting.valueOf(proxySettingStr.toUpperCase());
+                    proxySetting = MainProject.LlmProxySetting.valueOf(proxySettingStr.toUpperCase(Locale.ROOT));
                 } catch (IllegalArgumentException e) {
                     throw new IllegalArgumentException(
                             "Invalid proxy setting: '"
