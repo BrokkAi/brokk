@@ -287,7 +287,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         // Dispose prior subscriptions bound to this component before rebinding
         ComputedSubscription.disposeAll(this);
 
-        this.fragments = List.copyOf(fragments);
+        this.fragments = fragments.stream().filter(ContextFragment::isValid).toList();
         // Invalidate token cache entries for removed ids to keep memory bounded
         var validIds = this.fragments.stream().map(ContextFragment::id).collect(Collectors.toSet());
         tokenCache.keySet().retainAll(validIds);
@@ -704,10 +704,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             return this.segments;
         }
 
-        // Compute token totals only for text-like and output fragments, excluding INVALID chips
+        // Compute token totals only for text-like and output fragments
         var usable = fragments.stream()
                 .filter(f -> f.isText() || f.getType().isOutput())
-                .filter(f -> FragmentColorUtils.classify(f) != FragmentColorUtils.ChipKind.INVALID)
                 .toList();
 
         if (usable.isEmpty()) {

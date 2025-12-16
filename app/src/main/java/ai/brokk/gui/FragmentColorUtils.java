@@ -27,11 +27,14 @@ public class FragmentColorUtils {
      * INVALID overlaps with other ChipKinds.
      */
     public static ChipKind classify(ContextFragment fragment) {
-        if (fragment.getType().isEditable()) {
-            return ChipKind.EDIT;
-        }
         if (fragment.getType() == ContextFragment.FragmentType.SKELETON) {
             return ChipKind.SUMMARY;
+        }
+        if (!fragment.isValid()) {
+            return ChipKind.INVALID;
+        }
+        if (fragment.getType().isEditable()) {
+            return ChipKind.EDIT;
         }
         if (fragment.getType() == ContextFragment.FragmentType.HISTORY) {
             return ChipKind.HISTORY;

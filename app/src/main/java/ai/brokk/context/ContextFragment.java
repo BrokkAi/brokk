@@ -337,9 +337,10 @@ public interface ContextFragment {
     IContextManager getContextManager();
 
     /**
-     * Indicates whether this fragment's content is valid and available.
-     * Default is true; fragments may override to provide validity checks
-     * (e.g., based on file existence, analyzer resolution, etc).
+     * For live fragments ONLY, isValid reflects current external state (a file fragment whose file is missing is invalid);
+     * historical/frozen fragments have already snapshotted their state and are always valid. However, if
+     * a fragment is unable to snapshot its content before the source is removed out from under it, it will also
+     * end up invalid.
      *
      * @return true if the fragment is valid, false otherwise
      */
@@ -641,6 +642,7 @@ public interface ContextFragment {
         }
 
         private static FragmentSnapshot computeSnapshotFor(ProjectFile file, IContextManager contextManager) {
+            boolean valid = file.exists();
             String text = file.read().orElse("");
             String name = file.getFileName();
             String desc = file.getParent().equals(Path.of("")) ? name : "%s [%s]".formatted(name, file.getParent());
@@ -652,7 +654,7 @@ public interface ContextFragment {
                 logger.error("Failed to analyze declarations for file {}, sources will be empty", name, e);
             }
 
-            return FragmentSnapshot.textSnapshot(desc, name, text, syntax, sources, Set.of(file));
+            return new FragmentSnapshot(desc, name, text, syntax, sources, Set.of(file), (List<Byte>) null, valid);
         }
 
         private ProjectPathFragment(
@@ -1780,20 +1782,27 @@ public interface ContextFragment {
             String text;
             var analyzer = contextManager.getAnalyzerUninterrupted();
             var scpOpt = analyzer.as(SourceCodeProvider.class);
+            boolean hasSourceCode = false;
             if (scpOpt.isEmpty()) {
                 text = "Code Intelligence cannot extract source for: " + fullyQualifiedName;
             } else {
                 var scp = scpOpt.get();
                 if (unit.isFunction()) {
-                    String code = scp.getMethodSource(unit, true).orElse("");
-                    text = !code.isEmpty()
-                            ? new AnalyzerUtil.CodeWithSource(code, unit).text()
-                            : "No source found for method: " + fullyQualifiedName;
+                    var codeOpt = scp.getMethodSource(unit, true);
+                    if (codeOpt.isPresent()) {
+                        text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
+                        hasSourceCode = true;
+                    } else {
+                        text = "No source found for method: " + fullyQualifiedName;
+                    }
                 } else {
-                    String code = scp.getClassSource(unit, true).orElse("");
-                    text = !code.isEmpty()
-                            ? new AnalyzerUtil.CodeWithSource(code, unit).text()
-                            : "No source found for class: " + fullyQualifiedName;
+                    var codeOpt = scp.getClassSource(unit, true);
+                    if (codeOpt.isPresent()) {
+                        text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
+                        hasSourceCode = true;
+                    } else {
+                        text = "No source found for class: " + fullyQualifiedName;
+                    }
                 }
             }
 
@@ -1805,7 +1814,7 @@ public interface ContextFragment {
                     Set.of(unit),
                     Set.of(unit.source()),
                     (List<Byte>) null,
-                    scpOpt.isPresent());
+                    hasSourceCode);
         }
 
         @Override

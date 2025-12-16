@@ -4,7 +4,6 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.gui.FragmentColorUtils.ChipKind;
 import ai.brokk.gui.search.ScrollingUtils;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -296,24 +295,8 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
         });
     }
 
-    private ChipKind classify(ContextFragment fragment) {
-        if (!fragment.isValid()) {
-            return ChipKind.INVALID;
-        }
-        if (fragment.getType().isEditable()) {
-            return ChipKind.EDIT;
-        }
-        if (fragment.getType() == ContextFragment.FragmentType.SKELETON) {
-            return ChipKind.SUMMARY;
-        }
-        if (fragment.getType() == ContextFragment.FragmentType.HISTORY) {
-            return ChipKind.HISTORY;
-        }
-        return ChipKind.OTHER;
-    }
-
     private WorkspaceChip createChip(ContextFragment fragment) {
-        var kind = classify(fragment);
+        var kind = FragmentColorUtils.classify(fragment);
         var chip = new WorkspaceChip(
                 chrome, contextManager, () -> readOnly, onHover, onRemoveFragment, Set.of(fragment), kind);
         chip.setBorder(new EmptyBorder(0, 0, 0, 0));
