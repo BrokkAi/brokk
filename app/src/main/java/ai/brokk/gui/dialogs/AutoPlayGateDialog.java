@@ -20,14 +20,12 @@ public final class AutoPlayGateDialog extends BaseThemedDialog {
     private final Set<String> incompleteTasks;
     private UserChoice choice = UserChoice.CANCEL;
 
-    /** User's choice from the dialog. Only REPLACE_AND_CONTINUE or CANCEL will be returned by show(). */
+    /** User's choice from the dialog. */
     public enum UserChoice {
-        /** Execute all incomplete tasks (legacy; not used by this dialog). */
-        EXECUTE_ALL,
-        /** Remove pre-existing tasks and execute remaining (legacy; not used by this dialog). */
-        CLEAN_AND_RUN,
-        /** Replace existing task list and proceed. */
+        /** Replace existing task list and proceed (keep only new tasks). */
         REPLACE_AND_CONTINUE,
+        /** Append the new tasks to the existing task list and proceed. */
+        APPEND,
         /** Cancel the operation. */
         CANCEL
     }
@@ -47,7 +45,10 @@ public final class AutoPlayGateDialog extends BaseThemedDialog {
         root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         String introText =
-                "There are incomplete tasks in this session. Running Lutz or Plan will replace your current task list. Continue?";
+                "There are incomplete tasks in this session. Choose how to proceed:\n\n"
+                        + "- Keep Only New: replace your current task list with the newly generated tasks.\n"
+                        + "- Append New Tasks: add the newly generated tasks to your existing incomplete tasks.\n"
+                        + "- Cancel: do nothing.";
 
         var intro = new JTextArea(introText);
         intro.setEditable(false);
@@ -76,15 +77,21 @@ public final class AutoPlayGateDialog extends BaseThemedDialog {
         root.add(listPanel, BorderLayout.CENTER);
 
         var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-        var replaceBtn = new MaterialButton("Replace and Continue");
+        var replaceBtn = new MaterialButton("Keep Only New");
         SwingUtil.applyPrimaryButtonStyle(replaceBtn);
+        var appendBtn = new MaterialButton("Append New Tasks");
         var cancelBtn = new MaterialButton("Cancel");
         buttons.add(replaceBtn);
+        buttons.add(appendBtn);
         buttons.add(cancelBtn);
         root.add(buttons, BorderLayout.SOUTH);
 
         replaceBtn.addActionListener(e -> {
             choice = UserChoice.REPLACE_AND_CONTINUE;
+            dispose();
+        });
+        appendBtn.addActionListener(e -> {
+            choice = UserChoice.APPEND;
             dispose();
         });
         cancelBtn.addActionListener(e -> {

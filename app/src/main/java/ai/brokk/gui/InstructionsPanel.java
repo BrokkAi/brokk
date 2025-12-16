@@ -1895,9 +1895,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     var cm2 = chrome.getContextManager();
                     var context = cm2.liveContext();
 
-                    // Capture pre-existing incomplete task texts BEFORE agent execution
-                    var preExistingIncompleteTasks = context.getTaskListDataOrEmpty().tasks().stream()
+                    // Capture pre-existing incomplete tasks BEFORE agent execution
+                    var preExistingIncompleteItems = context.getTaskListDataOrEmpty().tasks().stream()
                                     .filter(t -> !t.done())
+                                    .toList();
+                    var preExistingIncompleteTasks = preExistingIncompleteItems.stream()
                                     .map(TaskList.TaskItem::text)
                                     .collect(Collectors.toSet());
 
@@ -1931,7 +1933,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
                     // Post-execution dialog: show only if a new task list was created/replaced by the agent.
                     // For EZ-mode Lutz: auto-play only if (a) success, (b) new tasks created/replaced,
-                    // and (c) either no pre-existing tasks OR user confirms replacement.
+                    // and the user selects Replace or Append (when pre-existing tasks were present).
                     if (createdOrReplacedTaskList) {
                             boolean isLutzEz = ACTION_LUTZ.equals(action) && !GlobalUiSettings.isAdvancedMode();
                             boolean success = result.stopDetails().reason() == TaskResult.StopReason.SUCCESS;
@@ -1941,15 +1943,49 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                     try {
                                             SwingUtilities.invokeAndWait(() -> {
                                                     var owner = SwingUtilities.getWindowAncestor(this);
-                                                    choice[0] = AutoPlayGateDialog.showReplaceOnly(owner, preExistingIncompleteTasks);
+                                                    choice[0] = AutoPlayGateDialog.show(owner, preExistingIncompleteTasks);
                                             });
                                     } catch (Exception ex) {
-                                            logger.debug("Error showing replace-only gate dialog", ex);
+                                            logger.debug("Error showing gate dialog", ex);
                                     }
 
-                                    if (isLutzEz && success && choice != null
-                                                    && choice[0] == AutoPlayGateDialog.UserChoice.REPLACE_AND_CONTINUE) {
-                                            SwingUtilities.invokeLater(() -> chrome.getTaskListPanel().runAllAfterModelRefresh());
+                                    if (isLutzEz && success && choice != null) {
+                                            if (choice[0] == AutoPlayGateDialog.UserChoice.REPLACE_AND_CONTINUE) {
+                                                    SwingUtilities.invokeLater(() -> chrome.getTaskListPanel().runAllAfterModelRefresh());
+                                            } else if (choice[0] == AutoPlayGateDialog.UserChoice.APPEND) {
+                                                    // Build combined list: pre-existing incomplete items + truly new items (dedup by text)
+                                                    var newTasksAll = result.context().getTaskListDataOrEmpty().tasks();
+                                                    var newIncompleteItems = newTasksAll.stream()
+                                                                    .filter(t -> !t.done())
+                                                                    .toList();
+
+                                                    // Deduplicate by task text, preserving order: pre-existing first, then new
+                                                    var seen = new java.util.LinkedHashSet<String>();
+                                                    var combined = new java.util.ArrayList<TaskList.TaskItem>(preExistingIncompleteItems.size() + newIncompleteItems.size());
+
+                                                    for (var it : preExistingIncompleteItems) {
+                                                            String text = it.text().strip();
+                                                            if (!text.isEmpty() && seen.add(text)) {
+                                                                    // Preserve original title/text/done=false (pre-existing were incomplete)
+                                                                    combined.add(new TaskList.TaskItem(it.title(), it.text(), false));
+                                                            }
+                                                    }
+                                                    for (var it : newIncompleteItems) {
+                                                            String text = it.text().strip();
+                                                            if (!text.isEmpty() && !preExistingIncompleteTasks.contains(text) && seen.add(text)) {
+                                                                    combined.add(new TaskList.TaskItem(it.title(), it.text(), false));
+                                                            }
+                                                    }
+
+                                                    SwingUtilities.invokeLater(() -> {
+                                                            try {
+                                                                    chrome.getContextManager().setTaskList(new TaskList.TaskListData(combined), "Appended new tasks to existing");
+                                                            } finally {
+                                                                    chrome.getTaskListPanel().runAllAfterModelRefresh();
+                                                            }
+                                                    });
+                                            }
+                                            // CANCEL -> do nothing
                                     }
                             } else {
                                     if (isLutzEz && success) {
@@ -2636,9 +2672,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         private static final String MODE_TOOLTIP_ASK =
                 "<b>Ask Mode:</b> An Ask agent giving you general purpose answers to a question or a request based on the files in your context.";
         private static final String MODE_TOOLTIP_LUTZ =
-                "<b>Lutz Mode:</b> Performs an \"agentic\" search across your entire project to find code relevant to your prompt and will generate a plan for you by creating a list of tasks. If you have incomplete tasks, Brokk will ask you to confirm replacing the current task list before proceeding. Appending to existing task lists is hidden for now and reserved for future Architect-only usage.";
+                "<b>Lutz Mode:</b> Performs an \"agentic\" search across your entire project to find code relevant to your prompt and will generate a plan for you by creating a list of tasks. If you have incomplete tasks, Brokk will let you choose to replace your current task list or append the new tasks before proceeding.";
         private static final String MODE_TOOLTIP_PLAN =
-                "<b>Plan Mode:</b> Performs an agentic search and generates a task list without auto-executing tasks. If you have incomplete tasks, Brokk will ask you to confirm replacing the current task list before proceeding. Appending to existing task lists is hidden for now and reserved for future Architect-only usage.";
+                "<b>Plan Mode:</b> Performs an agentic search and generates a task list without auto-executing tasks. If you have incomplete tasks, Brokk will let you choose to replace your current task list or append the new tasks before proceeding.";
         private boolean dropdownEnabled = true;
 
         public ActionSplitButton(Supplier<Boolean> isActionRunning, String defaultMode) {
@@ -3135,12 +3171,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     case ACTION_PLAN -> {
                         title = "Plan Mode";
                         desc =
-                                "Plan: Performs an agentic search across your entire project, gathers the right context, and generates a task list without auto-executing the tasks. If you have incomplete tasks, you will be asked to confirm replacing the current task list before proceeding. Appending to the existing list is hidden for now and reserved for future Architect-only usage.";
+                                "Plan: Performs an agentic search and generates a task list without auto-executing the tasks. If you have incomplete tasks, you can choose to replace your current list or append the new tasks before proceeding.";
                     }
                     case ACTION_LUTZ -> {
                         title = "Lutz Mode";
                         desc =
-                                "Lutz: Performs an \"agentic\" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding. It is a great way to kick off work with strong context and a clear plan. If you have incomplete tasks, you will be asked to confirm replacing the current task list before proceeding. Appending to the existing list is hidden for now and reserved for future Architect-only usage.";
+                                "Lutz: Performs an \"agentic\" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding. It is a great way to kick off work with strong context and a clear plan. If you have incomplete tasks, you can choose to replace your current list or append the new tasks before proceeding.";
                     }
                     default -> {
                         title = "Lutz Mode";

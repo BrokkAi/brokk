@@ -2817,12 +2817,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         assert SwingUtilities.isEventDispatchThread();
 
         switch (choice) {
-            case EXECUTE_ALL -> {
+            case APPEND -> {
                 var totalIncompleteTasks = countIncompleteTasks();
-                logger.debug("EZ-mode executing all {} incomplete tasks", totalIncompleteTasks);
+                logger.debug("EZ-mode executing all {} incomplete tasks (append)", totalIncompleteTasks);
                 runArchitectOnAll();
             }
-            case CLEAN_AND_RUN -> {
+            case REPLACE_AND_CONTINUE -> {
                 var totalIncompleteTasks = countIncompleteTasks();
                 var removed = removeTasksByText(texts);
 
