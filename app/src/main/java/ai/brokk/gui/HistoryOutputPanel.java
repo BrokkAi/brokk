@@ -3179,13 +3179,15 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     }
                 })
                 .thenApplyAsync(result -> {
-                    // Precompute titles/contents and sorting OFF the EDT
-                    List<AggregatedFileChange> prepared = prepareAggregatedFileChanges(result);
-                    // Update UI on EDT
+                    List<Context.DiffEntry> preparedDiffs = new ArrayList<>(result.perFileChanges());
+                    preparedDiffs.sort(Comparator.comparing(Context.DiffEntry::title));
+                    List<String> preparedTitles = preparedDiffs.stream()
+                            .map(Context.DiffEntry::title)
+                            .toList();
                     SwingUtilities.invokeLater(() -> {
                         lastCumulativeChanges = result;
                         setChangesTabTitleAndTooltip(result);
-                        updateChangesTabContentUi(result, prepared);
+                        updateChangesTabContentUi(result, preparedDiffs, preparedTitles);
                     });
                     return result;
                 });
@@ -3193,7 +3195,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     // Build and insert the aggregated multi-file diff panel into the Changes tab using precomputed data.
     // Must be called on the EDT.
-    private void updateChangesTabContentUi(DiffService.CumulativeChanges res, List<AggregatedFileChange> prepared) {
+    private void updateChangesTabContentUi(
+            DiffService.CumulativeChanges res, List<Context.DiffEntry> prepared, List<String> preparedTitles) {
         assert SwingUtilities.isEventDispatchThread() : "updateChangesTabContentUi must run on EDT";
         var container = changesTabPlaceholder;
         if (container == null) {
@@ -3235,7 +3238,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
 
         try {
-            var aggregatedPanel = buildAggregatedChangesPanel(res, prepared);
+            var aggregatedPanel = buildAggregatedChangesPanel(res, prepared, preparedTitles);
             container.setLayout(new BorderLayout());
             container.add(aggregatedPanel, BorderLayout.CENTER);
         } catch (Throwable t) {
@@ -3251,7 +3254,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         container.repaint();
     }
 
-    private JPanel buildAggregatedChangesPanel(DiffService.CumulativeChanges res, List<AggregatedFileChange> prepared) {
+    private JPanel buildAggregatedChangesPanel(
+            DiffService.CumulativeChanges res, List<Context.DiffEntry> prepared, List<String> preparedTitles) {
         var wrapper = new JPanel(new BorderLayout());
 
         // Build header with baseline label and buttons
@@ -3391,9 +3395,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 .setForceFileTree(true);
 
         // Use precomputed list in stable order; do not call Context.DiffEntry::title here
-        for (var fc : prepared) {
-            BufferSource left = new BufferSource.StringSource(fc.leftContent(), "", fc.path(), null);
-            BufferSource right = new BufferSource.StringSource(fc.rightContent(), "", fc.path(), null);
+        for (int i = 0; i < prepared.size(); i++) {
+            var de = prepared.get(i);
+            String path = preparedTitles.get(i);
+            String leftContent = de.oldContent();
+            String rightContent = de.newContent();
+            BufferSource left = new BufferSource.StringSource(leftContent, "", path, null);
+            BufferSource right = new BufferSource.StringSource(rightContent, "", path, null);
             builder.addComparison(left, right);
         }
 
@@ -3418,27 +3426,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
     }
 
-    /**
-     * Holds precomputed file change data (file path and left/right contents) for a single file.
-     * <p>
-     * This is used to avoid blocking the Event Dispatch Thread (EDT) during UI construction
-     * by preparing all file change data in advance.
-     *
-     * @param path         the file path of the changed file
-     * @param leftContent  the content of the file before the change (the "left" side of the diff)
-     * @param rightContent the content of the file after the change (the "right" side of the diff)
-     */
-    private record AggregatedFileChange(String path, String leftContent, String rightContent) {}
 
-    private static List<AggregatedFileChange> prepareAggregatedFileChanges(DiffService.CumulativeChanges res) {
-        var list = new ArrayList<>(res.perFileChanges());
-        list.sort(Comparator.comparing(Context.DiffEntry::title));
-        var out = new ArrayList<AggregatedFileChange>(list.size());
-        for (var change : list) {
-            out.add(new AggregatedFileChange(change.title(), change.oldContent(), change.newContent()));
-        }
-        return out;
-    }
 
     /**
      * A LayerUI that paints reset-from-history arrows over the history table.
