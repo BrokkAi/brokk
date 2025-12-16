@@ -1,7 +1,5 @@
 package ai.brokk.gui.terminal;
 
-import static java.util.Objects.requireNonNull;
-
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
@@ -14,7 +12,6 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.CommitDialog;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
-import ai.brokk.gui.dialogs.AutoPlayGateDialog;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
@@ -22,76 +19,25 @@ import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.BadgedIcon;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.tasks.TaskList;
-import ai.brokk.util.GlobalUiSettings;
 import com.google.common.base.Splitter;
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Container;
-import java.awt.Dialog;
-import java.awt.Dimension;
-import java.awt.FlowLayout;
-import java.awt.Font;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
-import java.awt.Insets;
-import java.awt.Rectangle;
-import java.awt.RenderingHints;
-import java.awt.Toolkit;
-import java.awt.Window;
-import java.awt.datatransfer.StringSelection;
-import java.awt.datatransfer.Transferable;
-import java.awt.event.ActionEvent;
-import java.awt.event.ComponentAdapter;
-import java.awt.event.ComponentEvent;
-import java.awt.event.HierarchyEvent;
-import java.awt.event.KeyEvent;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Objects;
-import java.util.Set;
-import java.util.UUID;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
-import javax.swing.AbstractAction;
-import javax.swing.BorderFactory;
-import javax.swing.Box;
-import javax.swing.BoxLayout;
-import javax.swing.DefaultListModel;
-import javax.swing.DropMode;
-import javax.swing.Icon;
-import javax.swing.JCheckBox;
-import javax.swing.JComponent;
-import javax.swing.JLabel;
-import javax.swing.JList;
-import javax.swing.JMenuItem;
-import javax.swing.JOptionPane;
-import javax.swing.JPanel;
-import javax.swing.JPopupMenu;
-import javax.swing.JScrollPane;
-import javax.swing.JSeparator;
-import javax.swing.JTabbedPane;
-import javax.swing.JTextArea;
-import javax.swing.JTextField;
-import javax.swing.JViewport;
-import javax.swing.KeyStroke;
-import javax.swing.ListCellRenderer;
-import javax.swing.ListSelectionModel;
-import javax.swing.SwingConstants;
-import javax.swing.SwingUtilities;
-import javax.swing.Timer;
-import javax.swing.TransferHandler;
-import javax.swing.UIManager;
-import javax.swing.event.ListDataEvent;
-import javax.swing.event.ListDataListener;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+
+import javax.swing.*;
+import javax.swing.Timer;
+import javax.swing.event.ListDataEvent;
+import javax.swing.event.ListDataListener;
+import java.awt.*;
+import java.awt.datatransfer.StringSelection;
+import java.awt.datatransfer.Transferable;
+import java.awt.event.*;
+import java.util.*;
+import java.util.List;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
+import static java.util.Objects.requireNonNull;
 
 /** A simple, theme-aware task list panel supporting add, remove and complete toggle. */
 public class TaskListPanel extends JPanel implements ThemeAware, IContextManager.ContextListener {
@@ -137,7 +83,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private boolean queueActive = false;
     private @Nullable List<Integer> currentRunOrder = null;
     private @Nullable ListDataListener autoPlayListener = null;
-    private @Nullable ListDataListener modelRefreshListener = null;
 
     public TaskListPanel(Chrome chrome) {
         super(new BorderLayout(4, 0));
@@ -951,8 +896,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void loadTasksForCurrentSession() {
+        loadTasksForCurrentSession(null);
+    }
+
+    private void loadTasksForCurrentSession(@Nullable Runnable onComplete) {
         if (!SwingUtilities.isEventDispatchThread()) {
-            SwingUtilities.invokeLater(this::loadTasksForCurrentSession);
+            SwingUtilities.invokeLater(() -> loadTasksForCurrentSession(onComplete));
             return;
         }
         var sid = getCurrentSessionId();
@@ -981,12 +930,18 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 model.clear();
                 for (var dto : data.tasks()) {
                     if (!dto.text().isBlank()) {
-                        // dto is already the domain type used by the model
                         model.addElement(dto);
                     }
                 }
                 clearExpansionOnStructureChange();
                 updateButtonStates();
+                if (onComplete != null) {
+                    try {
+                        onComplete.run();
+                    } catch (Exception ex) {
+                        logger.debug("onComplete runnable threw", ex);
+                    }
+                }
             });
         } finally {
             isLoadingTasks = false;
@@ -1003,63 +958,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
     }
 
-    /**
-     * Run the given action after the model has been (re)populated as a result of an async refresh.
-     * If the model already has elements, the action is scheduled immediately on the EDT.
-     * This installs a one-shot ListDataListener that fires on the first addition/change event, then removes itself.
-     */
-    private void runAfterModelRefresh(Runnable action) {
-        assert SwingUtilities.isEventDispatchThread() : "runAfterModelRefresh must run on EDT";
-
-        // Remove any existing refresh listener to avoid stacking callbacks
-        if (modelRefreshListener != null) {
-            try {
-                model.removeListDataListener(modelRefreshListener);
-            } catch (Exception ex) {
-                logger.debug("Error removing existing modelRefreshListener", ex);
-            }
-            modelRefreshListener = null;
-        }
-
-        // If the model is already populated, run the action on the next tick
-        if (model.getSize() > 0) {
-            SwingUtilities.invokeLater(action);
-            return;
-        }
-
-        // Otherwise, wait for the next add/change to the model, then fire once
-        modelRefreshListener = new ListDataListener() {
-            private boolean fired = false;
-
-            private void fireOnce() {
-                if (fired) return;
-                fired = true;
-                try {
-                    model.removeListDataListener(this);
-                } catch (Exception ignore) {
-                    // ignore
-                }
-                modelRefreshListener = null;
-                SwingUtilities.invokeLater(action);
-            }
-
-            @Override
-            public void intervalAdded(ListDataEvent e) {
-                fireOnce();
-            }
-
-            @Override
-            public void intervalRemoved(ListDataEvent e) {
-                // Intentionally ignore remove events to avoid triggering during the clear phase.
-            }
-
-            @Override
-            public void contentsChanged(ListDataEvent e) {
-                fireOnce();
-            }
-        };
-        model.addListDataListener(modelRefreshListener);
-    }
 
     /**
      * Reset all ephemeral UI and model state when switching sessions to avoid
@@ -1086,15 +984,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             autoPlayListener = null;
         }
 
-        // Remove any pending model refresh listener as well
-        if (modelRefreshListener != null) {
-            try {
-                model.removeListDataListener(modelRefreshListener);
-            } catch (Exception ex) {
-                logger.debug("Error removing modelRefreshListener during session switch", ex);
-            }
-            modelRefreshListener = null;
-        }
+        // no modelRefreshListener to remove
 
         // Clear the model and transient fragment marker until the new session is loaded
         model.clear();
@@ -1148,7 +1038,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         startRunWithCommitGate(selected);
     }
 
-    private void runArchitectOnAll() {
+    public void runArchitectOnAll() {
         if (!taskListEditable) {
             Toolkit.getDefaultToolkit().beep();
             return;
@@ -1766,10 +1656,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
      * already on the EDT, refresh immediately.
      */
     public void refreshFromManager() {
+        refreshFromManager(null);
+    }
+
+    public void refreshFromManager(@Nullable Runnable onComplete) {
         if (SwingUtilities.isEventDispatchThread()) {
-            loadTasksForCurrentSession();
+            loadTasksForCurrentSession(onComplete);
         } else {
-            SwingUtilities.invokeLater(this::loadTasksForCurrentSession);
+            SwingUtilities.invokeLater(() -> loadTasksForCurrentSession(onComplete));
         }
     }
 
@@ -1782,7 +1676,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             SwingUtilities.invokeLater(this::runAllAfterModelRefresh);
             return;
         }
-        runAfterModelRefresh(this::runArchitectOnAll);
+        runArchitectOnAll();
     }
 
     /**
@@ -2421,18 +2315,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
     @Override
     public void removeNotify() {
-        // Clean up model refresh listener early to prevent leaks when panel is removed
-        if (modelRefreshListener != null) {
-            try {
-                logger.debug("removeNotify: removing modelRefreshListener");
-                model.removeListDataListener(modelRefreshListener);
-                logger.debug("removeNotify: modelRefreshListener cleared");
-            } catch (Exception e) {
-                logger.debug("Error removing modelRefreshListener on removeNotify", e);
-            }
-            modelRefreshListener = null;
-        }
-
         // Clean up auto-play listener early to prevent leaks when panel is removed
         if (autoPlayListener != null) {
             try {
@@ -2690,68 +2572,5 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     public void enablePlay() {
         // Recompute full state when an LLM action completes (accounts for selection, queue, etc.)
         SwingUtilities.invokeLater(this::updateButtonStates);
-    }
-
-    /**
-     * Gather deduplicated, pre-existing incomplete task texts from the current model.
-     * Iterates model entries, includes only items that are not done, strips text,
-     * and includes only if present in preExisting. Uses LinkedHashSet to preserve display order.
-     *
-     * @param preExisting Set of pre-existing task texts to filter by
-     * @return LinkedHashSet of task texts that are incomplete and in preExisting
-     */
-    private Set<String> collectTaskTexts(Set<String> preExisting) {
-        assert SwingUtilities.isEventDispatchThread() : "collectTaskTexts must be called on EDT";
-        var texts = new LinkedHashSet<String>();
-        for (int i = 0; i < model.size(); i++) {
-            var it = requireNonNull(model.get(i));
-            if (it.done()) {
-                continue;
-            }
-            var t = it.text().strip();
-            if (!t.isEmpty() && preExisting.contains(t)) {
-                texts.add(t);
-            }
-        }
-        return texts;
-    }
-
-    /**
-     * Count the number of incomplete tasks in the model.
-     *
-     * @return Number of incomplete tasks
-     */
-    private int countIncompleteTasks() {
-        assert SwingUtilities.isEventDispatchThread() : "countIncompleteTasks must be called on EDT";
-        int count = 0;
-        for (int i = 0; i < model.getSize(); i++) {
-            var task = model.get(i);
-            if (!task.done()) {
-                count++;
-            }
-        }
-        return count;
-    }
-
-    /**
-     * Remove tasks from the model by their text content.
-     *
-     * @param textsToRemove Set of task texts to remove
-     * @return Number of tasks removed
-     */
-    private int removeTasksByText(Set<String> textsToRemove) {
-        assert SwingUtilities.isEventDispatchThread() : "removeTasksByText must be called on EDT";
-        int removed = 0;
-        for (int i = model.getSize() - 1; i >= 0; i--) {
-            var task = model.get(i);
-            if (!task.done()) {
-                var t = task.text().strip();
-                if (textsToRemove.contains(t)) {
-                    model.remove(i);
-                    removed++;
-                }
-            }
-        }
-        return removed;
     }
 }

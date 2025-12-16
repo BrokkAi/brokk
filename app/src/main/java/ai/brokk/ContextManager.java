@@ -1536,23 +1536,26 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * should call after modifying the task list.
      */
     public Context setTaskList(TaskList.TaskListData data, String action) {
-        // Track the change in history by pushing a new context with the Task List fragment
-        var updated = pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data, action));
-        // Centralized UI refresh after persistence (no execution logic)
-        if (io instanceof Chrome chrome) {
-            SwingUtilities.invokeLater(chrome::refreshTaskListUI);
-        }
+        return setTaskList(data, action, null);
+    }
 
+    public Context setTaskList(TaskList.TaskListData data, String action, @Nullable Runnable onComplete) {
+        var updated = pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data, action));
+        if (io instanceof Chrome chrome) {
+            SwingUtilities.invokeLater(() -> chrome.refreshTaskListUI(onComplete));
+        }
         return updated;
     }
 
     public Context setTaskList(Context context, TaskList.TaskListData data, String action) {
-        var updated = context.withTaskList(data, action);
-        // Centralized UI refresh after persistence (no execution logic)
-        if (io instanceof Chrome chrome) {
-            SwingUtilities.invokeLater(chrome::refreshTaskListUI);
-        }
+        return setTaskList(context, data, action, null);
+    }
 
+    public Context setTaskList(Context context, TaskList.TaskListData data, String action, @Nullable Runnable onComplete) {
+        var updated = context.withTaskList(data, action);
+        if (io instanceof Chrome chrome) {
+            SwingUtilities.invokeLater(() -> chrome.refreshTaskListUI(onComplete));
+        }
         return updated;
     }
 

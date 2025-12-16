@@ -60,11 +60,8 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
-import java.util.ArrayList;
+import java.util.*;
 import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -1940,13 +1937,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 // Auto-run only in Lutz EZ if successful and there are incomplete tasks available
                 boolean isLutzEz = ACTION_LUTZ.equals(action) && !GlobalUiSettings.isAdvancedMode();
                 if (isLutzEz && success && hasIncomplete(finalData)) {
-                    SwingUtilities.invokeLater(() -> chrome.getTaskListPanel().runAllAfterModelRefresh());
+                    SwingUtilities.invokeLater(() ->
+                            chrome.refreshTaskListUI(() -> chrome.getTaskListPanel().runArchitectOnAll()));
                 }
             } else {
                 // No gating needed. Auto-run only in Lutz EZ if successful.
                 boolean isLutzEz = ACTION_LUTZ.equals(action) && !GlobalUiSettings.isAdvancedMode();
                 if (isLutzEz && success) {
-                    SwingUtilities.invokeLater(() -> chrome.getTaskListPanel().runAllAfterModelRefresh());
+                    SwingUtilities.invokeLater(() ->
+                            chrome.refreshTaskListUI(() -> chrome.getTaskListPanel().runArchitectOnAll()));
                 }
             }
 
@@ -3378,8 +3377,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
     }
 
-    // --- Task list gating helpers (extracted for clarity) ---
-
     private record TaskListSnapshot(TaskList.TaskListData data, Set<String> incompleteTexts) {}
 
     private TaskListSnapshot snapshotCurrentTaskList(Context ctx) {
@@ -3428,8 +3425,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private static TaskList.TaskListData mergeTaskLists(
             TaskList.TaskListData before, TaskList.TaskListData after) {
         // Preserve the entire previous list ordering and status; append NEW incomplete tasks not already present.
-        var existing = new java.util.ArrayList<>(before.tasks());
-        var seenIncomplete = new java.util.LinkedHashSet<String>();
+        var existing = new ArrayList<>(before.tasks());
+        var seenIncomplete = new LinkedHashSet<String>();
         for (var it : before.tasks()) {
             if (!it.done()) {
                 var t = it.text() == null ? "" : it.text().strip();

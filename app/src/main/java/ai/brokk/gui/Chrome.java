@@ -2757,11 +2757,18 @@ public class Chrome
     }
 
     public void refreshTaskListUI() {
-        // Terminal drawer removed — bring the Tasks tab to front instead.
+        refreshTaskListUI(null);
+    }
+
+    public void refreshTaskListUI(@Nullable Runnable onComplete) {
         SwingUtilities.invokeLater(() -> {
             int idx = rightTabbedPanel.indexOfTab("Tasks");
             if (idx != -1) rightTabbedPanel.setSelectedIndex(idx);
-            taskListPanel.refreshFromManager();
+            if (onComplete == null) {
+                taskListPanel.refreshFromManager();
+            } else {
+                taskListPanel.refreshFromManager(onComplete);
+            }
         });
     }
 
