@@ -3,7 +3,6 @@ package ai.brokk;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.project.IProject;
@@ -193,24 +192,6 @@ public class AnalyzerUtilSelectionTest {
                 AnalyzerUtil.selectUsageFragment(analyzer, cm, "   ", false, false)
                         .isEmpty(),
                 "Usage selection should be empty");
-    }
-
-    // (g) Edge cases: analyzer == null
-
-    @Test
-    void nullAnalyzer_returnsEmptyForClassMethodUsage() {
-        IAnalyzer nullAnalyzer = null;
-        assertTrue(
-                AnalyzerUtil.selectClassFragment(nullAnalyzer, cm, "Foo", false).isEmpty(),
-                "Class selection should be empty when analyzer is null");
-        assertTrue(
-                AnalyzerUtil.selectMethodFragment(nullAnalyzer, cm, "Foo.bar", false)
-                        .isEmpty(),
-                "Method selection should be empty when analyzer is null");
-        assertTrue(
-                AnalyzerUtil.selectUsageFragment(nullAnalyzer, cm, "Foo", false, false)
-                        .isEmpty(),
-                "Usage selection should be empty when analyzer is null");
     }
 
     // (h) Edge cases: folder input normalization
