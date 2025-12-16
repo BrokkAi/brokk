@@ -2542,7 +2542,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             }
 
             // Apply macOS full-window-content and title bar styling
-            Chrome.applyMacOSFullWindowContent(this);
+            Chrome.maybeApplyMacFullWindowContent(this);
             Chrome.applyTitleBar(this, determineWindowTitle(titleHint, isTaskInProgress));
 
             this.project = parentPanel.contextManager.getProject(); // Get project reference

@@ -3216,7 +3216,7 @@ public class Chrome
     public static JFrame newFrame(String title, boolean initializeTitleBar) {
         JFrame frame = new JFrame(title);
         applyIcon(frame);
-        applyMacOSFullWindowContent(frame);
+        maybeApplyMacFullWindowContent(frame);
         if (initializeTitleBar) applyTitleBar(frame, title);
         return frame;
     }
@@ -3228,7 +3228,7 @@ public class Chrome
      *
      * @param window A JFrame or JDialog (any RootPaneContainer)
      */
-    public static void applyMacOSFullWindowContent(RootPaneContainer window) {
+    public static void maybeApplyMacFullWindowContent(RootPaneContainer window) {
         if (!SystemInfo.isMacOS || !SystemInfo.isMacFullWindowContentSupported) {
             return;
         }
@@ -3260,7 +3260,7 @@ public class Chrome
         if (SystemInfo.isJava_17_orLater) dialog.getRootPane().putClientProperty("apple.awt.windowTitleVisible", false);
         else dialog.setTitle(null);
 
-        ThemeTitleBarManager.applyTitleBar(dialog, title);
+        ThemeTitleBarManager.maybeApplyMacTitleBar(dialog, title);
     }
 
     /**
@@ -3270,7 +3270,7 @@ public class Chrome
      * @see <a href="https://www.formdev.com/flatlaf/macos/">FlatLaf macOS Window Decorations</a>
      */
     public static void applyTitleBar(JFrame frame, String title) {
-        ThemeTitleBarManager.applyTitleBar(frame, title);
+        ThemeTitleBarManager.maybeApplyMacTitleBar(frame, title);
     }
 
     /**
