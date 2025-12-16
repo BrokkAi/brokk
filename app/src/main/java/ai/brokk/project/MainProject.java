@@ -130,6 +130,9 @@ public final class MainProject extends AbstractProject {
     private static volatile String headlessBrokkApiKeyOverride = null;
 
     @Nullable
+    private static volatile LlmProxySetting headlessProxySettingOverride = null;
+
+    @Nullable
     @VisibleForTesting
     public static Properties globalPropertiesCache = null; // protected by synchronized
 
@@ -835,6 +838,12 @@ public final class MainProject extends AbstractProject {
     }
 
     public static LlmProxySetting getProxySetting() {
+        // Check headless executor override first (process-scoped)
+        LlmProxySetting override = headlessProxySettingOverride;
+        if (override != null) {
+            return override;
+        }
+        // Fall back to global properties
         var props = loadGlobalProperties();
         String val = props.getProperty(LLM_PROXY_SETTING_KEY, LlmProxySetting.BROKK.name());
         try {
@@ -848,6 +857,21 @@ public final class MainProject extends AbstractProject {
         var props = loadGlobalProperties();
         props.setProperty(LLM_PROXY_SETTING_KEY, setting.name());
         saveGlobalProperties(props);
+    }
+
+    /**
+     * Set a process-scoped override for the LLM proxy setting.
+     * Used by headless executors to use a per-executor proxy configuration instead of the global config.
+     * If set to a non-null value, getProxySetting() will return this override instead of
+     * reading from global properties.
+     *
+     * @param setting the proxy setting override, or null to clear the override
+     */
+    public static void setHeadlessProxySettingOverride(@Nullable LlmProxySetting setting) {
+        headlessProxySettingOverride = setting;
+        logger.debug(
+                "Set headless proxy setting override: {}",
+                setting != null ? setting.name() : "(cleared)");
     }
 
     public static String getProxyUrl() {
