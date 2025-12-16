@@ -4,17 +4,19 @@ import static ai.brokk.SessionManager.SessionInfo;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.*;
+import ai.brokk.analyzer.BrokkFile;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
-import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
+import ai.brokk.gui.changes.ChangeFileStatus;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.components.SplitButton;
@@ -32,6 +34,7 @@ import ai.brokk.project.MainProject;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.ContentDiffUtils;
 import ai.brokk.util.GlobalUiSettings;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolSpecification;
@@ -86,6 +89,10 @@ import org.jetbrains.annotations.Nullable;
 
 public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(HistoryOutputPanel.class);
+
+    // Size limits for content processing to avoid heavy CPU usage and memory issues
+    private static final int MAX_COMBINED_CONTENT_SIZE = 2_000_000; // characters
+    private static final int MAX_SINGLE_CONTENT_SIZE = 1_000_000; // characters
 
     private final Chrome chrome;
     private final ContextManager contextManager;
@@ -216,7 +223,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private final Set<UUID> sessionCountLoading = ConcurrentHashMap.newKeySet();
 
     @Nullable
-    private DiffService.CumulativeChanges lastCumulativeChanges;
+    private CumulativeChanges lastCumulativeChanges;
 
     @Nullable
     private String lastBaselineLabel;
@@ -1894,7 +1901,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      * Sets the Changes tab title and tooltip based on the provided cumulative changes result,
      * using theme-appropriate + / - colors. Safe if the tab lineup changes while updating.
      */
-    private void setChangesTabTitleAndTooltip(DiffService.CumulativeChanges res) {
+    private void setChangesTabTitleAndTooltip(CumulativeChanges res) {
         var tabs = outputTabs;
         if (tabs == null) return;
 
@@ -3076,19 +3083,19 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
     }
 
-    private CompletableFuture<DiffService.CumulativeChanges> refreshCumulativeChangesAsync() {
+    private CompletableFuture<CumulativeChanges> refreshCumulativeChangesAsync() {
         return contextManager
                 .submitBackgroundTask("Compute branch-based changes", () -> {
                     var repoOpt = repo();
                     if (repoOpt.isEmpty()) {
-                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
+                        return new CumulativeChanges(0, 0, 0, List.of(), null);
                     }
 
                     var repo = repoOpt.get();
 
                     // Branch-specific methods require GitRepo, not just IGitRepo
                     if (!(repo instanceof ai.brokk.git.GitRepo gitRepo)) {
-                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
+                        return new CumulativeChanges(0, 0, 0, List.of(), null);
                     }
 
                     var baseline = computeBaselineForChanges();
@@ -3097,7 +3104,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
                     // Handle cases with no baseline
                     if (baseline.mode() == BaselineMode.DETACHED || baseline.mode() == BaselineMode.NO_BASELINE) {
-                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
+                        return new CumulativeChanges(0, 0, 0, List.of(), null);
                     }
 
                     try {
@@ -3145,12 +3152,65 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             }
                         }
 
-                        // Use DiffService to summarize changes between baseline and working tree
-                        var summarizedChanges =
-                                DiffService.summarizeDiff(repo, requireNonNull(leftCommitSha), "WORKING", fileSet);
-                        var perFileChanges = summarizedChanges.perFileChanges();
-                        int totalAdded = summarizedChanges.totalAdded();
-                        int totalDeleted = summarizedChanges.totalDeleted();
+                        // Build per-file changes (skip non-text/binary files)
+                        List<PerFileChange> perFileChanges = new ArrayList<>();
+                        int totalAdded = 0;
+                        int totalDeleted = 0;
+
+                        for (var modFile : fileSet) {
+                            var file = modFile.file();
+                            String displayFile = file.getRelPath().toString();
+
+                            boolean isText;
+                            try {
+                                isText = file.isText();
+                            } catch (Throwable t) {
+                                // Defensive: if text detection fails, treat as non-text and log at DEBUG.
+                                logger.debug(
+                                        "Failed to determine text-ness for file {} (abs={}); treating as non-text: {}",
+                                        file,
+                                        file.absPath(),
+                                        t.getMessage());
+                                isText = false;
+                            }
+
+                            if (!isText) {
+                                // Binary files: include in Review list but skip expensive diff.
+                                logger.debug(
+                                        "Including binary (non-text) file in cumulative changes with zeroed counts: {} (abs={})",
+                                        file,
+                                        file.absPath());
+                                perFileChanges.add(new PerFileChange(displayFile, "", "", ChangeFileStatus.BINARY));
+                                continue;
+                            }
+
+                            // Compute left content based on baseline
+                            String leftContent =
+                                    (leftCommitSha != null) ? safeGetFileContent(gitRepo, leftCommitSha, file) : "";
+
+                            // Compute right content (working tree)
+                            String rightContent = safeReadWorkingTree(file);
+
+                            // If the combined content is extremely large, mark as OVERSIZED
+                            int combinedLen = leftContent.length() + rightContent.length();
+                            if (combinedLen > MAX_COMBINED_CONTENT_SIZE) {
+                                logger.debug(
+                                        "Marking oversized file in cumulative changes (no diff computed): {} (combined length {} > {})",
+                                        displayFile,
+                                        combinedLen,
+                                        MAX_COMBINED_CONTENT_SIZE);
+                                perFileChanges.add(new PerFileChange(displayFile, "", "", ChangeFileStatus.OVERSIZED));
+                                continue;
+                            }
+
+                            // Compute line counts only for TEXT files that passed size guards
+                            int[] netCounts = computeNetLineCounts(leftContent, rightContent, displayFile);
+                            totalAdded += netCounts[0];
+                            totalDeleted += netCounts[1];
+
+                            perFileChanges.add(
+                                    new PerFileChange(displayFile, leftContent, rightContent, ChangeFileStatus.TEXT));
+                        }
 
                         GitWorkflow.PushPullState pushPullState = null;
                         try {
@@ -3170,12 +3230,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             logger.debug("Failed to evaluate push/pull state for branch {}", currentBranch, e);
                         }
 
-                        return new DiffService.CumulativeChanges(
+                        return new CumulativeChanges(
                                 perFileChanges.size(), totalAdded, totalDeleted, perFileChanges, pushPullState);
 
                     } catch (Exception e) {
                         logger.warn("Failed to compute branch-based changes", e);
-                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
+                        return new CumulativeChanges(0, 0, 0, List.of(), null);
                     }
                 })
                 .thenApply(result -> {
@@ -3191,7 +3251,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     // Build and insert the aggregated multi-file diff panel into the Changes tab.
     // Must be called on the EDT.
-    private void updateChangesTabContent(DiffService.CumulativeChanges res) {
+    private void updateChangesTabContent(CumulativeChanges res) {
         assert SwingUtilities.isEventDispatchThread() : "updateChangesTabContent must run on EDT";
         var container = changesTabPlaceholder;
         if (container == null) {
@@ -3251,7 +3311,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     // Constructs a panel containing a summary header and a BrokkDiffPanel with per-file comparisons.
     // Sets aggregatedChangesPanel to the created BrokkDiffPanel for lifecycle management.
-    private JPanel buildAggregatedChangesPanel(DiffService.CumulativeChanges res) {
+    private JPanel buildAggregatedChangesPanel(CumulativeChanges res) {
         var wrapper = new JPanel(new BorderLayout());
 
         // Build header with baseline label and buttons
@@ -3392,12 +3452,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         // Stable order by display file path
         var changes = new ArrayList<>(res.perFileChanges());
-        changes.sort(Comparator.comparing(Context.DiffEntry::title));
+        changes.sort(Comparator.comparing(PerFileChange::displayFile));
 
         for (var change : changes) {
-            String path = change.title();
-            String leftContent = change.oldContent();
-            String rightContent = change.newContent();
+            String path = change.displayFile();
+            String leftContent = change.earliestOld();
+            String rightContent = change.latestNew();
 
             // Use non-ref titles to avoid accidental git ref resolution; keep filename for syntax highlighting.
             BufferSource left = new BufferSource.StringSource(leftContent, "", path, null);
@@ -3907,4 +3967,77 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             return this;
         }
     }
+
+    // ==================== Binary/Oversized File Handling ====================
+
+    /**
+     * Computes net line counts (added, deleted) between two content strings.
+     * Short-circuits if either side appears binary or oversized.
+     */
+    private static int[] computeNetLineCounts(String earliestOld, String latestNew, String displayFile) {
+        try {
+            // Binary detection: if either side contains a NUL (heuristic), treat as binary.
+            if (BrokkFile.isBinary(earliestOld)) {
+                logger.debug("Short-circuiting diff: left side appears binary for '{}'", displayFile);
+                return new int[] {0, 0};
+            }
+            if (BrokkFile.isBinary(latestNew)) {
+                logger.debug("Short-circuiting diff: right side appears binary for '{}'", displayFile);
+                return new int[] {0, 0};
+            }
+
+            // Size guard: avoid diffing extremely large blobs
+            int leftLen = earliestOld.length();
+            int rightLen = latestNew.length();
+            if (leftLen > MAX_SINGLE_CONTENT_SIZE || rightLen > MAX_SINGLE_CONTENT_SIZE) {
+                logger.debug(
+                        "Short-circuiting diff: oversized content for '{}' (left={}, right={}, limit={})",
+                        displayFile,
+                        leftLen,
+                        rightLen,
+                        MAX_SINGLE_CONTENT_SIZE);
+                return new int[] {0, 0};
+            }
+        } catch (Throwable t) {
+            // Best-effort detection: if detection fails, log and fall through to diff computation.
+            logger.debug("Error while checking binary/size for '{}': {}", displayFile, t.getMessage());
+        }
+
+        var result = ContentDiffUtils.computeDiffResult(earliestOld, latestNew, "old", "new");
+        return new int[] {result.added(), result.deleted()};
+    }
+
+    private static String safeReadWorkingTree(ProjectFile file) {
+        try {
+            if (Files.exists(file.absPath())) {
+                return Files.readString(file.absPath(), StandardCharsets.UTF_8);
+            } else {
+                return "";
+            }
+        } catch (Exception e) {
+            logger.debug("Failed to read working tree file {}", file, e);
+            return "";
+        }
+    }
+
+    private static String safeGetFileContent(IGitRepo repo, String commitId, ProjectFile file) {
+        try {
+            String content = repo.getFileContent(commitId, file);
+            return content.isEmpty() ? "" : content;
+        } catch (Exception e) {
+            logger.debug("Failed to get file content for {} at {}", file, commitId, e);
+            return "";
+        }
+    }
+
+    /** Per-file change info including display path, content, and binary/oversized status. */
+    private record PerFileChange(String displayFile, String earliestOld, String latestNew, ChangeFileStatus status) {}
+
+    /** Cumulative changes across all modified files, with push/pull state. */
+    private record CumulativeChanges(
+            int filesChanged,
+            int totalAdded,
+            int totalDeleted,
+            List<PerFileChange> perFileChanges,
+            @Nullable GitWorkflow.PushPullState pushPullState) {}
 }
