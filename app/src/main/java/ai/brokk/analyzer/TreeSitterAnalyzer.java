@@ -2105,9 +2105,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     node.getEndPoint().getRow(),
                     node.getStartByte());
 
-            var finalRange = (cu.isClass() || cu.isFunction())
-                    ? expandRangeWithComments(node, sourceContent, false)
-                    : originalRange;
+            var finalRange =
+                    (cu.isClass() || cu.isFunction()) ? expandRangeWithComments(node, sourceContent) : originalRange;
 
             localSourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(finalRange);
             localCuByFqName.put(cu.fqName(), cu);
@@ -3700,6 +3699,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
+     * Checks if the byte range contains only whitespace (spaces and tabs).
+     */
+    private boolean isOnlyWhitespace(byte[] bytes, int start, int end) {
+        for (int i = start; i < end; i++) {
+            byte b = bytes[i];
+            if (b != ' ' && b != '\t') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Finds the byte offset of the start of the line containing the given byte offset.
      * Scans backward from the offset to find the preceding newline (or beginning of file).
      *
@@ -3732,15 +3744,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     /**
      * Expands a source range to include contiguous leading metadata (comments and attribute-like nodes) immediately
      * preceding the declaration node. Backs up to the start of the line containing the first metadata node
-     * to capture any indentation.
+     * to capture any indentation, but only if there's pure whitespace before the metadata.
      *
      * @param declarationNode the declaration node to expand
      * @param sourceContent the source content wrapper for byte offset calculations
-     * @param ignoredIncludeOnlyDocLike unused parameter for backward compatibility
      * @return the expanded range with commentStartByte including leading indentation
      */
-    protected Range expandRangeWithComments(
-            TSNode declarationNode, SourceContent sourceContent, boolean ignoredIncludeOnlyDocLike) {
+    protected Range expandRangeWithComments(TSNode declarationNode, SourceContent sourceContent) {
         var originalRange = new Range(
                 declarationNode.getStartByte(),
                 declarationNode.getEndByte(),
@@ -3769,8 +3779,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         Collections.reverse(leading);
         int firstMetadataNodeStartByte = leading.getFirst().getStartByte();
 
-        // Back up to the start of the line containing the first metadata node to include indentation
-        int commentStartByte = findLineStartByte(firstMetadataNodeStartByte, sourceContent);
+        // Back up to line start only if content before metadata is pure whitespace
+        int lineStartByte = findLineStartByte(firstMetadataNodeStartByte, sourceContent);
+        int commentStartByte = isOnlyWhitespace(sourceContent.utf8Bytes(), lineStartByte, firstMetadataNodeStartByte)
+                ? lineStartByte
+                : firstMetadataNodeStartByte;
 
         Range expandedRange = new Range(
                 originalRange.startByte(),

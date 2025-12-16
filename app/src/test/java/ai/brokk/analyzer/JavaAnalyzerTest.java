@@ -285,6 +285,7 @@ public class JavaAnalyzerTest {
                 "E",
                 "EnumClass",
                 "F",
+                "InlineComment",
                 "Interface",
                 "MethodReferenceUsage",
                 "MethodReturner",
@@ -980,5 +981,28 @@ public class JavaAnalyzerTest {
                 break;
             }
         }
+    }
+
+    /**
+     * Regression test for inline comment edge case: when a comment/Javadoc appears on
+     * the same line as other code, we should NOT back up to include that code.
+     */
+    @Test
+    public void testInlineJavadocDoesNotIncludePrecedingCode() throws IOException {
+        var project = TestProject.createTestProject("testcode-java", Languages.JAVA);
+        var testAnalyzer = new JavaAnalyzer(project);
+
+        // methodAfterInlineJavadoc has Javadoc on same line as `private int other = 1;`
+        var sourceOpt = AnalyzerUtil.getMethodSource(testAnalyzer, "InlineComment.methodAfterInlineJavadoc", true);
+        assertTrue(sourceOpt.isPresent(), "Method source should be available");
+
+        String source = sourceOpt.get();
+
+        // Verify Javadoc IS included
+        assertCodeContains(source, "/** Inline Javadoc on same line as code */", "Should include the Javadoc");
+
+        // Verify the preceding code is NOT included
+        assertFalse(source.contains("private int other"), "Should NOT include code from same line as Javadoc");
+        assertFalse(source.contains("= 1;"), "Should NOT include field initialization from same line");
     }
 }
