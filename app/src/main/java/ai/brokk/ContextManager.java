@@ -1536,28 +1536,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * should call after modifying the task list.
      */
     public Context setTaskList(TaskList.TaskListData data, String action) {
-        return setTaskList(data, action, null);
+        return pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data, action));
     }
 
-    public Context setTaskList(TaskList.TaskListData data, String action, @Nullable Runnable onComplete) {
-        var updated = pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data, action));
-        if (io instanceof Chrome chrome) {
-            SwingUtilities.invokeLater(() -> chrome.refreshTaskListUI(onComplete));
-        }
-        return updated;
-    }
 
     public Context setTaskList(Context context, TaskList.TaskListData data, String action) {
-        return setTaskList(context, data, action, null);
+        return context.withTaskList(data, action);
     }
 
-    public Context setTaskList(Context context, TaskList.TaskListData data, String action, @Nullable Runnable onComplete) {
-        var updated = context.withTaskList(data, action);
-        if (io instanceof Chrome chrome) {
-            SwingUtilities.invokeLater(() -> chrome.refreshTaskListUI(onComplete));
-        }
-        return updated;
-    }
 
     private void finalizeSessionActivation(UUID sessionId) {
         // Always migrate legacy Task List for the active session first, then notify UI.
