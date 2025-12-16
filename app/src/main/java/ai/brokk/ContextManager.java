@@ -1541,6 +1541,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     public Context setTaskList(TaskList.TaskListData data, String action, @Nullable Runnable onComplete) {
         var updated = pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data, action));
+        if (io instanceof Chrome chrome) {
+            SwingUtilities.invokeLater(() -> chrome.refreshTaskListUI(onComplete));
+        }
         return updated;
     }
 
@@ -1550,6 +1553,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     public Context setTaskList(Context context, TaskList.TaskListData data, String action, @Nullable Runnable onComplete) {
         var updated = context.withTaskList(data, action);
+        if (io instanceof Chrome chrome) {
+            SwingUtilities.invokeLater(() -> chrome.refreshTaskListUI(onComplete));
+        }
         return updated;
     }
 
