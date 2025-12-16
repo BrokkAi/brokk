@@ -519,14 +519,14 @@ public class ArchitectAgent {
                 // we know workspace is too large; we don't know by how much so we'll guess 0.8 as the threshold
                 messages = buildPrompt(workspaceTokenSize, (int) (workspaceTokenSize * 0.8), workspaceContentMessages);
                 var currentModelTokens = modelsService.getMaxInputTokens(this.planningModel);
-                var fallbackModel = requireNonNull(modelsService.getModel(ai.brokk.Service.GEMINI_2_5_PRO));
+                var fallbackModel = requireNonNull(modelsService.getModel(ai.brokk.Service.GEMINI_3_PRO_PREVIEW));
                 var fallbackModelTokens = modelsService.getMaxInputTokens(fallbackModel);
                 if (fallbackModelTokens < currentModelTokens * 1.2) {
                     return resultWithMessages(StopReason.LLM_ERROR);
                 }
                 logger.warn(
                         "Context too large for current model; attempting emergency retry with {} (tokens: {} vs {})",
-                        ai.brokk.Service.GEMINI_2_5_PRO,
+                        ai.brokk.Service.GEMINI_3_PRO_PREVIEW,
                         fallbackModelTokens,
                         currentModelTokens);
 
