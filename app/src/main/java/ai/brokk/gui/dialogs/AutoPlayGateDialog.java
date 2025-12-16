@@ -33,27 +33,6 @@ public final class AutoPlayGateDialog extends BaseThemedDialog {
         KEEP_NEW,
         /** Keep both existing and newly generated tasks (merge/deduplicate). */
         KEEP_BOTH,
-
-        /**
-         * Legacy alias for KEEP_NEW.
-         * Deprecated: the dialog no longer offers this label; use KEEP_NEW instead.
-         */
-        @Deprecated
-        REPLACE_AND_CONTINUE,
-
-        /**
-         * Legacy alias for KEEP_BOTH.
-         * Deprecated: the dialog no longer offers this label; use KEEP_BOTH instead.
-         */
-        @Deprecated
-        APPEND,
-
-        /**
-         * Legacy alias for KEEP_OLD.
-         * Deprecated: the dialog no longer offers a cancel action; ESC/close maps to KEEP_OLD.
-         */
-        @Deprecated
-        CANCEL
     }
 
     private AutoPlayGateDialog(@Nullable Window owner, Set<String> incompleteTasks) {

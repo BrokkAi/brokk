@@ -3417,20 +3417,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 finalData = mergeTaskLists(before.data(), after);
                 cm.setTaskList(finalData, "Merged existing and new tasks");
             }
-            case KEEP_OLD, CANCEL -> {
-                finalData = before.data();
-                cm.setTaskList(finalData, "Kept existing tasks");
-            }
-            case REPLACE_AND_CONTINUE -> {
-                // Back-compat: treat as KEEP_NEW
-                finalData = after;
-                cm.setTaskList(finalData, "Use new tasks");
-            }
-            case APPEND -> {
-                // Back-compat: treat as KEEP_BOTH
-                finalData = mergeTaskLists(before.data(), after);
-                cm.setTaskList(finalData, "Merged existing and new tasks");
-            }
             default -> {
                 finalData = before.data();
                 cm.setTaskList(finalData, "Kept existing tasks");
