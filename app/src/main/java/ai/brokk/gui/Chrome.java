@@ -1938,7 +1938,7 @@ public class Chrome
         addSplitPaneListeners(project);
 
         // Apply title bar now that layout is complete
-        applyTitleBar(frame, frame.getTitle());
+        ThemeTitleBarManager.maybeApplyMacTitleBar(frame, frame.getTitle());
 
         // Force a complete layout validation
         frame.revalidate();
@@ -3217,7 +3217,7 @@ public class Chrome
         JFrame frame = new JFrame(title);
         applyIcon(frame);
         maybeApplyMacFullWindowContent(frame);
-        if (initializeTitleBar) applyTitleBar(frame, title);
+        if (initializeTitleBar) ThemeTitleBarManager.maybeApplyMacTitleBar(frame, title);
         return frame;
     }
 
@@ -3246,39 +3246,6 @@ public class Chrome
 
     public static JFrame newFrame(String title) {
         return newFrame(title, true);
-    }
-
-    /** Applies macOS title bar styling to an existing dialog. No-op on other platforms. */
-    public static void applyDialogTitleBar(JDialog dialog, String title) {
-        if (!SystemInfo.isMacOS || !SystemInfo.isMacFullWindowContentSupported) {
-            return;
-        }
-        dialog.getRootPane().putClientProperty("apple.awt.fullWindowContent", true);
-        dialog.getRootPane().putClientProperty("apple.awt.transparentTitleBar", true);
-
-        // hide window title
-        if (SystemInfo.isJava_17_orLater) dialog.getRootPane().putClientProperty("apple.awt.windowTitleVisible", false);
-        else dialog.setTitle(null);
-
-        ThemeTitleBarManager.maybeApplyMacTitleBar(dialog, title);
-    }
-
-    /**
-     * If using full window content, creates a themed title bar.
-     * Uses ThemeTitleBarManager for unified theme-driven configuration.
-     *
-     * @see <a href="https://www.formdev.com/flatlaf/macos/">FlatLaf macOS Window Decorations</a>
-     */
-    public static void applyTitleBar(JFrame frame, String title) {
-        ThemeTitleBarManager.maybeApplyMacTitleBar(frame, title);
-    }
-
-    /**
-     * Updates the title bar styling for existing frames when theme changes.
-     * Uses ThemeTitleBarManager for unified theme-driven configuration.
-     */
-    public static void updateTitleBarStyling(JFrame frame) {
-        ThemeTitleBarManager.updateTitleBarStyling(frame);
     }
 
     /**

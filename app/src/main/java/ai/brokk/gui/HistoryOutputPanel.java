@@ -26,6 +26,7 @@ import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.gui.theme.ThemeTitleBarManager;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.IProject;
@@ -1659,7 +1660,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         notificationsDialog = Chrome.newFrame(title);
         notificationsDialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
         notificationsDialog.setLayout(new BorderLayout(8, 8));
-        Chrome.applyTitleBar(notificationsDialog, title);
+        ThemeTitleBarManager.maybeApplyMacTitleBar(notificationsDialog, title);
         notificationsDialog.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosed(WindowEvent e) {
@@ -2543,7 +2544,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
             // Apply macOS full-window-content and title bar styling
             Chrome.maybeApplyMacFullWindowContent(this);
-            Chrome.applyTitleBar(this, determineWindowTitle(titleHint, isTaskInProgress));
+            ThemeTitleBarManager.maybeApplyMacTitleBar(this, determineWindowTitle(titleHint, isTaskInProgress));
 
             this.project = parentPanel.contextManager.getProject(); // Get project reference
             setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);

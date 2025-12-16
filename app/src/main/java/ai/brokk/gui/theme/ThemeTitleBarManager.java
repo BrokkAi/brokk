@@ -22,27 +22,6 @@ public class ThemeTitleBarManager {
     private static final Set<RootPaneContainer> managedWindows = ConcurrentHashMap.newKeySet();
 
     /**
-     * Applies title bar styling to a frame based on current theme configuration.
-     * Backward-compatible entry point for frames.
-     */
-    public static void maybeApplyMacTitleBar(JFrame frame, String title) {
-        if (!SystemInfo.isMacOS || !SystemInfo.isMacFullWindowContentSupported) {
-            return;
-        }
-        applyTitleBarInternal(frame, title);
-    }
-
-    /**
-     * Applies title bar styling to a dialog based on current theme configuration.
-     */
-    public static void maybeApplyMacTitleBar(JDialog dialog, String title) {
-        if (!SystemInfo.isMacOS || !SystemInfo.isMacFullWindowContentSupported) {
-            return;
-        }
-        applyTitleBarInternal(dialog, title);
-    }
-
-    /**
      * Updates title bar styling for all managed windows (frames and dialogs) when theme changes.
      */
     public static void updateAllTitleBars() {
@@ -62,14 +41,6 @@ public class ThemeTitleBarManager {
     public static void updateTitleBarStyling(JFrame frame) {
         var config = loadTitleBarConfig();
         updateTitleBarStylingInternal(frame, config);
-    }
-
-    /**
-     * Updates title bar styling for a specific dialog.
-     */
-    public static void updateTitleBarStyling(JDialog dialog) {
-        var config = loadTitleBarConfig();
-        updateTitleBarStylingInternal(dialog, config);
     }
 
     /**
@@ -95,29 +66,36 @@ public class ThemeTitleBarManager {
     }
 
     /**
-     * Internal implementation that applies title bar to any RootPaneContainer (JFrame or JDialog).
+     * Applies title bar to any RootPaneContainer (JFrame or JDialog).
      */
-    private static void applyTitleBarInternal(RootPaneContainer container, String title) {
-        Component windowComponent = (Component) container;
-        Window window = windowComponent instanceof Window w ? w : null;
+    public static void maybeApplyMacTitleBar(RootPaneContainer container, String title) {
+        if (!SystemInfo.isMacOS || !SystemInfo.isMacFullWindowContentSupported) {
+            return;
+        }
 
-        var config = loadTitleBarConfig();
-        var titleBar = createTitleBar(title, config, window);
+        // invokeLater works around a bug in JDK 21; it seems to be unnecessary in 25
+        SwingUtilities.invokeLater(() -> {
+            Component windowComponent = (Component) container;
+            Window window = windowComponent instanceof Window w ? w : null;
 
-        Container contentPane = container.getContentPane();
-        contentPane.add(titleBar, BorderLayout.NORTH);
+            var config = loadTitleBarConfig();
+            var titleBar = createTitleBar(title, config, window);
 
-        // Store components for later updates
-        JRootPane rootPane = container.getRootPane();
-        rootPane.putClientProperty("brokk.titleBar", titleBar);
-        rootPane.putClientProperty("brokk.titleLabel", titleBar.getComponent(0));
-        rootPane.putClientProperty("brokk.titleBarConfig", config);
+            Container contentPane = container.getContentPane();
+            contentPane.add(titleBar, BorderLayout.NORTH);
 
-        managedWindows.add(container);
+            // Store components for later updates
+            JRootPane rootPane = container.getRootPane();
+            rootPane.putClientProperty("brokk.titleBar", titleBar);
+            rootPane.putClientProperty("brokk.titleLabel", titleBar.getComponent(0));
+            rootPane.putClientProperty("brokk.titleBarConfig", config);
 
-        // Revalidate layout after dynamically adding title bar
-        windowComponent.revalidate();
-        windowComponent.repaint();
+            managedWindows.add(container);
+
+            // Revalidate layout after dynamically adding title bar
+            windowComponent.revalidate();
+            windowComponent.repaint();
+        });
     }
 
     /**

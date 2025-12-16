@@ -7,6 +7,7 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.gui.theme.ThemeTitleBarManager;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.HashMap;
@@ -37,7 +38,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
         // Apply icon, macOS full-window-content, and title bar
         Chrome.applyIcon(this);
         Chrome.maybeApplyMacFullWindowContent(this);
-        Chrome.applyTitleBar(this, "Preview");
+        ThemeTitleBarManager.maybeApplyMacTitleBar(this, "Preview");
 
         // Create tabbed pane
         tabbedPane = new JTabbedPane(JTabbedPane.TOP, JTabbedPane.SCROLL_TAB_LAYOUT);
@@ -319,7 +320,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
                     }
                 }
             }
-            Chrome.applyTitleBar(this, getTitle());
+            ThemeTitleBarManager.maybeApplyMacTitleBar(this, getTitle());
         });
     }
 
