@@ -1521,6 +1521,21 @@ public final class HeadlessExecutorMain {
 
             var brokkApiKey = getConfigValue(parsedArgs, "brokk-api-key", "BROKK_API_KEY");
 
+            var proxySettingStr = getConfigValue(parsedArgs, "proxy-setting", "PROXY_SETTING");
+            @Nullable
+            MainProject.LlmProxySetting proxySetting = null;
+            if (proxySettingStr != null && !proxySettingStr.isBlank()) {
+                try {
+                    proxySetting = MainProject.LlmProxySetting.valueOf(proxySettingStr.toUpperCase());
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException(
+                            "Invalid proxy setting: '"
+                                    + proxySettingStr
+                                    + "'. Must be one of: BROKK, LOCALHOST, STAGING",
+                            e);
+                }
+            }
+
             var workspaceDirStr = getConfigValue(parsedArgs, "workspace-dir", "WORKSPACE_DIR");
             if (workspaceDirStr == null || workspaceDirStr.isBlank()) {
                 throw new IllegalArgumentException(
@@ -1536,6 +1551,12 @@ public final class HeadlessExecutorMain {
             if (brokkApiKey != null && !brokkApiKey.isBlank()) {
                 MainProject.setHeadlessBrokkApiKeyOverride(brokkApiKey);
                 logger.info("Using executor-specific Brokk API key (length={})", brokkApiKey.length());
+            }
+
+            // Set per-executor proxy setting override if provided
+            if (proxySetting != null) {
+                MainProject.setHeadlessProxySettingOverride(proxySetting);
+                logger.info("Using executor-specific proxy setting: {}", proxySetting);
             }
 
             var derivedSessionsDir = workspaceDir.resolve(".brokk").resolve("sessions");
@@ -1555,6 +1576,8 @@ public final class HeadlessExecutorMain {
             System.out.println("  workspaceDir: " + workspaceDir);
             System.out.println("  brokkApiKey:  "
                     + (brokkApiKey != null && !brokkApiKey.isBlank() ? "(provided)" : "(using global config)"));
+            System.out.println("  proxySetting: "
+                    + (proxySetting != null ? proxySetting.name() : "(using global config)"));
             System.out.println();
             System.out.println("Health check endpoints (no auth required):");
             System.out.println("  GET /health/live  - executor liveness probe");
