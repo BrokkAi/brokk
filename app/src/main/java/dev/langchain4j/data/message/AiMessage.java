@@ -21,6 +21,7 @@ public class AiMessage implements ChatMessage {
 
     private final String text;
     private final String reasoningContent;
+    private final String thoughtSignature;
     private final List<ToolExecutionRequest> toolExecutionRequests;
 
     /**
@@ -31,6 +32,7 @@ public class AiMessage implements ChatMessage {
     public AiMessage(String text) {
         this.text = ensureNotNull(text, "text");
         this.reasoningContent = null;
+        this.thoughtSignature = null;
         this.toolExecutionRequests = List.of();
     }
 
@@ -42,6 +44,7 @@ public class AiMessage implements ChatMessage {
     public AiMessage(List<ToolExecutionRequest> toolExecutionRequests) {
         this.text = null;
         this.reasoningContent = null;
+        this.thoughtSignature = null;
         this.toolExecutionRequests = ensureNotEmpty(toolExecutionRequests, "toolExecutionRequests");
     }
 
@@ -54,6 +57,7 @@ public class AiMessage implements ChatMessage {
     public AiMessage(String text, List<ToolExecutionRequest> toolExecutionRequests) {
         this.text = text;
         this.reasoningContent = null;
+        this.thoughtSignature = null;
         this.toolExecutionRequests = copy(toolExecutionRequests);
     }
 
@@ -66,6 +70,7 @@ public class AiMessage implements ChatMessage {
     public AiMessage(String text, String reasoningContent) {
         this.text = text;
         this.reasoningContent = reasoningContent;
+        this.thoughtSignature = null;
         this.toolExecutionRequests = List.of();
     }
 
@@ -79,6 +84,41 @@ public class AiMessage implements ChatMessage {
     public AiMessage(String text, String reasoningContent, List<ToolExecutionRequest> toolExecutionRequests) {
         this.text = text;
         this.reasoningContent = reasoningContent;
+        this.thoughtSignature = null;
+        this.toolExecutionRequests = copy(toolExecutionRequests);
+    }
+
+    /**
+     * Create a new {@link AiMessage} with the given text, reasoning content and thought signature.
+     *
+     * @param text the text of the message.
+     * @param reasoningContent the reasoning content of the message.
+     * @param thoughtSignature the thought signature of the message.
+     */
+    public AiMessage(String text, String reasoningContent, String thoughtSignature) {
+        this.text = text;
+        this.reasoningContent = reasoningContent;
+        this.thoughtSignature = thoughtSignature;
+        this.toolExecutionRequests = List.of();
+    }
+
+    /**
+     * Create a new {@link AiMessage} with the given text, reasoning content, thought signature
+     * and tool execution requests.
+     *
+     * @param text the text of the message.
+     * @param reasoningContent the reasoning content of the message.
+     * @param thoughtSignature the thought signature of the message.
+     * @param toolExecutionRequests the tool execution requests of the message.
+     */
+    public AiMessage(
+            String text,
+            String reasoningContent,
+            String thoughtSignature,
+            List<ToolExecutionRequest> toolExecutionRequests) {
+        this.text = text;
+        this.reasoningContent = reasoningContent;
+        this.thoughtSignature = thoughtSignature;
         this.toolExecutionRequests = copy(toolExecutionRequests);
     }
 
@@ -98,6 +138,15 @@ public class AiMessage implements ChatMessage {
      */
     public String reasoningContent() {
         return reasoningContent;
+    }
+
+    /**
+     * Get the thought signature of the message.
+     *
+     * @return the thought signature of the message.
+     */
+    public String thoughtSignature() {
+        return thoughtSignature;
     }
 
     /**
@@ -130,18 +179,23 @@ public class AiMessage implements ChatMessage {
         AiMessage that = (AiMessage) o;
         return Objects.equals(this.text, that.text)
                 && Objects.equals(this.reasoningContent, that.reasoningContent)
+                && Objects.equals(this.thoughtSignature, that.thoughtSignature)
                 && Objects.equals(this.toolExecutionRequests, that.toolExecutionRequests);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(text, reasoningContent, toolExecutionRequests);
+        return Objects.hash(text, reasoningContent, thoughtSignature, toolExecutionRequests);
     }
 
     @Override
     public String toString() {
-        return "AiMessage {" + " reasoningContent = " + quoted(reasoningContent) + " text = " + quoted(text)
-                + " toolExecutionRequests = " + toolExecutionRequests + " }";
+        return "AiMessage {"
+                + " thoughtSignature = " + quoted(thoughtSignature)
+                + " reasoningContent = " + quoted(reasoningContent)
+                + " text = " + quoted(text)
+                + " toolExecutionRequests = " + toolExecutionRequests
+                + " }";
     }
 
     public static Builder builder() {
@@ -151,10 +205,22 @@ public class AiMessage implements ChatMessage {
     public static class Builder {
 
         private String text;
+        private String reasoningContent;
+        private String thoughtSignature;
         private List<ToolExecutionRequest> toolExecutionRequests;
 
         public Builder text(String text) {
             this.text = text;
+            return this;
+        }
+
+        public Builder reasoningContent(String reasoningContent) {
+            this.reasoningContent = reasoningContent;
+            return this;
+        }
+
+        public Builder thoughtSignature(String thoughtSignature) {
+            this.thoughtSignature = thoughtSignature;
             return this;
         }
 
@@ -164,7 +230,10 @@ public class AiMessage implements ChatMessage {
         }
 
         public AiMessage build() {
-            return new AiMessage(text, toolExecutionRequests);
+            if (toolExecutionRequests == null) {
+                return new AiMessage(text, reasoningContent, thoughtSignature);
+            }
+            return new AiMessage(text, reasoningContent, thoughtSignature, toolExecutionRequests);
         }
     }
 
@@ -187,6 +256,22 @@ public class AiMessage implements ChatMessage {
      */
     public static AiMessage from(String text, String reasoningContent) {
         return new AiMessage(text, reasoningContent);
+    }
+
+    /**
+     * Create a new {@link AiMessage} with the given text, reasoning content and thought signature.
+     *
+     * @param text the text of the message.
+     * @param reasoningContent the reasoning content of the message.
+     * @param thoughtSignature the thought signature of the message.
+     * @return the new {@link AiMessage}.
+     */
+    public static AiMessage from(String text, String reasoningContent, String thoughtSignature) {
+        return builder()
+                .text(text)
+                .reasoningContent(reasoningContent)
+                .thoughtSignature(thoughtSignature)
+                .build();
     }
 
     /**
@@ -231,6 +316,29 @@ public class AiMessage implements ChatMessage {
     public static AiMessage from(
             String text, String reasoningContent, List<ToolExecutionRequest> toolExecutionRequests) {
         return new AiMessage(text, reasoningContent, toolExecutionRequests);
+    }
+
+    /**
+     * Create a new {@link AiMessage} with the given text, reasoning content, thought signature
+     * and tool execution requests.
+     *
+     * @param text the text of the message.
+     * @param reasoningContent the reasoning content of the message.
+     * @param thoughtSignature the thought signature of the message.
+     * @param toolExecutionRequests the tool execution requests of the message.
+     * @return the new {@link AiMessage}.
+     */
+    public static AiMessage from(
+            String text,
+            String reasoningContent,
+            String thoughtSignature,
+            List<ToolExecutionRequest> toolExecutionRequests) {
+        return builder()
+                .text(text)
+                .reasoningContent(reasoningContent)
+                .thoughtSignature(thoughtSignature)
+                .toolExecutionRequests(toolExecutionRequests)
+                .build();
     }
 
     /**

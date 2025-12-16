@@ -33,6 +33,9 @@ public final class AssistantMessage implements Message {
     @JsonProperty
     private final String name;
 
+    @JsonProperty("thought_signature")
+    private final String thoughtSignature;
+
     @JsonProperty
     private final List<ToolCall> toolCalls;
 
@@ -47,6 +50,7 @@ public final class AssistantMessage implements Message {
         this.content = builder.content;
         this.name = builder.name;
         this.reasoningContent = builder.reasoningContent;
+        this.thoughtSignature = builder.thoughtSignature;
         this.toolCalls = builder.toolCalls;
         this.refusal = builder.refusal;
         this.functionCall = builder.functionCall;
@@ -62,6 +66,10 @@ public final class AssistantMessage implements Message {
 
     public String reasoningContent() {
         return reasoningContent;
+    }
+
+    public String thoughtSignature() {
+        return thoughtSignature;
     }
 
     public String name() {
@@ -91,6 +99,7 @@ public final class AssistantMessage implements Message {
         return Objects.equals(role, another.role)
                 && Objects.equals(content, another.content)
                 && Objects.equals(reasoningContent, another.reasoningContent)
+                && Objects.equals(thoughtSignature, another.thoughtSignature)
                 && Objects.equals(name, another.name)
                 && Objects.equals(toolCalls, another.toolCalls)
                 && Objects.equals(refusal, another.refusal)
@@ -103,6 +112,7 @@ public final class AssistantMessage implements Message {
         h += (h << 5) + Objects.hashCode(role);
         h += (h << 5) + Objects.hashCode(content);
         h += (h << 5) + Objects.hashCode(reasoningContent);
+        h += (h << 5) + Objects.hashCode(thoughtSignature);
         h += (h << 5) + Objects.hashCode(name);
         h += (h << 5) + Objects.hashCode(toolCalls);
         h += (h << 5) + Objects.hashCode(refusal);
@@ -116,6 +126,7 @@ public final class AssistantMessage implements Message {
                 + "role=" + role
                 + ", content=" + content
                 + ", reasoningContent=" + reasoningContent
+                + ", thoughtSignature=" + thoughtSignature
                 + ", name=" + name
                 + ", toolCalls=" + toolCalls
                 + ", refusal=" + refusal
@@ -139,6 +150,7 @@ public final class AssistantMessage implements Message {
         private String content;
         private String name;
         private String reasoningContent;
+        private String thoughtSignature;
         private List<ToolCall> toolCalls;
         private Boolean refusal;
 
@@ -152,6 +164,11 @@ public final class AssistantMessage implements Message {
 
         public Builder reasoningContent(String reasoningContent) {
             this.reasoningContent = reasoningContent;
+            return this;
+        }
+
+        public Builder thoughtSignature(String thoughtSignature) {
+            this.thoughtSignature = thoughtSignature;
             return this;
         }
 

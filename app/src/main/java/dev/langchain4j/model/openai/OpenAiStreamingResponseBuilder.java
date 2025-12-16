@@ -31,6 +31,7 @@ public class OpenAiStreamingResponseBuilder {
 
     private final StringBuffer contentBuilder = new StringBuffer();
     private final StringBuffer reasoningContentBuilder = new StringBuffer();
+    private final StringBuffer thoughtSignatureBuilder = new StringBuffer();
 
     private final StringBuffer toolNameBuilder = new StringBuffer();
     private final StringBuffer toolArgumentsBuilder = new StringBuffer();
@@ -103,6 +104,11 @@ public class OpenAiStreamingResponseBuilder {
             this.reasoningContentBuilder.append(reasoningContent);
         }
 
+        String thoughtSignature = delta.thoughtSignature();
+        if (!isNullOrEmpty(thoughtSignature)) {
+            this.thoughtSignatureBuilder.append(thoughtSignature);
+        }
+
         if (delta.functionCall() != null) {
             FunctionCall functionCall = delta.functionCall();
 
@@ -157,6 +163,11 @@ public class OpenAiStreamingResponseBuilder {
             reasoning = null;
         }
 
+        String thoughtSignature = thoughtSignatureBuilder.toString();
+        if (isNullOrBlank(thoughtSignature)) {
+            thoughtSignature = null;
+        }
+
         String toolName = toolNameBuilder.toString();
         if (!toolName.isEmpty()) {
             ToolExecutionRequest toolExecutionRequest = ToolExecutionRequest.builder()
@@ -164,7 +175,8 @@ public class OpenAiStreamingResponseBuilder {
                     .arguments(toolArgumentsBuilder.toString())
                     .build();
 
-            AiMessage aiMessage = AiMessage.from(text, reasoning, singletonList(toolExecutionRequest));
+            AiMessage aiMessage =
+                    AiMessage.from(text, reasoning, thoughtSignature, singletonList(toolExecutionRequest));
 
             return ChatResponse.builder()
                     .aiMessage(aiMessage)
@@ -181,7 +193,7 @@ public class OpenAiStreamingResponseBuilder {
                             .build())
                     .collect(toList());
 
-            AiMessage aiMessage = AiMessage.from(text, reasoning, toolExecutionRequests);
+            AiMessage aiMessage = AiMessage.from(text, reasoning, thoughtSignature, toolExecutionRequests);
 
             return ChatResponse.builder()
                     .aiMessage(aiMessage)
@@ -189,8 +201,8 @@ public class OpenAiStreamingResponseBuilder {
                     .build();
         }
 
-        if (text != null || reasoning != null) {
-            AiMessage aiMessage = AiMessage.from(text, reasoning, List.of());
+        if (text != null || reasoning != null || thoughtSignature != null) {
+            AiMessage aiMessage = AiMessage.from(text, reasoning, thoughtSignature, List.of());
 
             return ChatResponse.builder()
                     .aiMessage(aiMessage)

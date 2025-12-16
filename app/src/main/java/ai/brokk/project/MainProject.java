@@ -834,11 +834,12 @@ public final class MainProject extends AbstractProject {
     public static LlmProxySetting getProxySetting() {
         var props = loadGlobalProperties();
         String val = props.getProperty(LLM_PROXY_SETTING_KEY, LlmProxySetting.BROKK.name());
-        try {
-            return LlmProxySetting.valueOf(val);
-        } catch (IllegalArgumentException e) {
-            return LlmProxySetting.BROKK;
-        }
+        return LlmProxySetting.LOCALHOST;
+//        try {
+//            return LlmProxySetting.valueOf(val);
+//        } catch (IllegalArgumentException e) {
+//            return LlmProxySetting.BROKK;
+//        }
     }
 
     public static void setLlmProxySetting(LlmProxySetting setting) {

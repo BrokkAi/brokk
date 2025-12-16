@@ -25,9 +25,13 @@ public final class ToolMessage implements Message {
     @JsonProperty
     private final String content;
 
+    @JsonProperty
+    private final String name;
+
     public ToolMessage(Builder builder) {
         this.toolCallId = builder.toolCallId;
         this.content = builder.content;
+        this.name = builder.name;
     }
 
     public Role role() {
@@ -42,6 +46,14 @@ public final class ToolMessage implements Message {
         return content;
     }
 
+    public String name() {
+        return name;
+    }
+
+    public static ToolMessage from(String toolCallId, String content) {
+        return from(toolCallId, content, null);
+    }
+
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
@@ -51,7 +63,8 @@ public final class ToolMessage implements Message {
     private boolean equalTo(ToolMessage another) {
         return Objects.equals(role, another.role)
                 && Objects.equals(toolCallId, another.toolCallId)
-                && Objects.equals(content, another.content);
+                && Objects.equals(content, another.content)
+                && Objects.equals(name, another.name);
     }
 
     @Override
@@ -60,16 +73,26 @@ public final class ToolMessage implements Message {
         h += (h << 5) + Objects.hashCode(role);
         h += (h << 5) + Objects.hashCode(toolCallId);
         h += (h << 5) + Objects.hashCode(content);
+        h += (h << 5) + Objects.hashCode(name);
         return h;
     }
 
     @Override
     public String toString() {
-        return "ToolMessage{" + "role=" + role + ", toolCallId=" + toolCallId + ", content=" + content + "}";
+        return "ToolMessage{"
+                + "role=" + role
+                + ", toolCallId=" + toolCallId
+                + ", content=" + content
+                + ", name=" + name
+                + "}";
     }
 
-    public static ToolMessage from(String toolCallId, String content) {
-        return ToolMessage.builder().toolCallId(toolCallId).content(content).build();
+    public static ToolMessage from(String toolCallId, String content, String name) {
+        return ToolMessage.builder()
+                .toolCallId(toolCallId)
+                .content(content)
+                .name(name)
+                .build();
     }
 
     public static Builder builder() {
@@ -83,6 +106,7 @@ public final class ToolMessage implements Message {
 
         private String toolCallId;
         private String content;
+        private String name;
 
         public Builder toolCallId(String toolCallId) {
             this.toolCallId = toolCallId;
@@ -91,6 +115,11 @@ public final class ToolMessage implements Message {
 
         public Builder content(String content) {
             this.content = content;
+            return this;
+        }
+
+        public Builder name(String name) {
+            this.name = name;
             return this;
         }
 

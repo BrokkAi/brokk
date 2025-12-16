@@ -1518,14 +1518,8 @@ public class Llm {
         }
 
         public AiMessage aiMessage() {
-            var messageText = text == null ? "" : text;
-            if (messageText.isBlank() && !toolRequests.isEmpty()) {
-                // Works around crazy-ass Anthropic bug where they don't allow empty text
-                // but sometimes return empty themselves as part of a tool call response.
-                // See https://github.com/BrokkAi/brokk/pull/1556
-                messageText = "Tool calls";
-            }
-            return new AiMessage(messageText, reasoningContent, toolRequests);
+            var thoughtSignature = originalResponse == null ? null : originalResponse.aiMessage().thoughtSignature();
+            return new AiMessage(text, reasoningContent, thoughtSignature, toolRequests);
         }
     }
 
