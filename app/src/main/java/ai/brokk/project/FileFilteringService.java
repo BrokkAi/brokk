@@ -101,8 +101,18 @@ public final class FileFilteringService {
     /**
      * Determine if a directory is ignored by gitignore rules.
      * Returns false on error.
+     * @deprecated Use {@link #isGitignored(Path)} instead
      */
+    @Deprecated
     public boolean isDirectoryIgnored(Path directoryRelPath) {
+        return isGitignored(directoryRelPath);
+    }
+
+    /**
+     * Determine if a path (file or directory) is ignored by gitignore rules.
+     * Returns false on error or if no git repo.
+     */
+    public boolean isGitignored(Path relPath) {
         if (!(repo instanceof GitRepo gitRepo)) {
             return false;
         }
@@ -116,7 +126,7 @@ public final class FileFilteringService {
 
         var fixedGitignorePairs = computeFixedGitignorePairs(gitRepo, gitTopLevel);
 
-        return isPathIgnored(gitRepo, directoryRelPath, fixedGitignorePairs);
+        return isPathIgnored(gitRepo, relPath, fixedGitignorePairs);
     }
 
     public Optional<Path> getGlobalGitignorePath() {

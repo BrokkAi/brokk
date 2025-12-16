@@ -350,7 +350,9 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             Path rel = rootAbs.relativize(dirAbs).normalize();
             if (rel.getNameCount() > 0) { // avoid toggling the project root
                 String relStr = rel.toString();
-                boolean effectiveExcluded = project.isPathExcluded(relStr, true);
+                boolean patternExcluded = project.isPathExcluded(relStr, true);
+                boolean gitignored = project.isGitignored(rel);
+                boolean effectiveExcluded = patternExcluded || gitignored;
                 // Canonicalize relStr to align with settings' persistence format
                 String canonicalRel =
                         PathNormalizer.canonicalizeForProject(relStr, project.getMasterRootPathForConfig());
@@ -359,7 +361,11 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                         effectiveExcluded ? "Include in Code Intelligence" : "Exclude from Code Intelligence";
 
                 JMenuItem toggleCiItem = new JMenuItem(toggleLabel);
-                if (effectiveExcluded && !directlyExcluded) {
+                if (gitignored) {
+                    // Gitignore exclusions are read-only
+                    toggleCiItem.setEnabled(false);
+                    toggleCiItem.setToolTipText("Excluded via .gitignore");
+                } else if (patternExcluded && !directlyExcluded) {
                     String ancestor = Objects.requireNonNullElse(findExcludingPattern(relStr), "(parent)");
                     toggleCiItem.setEnabled(false);
                     toggleCiItem.setToolTipText("Excluded via pattern '" + ancestor + "'");
@@ -1120,8 +1126,10 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                     Path relativePath = project.getRoot().relativize(file.toPath());
                     String relativePathStr = relativePath.toString();
 
-                    // Color CI-excluded paths (directories and files) grey
-                    if (project.isPathExcluded(relativePathStr, file.isDirectory())) {
+                    // Color CI-excluded paths grey: check both LLM patterns AND gitignore
+                    boolean patternExcluded = project.isPathExcluded(relativePathStr, file.isDirectory());
+                    boolean gitignored = project.isGitignored(relativePath);
+                    if (patternExcluded || gitignored) {
                         setForeground(ThemeColors.getColor(ThemeColors.CI_EXCLUDED_FOREGROUND));
                     } else if (file.isFile()) {
                         // Color untracked files red (only for files not excluded)

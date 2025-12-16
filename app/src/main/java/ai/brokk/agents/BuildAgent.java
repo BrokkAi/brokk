@@ -168,7 +168,7 @@ public class BuildAgent {
                         }
 
                         // Check if this directory is gitignored
-                        if (project.isDirectoryIgnored(relPath)) {
+                        if (project.isGitignored(relPath)) {
                             currentExcludedDirectories.add(unixPath);
                             addedFromGitignore.add(unixPath);
                             return FileVisitResult.SKIP_SUBTREE; // Don't descend into ignored dirs
@@ -390,45 +390,32 @@ public class BuildAgent {
                     List<String> excludedFilePatterns) {
         logger.debug("Raw excludedDirectories from LLM: {}", excludedDirectories);
         logger.debug("Raw excludedFilePatterns from LLM: {}", excludedFilePatterns);
-        logger.debug("Baseline excludedDirectories: {}", currentExcludedDirectories);
+        logger.debug("Baseline excludedDirectories (from gitignore, not stored): {}", currentExcludedDirectories);
 
-        // Combine baseline excluded directories with those suggested by the LLM
-        // Filter out glob patterns defensively for directory exclusions
-        var dirExcludes = Stream.concat(this.currentExcludedDirectories.stream(), excludedDirectories.stream())
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .filter(s -> !containsGlobPattern(s))
-                .map(s -> Path.of(s).normalize().toString())
-                .collect(Collectors.toSet());
-
-        // File patterns - allow globs
-        var filePatterns = excludedFilePatterns.stream()
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .collect(Collectors.toSet());
-
-        logger.debug("Processed dirExcludes: {}", dirExcludes);
-        logger.debug("Processed filePatterns: {}", filePatterns);
-
-        // Merge both into unified exclusionPatterns
-        var finalPatterns = new LinkedHashSet<String>();
-        finalPatterns.addAll(dirExcludes);
-        finalPatterns.addAll(filePatterns);
-
-        // Track what came from LLM only (not gitignore baseline) - for UI highlighting
+        // Only store LLM-suggested patterns, NOT the gitignore baseline
+        // Gitignore exclusions are handled separately by FileFilteringService
         var llmDirPatterns = excludedDirectories.stream()
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .filter(s -> !containsGlobPattern(s))
                 .map(s -> Path.of(s).normalize().toString())
                 .collect(Collectors.toSet());
-        var llmPatterns = new LinkedHashSet<String>();
-        llmPatterns.addAll(llmDirPatterns);
-        llmPatterns.addAll(filePatterns);
-        this.llmAddedPatterns = llmPatterns;
 
-        logger.debug("Final merged exclusionPatterns: {}", finalPatterns);
-        logger.debug("LLM-added patterns (for highlighting): {}", llmPatterns);
+        var filePatterns = excludedFilePatterns.stream()
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
+
+        logger.debug("Processed LLM dirExcludes: {}", llmDirPatterns);
+        logger.debug("Processed filePatterns: {}", filePatterns);
+
+        // Only LLM patterns go into exclusionPatterns (gitignore handles baseline)
+        var finalPatterns = new LinkedHashSet<String>();
+        finalPatterns.addAll(llmDirPatterns);
+        finalPatterns.addAll(filePatterns);
+        this.llmAddedPatterns = finalPatterns;
+
+        logger.debug("Final exclusionPatterns (LLM only): {}", finalPatterns);
         this.reportedDetails = new BuildDetails(
                 buildLintCommand, testAllCommand, testSomeCommand, finalPatterns, defaultEnvForProject());
         logger.debug("reportBuildDetails tool executed. Exclusion patterns: {}", finalPatterns);
