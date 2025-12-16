@@ -168,6 +168,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Publicly exposed flag for the exact TaskScope window
     private final AtomicBoolean taskScopeInProgress = new AtomicBoolean(false);
 
+    // Indicates the ContextManager is shutting down. Long-running tasks (e.g., history compression)
+    // should check this flag and exit early to avoid blocking shutdown.
+    private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
+
     @Override
     public ExecutorService getBackgroundTasks() {
         return backgroundTasks;
@@ -805,6 +809,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * THE PROVIDED TASK IS RESPONSIBLE FOR HANDLING InterruptedException WITHOUT PROPAGATING IT FURTHER.
      */
     public CompletableFuture<Void> submitLlmAction(ThrowingRunnable task) {
+        // Short-circuit new LLM submissions if shutdown has begun.
+        if (shuttingDown.get()) {
+            logger.debug("Rejecting new LLM action: ContextManager is shutting down");
+            return CompletableFuture.failedFuture(new CancellationException("ContextManager is shutting down"));
+        }
         return userActions.submitLlmAction(task);
     }
 
@@ -1413,6 +1422,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public CompletableFuture<Void> closeAsync(long awaitMillis) {
+        // Signal shutdown so long-running background work can short-circuit.
+        shuttingDown.set(true);
+
+        // Proactively interrupt any active LLM action so shutdown can proceed promptly.
+        try {
+            userActions.cancelActiveAction();
+            logger.debug("Requested interruption of active LLM action during shutdown");
+        } catch (Throwable t) {
+            logger.debug("Failed to interrupt active LLM action during shutdown", t);
+        }
         // Cancel BuildAgent task if still running
         if (buildAgentFuture != null && !buildAgentFuture.isDone()) {
             logger.debug("Cancelling BuildAgent task due to ContextManager shutdown");
@@ -2775,6 +2794,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * called from other exclusive-tasks (or it will deadlock).
      */
     public CompletableFuture<?> compressHistoryAsync() {
+        if (shuttingDown.get()) {
+            logger.debug("Skipping history compression because shutdown is in progress");
+            return CompletableFuture.completedFuture(null);
+        }
         return submitLlmAction(() -> {
             try {
                 compressHistory();
@@ -2787,6 +2810,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     @Blocking
     public void compressHistory() throws InterruptedException {
+        if (shuttingDown.get()) {
+            logger.debug("Skipping history compression during shutdown");
+            return;
+        }
+
         io.disableHistoryPanel();
         try {
             // Operate on the task history
