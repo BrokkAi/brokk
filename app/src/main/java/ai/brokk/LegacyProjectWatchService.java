@@ -1,12 +1,16 @@
 package ai.brokk;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.analyzer.ProjectFile;
 import java.awt.KeyboardFocusManager;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.*;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -47,6 +51,9 @@ public class LegacyProjectWatchService implements IWatchService {
     private final Path globalGitignoreRealPath;
 
     private final List<Listener> listeners;
+
+    /** Track WatchKeys for git metadata directories to avoid path comparison issues on Windows */
+    private final Set<WatchKey> gitMetadataKeys = ConcurrentHashMap.newKeySet();
 
     private volatile boolean running = true;
     private volatile int pauseCount = 0;
@@ -250,14 +257,37 @@ public class LegacyProjectWatchService implements IWatchService {
             }
 
             // Convert to ProjectFile - handle paths outside root (e.g., git metadata in worktrees)
+            // Use key membership check first, then fall back to path comparison with toRealPath
+            // normalization for Windows compatibility (8.3 short names, case differences)
             Path relativized;
             Path baseForFile;
-            if (gitMetaDir != null && gitRepoRoot != null && eventPath.startsWith(gitMetaDir)) {
+            boolean isGitMetadataEvent = gitMetaDir != null && gitRepoRoot != null && gitMetadataKeys.contains(key);
+
+            // Normalize event path for git metadata events (needed for relativization on Windows
+            // where 8.3 short names like RUNNER~1 differ from long names like runneradmin)
+            Path normalizedEventPath = eventPath;
+            if (gitMetaDir != null && gitRepoRoot != null) {
+                try {
+                    normalizedEventPath = eventPath.toRealPath();
+                    // Also check path-based membership as fallback if key check failed
+                    if (!isGitMetadataEvent) {
+                        isGitMetadataEvent = normalizedEventPath.startsWith(gitMetaDir);
+                    }
+                } catch (IOException ignored) {
+                    // File might be deleted during event processing; try direct comparison
+                    if (!isGitMetadataEvent) {
+                        isGitMetadataEvent = eventPath.startsWith(gitMetaDir);
+                    }
+                }
+            }
+
+            if (isGitMetadataEvent) {
                 // Git metadata event from external location (e.g., worktree pointing to main repo's .git).
                 // INVARIANT: FileWatcherHelper.isGitMetadataChanged() requires relative paths to start
                 // with ".git/" prefix, so we reconstruct the path as .git/<relative-to-gitMetaDir>
-                relativized = Path.of(".git").resolve(gitMetaDir.relativize(eventPath));
-                baseForFile = gitRepoRoot;
+                // isGitMetadataEvent can only be true when gitMetaDir and gitRepoRoot are non-null
+                relativized = Path.of(".git").resolve(requireNonNull(gitMetaDir).relativize(normalizedEventPath));
+                baseForFile = requireNonNull(gitRepoRoot);
                 logger.trace("Git metadata event (external): {} -> relative: {}", eventPath, relativized);
             } else {
                 try {
@@ -274,7 +304,7 @@ public class LegacyProjectWatchService implements IWatchService {
             // If it's a directory creation, register it so we can watch its children
             if (event.kind() == StandardWatchEventKinds.ENTRY_CREATE && Files.isDirectory(eventPath)) {
                 try {
-                    if (gitMetaDir != null && eventPath.startsWith(gitMetaDir)) {
+                    if (isGitMetadataEvent) {
                         // Do not exclude .git if the created directory is under git metadata
                         registerGitMetadata(eventPath, watchService);
                     } else {
@@ -288,6 +318,7 @@ public class LegacyProjectWatchService implements IWatchService {
 
         // If the key is no longer valid, we can't watch this path anymore
         if (!key.reset()) {
+            gitMetadataKeys.remove(key);
             logger.warn("Watch key no longer valid: {}", key.watchable());
         }
     }
@@ -350,11 +381,12 @@ public class LegacyProjectWatchService implements IWatchService {
             try (var walker = Files.walk(start)) {
                 walker.filter(Files::isDirectory).forEach(dir -> {
                     try {
-                        dir.register(
+                        var key = dir.register(
                                 watchService,
                                 StandardWatchEventKinds.ENTRY_CREATE,
                                 StandardWatchEventKinds.ENTRY_DELETE,
                                 StandardWatchEventKinds.ENTRY_MODIFY);
+                        gitMetadataKeys.add(key);
                     } catch (IOException e) {
                         logger.warn("Failed to register git metadata directory for watching: {}", dir, e);
                     }

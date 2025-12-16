@@ -53,7 +53,12 @@ public interface IWatchService extends AutoCloseable {
                 logger.warn("Failed to read .git file for worktree resolution: {}", e.getMessage());
             }
         }
-        return gitPath;
+        // Normalize path for consistent comparison (handles symlinks on macOS, 8.3 names on Windows)
+        try {
+            return gitPath.toRealPath();
+        } catch (IOException ignored) {
+            return gitPath;
+        }
     }
 
     default void start(CompletableFuture<?> delayNotificationsUntilCompleted) {}
