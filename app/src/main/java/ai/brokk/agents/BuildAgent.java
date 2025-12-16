@@ -320,34 +320,34 @@ public class BuildAgent {
                 %s
                 Only fall back to the bare command (`gradle`, `mvn` …) when no wrapper script is present.
 
-                A baseline set of exclusions has been established from build conventions and .gitignore.
-                When you use `reportBuildDetails`, the `exclusionPatterns` parameter should contain *additional* patterns
+                A baseline set of excluded directories has been established from build conventions and .gitignore: %s
+                When you use `reportBuildDetails`, the `excludedDirectories` parameter should contain *additional* directories
                 you identify that should be excluded from code intelligence, beyond this baseline.
+                IMPORTANT: Only provide literal directory names. DO NOT use glob patterns (e.g., "**/target", "**/.idea"),
+                these are already handled by .gitignore processing.
 
-                The `exclusionPatterns` parameter accepts two types of patterns:
-                - Directory names (PREFERRED): e.g., 'build', 'node_modules', 'vendor', '.gradle'.
-                  A directory name automatically matches at any depth in the project.
-                  For example, 'build' matches 'build/', 'build/foo.class', AND 'subproject/build/'.
-                - Glob patterns (only when needed): e.g., '*.svg', '*.min.js' for file extensions.
-                  Use globs ONLY for extension patterns. Do NOT use '**/' prefix - directory names already match at any depth.
+                Use the `excludedFilePatterns` parameter to specify patterns for files that add cost without value.
+                IMPORTANT pattern format rules:
+                - For file extensions, use simple `*.ext` format (e.g., `*.svg`, `*.png`) - do NOT use `**/*.ext`
+                - For specific filenames, use the literal name (e.g., `package-lock.json`) - do NOT use `**/filename`
+                - Do NOT duplicate directories here - if a directory is in `excludedDirectories`, don't add it as a pattern
 
-                Look for patterns specific to this project. Examples of common exclusions include:
-                - Lock files (e.g., package-lock.json, yarn.lock, Cargo.lock, poetry.lock, go.sum)
-                - Binary/media files (e.g., *.svg, *.png, *.woff, *.ttf)
-                - Minified files (e.g., *.min.js, *.min.css)
-                - Generated code directories (e.g., generated, gen) - use directory name, NOT **/generated/**
-                - Vendored dependencies (e.g., vendor, node_modules if not gitignored)
-                - Large data files or logs
+                Common file pattern exclusions (only include if present in this project):
+                - Lock files: package-lock.json, yarn.lock, pnpm-lock.yaml
+                - Binary/media files: *.svg, *.png, *.gif, *.jpg, *.woff, *.ttf
+                - Minified files: *.min.js, *.min.css
+                - Build artifacts: *.jar (if not needed for analysis)
 
                 Do NOT exclude: configuration files, type definitions (*.d.ts, ddl files, etc), schema files (OpenAPI, GraphQL, Protobuf sources, etc), or test code.
 
                 This project's primary language is %s. Consider language-specific exclusions that are appropriate.
 
                 Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
-                The reportBuildDetails tool expects exactly four parameters: buildLintCommand, testAllCommand, testSomeCommand, and exclusionPatterns.
+                The reportBuildDetails tool expects exactly five parameters: buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, and excludedFilePatterns.
                 """
                         .formatted(
                                 wrapperScriptInstruction,
+                                currentExcludedDirectories,
                                 project.getBuildLanguage().name())));
 
         // Add existing history
@@ -373,25 +373,39 @@ public class BuildAgent {
                             "Command template to run specific tests using Mustache templating. Should use either a {{classes}}, {{fqclasses}}, or a {{files}} variable. Again, if no class- or file- based framework is in use, leave it blank.")
                     String testSomeCommand,
             @P(
-                            "List of patterns to exclude from code intelligence. PREFER directory names (e.g., 'build', 'node_modules', 'vendor') which match at any depth. Only use glob patterns (e.g., '*.svg') for file extensions. Do NOT use **/dir/** patterns.")
-                    List<String> exclusionPatterns) {
-        // DEBUG: print raw values from LLM
-        System.out.println("[BuildAgent DEBUG] Raw exclusionPatterns from LLM: " + exclusionPatterns);
-        System.out.println("[BuildAgent DEBUG] currentExcludedDirectories (baseline): " + currentExcludedDirectories);
+                            "List of directories to exclude from code intelligence (e.g., generated code, build artifacts). Use literal paths, not glob patterns.")
+                    List<String> excludedDirectories,
+            @P(
+                            "List of file patterns to exclude. Use '*.ext' for extensions (e.g., '*.svg'), literal names for specific files (e.g., 'package-lock.json'). Do NOT use **/ prefix or duplicate directories.")
+                    List<String> excludedFilePatterns) {
+        logger.debug("Raw excludedDirectories from LLM: {}", excludedDirectories);
+        logger.debug("Raw excludedFilePatterns from LLM: {}", excludedFilePatterns);
+        logger.debug("Baseline excludedDirectories: {}", currentExcludedDirectories);
+
         // Combine baseline excluded directories with those suggested by the LLM
-        var finalPatterns = Stream.concat(this.currentExcludedDirectories.stream(), exclusionPatterns.stream())
+        // Filter out glob patterns defensively for directory exclusions
+        var dirExcludes = Stream.concat(this.currentExcludedDirectories.stream(), excludedDirectories.stream())
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
-                .map(s -> {
-                    // Normalize simple directory names (no wildcards, no path separators)
-                    if (!containsGlobPattern(s) && !s.contains("/") && !s.contains("\\")) {
-                        return Path.of(s).normalize().toString();
-                    }
-                    return s;
-                })
+                .filter(s -> !containsGlobPattern(s))
+                .map(s -> Path.of(s).normalize().toString())
                 .collect(Collectors.toSet());
 
-        System.out.println("[BuildAgent DEBUG] Final merged exclusionPatterns: " + finalPatterns);
+        // File patterns - allow globs
+        var filePatterns = excludedFilePatterns.stream()
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
+
+        logger.debug("Processed dirExcludes: {}", dirExcludes);
+        logger.debug("Processed filePatterns: {}", filePatterns);
+
+        // Merge both into unified exclusionPatterns
+        var finalPatterns = new LinkedHashSet<String>();
+        finalPatterns.addAll(dirExcludes);
+        finalPatterns.addAll(filePatterns);
+
+        logger.debug("Final merged exclusionPatterns: {}", finalPatterns);
         this.reportedDetails = new BuildDetails(
                 buildLintCommand, testAllCommand, testSomeCommand, finalPatterns, defaultEnvForProject());
         logger.debug("reportBuildDetails tool executed. Exclusion patterns: {}", finalPatterns);
