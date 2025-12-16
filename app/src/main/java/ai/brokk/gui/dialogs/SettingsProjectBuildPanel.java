@@ -78,6 +78,9 @@ public class SettingsProjectBuildPanel extends JPanel {
     // Pending BuildDetails from agent run, saved on Apply/OK
     @Nullable
     private BuildAgent.BuildDetails pendingBuildDetails;
+    // LLM-added patterns from the most recent agent run (for UI highlighting)
+    @Nullable
+    private Set<String> pendingLlmAddedPatterns;
 
     private final JPanel bannerPanel;
 
@@ -405,7 +408,8 @@ public class SettingsProjectBuildPanel extends JPanel {
                             try {
                                 if (detailsResult != null
                                         && !Objects.equals(detailsResult, BuildAgent.BuildDetails.EMPTY)) {
-                                    updateBuildDetailsFieldsFromAgent(detailsResult);
+                                    // No LLM patterns when loading from storage - don't highlight
+                                    updateBuildDetailsFieldsFromAgent(detailsResult, null);
                                 }
                             } catch (Exception e) {
                                 logger.warn("Error while applying build details from future: {}", e.getMessage(), e);
@@ -668,10 +672,12 @@ public class SettingsProjectBuildPanel extends JPanel {
                         }
                     });
                 } else {
+                    var llmPatterns = agent.getLlmAddedPatterns();
                     SwingUtilities.invokeLater(() -> {
                         // Store pending details for later save on Apply/OK
                         pendingBuildDetails = newBuildDetails;
-                        updateBuildDetailsFieldsFromAgent(newBuildDetails);
+                        pendingLlmAddedPatterns = llmPatterns;
+                        updateBuildDetailsFieldsFromAgent(newBuildDetails, llmPatterns);
                         chrome.showNotification(
                                 IConsoleIO.NotificationRole.INFO, "Build Agent finished. Review and apply settings.");
                     });
@@ -711,7 +717,8 @@ public class SettingsProjectBuildPanel extends JPanel {
                 .forEach(control -> control.setEnabled(enabled));
     }
 
-    private void updateBuildDetailsFieldsFromAgent(BuildAgent.BuildDetails details) {
+    private void updateBuildDetailsFieldsFromAgent(
+            BuildAgent.BuildDetails details, @Nullable Set<String> llmAddedPatterns) {
         SwingUtilities.invokeLater(() -> {
             // Update this panel's fields
             buildCleanCommandField.setText(details.buildLintCommand());
@@ -721,7 +728,7 @@ public class SettingsProjectBuildPanel extends JPanel {
             // Also refresh the CI exclusions list in the parent SettingsProjectPanel
             try {
                 var spp = parentDialog.getProjectPanel();
-                spp.updateExclusionPatterns(details.exclusionPatterns());
+                spp.updateExclusionPatternsFromAgent(details.exclusionPatterns(), llmAddedPatterns);
             } catch (Exception ex) {
                 logger.warn("Failed to update CI exclusions list from agent details: {}", ex.getMessage(), ex);
             }

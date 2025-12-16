@@ -63,6 +63,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private final JScrollPane exclusionPatternsScrollPane = new JScrollPane(exclusionPatternsList);
     private final MaterialButton addExclusionButton = new MaterialButton();
     private final MaterialButton removeExclusionButton = new MaterialButton();
+    private final Set<String> newlyAddedPatterns = new HashSet<>(); // Track patterns added by BuildAgent or manually
+    private final Set<String> baselinePatterns =
+            new TreeSet<>(String.CASE_INSENSITIVE_ORDER); // Patterns loaded from storage
 
     // Dependency auto-update (Code Intelligence tab)
     private final JCheckBox autoUpdateLocalDependenciesCheckBox =
@@ -253,12 +256,35 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
     // Update exclusion patterns list model safely and consistently (EDT, sorted, deduped case-insensitively)
     public void updateExclusionPatterns(@Nullable Collection<String> patterns) {
+        updateExclusionPatternsInternal(patterns, null);
+    }
+
+    // Update exclusion patterns from BuildAgent, marking LLM additions for highlighting
+    public void updateExclusionPatternsFromAgent(
+            @Nullable Collection<String> patterns, @Nullable Set<String> llmAddedPatterns) {
+        updateExclusionPatternsInternal(patterns, llmAddedPatterns);
+    }
+
+    private void updateExclusionPatternsInternal(
+            @Nullable Collection<String> patterns, @Nullable Set<String> llmPatternsToHighlight) {
         Runnable r = () -> {
             try {
                 var unique = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
                 if (patterns != null) {
                     unique.addAll(patterns);
                 }
+
+                if (llmPatternsToHighlight != null) {
+                    // From agent: highlight only the LLM-added patterns
+                    newlyAddedPatterns.clear();
+                    newlyAddedPatterns.addAll(llmPatternsToHighlight);
+                } else {
+                    // Loading from storage: update baseline and clear tracking
+                    baselinePatterns.clear();
+                    baselinePatterns.addAll(unique);
+                    newlyAddedPatterns.clear();
+                }
+
                 exclusionPatternsListModel.clear();
                 for (String p : unique) {
                     exclusionPatternsListModel.addElement(p);
@@ -874,11 +900,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcExcl.weightx = 0.0;
         gbcExcl.anchor = GridBagConstraints.NORTHWEST;
         var exclusionsLabel = new JLabel("Exclusion Patterns:");
-        exclusionsLabel.setToolTipText(
-                "<html>Patterns to exclude from Code Intelligence.<br>"
-                        + "Directory names (e.g., 'build', 'node_modules') match at any depth.<br>"
-                        + "File patterns (e.g., '*.svg', 'package-lock.json') match files.<br>"
-                        + "Additional exclusions from .gitignore are applied automatically.</html>");
+        exclusionsLabel.setToolTipText("<html>Patterns to exclude from Code Intelligence.<br>"
+                + "Directory names (e.g., 'build', 'node_modules') match at any depth.<br>"
+                + "File patterns (e.g., '*.svg', 'package-lock.json') match files.<br>"
+                + "Additional exclusions from .gitignore are applied automatically.</html>");
         exclusionsPanel.add(exclusionsLabel, gbcExcl);
         exclusionPatternsList.setVisibleRowCount(5);
         gbcExcl.gridx = 1;
@@ -903,6 +928,22 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcExcl.anchor = GridBagConstraints.WEST;
         exclusionsPanel.add(exclusionButtonsPanel, gbcExcl);
 
+        // Custom cell renderer to highlight newly added patterns with italics and muted color
+        exclusionPatternsList.setCellRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(
+                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                var c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof String s && newlyAddedPatterns.contains(s)) {
+                    c.setFont(c.getFont().deriveFont(Font.ITALIC));
+                    if (!isSelected) {
+                        c.setForeground(UIManager.getColor("Label.disabledForeground"));
+                    }
+                }
+                return c;
+            }
+        });
+
         // Wire add/remove actions for the exclusion patterns buttons.
         this.addExclusionButton.addActionListener(e -> {
             String newPattern = JOptionPane.showInputDialog(
@@ -915,6 +956,11 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 // Use case-insensitive set for proper deduplication
                 var unique = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
                 unique.addAll(Collections.list(exclusionPatternsListModel.elements()));
+
+                // Track as newly added if it's actually new
+                if (!unique.contains(trimmedPattern)) {
+                    newlyAddedPatterns.add(trimmedPattern);
+                }
                 unique.add(trimmedPattern);
 
                 exclusionPatternsListModel.clear();
@@ -923,8 +969,11 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         });
         this.removeExclusionButton.addActionListener(e -> {
             int[] selectedIndices = exclusionPatternsList.getSelectedIndices();
-            for (int i = selectedIndices.length - 1; i >= 0; i--)
+            for (int i = selectedIndices.length - 1; i >= 0; i--) {
+                String removed = exclusionPatternsListModel.getElementAt(selectedIndices[i]);
+                newlyAddedPatterns.remove(removed);
                 exclusionPatternsListModel.removeElementAt(selectedIndices[i]);
+            }
         });
 
         // Compose a north container that holds toolbar only
@@ -1306,8 +1355,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 if (pattern.contains("*") || pattern.contains("?")) {
                     exclusionPatterns.add(pattern);
                 } else {
-                    String canonicalized = PathNormalizer.canonicalizeForProject(
-                            pattern, project.getMasterRootPathForConfig());
+                    String canonicalized =
+                            PathNormalizer.canonicalizeForProject(pattern, project.getMasterRootPathForConfig());
                     if (!canonicalized.isBlank()) {
                         exclusionPatterns.add(canonicalized);
                     }

@@ -85,11 +85,21 @@ public class BuildAgent {
     private @Nullable String abortReason = null;
     // Field to store directories to exclude from code intelligence
     private List<String> currentExcludedDirectories = new ArrayList<>();
+    // Patterns that came directly from the LLM (not gitignore baseline)
+    private Set<String> llmAddedPatterns = Set.of();
 
     public BuildAgent(IProject project, Llm llm, ToolRegistry globalRegistry) {
         this.project = project;
         this.llm = llm;
         this.globalRegistry = globalRegistry;
+    }
+
+    /**
+     * Returns patterns that came directly from the LLM (not gitignore baseline).
+     * Call this after execute() to get patterns for UI highlighting.
+     */
+    public Set<String> getLlmAddedPatterns() {
+        return llmAddedPatterns;
     }
 
     /**
@@ -405,7 +415,20 @@ public class BuildAgent {
         finalPatterns.addAll(dirExcludes);
         finalPatterns.addAll(filePatterns);
 
+        // Track what came from LLM only (not gitignore baseline) - for UI highlighting
+        var llmDirPatterns = excludedDirectories.stream()
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .filter(s -> !containsGlobPattern(s))
+                .map(s -> Path.of(s).normalize().toString())
+                .collect(Collectors.toSet());
+        var llmPatterns = new LinkedHashSet<String>();
+        llmPatterns.addAll(llmDirPatterns);
+        llmPatterns.addAll(filePatterns);
+        this.llmAddedPatterns = llmPatterns;
+
         logger.debug("Final merged exclusionPatterns: {}", finalPatterns);
+        logger.debug("LLM-added patterns (for highlighting): {}", llmPatterns);
         this.reportedDetails = new BuildDetails(
                 buildLintCommand, testAllCommand, testSomeCommand, finalPatterns, defaultEnvForProject());
         logger.debug("reportBuildDetails tool executed. Exclusion patterns: {}", finalPatterns);
