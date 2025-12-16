@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -1521,6 +1522,20 @@ public final class HeadlessExecutorMain {
 
             var brokkApiKey = getConfigValue(parsedArgs, "brokk-api-key", "BROKK_API_KEY");
 
+            var proxySettingStr = getConfigValue(parsedArgs, "proxy-setting", "PROXY_SETTING");
+            @Nullable MainProject.LlmProxySetting proxySetting = null;
+            if (proxySettingStr != null && !proxySettingStr.isBlank()) {
+                try {
+                    proxySetting = MainProject.LlmProxySetting.valueOf(proxySettingStr.toUpperCase(Locale.ROOT));
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException(
+                            "Invalid proxy setting: '"
+                                    + proxySettingStr
+                                    + "'. Must be one of: BROKK, LOCALHOST, STAGING",
+                            e);
+                }
+            }
+
             var workspaceDirStr = getConfigValue(parsedArgs, "workspace-dir", "WORKSPACE_DIR");
             if (workspaceDirStr == null || workspaceDirStr.isBlank()) {
                 throw new IllegalArgumentException(
@@ -1536,6 +1551,12 @@ public final class HeadlessExecutorMain {
             if (brokkApiKey != null && !brokkApiKey.isBlank()) {
                 MainProject.setHeadlessBrokkApiKeyOverride(brokkApiKey);
                 logger.info("Using executor-specific Brokk API key (length={})", brokkApiKey.length());
+            }
+
+            // Set per-executor proxy setting override if provided
+            if (proxySetting != null) {
+                MainProject.setHeadlessProxySettingOverride(proxySetting);
+                logger.info("Using executor-specific proxy setting: {}", proxySetting);
             }
 
             var derivedSessionsDir = workspaceDir.resolve(".brokk").resolve("sessions");
@@ -1555,10 +1576,28 @@ public final class HeadlessExecutorMain {
             System.out.println("  workspaceDir: " + workspaceDir);
             System.out.println("  brokkApiKey:  "
                     + (brokkApiKey != null && !brokkApiKey.isBlank() ? "(provided)" : "(using global config)"));
+            System.out.println(
+                    "  proxySetting: " + (proxySetting != null ? proxySetting.name() : "(using global config)"));
             System.out.println();
-            System.out.println("Health check endpoints (no auth required):");
-            System.out.println("  GET /health/live  - executor liveness probe");
-            System.out.println("  GET /health/ready - returns 503 until a session is loaded");
+            System.out.println("Available HTTP Endpoints:");
+            System.out.println();
+            System.out.println("  Unauthenticated (Health & Info):");
+            System.out.println("    GET  /health/live       - executor liveness probe");
+            System.out.println("    GET  /health/ready      - readiness probe (503 until session loaded)");
+            System.out.println("    GET  /v1/executor       - executor info and protocol version");
+            System.out.println();
+            System.out.println("  Authenticated (require Authorization header):");
+            System.out.println("    POST /v1/sessions                 - create a new session by name");
+            System.out.println("    PUT  /v1/sessions                 - import/load a session from zip");
+            System.out.println("    POST /v1/jobs                     - create and start a job");
+            System.out.println("    GET  /v1/jobs/{jobId}             - get job status");
+            System.out.println("    GET  /v1/jobs/{jobId}/events      - stream job execution events");
+            System.out.println("    POST /v1/jobs/{jobId}/cancel      - cancel job execution");
+            System.out.println("    GET  /v1/jobs/{jobId}/diff        - get git diff for job");
+            System.out.println("    POST /v1/context/files            - add files to session context");
+            System.out.println("    POST /v1/context/classes          - add class summaries to context");
+            System.out.println("    POST /v1/context/methods          - add method sources to context");
+            System.out.println("    POST /v1/context/text             - add pasted text to context");
             System.out.println();
 
             // Create and start executor
