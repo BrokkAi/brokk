@@ -3179,21 +3179,22 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     }
                 })
                 .thenApplyAsync(result -> {
-                        // Precompute titles/contents and sorting OFF the EDT
-                        List<Map.Entry<String, Context.DiffEntry>> preparedSummaries = preparePerFileSummaries(result);
-                        // Update UI on EDT
-                        SwingUtilities.invokeLater(() -> {
-                            lastCumulativeChanges = result;
-                            setChangesTabTitleAndTooltip(result);
-                            updateChangesTabContentUi(result, preparedSummaries);
-                        });
-                        return result;
+                    // Precompute titles/contents and sorting OFF the EDT
+                    List<Map.Entry<String, Context.DiffEntry>> preparedSummaries = preparePerFileSummaries(result);
+                    // Update UI on EDT
+                    SwingUtilities.invokeLater(() -> {
+                        lastCumulativeChanges = result;
+                        setChangesTabTitleAndTooltip(result);
+                        updateChangesTabContentUi(result, preparedSummaries);
                     });
+                    return result;
+                });
     }
 
     // Build and insert the aggregated multi-file diff panel into the Changes tab using precomputed data.
     // Must be called on the EDT.
-    private void updateChangesTabContentUi(DiffService.CumulativeChanges res, List<Map.Entry<String, Context.DiffEntry>> prepared) {
+    private void updateChangesTabContentUi(
+            DiffService.CumulativeChanges res, List<Map.Entry<String, Context.DiffEntry>> prepared) {
         assert SwingUtilities.isEventDispatchThread() : "updateChangesTabContentUi must run on EDT";
         var container = changesTabPlaceholder;
         if (container == null) {
@@ -3251,7 +3252,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         container.repaint();
     }
 
-    private JPanel buildAggregatedChangesPanel(DiffService.CumulativeChanges res, List<Map.Entry<String, Context.DiffEntry>> prepared) {
+    private JPanel buildAggregatedChangesPanel(
+            DiffService.CumulativeChanges res, List<Map.Entry<String, Context.DiffEntry>> prepared) {
         var wrapper = new JPanel(new BorderLayout());
 
         // Build header with baseline label and buttons
@@ -3420,19 +3422,21 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private static List<Map.Entry<String, Context.DiffEntry>> preparePerFileSummaries(DiffService.CumulativeChanges res) {
-            var list = new ArrayList<Map.Entry<String, Context.DiffEntry>>(res.perFileChanges().size());
-            var seen = new HashSet<String>();
-            for (var de : res.perFileChanges()) {
-                    String title = de.title();
-                    if (!seen.add(title)) {
-                            logger.warn("Duplicate cumulative change title '{}' detected; skipping extra entry.", title);
-                            continue;
-                    }
-                    list.add(Map.entry(title, de));
+    private static List<Map.Entry<String, Context.DiffEntry>> preparePerFileSummaries(
+            DiffService.CumulativeChanges res) {
+        var list = new ArrayList<Map.Entry<String, Context.DiffEntry>>(
+                res.perFileChanges().size());
+        var seen = new HashSet<String>();
+        for (var de : res.perFileChanges()) {
+            String title = de.title();
+            if (!seen.add(title)) {
+                logger.warn("Duplicate cumulative change title '{}' detected; skipping extra entry.", title);
+                continue;
             }
-            list.sort(Comparator.comparing(Map.Entry::getKey));
-            return list;
+            list.add(Map.entry(title, de));
+        }
+        list.sort(Comparator.comparing(Map.Entry::getKey));
+        return list;
     }
 
     /**
