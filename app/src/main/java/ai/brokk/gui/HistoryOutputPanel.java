@@ -3179,24 +3179,21 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     }
                 })
                 .thenApplyAsync(result -> {
-                    List<Context.DiffEntry> preparedDiffs = new ArrayList<>(result.perFileChanges());
-                    preparedDiffs.sort(Comparator.comparing(Context.DiffEntry::title));
-                    List<String> preparedTitles = preparedDiffs.stream()
-                            .map(Context.DiffEntry::title)
-                            .toList();
-                    SwingUtilities.invokeLater(() -> {
-                        lastCumulativeChanges = result;
-                        setChangesTabTitleAndTooltip(result);
-                        updateChangesTabContentUi(result, preparedDiffs, preparedTitles);
+                        // Precompute titles/contents and sorting OFF the EDT
+                        List<Map.Entry<String, Context.DiffEntry>> preparedSummaries = preparePerFileSummaries(result);
+                        // Update UI on EDT
+                        SwingUtilities.invokeLater(() -> {
+                            lastCumulativeChanges = result;
+                            setChangesTabTitleAndTooltip(result);
+                            updateChangesTabContentUi(result, preparedSummaries);
+                        });
+                        return result;
                     });
-                    return result;
-                });
     }
 
     // Build and insert the aggregated multi-file diff panel into the Changes tab using precomputed data.
     // Must be called on the EDT.
-    private void updateChangesTabContentUi(
-            DiffService.CumulativeChanges res, List<Context.DiffEntry> prepared, List<String> preparedTitles) {
+    private void updateChangesTabContentUi(DiffService.CumulativeChanges res, List<Map.Entry<String, Context.DiffEntry>> prepared) {
         assert SwingUtilities.isEventDispatchThread() : "updateChangesTabContentUi must run on EDT";
         var container = changesTabPlaceholder;
         if (container == null) {
@@ -3238,7 +3235,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
 
         try {
-            var aggregatedPanel = buildAggregatedChangesPanel(res, prepared, preparedTitles);
+            var aggregatedPanel = buildAggregatedChangesPanel(res, prepared);
             container.setLayout(new BorderLayout());
             container.add(aggregatedPanel, BorderLayout.CENTER);
         } catch (Throwable t) {
@@ -3254,8 +3251,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         container.repaint();
     }
 
-    private JPanel buildAggregatedChangesPanel(
-            DiffService.CumulativeChanges res, List<Context.DiffEntry> prepared, List<String> preparedTitles) {
+    private JPanel buildAggregatedChangesPanel(DiffService.CumulativeChanges res, List<Map.Entry<String, Context.DiffEntry>> prepared) {
         var wrapper = new JPanel(new BorderLayout());
 
         // Build header with baseline label and buttons
@@ -3395,13 +3391,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 .setForceFileTree(true);
 
         // Use precomputed list in stable order; do not call Context.DiffEntry::title here
-        for (int i = 0; i < prepared.size(); i++) {
-            var de = prepared.get(i);
-            String path = preparedTitles.get(i);
-            String leftContent = de.oldContent();
-            String rightContent = de.newContent();
-            BufferSource left = new BufferSource.StringSource(leftContent, "", path, null);
-            BufferSource right = new BufferSource.StringSource(rightContent, "", path, null);
+        for (var entry : prepared) {
+            String path = entry.getKey();
+            Context.DiffEntry de = entry.getValue();
+            BufferSource left = new BufferSource.StringSource(de.oldContent(), "", path, null);
+            BufferSource right = new BufferSource.StringSource(de.newContent(), "", path, null);
             builder.addComparison(left, right);
         }
 
@@ -3426,7 +3420,16 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
     }
 
-
+    private static List<Map.Entry<String, Context.DiffEntry>> preparePerFileSummaries(DiffService.CumulativeChanges res) {
+        var list = new ArrayList<Map.Entry<String, Context.DiffEntry>>(res.perFileChanges().size());
+        for (var de : res.perFileChanges()) {
+            // Compute title off-EDT
+            String title = de.title();
+            list.add(Map.entry(title, de));
+        }
+        list.sort(Comparator.comparing(Map.Entry::getKey));
+        return list;
+    }
 
     /**
      * A LayerUI that paints reset-from-history arrows over the history table.
