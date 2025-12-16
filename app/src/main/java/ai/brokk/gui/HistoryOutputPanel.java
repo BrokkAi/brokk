@@ -3421,14 +3421,18 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     private static List<Map.Entry<String, Context.DiffEntry>> preparePerFileSummaries(DiffService.CumulativeChanges res) {
-        var list = new ArrayList<Map.Entry<String, Context.DiffEntry>>(res.perFileChanges().size());
-        for (var de : res.perFileChanges()) {
-            // Compute title off-EDT
-            String title = de.title();
-            list.add(Map.entry(title, de));
-        }
-        list.sort(Comparator.comparing(Map.Entry::getKey));
-        return list;
+            var list = new ArrayList<Map.Entry<String, Context.DiffEntry>>(res.perFileChanges().size());
+            var seen = new HashSet<String>();
+            for (var de : res.perFileChanges()) {
+                    String title = de.title();
+                    if (!seen.add(title)) {
+                            logger.warn("Duplicate cumulative change title '{}' detected; skipping extra entry.", title);
+                            continue;
+                    }
+                    list.add(Map.entry(title, de));
+            }
+            list.sort(Comparator.comparing(Map.Entry::getKey));
+            return list;
     }
 
     /**
