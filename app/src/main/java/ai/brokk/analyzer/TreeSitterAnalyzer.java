@@ -2105,7 +2105,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     node.getEndPoint().getRow(),
                     node.getStartByte());
 
-            var finalRange = (cu.isClass() || cu.isFunction()) ? expandRangeWithComments(node, sourceContent, false) : originalRange;
+            var finalRange = (cu.isClass() || cu.isFunction())
+                    ? expandRangeWithComments(node, sourceContent, false)
+                    : originalRange;
 
             localSourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(finalRange);
             localCuByFqName.put(cu.fqName(), cu);
@@ -3737,7 +3739,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * @param ignoredIncludeOnlyDocLike unused parameter for backward compatibility
      * @return the expanded range with commentStartByte including leading indentation
      */
-    protected Range expandRangeWithComments(TSNode declarationNode, SourceContent sourceContent, boolean ignoredIncludeOnlyDocLike) {
+    protected Range expandRangeWithComments(
+            TSNode declarationNode, SourceContent sourceContent, boolean ignoredIncludeOnlyDocLike) {
         var originalRange = new Range(
                 declarationNode.getStartByte(),
                 declarationNode.getEndByte(),
