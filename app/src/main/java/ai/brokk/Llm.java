@@ -718,10 +718,10 @@ public class Llm {
         // Preprocess messages *only* if no tools are being requested for this call.
         // This handles the case where prior TERMs exist in history but the current
         // request doesn't involve tools (which makes some providers unhappy if they see tool history).
-        if (tools.isEmpty()) {
-            messagesToSend = Llm.emulateToolExecutionResults(messages);
-            validateEmulatedToolMessages(messagesToSend);
-        }
+//        if (tools.isEmpty()) {
+//            messagesToSend = Llm.emulateToolExecutionResults(messages);
+//            validateEmulatedToolMessages(messagesToSend);
+//        }
 
         if (!tools.isEmpty() && contextManager.getService().requiresEmulatedTools(model)) {
             // Emulation handles its own preprocessing and needs the toolContext to validate owner
@@ -743,6 +743,7 @@ public class Llm {
                 paramsBuilder = paramsBuilder.toolChoice(ToolChoice.REQUIRED);
             }
         }
+        requestBuilder.parameters(paramsBuilder.build());
 
         var request = requestBuilder.parameters(paramsBuilder.build()).build();
         var sr = doSingleStreamingCall(request, false);

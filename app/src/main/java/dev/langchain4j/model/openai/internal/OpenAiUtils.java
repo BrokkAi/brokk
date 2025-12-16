@@ -124,6 +124,7 @@ public class OpenAiUtils {
 
             return AssistantMessage.builder()
                     .content(aiMessage.text())
+                    .reasoningContent(aiMessage.reasoningContent())
                     .toolCalls(toolCalls)
                     .build();
         }
@@ -401,6 +402,7 @@ public class OpenAiUtils {
                 .store(parameters.store())
                 .metadata(parameters.metadata())
                 .serviceTier(parameters.serviceTier())
+                .previousResponseId(parameters.previousResponseId())
                 .reasoningEffort(parameters.reasoningEffort());
     }
 }
