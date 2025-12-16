@@ -2808,40 +2808,69 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     /**
-     * Handle the user's choice from the auto-play gate dialog.
-     *
-     * @param choice User's selection from AutoPlayGateDialog
-     * @param texts Set of pre-existing incomplete tasks shown in the dialog
-     */
+         * Handle the user's choice from the auto-play gate dialog.
+         *
+         * @param choice User's selection from AutoPlayGateDialog
+         * @param texts Set of pre-existing incomplete tasks shown in the dialog
+         */
     private void handleAutoPlayChoice(AutoPlayGateDialog.UserChoice choice, Set<String> texts) {
-        assert SwingUtilities.isEventDispatchThread();
+                        assert SwingUtilities.isEventDispatchThread();
 
-        switch (choice) {
-            case APPEND -> {
-                var totalIncompleteTasks = countIncompleteTasks();
-                logger.debug("EZ-mode executing all {} incomplete tasks (append)", totalIncompleteTasks);
-                runArchitectOnAll();
-            }
-            case REPLACE_AND_CONTINUE -> {
-                var totalIncompleteTasks = countIncompleteTasks();
-                var removed = removeTasksByText(texts);
+                        switch (choice) {
+                                            case KEEP_BOTH -> {
+                                                                var totalIncompleteTasks = countIncompleteTasks();
+                                                                logger.debug("EZ-mode executing all {} incomplete tasks (keep both)", totalIncompleteTasks);
+                                                                runArchitectOnAll();
+                                            }
+                                            case KEEP_NEW -> {
+                                                                var totalIncompleteTasks = countIncompleteTasks();
+                                                                var removed = removeTasksByText(texts);
 
-                if (removed > 0) {
-                    clearExpansionOnStructureChange();
-                    syncToContext("Tasks removed");
-                    updateButtonStates();
-                    SwingUtilities.invokeLater(this::updateTasksTabBadge);
-                    chrome.showNotification(
-                            IConsoleIO.NotificationRole.INFO,
-                            "Cleared " + removed + " incomplete task" + (removed == 1 ? "" : "s") + ".");
-                }
+                                                                if (removed > 0) {
+                                                                                    clearExpansionOnStructureChange();
+                                                                                    syncToContext("Tasks removed");
+                                                                                    updateButtonStates();
+                                                                                    SwingUtilities.invokeLater(this::updateTasksTabBadge);
+                                                                                    chrome.showNotification(
+                                                                                                                            IConsoleIO.NotificationRole.INFO,
+                                                                                                                            "Cleared " + removed + " incomplete task" + (removed == 1 ? "" : "s") + ".");
+                                                                }
 
-                var remaining = totalIncompleteTasks - removed;
-                logger.debug("EZ-mode removed {} pre-existing tasks, executing {} remaining tasks", removed, remaining);
-                runArchitectOnAll();
-            }
-            case CANCEL -> logger.debug("EZ-mode dialog cancelled");
-        }
+                                                                var remaining = totalIncompleteTasks - removed;
+                                                                logger.debug("EZ-mode removed {} pre-existing tasks, executing {} remaining tasks", removed, remaining);
+                                                                runArchitectOnAll();
+                                            }
+                                            case KEEP_OLD -> {
+                                                                // Remove newly generated incomplete tasks (i.e., ones NOT in 'texts'), keep existing tasks.
+                                                                var newTaskTexts = new LinkedHashSet<String>();
+                                                                for (int i = 0; i < model.getSize(); i++) {
+                                                                                    var task = model.get(i);
+                                                                                    if (!task.done()) {
+                                                                                                        var t = task.text().strip();
+                                                                                                        if (!t.isEmpty() && !texts.contains(t)) {
+                                                                                                                            newTaskTexts.add(t);
+                                                                                                        }
+                                                                                    }
+                                                                }
+
+                                                                int removed = 0;
+                                                                if (!newTaskTexts.isEmpty()) {
+                                                                                    removed = removeTasksByText(newTaskTexts);
+                                                                                    if (removed > 0) {
+                                                                                                        clearExpansionOnStructureChange();
+                                                                                                        syncToContext("Tasks removed");
+                                                                                                        updateButtonStates();
+                                                                                                        SwingUtilities.invokeLater(this::updateTasksTabBadge);
+                                                                                                        chrome.showNotification(
+                                                                                                                                                IConsoleIO.NotificationRole.INFO,
+                                                                                                                                                "Cleared " + removed + " incomplete task" + (removed == 1 ? "" : "s") + ".");
+                                                                                    }
+                                                                }
+
+                                                                logger.debug("EZ-mode kept existing tasks, removed {} newly generated tasks, executing remaining", removed);
+                                                                runArchitectOnAll();
+                                            }
+                        }
     }
 
     public void showAutoPlayGateDialogAndAct(Set<String> preExistingIncompleteTasks) {
