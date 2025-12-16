@@ -25,7 +25,7 @@ public class ThemeTitleBarManager {
      * Applies title bar styling to a frame based on current theme configuration.
      * Backward-compatible entry point for frames.
      */
-    public static void applyTitleBar(JFrame frame, String title) {
+    public static void maybeApplyMacTitleBar(JFrame frame, String title) {
         if (!SystemInfo.isMacOS || !SystemInfo.isMacFullWindowContentSupported) {
             return;
         }
@@ -35,7 +35,7 @@ public class ThemeTitleBarManager {
     /**
      * Applies title bar styling to a dialog based on current theme configuration.
      */
-    public static void applyTitleBar(JDialog dialog, String title) {
+    public static void maybeApplyMacTitleBar(JDialog dialog, String title) {
         if (!SystemInfo.isMacOS || !SystemInfo.isMacFullWindowContentSupported) {
             return;
         }

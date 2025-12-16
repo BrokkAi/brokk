@@ -36,7 +36,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
 
         // Apply icon, macOS full-window-content, and title bar
         Chrome.applyIcon(this);
-        Chrome.applyMacOSFullWindowContent(this);
+        Chrome.maybeApplyMacFullWindowContent(this);
         Chrome.applyTitleBar(this, "Preview");
 
         // Create tabbed pane

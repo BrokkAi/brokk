@@ -2,7 +2,6 @@ package ai.brokk.gui.dialogs;
 
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.theme.ThemeTitleBarManager;
-import com.formdev.flatlaf.util.SystemInfo;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -66,9 +65,7 @@ public class BaseThemedDialog extends JDialog {
 
     /** Applies macOS full-window-content theming; no-op on other platforms. */
     private void applyThemedTitleBar(String title) {
-        Chrome.applyMacOSFullWindowContent(this);
-        if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
-            ThemeTitleBarManager.applyTitleBar(this, title);
-        }
+        Chrome.maybeApplyMacFullWindowContent(this);
+        ThemeTitleBarManager.maybeApplyMacTitleBar(this, title);
     }
 }
