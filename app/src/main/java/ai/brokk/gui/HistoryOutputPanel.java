@@ -1180,6 +1180,18 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
         buttonsPanel.add(openWindowButton);
 
+        // Capture button (Advanced Mode only)
+        captureButton.setToolTipText("Capture output to workspace");
+        captureButton.addActionListener(e -> presentCaptureChoice());
+        SwingUtilities.invokeLater(() -> {
+            captureButton.setIcon(Icons.CONTENT_CAPTURE);
+            captureButton.setPreferredSize(new Dimension(24, 24));
+            captureButton.setMinimumSize(new Dimension(24, 24));
+            captureButton.setMaximumSize(new Dimension(24, 24));
+        });
+        captureButton.setVisible(GlobalUiSettings.isAdvancedMode());
+        buttonsPanel.add(captureButton);
+
         // Notifications button
         notificationsButton.setToolTipText("Show notifications");
         notificationsButton.addActionListener(e -> showNotificationsDialog());
@@ -2699,6 +2711,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         Runnable r = () -> {
             // Open in new window button (Output panel)
             openWindowButton.setVisible(advanced);
+            // Capture button (Output panel)
+            captureButton.setVisible(advanced);
             var btnParent = openWindowButton.getParent();
             if (btnParent != null) {
                 btnParent.revalidate();
