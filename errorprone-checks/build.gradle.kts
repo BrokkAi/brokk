@@ -23,6 +23,9 @@ dependencies {
     // For @NullMarked package annotations (compileOnly is sufficient)
     compileOnly(libs.jspecify)
 
+    // ASM for bytecode analysis (call graph analyzer)
+    implementation("org.ow2.asm:asm:9.7")
+
     // Test dependencies: Error Prone test helpers and JUnit 5
     testImplementation(files("${rootProject.projectDir}/app/libs/error_prone_core-brokk_build-with-dependencies.jar"))
     testImplementation(libs.errorprone.test.helpers)
@@ -85,4 +88,55 @@ tasks.withType<Test>().configureEach {
         showStackTraces = true
         showStandardStreams = true
     }
+}
+
+// Task to analyze synchronized method calls using bytecode analysis
+tasks.register<JavaExec>("analyzeSynchronizedCalls") {
+    group = "verification"
+    description = "Analyze bytecode to find all methods that call synchronized methods (transitively)"
+
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("ai.brokk.errorprone.SynchronizedCallGraphAnalyzer")
+
+    // Analyze app's compiled classes
+    args(
+        "${rootProject.projectDir}/app/build/classes/java/main",
+        "${rootProject.projectDir}/app/build/classes/java/errorprone"
+    )
+
+    // Also analyze dependencies if needed (optional, can be slow)
+    // args += configurations.runtimeClasspath.get().files.map { it.absolutePath }
+
+    doFirst {
+        val outputDir = file("${rootProject.layout.buildDirectory.get().asFile}/edt-analysis")
+        outputDir.mkdirs()
+        println("Analyzing synchronized method calls...")
+        println("Output will be written to: ${outputDir}/synchronized-methods.txt")
+    }
+
+    workingDir = file("${rootProject.layout.buildDirectory.get().asFile}/edt-analysis")
+}
+
+// Task to generate EDT violations report
+tasks.register<JavaExec>("generateEdtReport") {
+    group = "verification"
+    description = "Generate report of EDT methods that call synchronized methods"
+
+    dependsOn("analyzeSynchronizedCalls")
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("ai.brokk.errorprone.EdtSynchronizedReportGenerator")
+
+    val edtAnalysisDir = file("${rootProject.layout.buildDirectory.get().asFile}/edt-analysis")
+
+    args(
+        "${rootProject.projectDir}/app/build/classes/java/main",
+        "${edtAnalysisDir}/synchronized-methods.txt"
+    )
+
+    doFirst {
+        println("Generating EDT violations report...")
+        println("Output will be written to: ${edtAnalysisDir}/edt-synchronized-violations.txt")
+    }
+
+    workingDir = edtAnalysisDir
 }
