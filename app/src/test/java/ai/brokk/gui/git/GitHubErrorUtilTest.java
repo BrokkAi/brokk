@@ -10,70 +10,46 @@ import org.kohsuke.github.HttpException;
 class GitHubErrorUtilTest {
 
     @Test
-    void isNoCommitsBetweenError_matches422WithNoCommitsMessage_noBranches() {
-        HttpException ex = new HttpException(
+    void isNoCommitsBetweenError_matches422WithNoCommitsMessage() {
+        var ex = new HttpException(
                 "Invalid request.\n\nNo commits between master and master",
                 422,
                 "Unprocessable Entity",
                 "https://api.github.com/repos/owner/repo/pulls");
 
-        assertTrue(GitHubErrorUtil.isNoCommitsBetweenError(ex, null, null));
         assertTrue(GitHubErrorUtil.isNoCommitsBetweenError(ex));
     }
 
     @Test
-    void isNoCommitsBetweenError_matches422WithBranches_caseInsensitive() {
-        HttpException ex = new HttpException(
-                "Invalid request.\n\nNo commits between master and master",
-                422,
-                "Unprocessable Entity",
-                "https://api.github.com/repos/owner/repo/pulls");
-
-        assertTrue(GitHubErrorUtil.isNoCommitsBetweenError(ex, "master", "master"));
-        assertTrue(GitHubErrorUtil.isNoCommitsBetweenError(ex, "MaStEr", "MASTER"));
-    }
-
-    @Test
-    void isNoCommitsBetweenError_falseWhenBranchesDoNotMatch() {
-        HttpException ex = new HttpException(
-                "Invalid request.\n\nNo commits between master and master",
-                422,
-                "Unprocessable Entity",
-                "https://api.github.com/repos/owner/repo/pulls");
-
-        assertFalse(GitHubErrorUtil.isNoCommitsBetweenError(ex, "main", "develop"));
-    }
-
-    @Test
     void isNoCommitsBetweenError_ignoresNon422Status() {
-        HttpException ex = new HttpException(
+        var ex = new HttpException(
                 "Invalid request.\n\nNo commits between master and master",
                 400,
                 "Bad Request",
                 "https://api.github.com/repos/owner/repo/pulls");
 
-        assertFalse(GitHubErrorUtil.isNoCommitsBetweenError(ex, null, null));
+        assertFalse(GitHubErrorUtil.isNoCommitsBetweenError(ex));
     }
 
     @Test
     void isNoCommitsBetweenError_searchesCauseChain() {
-        HttpException httpEx = new HttpException(
+        var httpEx = new HttpException(
                 "Invalid request.\n\nNo commits between master and master",
                 422,
                 "Unprocessable Entity",
                 "https://api.github.com/repos/owner/repo/pulls");
-        Throwable wrapped = new RuntimeException("wrapper", httpEx);
+        var wrapped = new RuntimeException("wrapper", httpEx);
 
-        assertTrue(GitHubErrorUtil.isNoCommitsBetweenError(wrapped, "master", "master"));
+        assertTrue(GitHubErrorUtil.isNoCommitsBetweenError(wrapped));
     }
 
     @Test
     void formatNoCommitsBetweenError_includesBranchesAndNoCommitsPhrase() {
-        String base = "base";
-        String head = "head";
+        var base = "base";
+        var head = "head";
 
-        String msg = GitHubErrorUtil.formatNoCommitsBetweenError(base, head);
-        String lower = msg.toLowerCase(Locale.ROOT);
+        var msg = GitHubErrorUtil.formatNoCommitsBetweenError(base, head);
+        var lower = msg.toLowerCase(Locale.ROOT);
 
         assertTrue(lower.contains("no commits"));
         assertTrue(msg.contains(base));

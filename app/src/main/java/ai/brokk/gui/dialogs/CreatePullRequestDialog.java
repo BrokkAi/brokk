@@ -777,16 +777,15 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
             } catch (Exception ex) {
                 logger.error("Pull Request creation failed", ex);
                 SwingUtilities.invokeLater(() -> {
-                    String sourceBranch = (String) sourceBranchComboBox.getSelectedItem();
-                    String targetBranch = (String) targetBranchComboBox.getSelectedItem();
-
                     String message;
-                    if (GitHubErrorUtil.isNoCommitsBetweenError(ex, targetBranch, sourceBranch)) {
-                        String base = targetBranch != null ? targetBranch : "the target branch";
-                        String head = sourceBranch != null ? sourceBranch : "the source branch";
+                    if (GitHubErrorUtil.isNoCommitsBetweenError(ex)) {
+                        var sourceBranch = (String) sourceBranchComboBox.getSelectedItem();
+                        var targetBranch = (String) targetBranchComboBox.getSelectedItem();
+                        var base = targetBranch != null ? targetBranch : "the target branch";
+                        var head = sourceBranch != null ? sourceBranch : "the source branch";
                         message = GitHubErrorUtil.formatNoCommitsBetweenError(base, head);
                     } else {
-                        String exMessage = ex.getMessage();
+                        var exMessage = ex.getMessage();
                         message =
                                 "Unable to create Pull Request:\n" + (exMessage != null ? exMessage : "Unknown error");
                     }
