@@ -3206,7 +3206,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 })
                 .thenApply(result -> {
                     // Precompute titles/contents and sorting OFF the EDT
-                    List<Map.Entry<String, Context.DiffEntry>> preparedSummaries = preparePerFileSummaries(result);
+                    var preparedSummaries = DiffService.preparePerFileSummaries(result);
                     // Update UI on EDT
                     SwingUtilities.invokeLater(() -> {
                         lastCumulativeChanges = result;
@@ -3446,23 +3446,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         } catch (Throwable t) {
             return "";
         }
-    }
-
-    private static List<Map.Entry<String, Context.DiffEntry>> preparePerFileSummaries(
-            DiffService.CumulativeChanges res) {
-        var list = new ArrayList<Map.Entry<String, Context.DiffEntry>>(
-                res.perFileChanges().size());
-        var seen = new HashSet<String>();
-        for (var de : res.perFileChanges()) {
-            String title = de.title();
-            if (!seen.add(title)) {
-                logger.warn("Duplicate cumulative change title '{}' detected; skipping extra entry.", title);
-                continue;
-            }
-            list.add(Map.entry(title, de));
-        }
-        list.sort(Comparator.comparing(Map.Entry::getKey));
-        return list;
     }
 
     /**

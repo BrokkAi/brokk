@@ -437,6 +437,30 @@ public final class DiffService {
         return new CumulativeChanges(perFileChanges.size(), totalAdded, totalDeleted, perFileChanges);
     }
 
+    /**
+     * Pre-computes titles for DiffEntries off-EDT to avoid blocking calls on the UI thread.
+     * Deduplicates by title and returns a stable-sorted list.
+     *
+     * @param res the cumulative changes containing per-file diff entries
+     * @return list of (title, DiffEntry) pairs sorted by title
+     */
+    @Blocking
+    public static List<Map.Entry<String, Context.DiffEntry>> preparePerFileSummaries(CumulativeChanges res) {
+        var list = new ArrayList<Map.Entry<String, Context.DiffEntry>>(
+                res.perFileChanges().size());
+        var seen = new HashSet<String>();
+        for (var de : res.perFileChanges()) {
+            String title = de.title();
+            if (!seen.add(title)) {
+                logger.warn("Duplicate cumulative change title '{}' detected; skipping extra entry.", title);
+                continue;
+            }
+            list.add(Map.entry(title, de));
+        }
+        list.sort(Comparator.comparing(Map.Entry::getKey));
+        return list;
+    }
+
     /** Cumulative changes summary across multiple files. */
     public record CumulativeChanges(
             int filesChanged,

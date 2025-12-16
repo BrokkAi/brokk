@@ -2,6 +2,7 @@ package ai.brokk.gui.dialogs;
 
 import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
+import ai.brokk.context.Context;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
@@ -24,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -832,7 +834,8 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         // Compute cumulative changes in background
         contextManager.submitBackgroundTask("Computing review diff", () -> {
             var changes = computeCumulativeChanges(files);
-            SwingUtilities.invokeLater(() -> updateReviewTabContent(changes));
+            var prepared = DiffService.preparePerFileSummaries(changes);
+            SwingUtilities.invokeLater(() -> updateReviewTabContent(changes, prepared));
             return changes;
         });
     }
@@ -860,7 +863,8 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         return DiffService.summarizeDiff(repo, mergeBaseCommit, sourceBranch, fileSet);
     }
 
-    private void updateReviewTabContent(DiffService.CumulativeChanges res) {
+    private void updateReviewTabContent(
+            DiffService.CumulativeChanges res, List<Map.Entry<String, Context.DiffEntry>> prepared) {
         assert SwingUtilities.isEventDispatchThread() : "updateReviewTabContent must run on EDT";
 
         // Dispose any previous diff panel
@@ -888,7 +892,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         }
 
         try {
-            var aggregatedPanel = buildAggregatedChangesPanel(res);
+            var aggregatedPanel = buildAggregatedChangesPanel(prepared);
             reviewTabPlaceholder.add(aggregatedPanel, BorderLayout.CENTER);
         } catch (Throwable t) {
             logger.warn("Failed to build aggregated Changes panel", t);
@@ -928,7 +932,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         }
     }
 
-    private JPanel buildAggregatedChangesPanel(DiffService.CumulativeChanges res) {
+    private JPanel buildAggregatedChangesPanel(List<Map.Entry<String, Context.DiffEntry>> prepared) {
         var wrapper = new JPanel(new BorderLayout());
 
         // Build header
@@ -949,9 +953,12 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                 .setMultipleCommitsContext(false)
                 .setRootTitle("PR Changes");
 
-        for (var change : res.perFileChanges()) {
-            var left = new BufferSource.StringSource(change.oldContent(), change.title() + " (base)");
-            var right = new BufferSource.StringSource(change.newContent(), change.title());
+        // Use precomputed list in stable order; do not call Context.DiffEntry::title here
+        for (var entry : prepared) {
+            String title = entry.getKey();
+            Context.DiffEntry de = entry.getValue();
+            var left = new BufferSource.StringSource(de.oldContent(), title + " (base)");
+            var right = new BufferSource.StringSource(de.newContent(), title);
             builder.leftSource(left).rightSource(right);
         }
 
