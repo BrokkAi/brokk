@@ -869,9 +869,7 @@ public final class MainProject extends AbstractProject {
      */
     public static void setHeadlessProxySettingOverride(@Nullable LlmProxySetting setting) {
         headlessProxySettingOverride = setting;
-        logger.debug(
-                "Set headless proxy setting override: {}",
-                setting != null ? setting.name() : "(cleared)");
+        logger.debug("Set headless proxy setting override: {}", setting != null ? setting.name() : "(cleared)");
     }
 
     public static String getProxyUrl() {

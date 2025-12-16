@@ -1522,8 +1522,7 @@ public final class HeadlessExecutorMain {
             var brokkApiKey = getConfigValue(parsedArgs, "brokk-api-key", "BROKK_API_KEY");
 
             var proxySettingStr = getConfigValue(parsedArgs, "proxy-setting", "PROXY_SETTING");
-            @Nullable
-            MainProject.LlmProxySetting proxySetting = null;
+            @Nullable MainProject.LlmProxySetting proxySetting = null;
             if (proxySettingStr != null && !proxySettingStr.isBlank()) {
                 try {
                     proxySetting = MainProject.LlmProxySetting.valueOf(proxySettingStr.toUpperCase());
@@ -1576,8 +1575,8 @@ public final class HeadlessExecutorMain {
             System.out.println("  workspaceDir: " + workspaceDir);
             System.out.println("  brokkApiKey:  "
                     + (brokkApiKey != null && !brokkApiKey.isBlank() ? "(provided)" : "(using global config)"));
-            System.out.println("  proxySetting: "
-                    + (proxySetting != null ? proxySetting.name() : "(using global config)"));
+            System.out.println(
+                    "  proxySetting: " + (proxySetting != null ? proxySetting.name() : "(using global config)"));
             System.out.println();
             System.out.println("Available HTTP Endpoints:");
             System.out.println();
