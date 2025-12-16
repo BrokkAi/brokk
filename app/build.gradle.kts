@@ -28,8 +28,8 @@ application {
         add("-Dbrokk.servicetiers=true")
         add("-Dbrokk.architectshell=true")
         add("-Dwatch.service.polling=true")
-        // JDK 25+ requires explicit flags for unsafe memory access and native access
-        if (JavaVersion.current() >= JavaVersion.VERSION_24) {
+        // JDK 24+ requires explicit flags for unsafe memory access and native access
+        if (java.toolchain.languageVersion.get().asInt() >= 24) {
             add("--sun-misc-unsafe-memory-access=allow")
             add("--enable-native-access=javafx.graphics,javafx.media,javafx.web,ALL-UNNAMED")
         }
