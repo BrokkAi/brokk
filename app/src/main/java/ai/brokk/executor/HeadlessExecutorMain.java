@@ -1519,6 +1519,8 @@ public final class HeadlessExecutorMain {
                         "AUTH_TOKEN must be provided via --auth-token argument or AUTH_TOKEN environment variable");
             }
 
+            var brokkApiKey = getConfigValue(parsedArgs, "brokk-api-key", "BROKK_API_KEY");
+
             var workspaceDirStr = getConfigValue(parsedArgs, "workspace-dir", "WORKSPACE_DIR");
             if (workspaceDirStr == null || workspaceDirStr.isBlank()) {
                 throw new IllegalArgumentException(
@@ -1529,6 +1531,12 @@ public final class HeadlessExecutorMain {
             // Build ContextManager from workspace
             var project = new MainProject(workspaceDir);
             var contextManager = new ContextManager(project);
+
+            // Set per-executor Brokk API key override if provided
+            if (brokkApiKey != null && !brokkApiKey.isBlank()) {
+                MainProject.setHeadlessBrokkApiKeyOverride(brokkApiKey);
+                logger.info("Using executor-specific Brokk API key (length={})", brokkApiKey.length());
+            }
 
             var derivedSessionsDir = workspaceDir.resolve(".brokk").resolve("sessions");
 
@@ -1545,6 +1553,7 @@ public final class HeadlessExecutorMain {
             System.out.println("  execId:      " + execId);
             System.out.println("  listenAddr:  " + listenAddr);
             System.out.println("  workspaceDir: " + workspaceDir);
+            System.out.println("  brokkApiKey:  " + (brokkApiKey != null && !brokkApiKey.isBlank() ? "(provided)" : "(using global config)"));
             System.out.println();
             System.out.println("Health check endpoints (no auth required):");
             System.out.println("  GET /health/live  - executor liveness probe");
