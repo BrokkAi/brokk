@@ -4,6 +4,7 @@ import static ai.brokk.SessionManager.SessionInfo;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.*;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -3103,7 +3104,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     try {
                         // use map: deduplicate by file path, preferring working tree status over branch/commit status
                         // => don't show a file twice when the state in the 2 branchses differs
-                        Map<Object, IGitRepo.ModifiedFile> fileMap = new HashMap<>();
+                        Map<ProjectFile, IGitRepo.ModifiedFile> fileMap = new HashMap<>();
                         String leftCommitSha = null;
                         String currentBranch = gitRepo.getCurrentBranch();
 
@@ -3113,30 +3114,40 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 // Use fully-qualified ref to avoid ambiguity with tags
                                 String defaultBranchRef = "refs/heads/" + defaultBranch;
 
-                                // Get files changed between branches
-                                var branchChanges =
-                                        gitRepo.listFilesChangedBetweenBranches(currentBranch, defaultBranchRef);
-                                for (var mf : branchChanges) {
-                                    fileMap.putIfAbsent(mf.file(), mf);
+                                // Get merge base first - this is the fork point
+                                leftCommitSha = gitRepo.getMergeBase(currentBranch, defaultBranchRef);
+
+                                // Get files changed on our side only (merge-base to HEAD) when merge-base exists
+                                if (leftCommitSha != null) {
+                                    var myChanges = gitRepo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
+                                    for (var mf : myChanges) {
+                                        fileMap.putIfAbsent(mf.file(), mf);
+                                    }
+                                } else {
+                                    // Fallback: no merge-base found; restrict baseline to HEAD (working tree only)
+                                    leftCommitSha = "HEAD";
                                 }
 
                                 // Union with working tree changes (prefer working tree status)
                                 for (var mf : gitRepo.getModifiedFiles()) {
                                     fileMap.put(mf.file(), mf);
                                 }
-
-                                // Get merge base for left content
-                                leftCommitSha = gitRepo.getMergeBase(currentBranch, defaultBranchRef);
                             }
                             case DEFAULT_WITH_UPSTREAM -> {
                                 String upstreamRef = baseline.baselineRef();
-                                leftCommitSha =
-                                        gitRepo.resolveToCommit(upstreamRef).getName();
 
-                                // Get files changed between HEAD and upstream
-                                var upstreamChanges = gitRepo.listFilesChangedBetweenCommits("HEAD", upstreamRef);
-                                for (var mf : upstreamChanges) {
-                                    fileMap.putIfAbsent(mf.file(), mf);
+                                // Use merge-base as baseline to show only our changes
+                                leftCommitSha = gitRepo.getMergeBase("HEAD", upstreamRef);
+
+                                // Get files changed on our side only (merge-base to HEAD) when merge-base exists
+                                if (leftCommitSha != null) {
+                                    var myChanges = gitRepo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
+                                    for (var mf : myChanges) {
+                                        fileMap.putIfAbsent(mf.file(), mf);
+                                    }
+                                } else {
+                                    // Fallback: no merge-base found; restrict baseline to HEAD (working tree only)
+                                    leftCommitSha = "HEAD";
                                 }
 
                                 // Union with working tree changes (prefer working tree status)
