@@ -21,31 +21,38 @@ public class FragmentColorUtils {
     }
 
     /**
+     * Holds a fragment and its pre-computed classification.
+     */
+    public record ClassifiedFragment(ContextFragment fragment, ChipKind kind) {}
+
+    /**
      * Classifies a fragment into EDIT (user-editable), SUMMARY (skeleton outputs), HISTORY, TASK_LIST, or OTHER.
      *
      * Do NOT use this when you need to know the actual fragment type (use fragment.getType() instead) because
      * INVALID overlaps with other ChipKinds.
+     *
+     * This method must be called off the EDT to avoid blocking UI operations.
      */
-    public static ChipKind classify(ContextFragment fragment) {
+    public static ClassifiedFragment classify(ContextFragment fragment) {
         if (fragment.getType() == ContextFragment.FragmentType.SKELETON) {
-            return ChipKind.SUMMARY;
+            return new ClassifiedFragment(fragment, ChipKind.SUMMARY);
         }
         if (!fragment.isValid()) {
-            return ChipKind.INVALID;
+            return new ClassifiedFragment(fragment, ChipKind.INVALID);
         }
         if (fragment.getType().isEditable()) {
-            return ChipKind.EDIT;
+            return new ClassifiedFragment(fragment, ChipKind.EDIT);
         }
         if (fragment.getType() == ContextFragment.FragmentType.HISTORY) {
-            return ChipKind.HISTORY;
+            return new ClassifiedFragment(fragment, ChipKind.HISTORY);
         }
         if (fragment instanceof ContextFragment.StringFragment sf
                 && SpecialTextType.TASK_LIST
                         .description()
                         .equals(sf.description().renderNowOrNull())) {
-            return ChipKind.TASK_LIST;
+            return new ClassifiedFragment(fragment, ChipKind.TASK_LIST);
         }
-        return ChipKind.OTHER;
+        return new ClassifiedFragment(fragment, ChipKind.OTHER);
     }
 
     /**
