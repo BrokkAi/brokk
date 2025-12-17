@@ -53,10 +53,10 @@ public class AnalyzerExclusionPatternsTest {
 
         // Verify getAnalyzableFiles() excludes the build directory
         Set<ProjectFile> analyzableFiles = project.getAnalyzableFiles(Languages.SQL);
-        Set<String> paths = analyzableFiles.stream().map(pf -> pf.toString()).collect(Collectors.toSet());
+        Set<Path> paths = analyzableFiles.stream().map(ProjectFile::getRelPath).collect(Collectors.toSet());
 
-        assertTrue(paths.contains("src/schema.sql"), "src/schema.sql should be analyzable");
-        assertFalse(paths.stream().anyMatch(p -> p.contains("build")), "build/ files should be excluded");
+        assertTrue(paths.contains(Path.of("src/schema.sql")), "src/schema.sql should be analyzable");
+        assertFalse(paths.stream().anyMatch(p -> p.startsWith("build")), "build/ files should be excluded");
 
         // Verify SqlAnalyzer only sees the non-excluded file
         var analyzer = new SqlAnalyzer(project);
@@ -90,10 +90,12 @@ public class AnalyzerExclusionPatternsTest {
 
         // Verify getAnalyzableFiles() excludes files matching the glob
         Set<ProjectFile> analyzableFiles = project.getAnalyzableFiles(Languages.SQL);
-        Set<String> paths = analyzableFiles.stream().map(pf -> pf.toString()).collect(Collectors.toSet());
+        Set<Path> paths = analyzableFiles.stream().map(ProjectFile::getRelPath).collect(Collectors.toSet());
 
-        assertTrue(paths.contains("schema.sql"), "schema.sql should be analyzable");
-        assertFalse(paths.stream().anyMatch(p -> p.contains("generated")), "*.generated.sql files should be excluded");
+        assertTrue(paths.contains(Path.of("schema.sql")), "schema.sql should be analyzable");
+        assertFalse(
+                paths.stream().anyMatch(p -> p.toString().contains("generated")),
+                "*.generated.sql files should be excluded");
 
         // Verify SqlAnalyzer only sees non-excluded files
         var analyzer = new SqlAnalyzer(project);
@@ -136,10 +138,10 @@ public class AnalyzerExclusionPatternsTest {
 
         // Verify only src/main.sql is analyzable
         Set<ProjectFile> analyzableFiles = project.getAnalyzableFiles(Languages.SQL);
-        Set<String> paths = analyzableFiles.stream().map(pf -> pf.toString()).collect(Collectors.toSet());
+        Set<Path> paths = analyzableFiles.stream().map(ProjectFile::getRelPath).collect(Collectors.toSet());
 
         assertEquals(1, paths.size(), "Only one file should be analyzable");
-        assertTrue(paths.contains("src/main.sql"), "src/main.sql should be the only analyzable file");
+        assertTrue(paths.contains(Path.of("src/main.sql")), "src/main.sql should be the only analyzable file");
 
         // Verify analyzer
         var analyzer = new SqlAnalyzer(project);
