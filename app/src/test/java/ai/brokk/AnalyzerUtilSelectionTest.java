@@ -69,7 +69,10 @@ public class AnalyzerUtilSelectionTest {
                 ContextFragment.SummaryType.FILE_SKELETONS,
                 s.getSummaryType(),
                 "Summary type should be FILE_SKELETONS");
-        assertEquals("src/main/java/A.java", s.getTargetIdentifier(), "Target identifier should be the relative path");
+        assertEquals(
+                "src/main/java/A.java",
+                s.getTargetIdentifier().replace('\\', '/'),
+                "Target identifier should be the relative path");
     }
 
     @Test
