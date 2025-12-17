@@ -10,6 +10,9 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
@@ -46,6 +49,11 @@ public final class DiffService {
     private final java.util.concurrent.Semaphore warmupFragmentSemaphore =
             new java.util.concurrent.Semaphore(WARMUP_FRAGMENT_CONCURRENCY, true);
 
+    // Instrumentation counters (per DiffService instance)
+    private final java.util.concurrent.atomic.AtomicLong warmupBatchesStarted = new java.util.concurrent.atomic.AtomicLong(0);
+    private final java.util.concurrent.atomic.AtomicLong diffsScheduled = new java.util.concurrent.atomic.AtomicLong(0);
+    private final java.util.concurrent.atomic.AtomicLong diffsCompleted = new java.util.concurrent.atomic.AtomicLong(0);
+
     // Test hooks for measuring warm-up concurrency in unit tests (package-visible via static accessors)
     private static volatile boolean ENABLE_WARMUP_CONCURRENCY_HOOK = false;
     private static final java.util.concurrent.atomic.AtomicInteger WARMUP_IN_FLIGHT =
@@ -72,6 +80,22 @@ public final class DiffService {
 
     public static int getWarmupFragmentConcurrency() {
         return WARMUP_FRAGMENT_CONCURRENCY;
+    }
+
+    // Fallback executor for environments where IContextManager.getBackgroundTasks() is unsupported (e.g., tests)
+    private static final ExecutorService FALLBACK_OUTER_EXEC = Executors.newCachedThreadPool(r -> {
+        var t = new Thread(r);
+        t.setDaemon(true);
+        t.setName("DiffWarmUp-Outer-" + t.threadId());
+        return t;
+    });
+
+    private Executor getOuterExecutorSafe() {
+        try {
+            return cm.getBackgroundTasks();
+        } catch (UnsupportedOperationException ex) {
+            return FALLBACK_OUTER_EXEC;
+        }
     }
 
     /**
@@ -120,6 +144,19 @@ public final class DiffService {
         return new DiffCache(cache);
     }
 
+    // Instrumentation getters (for tests/monitoring)
+    public long getWarmupBatchesStarted() {
+        return warmupBatchesStarted.get();
+    }
+
+    public long getDiffsScheduled() {
+        return diffsScheduled.get();
+    }
+
+    public long getDiffsCompleted() {
+        return diffsCompleted.get();
+    }
+
     /**
      * Seed this service's cache from a previously captured snapshot. Only entries whose ids are present in allowedIds
      * are seeded. Existing entries are not overwritten.
@@ -147,6 +184,7 @@ public final class DiffService {
     public CompletableFuture<List<Context.DiffEntry>> diff(Context curr) {
         return cache.computeIfAbsent(curr.id(), id -> {
             var cf = new CompletableFuture<List<Context.DiffEntry>>();
+            diffsScheduled.incrementAndGet();
             cm.submitBackgroundTask("Compute diffs for context " + id, () -> {
                 try {
                     var prev = history.previousOf(curr);
@@ -156,6 +194,8 @@ public final class DiffService {
                 } catch (Throwable t) {
                     cf.completeExceptionally(t);
                     throw new RuntimeException(t);
+                } finally {
+                    diffsCompleted.incrementAndGet();
                 }
             });
             return cf;
@@ -205,14 +245,19 @@ public void warmUpRecent(int max) {
     if (recent.isEmpty()) {
         return;
     }
+    if (recent.size() >= max && logger.isDebugEnabled()) {
+        logger.debug("Applying warm-up cap: {} contexts (cap={})", recent.size(), max);
+    }
 
     // Capture current generation to guard against staleness.
     final long genAtSchedule = generation.get();
 
-    // Single coordinator task; bounded concurrency inside with a small local executor.
-    cm.submitBackgroundTask("Warm up diffs (recent " + recent.size() + ")", () -> {
+    // Schedule a single coordinator task; per-fragment work uses a small local executor.
+    warmupBatchesStarted.incrementAndGet();
+    var outerExec = getOuterExecutorSafe();
+    CompletableFuture.runAsync(() -> {
         int concurrencyHint = Math.max(1, Math.min(3, Runtime.getRuntime().availableProcessors() / 2));
-        var exec = java.util.concurrent.Executors.newFixedThreadPool(concurrencyHint, r -> {
+        var fragmentExec = Executors.newFixedThreadPool(concurrencyHint, r -> {
             var t = new Thread(r);
             t.setDaemon(true);
             t.setName("DiffWarmUp-" + t.threadId());
@@ -226,13 +271,14 @@ public void warmUpRecent(int max) {
                 if (prev == null) {
                     continue;
                 }
+                diffsScheduled.incrementAndGet();
                 var f = CompletableFuture.runAsync(() -> {
                     // Early exit if invalidated before starting this unit of work
                     if (generation.get() != genAtSchedule) {
                         return;
                     }
                     try {
-                        var result = computeDiffWarmup(ctx, prev, exec);
+                        var result = computeDiffWarmup(ctx, prev, fragmentExec);
 
                         // Skip cache write if this work became stale.
                         if (generation.get() != genAtSchedule) {
@@ -267,16 +313,17 @@ public void warmUpRecent(int max) {
                                 return existing;
                             }
                         });
+                    } finally {
+                        diffsCompleted.incrementAndGet();
                     }
-                }, exec);
+                }, outerExec);
                 futures.add(f);
             }
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-            return null;
         } finally {
-            exec.shutdown();
+            fragmentExec.shutdown();
         }
-    });
+    }, outerExec);
 }
 
     /**
@@ -291,6 +338,11 @@ public void warmUpRecent(int max) {
         var imageFragments = ctx.allFragments().filter(f -> !f.isText());
         var candidates = java.util.stream.Stream.concat(editableFragments, imageFragments).toList();
 
+        if (candidates.size() > WARMUP_FRAGMENT_CONCURRENCY && logger.isDebugEnabled()) {
+            logger.debug(
+                    "Applying per-fragment warm-up concurrency cap: permits={} candidates={}",
+                    WARMUP_FRAGMENT_CONCURRENCY, candidates.size());
+        }
         var futures = new ArrayList<CompletableFuture<Context.DiffEntry>>(candidates.size());
         for (var cf : candidates) {
             var f = CompletableFuture.supplyAsync(() -> {

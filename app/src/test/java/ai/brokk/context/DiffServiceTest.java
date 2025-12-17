@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -278,6 +279,16 @@ class DiffServiceTest {
         }
     }
 
+    private static void awaitWarmupStarted(DiffService ds, long timeoutMillis) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + timeoutMillis;
+        while (System.currentTimeMillis() < deadline) {
+            if (ds.getWarmupBatchesStarted() >= 1) {
+                return;
+            }
+            Thread.sleep(10);
+        }
+    }
+
     @Test
     void seed_snapshot_allows_peek_without_recompute() throws Exception {
         var pf = new ProjectFile(tempDir, "src/Seed.txt");
@@ -533,5 +544,40 @@ class DiffServiceTest {
                 assertTrue(ds.peek(c).isEmpty(), "Unrequested context diff should not be cached for " + c.getAction());
             }
         }
+    }
+
+    @Test
+    void warmup_counters_and_caps_across_mock_session_switches() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Caps.txt");
+        Files.createDirectories(pf.absPath().getParent());
+
+        var contexts = new ArrayList<Context>();
+        for (int i = 0; i < 15; i++) {
+            Files.writeString(pf.absPath(), "w" + i + "\n");
+            var frag = new ContextFragment.ProjectPathFragment(pf, contextManager);
+            var ctx = new Context(
+                    contextManager, List.of(frag), List.of(), null, CompletableFuture.completedFuture("w" + i));
+            contexts.add(ctx);
+        }
+
+        // First "session"
+        var history1 = new ContextHistory(contexts);
+        var ds1 = history1.getDiffService();
+        ds1.warmUpRecent(10);
+
+        awaitWarmupStarted(ds1, 500);
+
+        assertTrue(ds1.getWarmupBatchesStarted() >= 1, "Expected at least one warm-up batch");
+        assertTrue(ds1.getDiffsScheduled() <= 10, "Scheduled diffs should not exceed cap in first session");
+
+        // Simulate session switch by creating a new history/service
+        var history2 = new ContextHistory(contexts);
+        var ds2 = history2.getDiffService();
+        ds2.warmUpRecent(10);
+
+        awaitWarmupStarted(ds2, 500);
+
+        assertTrue(ds2.getWarmupBatchesStarted() >= 1, "Expected at least one warm-up batch in second session");
+        assertTrue(ds2.getDiffsScheduled() <= 10, "Scheduled diffs should not exceed cap in second session");
     }
 }

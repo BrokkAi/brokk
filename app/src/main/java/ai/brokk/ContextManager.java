@@ -2556,7 +2556,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 var oldService = contextHistory.getDiffService();
                 var oldCache = oldService.snapshot();
                 sessionManager.saveDiffCache(currentSessionId, oldCache);
-                oldService.invalidate();
+                oldService.close();
             }
 
             updateActiveSession(sessionId); // Mark as active
