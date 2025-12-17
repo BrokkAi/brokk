@@ -154,16 +154,43 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
                     + cachedTokens * band.cachedInputCostPerToken()
                     + outputTokens * band.outputCostPerToken();
         }
+
+        public double getCostFor(long uncachedInputTokens, long cachedTokens, long outputTokens, ProcessingTier tier) {
+            return getCostFor(uncachedInputTokens, cachedTokens, outputTokens) * tier.getCostMultiplier();
+        }
     }
 
     public enum ProcessingTier {
-        DEFAULT,
-        PRIORITY,
-        FLEX;
+        DEFAULT(1.0),
+        PRIORITY(2.0),
+        FLEX(0.5);
+
+        private final double costMultiplier;
+
+        ProcessingTier(double costMultiplier) {
+            this.costMultiplier = costMultiplier;
+        }
+
+        public double getCostMultiplier() {
+            return costMultiplier;
+        }
 
         @Override
         public String toString() {
             return name().charAt(0) + name().substring(1).toLowerCase(Locale.ROOT);
+        }
+
+        public static ProcessingTier fromString(@Nullable String value) {
+            if (value == null) {
+                return DEFAULT;
+            }
+            if ("priority".equalsIgnoreCase(value)) {
+                return PRIORITY;
+            }
+            if ("flex".equalsIgnoreCase(value)) {
+                return FLEX;
+            }
+            return DEFAULT;
         }
     }
 
@@ -365,11 +392,11 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public boolean supportsProcessingTier(String modelName) {
         var location = modelLocations.get(modelName);
         if (location == null) {
-            logger.warn("Location not found for model name {}, assuming no reasoning-disable support.", modelName);
+            logger.warn("Location not found for model name {}, assuming no processing tier support.", modelName);
             return false;
         }
-        return location.equals("openai/gpt-5")
-                || location.equals("openai/gpt-5-mini"); // TODO move this into a yaml field
+        // GPT-5 family and reasoning models support processing tiers
+        return location.startsWith("openai/gpt-5") || location.startsWith("openai/o");
     }
 
     public boolean supportsReasoningDisable(String modelName) {
@@ -614,18 +641,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     /** Returns the configured processing tier for the given model (defaults to DEFAULT). */
     public static ProcessingTier getProcessingTier(StreamingChatModel model) {
         if (model instanceof OpenAiStreamingChatModel om) {
-            var tier = om.defaultRequestParameters().serviceTier();
-            if (tier == null) {
-                return ProcessingTier.DEFAULT;
-            }
-            var normalized = tier.toLowerCase(Locale.ROOT);
-            if ("flex".equals(normalized)) {
-                return ProcessingTier.FLEX;
-            } else if ("priority".equals(normalized)) {
-                return ProcessingTier.PRIORITY;
-            } else {
-                return ProcessingTier.DEFAULT;
-            }
+            return ProcessingTier.fromString(om.defaultRequestParameters().serviceTier());
         }
         return ProcessingTier.DEFAULT;
     }

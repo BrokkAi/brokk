@@ -961,6 +961,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
         String relatedText =
                 Objects.toString(relatedClassesCombo.getEditor().getItem(), "").trim();
         String modelName = fav.config().name();
+        var tier = fav.config().tier();
 
         // Increment generation so that older tasks become stale.
         int generation = costEstimateGeneration.incrementAndGet();
@@ -1006,7 +1007,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
 
                 long totalInput = tokensFiles + workspaceAdd + relatedAdd;
                 long estOutput = Math.min(4000, totalInput / 2);
-                cost = pricing.getCostFor(totalInput, 0, estOutput);
+                cost = pricing.getCostFor(totalInput, 0, estOutput, tier);
             } catch (Throwable t) {
                 logger.debug("Failed to compute BlitzForge cost estimate", t);
                 hadError = true;
