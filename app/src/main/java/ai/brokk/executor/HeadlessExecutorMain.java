@@ -116,6 +116,24 @@ public final class HeadlessExecutorMain {
     }
 
     /**
+     * Create a copy of the parsed arguments map with sensitive values redacted.
+     * Sensitive keys include: auth-token, brokk-api-key
+     *
+     * @param parsedArgs the original parsed arguments map
+     * @return a new map with sensitive values replaced with [REDACTED]
+     */
+    private static Map<String, String> redactSensitiveArgs(Map<String, String> parsedArgs) {
+        var redacted = new HashMap<>(parsedArgs);
+        if (redacted.containsKey("auth-token")) {
+            redacted.put("auth-token", "[REDACTED]");
+        }
+        if (redacted.containsKey("brokk-api-key")) {
+            redacted.put("brokk-api-key", "[REDACTED]");
+        }
+        return redacted;
+    }
+
+    /**
      * Print usage/help information and exit.
      * If invalidArgs is non-empty, prints an error message first and exits with code 1.
      * If invalidArgs is empty, prints help and exits with code 0.
@@ -1545,6 +1563,14 @@ public final class HeadlessExecutorMain {
             var parseResult = parseArgs(args);
             var parsedArgs = parseResult.args();
             var invalidKeys = parseResult.invalidKeys();
+
+            // Log parsed arguments (with sensitive values redacted) early for debugging
+            var redactedArgs = redactSensitiveArgs(parsedArgs);
+            var argsDisplay = redactedArgs.entrySet().stream()
+                    .map(e -> e.getKey() + "=" + e.getValue())
+                    .collect(Collectors.joining(", "));
+            logger.info("Parsed arguments: {}", argsDisplay);
+            System.out.println("Parsed arguments: {" + argsDisplay + "}");
 
             // Check for help flag or invalid arguments
             if (parsedArgs.containsKey("help")) {
