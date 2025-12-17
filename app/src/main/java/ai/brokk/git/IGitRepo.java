@@ -230,4 +230,12 @@ public interface IGitRepo {
     default @Nullable String getRemoteUrl() {
         throw new UnsupportedOperationException();
     }
+
+    /**
+     * Get the URL of the origin remote with fallback to target remote.
+     * Preferred for GitHub PR operations.
+     */
+    default @Nullable String getOriginRemoteUrl() {
+        throw new UnsupportedOperationException();
+    }
 }

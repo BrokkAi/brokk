@@ -1,5 +1,7 @@
 package ai.brokk.gui.dialogs;
 
+import ai.brokk.Service;
+import ai.brokk.agents.BuildAgent;
 import ai.brokk.github.BackgroundGitHubAuth;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
@@ -9,16 +11,21 @@ import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.MainProject.DataRetentionPolicy;
+import ai.brokk.project.ModelProperties;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.io.IOException;
+import java.util.List;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.Nullable;
 
-public class SettingsDialog extends JDialog implements ThemeAware {
+public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SettingsDialog.class);
 
     public static final String GITHUB_SETTINGS_TAB_NAME = "GitHub";
@@ -26,6 +33,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
     private final Chrome chrome;
     private final JTabbedPane tabbedPane;
     private SettingsGlobalPanel globalSettingsPanel;
+    private SettingsAdvancedPanel advancedSettingsPanel;
     private SettingsProjectPanel projectSettingsPanel;
 
     private final MaterialButton okButton;
@@ -36,10 +44,10 @@ public class SettingsDialog extends JDialog implements ThemeAware {
     private boolean uiScaleSettingsChanged = false; // Track if UI scale needs restart
 
     public SettingsDialog(Frame owner, Chrome chrome) {
-        super(owner, "Settings", true);
+        super(owner, "Settings");
         this.chrome = chrome;
         setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-        setSize(1100, 600);
+        setSize(800, 600);
         setLocationRelativeTo(owner);
 
         tabbedPane = new JTabbedPane(JTabbedPane.LEFT);
@@ -60,6 +68,9 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         // Pass dialog buttons to project panel for enabling/disabling during build agent run
         projectSettingsPanel = new SettingsProjectPanel(chrome, this, okButton, cancelButton, applyButton);
         tabbedPane.addTab("Project", null, projectSettingsPanel, "Settings specific to the current project");
+
+        advancedSettingsPanel = new SettingsAdvancedPanel(chrome, this);
+        tabbedPane.addTab("Advanced", null, advancedSettingsPanel, "Advanced global settings");
 
         // Buttons Panel
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
@@ -107,9 +118,10 @@ public class SettingsDialog extends JDialog implements ThemeAware {
             }
         });
 
-        getContentPane().setLayout(new BorderLayout());
-        getContentPane().add(tabbedPane, BorderLayout.CENTER);
-        getContentPane().add(buttonPanel, BorderLayout.SOUTH);
+        JPanel root = getContentRoot();
+        root.setLayout(new BorderLayout());
+        root.add(tabbedPane, BorderLayout.CENTER);
+        root.add(buttonPanel, BorderLayout.SOUTH);
 
         // Load settings in background and populate UI when done
         loadSettingsInBackground();
@@ -160,6 +172,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
         // Populate panels with data (this also enables them)
         globalSettingsPanel.populateFromData(data);
+        advancedSettingsPanel.populateFromData(data);
         projectSettingsPanel.populateFromData(data);
 
         // Enable buttons now that data is loaded
@@ -180,6 +193,10 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
         if (!globalSettingsPanel.applySettings()) {
             return false; // Global settings failed validation
+        }
+
+        if (!advancedSettingsPanel.applySettings()) {
+            return false; // Advanced settings failed validation
         }
 
         if (!projectSettingsPanel.applySettings()) {
@@ -256,16 +273,22 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         dialog.loadSettingsInBackground();
 
         boolean tabSelected = false;
-        // Top-level tabs: "Global", "Project"
+        // Top-level tabs: "Global", "Project", "Advanced"
         // Global sub-tabs: "Service", "Appearance", SettingsGlobalPanel.MODELS_TAB_TITLE, "Alternative Models",
         // "GitHub"
         // Project sub-tabs: "General", "Build", "Data Retention"
-
-        // Try to select top-level tab first
-        int globalTabIndex = -1, projectTabIndex = -1;
+        int globalTabIndex = -1;
+        int projectTabIndex = -1;
+        int advancedTabIndex = -1;
         for (int i = 0; i < dialog.tabbedPane.getTabCount(); i++) {
-            if ("Global".equals(dialog.tabbedPane.getTitleAt(i))) globalTabIndex = i;
-            if ("Project".equals(dialog.tabbedPane.getTitleAt(i))) projectTabIndex = i;
+            String title = dialog.tabbedPane.getTitleAt(i);
+            if ("Global".equals(title)) {
+                globalTabIndex = i;
+            } else if ("Project".equals(title)) {
+                projectTabIndex = i;
+            } else if ("Advanced".equals(title)) {
+                advancedTabIndex = i;
+            }
         }
 
         if (targetTabName.equals("Global") && globalTabIndex != -1 && dialog.tabbedPane.isEnabledAt(globalTabIndex)) {
@@ -275,6 +298,11 @@ public class SettingsDialog extends JDialog implements ThemeAware {
                 && projectTabIndex != -1
                 && dialog.tabbedPane.isEnabledAt(projectTabIndex)) {
             dialog.tabbedPane.setSelectedIndex(projectTabIndex);
+            tabSelected = true;
+        } else if (targetTabName.equals("Advanced")
+                && advancedTabIndex != -1
+                && dialog.tabbedPane.isEnabledAt(advancedTabIndex)) {
+            dialog.tabbedPane.setSelectedIndex(advancedTabIndex);
             tabSelected = true;
         } else {
             // Check Global sub-tabs
@@ -309,6 +337,22 @@ public class SettingsDialog extends JDialog implements ThemeAware {
                     }
                 }
             }
+
+            // If not found in Global or Project, check Advanced sub-tabs
+            if (!tabSelected && advancedTabIndex != -1 && dialog.tabbedPane.isEnabledAt(advancedTabIndex)) {
+                JTabbedPane advancedSubTabs = dialog.advancedSettingsPanel.getAdvancedSubTabbedPane();
+                for (int i = 0; i < advancedSubTabs.getTabCount(); i++) {
+                    if (targetTabName.equals(advancedSubTabs.getTitleAt(i))) {
+                        dialog.tabbedPane.setSelectedIndex(advancedTabIndex); // Select "Advanced" parent
+                        if (advancedSubTabs.isEnabledAt(i)
+                                || targetTabName.equals(SettingsAdvancedPanel.MODELS_TAB_TITLE)) {
+                            advancedSubTabs.setSelectedIndex(i);
+                            tabSelected = true;
+                        }
+                        break;
+                    }
+                }
+            }
         }
         if (!tabSelected) {
             logger.warn("Could not find or select target settings tab: {}", targetTabName);
@@ -321,7 +365,8 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         assert project.isDataShareAllowed()
                 : "Standalone data retention dialog should not be shown if data sharing is disabled by organization";
 
-        var dialog = new JDialog(owner, "Data Retention Policy Required", true);
+        BaseThemedDialog dialog =
+                new BaseThemedDialog(owner, "Data Retention Policy Required", Dialog.ModalityType.APPLICATION_MODAL);
         dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
         dialog.setSize(600, 350); // Adjusted size
         dialog.setLocationRelativeTo(owner);
@@ -385,7 +430,11 @@ public class SettingsDialog extends JDialog implements ThemeAware {
             }
         });
 
-        dialog.setContentPane(contentPanel);
+        // Place contentPanel in the content root (which BaseThemedDialog manages)
+        JPanel root = dialog.getContentRoot();
+        root.setLayout(new BorderLayout());
+        root.add(contentPanel, BorderLayout.CENTER);
+
         okButtonDialog.requestFocusInWindow();
         dialog.setVisible(true);
 
@@ -394,5 +443,94 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
     public SettingsProjectPanel getProjectPanel() {
         return projectSettingsPanel;
+    }
+
+    /**
+     * Consolidated settings data loaded in background to avoid EDT blocking.
+     * All I/O operations happen in the static load() method which runs off EDT.
+     */
+    public static record SettingsData(
+            // Global settings
+            MainProject.JvmMemorySettings jvmMemorySettings,
+            String brokkApiKey,
+            String accountBalance,
+            java.util.List<Service.FavoriteModel> favoriteModels,
+
+            // Project-specific settings (nullable if no project)
+            @Nullable BuildAgent.BuildDetails buildDetails,
+            @Nullable String styleGuide,
+            @Nullable String commitMessageFormat,
+            @Nullable String reviewGuide) {
+        private static final Logger logger = LogManager.getLogger(SettingsData.class);
+
+        /**
+         * Loads all settings in background thread. All I/O happens here.
+         * This method should never be called on the EDT.
+         *
+         * @param project Current project, or null if no project is open
+         * @return SettingsData with all loaded settings
+         */
+        @Blocking
+        public static SettingsData load(@Nullable IProject project) {
+            // Load global settings (file I/O)
+            var jvmSettings = MainProject.getJvmMemorySettings();
+            var apiKey = MainProject.getBrokkKey();
+            var balance = loadAccountBalance(apiKey); // network I/O
+            var models = MainProject.loadFavoriteModels(); // file I/O
+
+            // If empty, create default and save
+            if (project != null && models.isEmpty()) {
+                var currentCodeConfig = project.getMainProject().getModelConfig(ModelProperties.ModelType.CODE);
+                var defaultAlias = "default";
+                var defaultFavorite = new Service.FavoriteModel(defaultAlias, currentCodeConfig);
+                models = List.of(defaultFavorite);
+                try {
+                    MainProject.saveFavoriteModels(models); // file I/O write
+                } catch (Exception e) {
+                    logger.warn("Failed to save default favorite models", e);
+                }
+            }
+
+            // Load project-specific settings (file I/O) if project exists
+            BuildAgent.BuildDetails buildDetails = null;
+            String styleGuide = null;
+            String commitFormat = null;
+            String reviewGuide = null;
+
+            if (project != null) {
+                try {
+                    buildDetails = project.loadBuildDetails();
+                    styleGuide = project.getStyleGuide();
+                    commitFormat = project.getCommitMessageFormat();
+                    reviewGuide = project.getReviewGuide();
+                } catch (Exception e) {
+                    logger.warn("Failed to load project settings", e);
+                }
+            }
+
+            return new SettingsData(
+                    jvmSettings, apiKey, balance, models, buildDetails, styleGuide, commitFormat, reviewGuide);
+        }
+
+        /**
+         * Loads account balance via network call. Safe to call off EDT.
+         */
+        @Blocking
+        private static String loadAccountBalance(String apiKey) {
+            if (apiKey.isBlank()) {
+                return "No API key configured";
+            }
+
+            try {
+                Service.validateKey(apiKey); // throws if invalid
+                float balance = Service.getUserBalance(apiKey);
+                return String.format("$%.2f", balance);
+            } catch (IllegalArgumentException e) {
+                return "Invalid API key format";
+            } catch (IOException e) {
+                logger.warn("Failed to load account balance", e);
+                return "Error loading balance: " + e.getMessage();
+            }
+        }
     }
 }

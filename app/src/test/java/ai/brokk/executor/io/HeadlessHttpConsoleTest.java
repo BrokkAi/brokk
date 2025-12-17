@@ -40,7 +40,7 @@ class HeadlessHttpConsoleTest {
 
     @AfterEach
     void cleanup() {
-        console.shutdown(2);
+        // No-op: events are written synchronously, so nothing to await.
     }
 
     /**
@@ -650,7 +650,7 @@ class HeadlessHttpConsoleTest {
         console.llmOutput("token2", ChatMessageType.AI, false, false);
 
         // Shutdown should wait for events to be written
-        console.shutdown(5);
+        // No-op: events are written synchronously, so nothing to await.
 
         // Verify events were persisted
         var events = jobStore.readEvents(jobId, -1, 100);

@@ -37,24 +37,28 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             );
 
     public JavascriptAnalyzer(IProject project) {
-        super(project, Languages.JAVASCRIPT);
+        this(project, ProgressListener.NOOP);
     }
 
-    private JavascriptAnalyzer(IProject project, AnalyzerState state) {
-        super(project, Languages.JAVASCRIPT, state);
+    public JavascriptAnalyzer(IProject project, ProgressListener listener) {
+        super(project, Languages.JAVASCRIPT, listener);
     }
 
-    public static JavascriptAnalyzer fromState(IProject project, AnalyzerState state) {
-        return new JavascriptAnalyzer(project, state);
+    private JavascriptAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
+        super(project, Languages.JAVASCRIPT, state, listener);
+    }
+
+    public static JavascriptAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+        return new JavascriptAnalyzer(project, state, listener);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state) {
-        return new JavascriptAnalyzer(getProject(), state);
+    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+        return new JavascriptAnalyzer(getProject(), state, listener);
     }
 
     @Override
-    public Optional<String> extractClassName(String reference) {
+    public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForJsTs(reference);
     }
 
@@ -70,7 +74,14 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected @Nullable CodeUnit createCodeUnit(
-            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
+            ProjectFile file,
+            String captureName,
+            String simpleName,
+            String packageName,
+            String classChain,
+            List<ScopeSegment> scopeChain,
+            @Nullable TSNode definitionNode,
+            SkeletonType skeletonType) {
         return switch (captureName) {
             case CaptureNames.CLASS_DEFINITION -> {
                 String finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
@@ -146,7 +157,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String renderFunctionDeclaration(
             TSNode funcNode,
-            String src,
+            SourceContent sourceContent,
             String exportPrefix,
             String asyncPrefix,
             String functionName,
@@ -156,11 +167,6 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             String indent) {
         // The 'indent' parameter is now "" when called from buildSignatureString.
         String inferredReturnType = returnTypeText;
-        // ProjectFile currentFile = null; // Unused variable removed
-
-        // Attempt to get current file from CU if available through funcNode context
-        // For now, type inference will be based on syntax, not file extension.
-        // If super.getProject().findFile(sourcePath) could be used, it would require sourcePath.
 
         // Infer JSX.Element return type if no explicit return type is present AND:
         // 1. It's an exported function/component starting with an uppercase letter (common React convention).
@@ -171,7 +177,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         boolean isRenderMethod = "render".equals(functionName);
 
         if ((isRenderMethod || (isExported && isComponentName)) && returnTypeText.isEmpty()) {
-            if (returnsJsxElement(funcNode)) { // src parameter removed
+            if (returnsJsxElement(funcNode)) {
                 inferredReturnType = "JSX.Element";
             }
         }
@@ -262,14 +268,11 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected List<String> getExtraFunctionComments(TSNode bodyNode, String src, @Nullable CodeUnit functionCu) {
+    protected List<String> getExtraFunctionComments(
+            TSNode bodyNode, SourceContent sourceContent, @Nullable CodeUnit functionCu) {
         if (bodyNode.isNull()) {
             return List.of();
         }
-
-        // Only apply for .jsx or .tsx files, or if JSX syntax is clearly present.
-        // For simplicity, let's assume if this logic is active, it's for a JSX context.
-        // A more robust check might involve checking functionCu.source().getFileName().
 
         Set<String> mutatedIdentifiers = new HashSet<>();
         String mutationQueryStr =
@@ -291,7 +294,8 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             for (TSQueryCapture capture : match.getCaptures()) {
                 String captureName = mutationQuery.getCaptureNameForId(capture.getIndex());
                 if ("mutated.id".equals(captureName)) {
-                    mutatedIdentifiers.add(textSlice(capture.getNode(), src));
+                    TSNode node = capture.getNode();
+                    mutatedIdentifiers.add(sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte()));
                 }
             }
         }
@@ -306,9 +310,10 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String getVisibilityPrefix(TSNode node, String src) {
+    protected String getVisibilityPrefix(TSNode node, SourceContent sourceContent) {
 
         TSNode parent = node.getParent();
+
         if (parent != null && !parent.isNull()) {
             // Check if 'node' is a variable_declarator and its parent is lexical_declaration or variable_declaration
             // This is for field definitions like `const a = 1;` or `export let b = 2;`
@@ -320,7 +325,8 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
                 // The first child of lexical/variable_declaration is the keyword (const, let, var)
                 TSNode keywordNode = declarationNode.getChild(0);
                 if (keywordNode != null && !keywordNode.isNull()) {
-                    keyword = textSlice(keywordNode, src); // "const", "let", or "var"
+                    keyword = sourceContent.substringFromBytes(
+                            keywordNode.getStartByte(), keywordNode.getEndByte()); // "const", "let", or "var"
                 }
 
                 String exportStr = "";
@@ -364,13 +370,6 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
                             && !exportStatementNode.isNull()
                             && "export_statement".equals(exportStatementNode.getType())) {
                         // For `export const Foo = () => {}`, this returns "export "
-                        // The `const` part is not included here; it's part of the arrow function's name construction
-                        // logic if needed,
-                        // or implicit in the fact it's a const declaration.
-                        // Current `renderFunctionDeclaration` for arrow functions does:
-                        // `String.format("%s%s%s%s%s =>", exportPrefix, asyncPrefix, functionName, paramsText,
-                        // tsReturnTypeSuffix);`
-                        // This correctly uses the "export " prefix.
                         return "export ";
                     }
                 }
@@ -381,7 +380,11 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String renderClassHeader(
-            TSNode classNode, String src, String exportPrefix, String signatureText, String baseIndent) {
+            TSNode classNode,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String signatureText,
+            String baseIndent) {
         // The 'baseIndent' parameter is now "" when called from buildSignatureString.
         // Stored signature should be unindented.
         return exportPrefix + signatureText + " {"; // Do not prepend baseIndent here
@@ -393,9 +396,10 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src) {
+    protected String determinePackageName(
+            ProjectFile file, TSNode definitionNode, TSNode rootNode, SourceContent sourceContent) {
         // JavaScript package naming is directory-based, relative to the project root.
-        // The definitionNode, rootNode, and src parameters are not used for JS package determination here.
+        // The definitionNode, rootNode, and sourceContent parameters are not used for JS package determination here.
         var projectRoot = getProject().getRoot();
         var filePath = file.absPath();
         var parentDir = filePath.getParent();
@@ -418,7 +422,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String formatFieldSignature(
             TSNode fieldNode,
-            String src,
+            SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
             String baseIndent,

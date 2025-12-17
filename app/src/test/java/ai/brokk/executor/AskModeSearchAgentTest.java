@@ -1,356 +1,487 @@
 package ai.brokk.executor;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static ai.brokk.testutil.ExecutorTestUtil.awaitJobCompletion;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.TestService;
-import com.fasterxml.jackson.core.type.TypeReference;
+import ai.brokk.util.FileUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
+import java.time.Duration;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Integration tests for ASK mode ensuring SearchAgent is used and no writes occur.
- * Verifies that ASK mode:
- * - Uses SearchAgent with ANSWER_ONLY objective
- * - Produces no code diffs
- * - Emits search/summary events, not code edits
- * - Maintains read-only semantics
+ * Integration-style tests for ASK mode pre-scan behavior.
+ *
+ * These tests start an in-process HeadlessExecutorMain on an ephemeral port, create a session,
+ * submit ASK-mode jobs with pre-scan options, and poll job events to assert that:
+ *  - the Context Engine pre-scan message is emitted when preScan=true, and
+ *  - ASK mode remains read-only (no CodeAgent/build/commit events) even if codeModel is provided.
+ *
+ * NOTE: These tests assume the environment or project default provides a usable scan model.
+ * If model resolution fails in your environment, adapt tests to initialize model stubs or
+ * provide configured model names via environment.
  */
-class AskModeSearchAgentTest {
+public class AskModeSearchAgentTest {
 
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-
+    private Path tempWorkspace;
     private HeadlessExecutorMain executor;
-    private int port;
-    private String authToken = "test-secret-token";
-    private String baseUrl;
+    private OkHttpClient httpClient;
+    private ObjectMapper mapper;
+    private String authToken;
 
     @BeforeEach
-    void setup(@TempDir Path tempDir) throws Exception {
-        var workspaceDir = tempDir.resolve("workspace");
-        var sessionsDir = tempDir.resolve("sessions");
-        Files.createDirectories(workspaceDir);
-        Files.createDirectories(sessionsDir);
+    public void setUp() throws Exception {
+        tempWorkspace = Files.createTempDirectory("brokk-test-workspace-");
 
-        // Create a minimal .brokk/project.properties file for MainProject
-        var brokkDir = workspaceDir.resolve(".brokk");
-        Files.createDirectories(brokkDir);
-        var propsFile = brokkDir.resolve("project.properties");
-        Files.writeString(propsFile, "# Minimal properties for test\n");
+        // Create a minimal .git structure so the project detects a Git repository implementation.
+        // This prevents ClassCastException in contexts that expect a Git-backed repo during scans.
+        var gitDir = tempWorkspace.resolve(".git");
+        Files.createDirectories(gitDir.resolve("refs").resolve("heads"));
+        Files.writeString(gitDir.resolve("HEAD"), "ref: refs/heads/master\n");
+        Files.createFile(gitDir.resolve("refs").resolve("heads").resolve("master"));
 
         var execId = UUID.randomUUID();
-        var project = new MainProject(workspaceDir);
-        var cm = new ContextManager(project, TestService.provider(project));
-        executor = new HeadlessExecutorMain(
-                execId,
-                "127.0.0.1:0", // Ephemeral port
-                authToken,
-                cm);
+        // TestService is a mock that doesn't make real API calls, so no proxy/key config needed.
+        var project = new MainProject(tempWorkspace);
+        var contextManager = new ContextManager(project, TestService.provider(project));
 
+        // random token
+        authToken = UUID.randomUUID().toString();
+
+        // Start executor bound to ephemeral port
+        executor = new HeadlessExecutorMain(execId, "127.0.0.1:0", authToken, contextManager);
         executor.start();
 
-        port = executor.getPort();
-        baseUrl = "http://127.0.0.1:" + port;
+        httpClient = new OkHttpClient.Builder()
+                .connectTimeout(java.time.Duration.ofSeconds(10))
+                .readTimeout(java.time.Duration.ofSeconds(30))
+                .build();
+
+        mapper = new ObjectMapper();
     }
 
     @AfterEach
-    void cleanup() {
+    public void tearDown() {
         if (executor != null) {
-            executor.stop(2);
+            try {
+                executor.stop(0);
+            } catch (Exception e) {
+                // ignore
+            }
+        }
+        FileUtil.deleteRecursively(tempWorkspace);
+    }
+
+    private String baseUrl() {
+        return "http://127.0.0.1:" + executor.getPort();
+    }
+
+    private String createSession() throws IOException {
+        var uri = baseUrl() + "/v1/sessions";
+        var body = mapper.createObjectNode();
+        body.put("name", "test-session-" + System.currentTimeMillis());
+        var req = new Request.Builder()
+                .url(uri)
+                .post(RequestBody.create(
+                        mapper.writeValueAsString(body), MediaType.get("application/json; charset=utf-8")))
+                .header("Authorization", "Bearer " + authToken)
+                .build();
+        try (var resp = httpClient.newCall(req).execute()) {
+            if (resp.code() != 201) {
+                throw new IOException("Failed to create session: " + resp.code() + " " + resp.body());
+            }
+            var node = mapper.readTree(resp.body().string());
+            return node.get("sessionId").asText();
         }
     }
 
-    @Test
-    void testAskModeUsesSearchAgent_ReadsOnly() throws Exception {
-        // Upload a minimal session
-        uploadSession();
-
-        // Create an ASK mode job
-        var jobSpec = Map.<String, Object>of(
-                "sessionId",
-                UUID.randomUUID().toString(),
+    private String submitJob(String sessionId, Map<String, Object> jobPayload) throws IOException {
+        var uri = baseUrl() + "/v1/jobs";
+        var json = mapper.createObjectNode();
+        json.put("sessionId", sessionId);
+        json.put(
                 "taskInput",
-                "What is the structure of this project?",
+                jobPayload.getOrDefault("taskInput", "Ask pre-scan test").toString());
+        json.put("autoCommit", (Boolean) jobPayload.getOrDefault("autoCommit", false));
+        json.put("autoCompress", (Boolean) jobPayload.getOrDefault("autoCompress", false));
+        json.put(
+                "plannerModel",
+                jobPayload.getOrDefault("plannerModel", "gemini-2.0-flash").toString());
+        if (jobPayload.containsKey("scanModel")) {
+            json.put("scanModel", jobPayload.get("scanModel").toString());
+        }
+        if (jobPayload.containsKey("codeModel")) {
+            json.put("codeModel", jobPayload.get("codeModel").toString());
+        }
+        if (jobPayload.containsKey("preScan")) {
+            json.put("preScan", (Boolean) jobPayload.get("preScan"));
+        }
+        var tags = mapper.createObjectNode();
+        Map<?, ?> tagsMap = (Map<?, ?>) jobPayload.getOrDefault("tags", Map.of("mode", "ASK"));
+        for (var e : tagsMap.entrySet()) {
+            tags.put(e.getKey().toString(), e.getValue().toString());
+        }
+        json.set("tags", tags);
+
+        var req = new Request.Builder()
+                .url(uri)
+                .post(RequestBody.create(
+                        mapper.writeValueAsString(json), MediaType.get("application/json; charset=utf-8")))
+                .header("Authorization", "Bearer " + authToken)
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .build();
+
+        try (var resp = httpClient.newCall(req).execute()) {
+            if (resp.code() != 201 && resp.code() != 200) {
+                throw new IOException("Failed to submit job: " + resp.code() + " " + resp.body());
+            }
+            var node = mapper.readTree(resp.body().string());
+            return node.get("jobId").asText();
+        }
+    }
+
+    private String pollEventsUntilContains(String jobId, String matchText, Duration timeout)
+            throws IOException, InterruptedException {
+        long deadline = System.currentTimeMillis() + timeout.toMillis();
+        long after = -1;
+
+        // keep a small ring of recent events for debug output on timeout
+        var recentEvents = new java.util.ArrayDeque<com.fasterxml.jackson.databind.JsonNode>(32);
+
+        while (System.currentTimeMillis() < deadline) {
+            var eventsUrl = baseUrl() + "/v1/jobs/" + jobId + "/events?after=" + after + "&limit=100";
+            var req = new Request.Builder()
+                    .url(eventsUrl)
+                    .get()
+                    .header("Authorization", "Bearer " + authToken)
+                    .build();
+            try (var resp = httpClient.newCall(req).execute()) {
+                if (resp.code() == 200 && resp.body() != null) {
+                    var bodyStr = resp.body().string();
+                    var tree = mapper.readTree(bodyStr);
+                    var events = tree.get("events");
+                    if (events != null && events.isArray()) {
+                        for (var ev : events) {
+                            // keep recent events for debugging
+                            recentEvents.addLast(ev);
+                            if (recentEvents.size() > 32) recentEvents.removeFirst();
+
+                            // Prefer NOTIFICATION events (string payloads) for deterministic checks
+                            String type = ev.has("type") && ev.get("type").isTextual()
+                                    ? ev.get("type").asText()
+                                    : "";
+
+                            var data = ev.get("data");
+                            String text = null;
+
+                            if ("NOTIFICATION".equals(type)) {
+                                // For NOTIFICATION we expect a string payload; prefer asText()
+                                if (data != null) {
+                                    if (data.isTextual()) {
+                                        text = data.asText();
+                                    } else {
+                                        // fallback to JSON string representation if not textual
+                                        text = data.toString();
+                                    }
+                                }
+                            } else {
+                                // Other event types (e.g., LLM_TOKEN) may have object payloads.
+                                if (data != null) {
+                                    if (data.isTextual()) {
+                                        text = data.asText();
+                                    } else if (data.has("token")
+                                            && data.get("token").isTextual()) {
+                                        text = data.get("token").asText();
+                                    } else if (data.has("message")
+                                            && data.get("message").isTextual()) {
+                                        text = data.get("message").asText();
+                                    } else {
+                                        text = data.toString();
+                                    }
+                                }
+                            }
+
+                            if (text != null && text.contains(matchText)) {
+                                return text;
+                            }
+
+                            var seq = ev.get("seq");
+                            if (seq != null && seq.isNumber()) {
+                                after = seq.asLong();
+                            }
+                        }
+                    }
+                } else if (resp.code() == 404) {
+                    throw new IOException("Job not found: " + jobId);
+                }
+            } catch (IOException ioe) {
+                // transient network/read error: ignore and retry until deadline
+            }
+            Thread.sleep(100L);
+        }
+
+        // Timeout reached: dump recent events to stderr to aid debugging
+        try {
+            var list = new java.util.ArrayList<com.fasterxml.jackson.databind.JsonNode>(recentEvents);
+            System.err.println("[AskModeSearchAgentTest] Timeout waiting for '" + matchText + "' for job " + jobId);
+            try {
+                System.err.println("[AskModeSearchAgentTest] Last events: "
+                        + mapper.writerWithDefaultPrettyPrinter().writeValueAsString(list));
+            } catch (Exception e) {
+                System.err.println("[AskModeSearchAgentTest] Unable to serialize recent events: " + e.getMessage());
+            }
+        } catch (Throwable t) {
+            // best-effort debug output; never fail the test method from here
+            System.err.println(
+                    "[AskModeSearchAgentTest] Timeout and failed to record recent events: " + t.getMessage());
+        }
+
+        return null;
+    }
+
+    private boolean eventsContain(String jobId, String matchText, Duration timeout)
+            throws IOException, InterruptedException {
+        return pollEventsUntilContains(jobId, matchText, timeout) != null;
+    }
+
+    private Set<String> collectAllEventTexts(String jobId) throws IOException {
+        var texts = new HashSet<String>();
+        long after = -1;
+        boolean hasMore = true;
+        while (hasMore) {
+            var eventsUrl = baseUrl() + "/v1/jobs/" + jobId + "/events?after=" + after + "&limit=1000";
+            var req = new Request.Builder()
+                    .url(eventsUrl)
+                    .get()
+                    .header("Authorization", "Bearer " + authToken)
+                    .build();
+            try (var resp = httpClient.newCall(req).execute()) {
+                if (resp.code() == 200 && resp.body() != null) {
+                    var tree = mapper.readTree(resp.body().string());
+                    var events = tree.get("events");
+                    if (events == null || !events.isArray() || events.isEmpty()) {
+                        hasMore = false;
+                    } else {
+                        for (var ev : events) {
+                            var data = ev.get("data");
+                            if (data != null) {
+                                if (data.isTextual()) {
+                                    texts.add(data.asText());
+                                } else if (data.has("token")
+                                        && data.get("token").isTextual()) {
+                                    texts.add(data.get("token").asText());
+                                } else if (data.has("message")
+                                        && data.get("message").isTextual()) {
+                                    texts.add(data.get("message").asText());
+                                } else {
+                                    texts.add(data.toString());
+                                }
+                            }
+                            var seq = ev.get("seq");
+                            if (seq != null && seq.isNumber()) {
+                                after = seq.asLong();
+                            }
+                        }
+                    }
+                } else {
+                    hasMore = false;
+                }
+            }
+        }
+        return texts;
+    }
+
+    /**
+     * Test that ASK mode with preScan=true and an explicit scanModel emits the Context Engine pre-scan message
+     * and does not emit write/CodeAgent/commit events (i.e., is read-only).
+     */
+    @Test
+    public void testAskModeWithPreScan_UsesScanModelAndIsReadOnly() throws Exception {
+        String sessionId = createSession();
+
+        var payload = Map.<String, Object>of(
+                "taskInput",
+                "Summarize repository structure for pre-scan test",
+                "plannerModel",
+                "gemini-2.0-flash",
+                "scanModel",
+                "gemini-2.0-flash",
+                "preScan",
+                true,
                 "autoCommit",
                 false,
                 "autoCompress",
                 false,
-                "plannerModel",
-                "gemini-2.0-flash",
                 "tags",
                 Map.of("mode", "ASK"));
 
-        var jobId = createJobWithSpec(jobSpec, "ask-test-read-only");
+        String jobId = submitJob(sessionId, payload);
 
-        // Wait for job to complete
-        Thread.sleep(500);
+        // Wait for the Context Engine pre-scan message
+        boolean sawPreScan = eventsContain(jobId, "Brokk Context Engine", Duration.ofSeconds(60));
+        assertTrue(sawPreScan, "Expected pre-scan Context Engine message in events stream");
 
-        // Poll for events to ensure job has processed
-        var eventsUrl = URI.create(baseUrl + "/v1/jobs/" + jobId + "/events?after=-1&limit=1000")
-                .toURL();
-        var eventsConn = (HttpURLConnection) eventsUrl.openConnection();
-        eventsConn.setRequestMethod("GET");
-        eventsConn.setRequestProperty("Authorization", "Bearer " + authToken);
-
-        assertEquals(200, eventsConn.getResponseCode());
-        try (InputStream is = eventsConn.getInputStream()) {
-            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            var eventsData = OBJECT_MAPPER.readValue(response, new TypeReference<Map<String, Object>>() {});
-            var events = (List<?>) eventsData.get("events");
-
-            assertNotNull(events, "Events should not be null");
-            assertTrue(events.size() > 0, "ASK mode should produce events");
-
-            // Verify events contain search/LLM output, not code edits
-            var eventTypes = events.stream()
-                    .map(e -> ((Map<?, ?>) e).get("type"))
-                    .map(Object::toString)
-                    .toList();
-
-            // ASK mode should produce LLM_TOKEN or NOTIFICATION events, not CODE_EDIT events
-            assertTrue(
-                    eventTypes.stream().anyMatch(t -> t.contains("LLM_TOKEN") || t.contains("NOTIFICATION")),
-                    "ASK mode should produce LLM or notification events; got: " + eventTypes);
-            assertFalse(
-                    eventTypes.stream().anyMatch(t -> t.contains("CODE_EDIT")),
-                    "ASK mode should not produce CODE_EDIT events; got: " + eventTypes);
-        }
-        eventsConn.disconnect();
-
-        // Verify no git diff was created (read-only semantics)
-        var diffUrl = URI.create(baseUrl + "/v1/jobs/" + jobId + "/diff").toURL();
-        var diffConn = (HttpURLConnection) diffUrl.openConnection();
-        diffConn.setRequestMethod("GET");
-        diffConn.setRequestProperty("Authorization", "Bearer " + authToken);
-
-        try {
-            // Expect 200 or 409 (no git); if 409, that's fine (no git repo)
-            var statusCode = diffConn.getResponseCode();
-            assertTrue(
-                    statusCode == 200 || statusCode == 409,
-                    "Diff endpoint should succeed or report no git; got: " + statusCode);
-
-            if (statusCode == 200) {
-                try (InputStream is = diffConn.getInputStream()) {
-                    var diffText = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-                    assertTrue(
-                            diffText.isEmpty() || diffText.isBlank(),
-                            "ASK mode should produce no diff (read-only); got: " + diffText);
-                }
-            }
-        } finally {
-            diffConn.disconnect();
-        }
+        // Ensure no CodeAgent nor commit messages appear in the stream within a short window
+        // (If code generation happened, we would see Code Agent messages or commits)
+        boolean sawCodeAgent = eventsContain(jobId, "Code Agent", Duration.ofSeconds(5));
+        boolean sawCommit = eventsContain(jobId, "commit", Duration.ofSeconds(5));
+        assertFalse(sawCodeAgent, "ASK with pre-scan must not invoke Code Agent (read-only)");
+        assertFalse(sawCommit, "ASK with pre-scan must not perform commits (read-only)");
     }
 
+    /**
+     * Test that ASK mode with preScan=true but without an explicit scanModel falls back to the project's default scan model
+     * and emits the Context Engine messages.
+     */
     @Test
-    void testAskModeIgnoresCodeModel() throws Exception {
-        uploadSession();
+    public void testAskModeWithPreScan_DefaultsToProjectScanModelWhenOmitted() throws Exception {
+        String sessionId = createSession();
 
-        // Create ASK job with explicit codeModel (should be ignored)
-        var jobSpec = Map.<String, Object>of(
-                "sessionId",
-                UUID.randomUUID().toString(),
+        var payload = Map.<String, Object>of(
                 "taskInput",
-                "List the main files in this project",
+                "Find references to AuthenticationManager across repo",
+                "plannerModel",
+                "gemini-2.0-flash",
+                // scanModel omitted to exercise project default
+                "preScan",
+                true,
                 "autoCommit",
                 false,
                 "autoCompress",
                 false,
+                "tags",
+                Map.of("mode", "ASK"));
+
+        String jobId = submitJob(sessionId, payload);
+
+        // Wait for Context Engine pre-scan message
+        boolean sawPreScan = eventsContain(jobId, "Brokk Context Engine", Duration.ofSeconds(60));
+        assertTrue(
+                sawPreScan,
+                "Expected pre-scan Context Engine message when scanModel omitted (defaults to project scan model)");
+    }
+
+    /**
+     * Test that ASK mode ignores codeModel even when preScan=true (i.e., codeModel does not cause code-generation).
+     */
+    @Test
+    public void testAskModeIgnoresCodeModelEvenWhenPreScanTrue() throws Exception {
+        String sessionId = createSession();
+
+        var payload = Map.<String, Object>of(
+                "taskInput",
+                "Explain UserService responsibilities",
                 "plannerModel",
+                "gemini-2.0-flash",
+                "scanModel",
                 "gemini-2.0-flash",
                 "codeModel",
-                "gemini-2.0-flash", // Explicitly set, but should be ignored in ASK
-                "tags",
-                Map.of("mode", "ASK"));
-
-        var jobId = createJobWithSpec(jobSpec, "ask-test-ignore-code-model");
-
-        // Wait for job
-        Thread.sleep(300);
-
-        // Verify job status
-        var statusUrl = URI.create(baseUrl + "/v1/jobs/" + jobId).toURL();
-        var statusConn = (HttpURLConnection) statusUrl.openConnection();
-        statusConn.setRequestMethod("GET");
-        statusConn.setRequestProperty("Authorization", "Bearer " + authToken);
-
-        assertEquals(200, statusConn.getResponseCode());
-        try (InputStream is = statusConn.getInputStream()) {
-            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            // Job should exist and have status (RUNNING, COMPLETED, or FAILED)
-            assertTrue(response.contains("state"), "Job status should be present");
-        }
-        statusConn.disconnect();
-    }
-
-    @Test
-    void testAskModeWithAutoCompress() throws Exception {
-        uploadSession();
-
-        // Create ASK job with autoCompress enabled
-        var jobSpec = Map.<String, Object>of(
-                "sessionId",
-                UUID.randomUUID().toString(),
-                "taskInput",
-                "What are the key files?",
+                "gemini-2.0-flash", // intentionally provided; should be ignored for ASK
+                "preScan",
+                true,
                 "autoCommit",
                 false,
                 "autoCompress",
-                true, // Enable compression
-                "plannerModel",
-                "gemini-2.0-flash",
+                false,
                 "tags",
                 Map.of("mode", "ASK"));
 
-        var jobId = createJobWithSpec(jobSpec, "ask-test-auto-compress");
+        String jobId = submitJob(sessionId, payload);
 
-        // Wait for job completion
-        Thread.sleep(500);
+        // Wait for pre-scan message
+        boolean sawPreScan = eventsContain(jobId, "Brokk Context Engine", Duration.ofSeconds(60));
+        assertTrue(sawPreScan, "Expected pre-scan Context Engine message in events stream");
 
-        // Verify job completed (autoCompress should not cause issues)
-        var statusUrl = URI.create(baseUrl + "/v1/jobs/" + jobId).toURL();
-        var statusConn = (HttpURLConnection) statusUrl.openConnection();
-        statusConn.setRequestMethod("GET");
-        statusConn.setRequestProperty("Authorization", "Bearer " + authToken);
-
-        assertEquals(200, statusConn.getResponseCode());
-        try (InputStream is = statusConn.getInputStream()) {
-            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            // Should complete successfully (either COMPLETED or have events)
-            assertTrue(response.contains("state"), "Job should have a state");
-        }
-        statusConn.disconnect();
+        // Ensure no code-generation events appear
+        boolean sawCodeAgent = eventsContain(jobId, "Code Agent", Duration.ofSeconds(5));
+        assertFalse(sawCodeAgent, "codeModel must be ignored for ASK; no Code Agent invocation expected");
     }
 
+    /**
+     * Submits an ASK job with preScan=true and asserts:
+     *  1) both Context Engine NOTIFICATIONs (start and completion) appear in the event stream,
+     *  2) no follow-on SearchAgent search/inspection tool activity is recorded after pre-scan,
+     *  3) an answer is produced (job reaches COMPLETED),
+     *  4) no CodeAgent/commit events occur.
+     */
     @Test
-    void testAskModeNoAutoCommit() throws Exception {
-        uploadSession();
+    public void testAskModePreScan_OnlyInitialScanThenAnswer_NoFurtherSearch() throws Exception {
+        String sessionId = createSession();
 
-        // Create ASK job with autoCommit=true (should be ignored)
-        var jobSpec = Map.<String, Object>of(
-                "sessionId",
-                UUID.randomUUID().toString(),
+        var payload = Map.<String, Object>of(
                 "taskInput",
-                "Describe the architecture",
+                "Summarize repository structure for fast-ask test",
+                "plannerModel",
+                "gemini-2.0-flash",
+                "scanModel",
+                "gemini-2.0-flash",
+                "preScan",
+                true,
                 "autoCommit",
-                true, // Should be ignored in ASK mode
+                false,
                 "autoCompress",
                 false,
-                "plannerModel",
-                "gemini-2.0-flash",
                 "tags",
                 Map.of("mode", "ASK"));
 
-        var jobId = createJobWithSpec(jobSpec, "ask-test-no-auto-commit");
+        String jobId = submitJob(sessionId, payload);
 
-        // Wait for job
-        Thread.sleep(300);
+        // 1) Assert pre-scan start notification appears
+        boolean sawPreScanStart =
+                eventsContain(jobId, "Brokk Context Engine: analyzing repository context...", Duration.ofSeconds(60));
+        assertTrue(sawPreScanStart, "Expected pre-scan START Context Engine notification");
 
-        // Verify no diff (autoCommit should be ignored)
-        var diffUrl = URI.create(baseUrl + "/v1/jobs/" + jobId + "/diff").toURL();
-        var diffConn = (HttpURLConnection) diffUrl.openConnection();
-        diffConn.setRequestMethod("GET");
-        diffConn.setRequestProperty("Authorization", "Bearer " + authToken);
+        // 1b) Assert pre-scan completion notification appears
+        boolean sawPreScanComplete = eventsContain(
+                jobId,
+                "Brokk Context Engine: complete — contextual insights added to Workspace.",
+                Duration.ofSeconds(60));
+        assertTrue(sawPreScanComplete, "Expected pre-scan COMPLETE Context Engine notification");
 
-        try {
-            var statusCode = diffConn.getResponseCode();
-            if (statusCode == 200) {
-                try (InputStream is = diffConn.getInputStream()) {
-                    var diffText = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-                    assertTrue(
-                            diffText.isEmpty() || diffText.isBlank(),
-                            "ASK should produce no diff even with autoCommit=true; got: " + diffText);
-                }
-            }
-        } finally {
-            diffConn.disconnect();
-        }
-    }
+        // 3) Wait for job to complete
+        awaitJobCompletion(baseUrl(), jobId, authToken, Duration.ofSeconds(60));
 
-    // ============================================================================
-    // Helpers
-    // ============================================================================
+        // Collect all event texts once, then check for forbidden patterns
+        var allTexts = collectAllEventTexts(jobId);
+        var allTextsJoined = String.join(" ", allTexts);
 
-    private byte[] createEmptyZip() throws IOException {
-        var out = new java.io.ByteArrayOutputStream();
-        try (var zos = new ZipOutputStream(out)) {
-            var fragmentsEntry = new ZipEntry("fragments-v4.json");
-            zos.putNextEntry(fragmentsEntry);
-            zos.write("{\"version\": 1, \"referenced\": {}, \"virtual\": {}, \"task\": {}}"
-                    .getBytes(StandardCharsets.UTF_8));
-            zos.closeEntry();
-
-            var contextsEntry = new ZipEntry("contexts.jsonl");
-            zos.putNextEntry(contextsEntry);
-            zos.closeEntry();
-        }
-        return out.toByteArray();
-    }
-
-    private void uploadSession() throws Exception {
-        var sessionZip = createEmptyZip();
-        var url = URI.create(baseUrl + "/v1/sessions").toURL();
-        var conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("PUT");
-        conn.setRequestProperty("Authorization", "Bearer " + authToken);
-        conn.setRequestProperty("Content-Type", "application/zip");
-        conn.setDoOutput(true);
-
-        try (OutputStream os = conn.getOutputStream()) {
-            os.write(sessionZip);
+        // 2) Ensure no follow-on search/inspection tool activity is recorded after pre-scan.
+        var forbiddenSearchTools = new String[] {
+            "searchSymbols",
+            "getSymbolLocations",
+            "getClassSkeletons",
+            "getClassSources",
+            "getMethodSources",
+            "getUsages",
+            "searchSubstrings",
+            "searchFilenames",
+            "getFileContents",
+            "getFileSummaries"
+        };
+        for (String tool : forbiddenSearchTools) {
+            assertFalse(
+                    allTextsJoined.contains(tool),
+                    "Did not expect search/inspection tool activity after pre-scan: " + tool);
         }
 
-        assertEquals(201, conn.getResponseCode());
-        conn.disconnect();
-    }
-
-    private String createJobWithSpec(Map<String, Object> jobSpec, String idempotencyKey) throws Exception {
-        var url = URI.create(baseUrl + "/v1/jobs").toURL();
-        var conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("POST");
-        conn.setRequestProperty("Authorization", "Bearer " + authToken);
-        conn.setRequestProperty("Content-Type", "application/json");
-        conn.setRequestProperty("Idempotency-Key", idempotencyKey);
-        conn.setDoOutput(true);
-
-        var json = toJson(jobSpec);
-        try (OutputStream os = conn.getOutputStream()) {
-            os.write(json.getBytes(StandardCharsets.UTF_8));
-        }
-
-        assertEquals(201, conn.getResponseCode());
-        try (InputStream is = conn.getInputStream()) {
-            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            var start = response.indexOf("\"jobId\":\"") + 9;
-            var end = response.indexOf("\"", start);
-            return response.substring(start, end);
-        } finally {
-            conn.disconnect();
-        }
-    }
-
-    private String toJson(Object obj) throws Exception {
-        return OBJECT_MAPPER.writeValueAsString(obj);
+        // 4) Also ensure no CodeAgent or commit messages appear (read-only)
+        assertFalse(allTextsJoined.contains("Code Agent"), "ASK with pre-scan must not invoke Code Agent (read-only)");
+        assertFalse(allTextsJoined.contains("commit"), "ASK with pre-scan must not perform commits (read-only)");
     }
 }

@@ -50,6 +50,9 @@ public class ThemeColors {
     public static final String GIT_BADGE_BACKGROUND = "git_badge_background";
     public static final String GIT_BADGE_TEXT = "git_badge_text";
 
+    // CI exclusion colors
+    public static final String CI_EXCLUDED_FOREGROUND = "ci_excluded_foreground";
+
     // Mode indicator colors
     public static final String MODE_ANSWER_BG = "mode_answer_bg";
     public static final String MODE_ANSWER_FG = "mode_answer_fg";
@@ -60,6 +63,9 @@ public class ThemeColors {
     public static final String MODE_LUTZ_BG = "mode_lutz_bg";
     public static final String MODE_LUTZ_FG = "mode_lutz_fg";
     public static final String MODE_LUTZ_ACCENT = "mode_lutz_accent";
+    public static final String MODE_PLAN_BG = "mode_plan_bg";
+    public static final String MODE_PLAN_FG = "mode_plan_fg";
+    public static final String MODE_PLAN_ACCENT = "mode_plan_accent";
 
     // File reference badge colors
     public static final String BADGE_BORDER = "badge_border";
@@ -156,6 +162,7 @@ public class ThemeColors {
             case DIFF_DELETED -> new Color(250, 220, 220);
             case CHAT_BACKGROUND -> new Color(37, 37, 37);
             case CHAT_TEXT -> new Color(212, 212, 212);
+            case CI_EXCLUDED_FOREGROUND -> Color.GRAY;
             default -> {
                 logger.warn("No fallback color defined for key: {}", key);
                 yield Color.MAGENTA; // Bright error color for unexpected keys

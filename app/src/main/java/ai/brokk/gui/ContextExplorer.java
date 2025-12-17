@@ -9,6 +9,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.project.IProject;
+import ai.brokk.util.ImageUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.awt.*;
 import java.io.File;
@@ -31,6 +32,7 @@ import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableRowSorter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -380,9 +382,10 @@ public final class ContextExplorer extends JFrame {
         }
     }
 
+    @Blocking
     private static int safeLineCount(ContextFragment f) {
         try {
-            var t = f.text();
+            var t = f.text().join();
             return t.isEmpty() ? 0 : (int) t.lines().count();
         } catch (Exception e) {
             logger.warn("Error getting line count for fragment {}: {}", f.id(), e.getMessage());
@@ -390,13 +393,14 @@ public final class ContextExplorer extends JFrame {
         }
     }
 
+    @Blocking
     private static int countTaskHistoryLines(Context ctx) {
         try {
             return ctx.getTaskHistory().stream()
                     .mapToInt(te -> {
                         try {
                             if (te.log() != null) {
-                                var t = te.log().text();
+                                var t = te.log().text().join();
                                 return t.isEmpty() ? 0 : (int) t.lines().count();
                             } else if (te.summary() != null) {
                                 var s = te.summary();
@@ -434,12 +438,11 @@ public final class ContextExplorer extends JFrame {
             protected Void doInBackground() {
                 try {
                     if (fragment.isText()) {
-                        textContent = fragment.text();
+                        textContent = fragment.text().join();
                     } else {
-                        if (fragment instanceof ContextFragment.ImageFileFragment ifd) {
-                            imageContent = ifd.image();
-                        } else if (fragment instanceof ContextFragment.AnonymousImageFragment aif) {
-                            imageContent = aif.image();
+                        var imageBytes = fragment.imageBytes();
+                        if (fragment instanceof ContextFragment.ImageFragment && imageBytes != null) {
+                            imageContent = ImageUtil.bytesToImage(imageBytes.join());
                         } else {
                             textContent =
                                     "Fragment type " + fragment.getType() + " is not a displayable image or text.";
@@ -512,9 +515,9 @@ public final class ContextExplorer extends JFrame {
                                 .add(new FragmentExport(
                                         f.id(),
                                         f.getType().name(),
-                                        f.shortDescription(),
+                                        f.shortDescription().join(),
                                         fr.lineCount(),
-                                        f.syntaxStyle()));
+                                        f.syntaxStyle().join()));
                     }
                 }
                 if (current != null) {

@@ -10,6 +10,7 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.tools.ToolRegistry;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.ChatMessage;
@@ -27,6 +28,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 
 /** Interface for context manager functionality */
 public interface IContextManager {
@@ -129,14 +131,19 @@ public interface IContextManager {
         return new ProjectFile(project.getRoot(), trimmed);
     }
 
+    @Blocking
     default Set<ProjectFile> getFilesInContext() {
-        throw new UnsupportedOperationException();
+        return liveContext()
+                .fileFragments()
+                .flatMap(cf -> cf.files().join().stream())
+                .collect(Collectors.toSet());
     }
 
     default Context appendTasksToTaskList(Context context, List<String> tasks) {
         throw new UnsupportedOperationException();
     }
 
+    @Blocking
     default Context createOrReplaceTaskList(Context context, List<String> tasks) {
         throw new UnsupportedOperationException();
     }
@@ -196,37 +203,9 @@ public interface IContextManager {
 
     default void reportException(Throwable th, Map<String, String> optionalFields) {}
 
-    default StreamingChatModel getModelOrDefault(Service.ModelConfig config, String modelTypeName) {
-        var service = getService();
-        StreamingChatModel model = service.getModel(config);
-        if (model != null) {
-            return model;
-        }
-
-        model = service.getModel(new Service.ModelConfig(Service.GPT_5_MINI, Service.ReasoningLevel.DEFAULT));
-        if (model != null) {
-            getIo().showNotification(
-                            IConsoleIO.NotificationRole.INFO,
-                            String.format(
-                                    "Configured model '%s' for %s tasks is unavailable. Using fallback '%s'.",
-                                    config.name(), modelTypeName, Service.GPT_5_MINI));
-            return model;
-        }
-
-        var quickModel = service.quickModel();
-        String quickModelName = service.nameOf(quickModel);
-        getIo().showNotification(
-                        IConsoleIO.NotificationRole.INFO,
-                        String.format(
-                                "Configured model '%s' for %s tasks is unavailable. Preferred fallbacks also failed. Using system model '%s'.",
-                                config.name(), modelTypeName, quickModelName));
-        return quickModel;
-    }
-
     /** Returns the configured Code model, falling back to the system model if unavailable. */
     default StreamingChatModel getCodeModel() {
-        var config = getProject().getCodeModelConfig();
-        return getModelOrDefault(config, "Code");
+        return getService().getModel(ModelProperties.ModelType.CODE);
     }
 
     default void addFiles(Collection<ProjectFile> path) {}
@@ -244,16 +223,16 @@ public interface IContextManager {
     }
 
     /** Adds any virtual fragment directly to the live context. */
-    default void addVirtualFragments(Collection<? extends ContextFragment.VirtualFragment> fragments) {
+    default void addFragments(Collection<? extends ContextFragment> fragments) {
         if (fragments.isEmpty()) {
             return;
         }
-        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragments(fragments));
+        pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragments));
     }
 
     /** Adds any virtual fragment directly to the live context. */
-    default void addVirtualFragment(ContextFragment.VirtualFragment fragment) {
-        addVirtualFragments(List.of(fragment));
+    default void addFragments(ContextFragment fragment) {
+        addFragments(List.of(fragment));
     }
 
     /** Create a new LLM instance for the given model and description */
@@ -275,4 +254,7 @@ public interface IContextManager {
         return Llm.create(
                 options, this, getProject().getDataRetentionPolicy() == MainProject.DataRetentionPolicy.IMPROVE_BROKK);
     }
+
+    @Blocking
+    default void compressHistory() throws InterruptedException {}
 }

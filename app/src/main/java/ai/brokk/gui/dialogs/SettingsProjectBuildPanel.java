@@ -261,17 +261,20 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildConfigPanel.add(buildTimeoutSpinner, buildGbc);
 
         // Infer/Verify buttons
-        var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         inferBuildDetailsButton.setActionCommand(ACTION_INFER);
+        inferBuildDetailsButton.setName("inferBuildDetailsButton");
         buttonsPanel.add(inferBuildDetailsButton);
         var verifyBuildButton = new MaterialButton("Verify Configuration");
+        verifyBuildButton.setName("verifyBuildButton");
         verifyBuildButton.addActionListener(e -> verifyBuildConfiguration());
         buttonsPanel.add(verifyBuildButton);
+
         buildGbc.gridx = 1;
         buildGbc.gridy = buildRow++;
-        buildGbc.weightx = 0.0;
+        buildGbc.weightx = 1.0;
         buildGbc.weighty = 0.0;
-        buildGbc.fill = GridBagConstraints.NONE;
+        buildGbc.fill = GridBagConstraints.HORIZONTAL;
         buildGbc.anchor = GridBagConstraints.WEST;
         buildConfigPanel.add(buttonsPanel, buildGbc);
 
@@ -432,7 +435,7 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     private void verifyBuildConfiguration() {
-        var verifyDialog = new JDialog(parentDialog, "Verifying Build Configuration", true);
+        var verifyDialog = new BaseThemedDialog(parentDialog, "Verifying Build Configuration");
         verifyDialog.setSize(600, 400);
         verifyDialog.setLocationRelativeTo(parentDialog);
 
@@ -453,9 +456,10 @@ public class SettingsProjectBuildPanel extends JPanel {
         bottomPanel.add(closeButton, BorderLayout.EAST);
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
 
-        verifyDialog.setLayout(new BorderLayout(5, 5));
-        verifyDialog.add(scrollPane, BorderLayout.CENTER);
-        verifyDialog.add(bottomPanel, BorderLayout.SOUTH);
+        var root = verifyDialog.getContentRoot();
+        root.setLayout(new BorderLayout(5, 5));
+        root.add(scrollPane, BorderLayout.CENTER);
+        root.add(bottomPanel, BorderLayout.SOUTH);
 
         SwingWorker<String, String> worker = new SwingWorker<>() {
             @Override

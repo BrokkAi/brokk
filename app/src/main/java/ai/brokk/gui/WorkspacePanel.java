@@ -39,12 +39,15 @@ import java.util.*;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import javax.swing.*;
+import javax.swing.Timer;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -53,6 +56,7 @@ import javax.swing.table.TableCellRenderer;
 import okhttp3.OkHttpClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public class WorkspacePanel extends JPanel {
@@ -151,12 +155,13 @@ public class WorkspacePanel extends JPanel {
         }
 
         @Override
+        @Blocking
         public List<Action> getActions(WorkspacePanel panel) {
             var actions = new ArrayList<Action>();
 
             // Show in Project (for PROJECT_PATH fragments)
             if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
-                fragment.files().stream()
+                fragment.files().join().stream()
                         .findFirst()
                         .ifPresent(projectFile ->
                                 actions.add(WorkspaceAction.SHOW_IN_PROJECT.createFileAction(panel, projectFile)));
@@ -171,7 +176,7 @@ public class WorkspacePanel extends JPanel {
 
             // View History/Compress History
             if (panel.hasGit() && fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
-                fragment.files().stream()
+                fragment.files().join().stream()
                         .findFirst()
                         .ifPresent(projectFile ->
                                 actions.add(WorkspaceAction.VIEW_HISTORY.createFileAction(panel, projectFile)));
@@ -191,7 +196,7 @@ public class WorkspacePanel extends JPanel {
 
             // Add Run Tests action if the fragment is associated with a test file
             if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH
-                    && fragment.files().stream().anyMatch(ContextManager::isTestFile)) {
+                    && fragment.files().join().stream().anyMatch(ContextManager::isTestFile)) {
                 actions.add(WorkspaceAction.RUN_TESTS.createFragmentsAction(panel, List.of(fragment)));
             } else {
                 var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("No test files in selection");
@@ -202,7 +207,7 @@ public class WorkspacePanel extends JPanel {
 
             // Edit/Read/Summarize
             if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
-                fragment.files().stream().findFirst().ifPresent(projectFile -> {
+                fragment.files().join().stream().findFirst().ifPresent(projectFile -> {
                     var fileData = new TableUtils.FileReferenceList.FileReferenceData(
                             projectFile.getFileName(), projectFile.toString(), projectFile);
 
@@ -227,8 +232,7 @@ public class WorkspacePanel extends JPanel {
                 });
             } else {
                 var selectedFragments = List.of(fragment);
-                actions.add(WorkspaceAction.EDIT_ALL_REFS.createFragmentsAction(panel, selectedFragments));
-                actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createFragmentsAction(panel, selectedFragments));
+                panel.addEditAndSummarizeActions(selectedFragments, actions);
             }
 
             actions.add(null); // Separator
@@ -257,6 +261,7 @@ public class WorkspacePanel extends JPanel {
         }
 
         @Override
+        @Blocking
         public List<Action> getActions(WorkspacePanel panel) {
             var actions = new ArrayList<Action>();
 
@@ -264,7 +269,7 @@ public class WorkspacePanel extends JPanel {
                     "Cannot view contents of multiple items at once."));
             actions.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction("Cannot view history for multiple items."));
             // Add Run Tests action if all selected fragment is associated with a test file
-            if (fragments.stream().flatMap(f -> f.files().stream()).allMatch(ContextManager::isTestFile)) {
+            if (fragments.stream().flatMap(f -> f.files().join().stream()).allMatch(ContextManager::isTestFile)) {
                 actions.add(WorkspaceAction.RUN_TESTS.createFragmentsAction(panel, fragments));
             } else {
                 var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("No test files in selection");
@@ -273,8 +278,7 @@ public class WorkspacePanel extends JPanel {
 
             actions.add(null); // Separator
 
-            actions.add(WorkspaceAction.EDIT_ALL_REFS.createFragmentsAction(panel, fragments));
-            actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createFragmentsAction(panel, fragments));
+            panel.addEditAndSummarizeActions(fragments, actions);
 
             actions.add(null); // Separator
             actions.add(WorkspaceAction.COPY.createFragmentsAction(panel, fragments));
@@ -438,26 +442,6 @@ public class WorkspacePanel extends JPanel {
                                             "Fragments action not implemented: " + WorkspaceAction.this);
                             };
                     panel.performContextActionAsync(contextAction, fragments);
-
-                    // Apply enable/disable logic for specific actions
-                    if (WorkspaceAction.this == EDIT_ALL_REFS) {
-                        if (!panel.allTrackedProjectFiles(fragments)) {
-                            var hasFiles = panel.hasFiles(fragments);
-                            setEnabled(false);
-                            if (!hasFiles) {
-                                putValue(Action.SHORT_DESCRIPTION, "No files associated with the selection to edit.");
-                            } else {
-                                putValue(
-                                        Action.SHORT_DESCRIPTION,
-                                        "Cannot edit because selection includes untracked or external files.");
-                            }
-                        }
-                    } else if (WorkspaceAction.this == SUMMARIZE_ALL_REFS) {
-                        if (!panel.hasFiles(fragments)) {
-                            setEnabled(false);
-                            putValue(Action.SHORT_DESCRIPTION, "No files associated with the selection to summarize.");
-                        }
-                    }
                 }
             };
         }
@@ -511,22 +495,19 @@ public class WorkspacePanel extends JPanel {
             List<TableUtils.FileReferenceList.FileReferenceData> fileReferences = data.fileReferences();
 
             // For dynamic fragments, use computed description (non-blocking)
-            if (fragment instanceof ContextFragment.ComputedFragment cf) {
-                var descOpt = cf.computedDescription().tryGet();
-                if (descOpt.isPresent()) {
-                    description = descOpt.get();
-                } else {
-                    description = "(Loading...)";
-                    // Register for repaint when description completes; log failures
-                    cf.computedDescription().onComplete((desc, ex) -> {
-                        if (ex == null) {
-                            SwingUtilities.invokeLater(table::repaint);
-                        } else {
-                            logger.debug(
-                                    "Error computing fragment description for {}", fragment.shortDescription(), ex);
-                        }
-                    });
-                }
+            var descOpt = fragment.description().tryGet();
+            if (descOpt.isPresent()) {
+                description = descOpt.get();
+            } else {
+                description = "(Loading...)";
+                // Register for repaint when description completes; log failures
+                fragment.description().onComplete((desc, ex) -> {
+                    if (ex == null) {
+                        SwingUtilities.invokeLater(table::repaint);
+                    } else {
+                        logger.debug("Error computing fragment description for {}", fragment.shortDescription(), ex);
+                    }
+                });
             }
 
             // Calculate available width for description after reserving space for badges
@@ -647,7 +628,7 @@ public class WorkspacePanel extends JPanel {
         }
 
         public void show(Component invoker, int x, int y) {
-            chrome.themeManager.registerPopupMenu(popup);
+            chrome.getThemeManager().registerPopupMenu(popup);
             popup.show(invoker, x, y);
         }
     }
@@ -683,6 +664,14 @@ public class WorkspacePanel extends JPanel {
 
     @Nullable
     private JMenuItem dropAllMenuItem = null;
+
+    // --- Debounced token estimation state ---
+    private @Nullable Timer tokenEstimateDebounceTimer = null;
+    private volatile boolean tokenCalcInFlight = false;
+    private AtomicInteger tokenCalcSequence = new AtomicInteger(0); // used to discard stale results
+    private volatile int lastApproxTokens = -1; // -1 means no estimate yet
+    private volatile String pendingFullText = "";
+    private volatile int pendingTotalLines = 0;
 
     // Observers for bottom-controls height changes
     private final List<BottomControlsListener> bottomControlsListeners = new ArrayList<>();
@@ -904,7 +893,7 @@ public class WorkspacePanel extends JPanel {
 
         // Create a single JPopupMenu for the table
         JPopupMenu contextMenu = new JPopupMenu();
-        chrome.themeManager.registerPopupMenu(contextMenu);
+        chrome.getThemeManager().registerPopupMenu(contextMenu);
 
         // Add a mouse listener so we control exactly when the popup shows
         contextTable.addMouseListener(new MouseAdapter() {
@@ -938,7 +927,7 @@ public class WorkspacePanel extends JPanel {
                         });
                         contextMenu.removeAll();
                         contextMenu.add(copyItem);
-                        chrome.themeManager.registerPopupMenu(contextMenu);
+                        chrome.getThemeManager().registerPopupMenu(contextMenu);
                         contextMenu.show(contextTable, e.getX(), e.getY());
                     }
                     return;
@@ -958,17 +947,18 @@ public class WorkspacePanel extends JPanel {
                 // Show empty table menu if no selection
                 if (row < 0 || selectedFragments.isEmpty()) {
                     tablePopupMenu.show(contextTable, e.getX(), e.getY());
-                    chrome.themeManager.registerPopupMenu(tablePopupMenu);
+                    chrome.getThemeManager().registerPopupMenu(tablePopupMenu);
                     return;
                 }
 
                 // Classify scenario and build menu
-                PopupScenario scenario = classifyScenario(e, selectedFragments);
-                List<Action> actions = scenario.getActions(WorkspacePanel.this);
-
-                PopupBuilder.create(chrome).add(actions).show(contextTable, e.getX(), e.getY());
-
-                e.consume();
+                contextManager.submitBackgroundTask("Calculating pop-up scenario", () -> {
+                    PopupScenario scenario = classifyScenario(e, selectedFragments);
+                    List<Action> actions = scenario.getActions(WorkspacePanel.this);
+                    SwingUtilities.invokeLater(() -> {
+                        PopupBuilder.create(chrome).add(actions).show(contextTable, e.getX(), e.getY());
+                    });
+                });
             }
         });
 
@@ -1150,7 +1140,7 @@ public class WorkspacePanel extends JPanel {
         tablePopupMenu.add(pasteMenuItem);
 
         // Register the popup menu with the theme manager
-        chrome.themeManager.registerPopupMenu(tablePopupMenu);
+        chrome.getThemeManager().registerPopupMenu(tablePopupMenu);
 
         // Build summary panel
         var contextSummaryPanel = new JPanel(new BorderLayout());
@@ -1377,10 +1367,11 @@ public class WorkspacePanel extends JPanel {
     }
 
     /** Returns the set of selected project files that are part of the current context (editable or read-only). */
+    @Blocking
     public Set<ProjectFile> getSelectedProjectFiles() {
         return getSelectedFragments().stream()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
-                .flatMap(f -> f.files().stream())
+                .flatMap(f -> f.files().join().stream())
                 .collect(Collectors.toSet());
     }
 
@@ -1411,27 +1402,17 @@ public class WorkspacePanel extends JPanel {
         var allFragments = ctx.getAllFragmentsInDisplayOrder();
         int totalLines = 0;
         StringBuilder fullText = new StringBuilder();
+        var fragFutures = new ArrayList<CompletableFuture<?>>();
         for (var frag : allFragments) {
             String locText;
             if (frag.isText() || frag.getType().isOutput()) {
                 String text;
-                if (frag instanceof ContextFragment.ComputedFragment cf) {
-                    // Non-blocking access for dynamic fragments
-                    var textOpt = cf.computedText().tryGet();
-                    text = textOpt.orElse("");
-                    // Register repaint when computation completes
-                    if (textOpt.isEmpty()) {
-                        cf.computedText().onComplete((value, ex) -> {
-                            if (ex == null && value != null) {
-                                SwingUtilities.invokeLater(this::updateContextTable);
-                            } else if (ex != null) {
-                                logger.debug("Error computing fragment text for {}", frag.shortDescription(), ex);
-                            }
-                        });
-                    }
-                } else {
-                    // Blocking access safe for non-dynamic fragments
-                    text = frag.text();
+                // Non-blocking access for dynamic fragments
+                var textOpt = frag.text().tryGet();
+                text = textOpt.orElse("");
+                if (textOpt.isEmpty()) {
+                    // Log this "unreadiness" for a repaint later
+                    fragFutures.add(frag.text().future());
                 }
                 fullText.append(text).append("\n");
                 int loc = text.split("\\r?\\n", -1).length;
@@ -1440,12 +1421,12 @@ public class WorkspacePanel extends JPanel {
             } else {
                 locText = "Image";
             }
-            var desc = frag.description();
+            var desc = frag.description().future();
 
             // Mark editable if it's in the editable streams
             boolean isEditable = ctx.fileFragments().anyMatch(e -> e == frag);
             if (isEditable) {
-                desc = "✏️ " + desc;
+                desc = desc.thenApply(s -> "✏️ " + s);
             }
 
             // Build file references for the record (supports async ComputedFileFragment)
@@ -1456,17 +1437,13 @@ public class WorkspacePanel extends JPanel {
             if (frag.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
                 try {
                     Set<ProjectFile> fragmentFiles;
-                    if (frag instanceof ContextFragment.ComputedFragment cff) {
-                        filesCv = cff.computedFiles();
-                        var filesOpt = filesCv.tryGet();
-                        if (filesOpt.isPresent()) {
-                            fragmentFiles = filesOpt.get();
-                        } else {
-                            fragmentFiles = Set.of();
-                            filesReady = false;
-                        }
+                    filesCv = frag.files();
+                    var filesOpt = filesCv.tryGet();
+                    if (filesOpt.isPresent()) {
+                        fragmentFiles = filesOpt.get();
                     } else {
-                        fragmentFiles = frag.files();
+                        fragmentFiles = Set.of();
+                        filesReady = false;
                     }
                     fileReferences = fragmentFiles.stream()
                             .map(file -> new TableUtils.FileReferenceList.FileReferenceData(
@@ -1481,16 +1458,15 @@ public class WorkspacePanel extends JPanel {
             }
 
             // Create rich description object
-            var descriptionWithRefs = new DescriptionWithReferences(desc, fileReferences, frag);
+            var descriptionWithRefs = new DescriptionWithReferences(desc.getNow("(Loading)"), fileReferences, frag);
             tableModel.addRow(new Object[] {locText, descriptionWithRefs, frag});
 
             // If files were not ready, update the row once they are computed
             if (filesCv != null && !filesReady) {
                 final int rowIndex = tableModel.getRowCount() - 1;
-                final String frozenDesc = desc;
-                final ContextFragment frozenFrag = frag;
-                filesCv.onComplete((files, ex) -> {
-                    if (ex == null && files != null) {
+                final ContextFragment finalFrag = frag;
+                filesCv.onComplete((files, filesEx) -> {
+                    if (filesEx == null) {
                         var refs = files.stream()
                                 .map(file -> new TableUtils.FileReferenceList.FileReferenceData(
                                         file.getFileName(), file.toString(), file))
@@ -1498,15 +1474,25 @@ public class WorkspacePanel extends JPanel {
                                 .sorted(Comparator.comparing(
                                         TableUtils.FileReferenceList.FileReferenceData::getFileName))
                                 .toList();
+
                         SwingUtilities.invokeLater(() -> {
                             if (rowIndex < contextTable.getRowCount()) {
-                                var updated = new DescriptionWithReferences(frozenDesc, refs, frozenFrag);
-                                tableModel.setValueAt(updated, rowIndex, DESCRIPTION_COLUMN);
-                                contextTable.repaint(contextTable.getCellRect(rowIndex, DESCRIPTION_COLUMN, false));
+                                frag.description().onComplete((computedDesc, descEx) -> {
+                                    String finalDesc;
+                                    if (descEx != null) {
+                                        logger.warn("Error computing fragment description for {}", frag, descEx);
+                                        finalDesc = "(Error)";
+                                    } else {
+                                        finalDesc = computedDesc;
+                                    }
+                                    var updated = new DescriptionWithReferences(finalDesc, refs, finalFrag);
+                                    tableModel.setValueAt(updated, rowIndex, DESCRIPTION_COLUMN);
+                                    contextTable.repaint(contextTable.getCellRect(rowIndex, DESCRIPTION_COLUMN, false));
+                                });
                             }
                         });
-                    } else if (ex != null) {
-                        logger.debug("Error computing associated files for {}", frozenFrag.shortDescription(), ex);
+                    } else {
+                        logger.debug("Error computing associated files for {}", finalFrag.shortDescription(), filesEx);
                     }
                 });
             }
@@ -1515,18 +1501,28 @@ public class WorkspacePanel extends JPanel {
         var innerLabel = safeGetLabel(0);
         var costLabel = safeGetLabel(1);
 
-        // Prepare UI placeholders while computing tokens off the EDT
+        // Prepare UI while scheduling token computation (debounced)
         innerLabel.setForeground(UIManager.getColor("Label.foreground"));
-        innerLabel.setText("Calculating token estimate...");
         innerLabel.setToolTipText("Total: %,d LOC".formatted(totalLines));
-        costLabel.setText(" ");
-        costLabel.setVisible(false);
-        warningPanel.removeAll();
-        warningPanel.revalidate();
-        warningPanel.repaint();
+
+        // Only show the placeholder and clear warnings if we do not have a prior estimate
+        if (lastApproxTokens < 0 && !tokenCalcInFlight) {
+            innerLabel.setText("Calculating token estimate...");
+            costLabel.setText(" ");
+            costLabel.setVisible(false);
+            warningPanel.removeAll();
+            warningPanel.revalidate();
+            warningPanel.repaint();
+        }
 
         revalidate();
         repaint();
+
+        if (!fragFutures.isEmpty()) {
+            // If any text fragments were unready, let's update the context table
+            CompletableFuture.allOf(fragFutures.toArray(new CompletableFuture<?>[0]))
+                    .thenRun(() -> SwingUtilities.invokeLater(this::updateContextTable));
+        }
 
         // Notify listeners that bottom controls height may have changed (may shrink when warnings cleared)
         fireBottomControlsHeightChanged();
@@ -1584,22 +1580,43 @@ public class WorkspacePanel extends JPanel {
     }
 
     /** Returns true if the fragments have associated files */
+    @Blocking
     private boolean hasFiles(List<ContextFragment> fragments) {
         return fragments.stream()
-                .flatMap(frag -> frag.files().stream())
+                .flatMap(frag -> frag.files().join().stream())
                 .findAny()
                 .isPresent();
     }
 
     /** Returns true if all files from the fragments are tracked project files */
+    @Blocking
     private boolean allTrackedProjectFiles(List<ContextFragment> fragments) {
         var project = contextManager.getProject();
-        var allFiles = fragments.stream().flatMap(frag -> frag.files().stream()).collect(Collectors.toSet());
+        var allFiles =
+                fragments.stream().flatMap(frag -> frag.files().join().stream()).collect(Collectors.toSet());
 
-        return !allFiles.isEmpty()
-                && allFiles.stream()
-                        .allMatch(pf -> pf.exists()
-                                && project.getRepo().getTrackedFiles().contains(pf));
+        var trackedFiles = project.getRepo().getTrackedFiles();
+        return !allFiles.isEmpty() && allFiles.stream().allMatch(pf -> pf.exists() && trackedFiles.contains(pf));
+    }
+
+    /** Adds Edit All Refs and Summarize All Refs actions based on file availability and tracking status */
+    private void addEditAndSummarizeActions(List<ContextFragment> fragments, List<Action> actions) {
+        boolean hasFiles = hasFiles(fragments);
+        boolean allTracked = hasFiles && allTrackedProjectFiles(fragments);
+
+        if (!hasFiles) {
+            actions.add(WorkspaceAction.EDIT_ALL_REFS.createDisabledAction(
+                    "No files associated with the selection to edit."));
+            actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createDisabledAction(
+                    "No files associated with the selection to summarize."));
+        } else if (!allTracked) {
+            actions.add(WorkspaceAction.EDIT_ALL_REFS.createDisabledAction(
+                    "Cannot edit because selection includes untracked or external files."));
+            actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createFragmentsAction(this, fragments));
+        } else {
+            actions.add(WorkspaceAction.EDIT_ALL_REFS.createFragmentsAction(this, fragments));
+            actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createFragmentsAction(this, fragments));
+        }
     }
 
     /**
@@ -1611,6 +1628,7 @@ public class WorkspacePanel extends JPanel {
     }
 
     /** Classifies the popup scenario based on the mouse event and table state */
+    @Blocking
     private PopupScenario classifyScenario(MouseEvent e, List<ContextFragment> selectedFragments) {
         int row = contextTable.rowAtPoint(e.getPoint());
         int col = contextTable.columnAtPoint(e.getPoint());
@@ -1619,7 +1637,7 @@ public class WorkspacePanel extends JPanel {
         if (col == DESCRIPTION_COLUMN && row >= 0) { // Description column
             ContextFragment fragment = (ContextFragment) contextTable.getModel().getValueAt(row, FRAGMENT_COLUMN);
             if (fragment != null && fragment.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
-                var fileReferences = fragment.files().stream()
+                var fileReferences = fragment.files().join().stream()
                         .map(file -> new TableUtils.FileReferenceList.FileReferenceData(
                                 file.getFileName(), file.toString(), file))
                         .distinct()
@@ -1642,17 +1660,19 @@ public class WorkspacePanel extends JPanel {
                         }
                     }
                 }
+
+                // Handle selection-based scenarios
+                if (selectedFragments.isEmpty()) {
+                    return new NoSelection();
+                } else if (selectedFragments.size() == 1) {
+                    return new SingleFragment(selectedFragments.getFirst());
+                } else {
+                    return new MultiFragment(selectedFragments);
+                }
             }
         }
 
-        // Handle selection-based scenarios
-        if (selectedFragments.isEmpty()) {
-            return new NoSelection();
-        } else if (selectedFragments.size() == 1) {
-            return new SingleFragment(selectedFragments.getFirst());
-        } else {
-            return new MultiFragment(selectedFragments);
-        }
+        return new NoSelection();
     }
 
     /** Shows the symbol selection dialog and adds usage information for the selected symbol. */
@@ -1811,14 +1831,21 @@ public class WorkspacePanel extends JPanel {
     }
 
     /** Edit Action: Only allows selecting Project Files */
+    @Blocking
     private void doEditAction(List<? extends ContextFragment> selectedFragments) { // Use wildcard
         assert !selectedFragments.isEmpty();
         var files = selectedFragments.stream()
-                .flatMap(fragment -> fragment.files().stream())
+                .flatMap(fragment -> fragment.files().join().stream())
                 .collect(Collectors.toSet());
+        if (files.isEmpty()) {
+            chrome.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "No files associated with the selection to edit.");
+            return;
+        }
         contextManager.addFiles(files);
     }
 
+    @Blocking
     private void doCopyAction(List<? extends ContextFragment> selectedFragments) {
         var content = getSelectedContent(selectedFragments);
         var sel = new StringSelection(content);
@@ -1827,6 +1854,7 @@ public class WorkspacePanel extends JPanel {
         chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Content copied to clipboard");
     }
 
+    @Blocking
     private String getSelectedContent(List<? extends ContextFragment> selectedFragments) {
         String content;
         if (selectedFragments.isEmpty()) {
@@ -1852,7 +1880,7 @@ public class WorkspacePanel extends JPanel {
             // copy only selected fragments
             var sb = new StringBuilder();
             for (var frag : selectedFragments) {
-                sb.append(frag.text()).append("\n\n"); // No analyzer
+                sb.append(frag.text().join()).append("\n\n"); // No analyzer
             }
             content = sb.toString();
         }
@@ -2019,11 +2047,31 @@ public class WorkspacePanel extends JPanel {
         contextManager.dropWithHistorySemantics(selectedFragments);
     }
 
+    @Blocking
     private void doRunTestsAction(List<? extends ContextFragment> selectedFragments) throws InterruptedException {
-        var testFiles = selectedFragments.stream()
-                .flatMap(frag -> frag.files().stream())
-                .filter(ContextManager::isTestFile)
-                .collect(Collectors.toSet());
+        // Collect futures for associated project files for each fragment to avoid per-fragment blocking
+        List<CompletableFuture<Set<ProjectFile>>> fileFutures =
+                selectedFragments.stream().map(f -> f.files().future()).toList();
+
+        Set<ProjectFile> testFiles = new HashSet<>();
+
+        if (!fileFutures.isEmpty()) {
+            CompletableFuture<Void> all = CompletableFuture.allOf(fileFutures.toArray(new CompletableFuture[0]));
+            try {
+                // Wait for all file computations to finish; remain interruptible
+                all.get();
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw ie;
+            } catch (Exception ex) {
+                logger.warn("Error awaiting fragment files for test execution", ex);
+            }
+
+            testFiles.addAll(fileFutures.stream()
+                    .flatMap(cf -> cf.getNow(Set.of()).stream())
+                    .filter(ContextManager::isTestFile)
+                    .collect(Collectors.toSet()));
+        }
 
         if (testFiles.isEmpty() && !selectedFragments.isEmpty()) {
             chrome.toolError("No test files found in the selection to run.");
@@ -2061,18 +2109,19 @@ public class WorkspacePanel extends JPanel {
             for (var fragment : fragments) {
                 if (fragment instanceof ContextFragment.PathFragment pathFrag) {
                     if (summarize) {
-                        var files = pathFrag.files();
+                        var files = pathFrag.files().join(); // we are in a background task so we may block
                         contextManager.addSummaries(files, Collections.emptySet());
                     } else {
-                        contextManager.addPathFragmentAsync(pathFrag);
+                        contextManager.addFragmentAsync(pathFrag);
                     }
                 } else {
-                    contextManager.addVirtualFragment((ContextFragment.VirtualFragment) fragment);
+                    contextManager.addFragments(fragment);
                 }
             }
         });
     }
 
+    @Blocking
     private void doSummarizeAction(List<? extends ContextFragment> selectedFragments) {
         if (!isAnalyzerReady()) {
             return;
@@ -2083,7 +2132,7 @@ public class WorkspacePanel extends JPanel {
 
         // Fragment case: Extract files and classes from selected fragments
         // FIXME: prefer classes where available (more selective)
-        selectedFragments.stream().flatMap(frag -> frag.files().stream()).forEach(selectedFiles::add);
+        selectedFragments.stream().flatMap(frag -> frag.files().join().stream()).forEach(selectedFiles::add);
 
         if (selectedFiles.isEmpty()) {
             chrome.toolError("No files or classes identified for summarization in the selection.");
@@ -2202,111 +2251,142 @@ public class WorkspacePanel extends JPanel {
     }
 
     private void computeApproxTokensAsync(StringBuilder fullText, int totalLines) {
-        contextManager
-                .submitBackgroundTask(
-                        "Compute token estimate", () -> Messages.getApproximateTokens(fullText.toString()))
-                .thenAccept(approxTokens -> SwingUtilities.invokeLater(() -> {
-                    var innerLabel = safeGetLabel(0);
-                    var costLabel = safeGetLabel(1);
+        // Debounce rapid calls by coalescing into a single computation after 250ms
+        assert SwingUtilities.isEventDispatchThread() : "computeApproxTokensAsync must be scheduled on EDT";
 
-                    // Check for context size warning against the selected model only
-                    var service = contextManager.getService();
-                    var instructionsPanel = chrome.getInstructionsPanel();
-                    Service.ModelConfig selectedConfig = instructionsPanel.getSelectedConfig();
+        // Capture latest inputs
+        this.pendingFullText = fullText.toString();
+        this.pendingTotalLines = totalLines;
 
-                    boolean showRedWarning = false;
-                    boolean showYellowWarning = false;
-                    int selectedModelMaxInputTokens = -1;
-                    String selectedModelName = selectedConfig.name();
+        if (tokenEstimateDebounceTimer == null) {
+            tokenEstimateDebounceTimer = new Timer(250, e -> {
+                // Start a new compute round
+                final int seq = tokenCalcSequence.incrementAndGet();
+                tokenCalcInFlight = true;
 
-                    if (!selectedModelName.isBlank()) {
-                        try {
-                            var modelInstance = service.getModel(selectedConfig);
-                            if (modelInstance == null) {
-                                logger.debug("Selected model unavailable for context warning: {}", selectedModelName);
-                            } else if (modelInstance instanceof Service.UnavailableStreamingModel) {
-                                logger.debug("Selected model unavailable for context warning: {}", selectedModelName);
-                            } else {
-                                selectedModelMaxInputTokens = service.getMaxInputTokens(modelInstance);
-                                if (selectedModelMaxInputTokens <= 0) {
+                final String textForCompute = pendingFullText;
+                final int linesForCompute = pendingTotalLines;
+
+                contextManager
+                        .submitBackgroundTask(
+                                "Compute token estimate", () -> Messages.getApproximateTokens(textForCompute))
+                        .thenAccept(approxTokens -> SwingUtilities.invokeLater(() -> {
+                            // Discard stale results
+                            if (seq != tokenCalcSequence.get()) {
+                                return;
+                            }
+
+                            tokenCalcInFlight = false;
+                            lastApproxTokens = approxTokens;
+
+                            var innerLabel = safeGetLabel(0);
+                            var costLabel = safeGetLabel(1);
+
+                            // Check for context size warning against the selected model only
+                            var service = contextManager.getService();
+                            var instructionsPanel = chrome.getInstructionsPanel();
+                            Service.ModelConfig selectedConfig = instructionsPanel.getSelectedConfig();
+
+                            boolean showRedWarning = false;
+                            boolean showYellowWarning = false;
+                            int selectedModelMaxInputTokens = -1;
+                            String selectedModelName = selectedConfig.name();
+
+                            if (!selectedModelName.isBlank()) {
+                                try {
+                                    var modelInstance = service.getModel(selectedConfig);
+                                    if (modelInstance == null) {
+                                        logger.debug(
+                                                "Selected model unavailable for context warning: {}",
+                                                selectedModelName);
+                                    } else if (modelInstance instanceof Service.UnavailableStreamingModel) {
+                                        logger.debug(
+                                                "Selected model unavailable for context warning: {}",
+                                                selectedModelName);
+                                    } else {
+                                        selectedModelMaxInputTokens = service.getMaxInputTokens(modelInstance);
+                                        if (selectedModelMaxInputTokens <= 0) {
+                                            logger.warn(
+                                                    "Selected model {} has invalid maxInputTokens: {}",
+                                                    selectedModelName,
+                                                    selectedModelMaxInputTokens);
+                                        } else {
+                                            // Red warning: context > 90.9% of max (approxTokens > maxInputTokens / 1.1)
+                                            if (approxTokens > selectedModelMaxInputTokens / 1.1) {
+                                                showRedWarning = true;
+                                            }
+                                            // Yellow warning: context > 50% of max (approxTokens > maxInputTokens /
+                                            // 2.0)
+                                            else if (approxTokens > selectedModelMaxInputTokens / 2.0) {
+                                                showYellowWarning = true;
+                                            }
+                                        }
+                                    }
+                                } catch (Exception ex) {
                                     logger.warn(
-                                            "Selected model {} has invalid maxInputTokens: {}",
+                                            "Error processing selected model {} for context warning: {}",
                                             selectedModelName,
-                                            selectedModelMaxInputTokens);
-                                } else {
-                                    // Red warning: context > 90.9% of max (approxTokens > maxInputTokens / 1.1)
-                                    if (approxTokens > selectedModelMaxInputTokens / 1.1) {
-                                        showRedWarning = true;
-                                    }
-                                    // Yellow warning: context > 50% of max (approxTokens > maxInputTokens / 2.0)
-                                    else if (approxTokens > selectedModelMaxInputTokens / 2.0) {
-                                        showYellowWarning = true;
-                                    }
+                                            ex.getMessage(),
+                                            ex);
                                 }
                             }
-                        } catch (Exception e) {
-                            logger.warn(
-                                    "Error processing selected model {} for context warning: {}",
-                                    selectedModelName,
-                                    e.getMessage(),
-                                    e);
-                        }
-                    }
 
-                    String warningTooltip =
-                            """
-        Consider replacing full files with summaries or tackling a smaller piece of your problem to start with.
-        Deep Scan can help surface the parts of your codebase that are necessary to solving the problem.
-        """;
+                            String warningTooltip =
+                                    """
+    Consider replacing full files with summaries or tackling a smaller piece of your problem to start with.
+    Deep Scan can help surface the parts of your codebase that are necessary to solving the problem.
+    """;
 
-                    // Always set the standard summary text on innerLabel (single line to avoid layout jumps)
-                    innerLabel.setForeground(UIManager.getColor("Label.foreground")); // Reset to default color
-                    String costEstimate = calculateCostEstimate(approxTokens, service);
-                    String costText = costEstimate.isBlank() ? "n/a" : costEstimate;
+                            // Update summary label (single line to avoid layout jumps)
+                            innerLabel.setForeground(UIManager.getColor("Label.foreground")); // Reset to default color
+                            String costEstimate = calculateCostEstimate(approxTokens, service);
+                            String costText = costEstimate.isBlank() ? "n/a" : costEstimate;
 
-                    // Single-line summary to keep the paperclip aligned
-                    innerLabel.setText("%,dK tokens ≈ %s/req".formatted(approxTokens / 1000, costText));
+                            innerLabel.setText("%,dK tokens ≈ %s/req".formatted(approxTokens / 1000, costText));
+                            innerLabel.setToolTipText(
+                                    "Total: %,d LOC is ~%,d tokens with an estimated cost of %s per request"
+                                            .formatted(linesForCompute, approxTokens, costText));
 
-                    // Preserve details in tooltip
-                    innerLabel.setToolTipText("Total: %,d LOC is ~%,d tokens with an estimated cost of %s per request"
-                            .formatted(totalLines, approxTokens, costText));
+                            // Hide secondary label to avoid changing the row height
+                            costLabel.setText(" ");
+                            costLabel.setVisible(false);
 
-                    // Keep the secondary label hidden to avoid changing the row height
-                    costLabel.setText(" ");
-                    costLabel.setVisible(false);
+                            // Update warnings (do not flicker; we only update when the estimate completes)
+                            warningPanel.removeAll();
 
-                    // Remove any existing warning labels from the warningPanel
-                    warningPanel.removeAll();
+                            if (showRedWarning) {
+                                String warningText = String.format(
+                                        "Warning! Your Workspace (~%,d tokens) fills more than 90%% of the context window for the selected model: %s (%,d). Performance will be degraded.",
+                                        approxTokens, selectedModelName, selectedModelMaxInputTokens);
 
-                    if (showRedWarning) {
-                        String warningText = String.format(
-                                "Warning! Your Workspace (~%,d tokens) fills more than 90%% of the context window for the selected model: %s (%,d). Performance will be degraded.",
-                                approxTokens, selectedModelName, selectedModelMaxInputTokens);
+                                JTextArea warningArea = createWarningTextArea(warningText, Color.RED, warningTooltip);
+                                warningPanel.add(warningArea, BorderLayout.CENTER);
 
-                        JTextArea warningArea = createWarningTextArea(warningText, Color.RED, warningTooltip);
-                        warningPanel.add(warningArea, BorderLayout.CENTER);
+                            } else if (showYellowWarning) {
+                                String warningText = String.format(
+                                        "Warning! Your Workspace (~%,d tokens) fills more than half of the context window for the selected model: %s (%,d). Performance may be degraded.",
+                                        approxTokens, selectedModelName, selectedModelMaxInputTokens);
 
-                    } else if (showYellowWarning) {
-                        String warningText = String.format(
-                                "Warning! Your Workspace (~%,d tokens) fills more than half of the context window for the selected model: %s (%,d). Performance may be degraded.",
-                                approxTokens, selectedModelName, selectedModelMaxInputTokens);
+                                JTextArea warningArea =
+                                        createWarningTextArea(warningText, Color.YELLOW, warningTooltip);
+                                warningPanel.add(warningArea, BorderLayout.CENTER);
+                            }
 
-                        JTextArea warningArea = createWarningTextArea(
-                                warningText,
-                                Color.YELLOW,
-                                warningTooltip); // Standard yellow might be hard to see on some themes
-                        warningPanel.add(warningArea, BorderLayout.CENTER);
-                    }
+                            warningPanel.revalidate();
+                            warningPanel.repaint();
 
-                    warningPanel.revalidate();
-                    warningPanel.repaint();
+                            revalidate();
+                            repaint();
 
-                    revalidate();
-                    repaint();
+                            // Notify listeners that bottom controls height may have changed
+                            fireBottomControlsHeightChanged();
+                        }));
+            });
+            tokenEstimateDebounceTimer.setRepeats(false);
+        }
 
-                    // Notify listeners that bottom controls height may have changed
-                    fireBottomControlsHeightChanged();
-                }));
+        // Restart debounce window
+        tokenEstimateDebounceTimer.restart();
     }
 
     /**

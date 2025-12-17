@@ -5,6 +5,7 @@ import ai.brokk.gui.util.KeyboardShortcutUtil;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 import java.awt.Color;
 import java.awt.Cursor;
+import java.awt.Insets;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import javax.swing.BorderFactory;
@@ -44,12 +45,18 @@ public class MaterialButton extends JButton {
         setBorderPainted(true);
         setFocusable(true);
         setOpaque(false);
-        putClientProperty("JButton.buttonType", "borderless");
 
-        var borderColor = UIManager.getColor("Component.borderColor");
-        setBorder(BorderFactory.createCompoundBorder(
-                new LineBorder(borderColor != null ? borderColor : Color.GRAY, 1, true),
-                BorderFactory.createEmptyBorder(4, 8, 4, 8)));
+        if (isForceBorderless()) {
+            putClientProperty("JButton.buttonType", "borderless");
+            setBorder(null);
+            setBorderPainted(false);
+        } else {
+            var borderColor = UIManager.getColor("Component.borderColor");
+            setBorder(BorderFactory.createCompoundBorder(
+                    new LineBorder(borderColor != null ? borderColor : Color.GRAY, 1, true),
+                    BorderFactory.createEmptyBorder(4, 8, 4, 8)));
+            setMargin(new Insets(4, 8, 4, 8));
+        }
         // Allow the Look-and-Feel to render rollover effects by keeping the content area filled
         // and enabling rollover support on the button model.
         setContentAreaFilled(true);
@@ -99,6 +106,46 @@ public class MaterialButton extends JButton {
     public void setAppendShortcutToTooltip(boolean append) {
         this.appendShortcutToTooltip = append;
         updateTooltip();
+    }
+
+    private void applyBorderless() {
+        putClientProperty("JButton.buttonType", "borderless");
+        setBorder(null);
+        setBorderPainted(false);
+    }
+
+    @Override
+    public void setText(@Nullable String text) {
+        super.setText(text);
+
+        if (isForceBorderless()) {
+            applyBorderless();
+            return;
+        }
+
+        if (text == null || text.isBlank()) {
+            applyBorderlessIfIconOnly();
+        } else {
+            var borderColor = UIManager.getColor("Component.borderColor");
+            setBorder(BorderFactory.createCompoundBorder(
+                    new LineBorder(borderColor != null ? borderColor : Color.GRAY, 1, true),
+                    BorderFactory.createEmptyBorder(4, 8, 4, 8)));
+            setBorderPainted(true);
+        }
+    }
+
+    @Override
+    public void updateUI() {
+        super.updateUI();
+        applyStyling();
+        updateIconForEnabledState();
+        updateCursorForEnabledState();
+        updateTooltip();
+        if (isForceBorderless()) {
+            applyBorderless();
+        } else {
+            applyBorderlessIfIconOnly();
+        }
     }
 
     private void updateTooltip() {
@@ -169,6 +216,26 @@ public class MaterialButton extends JButton {
 
         // Fallback for non-FlatSVG icons - return as-is
         return icon;
+    }
+
+    private boolean isIconOnly() {
+        Icon icon = originalIcon != null ? originalIcon : getIcon();
+        String text = getText();
+        return icon != null && (text == null || text.isBlank());
+    }
+
+    private boolean isForceBorderless() {
+        Object v = getClientProperty("MaterialButton.forceBorderless");
+        if (v instanceof Boolean b) {
+            return b;
+        }
+        return false;
+    }
+
+    private void applyBorderlessIfIconOnly() {
+        if (isIconOnly()) {
+            applyBorderless();
+        }
     }
 
     @Override

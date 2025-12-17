@@ -1,16 +1,18 @@
 package ai.brokk.context;
 
+import ai.brokk.ExceptionReporter;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.util.ContentDiffUtils;
-import ai.brokk.util.ImageUtil;
-import java.io.IOException;
-import java.io.UncheckedIOException;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
@@ -29,6 +31,8 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class DiffService {
     private static final Logger logger = LogManager.getLogger(DiffService.class);
+
+    private static final Duration TEXT_FALLBACK_TIMEOUT = Duration.ofSeconds(2);
 
     private final ContextHistory history;
     private final IContextManager cm;
@@ -111,7 +115,7 @@ public final class DiffService {
      *
      * @param currentIds the set of context ids whose diffs should be retained
      */
-    public void retainOnly(java.util.Set<UUID> currentIds) {
+    public void retainOnly(Set<UUID> currentIds) {
         cache.keySet().retainAll(currentIds);
     }
 
@@ -120,12 +124,7 @@ public final class DiffService {
         if (!(fragment instanceof ContextFragment.PathFragment)) {
             return false;
         }
-        Set<ProjectFile> files;
-        if (fragment instanceof ContextFragment.ComputedFragment cf) {
-            files = cf.computedFiles().future().join();
-        } else {
-            files = fragment.files();
-        }
+        Set<ProjectFile> files = fragment.files().join();
         if (files.isEmpty()) {
             return false;
         }
@@ -136,22 +135,26 @@ public final class DiffService {
      * Compute per-fragment diffs between curr (new/right) and other (old/left) contexts.
      * Triggers async computations and awaits their completion.
      */
-    public static List<Context.DiffEntry> computeDiff(Context curr, Context other) {
-        try {
-            var diffFutures = curr.getEditableFragments()
-                    .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
-                    .map(cf -> computeDiffForFragment(curr, cf, other))
-                    .toList();
+    @Blocking
+    public static List<Context.DiffEntry> computeDiff(Context ctx, Context other) {
+        // Candidates:
+        // - Editable fragments
+        // - Image fragments (non-text), including pasted images and image files.
+        // Exclude external path fragments from editable candidates; only project files should be diffed.
+        var editableFragments =
+                ctx.getEditableFragments().filter(f -> f.getType() != ContextFragment.FragmentType.EXTERNAL_PATH);
+        var imageFragments = ctx.allFragments().filter(f -> !f.isText());
 
-            //noinspection ConstantValue (Objects::nonNull) is highlighted as unnecessary, but this is necessary
-            return diffFutures.stream()
-                    .map(CompletableFuture::join)
-                    .filter(Objects::nonNull)
-                    .toList();
-        } catch (Exception ex) {
-            logger.error("Error computing diffs between contexts: {}", ex.getMessage(), ex);
-            return List.of();
-        }
+        var candidates = Stream.concat(editableFragments, imageFragments);
+        var diffFutures =
+                candidates.map(cf -> computeDiffForFragment(ctx, cf, other)).toList();
+
+        return diffFutures.stream()
+                .map(CompletableFuture::join)
+                // cDFF returns null to mean "no changes"
+                .filter(de -> de != null)
+                .distinct()
+                .toList();
     }
 
     /**
@@ -169,174 +172,126 @@ public final class DiffService {
                 .findFirst()
                 .orElse(null);
 
+        // If this fragment is new-only and is a PathFragment that is tracked by Git, suppress the diff.
         if (otherFragment == null) {
-            // No matching fragment in 'other'
-            // - For non-text fragments (e.g., images), don't emit a diff here.
-            // - For PathFragments: only show a diff if it's a new, untracked file in Git.
             if (!thisFragment.isText()) {
+                // Non-text new fragments are not diffed here.
                 return CompletableFuture.completedFuture(null);
             }
 
-            if (!(thisFragment instanceof ContextFragment.PathFragment)) {
-                return CompletableFuture.completedFuture(null);
+            if (thisFragment instanceof ContextFragment.PathFragment) {
+                var repo = curr.getContextManager().getRepo();
+                if (!isNewFileInGit(thisFragment, repo)) {
+                    // Path fragment exists only in 'curr' but is tracked in Git; suppress diff here.
+                    return CompletableFuture.completedFuture(null);
+                }
             }
-
-            var repo = curr.getContextManager().getRepo();
-            if (!isNewFileInGit(thisFragment, repo)) {
-                // Path fragment exists only in 'curr' but is tracked in Git; suppress diff here.
-                return CompletableFuture.completedFuture(null);
-            }
-
-            // Text fragment newly added: diff against empty
-            return extractFragmentContentAsync(thisFragment, true)
-                    .thenApply(newContent -> {
-                        var result = ContentDiffUtils.computeDiffResult(
-                                "",
-                                newContent,
-                                "old/" + thisFragment.shortDescription(),
-                                "new/" + thisFragment.shortDescription());
-                        if (result.diff().isEmpty()) {
-                            return null;
-                        }
-                        return new Context.DiffEntry(
-                                thisFragment, result.diff(), result.added(), result.deleted(), "", newContent);
-                    })
-                    .exceptionally(ex -> {
-                        logger.warn(
-                                "Error computing diff for new fragment '{}': {}",
-                                thisFragment.shortDescription(),
-                                ex.getMessage(),
-                                ex);
-                        return new Context.DiffEntry(
-                                thisFragment, "[Error computing diff]", 0, 0, "", "[Failed to extract content]");
-                    });
         }
 
-        // Extract content asynchronously for both sides
-        var oldContentFuture = extractFragmentContentAsync(otherFragment, false);
-        var newContentFuture = extractFragmentContentAsync(thisFragment, true);
+        // Delegate to the general-purpose computeDiff helper which handles text vs image parity,
+        // content extraction, and diff computation.
+        return computeDiff(otherFragment, thisFragment).exceptionally(ex -> {
+            var desc = thisFragment.shortDescription().renderNowOr(thisFragment.toString());
+            logger.warn("Error computing diff for fragment '{}'", desc, ex);
+            return null;
+        });
+    }
 
-        // Image fragments: compare bytes
-        if (!thisFragment.isText() || !otherFragment.isText()) {
-            return newContentFuture
-                    .thenCombine(oldContentFuture, (nc, oc) -> computeImageDiffEntry(thisFragment, otherFragment))
-                    .exceptionally(ex -> {
-                        logger.warn(
-                                "Error computing image diff for fragment '{}': {}",
-                                thisFragment.shortDescription(),
-                                ex.getMessage(),
-                                ex);
-                        return new Context.DiffEntry(
-                                thisFragment, "[Error computing image diff]", 0, 0, "", "[Failed to extract image]");
-                    });
+    @Blocking
+    public static CompletableFuture<Context.DiffEntry> computeDiff(
+            @Nullable ContextFragment oldFragment, ContextFragment newFragment) {
+        // If fragments don't share the same source, we can't sensibly diff them here.
+        if (oldFragment != null && !newFragment.hasSameSource(oldFragment)) {
+            return CompletableFuture.completedFuture(null);
         }
 
-        // Text fragments: compute textual diff
-        return oldContentFuture
-                .thenCombine(newContentFuture, (oldContent, newContent) -> {
-                    int oldLineCount =
-                            oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
-                    int newLineCount =
-                            newContent.isEmpty() ? 0 : (int) newContent.lines().count();
-                    logger.trace(
-                            "computeDiff: fragment='{}' ctxId={} oldLines={} newLines={}",
-                            thisFragment.shortDescription(),
-                            curr.id(),
-                            oldLineCount,
-                            newLineCount);
+        // New-only fragment (old == null)
+        if (oldFragment == null) {
+            if (!newFragment.isText()) {
+                // Non-text new fragments are not diffed here.
+                return CompletableFuture.completedFuture(null);
+            }
+            return extractFragmentContentAsync(newFragment).thenApply(newContent -> {
+                var oldName = "old/" + newFragment.shortDescription().renderNowOr("");
+                var newName = "new/" + newFragment.shortDescription().renderNowOr("");
+                var result = ContentDiffUtils.computeDiffResult("", newContent, oldName, newName);
+                if (result.diff().isEmpty()) {
+                    return null;
+                }
+                return new Context.DiffEntry(
+                        newFragment, result.diff(), result.added(), result.deleted(), "", newContent);
+            });
+        }
 
-                    var result = ContentDiffUtils.computeDiffResult(
-                            oldContent,
-                            newContent,
-                            "old/" + thisFragment.shortDescription(),
-                            "new/" + thisFragment.shortDescription());
+        // Both fragments present: ensure text/image parity
+        assert oldFragment.isText() == newFragment.isText();
+        if (!newFragment.isText()) {
+            var entry = computeImageDiffEntry(newFragment, oldFragment);
+            return CompletableFuture.completedFuture(entry);
+        }
 
-                    logger.trace(
-                            "computeDiff: fragment='{}' added={} deleted={} diffEmpty={}",
-                            thisFragment.shortDescription(),
-                            result.added(),
-                            result.deleted(),
-                            result.diff().isEmpty());
+        // Text fragments: extract contents asynchronously and compute diff
+        var oldContentFuture = extractFragmentContentAsync(oldFragment);
+        var newContentFuture = extractFragmentContentAsync(newFragment);
 
-                    if (result.diff().isEmpty()) {
-                        return null;
-                    }
+        return oldContentFuture.thenCombine(newContentFuture, (oldContent, newContent) -> {
+            int oldLineCount =
+                    oldContent.isEmpty() ? 0 : (int) oldContent.lines().count();
+            int newLineCount =
+                    newContent.isEmpty() ? 0 : (int) newContent.lines().count();
+            logger.trace(
+                    "computeDiff: fragment='{}' oldLines={} newLines={}",
+                    newFragment.shortDescription().renderNowOr(""),
+                    oldLineCount,
+                    newLineCount);
 
-                    return new Context.DiffEntry(
-                            thisFragment, result.diff(), result.added(), result.deleted(), oldContent, newContent);
-                })
-                .exceptionally(ex -> {
-                    logger.warn(
-                            "Error computing diff for fragment '{}': {}",
-                            thisFragment.shortDescription(),
-                            ex.getMessage(),
-                            ex);
-                    return new Context.DiffEntry(
-                            thisFragment, "[Error computing diff]", 0, 0, "", "[Failed to extract content]");
-                });
+            var oldName = "old/" + newFragment.shortDescription().renderNowOr("");
+            var newName = "new/" + newFragment.shortDescription().renderNowOr("");
+            var result = ContentDiffUtils.computeDiffResult(oldContent, newContent, oldName, newName);
+
+            logger.trace(
+                    "computeDiff: fragment='{}' added={} deleted={} diffEmpty={}",
+                    newFragment.shortDescription().renderNowOr(""),
+                    result.added(),
+                    result.deleted(),
+                    result.diff().isEmpty());
+
+            if (result.diff().isEmpty()) {
+                return null;
+            }
+
+            return new Context.DiffEntry(
+                    newFragment, result.diff(), result.added(), result.deleted(), oldContent, newContent);
+        });
     }
 
     /**
      * Extract text content asynchronously for a fragment. For ComputedFragment, chains its future; otherwise immediate.
      */
-    private static CompletableFuture<String> extractFragmentContentAsync(ContextFragment fragment, boolean isNew) {
-        try {
-            if (fragment instanceof ContextFragment.ComputedFragment cf) {
-                var computedTextFuture = cf.computedText().future();
-                return computedTextFuture.exceptionally(ex -> {
-                    logger.warn(
-                            "Error computing text for {} fragment '{}': {}",
-                            fragment.getClass().getSimpleName(),
-                            fragment.shortDescription(),
-                            ex.getMessage(),
-                            ex);
-                    return "";
-                });
-            }
-            return CompletableFuture.completedFuture(fragment.text());
-        } catch (UncheckedIOException e) {
-            logger.warn(
-                    "IO error reading content for {} fragment '{}' ({}): {}",
-                    fragment.getClass().getSimpleName(),
-                    fragment.shortDescription(),
-                    isNew ? "new" : "old",
-                    e.getMessage());
-            return CompletableFuture.completedFuture("");
-        } catch (java.util.concurrent.CancellationException e) {
-            logger.warn(
-                    "Computation cancelled for {} fragment '{}': {}",
-                    fragment.getClass().getSimpleName(),
-                    fragment.shortDescription(),
-                    e.getMessage());
-            return CompletableFuture.completedFuture("");
-        } catch (Exception e) {
-            logger.error(
-                    "Unexpected error extracting content for {} fragment '{}': {}",
-                    fragment.getClass().getSimpleName(),
-                    fragment.shortDescription(),
-                    e.getMessage(),
-                    e);
-            return CompletableFuture.completedFuture("");
-        }
-    }
+    private static CompletableFuture<String> extractFragmentContentAsync(ContextFragment fragment) {
+        var computedTextFuture = fragment.text().future();
+        return computedTextFuture
+                .completeOnTimeout(
+                        "Timeout loading contents. Please consider reporting a bug",
+                        TEXT_FALLBACK_TIMEOUT.toSeconds(),
+                        TimeUnit.SECONDS)
+                .exceptionally(ex -> {
+                    var msg =
+                            """
+                            Error loading contents. Please consider reporting a bug.
 
-    /**
-     * Extract image bytes from a fragment, handling Computed/Image fragments.
-     */
-    private static byte @Nullable [] extractImageBytes(ContextFragment fragment) {
-        try {
-            if (fragment instanceof ContextFragment.ImageFragment imgFrag) {
-                var image = imgFrag.image();
-                return ImageUtil.imageToBytes(image);
-            }
-        } catch (java.util.concurrent.CancellationException | IOException e) {
-            logger.warn(
-                    "Computation cancelled for image fragment '{}'; image will show as changed. Cause: {}",
-                    fragment.shortDescription(),
-                    e.getMessage());
-            return null;
-        }
-        return null;
+                            Details:
+                            Fragment type %s
+                            Fragment description: %s
+                            Stacktrace: %s
+                            """
+                                    .formatted(
+                                            fragment.getClass().getSimpleName(),
+                                            fragment.shortDescription().renderNowOr(fragment.toString()),
+                                            ExceptionReporter.formatStackTrace(ex));
+                    logger.warn(msg, ex);
+                    return msg;
+                });
     }
 
     /**
@@ -344,32 +299,180 @@ public final class DiffService {
      */
     private static @Nullable Context.DiffEntry computeImageDiffEntry(
             ContextFragment thisFragment, ContextFragment otherFragment) {
-        byte[] oldImageBytes = extractImageBytes(otherFragment);
-        byte[] newImageBytes = extractImageBytes(thisFragment);
+        // Prefer frozen bytes (snapshot), fall back to computed image bytes
+        byte[] oldImageBytes = null;
+        var oldImageBytesCv = otherFragment.imageBytes();
+        if (oldImageBytesCv != null) {
+            oldImageBytes = oldImageBytesCv.join();
+        }
 
+        byte[] newImageBytes = null;
+        var newImageBytesCv = thisFragment.imageBytes();
+        if (newImageBytesCv != null) {
+            newImageBytes = newImageBytesCv.join();
+        }
+
+        // If both sides are missing bytes, we cannot compare — omit diff.
         if (oldImageBytes == null && newImageBytes == null) {
             return null;
         }
-        boolean imagesEqual =
-                oldImageBytes != null && newImageBytes != null && Arrays.equals(oldImageBytes, newImageBytes);
+
+        // If one side has bytes and the other does not, treat as changed.
+        if ((oldImageBytes == null) != (newImageBytes == null)) {
+            String diff = "[Image changed]";
+            return new Context.DiffEntry(thisFragment, diff, 1, 1, "[image]", "[image]");
+        }
+
+        boolean imagesEqual = Arrays.equals(oldImageBytes, newImageBytes);
         if (imagesEqual) {
             return null;
         }
         String diff = "[Image changed]";
-        return new Context.DiffEntry(
-                thisFragment,
-                diff,
-                1,
-                1,
-                oldImageBytes != null ? "[image]" : "",
-                newImageBytes != null ? "[image]" : "");
+        return new Context.DiffEntry(thisFragment, diff, 1, 1, "[image]", "[image]");
     }
 
     /**
      * Compute the set of ProjectFile objects that differ between curr (new/right) and other (old/left).
      */
-    public static java.util.Set<ProjectFile> getChangedFiles(Context curr, Context other) {
+    @Blocking
+    public static Set<ProjectFile> getChangedFiles(Context curr, Context other) {
         var diffs = computeDiff(curr, other);
-        return diffs.stream().flatMap(de -> de.fragment().files().stream()).collect(Collectors.toSet());
+        return diffs.stream()
+                .flatMap(de -> de.fragment().files().join().stream())
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * Summarizes cumulative changes between two Git references for a given set of files.
+     * Handles git IO errors gracefully by skipping problematic files rather than failing the entire operation.
+     *
+     * @param repo the Git repository
+     * @param leftRef the baseline commit/branch reference (left/old side)
+     * @param rightRef the target commit/branch reference (right/new side)
+     * @param files the set of modified files to diff
+     * @return CumulativeChanges with per-file diffs and aggregated statistics
+     */
+    @Blocking
+    public static CumulativeChanges summarizeDiff(
+            IGitRepo repo, String leftRef, String rightRef, Set<IGitRepo.ModifiedFile> files) {
+        if (!(repo instanceof ai.brokk.git.GitRepo gitRepo)) {
+            return new CumulativeChanges(0, 0, 0, List.of());
+        }
+
+        if (files.isEmpty()) {
+            return new CumulativeChanges(0, 0, 0, List.of());
+        }
+
+        List<Context.DiffEntry> perFileChanges = new ArrayList<>();
+        int totalAdded = 0;
+        int totalDeleted = 0;
+
+        for (var modFile : files) {
+            var file = modFile.file();
+
+            // Compute left content based on left reference
+            String leftContent = "";
+            if (!leftRef.isBlank()) {
+                if ("WORKING".equals(leftRef)) {
+                    leftContent = file.read().orElse("");
+                } else {
+                    try {
+                        var leftFrag = ContextFragment.GitFileFragment.fromCommit(file, leftRef, gitRepo);
+                        leftContent = leftFrag.text().join();
+                    } catch (RuntimeException e) {
+                        // File doesn't exist at leftRef (new file) - treat as empty baseline
+                        logger.debug("File {} not found at {}, treating as new file", file, leftRef);
+                        leftContent = "";
+                    }
+                }
+            }
+
+            // Compute right content based on right reference
+            String rightContent = "";
+            if (!rightRef.isBlank()) {
+                if ("WORKING".equals(rightRef)) {
+                    rightContent = file.read().orElse("");
+                } else {
+                    try {
+                        var rightFragTmp = ContextFragment.GitFileFragment.fromCommit(file, rightRef, gitRepo);
+                        rightContent = rightFragTmp.text().join();
+                    } catch (RuntimeException e) {
+                        // File doesn't exist at rightRef (deleted file) - treat as empty right side
+                        logger.debug("File {} not found at {}, treating as deleted file", file, rightRef);
+                        rightContent = "";
+                    }
+                }
+            }
+
+            // Compute line counts
+            var diffRes = ContentDiffUtils.computeDiffResult(leftContent, rightContent, "old", "new");
+            int added = diffRes.added();
+            int deleted = diffRes.deleted();
+
+            // Skip if no changes
+            if (added == 0 && deleted == 0) {
+                continue;
+            }
+
+            totalAdded += added;
+            totalDeleted += deleted;
+
+            // Build DiffEntry using the right-side fragment as representative
+            ContextFragment.GitFileFragment rightFragForEntry;
+            if ("WORKING".equals(rightRef)) {
+                rightFragForEntry = new ContextFragment.GitFileFragment(file, "WORKING", rightContent);
+            } else {
+                try {
+                    rightFragForEntry = ContextFragment.GitFileFragment.fromCommit(file, rightRef, gitRepo);
+                } catch (RuntimeException e) {
+                    // File doesn't exist at rightRef (e.g., deleted) - synthesize with current computed rightContent
+                    rightFragForEntry = new ContextFragment.GitFileFragment(file, rightRef, rightContent);
+                }
+            }
+
+            var de = new Context.DiffEntry(rightFragForEntry, "", added, deleted, leftContent, rightContent);
+            perFileChanges.add(de);
+        }
+
+        return new CumulativeChanges(perFileChanges.size(), totalAdded, totalDeleted, perFileChanges);
+    }
+
+    /**
+     * Pre-computes titles for DiffEntries off-EDT to avoid blocking calls on the UI thread.
+     * Deduplicates by title and returns a stable-sorted list.
+     *
+     * @param res the cumulative changes containing per-file diff entries
+     * @return list of (title, DiffEntry) pairs sorted by title
+     */
+    @Blocking
+    public static List<Map.Entry<String, Context.DiffEntry>> preparePerFileSummaries(CumulativeChanges res) {
+        var list = new ArrayList<Map.Entry<String, Context.DiffEntry>>(
+                res.perFileChanges().size());
+        var seen = new HashSet<String>();
+        for (var de : res.perFileChanges()) {
+            String title = de.title();
+            if (!seen.add(title)) {
+                logger.warn("Duplicate cumulative change title '{}' detected; skipping extra entry.", title);
+                continue;
+            }
+            list.add(Map.entry(title, de));
+        }
+        list.sort(Comparator.comparing(Map.Entry::getKey));
+        return list;
+    }
+
+    /** Cumulative changes summary across multiple files. */
+    public record CumulativeChanges(
+            int filesChanged,
+            int totalAdded,
+            int totalDeleted,
+            List<Context.DiffEntry> perFileChanges,
+            @Nullable GitWorkflow.PushPullState pushPullState) {
+
+        /** Convenience constructor without pushPullState. */
+        public CumulativeChanges(
+                int filesChanged, int totalAdded, int totalDeleted, List<Context.DiffEntry> perFileChanges) {
+            this(filesChanged, totalAdded, totalDeleted, perFileChanges, null);
+        }
     }
 }

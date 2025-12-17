@@ -19,6 +19,7 @@ import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.exception.HttpException;
 import dev.langchain4j.exception.NonRetriableException;
+import dev.langchain4j.exception.PaymentRequiredException;
 import dev.langchain4j.exception.RetriableException;
 import dev.langchain4j.internal.ExceptionMapper;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -72,7 +73,11 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
-/** The main orchestrator for sending requests to an LLM, possibly with tools, collecting streaming responses, etc. */
+/**
+ * The main orchestrator for sending requests to an LLM, possibly with tools, collecting streaming responses, etc.
+ *
+ * Preserves model chain-of-thought, so you should create a new instance for every conversation.
+ */
 public class Llm {
     private static final Logger logger = LogManager.getLogger(Llm.class);
     private static final ObjectMapper objectMapper =
@@ -138,6 +143,7 @@ public class Llm {
     private final boolean forceReasoningEcho;
     private final boolean tagRetain;
     private final boolean echo;
+    private volatile @Nullable String previousResponseId;
 
     // Monotonically increasing sequence for emulated tool request IDs
     private final AtomicInteger toolRequestIdSeq = new AtomicInteger();
@@ -360,6 +366,12 @@ public class Llm {
                         errorRef.set(ex);
                     } else {
                         completedChatResponse.set(response);
+                        var id = response.id();
+                        if (id != null) {
+                            logger.trace("response_id={}", id);
+                            assert !id.isBlank();
+                            previousResponseId = id;
+                        }
                         String tokens =
                                 response.tokenUsage() == null ? "null token usage!?" : formatTokensUsage(response);
                         logger.debug("Request complete ({}) with {}", response.finishReason(), tokens);
@@ -455,6 +467,10 @@ public class Llm {
 
         // At this point, latch has been counted down and we have a result or an error
         var error = errorRef.get();
+        // Reload list of available models if user has exhausted his budget
+        if (error instanceof PaymentRequiredException && contextManager instanceof ContextManager cm) {
+            cm.reloadService();
+        }
 
         if (error != null) {
             // If no partial text, just return null response
@@ -546,6 +562,18 @@ public class Llm {
         return sendMessageWithRetry(messages, ToolContext.empty(), MAX_ATTEMPTS);
     }
 
+    /**
+     * Sends messages to the model with a custom max retry count. Useful for non-critical tasks
+     * like history compression where we don't want to block for too long on failures.
+     *
+     * @param messages The messages to send
+     * @param maxAttempts Maximum number of attempts (1 = no retries)
+     * @return The final response from the LLM
+     */
+    public StreamingResult sendRequest(List<ChatMessage> messages, int maxAttempts) throws InterruptedException {
+        return sendMessageWithRetry(messages, ToolContext.empty(), maxAttempts);
+    }
+
     /** Sends messages to a model with possible tools and a chosen tool usage policy. */
     public StreamingResult sendRequest(List<ChatMessage> messages, ToolContext toolContext)
             throws InterruptedException {
@@ -599,6 +627,9 @@ public class Llm {
         Throwable lastError = null;
         int attempt = 0;
         var messages = Messages.forLlm(rawMessages);
+        if (messages.isEmpty()) {
+            throw new IllegalArgumentException("Cannot send request with empty message list");
+        }
 
         StreamingResult response;
         while (attempt++ < maxAttempts) {
@@ -697,11 +728,13 @@ public class Llm {
             return emulateTools(model, messagesToSend, toolContext);
         }
 
-        // If native tools are used, or no tools, send the (potentially preprocessed if tools were empty) messages.
+        // Build request with parameters (always include base params for previousResponseId/metadata)
         var requestBuilder = ChatRequest.builder().messages(messagesToSend);
+        var paramsBuilder = getParamsBuilder();
+
         if (!tools.isEmpty()) {
             logger.debug("Performing native tool calls");
-            var paramsBuilder = getParamsBuilder().toolSpecifications(tools);
+            paramsBuilder = paramsBuilder.toolSpecifications(tools);
             if (contextManager.getService().supportsParallelCalls(model)) {
                 // can't just blindly call .parallelToolCalls(boolean), litellm will barf if it sees the option at all
                 paramsBuilder = paramsBuilder.parallelToolCalls(true);
@@ -709,10 +742,9 @@ public class Llm {
             if (toolChoice == ToolChoice.REQUIRED && contextManager.getService().supportsToolChoiceRequired(model)) {
                 paramsBuilder = paramsBuilder.toolChoice(ToolChoice.REQUIRED);
             }
-            requestBuilder.parameters(paramsBuilder.build());
         }
 
-        var request = requestBuilder.build();
+        var request = requestBuilder.parameters(paramsBuilder.build()).build();
         var sr = doSingleStreamingCall(request, false);
 
         // Pretty-print native tool calls when echo is enabled
@@ -742,12 +774,16 @@ public class Llm {
     private OpenAiChatRequestParameters.Builder getParamsBuilder() {
         OpenAiChatRequestParameters.Builder builder = OpenAiChatRequestParameters.builder();
 
-        if (this.tagRetain) {
+        if (tagRetain) {
             // this is the only place we add metadata so we can just overwrite what's there
             logger.trace("Adding 'retain' metadata tag to LLM request.");
             Map<String, String> newMetadata = new HashMap<>();
             newMetadata.put("tags", "retain");
             builder.metadata(newMetadata);
+        }
+
+        if (previousResponseId != null) {
+            builder.previousResponseId(previousResponseId);
         }
 
         return builder;
@@ -1101,7 +1137,7 @@ public class Llm {
         // Simple request builder for JSON output format
         Function<List<ChatMessage>, ChatRequest> requestBuilder = attemptMessages -> ChatRequest.builder()
                 .messages(attemptMessages)
-                .parameters(OpenAiChatRequestParameters.builder()
+                .parameters(getParamsBuilder()
                         .responseFormat(ResponseFormat.builder()
                                 .type(ResponseFormatType.JSON)
                                 .build())
@@ -1252,7 +1288,8 @@ public class Llm {
         return new NullSafeResponse("", mergedReasoning, toolExecutionRequests, result.originalResponse());
     }
 
-    private static String getInstructions(
+    // package-private for testing
+    static String getInstructions(
             List<ToolSpecification> tools, Function<@Nullable Throwable, String> retryInstructionsProvider) {
         String toolsDescription = tools.stream()
                 .map(tool -> {
@@ -1281,6 +1318,7 @@ public class Llm {
                                                     case JsonIntegerSchema __ -> "integer";
                                                     case JsonNumberSchema __ -> "number";
                                                     case JsonBooleanSchema __ -> "boolean";
+                                                    case JsonObjectSchema __ -> "object";
                                                     default ->
                                                         throw new IllegalArgumentException(
                                                                 "Unsupported array item type: " + itemSchema);

@@ -227,6 +227,7 @@
 
       "git_badge_background": "#757575",
       "git_badge_text": "#ffffff",
+      "ci_excluded_foreground": "#9e9e9e",
 
       "mode_answer_bg": "#757575",
       "mode_answer_fg": "#ffffff",
@@ -237,6 +238,9 @@
       "mode_lutz_bg": "#f9a825",
       "mode_lutz_fg": "#ffffff",
       "mode_lutz_accent": "#ffb74d",
+      "mode_plan_bg": "#E1BEE7",
+      "mode_plan_fg": "#4A148C",
+      "mode_plan_accent": "#9C27B0",
 
       "badge_border": "#757575",
       "badge_foreground": "#757575",

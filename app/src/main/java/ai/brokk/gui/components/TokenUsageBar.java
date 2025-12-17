@@ -2,15 +2,14 @@ package ai.brokk.gui.components;
 
 import ai.brokk.Service;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.FragmentColorUtils;
-import ai.brokk.gui.dialogs.PreviewTextPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.util.ComputedSubscription;
 import ai.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
@@ -105,15 +104,11 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                     Segment seg = findSegmentAt(e.getX());
                     if (seg != null && !seg.fragments.isEmpty()) {
                         if (seg.isSummaryGroup) {
-                            // Open combined preview for all summaries (mirrors synthetic chip behavior)
+                            // Open combined preview for all summaries via Chrome::openFragmentPreview
                             int totalFiles = (int) seg.fragments.stream()
-                                    .flatMap(f -> {
-                                        if (f instanceof ContextFragment.ComputedFragment cf) {
-                                            var files = cf.computedFiles().renderNowOr(Set.of());
-                                            return files.stream();
-                                        }
-                                        return f.files().stream();
-                                    })
+                                    .flatMap(f ->
+                                            // Fast, non-blocking
+                                            f.files().renderNowOr(Set.of()).stream())
                                     .map(ProjectFile::toString)
                                     .distinct()
                                     .count();
@@ -122,25 +117,20 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                             StringBuilder combinedText = new StringBuilder();
                             for (var f : seg.fragments) {
                                 try {
-                                    if (f instanceof ContextFragment.ComputedFragment cf) {
-                                        combinedText
-                                                .append(cf.computedText().renderNowOr("(Loading summary...)"))
-                                                .append("\n\n");
-                                    } else {
-                                        combinedText.append(f.text()).append("\n\n");
-                                    }
+                                    combinedText
+                                            .append(f.text().renderNowOr("(Loading summary...)"))
+                                            .append("\n\n");
                                 } catch (Exception ex) {
                                     logger.debug("Failed reading summary text for preview", ex);
                                 }
                             }
-                            var previewPanel = new PreviewTextPanel(
+
+                            var syntheticFragment = new ContextFragment.StringFragment(
                                     chrome.getContextManager(),
-                                    null,
                                     combinedText.toString(),
-                                    SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                                    chrome.getTheme(),
-                                    null);
-                            chrome.showPreviewFrame(chrome.getContextManager(), title, previewPanel);
+                                    title,
+                                    SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+                            chrome.openFragmentPreview(syntheticFragment);
                         } else if (seg.fragments.size() == 1) {
                             // Single fragment: open its preview
                             chrome.openFragmentPreview(seg.fragments.iterator().next());
@@ -304,12 +294,10 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
         // Bind fragments to a single repaint/token-cache invalidation runnable
         for (var f : this.fragments) {
-            if (f instanceof ContextFragment.ComputedFragment cf) {
-                ComputedSubscription.bind(cf, this, () -> {
-                    tokenCache.remove(f.id());
-                    repaint();
-                });
-            }
+            ComputedSubscription.bind(f, this, () -> {
+                tokenCache.remove(f.id());
+                repaint();
+            });
         }
 
         repaint();
@@ -332,19 +320,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             @Override
             protected Void doInBackground() {
                 for (var f : frags) {
-                    try {
-                        if (f instanceof ContextFragment.ComputedFragment cf) {
-                            // Kick off computations eagerly
-                            cf.computedText().start();
-                            cf.computedDescription().start();
-                            cf.computedFiles().start();
-                        }
-                        if (f.isText() || f.getType().isOutput()) {
-                            // This will compute and cache the token count for the fragment (non-blocking text path)
-                            tokensForFragment(f);
-                        }
-                    } catch (Exception ignore) {
-                        // Best-effort pre-warm; failures are non-fatal and will be handled lazily
+                    if (f.isText() || f.getType().isOutput()) {
+                        // This will compute and cache the token count for the fragment (non-blocking text path)
+                        tokensForFragment(f);
                     }
                 }
                 return null;
@@ -948,16 +926,19 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     private int tokensForFragment(ContextFragment f) {
         try {
-            return tokenCache.computeIfAbsent(f.id(), id -> {
+            return tokenCache.compute(f.id(), (id, cachedTokenCount) -> {
+                if (cachedTokenCount != null && cachedTokenCount > 0) {
+                    return cachedTokenCount;
+                }
                 if (f.isText() || f.getType().isOutput()) {
                     try {
-                        String text;
-                        if (f instanceof ContextFragment.ComputedFragment cf) {
-                            text = cf.computedText().renderNowOr("(Loading)");
+                        String text = f.text().renderNowOr("");
+                        if (text.isBlank()) {
+                            // Not ready yet, will be replaced next time we perform a look-up
+                            return 0;
                         } else {
-                            text = f.text();
+                            return Messages.getApproximateTokens(text);
                         }
-                        return Messages.getApproximateTokens(text);
                     } catch (Exception e) {
                         logger.trace("Failed to compute token count for fragment", e);
                         return 0;

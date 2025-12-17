@@ -61,7 +61,7 @@ public class LegacyProjectWatchService implements IWatchService {
         this.gitRepoRoot = gitRepoRoot;
         this.globalGitignorePath = globalGitignorePath;
         this.listeners = new CopyOnWriteArrayList<>(listeners);
-        this.gitMetaDir = (gitRepoRoot != null) ? gitRepoRoot.resolve(".git") : null;
+        this.gitMetaDir = IWatchService.resolveGitMetaDir(gitRepoRoot);
 
         // Precompute real path for robust comparison (handles symlinks, case-insensitive filesystems)
         if (globalGitignorePath != null) {
@@ -93,7 +93,9 @@ public class LegacyProjectWatchService implements IWatchService {
             // Recursively register all directories under project root except .brokk and .git
             registerAllDirectories(root, watchService);
 
-            // Always watch git metadata to ensure ref changes (HEAD, refs/heads/*) trigger onRepoChange
+            // Always watch git metadata to ensure ref changes (HEAD, refs/heads/*) trigger onRepoChange.
+            // Note: For worktrees, gitMetaDir may be external. If on different filesystem or
+            // becomes inaccessible, events may stop - this is an inherent limitation of file watching.
             if (gitMetaDir != null && Files.isDirectory(gitMetaDir)) {
                 logger.debug("Watching git metadata directory for changes: {}", gitMetaDir);
                 registerGitMetadata(gitMetaDir, watchService);
@@ -247,13 +249,27 @@ public class LegacyProjectWatchService implements IWatchService {
                 batch.untrackedGitignoreChanged = true;
             }
 
+            // Convert to ProjectFile - handle paths outside root (e.g., git metadata in worktrees)
             Path relativized;
-            try {
-                relativized = root.relativize(eventPath);
-            } catch (IllegalArgumentException e) {
-                throw new RuntimeException("Failed to relativize path: %s to %s".formatted(eventPath, root), e);
+            Path baseForFile;
+            if (gitMetaDir != null && gitRepoRoot != null && eventPath.startsWith(gitMetaDir)) {
+                // Git metadata event from external location (e.g., worktree pointing to main repo's .git).
+                // INVARIANT: FileWatcherHelper.isGitMetadataChanged() requires relative paths to start
+                // with ".git/" prefix, so we reconstruct the path as .git/<relative-to-gitMetaDir>
+                relativized = Path.of(".git").resolve(gitMetaDir.relativize(eventPath));
+                baseForFile = gitRepoRoot;
+                logger.trace("Git metadata event (external): {} -> relative: {}", eventPath, relativized);
+            } else {
+                try {
+                    relativized = root.relativize(eventPath);
+                    baseForFile = root;
+                } catch (IllegalArgumentException e) {
+                    // Path is outside both root and gitMetaDir, skip it
+                    logger.trace("Skipping event for path outside root and git: {}", eventPath);
+                    continue;
+                }
             }
-            batch.files.add(new ProjectFile(root, relativized));
+            batch.files.add(new ProjectFile(baseForFile, relativized));
 
             // If it's a directory creation, register it so we can watch its children
             if (event.kind() == StandardWatchEventKinds.ENTRY_CREATE && Files.isDirectory(eventPath)) {

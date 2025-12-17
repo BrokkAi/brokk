@@ -20,6 +20,14 @@ import org.fife.ui.autocomplete.ShorthandCompletion;
 
 public class Completions {
     private static final Logger logger = LogManager.getLogger(Completions.class);
+    private static final int SHORT_TOLERANCE = 300;
+    /**
+     * Bonus applied to preferred extensions when ranking ProjectFile completions.
+     * Lower composite scores indicate better matches; subtracting this bonus for preferred extensions
+     * ensures analyzer-supported file types (e.g., .java) sort ahead of unrelated ones (e.g., .svg)
+     * when fuzzy scores are close.
+     */
+    private static final int PREFERRED_EXTENSION_PRIORITY_BONUS = 300;
 
     public static List<CodeUnit> completeSymbols(String input, IAnalyzer analyzer) {
         String query = input.trim();
@@ -80,7 +88,7 @@ public class Completions {
                 }
             }
         }
-        return new java.util.ArrayList<>(dedup.values());
+        return new ArrayList<>(dedup.values());
     }
 
     private static List<CodeUnit> scoreSortDedupeAndLimit(String query, List<CodeUnit> candidates) {
@@ -242,59 +250,78 @@ public class Completions {
                 && (s.charAt(2) == '\\' || s.charAt(2) == '/');
     }
 
-    private record ScoredItem<T>(T source, int score, int tiebreakScore, boolean isShort) {}
-
-    public static <T> List<ShorthandCompletion> scoreShortAndLong(
-            String pattern,
-            Collection<T> candidates,
-            Function<T, String> extractShort,
-            Function<T, String> extractLong,
-            Function<T, Integer> tiebreaker,
-            Function<T, ShorthandCompletion> toCompletion) {
-        return scoreShortAndLong(pattern, candidates, extractShort, extractLong, tiebreaker, toCompletion, 1);
+    private static int calculateCompositeScore(int shortScore, int longScore, boolean preferred) {
+        return Math.min(shortScore, longScore) + (preferred ? -PREFERRED_EXTENSION_PRIORITY_BONUS : 0);
     }
 
-    public static <T> List<ShorthandCompletion> scoreShortAndLong(
+    /**
+     * Rank-and-filter ProjectFile candidates with a preference for files whose extensions are
+     * supported by the project's active analyzers. Uses the default minimum pattern length of 1.
+     */
+    public static List<ShorthandCompletion> scoreProjectFiles(
             String pattern,
-            Collection<T> candidates,
-            Function<T, String> extractShort,
-            Function<T, String> extractLong,
-            Function<T, Integer> tiebreaker,
-            Function<T, ShorthandCompletion> toCompletion,
+            IProject project,
+            Collection<ProjectFile> candidates,
+            Function<ProjectFile, String> extractShort,
+            Function<ProjectFile, String> extractLong,
+            Function<ProjectFile, ShorthandCompletion> toCompletion) {
+        return scoreProjectFiles(pattern, project, candidates, extractShort, extractLong, toCompletion, 1);
+    }
+
+    /**
+     * Rank-and-filter ProjectFile candidates with a preference for files whose extensions are
+     * supported by the project's active analyzers.
+     *
+     * Prefers candidates whose {@code ProjectFile.extension()} (lowercased) is present in the union
+     * of {@code Language.getExtensions()} from {@code project.getAnalyzerLanguages()} by using a
+     * lower tiebreak score for those candidates.
+     */
+    public static List<ShorthandCompletion> scoreProjectFiles(
+            String pattern,
+            IProject project,
+            Collection<ProjectFile> candidates,
+            Function<ProjectFile, String> extractShort,
+            Function<ProjectFile, String> extractLong,
+            Function<ProjectFile, ShorthandCompletion> toCompletion,
             int minLength) {
         String trimmed = pattern.trim();
         if (trimmed.length() < minLength) {
             return List.of();
         }
 
+        Set<String> preferredExts = project.getAnalyzerLanguages().stream()
+                .flatMap(lang -> lang.getExtensions().stream())
+                .map(s -> s.toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+
         var matcher = new FuzzyMatcher(trimmed);
+
+        record ScoredPF(ProjectFile pf, int shortScore, int longScore, boolean preferred) {}
+
         var scoredCandidates = candidates.stream()
-                .map(c -> {
-                    int shortScore = matcher.score(extractShort.apply(c));
-                    int longScore = matcher.score(extractLong.apply(c));
-                    int minScore = Math.min(shortScore, longScore);
-                    boolean isShort = shortScore <= longScore; // Prefer short match if scores are equal
-                    int tiebreak = tiebreaker.apply(c);
-                    return new ScoredItem<>(c, minScore, tiebreak, isShort);
+                .map(pf -> {
+                    int shortScore = matcher.score(extractShort.apply(pf));
+                    int longScore = matcher.score(extractLong.apply(pf));
+                    boolean preferred = preferredExts.contains(pf.extension().toLowerCase(Locale.ROOT));
+                    return new ScoredPF(pf, shortScore, longScore, preferred);
                 })
-                .filter(sc -> sc.score() != Integer.MAX_VALUE)
-                .sorted(Comparator.<ScoredItem<T>>comparingInt(ScoredItem::score)
-                        .thenComparingInt(ScoredItem::tiebreakScore)
-                        .thenComparing(scoredItem -> extractShort.apply(scoredItem.source())))
+                .filter(sc -> sc.shortScore() != Integer.MAX_VALUE || sc.longScore() != Integer.MAX_VALUE)
                 .toList();
 
-        // Find the lowest (best) score among the "short" matches
-        int bestShortScore = scoredCandidates.stream()
-                .filter(ScoredItem::isShort)
-                .mapToInt(ScoredItem::score)
-                .min()
-                .orElse(Integer.MAX_VALUE); // If no short matches, keep all long matches
+        int bestShortScore =
+                scoredCandidates.stream().mapToInt(ScoredPF::shortScore).min().orElse(Integer.MAX_VALUE);
+        int shortThreshold = bestShortScore == Integer.MAX_VALUE ? Integer.MAX_VALUE : bestShortScore + SHORT_TOLERANCE;
 
-        // Keep only candidates whose score is better than or equal to the best short match
+        // Lower scores are better; subtracting the bonus for preferred extensions ensures they sort first.
+        Comparator<ScoredPF> cmp = Comparator.<ScoredPF>comparingInt(
+                        sc -> calculateCompositeScore(sc.shortScore(), sc.longScore(), sc.preferred()))
+                .thenComparing(sc -> extractShort.apply(sc.pf()));
+
         return scoredCandidates.stream()
-                .filter(sc -> sc.score() <= bestShortScore)
+                .filter(sc -> (sc.shortScore() <= shortThreshold) || (sc.longScore() < bestShortScore))
+                .sorted(cmp)
                 .limit(100)
-                .map(sc -> toCompletion.apply(sc.source()))
+                .map(sc -> toCompletion.apply(sc.pf()))
                 .toList();
     }
 }

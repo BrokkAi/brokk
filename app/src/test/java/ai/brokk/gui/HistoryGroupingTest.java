@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test;
 public class HistoryGroupingTest {
 
     private static Context ctx(String action) {
-        var base = new Context(new IContextManager() {}, null);
+        var base = new Context(new IContextManager() {});
         return base.withAction(CompletableFuture.completedFuture(action));
     }
 

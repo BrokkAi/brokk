@@ -27,7 +27,7 @@ public record TaskResult(
             List<ChatMessage> uiMessages,
             Context resultingContext,
             StopDetails stopDetails,
-            TaskMeta meta) {
+            @Nullable TaskMeta meta) {
         this(
                 actionDescription,
                 new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),
@@ -48,6 +48,10 @@ public record TaskResult(
                 resultingContext,
                 new StopDetails(simpleReason),
                 null);
+    }
+
+    public TaskResult withContext(Context ctx) {
+        return new TaskResult(actionDescription, output, ctx, stopDetails, meta);
     }
 
     /** Enum representing the reason a session concluded. */

@@ -4,6 +4,8 @@ import type {ResultMsg} from '../worker/shared';
 import {clearState, pushChunk, parse} from '../worker/worker-bridge';
 import {register, unregister, isRegistered} from '../worker/parseRouter';
 import { getNextThreadId, threadStore } from './threadStore';
+import { deleteSummaryEntry, getSummaryEntry } from './summaryStore';
+import { hideTransientMessage } from './transientStore';
 
 export const bubblesStore = writable<BubbleState[]>([]);
 
@@ -19,6 +21,12 @@ export function onBrokkEvent(evt: BrokkEvent): void {
         switch (evt.type) {
             case 'clear':
                 list.forEach(bubble => unregister(bubble.seq));
+                // Clean up live summary for the current thread before clearing
+                const prevSummaryEntry = getSummaryEntry(currentThreadId);
+                if (prevSummaryEntry && isRegistered(prevSummaryEntry.seq)) {
+                    unregister(prevSummaryEntry.seq);
+                }
+                deleteSummaryEntry(currentThreadId);
                 nextBubbleSeq++;
                 // clear without flushing (hard clear; no next message)
                 clearState(false);
@@ -28,6 +36,7 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                 return [];
 
             case 'chunk': {
+                hideTransientMessage();
                 const lastBubble = list.at(-1);
                 // If the last message was a streaming reasoning bubble and the new one is not,
                 // mark the reasoning as complete, immutably.
@@ -159,6 +168,14 @@ function finalizeReasoningBubble(b: BubbleState): BubbleState {
 }
 
 /**
+ * Get the current live thread ID.
+ * This is used when processing live summaries that may arrive before bubbles are created.
+ */
+export function getCurrentLiveThreadId(): number {
+    return currentThreadId;
+}
+
+/**
  * Track live task progress. On end (inProgress=false), finalize all bubbles:
  * stop streaming; for reasoning bubbles, mark complete, set duration, and collapse.
  */
@@ -195,6 +212,13 @@ export function deleteLiveTaskByThreadId(threadId: number): void {
 
         // Unregister parsers for removed bubbles
         toRemove.forEach(b => unregister(b.seq));
+
+        // Clean up live summary for the deleted thread
+        const summaryEntry = getSummaryEntry(threadId);
+        if (summaryEntry && isRegistered(summaryEntry.seq)) {
+            unregister(summaryEntry.seq);
+        }
+        deleteSummaryEntry(threadId);
 
         // If deleting current live thread, reset live state similarly to 'clear'
         if (threadId === currentThreadId) {

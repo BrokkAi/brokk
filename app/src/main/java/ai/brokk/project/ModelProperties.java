@@ -6,7 +6,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Properties;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -29,18 +28,17 @@ public final class ModelProperties {
 
     // Default favorite models (moved from MainProject)
     static final List<Service.FavoriteModel> DEFAULT_FAVORITE_MODELS = List.of(
-            new Service.FavoriteModel("GPT-5", new ModelConfig(Service.GPT_5)),
+            new Service.FavoriteModel("Opus 4.5", new ModelConfig(Service.OPUS_4_5, Service.ReasoningLevel.DISABLE)),
+            new Service.FavoriteModel("GPT-5.2", new ModelConfig(Service.GPT_5_2)),
             new Service.FavoriteModel("GPT-5 mini", new ModelConfig(Service.GPT_5_MINI)),
-            new Service.FavoriteModel("Gemini Pro 2.5", new ModelConfig(Service.GEMINI_2_5_PRO)),
-            new Service.FavoriteModel("Sonnet 4.5", new ModelConfig(Service.SONNET_4_5, Service.ReasoningLevel.MEDIUM)),
-            new Service.FavoriteModel("Haiku 4.5", new ModelConfig(Service.HAIKU_4_5, Service.ReasoningLevel.DEFAULT)));
+            new Service.FavoriteModel("Haiku 4.5", new ModelConfig(Service.HAIKU_4_5)));
 
     /**
      * Reads a ModelConfig for the given modelType from props, with fallback to preferred defaults.
      * Ensures ProcessingTier is non-null (backward compatibility against older JSON).
      */
     static ModelConfig getModelConfig(Properties props, ModelType modelType) {
-        String jsonString = props.getProperty(modelType.propertyKey());
+        String jsonString = props.getProperty(modelType.propertyKey);
         if (jsonString != null && !jsonString.isBlank()) {
             try {
                 var mc = objectMapper.readValue(jsonString, ModelConfig.class);
@@ -53,12 +51,12 @@ public final class ModelProperties {
                 logger.warn(
                         "Error parsing ModelConfig JSON for {} from key '{}': {}. Using preferred default. JSON: '{}'",
                         modelType,
-                        modelType.propertyKey(),
+                        modelType.propertyKey,
                         e.getMessage(),
                         jsonString);
             }
         }
-        return modelType.preferredConfig();
+        return modelType.defaultConfig();
     }
 
     /**
@@ -67,10 +65,10 @@ public final class ModelProperties {
      */
     static void setModelConfig(Properties props, ModelType modelType, ModelConfig config) {
         try {
-            String jsonString = objectMapper.writeValueAsString(config);
-            props.setProperty(modelType.propertyKey(), jsonString);
+            var jsonString = objectMapper.writeValueAsString(config);
+            props.setProperty(modelType.propertyKey, jsonString);
         } catch (JsonProcessingException e) {
-            throw new RuntimeException("Failed to serialize ModelConfig for " + modelType, e);
+            throw new RuntimeException(e);
         }
     }
 
@@ -124,54 +122,37 @@ public final class ModelProperties {
      * Enum representing the different model configuration slots persisted in global properties.
      * Each enum constant owns its properties key and preferred default ModelConfig.
      */
-    enum ModelType {
+    public enum ModelType {
         QUICK("quickConfig", new ModelConfig(Service.GEMINI_2_0_FLASH)),
-        CODE("codeConfig", new ModelConfig(Service.HAIKU_4_5)),
-        ARCHITECT("architectConfig", new ModelConfig(Service.GPT_5)),
-        QUICK_EDIT("quickEditConfig", new ModelConfig("cerebras/gpt-oss-120b")),
-        QUICKEST("quickestConfig", new ModelConfig("gemini-2.0-flash-lite")),
-        SCAN("scanConfig", new ModelConfig(Service.GPT_5_MINI));
+        CODE("codeConfig", new ModelConfig(Service.HAIKU_4_5), new ModelConfig(Service.GCF_1)),
+        ARCHITECT(
+                "architectConfig",
+                new ModelConfig(Service.OPUS_4_5, Service.ReasoningLevel.DISABLE),
+                new ModelConfig(Service.GCF_1)),
+        QUICK_EDIT("quickEditConfig", new ModelConfig(Service.GCF_1)),
+        QUICKEST("quickestConfig", new ModelConfig(Service.GEMINI_2_0_FLASH_LITE)),
+        SCAN("scanConfig", new ModelConfig(Service.GPT_5_MINI), new ModelConfig(Service.GCF_1));
 
         private final String propertyKey;
-        private final ModelConfig preferredConfig;
+        private final ModelConfig defaultConfig;
+        private final ModelConfig defaultFreeConfig;
 
-        ModelType(String propertyKey, ModelConfig preferredConfig) {
+        ModelType(String propertyKey, ModelConfig defaultConfig) {
+            this(propertyKey, defaultConfig, defaultConfig);
+        }
+
+        ModelType(String propertyKey, ModelConfig defaultConfig, ModelConfig defaultFreeConfig) {
             this.propertyKey = propertyKey;
-            this.preferredConfig = preferredConfig;
+            this.defaultConfig = defaultConfig;
+            this.defaultFreeConfig = defaultFreeConfig;
         }
 
-        /**
-         * The string key used in global properties for this model type.
-         */
-        public String propertyKey() {
-            return propertyKey;
+        public ModelConfig defaultConfig() {
+            return defaultConfig;
         }
 
-        /**
-         * The preferred default ModelConfig for this model type.
-         */
-        public ModelConfig preferredConfig() {
-            return preferredConfig;
-        }
-
-        /**
-         * Human-friendly display name derived from the enum constant.
-         */
-        public String displayName() {
-            String s = name().toLowerCase(Locale.ROOT).replace('_', ' ');
-            StringBuilder out = new StringBuilder();
-            boolean cap = true;
-            for (int i = 0, len = s.length(); i < len; i++) {
-                char c = s.charAt(i);
-                if (cap && Character.isLetter(c)) {
-                    out.append(Character.toUpperCase(c));
-                    cap = false;
-                } else {
-                    out.append(c);
-                }
-                if (c == ' ') cap = true;
-            }
-            return out.toString();
+        public ModelConfig freeConfig() {
+            return defaultFreeConfig;
         }
     }
 }

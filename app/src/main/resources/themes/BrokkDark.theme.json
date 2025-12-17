@@ -36,6 +36,7 @@
 
       "git_badge_background": "#007ACC",
       "git_badge_text": "#FFFFFF",
+      "ci_excluded_foreground": "#808080",
 
       "action_button_bg_default": "#478ac9",
       "action_button_bg_stop": "#DC3545",
@@ -49,10 +50,15 @@
       "mode_lutz_bg": "#F4C430",
       "mode_lutz_fg": "#000000",
       "mode_lutz_accent": "#F4C430",
+      "mode_plan_bg": "#9C27B0",
+      "mode_plan_fg": "#FFFFFF",
+      "mode_plan_accent": "#CE93D8",
 
       "badge_border": "#428BCA",
       "badge_foreground": "#428BCA",
       "badge_hover_border": "#337AB7",
+      "badge_muted_bg": "#3A3A3A",
+      "badge_muted_fg": "#9E9E9E",
       "selected_badge_border": "#000000",
       "selected_badge_foreground": "#000000",
 

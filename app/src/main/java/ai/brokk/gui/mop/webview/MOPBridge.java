@@ -1,7 +1,5 @@
 package ai.brokk.gui.mop.webview;
 
-import static java.util.Objects.requireNonNull;
-
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.TaskEntry;
@@ -179,6 +177,19 @@ public final class MOPBridge {
                         "if (window.brokk && window.brokk.hideSpinner) { window.brokk.hideSpinner(); } else { console.error('hideSpinner called - bridge not ready yet'); }"));
     }
 
+    public void showTransientMessage(String message) {
+        var jsonMessage = toJson(message);
+        var js = "if (window.brokk && window.brokk.showTransientMessage) { window.brokk.showTransientMessage("
+                + jsonMessage + "); } else { console.error('showTransientMessage called - bridge not ready yet'); }";
+        Platform.runLater(() -> engine.executeScript(js));
+    }
+
+    public void hideTransientMessage() {
+        Platform.runLater(
+                () -> engine.executeScript(
+                        "if (window.brokk && window.brokk.hideTransientMessage) { window.brokk.hideTransientMessage(); } else { console.error('hideTransientMessage called - bridge not ready yet'); }"));
+    }
+
     public void setTaskInProgress(boolean inProgress) {
         var js = "if (window.brokk && window.brokk.setTaskInProgress) { window.brokk.setTaskInProgress(" + inProgress
                 + "); } else { console.error('setTaskInProgress called - bridge not ready yet'); }";
@@ -202,17 +213,9 @@ public final class MOPBridge {
     public void sendHistoryTask(TaskEntry entry) {
         var e = epoch.incrementAndGet();
 
-        // compressed summary
-        if (entry.isCompressed()) {
-            var event = new BrokkEvent.HistoryTask(e, entry.sequence(), true, requireNonNull(entry.summary()), null);
-            eventQueue.add(event);
-            scheduleSend();
-            return;
-        }
-
-        // Uncompressed: convert messages
-        var taskFragment = entry.log();
+        // Convert messages from log when available
         List<BrokkEvent.HistoryTask.Message> messages = new ArrayList<>();
+        var taskFragment = entry.log();
 
         if (taskFragment != null) {
             var msgs = taskFragment.messages();
@@ -222,8 +225,29 @@ public final class MOPBridge {
                         new BrokkEvent.HistoryTask.Message(text, message.type(), Messages.isReasoningMessage(message)));
             }
         }
-        var event = new BrokkEvent.HistoryTask(e, entry.sequence(), false, null, messages);
+
+        // Build event: compressed flag is true when summary is present (AI uses summary)
+        // Include both summary and messages when available
+        var summary = entry.isCompressed() ? entry.summary() : null;
+        var compressed = entry.isCompressed();
+        var messagesList = messages.isEmpty() ? null : messages;
+
+        var event = new BrokkEvent.HistoryTask(e, entry.sequence(), compressed, summary, messagesList);
         eventQueue.add(event);
+        scheduleSend();
+    }
+
+    /**
+     * Sends a live summary event to the frontend for the current in-progress task.
+     * This allows the frontend to display a summary toggle in the live area.
+     *
+     * @param taskSequence The backend TaskEntry sequence number
+     * @param compressed Whether the task is compressed (AI uses summary)
+     * @param summary The summary text
+     */
+    public void sendLiveSummary(int taskSequence, boolean compressed, String summary) {
+        var e = epoch.incrementAndGet();
+        eventQueue.add(new BrokkEvent.LiveSummary(e, taskSequence, compressed, summary));
         scheduleSend();
     }
 
@@ -660,18 +684,20 @@ public final class MOPBridge {
 
             String version = BuildInfo.version;
             String projectName = project.getRoot().getFileName().toString();
-            int nativeFileCount = project.getRepo().getTrackedFiles().size();
             int totalFileCount = project.getAllFiles().size();
 
-            List<String> analyzerLanguages = List.of();
+            List<Map<String, Object>> analyzerLanguagesInfo = new ArrayList<>();
             try {
-                // Prefer whatever the project exposes (used previously in welcome message).
-                // Normalize to a list of strings for the frontend.
+                // Get analyzer languages from the project
                 Object langs = project.getAnalyzerLanguages();
+                List<String> languageNames = new ArrayList<>();
+
                 if (langs instanceof String s) {
-                    analyzerLanguages = s.isBlank() ? List.of() : List.of(s);
+                    if (!s.isBlank()) {
+                        languageNames.add(s.trim());
+                    }
                 } else if (langs instanceof Collection<?> c) {
-                    analyzerLanguages = c.stream()
+                    languageNames = c.stream()
                             .map(String::valueOf)
                             .map(String::trim)
                             .filter(s -> !s.isEmpty())
@@ -679,7 +705,7 @@ public final class MOPBridge {
                             .toList();
                 } else if (langs.getClass().isArray()) {
                     var arr = (Object[]) langs;
-                    analyzerLanguages = Arrays.stream(arr)
+                    languageNames = Arrays.stream(arr)
                             .map(String::valueOf)
                             .map(String::trim)
                             .filter(s -> !s.isEmpty())
@@ -687,7 +713,42 @@ public final class MOPBridge {
                             .toList();
                 } else {
                     var s = String.valueOf(langs).trim();
-                    analyzerLanguages = s.isEmpty() ? List.of() : List.of(s);
+                    if (!s.isEmpty()) {
+                        languageNames.add(s);
+                    }
+                }
+
+                // Get all live dependencies once
+                var liveDeps = project.getLiveDependencies();
+
+                // For each language, get file and dependency counts
+                for (String langName : languageNames) {
+                    try {
+                        // Convert language name to Language object
+                        var language = ai.brokk.analyzer.Languages.valueOf(langName);
+
+                        // Get analyzable files for this language
+                        var analyzableFiles = project.getAnalyzableFiles(language);
+                        int fileCount = analyzableFiles.size();
+
+                        // Count files from dependencies matching this language
+                        int depCount = 0;
+                        for (var dep : liveDeps) {
+                            if (dep.language() == language) {
+                                depCount += dep.files().size();
+                            }
+                        }
+
+                        var langInfo = new LinkedHashMap<String, Object>();
+                        langInfo.put("name", language.name());
+                        langInfo.put("fileCount", fileCount);
+                        langInfo.put("depCount", depCount);
+                        analyzerLanguagesInfo.add(langInfo);
+                    } catch (IllegalArgumentException e) {
+                        logger.trace("Language not found or invalid: {}", langName, e);
+                    } catch (Exception e) {
+                        logger.trace("Failed to get file counts for language: {}", langName, e);
+                    }
                 }
             } catch (Throwable t) {
                 logger.trace("Analyzer languages unavailable from project", t);
@@ -696,11 +757,10 @@ public final class MOPBridge {
             var payload = new LinkedHashMap<String, Object>();
             payload.put("version", version);
             payload.put("projectName", projectName);
-            payload.put("nativeFileCount", nativeFileCount);
             payload.put("totalFileCount", totalFileCount);
             payload.put("analyzerReady", analyzerReady);
-            if (!analyzerLanguages.isEmpty()) {
-                payload.put("analyzerLanguages", analyzerLanguages);
+            if (!analyzerLanguagesInfo.isEmpty()) {
+                payload.put("analyzerLanguages", analyzerLanguagesInfo);
             }
 
             var json = toJson(payload);
