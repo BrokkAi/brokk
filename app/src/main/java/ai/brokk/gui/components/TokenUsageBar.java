@@ -5,8 +5,8 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.gui.ChipColorUtils;
 import ai.brokk.gui.Chrome;
-import ai.brokk.gui.FragmentColorUtils;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -328,7 +328,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 // Pre-compute classifications to avoid blocking calls during computeSegments
                 for (var f : frags) {
                     if (f.isText() || f.getType().isOutput()) {
-                        FragmentColorUtils.classify(f);
+                        ChipColorUtils.classify(f);
                     }
                 }
                 return null;
@@ -730,7 +730,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
         // Pre-compute classifications for non-summary fragments
         var classifiedNonSummaries =
-                nonSummaries.stream().map(FragmentColorUtils::classify).toList();
+                nonSummaries.stream().map(ChipColorUtils::classify).toList();
 
         int tokensSummaries =
                 summaries.stream().mapToInt(this::tokensForFragment).sum();
@@ -880,21 +880,21 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             if (w.width <= 0) continue;
 
             if (w.item.isSummaryGroup) {
-                Color bg = FragmentColorUtils.getBackgroundColor(FragmentColorUtils.ChipKind.SUMMARY, isDark);
+                Color bg = ChipColorUtils.getBackgroundColor(ChipColorUtils.ChipKind.SUMMARY, isDark);
                 Set<ContextFragment> segmentFrags = Set.copyOf(summaries);
                 out.add(new Segment(x, w.width, bg, segmentFrags, true));
             } else if (w.item.isOther) {
-                Color bg = FragmentColorUtils.getBackgroundColor(FragmentColorUtils.ChipKind.OTHER, isDark);
+                Color bg = ChipColorUtils.getBackgroundColor(ChipColorUtils.ChipKind.OTHER, isDark);
                 Set<ContextFragment> segmentFrags = Set.copyOf(small);
                 out.add(new Segment(x, w.width, bg, segmentFrags, false));
             } else {
                 ContextFragment frag = Objects.requireNonNull(w.item.frag);
-                FragmentColorUtils.ChipKind kind = classifiedNonSummaries.stream()
+                ChipColorUtils.ChipKind kind = classifiedNonSummaries.stream()
                         .filter(cf -> cf.fragment().equals(frag))
-                        .map(FragmentColorUtils.ClassifiedFragment::kind)
+                        .map(ChipColorUtils.ClassifiedFragment::kind)
                         .findFirst()
-                        .orElse(FragmentColorUtils.ChipKind.OTHER);
-                Color bg = FragmentColorUtils.getBackgroundColor(kind, isDark);
+                        .orElse(ChipColorUtils.ChipKind.OTHER);
+                Color bg = ChipColorUtils.getBackgroundColor(kind, isDark);
                 Set<ContextFragment> segmentFrags = Set.of(frag);
                 out.add(new Segment(x, w.width, bg, segmentFrags, false));
             }

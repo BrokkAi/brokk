@@ -9,7 +9,7 @@ import java.awt.Color;
  * Shared utilities for fragment classification and color styling, used by both WorkspaceItemsChipPanel and
  * TokenUsageBar.
  */
-public class FragmentColorUtils {
+public class ChipColorUtils {
 
     public enum ChipKind {
         EDIT,

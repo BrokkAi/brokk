@@ -6,7 +6,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
-import ai.brokk.gui.FragmentColorUtils.ChipKind;
+import ai.brokk.gui.ChipColorUtils.ChipKind;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
@@ -420,9 +420,9 @@ public class WorkspaceChip extends JPanel {
 
     public void applyTheme() {
         boolean isDarkTheme = UIManager.getBoolean("laf.dark");
-        Color bg = FragmentColorUtils.getBackgroundColor(kind, isDarkTheme);
-        Color fg = FragmentColorUtils.getForegroundColor(kind, isDarkTheme);
-        Color border = FragmentColorUtils.getBorderColor(kind, isDarkTheme);
+        Color bg = ChipColorUtils.getBackgroundColor(kind, isDarkTheme);
+        Color fg = ChipColorUtils.getForegroundColor(kind, isDarkTheme);
+        Color border = ChipColorUtils.getBorderColor(kind, isDarkTheme);
 
         // Special styling for Task List: dedicated color scheme
         ContextFragment fragment = getPrimaryFragment();

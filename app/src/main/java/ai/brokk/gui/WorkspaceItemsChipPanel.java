@@ -213,7 +213,7 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
 
         // Pre-compute classifications off-EDT
         var classifiedNonSummaries =
-                nonSummaryFragments.stream().map(FragmentColorUtils::classify).toList();
+                nonSummaryFragments.stream().map(ChipColorUtils::classify).toList();
 
         logger.debug(
                 "updateChips: {} visible ({} summaries, {} others) out of {}",
@@ -252,7 +252,7 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
                 var classified = classifiedNonSummaries.stream()
                         .filter(cf -> cf.fragment().equals(frag))
                         .findFirst()
-                        .orElse(new FragmentColorUtils.ClassifiedFragment(frag, FragmentColorUtils.ChipKind.OTHER));
+                        .orElse(new ChipColorUtils.ClassifiedFragment(frag, ChipColorUtils.ChipKind.OTHER));
                 var chip = createChip(frag, classified.kind());
                 add(chip);
                 chipById.put(frag.id(), chip);
@@ -303,7 +303,7 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
         });
     }
 
-    private WorkspaceChip createChip(ContextFragment fragment, FragmentColorUtils.ChipKind kind) {
+    private WorkspaceChip createChip(ContextFragment fragment, ChipColorUtils.ChipKind kind) {
         var chip = new WorkspaceChip(
                 chrome, contextManager, () -> readOnly, onHover, onRemoveFragment, Set.of(fragment), kind);
         chip.setBorder(new EmptyBorder(0, 0, 0, 0));
