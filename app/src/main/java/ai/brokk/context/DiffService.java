@@ -5,6 +5,7 @@ import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
+import ai.brokk.project.MainProject;
 import ai.brokk.util.ContentDiffUtils;
 import java.time.Duration;
 import java.util.*;
@@ -45,9 +46,9 @@ public final class DiffService {
     private final AtomicLong generation = new AtomicLong(0);
 
     // Warm-up throttle: bound concurrent per-fragment diff computations during warm-up only.
-    private static final int WARMUP_FRAGMENT_CONCURRENCY = 3;
-    private final java.util.concurrent.Semaphore warmupFragmentSemaphore =
-            new java.util.concurrent.Semaphore(WARMUP_FRAGMENT_CONCURRENCY, true);
+    // Value is read from MainProject.getDiffWarmupConcurrency() when this service is constructed.
+    private final int warmupFragmentConcurrency;
+    private final java.util.concurrent.Semaphore warmupFragmentSemaphore;
 
     // Instrumentation counters (per DiffService instance)
     private final java.util.concurrent.atomic.AtomicLong warmupBatchesStarted = new java.util.concurrent.atomic.AtomicLong(0);
@@ -79,7 +80,7 @@ public final class DiffService {
     }
 
     public static int getWarmupFragmentConcurrency() {
-        return WARMUP_FRAGMENT_CONCURRENCY;
+        return MainProject.getDiffWarmupConcurrency();
     }
 
     // Fallback executor for environments where IContextManager.getBackgroundTasks() is unsupported (e.g., tests)
@@ -117,6 +118,8 @@ public final class DiffService {
     DiffService(ContextHistory history) {
         this.history = history;
         this.cm = history.liveContext().getContextManager();
+        this.warmupFragmentConcurrency = Math.max(1, MainProject.getDiffWarmupConcurrency());
+        this.warmupFragmentSemaphore = new java.util.concurrent.Semaphore(this.warmupFragmentConcurrency, true);
     }
 
     /**
@@ -226,7 +229,10 @@ public final class DiffService {
  * @param max maximum number of most recent contexts (with a predecessor) to warm up
  */
 public void warmUpRecent(int max) {
-    if (max <= 0) {
+    // Determine the effective cap: use the configured maximum as an upper bound; allow callers to request a smaller max.
+    int configuredMax = MainProject.getDiffWarmupMax();
+    int usedMax = (max <= 0) ? configuredMax : Math.min(max, configuredMax);
+    if (usedMax <= 0) {
         return;
     }
     var contexts = history.getHistory();
@@ -234,9 +240,9 @@ public void warmUpRecent(int max) {
         return;
     }
 
-    // Collect up to `max` most recent contexts that have a predecessor.
-    var recent = new ArrayList<Context>(Math.min(max, contexts.size()));
-    for (int i = contexts.size() - 1; i >= 0 && recent.size() < max; i--) {
+    // Collect up to `usedMax` most recent contexts that have a predecessor.
+    var recent = new ArrayList<Context>(Math.min(usedMax, contexts.size()));
+    for (int i = contexts.size() - 1; i >= 0 && recent.size() < usedMax; i--) {
         var c = contexts.get(i);
         if (history.previousOf(c) != null) {
             recent.add(c);
@@ -245,8 +251,8 @@ public void warmUpRecent(int max) {
     if (recent.isEmpty()) {
         return;
     }
-    if (recent.size() >= max && logger.isDebugEnabled()) {
-        logger.debug("Applying warm-up cap: {} contexts (cap={})", recent.size(), max);
+    if (recent.size() >= usedMax && logger.isDebugEnabled()) {
+        logger.debug("Applying warm-up cap: {} contexts (cap={})", recent.size(), usedMax);
     }
 
     // Capture current generation to guard against staleness.
@@ -338,10 +344,10 @@ public void warmUpRecent(int max) {
         var imageFragments = ctx.allFragments().filter(f -> !f.isText());
         var candidates = java.util.stream.Stream.concat(editableFragments, imageFragments).toList();
 
-        if (candidates.size() > WARMUP_FRAGMENT_CONCURRENCY && logger.isDebugEnabled()) {
+        if (candidates.size() > warmupFragmentConcurrency && logger.isDebugEnabled()) {
             logger.debug(
                     "Applying per-fragment warm-up concurrency cap: permits={} candidates={}",
-                    WARMUP_FRAGMENT_CONCURRENCY, candidates.size());
+                    warmupFragmentConcurrency, candidates.size());
         }
         var futures = new ArrayList<CompletableFuture<Context.DiffEntry>>(candidates.size());
         for (var cf : candidates) {

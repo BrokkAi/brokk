@@ -7,6 +7,7 @@ import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
+import ai.brokk.project.MainProject;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -35,6 +36,10 @@ class DiffServiceTest {
 
     @BeforeEach
     void setup() {
+        // Pin configuration to avoid flakiness in concurrency/cap tests
+        MainProject.setDiffWarmupConcurrency(3);
+        MainProject.setDiffWarmupMax(10);
+
         contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
         ContextFragment.setMinimumId(1);
     }

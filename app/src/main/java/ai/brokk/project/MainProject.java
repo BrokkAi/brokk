@@ -1459,6 +1459,76 @@ public final class MainProject extends AbstractProject {
         }
     }
 
+    // ------------------------------------------------------------
+    // Diff warm-up settings (global)
+    // ------------------------------------------------------------
+    private static final String DIFF_WARMUP_MAX_KEY = "diffWarmupMax";
+    private static final String DIFF_WARMUP_CONCURRENCY_KEY = "diffWarmupConcurrency";
+
+    /**
+     * Returns the maximum number of most-recent contexts to warm up diffs for.
+     * Default: 10. Set to 0 or negative to disable warm-up.
+     */
+    public static int getDiffWarmupMax() {
+        var props = loadGlobalProperties();
+        String v = props.getProperty(DIFF_WARMUP_MAX_KEY);
+        int def = 10;
+        if (v == null || v.isBlank()) return def;
+        try {
+            int parsed = Integer.parseInt(v.trim());
+            // Allow 0 to disable; clamp to a sane upper bound
+            if (parsed > 200) parsed = 200;
+            return parsed;
+        } catch (NumberFormatException e) {
+            return def;
+        }
+    }
+
+    /**
+     * Persists the maximum number of most-recent contexts to warm up diffs for.
+     * Use 0 to disable warm-up. When set to the default (10), the property is removed.
+     */
+    public static void setDiffWarmupMax(int max) {
+        var props = loadGlobalProperties();
+        if (max == 10) {
+            props.remove(DIFF_WARMUP_MAX_KEY);
+        } else {
+            props.setProperty(DIFF_WARMUP_MAX_KEY, Integer.toString(max));
+        }
+        saveGlobalProperties(props);
+    }
+
+    /**
+     * Returns the per-fragment warm-up concurrency. Default: 3. Minimum: 1, Maximum: 32.
+     */
+    public static int getDiffWarmupConcurrency() {
+        var props = loadGlobalProperties();
+        String v = props.getProperty(DIFF_WARMUP_CONCURRENCY_KEY);
+        int def = 3;
+        if (v == null || v.isBlank()) return def;
+        try {
+            int parsed = Integer.parseInt(v.trim());
+            if (parsed < 1) parsed = 1;
+            if (parsed > 32) parsed = 32;
+            return parsed;
+        } catch (NumberFormatException e) {
+            return def;
+        }
+    }
+
+    /**
+     * Persists the per-fragment warm-up concurrency. When set to the default (3), the property is removed.
+     */
+    public static void setDiffWarmupConcurrency(int concurrency) {
+        var props = loadGlobalProperties();
+        if (concurrency == 3) {
+            props.remove(DIFF_WARMUP_CONCURRENCY_KEY);
+        } else {
+            props.setProperty(DIFF_WARMUP_CONCURRENCY_KEY, Integer.toString(concurrency));
+        }
+        saveGlobalProperties(props);
+    }
+
     // UI Scale global preference
     // Values:
     //  - "auto" (default): detect from environment (kscreen-doctor/gsettings on Linux)
