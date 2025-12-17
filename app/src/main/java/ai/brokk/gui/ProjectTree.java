@@ -267,10 +267,19 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
 
         boolean hasTargets = !targetFiles.isEmpty();
 
-        // Add "Show History" item only for a single file and non-bulk usage
+        // Add "Show History" and "View" items only for a single file and non-bulk usage
         if (!bulk && targetFiles.size() == 1) {
             JMenuItem historyItem = getHistoryMenuItem(targetFiles);
             contextMenu.add(historyItem);
+
+            JMenuItem viewItem = new JMenuItem("View");
+            viewItem.addActionListener(ev -> {
+                ProjectFile file = targetFiles.getFirst();
+                var fragment = new ContextFragment.ProjectPathFragment(file, contextManager);
+                chrome.openFragmentPreview(fragment);
+            });
+            contextMenu.add(viewItem);
+
             contextMenu.addSeparator();
         }
 
