@@ -594,6 +594,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         contextManager.setSelectedContext(ctx);
                         // setContext is for *previewing* a context without changing selection state in the manager
                         chrome.setContext(ctx);
+
+                        // On-demand diff for selection
+                        var ds = contextManager.getContextHistory().getDiffService();
+                        ds.diff(ctx).thenAccept(d -> SwingUtilities.invokeLater(() -> adjustRowHeightForContext(ctx)));
                     }
                 }
             }
@@ -657,7 +661,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Add table to scroll pane with AutoScroller
         this.historyScrollPane = new JScrollPane(historyTable);
         var layer = new JLayer<>(historyScrollPane, arrowLayerUI);
-        historyScrollPane.getViewport().addChangeListener(e -> layer.repaint());
+        historyScrollPane.getViewport().addChangeListener(e -> {
+            layer.repaint();
+            // Trigger on-demand diffs for the currently visible rows
+            requestVisibleDiffs();
+        });
         historyScrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
         AutoScroller.install(historyScrollPane);
         BorderUtils.addFocusBorder(historyScrollPane, historyTable);
@@ -899,9 +907,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 ctx1.allFragments().forEach(f -> ComputedSubscription.bind(f, historyTable, historyTable::repaint));
             }
 
-            // Warm up diffs centrally via ContextHistory.DiffService
+            // Diff warm-up is deferred; request diffs only for visible rows and current selection.
             var diffService = contextManager.getContextHistory().getDiffService();
-            diffService.warmUp(contexts);
             var descriptors = HistoryGrouping.GroupingBuilder.discoverGroups(contexts, this::isGroupingBoundary);
             latestDescriptors = descriptors;
 
@@ -1000,6 +1007,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     }
                 }
             }
+
+            // Request diffs for visible rows and current selection only.
+            requestVisibleDiffs();
 
             contextManager.getProject().getMainProject().sessionsListChanged();
             var resetEdges = contextManager.getContextHistory().getResetEdges();
@@ -3706,6 +3716,38 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         } catch (IllegalComponentStateException e) {
             // If not yet showing, fall back to a reasonable default
             return 400;
+        }
+    }
+
+    private void requestVisibleDiffs() {
+        if (historyScrollPane == null || historyTable.getRowCount() == 0) {
+            return;
+        }
+        var viewport = historyScrollPane.getViewport();
+        if (viewport == null) {
+            return;
+        }
+        var ds = contextManager.getContextHistory().getDiffService();
+        java.awt.Rectangle viewRect = viewport.getViewRect();
+
+        int first = historyTable.rowAtPoint(new Point(viewRect.x, viewRect.y));
+        if (first < 0) first = 0;
+        int last = historyTable.rowAtPoint(new Point(viewRect.x, viewRect.y + viewRect.height - 1));
+        if (last < 0) last = historyTable.getRowCount() - 1;
+
+        for (int row = first; row <= last; row++) {
+            Object v = historyModel.getValueAt(row, 2);
+            if (v instanceof Context ctx) {
+                ds.diff(ctx).thenAccept(d -> SwingUtilities.invokeLater(() -> adjustRowHeightForContext(ctx)));
+            }
+        }
+
+        int sel = historyTable.getSelectedRow();
+        if (sel >= 0 && sel < historyTable.getRowCount()) {
+            Object sv = historyModel.getValueAt(sel, 2);
+            if (sv instanceof Context sctx) {
+                ds.diff(sctx).thenAccept(d -> SwingUtilities.invokeLater(() -> adjustRowHeightForContext(sctx)));
+            }
         }
     }
 

@@ -497,4 +497,41 @@ class DiffServiceTest {
         // Allow warm-up to complete
         gate.countDown();
     }
+
+    @Test
+    void on_demand_diff_only_computes_subset_requested() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Subset.txt");
+        Files.createDirectories(pf.absPath().getParent());
+
+        // Build a chain of contexts with incremental changes
+        var contexts = new java.util.ArrayList<Context>();
+        for (int i = 0; i < 8; i++) {
+            Files.writeString(pf.absPath(), "v" + i + "\n");
+            var frag = new ContextFragment.ProjectPathFragment(pf, contextManager);
+            var ctx = new Context(
+                    contextManager, List.of(frag), List.of(), null, CompletableFuture.completedFuture("v" + i));
+            contexts.add(ctx);
+        }
+
+        var history = new ContextHistory(contexts);
+        var ds = history.getDiffService();
+
+        // Simulate UI: request diffs only for a visible subset (e.g., last 2 contexts) and a specific selection
+        var subset = List.of(contexts.get(6), contexts.get(7), contexts.get(3)); // two visible + one selection
+
+        subset.forEach(c -> ds.diff(c).join());
+
+        // The requested subset should be present
+        for (var c : subset) {
+            assertTrue(ds.peek(c).isPresent(), "Requested context diff should be cached for " + c.getAction());
+        }
+
+        // Non-requested contexts should not have diffs computed/cached yet
+        for (int i = 0; i < contexts.size(); i++) {
+            var c = contexts.get(i);
+            if (!subset.contains(c)) {
+                assertTrue(ds.peek(c).isEmpty(), "Unrequested context diff should not be cached for " + c.getAction());
+            }
+        }
+    }
 }
