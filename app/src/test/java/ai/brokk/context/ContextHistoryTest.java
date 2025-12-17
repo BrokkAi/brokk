@@ -278,17 +278,14 @@ public class ContextHistoryTest {
 
         // Wait briefly for warm-up to complete for the most recent context
         long waitUntil = System.currentTimeMillis() + 2000;
-        while (System.currentTimeMillis() < waitUntil && diffService.peek(context3).isEmpty()) {
+        while (System.currentTimeMillis() < waitUntil
+                && diffService.peek(context3).isEmpty()) {
             Thread.sleep(25);
         }
 
         // Assert: most recent context should be warmed; the older one should not be warmed by cap=1
-        assertTrue(
-                diffService.peek(context3).isPresent(),
-                "Most recent context should be warmed by warmUpRecent(1)");
-        assertTrue(
-                diffService.peek(context2).isEmpty(),
-                "Older context should not be warmed when cap is 1");
+        assertTrue(diffService.peek(context3).isPresent(), "Most recent context should be warmed by warmUpRecent(1)");
+        assertTrue(diffService.peek(context2).isEmpty(), "Older context should not be warmed when cap is 1");
 
         // On-demand diff for the older context should still work
         diffService.diff(context2).join();

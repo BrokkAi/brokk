@@ -2552,12 +2552,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             io.toolError("Error while loading history for session '%s'.".formatted(sessionName));
         } else {
             // Persist old cache snapshot before switching and invalidate old warm-ups
-            if (contextHistory != null) {
-                var oldService = contextHistory.getDiffService();
-                var oldCache = oldService.snapshot();
-                sessionManager.saveDiffCache(currentSessionId, oldCache);
-                oldService.close();
-            }
+            var oldService = contextHistory.getDiffService();
+            var oldCache = oldService.snapshot();
+            sessionManager.saveDiffCache(currentSessionId, oldCache);
+            oldService.close();
 
             updateActiveSession(sessionId); // Mark as active
             contextHistory = loadedCh;

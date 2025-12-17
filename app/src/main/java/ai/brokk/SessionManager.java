@@ -3,6 +3,7 @@ package ai.brokk;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.context.DiffService;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.project.AbstractProject;
@@ -718,8 +719,8 @@ public class SessionManager implements AutoCloseable {
     /**
      * Save a snapshot of the diff cache for a session (in-memory only).
      */
-    public void saveDiffCache(UUID sessionId, ai.brokk.context.DiffService.DiffCache cache) {
-        if (cache == null || cache.isEmpty()) {
+    public void saveDiffCache(UUID sessionId, DiffService.DiffCache cache) {
+        if (cache.isEmpty()) {
             diffCachesBySession.remove(sessionId);
         } else {
             diffCachesBySession.put(sessionId, cache);

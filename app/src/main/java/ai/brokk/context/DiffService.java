@@ -51,7 +51,8 @@ public final class DiffService {
     private final java.util.concurrent.Semaphore warmupFragmentSemaphore;
 
     // Instrumentation counters (per DiffService instance)
-    private final java.util.concurrent.atomic.AtomicLong warmupBatchesStarted = new java.util.concurrent.atomic.AtomicLong(0);
+    private final java.util.concurrent.atomic.AtomicLong warmupBatchesStarted =
+            new java.util.concurrent.atomic.AtomicLong(0);
     private final java.util.concurrent.atomic.AtomicLong diffsScheduled = new java.util.concurrent.atomic.AtomicLong(0);
     private final java.util.concurrent.atomic.AtomicLong diffsCompleted = new java.util.concurrent.atomic.AtomicLong(0);
 
@@ -168,7 +169,7 @@ public final class DiffService {
      * @param allowedIds the set of context ids valid for the current history
      */
     public void seedFrom(DiffCache snapshot, Set<UUID> allowedIds) {
-        if (snapshot == null || snapshot.isEmpty() || allowedIds.isEmpty()) {
+        if (snapshot.isEmpty() || allowedIds.isEmpty()) {
             return;
         }
         for (var e : snapshot.entrySet()) {
@@ -222,151 +223,161 @@ public final class DiffService {
         }
     }
 
-/**
- * Warm up diffs for the most recent contexts only, using a single coordinator task and bounded concurrency.
- * This avoids scheduling one background task per context on the global executor.
- *
- * @param max maximum number of most recent contexts (with a predecessor) to warm up
- */
-public void warmUpRecent(int max) {
-    // Determine the effective cap: use the configured maximum as an upper bound; allow callers to request a smaller max.
-    int configuredMax = MainProject.getDiffWarmupMax();
-    int usedMax = (max <= 0) ? configuredMax : Math.min(max, configuredMax);
-    if (usedMax <= 0) {
-        return;
-    }
-    var contexts = history.getHistory();
-    if (contexts.size() <= 1) {
-        return;
-    }
-
-    // Collect up to `usedMax` most recent contexts that have a predecessor.
-    var recent = new ArrayList<Context>(Math.min(usedMax, contexts.size()));
-    for (int i = contexts.size() - 1; i >= 0 && recent.size() < usedMax; i--) {
-        var c = contexts.get(i);
-        if (history.previousOf(c) != null) {
-            recent.add(c);
+    /**
+     * Warm up diffs for the most recent contexts only, using a single coordinator task and bounded concurrency.
+     * This avoids scheduling one background task per context on the global executor.
+     *
+     * @param max maximum number of most recent contexts (with a predecessor) to warm up
+     */
+    public void warmUpRecent(int max) {
+        // Determine the effective cap: use the configured maximum as an upper bound; allow callers to request a smaller
+        // max.
+        int configuredMax = MainProject.getDiffWarmupMax();
+        int usedMax = (max <= 0) ? configuredMax : Math.min(max, configuredMax);
+        if (usedMax <= 0) {
+            return;
         }
-    }
-    if (recent.isEmpty()) {
-        return;
-    }
-    if (recent.size() >= usedMax && logger.isDebugEnabled()) {
-        logger.debug("Applying warm-up cap: {} contexts (cap={})", recent.size(), usedMax);
-    }
+        var contexts = history.getHistory();
+        if (contexts.size() <= 1) {
+            return;
+        }
 
-    // Capture current generation to guard against staleness.
-    final long genAtSchedule = generation.get();
-
-    // Schedule a single coordinator task; per-fragment work uses a small local executor.
-    warmupBatchesStarted.incrementAndGet();
-    var outerExec = getOuterExecutorSafe();
-    CompletableFuture.runAsync(() -> {
-        int concurrencyHint = Math.max(1, Math.min(3, Runtime.getRuntime().availableProcessors() / 2));
-        var fragmentExec = Executors.newFixedThreadPool(concurrencyHint, r -> {
-            var t = new Thread(r);
-            t.setDaemon(true);
-            t.setName("DiffWarmUp-" + t.threadId());
-            return t;
-        });
-
-        try {
-            List<CompletableFuture<Void>> futures = new ArrayList<>(recent.size());
-            for (var ctx : recent) {
-                var prev = history.previousOf(ctx);
-                if (prev == null) {
-                    continue;
-                }
-                diffsScheduled.incrementAndGet();
-                var f = CompletableFuture.runAsync(() -> {
-                    // Early exit if invalidated before starting this unit of work
-                    if (generation.get() != genAtSchedule) {
-                        return;
-                    }
-                    try {
-                        var result = computeDiffWarmup(ctx, prev, fragmentExec);
-
-                        // Skip cache write if this work became stale.
-                        if (generation.get() != genAtSchedule) {
-                            return;
-                        }
-
-                        cache.compute(ctx.id(), (id, existing) -> {
-                            if (existing == null) {
-                                var cf = new CompletableFuture<List<Context.DiffEntry>>();
-                                cf.complete(result);
-                                return cf;
-                            } else {
-                                if (!existing.isDone()) {
-                                    existing.complete(result);
-                                }
-                                return existing;
-                            }
-                        });
-                    } catch (Throwable t) {
-                        if (generation.get() != genAtSchedule) {
-                            return;
-                        }
-                        cache.compute(ctx.id(), (id, existing) -> {
-                            if (existing == null) {
-                                var cf = new CompletableFuture<List<Context.DiffEntry>>();
-                                cf.completeExceptionally(t);
-                                return cf;
-                            } else {
-                                if (!existing.isDone()) {
-                                    existing.completeExceptionally(t);
-                                }
-                                return existing;
-                            }
-                        });
-                    } finally {
-                        diffsCompleted.incrementAndGet();
-                    }
-                }, outerExec);
-                futures.add(f);
+        // Collect up to `usedMax` most recent contexts that have a predecessor.
+        var recent = new ArrayList<Context>(Math.min(usedMax, contexts.size()));
+        for (int i = contexts.size() - 1; i >= 0 && recent.size() < usedMax; i--) {
+            var c = contexts.get(i);
+            if (history.previousOf(c) != null) {
+                recent.add(c);
             }
-            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-        } finally {
-            fragmentExec.shutdown();
         }
-    }, outerExec);
-}
+        if (recent.isEmpty()) {
+            return;
+        }
+        if (recent.size() >= usedMax && logger.isDebugEnabled()) {
+            logger.debug("Applying warm-up cap: {} contexts (cap={})", recent.size(), usedMax);
+        }
+
+        // Capture current generation to guard against staleness.
+        final long genAtSchedule = generation.get();
+
+        // Schedule a single coordinator task; per-fragment work uses a small local executor.
+        warmupBatchesStarted.incrementAndGet();
+        var outerExec = getOuterExecutorSafe();
+        CompletableFuture.runAsync(
+                () -> {
+                    int concurrencyHint =
+                            Math.max(1, Math.min(3, Runtime.getRuntime().availableProcessors() / 2));
+                    var fragmentExec = Executors.newFixedThreadPool(concurrencyHint, r -> {
+                        var t = new Thread(r);
+                        t.setDaemon(true);
+                        t.setName("DiffWarmUp-" + t.threadId());
+                        return t;
+                    });
+
+                    try {
+                        List<CompletableFuture<Void>> futures = new ArrayList<>(recent.size());
+                        for (var ctx : recent) {
+                            var prev = history.previousOf(ctx);
+                            if (prev == null) {
+                                continue;
+                            }
+                            diffsScheduled.incrementAndGet();
+                            var f = CompletableFuture.runAsync(
+                                    () -> {
+                                        // Early exit if invalidated before starting this unit of work
+                                        if (generation.get() != genAtSchedule) {
+                                            return;
+                                        }
+                                        try {
+                                            var result = computeDiffWarmup(ctx, prev, fragmentExec);
+
+                                            // Skip cache write if this work became stale.
+                                            if (generation.get() != genAtSchedule) {
+                                                return;
+                                            }
+
+                                            cache.compute(ctx.id(), (id, existing) -> {
+                                                if (existing == null) {
+                                                    var cf = new CompletableFuture<List<Context.DiffEntry>>();
+                                                    cf.complete(result);
+                                                    return cf;
+                                                } else {
+                                                    if (!existing.isDone()) {
+                                                        existing.complete(result);
+                                                    }
+                                                    return existing;
+                                                }
+                                            });
+                                        } catch (Throwable t) {
+                                            if (generation.get() != genAtSchedule) {
+                                                return;
+                                            }
+                                            cache.compute(ctx.id(), (id, existing) -> {
+                                                if (existing == null) {
+                                                    var cf = new CompletableFuture<List<Context.DiffEntry>>();
+                                                    cf.completeExceptionally(t);
+                                                    return cf;
+                                                } else {
+                                                    if (!existing.isDone()) {
+                                                        existing.completeExceptionally(t);
+                                                    }
+                                                    return existing;
+                                                }
+                                            });
+                                        } finally {
+                                            diffsCompleted.incrementAndGet();
+                                        }
+                                    },
+                                    outerExec);
+                            futures.add(f);
+                        }
+                        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                                .join();
+                    } finally {
+                        fragmentExec.shutdown();
+                    }
+                },
+                outerExec);
+    }
 
     /**
      * Warm-up variant of computeDiff that throttles per-fragment computation using a small semaphore.
      * On-demand diffs remain unthrottled by using the standard computeDiff path.
      */
     @Blocking
-    private List<Context.DiffEntry> computeDiffWarmup(
-            Context ctx, Context other, java.util.concurrent.Executor exec) {
+    private List<Context.DiffEntry> computeDiffWarmup(Context ctx, Context other, java.util.concurrent.Executor exec) {
         var editableFragments =
                 ctx.getEditableFragments().filter(f -> f.getType() != ContextFragment.FragmentType.EXTERNAL_PATH);
         var imageFragments = ctx.allFragments().filter(f -> !f.isText());
-        var candidates = java.util.stream.Stream.concat(editableFragments, imageFragments).toList();
+        var candidates = java.util.stream.Stream.concat(editableFragments, imageFragments)
+                .toList();
 
         if (candidates.size() > warmupFragmentConcurrency && logger.isDebugEnabled()) {
             logger.debug(
                     "Applying per-fragment warm-up concurrency cap: permits={} candidates={}",
-                    warmupFragmentConcurrency, candidates.size());
+                    warmupFragmentConcurrency,
+                    candidates.size());
         }
         var futures = new ArrayList<CompletableFuture<Context.DiffEntry>>(candidates.size());
         for (var cf : candidates) {
-            var f = CompletableFuture.supplyAsync(() -> {
-                warmupFragmentSemaphore.acquireUninterruptibly();
-                if (ENABLE_WARMUP_CONCURRENCY_HOOK) {
-                    int cur = WARMUP_IN_FLIGHT.incrementAndGet();
-                    WARMUP_MAX_IN_FLIGHT.accumulateAndGet(cur, Math::max);
-                }
-                try {
-                    // Delegate to the standard per-fragment computation and wait for completion.
-                    return computeDiffForFragment(ctx, cf, other).join();
-                } finally {
-                    if (ENABLE_WARMUP_CONCURRENCY_HOOK) {
-                        WARMUP_IN_FLIGHT.decrementAndGet();
-                    }
-                    warmupFragmentSemaphore.release();
-                }
-            }, exec);
+            var f = CompletableFuture.supplyAsync(
+                    () -> {
+                        warmupFragmentSemaphore.acquireUninterruptibly();
+                        if (ENABLE_WARMUP_CONCURRENCY_HOOK) {
+                            int cur = WARMUP_IN_FLIGHT.incrementAndGet();
+                            WARMUP_MAX_IN_FLIGHT.accumulateAndGet(cur, Math::max);
+                        }
+                        try {
+                            // Delegate to the standard per-fragment computation and wait for completion.
+                            return computeDiffForFragment(ctx, cf, other).join();
+                        } finally {
+                            if (ENABLE_WARMUP_CONCURRENCY_HOOK) {
+                                WARMUP_IN_FLIGHT.decrementAndGet();
+                            }
+                            warmupFragmentSemaphore.release();
+                        }
+                    },
+                    exec);
             futures.add(f);
         }
 

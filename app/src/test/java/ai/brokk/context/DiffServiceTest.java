@@ -5,9 +5,9 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
-import ai.brokk.project.MainProject;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -458,11 +458,12 @@ class DiffServiceTest {
         var oldFrags = new java.util.ArrayList<ContextFragment>();
         for (int i = 0; i < fragmentCount; i++) {
             var snap = new ContextFragment.FragmentSnapshot(
-                    "d" + i, "d" + i, "old-" + i, SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), Set.of(), (List<Byte>) null);
-            oldFrags.add(new SlowFragment("SF_" + i, contextManager, snap, null, ContextFragment.FragmentType.PROJECT_PATH));
+                    "d" + i, "d" + i, "old-" + i, SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), Set.of(), (List<Byte>)
+                            null);
+            oldFrags.add(
+                    new SlowFragment("SF_" + i, contextManager, snap, null, ContextFragment.FragmentType.PROJECT_PATH));
         }
-        var oldCtx = new Context(
-                contextManager, oldFrags, List.of(), null, CompletableFuture.completedFuture("old"));
+        var oldCtx = new Context(contextManager, oldFrags, List.of(), null, CompletableFuture.completedFuture("old"));
 
         // Build new context with delayed computation
         var newFrags = new java.util.ArrayList<ContextFragment>();
@@ -480,10 +481,10 @@ class DiffServiceTest {
                         Set.of(),
                         (List<Byte>) null);
             };
-            newFrags.add(new SlowFragment("SF_" + i, contextManager, null, task, ContextFragment.FragmentType.PROJECT_PATH));
+            newFrags.add(
+                    new SlowFragment("SF_" + i, contextManager, null, task, ContextFragment.FragmentType.PROJECT_PATH));
         }
-        var newCtx = new Context(
-                contextManager, newFrags, List.of(), null, CompletableFuture.completedFuture("new"));
+        var newCtx = new Context(contextManager, newFrags, List.of(), null, CompletableFuture.completedFuture("new"));
 
         var history = new ContextHistory(oldCtx);
         history.pushContext(newCtx);
@@ -507,8 +508,7 @@ class DiffServiceTest {
         int observedMax = DiffService.getWarmupMaxInFlight();
         assertTrue(observedMax > 0, "Should observe some concurrent warm-up work");
         assertTrue(
-                observedMax <= expectedCap,
-                "Observed concurrency " + observedMax + " should be <= cap " + expectedCap);
+                observedMax <= expectedCap, "Observed concurrency " + observedMax + " should be <= cap " + expectedCap);
 
         // Allow warm-up to complete
         gate.countDown();

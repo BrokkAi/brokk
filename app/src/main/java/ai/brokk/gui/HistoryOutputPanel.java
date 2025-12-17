@@ -3720,7 +3720,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     private void requestVisibleDiffs() {
-        if (historyScrollPane == null || historyTable.getRowCount() == 0) {
+        if (historyTable.getRowCount() == 0) {
             return;
         }
         var viewport = historyScrollPane.getViewport();
