@@ -346,6 +346,15 @@ public class GitCommitTab extends JPanel implements ThemeAware {
     /** Populates the uncommitted files table and enables/disables commit-related buttons.
      *  This defers the update when the tab is not visible. */
     public void requestUpdate() {
+        // Update badge immediately, even if tab is not visible
+        contextManager.submitBackgroundTask("Updating file count", () -> {
+            var modifiedFiles = getRepo().getModifiedFiles();
+            var projectFiles =
+                    modifiedFiles.stream().map(GitRepo.ModifiedFile::file).collect(Collectors.toList());
+            SwingUtilities.invokeLater(() -> updateAfterStatusChange(projectFiles));
+            return null;
+        });
+        // Defer full panel update for when tab becomes visible
         deferredUpdateHelper.requestUpdate();
     }
 
