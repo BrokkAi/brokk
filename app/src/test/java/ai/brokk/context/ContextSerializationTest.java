@@ -2039,11 +2039,7 @@ public class ContextSerializationTest {
         Files.writeString(file1.absPath(), "class PathListFile1 {}");
         Files.writeString(file2.absPath(), "class PathListFile2 {}");
 
-        String pathList =
-                """
-                src/PathListFile1.java
-                src/PathListFile2.java
-                """;
+        String pathList = file1 + "\n" + file2 + "\n";
 
         var fragment = new ContextFragment.StringFragment(
                 mockContextManager, pathList, "File list", SyntaxConstants.SYNTAX_STYLE_NONE);
@@ -2057,11 +2053,7 @@ public class ContextSerializationTest {
         Files.createDirectories(existingFile.absPath().getParent());
         Files.writeString(existingFile.absPath(), "class ExistingFile {}");
 
-        String pathList =
-                """
-                src/ExistingFile.java
-                src/NonExistentFile.java
-                """;
+        String pathList = existingFile + "\nsrc/NonExistentFile.java\n";
 
         var fragment = new ContextFragment.StringFragment(
                 mockContextManager, pathList, "Mixed file list", SyntaxConstants.SYNTAX_STYLE_NONE);
@@ -2077,14 +2069,7 @@ public class ContextSerializationTest {
         Files.writeString(file1.absPath(), "class MixedValid1 {}");
         Files.writeString(file2.absPath(), "class MixedValid2 {}");
 
-        String mixed =
-                """
-                # comment
-                src/MixedValid1.java
-                not/a/real/file.txt
-                    src/MixedValid2.java
-                garbage line
-                """;
+        String mixed = "# comment\n" + file1 + "\nnot/a/real/file.txt\n    " + file2 + "\ngarbage line\n";
 
         var stringFragment = new ContextFragment.StringFragment(
                 mockContextManager, mixed, "Mixed content", SyntaxConstants.SYNTAX_STYLE_NONE);
@@ -2126,13 +2111,10 @@ public class ContextSerializationTest {
         Files.createDirectories(file.absPath().getParent());
         Files.writeString(file.absPath(), "class TestFile {}");
 
-        String mixedFormats =
-                """
-                src/TestFile.java:10: error: cannot find symbol
-                src/TestFile.java:25:    public void method() {
-                    at com.example.Test(src/TestFile.java:42)
-                https://example.com/docs/api.html
-                """;
+        String mixedFormats = file + ":10: error: cannot find symbol\n"
+                + file + ":25:    public void method() {\n"
+                + "    at com.example.Test(" + file + ":42)\n"
+                + "https://example.com/docs/api.html\n";
 
         var fragment = new ContextFragment.StringFragment(
                 mockContextManager, mixedFormats, "Mixed formats", SyntaxConstants.SYNTAX_STYLE_NONE);
@@ -2148,10 +2130,7 @@ public class ContextSerializationTest {
         Files.writeString(fileWithSpace.absPath(), "class MyClass {}");
         Files.writeString(normalFile.absPath(), "class NormalFile {}");
 
-        String pathList = """
-                src/My Class.java
-                src/NormalFile.java
-                """;
+        String pathList = fileWithSpace + "\n" + normalFile + "\n";
 
         var fragment = new ContextFragment.StringFragment(
                 mockContextManager, pathList, "Path list with spaces", SyntaxConstants.SYNTAX_STYLE_NONE);
@@ -2167,11 +2146,7 @@ public class ContextSerializationTest {
         Files.writeString(file1.absPath(), "class SerializedFile1 {}");
         Files.writeString(file2.absPath(), "class SerializedFile2 {}");
 
-        String pathList =
-                """
-                src/SerializedFile1.java
-                src/SerializedFile2.java
-                """;
+        String pathList = file1 + "\n" + file2 + "\n";
 
         var fragment = new ContextFragment.PasteTextFragment(
                 mockContextManager,
@@ -2212,7 +2187,7 @@ public class ContextSerializationTest {
         failingSyntaxFuture.completeExceptionally(new RuntimeException("Simulated LLM failure"));
 
         var fragment = new ContextFragment.PasteTextFragment(
-                mockContextManager, "src/TimeoutTest.java", failingDescFuture, failingSyntaxFuture);
+                mockContextManager, file.toString(), failingDescFuture, failingSyntaxFuture);
 
         assertEquals(Set.of(file), fragment.files().join());
         assertEquals("Paste of pasted content", fragment.description().join());
