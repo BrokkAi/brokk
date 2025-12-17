@@ -136,7 +136,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private JPanel changesTabPlaceholder;
 
     @Nullable
-    private JComponent aggregatedChangesPanel;
+    private BrokkDiffPanel aggregatedChangesPanel;
 
     @Nullable
     private JTextArea captureDescriptionArea;
@@ -150,6 +150,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private final MaterialButton captureButton;
     private final MaterialButton openWindowButton;
     private final JPanel notificationAreaPanel;
+    private final DeferredUpdateHelper deferredUpdateHelper;
 
     private final MaterialButton notificationsButton = new MaterialButton();
     private final List<NotificationEntry> notifications = new CopyOnWriteArrayList<>();
@@ -425,6 +426,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         // Respect current Advanced Mode on construction
         setAdvancedMode(GlobalUiSettings.isAdvancedMode());
+
+        // Deferred update helper for Changes tab recomputation
+        this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::performRefreshBranchDiffPanel);
     }
 
     private void buildSessionSwitchPanel() {
@@ -2132,13 +2136,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             historyModel.setRowCount(0);
 
             // Dispose and clear any existing aggregated Changes panel
-            if (aggregatedChangesPanel instanceof BrokkDiffPanel diffPanel) {
-                try {
-                    diffPanel.dispose();
-                } catch (Throwable t) {
-                    logger.debug(
-                            "Ignoring error disposing previous aggregated BrokkDiffPanel during session switch", t);
-                }
+            if (aggregatedChangesPanel != null) {
+                aggregatedChangesPanel.dispose();
             }
             aggregatedChangesPanel = null;
 
@@ -2241,17 +2240,18 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     /**
      * Public entry-point to refresh the branch-based Changes tab on demand.
-     * Safe to call from any thread.
+     * Safe to call from any thread. Defers the heavy recompute if the panel is not visible.
      */
-    public void refreshBranchDiffPanel() {
+    public void requestDiffUpdate() {
+        deferredUpdateHelper.requestUpdate();
+    }
+
+    /** Runs the original refreshBranchDiffPanel logic when visible. */
+    private void performRefreshBranchDiffPanel() {
         SwingUtil.runOnEdt(() -> {
             // Dispose and clear any existing aggregated diff panel
-            if (aggregatedChangesPanel instanceof BrokkDiffPanel diffPanel) {
-                try {
-                    diffPanel.dispose();
-                } catch (Throwable t) {
-                    logger.debug("Ignoring error disposing previous aggregated BrokkDiffPanel during refresh", t);
-                }
+            if (aggregatedChangesPanel != null) {
+                aggregatedChangesPanel.dispose();
             }
             aggregatedChangesPanel = null;
 
@@ -2928,7 +2928,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         } else {
                             chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Pull: " + pullResult);
                         }
-                        refreshBranchDiffPanel();
+                        requestDiffUpdate();
                         chrome.updateGitRepo();
                     });
                 } catch (Exception e) {
@@ -2971,7 +2971,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         } else {
                             chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Push: " + pushResult);
                         }
-                        refreshBranchDiffPanel();
+                        requestDiffUpdate();
                         chrome.updateGitRepo();
                     });
                 } catch (Exception e) {
@@ -3005,18 +3005,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     public void dispose() {
         assert SwingUtilities.isEventDispatchThread() : "dispose must be called on EDT";
         // Dispose aggregated changes panel if present
-        if (aggregatedChangesPanel instanceof BrokkDiffPanel diffPanel) {
-            try {
-                diffPanel.dispose();
-            } catch (Throwable t) {
-                logger.debug(
-                        "Ignoring error disposing aggregated BrokkDiffPanel during HistoryOutputPanel.dispose()", t);
-            } finally {
-                aggregatedChangesPanel = null;
-            }
-        } else {
-            aggregatedChangesPanel = null;
+        if (aggregatedChangesPanel != null) {
+            aggregatedChangesPanel.dispose();
         }
+        aggregatedChangesPanel = null;
         // Dispose the web-based markdown output panel
         try {
             llmStreamArea.dispose();
@@ -3243,12 +3235,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
 
         // Dispose any previous diff panel to free resources
-        if (aggregatedChangesPanel instanceof BrokkDiffPanel diffPanel) {
-            try {
-                diffPanel.dispose();
-            } catch (Throwable t) {
-                logger.debug("Ignoring error disposing previous BrokkDiffPanel", t);
-            }
+        if (aggregatedChangesPanel != null) {
+            aggregatedChangesPanel.dispose();
         }
         aggregatedChangesPanel = null;
 
@@ -3276,19 +3264,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        try {
-            var aggregatedPanel = buildAggregatedChangesPanel(res, prepared);
-            container.setLayout(new BorderLayout());
-            container.add(aggregatedPanel, BorderLayout.CENTER);
-        } catch (Throwable t) {
-            logger.warn("Failed to build aggregated Changes panel", t);
-            container.setLayout(new BorderLayout());
-            var err = new JLabel("Unable to display aggregated changes.", SwingConstants.CENTER);
-            err.setBorder(new EmptyBorder(20, 0, 20, 0));
-            container.removeAll();
-            container.add(err, BorderLayout.CENTER);
-            aggregatedChangesPanel = null;
-        }
+        var aggregatedPanel = buildAggregatedChangesPanel(res, prepared);
+        container.setLayout(new BorderLayout());
+        container.add(aggregatedPanel, BorderLayout.CENTER);
         container.revalidate();
         container.repaint();
     }
@@ -3353,7 +3331,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     dialog.addWindowListener(new WindowAdapter() {
                         @Override
                         public void windowClosed(WindowEvent e) {
-                            refreshBranchDiffPanel();
+                            requestDiffUpdate();
                             var commitTab = chrome.getGitCommitTab();
                             if (commitTab != null) {
                                 commitTab.updateCommitPanel();

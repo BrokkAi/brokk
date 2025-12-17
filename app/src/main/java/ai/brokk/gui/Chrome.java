@@ -490,7 +490,7 @@ public class Chrome
             // Initial refreshes are now done in the background
             contextManager.submitBackgroundTask("Loading project state", () -> {
                 updateGitRepo();
-                projectFilesPanel.updatePanel();
+                projectFilesPanel.requestUpdate();
                 return null;
             });
         } else {
@@ -1133,7 +1133,7 @@ public class Chrome
     @Override
     public void updateCommitPanel() {
         if (gitCommitTab != null) {
-            gitCommitTab.updateCommitPanel();
+            gitCommitTab.requestUpdate();
         }
     }
 
@@ -1186,31 +1186,31 @@ public class Chrome
         // Update individual Git-related panels and log what is being updated
         if (gitCommitTab != null) {
             logger.trace("updateGitRepo: updating GitCommitTab");
-            gitCommitTab.updateCommitPanel();
+            gitCommitTab.requestUpdate();
         } else {
             logger.trace("updateGitRepo: GitCommitTab not present (skipping)");
         }
 
         if (gitLogTab != null) {
             logger.trace("updateGitRepo: updating GitLogTab");
-            gitLogTab.update();
+            gitLogTab.requestUpdate();
         } else {
             logger.trace("updateGitRepo: GitLogTab not present (skipping)");
         }
 
         if (gitWorktreeTab != null) {
             logger.trace("updateGitRepo: refreshing GitWorktreeTab");
-            gitWorktreeTab.refresh();
+            gitWorktreeTab.requestUpdate();
         } else {
             logger.trace("updateGitRepo: GitWorktreeTab not present (skipping)");
         }
 
         logger.trace("updateGitRepo: updating ProjectFilesPanel");
-        projectFilesPanel.updatePanel();
+        projectFilesPanel.requestUpdate();
 
         // Ensure the Changes tab reflects the current repo/branch state
         try {
-            historyOutputPanel.refreshBranchDiffPanel();
+            historyOutputPanel.requestDiffUpdate();
         } catch (Exception ex) {
             logger.debug("Unable to refresh Changes tab after repo update", ex);
         }
@@ -1723,7 +1723,7 @@ public class Chrome
     @Override
     public void onTrackedFileChange() {
         // Also refresh the Review tab to show updated changes
-        historyOutputPanel.refreshBranchDiffPanel();
+        historyOutputPanel.requestDiffUpdate();
     }
 
     /**
@@ -2316,7 +2316,7 @@ public class Chrome
 
     public void updateLogTab() {
         if (gitLogTab != null) {
-            gitLogTab.update();
+            gitLogTab.requestUpdate();
         }
     }
 

@@ -8,6 +8,7 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoRemote.RemoteBranchRef;
 import ai.brokk.git.ICommitInfo;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.DeferredUpdateHelper;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialLoadingButton;
 import ai.brokk.gui.mop.ThemeColors;
@@ -83,6 +84,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
     // createBranchFromCommitItem is managed by GitCommitBrowserPanel if needed, or was removed by prior refactoring.
 
     private GitCommitBrowserPanel gitCommitBrowserPanel;
+    private final DeferredUpdateHelper deferredUpdateHelper;
 
     /** Constructor. Builds and arranges the UI components for the Log tab. */
     public GitLogTab(Chrome chrome, ContextManager contextManager) {
@@ -98,6 +100,8 @@ public class GitLogTab extends JPanel implements ThemeAware {
         this.gitCommitBrowserPanel =
                 new GitCommitBrowserPanel(chrome, contextManager, this::reloadCurrentBranchOrContext, panelOptions);
         buildLogTabUI();
+        // Deferred update helper for GitLogTab
+        this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::performUpdate);
 
         this.midnightRefreshScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "GitLogTab-MidnightRefresh");
@@ -108,7 +112,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
 
         // Ensure the tab populates its branch/commit data when created (e.g., when opened in a dialog).
         // Use invokeLater so the UI is fully constructed before update() manipulates selection/scrolling.
-        SwingUtilities.invokeLater(this::update);
+        SwingUtilities.invokeLater(this::requestUpdate);
     }
 
     /**
@@ -313,7 +317,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 } finally {
                     SwingUtilities.invokeLater(() -> {
                         fetchButton.setLoading(false, null); // restore label + enable
-                        update(); // local rescan
+                        requestUpdate(); // local rescan
                     });
                 }
                 return null; // submitBackgroundTask expects a Callable result
@@ -615,11 +619,13 @@ public class GitLogTab extends JPanel implements ThemeAware {
     // This tree and its logic are now encapsulated within GitCommitBrowserPanel.
     // Thus, these specific helper methods are removed from GitLogTab.
 
-    /**
-     * Update the branch list (local + remote), attempting to preserve the selection. If the previously selected branch
-     * no longer exists, it selects the current git branch.
-     */
-    public void update() {
+    /** Public entry to request update; defers actual work when not visible. */
+    public void requestUpdate() {
+        deferredUpdateHelper.requestUpdate();
+    }
+
+    /** Performs the original update logic when visible. */
+    private void performUpdate() {
         // Use invokeAndWait with a Runnable and an external holder for the result
         var previouslySelectedBranch = SwingUtil.runOnEdt(
                 () -> {
@@ -1104,7 +1110,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
                     getRepo().deleteBranch(branchName);
                 }
 
-                SwingUtilities.invokeLater(this::update);
+                SwingUtilities.invokeLater(this::requestUpdate);
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO,
                         "Branch '" + branchName + "' " + (force ? "force " : "") + "deleted successfully.");
@@ -1217,7 +1223,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
 
         // Also refresh the Changes tab to reflect the new branch's diff
         try {
-            chrome.getHistoryOutputPanel().refreshBranchDiffPanel();
+            chrome.getHistoryOutputPanel().requestDiffUpdate();
         } catch (Exception ex) {
             logger.debug("Unable to refresh Changes tab after Git UI action", ex);
         }
@@ -1492,14 +1498,14 @@ public class GitLogTab extends JPanel implements ThemeAware {
                                 IConsoleIO.NotificationRole.INFO,
                                 "Branch '" + oldName + "' renamed to '" + newName + "' successfully.");
                         // On success, a full update ensures UI consistency (e.g., current branch checkmark moves).
-                        update();
+                        requestUpdate();
                     });
                 } catch (GitAPIException e) {
                     SwingUtilities.invokeLater(() -> {
                         logger.error("Error renaming branch '{}' to '{}'", oldName, newName, e);
                         chrome.toolError("Error renaming branch: " + e.getMessage());
                         // On failure, update() will restore the correct state from git.
-                        update();
+                        requestUpdate();
                     });
                 }
             });
