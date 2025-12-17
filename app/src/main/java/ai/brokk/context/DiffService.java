@@ -38,6 +38,7 @@ public final class DiffService {
     private static final Logger logger = LogManager.getLogger(DiffService.class);
 
     private static final Duration TEXT_FALLBACK_TIMEOUT = Duration.ofSeconds(2);
+    private static final Duration SEEDED_FUTURE_GUARD_TIMEOUT = Duration.ofSeconds(2);
 
     private final ContextHistory history;
     private final IContextManager cm;
@@ -216,7 +217,32 @@ public final class DiffService {
                 return List.copyOf(out);
             });
 
-            cache.putIfAbsent(contextId, remappedFuture);
+            // Defensive guard: if the seeded future never completes (e.g., was never scheduled),
+            // resubmit a computation after a short delay and race the result.
+            var prevCtx = history.previousOf(currentCtx);
+            CompletableFuture<List<Context.DiffEntry>> fallbackFuture;
+            if (prevCtx != null) {
+                var delayedExec =
+                        CompletableFuture.delayedExecutor(SEEDED_FUTURE_GUARD_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS, getOuterExecutorSafe());
+                fallbackFuture = CompletableFuture.supplyAsync(() -> {
+                    if (remappedFuture.isDone()) {
+                        try {
+                            return remappedFuture.join();
+                        } catch (Throwable t) {
+                            // fall through to recompute below on exceptional completion
+                        }
+                    }
+                    return computeDiff(currentCtx, prevCtx);
+                }, delayedExec);
+            } else {
+                // No predecessor => diff is empty; provide a no-op fallback
+                fallbackFuture = CompletableFuture.completedFuture(List.of());
+            }
+
+            CompletableFuture<List<Context.DiffEntry>> guardedFuture =
+                    remappedFuture.applyToEither(fallbackFuture, java.util.function.Function.identity());
+
+            cache.putIfAbsent(contextId, guardedFuture);
         }
     }
 
