@@ -6,6 +6,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.CommitPrompts;
 import ai.brokk.prompts.SummarizerPrompts;
 import ai.brokk.tools.WorkspaceTools;
@@ -67,9 +68,12 @@ public final class GitWorkflow {
     /**
      * Background helper that returns a suggested commit message. The caller decides on threading; no Swing here.
      * Returns empty Optional if diff is blank, unparseable, or LLM fails.
+     *
+     * @param files the files to include in the diff (empty => all modified)
+     * @param oneLine request a one-line subject when true; full commit message (subject + body) when false
      */
-    public Optional<String> suggestCommitMessage(List<ProjectFile> files) throws InterruptedException {
-        logger.debug("Suggesting commit message for {} files", files.size());
+    public Optional<String> suggestCommitMessage(List<ProjectFile> files, boolean oneLine) throws InterruptedException {
+        logger.debug("Suggesting commit message for {} files (oneLine={})", files.size(), oneLine);
 
         String diff;
         try {
@@ -84,12 +88,12 @@ public final class GitWorkflow {
             return Optional.empty();
         }
 
-        var messages = CommitPrompts.instance.collectMessages(cm.getProject(), diff);
+        var messages = CommitPrompts.instance.collectMessages(cm.getProject(), diff, oneLine);
         if (messages.isEmpty()) {
             logger.debug("No messages generated from diff");
             return Optional.empty();
         }
-        var result = cm.getLlm(cm.getService().quickestModel(), "Infer commit message")
+        var result = cm.getLlm(cm.getService().getModel(ModelType.COMMIT_MESSAGE), "Infer commit message")
                 .sendRequest(messages);
 
         if (result.error() != null) {
@@ -98,6 +102,45 @@ public final class GitWorkflow {
             return Optional.empty();
         }
         return Optional.of(result.text());
+    }
+
+    /**
+     * Streaming variant of suggestCommitMessage. Streams tokens to the provided IConsoleIO while the LLM runs.
+     * Blocks and should be executed off the EDT. Throws RuntimeException on LLM errors.
+     */
+    public String suggestCommitMessageStreaming(List<ProjectFile> files, boolean oneLine, IConsoleIO streamingOutput)
+            throws GitAPIException, InterruptedException {
+        logger.debug("Suggesting commit message (streaming) for {} files (oneLine={})", files.size(), oneLine);
+
+        String diff;
+        try {
+            diff = files.isEmpty() ? repo.diff() : repo.diffFiles(files);
+        } catch (GitAPIException e) {
+            logger.error("Git diff operation failed while suggesting commit message (streaming)", e);
+            throw e;
+        }
+
+        if (diff.isBlank()) {
+            logger.debug("No modifications present in {}", files);
+            throw new RuntimeException("No modifications to suggest a commit message for.");
+        }
+
+        var messages = CommitPrompts.instance.collectMessages(cm.getProject(), diff, oneLine);
+        if (messages.isEmpty()) {
+            logger.debug("No messages generated from diff");
+            throw new RuntimeException("Unable to construct LLM messages for commit suggestion.");
+        }
+
+        var modelToUse = cm.getService().getModel(ModelType.COMMIT_MESSAGE);
+        var llm = cm.getLlm(new Llm.Options(modelToUse, "Infer commit message (streaming)").withEcho());
+        llm.setOutput(streamingOutput);
+        var result = llm.sendRequest(messages);
+
+        if (result.error() != null) {
+            throw new RuntimeException("LLM error while generating commit message", result.error());
+        }
+
+        return result.text();
     }
 
     public PushPullState evaluatePushPull(String branch) throws GitAPIException {
@@ -294,7 +337,8 @@ public final class GitWorkflow {
 
         var filesToCommit = modified.stream().map(GitRepo.ModifiedFile::file).collect(Collectors.toList());
 
-        var message = suggestCommitMessage(filesToCommit).orElse(taskDescription);
+        // For auto-commit we prefer a concise one-line subject
+        var message = suggestCommitMessage(filesToCommit, true).orElse(taskDescription);
 
         var commitResult = commit(filesToCommit, message);
 

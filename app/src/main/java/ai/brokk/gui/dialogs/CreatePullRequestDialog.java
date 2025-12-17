@@ -653,13 +653,22 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     private class SuggestPrDetailsWorker extends ExceptionAwareSwingWorker<GitWorkflow.PrSuggestion, Void> {
         private final String sourceBranch;
         private final String targetBranch;
-        private final PrDetailsConsoleIO streamingIO;
+        private final TextAreaConsoleIO streamingIO;
 
         SuggestPrDetailsWorker(String sourceBranch, String targetBranch) {
             super(chrome);
             this.sourceBranch = sourceBranch;
             this.targetBranch = targetBranch;
-            this.streamingIO = new PrDetailsConsoleIO(titleField, descriptionArea, chrome);
+
+            // Dialog takes responsibility for the title field UI while generation runs.
+            SwingUtilities.invokeLater(() -> {
+                titleField.setEnabled(false);
+                titleField.setText("Generating title");
+                titleField.setCaretPosition(0);
+            });
+
+            // Create a TextAreaConsoleIO for streaming description tokens. Use a descriptive initial message.
+            this.streamingIO = new TextAreaConsoleIO(descriptionArea, chrome, "Generating description...\nThinking");
         }
 
         @Override
@@ -681,11 +690,18 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                 return;
             }
             SwingUtilities.invokeLater(() -> {
+                // Ensure description streaming finishes and UI is updated
                 streamingIO.onComplete();
+
+                // Title is managed by the dialog: set and re-enable it.
                 titleField.setText(suggestion.title());
-                descriptionArea.setText(suggestion.description());
+                titleField.setEnabled(true);
                 titleField.setCaretPosition(0);
+
+                // Description area gets final content from the suggestion (tool execution result).
+                descriptionArea.setText(suggestion.description());
                 descriptionArea.setCaretPosition(0);
+
                 showDescriptionHint(suggestion.usedCommitMessages());
             });
         }

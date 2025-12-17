@@ -1,6 +1,7 @@
 package ai.brokk.project;
 
 import ai.brokk.AbstractService.ModelConfig;
+import ai.brokk.AbstractService.ReasoningLevel;
 import ai.brokk.Service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -13,14 +14,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * Centralized accessors for model-related global properties:
- * - Per-ModelType ModelConfig get/set.
- * - Favorite models load/save and lookup.
- *
- * Saving to disk is delegated to the caller (e.g., MainProject.saveGlobalProperties),
- * so these methods only mutate the provided Properties instance.
- */
 public final class ModelProperties {
     // Model name constants
     public static final String GPT_5 = "gpt-5";
@@ -47,7 +40,7 @@ public final class ModelProperties {
     public static final String GPT_5_2 = "gpt-5.2";
     // Default favorite models (moved from MainProject)
     static final List<Service.FavoriteModel> DEFAULT_FAVORITE_MODELS = List.of(
-            new Service.FavoriteModel("Opus 4.5", new ModelConfig(OPUS_4_5, Service.ReasoningLevel.DISABLE)),
+            new Service.FavoriteModel("Opus 4.5", new ModelConfig(OPUS_4_5, ReasoningLevel.DISABLE)),
             new Service.FavoriteModel("GPT-5.2", new ModelConfig(GPT_5_2)),
             new Service.FavoriteModel("GPT-5 mini", new ModelConfig(GPT_5_MINI)),
             new Service.FavoriteModel("Haiku 4.5", new ModelConfig(HAIKU_4_5)));
@@ -56,6 +49,7 @@ public final class ModelProperties {
             ModelConfig quick,
             ModelConfig quickEdit,
             ModelConfig quickest,
+            ModelConfig commitMessage,
             ModelConfig scan,
             ModelConfig buildProcessor) {}
 
@@ -66,19 +60,22 @@ public final class ModelProperties {
                     new ModelConfig(GPT_5_NANO),
                     new ModelConfig(GPT_5_NANO),
                     new ModelConfig(GPT_5_MINI),
+                    new ModelConfig(GPT_5_MINI),
                     new ModelConfig(GPT_5_MINI)),
             "Anthropic",
             new VendorModels(
                     new ModelConfig(HAIKU_3),
                     new ModelConfig(HAIKU_4_5),
                     new ModelConfig(HAIKU_3),
+                    new ModelConfig(HAIKU_3),
                     new ModelConfig(HAIKU_4_5),
                     new ModelConfig(HAIKU_4_5)),
             "Gemini",
             new VendorModels(
                     new ModelConfig(GEMINI_2_0_FLASH),
-                    new ModelConfig(GEMINI_2_5_FLASH),
+                    new ModelConfig(GEMINI_2_5_FLASH, ReasoningLevel.DISABLE),
                     new ModelConfig(GEMINI_2_0_FLASH_LITE),
+                    new ModelConfig(GEMINI_2_5_FLASH, ReasoningLevel.DISABLE),
                     new ModelConfig(GEMINI_2_5_FLASH),
                     new ModelConfig(GEMINI_2_5_FLASH)));
 
@@ -91,6 +88,7 @@ public final class ModelProperties {
                 ModelType.QUICK.defaultConfig(),
                 ModelType.QUICK_EDIT.defaultConfig(),
                 ModelType.QUICKEST.defaultConfig(),
+                ModelType.COMMIT_MESSAGE.defaultConfig(),
                 ModelType.SCAN.defaultConfig(),
                 ModelType.BUILD_PROCESSOR.defaultConfig());
     }
@@ -187,9 +185,10 @@ public final class ModelProperties {
     public enum ModelType {
         QUICK("quickConfig", new ModelConfig(GEMINI_2_0_FLASH)),
         CODE("codeConfig", new ModelConfig(HAIKU_4_5), new ModelConfig(GCF_1)),
-        ARCHITECT("architectConfig", new ModelConfig(OPUS_4_5, Service.ReasoningLevel.DISABLE), new ModelConfig(GCF_1)),
+        ARCHITECT("architectConfig", new ModelConfig(OPUS_4_5, ReasoningLevel.DISABLE), new ModelConfig(GCF_1)),
         QUICK_EDIT("quickEditConfig", new ModelConfig(GCF_1)),
         QUICKEST("quickestConfig", new ModelConfig(GEMINI_2_0_FLASH_LITE)),
+        COMMIT_MESSAGE("commitMessageConfig", new ModelConfig(HAIKU_4_5), new ModelConfig(GEMINI_2_0_FLASH)),
         SCAN("scanConfig", new ModelConfig(GPT_5_MINI), new ModelConfig(GCF_1)),
         BUILD_PROCESSOR("buildProcessorConfig", new ModelConfig(GPT_5_MINI), new ModelConfig(GPT_5_NANO));
 
