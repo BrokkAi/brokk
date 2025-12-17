@@ -206,6 +206,15 @@ public interface ContextFragment {
     }
 
     /**
+     * Extracts ProjectFile references from a pasted list of file paths.
+     */
+    static Set<ProjectFile> extractFilesFromText(String text, IContextManager contextManager) {
+        return contextManager.getProject().getAllFiles().parallelStream()
+                .filter(f -> text.contains(f.toString()))
+                .collect(Collectors.toSet());
+    }
+
+    /**
      * Gets the current max integer fragment ID used for generating new dynamic fragment IDs. Note: This refers to the
      * numeric part of dynamic IDs.
      */
@@ -1056,13 +1065,15 @@ public interface ContextFragment {
         }
 
         /**
-         * Extracts ProjectFile references from diff content using java-diff-utils.
-         * <p>
-         * Delegates to {@link #extractFilesFromUnifiedDiff(String, IContextManager)}, which parses unified diffs via
-         * java-diff-utils and returns an empty set on parse errors or unrecognized input.
+         * Extracts ProjectFile references from text content.
+         * Tries unified diff parsing first, then falls back to plain file path list extraction.
          */
         private static Set<ProjectFile> extractFilesFromDiff(String text, IContextManager contextManager) {
-            return extractFilesFromUnifiedDiff(text, contextManager);
+            var diffFiles = extractFilesFromUnifiedDiff(text, contextManager);
+            if (!diffFiles.isEmpty()) {
+                return diffFiles;
+            }
+            return extractFilesFromText(text, contextManager);
         }
 
         /**
@@ -1070,10 +1081,6 @@ public interface ContextFragment {
          * Returns an empty set if parsing fails or yields no recognizable file paths.
          */
         private static Set<ProjectFile> extractFilesFromUnifiedDiff(String text, IContextManager contextManager) {
-            if (text.isBlank()) {
-                return Set.of();
-            }
-
             try (ByteArrayInputStream in = new ByteArrayInputStream(text.getBytes(StandardCharsets.UTF_8))) {
                 UnifiedDiff diff = UnifiedDiffReader.parseUnifiedDiff(in);
                 if (diff == null) {
@@ -1093,7 +1100,7 @@ public interface ContextFragment {
                     }
                 }
                 return files;
-            } catch (Exception e) {
+            } catch (IOException e) {
                 return Set.of();
             }
         }
@@ -1235,13 +1242,20 @@ public interface ContextFragment {
                 String text,
                 Future<String> descriptionFuture,
                 Future<String> syntaxStyleFuture) {
-            super(id, contextManager, null, () -> computeSnapshotFor(text, descriptionFuture, syntaxStyleFuture));
+            super(
+                    id,
+                    contextManager,
+                    null,
+                    () -> computeSnapshotFor(text, descriptionFuture, syntaxStyleFuture, contextManager));
             this.descriptionFuture = descriptionFuture;
             this.syntaxStyleFuture = syntaxStyleFuture;
         }
 
         private static FragmentSnapshot computeSnapshotFor(
-                String text, Future<String> descriptionFuture, Future<String> syntaxStyleFuture) {
+                String text,
+                Future<String> descriptionFuture,
+                Future<String> syntaxStyleFuture,
+                IContextManager contextManager) {
             String desc = "Paste of pasted content";
             String syntax = SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
             try {
@@ -1256,7 +1270,8 @@ public interface ContextFragment {
                 logger.error("Unable to compute PasteTextFragment syntax style within specified timeout period", e);
             }
 
-            return new FragmentSnapshot(desc, desc, text, syntax);
+            var files = extractFilesFromText(text, contextManager);
+            return new FragmentSnapshot(desc, desc, text, syntax, Set.of(), files, (List<Byte>) null);
         }
 
         @Override

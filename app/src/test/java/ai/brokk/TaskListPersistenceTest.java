@@ -6,7 +6,10 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.Json;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -22,7 +25,8 @@ public class TaskListPersistenceTest {
 
     @Test
     void createOrReplaceTaskList_persistsAndDeserializes() throws Exception {
-        var initial = new Context(null);
+        var initial =
+                new Context(new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO()));
 
         var tasks = List.of("Build feature X", "Add unit tests", "Write documentation");
         var afterCreate = initial.withTaskList(
@@ -58,7 +62,8 @@ public class TaskListPersistenceTest {
 
     @Test
     void appendTaskList_persistsIncrementalChanges() throws Exception {
-        var initial = new Context(null);
+        var initial =
+                new Context(new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO()));
 
         // Create initial list
         var initialTasks = List.of("Task 1", "Task 2");
@@ -93,7 +98,8 @@ public class TaskListPersistenceTest {
 
     @Test
     void createOrReplaceTaskList_dropsCompletedTasks_persistsCorrectly() throws Exception {
-        var initial = new Context(null);
+        var initial =
+                new Context(new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO()));
 
         // Create with mixed states
         var mixed = new TaskList.TaskListData(List.of(
@@ -124,7 +130,8 @@ public class TaskListPersistenceTest {
 
     @Test
     void appendTaskList_preservesTaskOrder_acrossMultipleAppends() throws Exception {
-        var initial = new Context(null);
+        var initial =
+                new Context(new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO()));
 
         // First create
         var c1 = initial.withTaskList(
@@ -155,7 +162,8 @@ public class TaskListPersistenceTest {
 
     @Test
     void taskListFragment_usesCorrectSyntaxStyle() throws Exception {
-        var initial = new Context(null);
+        var initial =
+                new Context(new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO()));
 
         var result = initial.withTaskList(
                 new TaskList.TaskListData(List.of(new TaskList.TaskItem("Task 1", "Task 1", false))),

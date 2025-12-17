@@ -4,6 +4,9 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.context.Context;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestContextManager;
+import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -18,7 +21,7 @@ public class TaskListUIRefreshTest {
 
     @Test
     void setTaskList_capturesPreExistingIncompleteTasks_beforeModification() {
-        var cm = new IContextManager() {};
+        var cm = new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO());
         var initial = new Context(cm);
 
         // Create context with mixed task states
@@ -42,7 +45,8 @@ public class TaskListUIRefreshTest {
 
     @Test
     void setTaskList_guardsAutoPlay_doesNotPlayNewTasksIfPreExistingIncomplete() {
-        var initial = new Context(null);
+        var cm = new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO());
+        var initial = new Context(cm);
 
         // Scenario: User has incomplete tasks, then replaces list
         var existingData = new TaskList.TaskListData(List.of(new TaskList.TaskItem("Work", "Incomplete work", false)));
@@ -74,7 +78,8 @@ public class TaskListUIRefreshTest {
 
     @Test
     void setTaskList_allowsAutoPlay_whenNoPreExistingIncompleteTasks() {
-        var initial = new Context(null);
+        var cm = new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO());
+        var initial = new Context(cm);
 
         // Scenario: No existing tasks, user creates new list -> autoplay should be allowed
         var newTasks = List.of("Task 1", "Task 2");
@@ -94,7 +99,8 @@ public class TaskListUIRefreshTest {
 
     @Test
     void appendTaskList_preservesPreExistingIncompleteTasksAcrossAppend() {
-        var initial = new Context(null);
+        var cm = new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO());
+        var initial = new Context(cm);
 
         // Create initial list with incomplete task
         var initialTasks = List.of("Existing incomplete");
@@ -126,7 +132,7 @@ public class TaskListUIRefreshTest {
 
     @Test
     void setTaskList_fragmentDescriptionAndSyntaxConsistent() {
-        var cm = new IContextManager() {};
+        var cm = new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO());
         var initial = new Context(cm);
 
         var result = initial.withTaskList(
@@ -143,7 +149,7 @@ public class TaskListUIRefreshTest {
 
     @Test
     void createOrReplaceTaskList_clearingEmptyListRemovesFragment() {
-        var cm = new IContextManager() {};
+        var cm = new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO());
         var initial = new Context(cm);
 
         // Create with tasks

@@ -4,6 +4,9 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IContextManager;
 import ai.brokk.context.Context;
+import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestContextManager;
+import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -19,7 +22,7 @@ public class TaskListTest {
 
     @BeforeEach
     void setUp() {
-        cm = new IContextManager() {};
+        cm = new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO());
         context = new Context(cm);
     }
 
