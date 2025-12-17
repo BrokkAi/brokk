@@ -226,8 +226,7 @@ class DiffServiceTest {
             }
         }
 
-        var oldSnap = new ContextFragment.FragmentSnapshot(
-                "d", "d", "old-line", SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), Set.of(), (List<Byte>) null);
+        var oldSnap = snapshot("d", "d", "old-line");
         var oldFrag = new SlowFragment("99", contextManager, oldSnap, null, ContextFragment.FragmentType.PROJECT_PATH);
 
         var latch = new CountDownLatch(1);
@@ -255,6 +254,21 @@ class DiffServiceTest {
                 "Timeout loading contents. Please consider reporting a bug",
                 de.newContent(),
                 "New content should fall back to error message on timeout");
+    }
+
+    private static ContextFragment.FragmentSnapshot snapshot(String description, String shortDescription, String text) {
+        return new ContextFragment.FragmentSnapshot(
+                description,
+                shortDescription,
+                text,
+                SyntaxConstants.SYNTAX_STYLE_NONE,
+                java.util.Set.of(),
+                java.util.Set.of(),
+                (java.util.List<Byte>) null);
+    }
+
+    private static ContextFragment.FragmentSnapshot snapshot(String description, String text) {
+        return snapshot(description, description, text);
     }
 
     private static void writeImage(ProjectFile file, Color color) throws Exception {
@@ -366,10 +380,8 @@ class DiffServiceTest {
             }
         }
 
-        var oldSnap = new ContextFragment.FragmentSnapshot(
-                "desc", "desc", "old", SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), Set.of(), (List<Byte>) null);
-        var newSnap = new ContextFragment.FragmentSnapshot(
-                "desc", "desc", "new", SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), Set.of(), (List<Byte>) null);
+        var oldSnap = snapshot("desc", "desc", "old");
+        var newSnap = snapshot("desc", "desc", "new");
 
         var latch = new CountDownLatch(1);
 
@@ -457,9 +469,7 @@ class DiffServiceTest {
         // Build old context with precomputed snapshots
         var oldFrags = new java.util.ArrayList<ContextFragment>();
         for (int i = 0; i < fragmentCount; i++) {
-            var snap = new ContextFragment.FragmentSnapshot(
-                    "d" + i, "d" + i, "old-" + i, SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), Set.of(), (List<Byte>)
-                            null);
+            var snap = snapshot("d" + i, "d" + i, "old-" + i);
             oldFrags.add(
                     new SlowFragment("SF_" + i, contextManager, snap, null, ContextFragment.FragmentType.PROJECT_PATH));
         }
@@ -472,14 +482,7 @@ class DiffServiceTest {
             var task = (Callable<ContextFragment.FragmentSnapshot>) () -> {
                 // Block so that warm-up holds semaphore permits while waiting
                 gate.await();
-                return new ContextFragment.FragmentSnapshot(
-                        "d" + idx,
-                        "d" + idx,
-                        "new-" + idx,
-                        SyntaxConstants.SYNTAX_STYLE_NONE,
-                        Set.of(),
-                        Set.of(),
-                        (List<Byte>) null);
+                return snapshot("d" + idx, "d" + idx, "new-" + idx);
             };
             newFrags.add(
                     new SlowFragment("SF_" + i, contextManager, null, task, ContextFragment.FragmentType.PROJECT_PATH));
