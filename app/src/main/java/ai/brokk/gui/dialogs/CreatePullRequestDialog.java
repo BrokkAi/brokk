@@ -17,6 +17,7 @@ import ai.brokk.gui.components.GitHubAppInstallLabel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.MaterialLoadingButton;
 import ai.brokk.gui.git.GitCommitBrowserPanel;
+import ai.brokk.gui.git.GitHubErrorUtil;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.widgets.FileStatusTable;
 import java.awt.*;
@@ -778,7 +779,20 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
             } catch (Exception ex) {
                 logger.error("Pull Request creation failed", ex);
                 SwingUtilities.invokeLater(() -> {
-                    chrome.toolError("Unable to create Pull Request:\n" + ex.getMessage(), "PR Creation Error");
+                    String message;
+                    if (GitHubErrorUtil.isNoCommitsBetweenError(ex)) {
+                        var sourceBranch = (String) sourceBranchComboBox.getSelectedItem();
+                        var targetBranch = (String) targetBranchComboBox.getSelectedItem();
+                        var base = targetBranch != null ? targetBranch : "the target branch";
+                        var head = sourceBranch != null ? sourceBranch : "the source branch";
+                        message = GitHubErrorUtil.formatNoCommitsBetweenError(base, head);
+                    } else {
+                        var exMessage = ex.getMessage();
+                        message =
+                                "Unable to create Pull Request:\n" + (exMessage != null ? exMessage : "Unknown error");
+                    }
+
+                    chrome.toolError(message, "PR Creation Error");
                     if (isDisplayable()) {
                         createPrButton.setLoading(false, null);
                     }
