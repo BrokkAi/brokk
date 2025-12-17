@@ -6,7 +6,10 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.Json;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -23,7 +26,7 @@ public class TaskListFragmentPersistenceTest {
     @Test
     void setTaskList_pushesFragmentAndTracksAction() throws Exception {
         // Given: initial empty context (headless IContextManager)
-        var cm = new IContextManager() {};
+        var cm = new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO());
         var initial = new Context(cm);
 
         var data = new TaskList.TaskListData(
