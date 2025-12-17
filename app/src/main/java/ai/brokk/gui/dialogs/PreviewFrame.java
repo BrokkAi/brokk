@@ -8,6 +8,8 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.theme.ThemeTitleBarManager;
+import ai.brokk.gui.util.KeyboardShortcutUtil;
+import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.HashMap;
@@ -55,6 +57,18 @@ public class PreviewFrame extends JFrame implements ThemeAware {
             @Override
             public void windowClosing(WindowEvent e) {
                 handleFrameClose();
+            }
+        });
+
+        // Register close tab shortcut for PreviewFrame (defaults to platform accelerator + W)
+        KeyStroke closeTabKeyStroke = GlobalUiSettings.getKeybinding(
+                "global.closeTab", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W));
+        var root = this.getRootPane();
+        root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(closeTabKeyStroke, "closePreviewTab");
+        root.getActionMap().put("closePreviewTab", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                closeSelectedTab();
             }
         });
     }
@@ -267,6 +281,24 @@ public class PreviewFrame extends JFrame implements ThemeAware {
             disposeFrame();
         } else {
             updateWindowTitle();
+        }
+    }
+
+    /**
+     * Closes the currently selected tab if any. Attempts to find an associated ProjectFile key for proper tracking.
+     */
+    private void closeSelectedTab() {
+        int selectedIndex = tabbedPane.getSelectedIndex();
+        if (selectedIndex >= 0) {
+            Component comp = tabbedPane.getComponentAt(selectedIndex);
+            ProjectFile fileKey = null;
+            for (Map.Entry<ProjectFile, Component> entry : fileToTabMap.entrySet()) {
+                if (entry.getValue() == comp) {
+                    fileKey = entry.getKey();
+                    break;
+                }
+            }
+            closeTab(comp, fileKey);
         }
     }
 

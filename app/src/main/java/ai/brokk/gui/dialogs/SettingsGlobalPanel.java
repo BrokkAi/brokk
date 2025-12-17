@@ -760,6 +760,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         adder.add("global.toggleMicrophone", "Toggle Microphone");
         adder.add("global.openSettings", "Open Settings");
         adder.add("global.closeWindow", "Close Window");
+        adder.add("global.closeTab", "Close Tab");
         adder.add("panel.switchToProjectFiles", "Switch to Project Files");
         adder.add("panel.switchToDependencies", "Switch to Dependencies");
         adder.add("panel.switchToChanges", "Switch to Changes");
@@ -891,6 +892,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "global.toggleMicrophone",
             "global.openSettings",
             "global.closeWindow",
+            "global.closeTab",
             "panel.switchToProjectFiles",
             "panel.switchToDependencies",
             "panel.switchToChanges",
@@ -931,6 +933,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             case "global.toggleMicrophone" -> "Toggle Microphone";
             case "global.openSettings" -> "Open Settings";
             case "global.closeWindow" -> "Close Window";
+            case "global.closeTab" -> "Close Tab";
             case "panel.switchToProjectFiles" -> "Switch to Project Files";
             case "panel.switchToDependencies" -> "Switch to Dependencies";
             case "panel.switchToChanges" -> "Switch to Changes";
@@ -963,6 +966,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "global.toggleMicrophone",
             "global.openSettings",
             "global.closeWindow",
+            "global.closeTab",
             "panel.switchToProjectFiles",
             "panel.switchToDependencies",
             "panel.switchToChanges",
@@ -2288,6 +2292,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W);
     }
 
+    private static KeyStroke defaultCloseTab() {
+        return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W);
+    }
+
     private static KeyStroke defaultOpenSettings() {
         return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA);
     }
@@ -2356,6 +2364,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             case "view.resetZoom" -> defaultResetZoom();
             case "global.openSettings" -> defaultOpenSettings();
             case "global.closeWindow" -> defaultCloseWindow();
+            case "global.closeTab" -> defaultCloseTab();
             case "workspace.attachContext" -> KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I);
             case "workspace.attachFilesAndSummarize" ->
                 KeyStroke.getKeyStroke(KeyEvent.VK_I, InputEvent.CTRL_DOWN_MASK);
