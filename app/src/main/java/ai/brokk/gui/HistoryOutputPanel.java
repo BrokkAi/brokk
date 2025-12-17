@@ -3722,34 +3722,24 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return GitDiffUiUtil.formatRelativeDate(instant, LocalDate.now(ZoneId.systemDefault()));
     }
 
-    private static final int MAX_CONCURRENT_COUNT_LOADS = 16;
-
     /**
      * Kicks off a background load of the AI-response count for a single session.
-     * Uses bounded executor for parallelism. Safe to call repeatedly; concurrent
-     * calls are deduped by sessionCountLoading. Limits in-flight tasks to avoid
-     * overwhelming the executor with thousands of queued tasks.
+     * Safe to call repeatedly; concurrent calls are deduped by sessionCountLoading.
      */
     private void triggerAiCountLoad(SessionInfo session) {
         var id = session.id();
         if (sessionAiResponseCounts.containsKey(id) || !sessionCountLoading.add(id)) {
             return;
         }
-        if (sessionCountLoading.size() > MAX_CONCURRENT_COUNT_LOADS) {
-            sessionCountLoading.remove(id);
-            return;
-        }
 
-        contextManager.getBackgroundTasks().submit(() -> {
+        Thread.ofPlatform().name("ai-count-" + id).start(() -> {
             int count = 0;
             try {
                 var sm = contextManager.getProject().getSessionManager();
                 count = sm.countAiResponses(id);
             } catch (Throwable t) {
-                // Use the updated, more accurate log message from OUR side of the merge
                 logger.warn("Failed to count AI responses for session {}", id, t);
             }
-            // Always publish the result (or 0 on error), clear the loading flag, and repaint only the sessions list
             sessionAiResponseCounts.put(id, count);
             sessionCountLoading.remove(id);
             SwingUtilities.invokeLater(() -> {
