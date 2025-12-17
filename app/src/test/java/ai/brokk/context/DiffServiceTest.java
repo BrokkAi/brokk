@@ -396,4 +396,105 @@ class DiffServiceTest {
         assertFalse(diffs.isEmpty(), "On-demand diff should compute after invalidate");
         assertTrue(ds.peek(ctx2).isPresent(), "After on-demand computation, diff should be cached");
     }
+
+    @Test
+    void warmup_throttles_per_fragment_diff_concurrency() throws Exception {
+        class SlowFragment extends ContextFragment.AbstractComputedFragment implements ContextFragment.DynamicIdentity {
+            private final ContextFragment.FragmentType type;
+
+            SlowFragment(
+                    String id,
+                    IContextManager cm,
+                    @Nullable ContextFragment.FragmentSnapshot snapshot,
+                    @Nullable Callable<ContextFragment.FragmentSnapshot> task,
+                    ContextFragment.FragmentType type) {
+                super(id, cm, snapshot, task);
+                this.type = type;
+            }
+
+            @Override
+            public ContextFragment.FragmentType getType() {
+                return type;
+            }
+
+            @Override
+            public boolean isEligibleForAutoContext() {
+                return true;
+            }
+
+            @Override
+            public String repr() {
+                return "SlowFragment";
+            }
+
+            @Override
+            public ContextFragment refreshCopy() {
+                return this;
+            }
+        }
+
+        int permits = DiffService.getWarmupFragmentConcurrency();
+        int fragmentCount = permits + 3; // ensure more candidates than permits
+
+        var gate = new CountDownLatch(1);
+
+        // Build old context with precomputed snapshots
+        var oldFrags = new java.util.ArrayList<ContextFragment>();
+        for (int i = 0; i < fragmentCount; i++) {
+            var snap = new ContextFragment.FragmentSnapshot(
+                    "d" + i, "d" + i, "old-" + i, SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), Set.of(), (List<Byte>) null);
+            oldFrags.add(new SlowFragment("SF_" + i, contextManager, snap, null, ContextFragment.FragmentType.PROJECT_PATH));
+        }
+        var oldCtx = new Context(
+                contextManager, oldFrags, List.of(), null, CompletableFuture.completedFuture("old"));
+
+        // Build new context with delayed computation
+        var newFrags = new java.util.ArrayList<ContextFragment>();
+        for (int i = 0; i < fragmentCount; i++) {
+            final int idx = i;
+            var task = (Callable<ContextFragment.FragmentSnapshot>) () -> {
+                // Block so that warm-up holds semaphore permits while waiting
+                gate.await();
+                return new ContextFragment.FragmentSnapshot(
+                        "d" + idx,
+                        "d" + idx,
+                        "new-" + idx,
+                        SyntaxConstants.SYNTAX_STYLE_NONE,
+                        Set.of(),
+                        Set.of(),
+                        (List<Byte>) null);
+            };
+            newFrags.add(new SlowFragment("SF_" + i, contextManager, null, task, ContextFragment.FragmentType.PROJECT_PATH));
+        }
+        var newCtx = new Context(
+                contextManager, newFrags, List.of(), null, CompletableFuture.completedFuture("new"));
+
+        var history = new ContextHistory(oldCtx);
+        history.pushContext(newCtx);
+
+        var ds = history.getDiffService();
+        DiffService.enableWarmupConcurrencyTestHook(true);
+        DiffService.resetWarmupConcurrencyCounters();
+
+        ds.warmUpRecent(5);
+
+        // Wait until we either reach the permit cap or timeout
+        int expectedCap = DiffService.getWarmupFragmentConcurrency();
+        long waitUntil = System.currentTimeMillis() + 2000;
+        while (System.currentTimeMillis() < waitUntil) {
+            if (DiffService.getWarmupMaxInFlight() >= expectedCap) {
+                break;
+            }
+            Thread.sleep(25);
+        }
+
+        int observedMax = DiffService.getWarmupMaxInFlight();
+        assertTrue(observedMax > 0, "Should observe some concurrent warm-up work");
+        assertTrue(
+                observedMax <= expectedCap,
+                "Observed concurrency " + observedMax + " should be <= cap " + expectedCap);
+
+        // Allow warm-up to complete
+        gate.countDown();
+    }
 }

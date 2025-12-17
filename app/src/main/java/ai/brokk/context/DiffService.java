@@ -41,6 +41,39 @@ public final class DiffService {
     // Generation token to invalidate/bounce warm-up tasks and cache writes after session switches.
     private final AtomicLong generation = new AtomicLong(0);
 
+    // Warm-up throttle: bound concurrent per-fragment diff computations during warm-up only.
+    private static final int WARMUP_FRAGMENT_CONCURRENCY = 3;
+    private final java.util.concurrent.Semaphore warmupFragmentSemaphore =
+            new java.util.concurrent.Semaphore(WARMUP_FRAGMENT_CONCURRENCY, true);
+
+    // Test hooks for measuring warm-up concurrency in unit tests (package-visible via static accessors)
+    private static volatile boolean ENABLE_WARMUP_CONCURRENCY_HOOK = false;
+    private static final java.util.concurrent.atomic.AtomicInteger WARMUP_IN_FLIGHT =
+            new java.util.concurrent.atomic.AtomicInteger(0);
+    private static final java.util.concurrent.atomic.AtomicInteger WARMUP_MAX_IN_FLIGHT =
+            new java.util.concurrent.atomic.AtomicInteger(0);
+
+    public static void enableWarmupConcurrencyTestHook(boolean enable) {
+        ENABLE_WARMUP_CONCURRENCY_HOOK = enable;
+    }
+
+    public static void resetWarmupConcurrencyCounters() {
+        WARMUP_IN_FLIGHT.set(0);
+        WARMUP_MAX_IN_FLIGHT.set(0);
+    }
+
+    public static int getWarmupInFlight() {
+        return WARMUP_IN_FLIGHT.get();
+    }
+
+    public static int getWarmupMaxInFlight() {
+        return WARMUP_MAX_IN_FLIGHT.get();
+    }
+
+    public static int getWarmupFragmentConcurrency() {
+        return WARMUP_FRAGMENT_CONCURRENCY;
+    }
+
     /**
      * A snapshot container for diff cache entries keyed by context id.
      * Values are the same futures used by this DiffService; intended for in-memory reuse across session switches.
@@ -199,7 +232,7 @@ public void warmUpRecent(int max) {
                         return;
                     }
                     try {
-                        var result = computeDiff(ctx, prev);
+                        var result = computeDiffWarmup(ctx, prev, exec);
 
                         // Skip cache write if this work became stale.
                         if (generation.get() != genAtSchedule) {
@@ -245,6 +278,46 @@ public void warmUpRecent(int max) {
         }
     });
 }
+
+    /**
+     * Warm-up variant of computeDiff that throttles per-fragment computation using a small semaphore.
+     * On-demand diffs remain unthrottled by using the standard computeDiff path.
+     */
+    @Blocking
+    private List<Context.DiffEntry> computeDiffWarmup(
+            Context ctx, Context other, java.util.concurrent.Executor exec) {
+        var editableFragments =
+                ctx.getEditableFragments().filter(f -> f.getType() != ContextFragment.FragmentType.EXTERNAL_PATH);
+        var imageFragments = ctx.allFragments().filter(f -> !f.isText());
+        var candidates = java.util.stream.Stream.concat(editableFragments, imageFragments).toList();
+
+        var futures = new ArrayList<CompletableFuture<Context.DiffEntry>>(candidates.size());
+        for (var cf : candidates) {
+            var f = CompletableFuture.supplyAsync(() -> {
+                warmupFragmentSemaphore.acquireUninterruptibly();
+                if (ENABLE_WARMUP_CONCURRENCY_HOOK) {
+                    int cur = WARMUP_IN_FLIGHT.incrementAndGet();
+                    WARMUP_MAX_IN_FLIGHT.accumulateAndGet(cur, Math::max);
+                }
+                try {
+                    // Delegate to the standard per-fragment computation and wait for completion.
+                    return computeDiffForFragment(ctx, cf, other).join();
+                } finally {
+                    if (ENABLE_WARMUP_CONCURRENCY_HOOK) {
+                        WARMUP_IN_FLIGHT.decrementAndGet();
+                    }
+                    warmupFragmentSemaphore.release();
+                }
+            }, exec);
+            futures.add(f);
+        }
+
+        return futures.stream()
+                .map(CompletableFuture::join)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+    }
 
     /**
      * Clears all cached diff entries.
