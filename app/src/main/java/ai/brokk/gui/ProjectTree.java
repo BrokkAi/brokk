@@ -1130,10 +1130,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                     boolean patternExcluded = project.isPathExcluded(relativePathStr, file.isDirectory());
                     boolean gitignored = project.isGitignored(relativePath);
                     // For files, check if tracked - gitignore doesn't apply to tracked files
-                    boolean isTracked = file.isFile()
-                            && project.getRepo()
-                                    .getTrackedFiles()
-                                    .contains(new ProjectFile(project.getRoot(), relativePath));
+                    boolean isTracked = file.isFile() && project.getRepo().isTracked(relativePath);
 
                     if (patternExcluded || (gitignored && !isTracked)) {
                         setForeground(ThemeColors.getColor(ThemeColors.CI_EXCLUDED_FOREGROUND));
