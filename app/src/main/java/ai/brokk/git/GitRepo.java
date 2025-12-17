@@ -431,10 +431,9 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     @Override
-    public synchronized void add(Path path) throws GitAPIException {
+    public synchronized void add(ProjectFile file) throws GitAPIException {
         var addCommand = git.add();
-        var repoRelativePath = gitTopLevel.relativize(path.toAbsolutePath()).toString();
-        addCommand.addFilepattern(repoRelativePath);
+        addCommand.addFilepattern(toRepoRelativePath(file));
         addCommand.call();
     }
 
@@ -849,9 +848,15 @@ public class GitRepo implements Closeable, IGitRepo {
         } catch (IOException e) {
             throw new GitWrappedIOException(e);
         }
+        // Normalize paths to forward slashes for JGit (required on all platforms)
+        String fromRepo = from.replace('\\', '/');
+        String toRepo = to.replace('\\', '/');
         // Stage as delete + add; Git will detect rename heuristically
-        git.rm().addFilepattern(from).call();
-        git.add().addFilepattern(to).call();
+        git.rm().addFilepattern(fromRepo).call();
+        logger.debug("Staged removal of {} in move operation", fromRepo);
+        // Force add even if file matches gitignore patterns (needed for !AGENTS.md negation to work)
+        var addResult = git.add().addFilepattern(toRepo).call();
+        logger.debug("Staged addition of {} in move operation, result entries: {}", toRepo, addResult.getEntryCount());
         invalidateCaches();
     }
 

@@ -108,7 +108,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         this.chrome = chrome;
         this.parentDialog = parentDialog;
         setLayout(new BorderLayout());
-        initComponents();
+        initComponents(); // This will fully initialize or conditionally initialize fields
+        // NOTE: loadSettings() is now called explicitly in SettingsDialog.showSettingsDialog()
+        // to ensure consistent timing with project panel
+
+        // Disable panel until data is loaded
         setEnabled(false);
         MainProject.addSettingsChangeListener(this);
     }

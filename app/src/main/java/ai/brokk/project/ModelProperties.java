@@ -32,6 +32,9 @@ public final class ModelProperties {
     public static final Set<String> SYSTEM_ONLY_MODELS =
             Set.of("gemini-2.0-flash-lite", "gpt-5-nano", "claude-haiku-3");
 
+    /** Default vendor selection for "Other Models" settings. */
+    public static final String DEFAULT_VENDOR = "Default";
+
     private ModelProperties() {}
 
     public static final String OPUS_4_5 = "claude-opus-4-5";

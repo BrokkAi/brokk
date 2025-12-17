@@ -64,6 +64,8 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
         globalSettingsPanel = new SettingsGlobalPanel(chrome, this);
         tabbedPane.addTab("Global", null, globalSettingsPanel, "Global application settings");
 
+        // Project Settings Panel
+        // Pass dialog buttons to project panel for enabling/disabling during build agent run
         projectSettingsPanel = new SettingsProjectPanel(chrome, this, okButton, cancelButton, applyButton);
         tabbedPane.addTab("Project", null, projectSettingsPanel, "Settings specific to the current project");
 
@@ -260,8 +262,15 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
         this.uiScaleSettingsChanged = true;
     }
 
+    /**
+     * Shows settings dialog.
+     */
     public static SettingsDialog showSettingsDialog(Chrome chrome, String targetTabName) {
         var dialog = new SettingsDialog(chrome.getFrame(), chrome);
+
+        // Load settings after dialog construction but before showing
+        // This ensures any background file writes (e.g., style guide generation) have completed
+        dialog.loadSettingsInBackground();
 
         boolean tabSelected = false;
         // Top-level tabs: "Global", "Project", "Advanced"
