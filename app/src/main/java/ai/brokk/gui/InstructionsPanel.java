@@ -32,7 +32,9 @@ import ai.brokk.gui.util.FileDropHandlerFactory;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.gui.wand.WandAction;
+import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.GlobalUiSettings;
@@ -371,7 +373,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 },
                 null,
                 this::isPlaceholderText,
-                this::populateInstructionsArea,
+                this::appendToInstructionsArea,
                 msg -> chrome.toolError(msg, "Error"));
         micButton.setFocusable(true);
         // Add explicit focus border to make focus visible on the mic button
@@ -447,8 +449,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         modelSelector = new ModelSelector(chrome);
-        modelSelector.selectConfig(chrome.getProject().getArchitectModelConfig());
-        modelSelector.addSelectionListener(cfg -> chrome.getProject().setArchitectModelConfig(cfg));
+        modelSelector.selectConfig(chrome.getProject().getModelConfig(ModelProperties.ModelType.ARCHITECT));
+        modelSelector.addSelectionListener(cfg -> {
+            IProject iProject = chrome.getProject();
+            iProject.setModelConfig(ModelProperties.ModelType.ARCHITECT, cfg);
+        });
         // Also recompute token/cost indicator when model changes
         modelSelector.addSelectionListener(cfg -> updateTokenCostIndicator());
         // Ensure model selector component is focusable
@@ -908,10 +913,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     } else {
                         rows++;
                         lineWidth = w;
-                        if (rows >= 2) break;
+                        int maxRows = GlobalUiSettings.isVerticalActivityLayout() ? 3 : 2;
+                        if (rows >= maxRows) break;
                     }
                 }
-                return Math.max(1, Math.min(2, rows));
+                int maxRows = GlobalUiSettings.isVerticalActivityLayout() ? 3 : 2;
+                return Math.max(1, Math.min(maxRows, rows));
             }
 
             @Override
@@ -1775,12 +1782,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // If Workspace is empty, ask the user how to proceed
         if (chrome.getContextManager().liveContext().isEmpty()) {
             String message =
-                    "Are you sure you want to code against an empty Workspace? This is the right thing to do if you want to create new source files with no other context. Otherwise, run Search first or manually add context to the Workspace.";
+                    "Are you sure you want to code with no attached context? This is the right thing to do if you want to create new source files from scratch. Otherwise, run Search first or manually attach context.";
             Object[] options = {"Code", "Search", "Cancel"};
             int choice = JOptionPane.showOptionDialog(
                     chrome.getFrame(),
                     message,
-                    "Empty Workspace",
+                    "No Context",
                     JOptionPane.YES_NO_CANCEL_OPTION,
                     JOptionPane.QUESTION_MESSAGE,
                     null,
@@ -2282,6 +2289,29 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
+     * Appends transcript text to the instructions area (used by voice input).
+     * If placeholder is active, replaces it; otherwise appends with space separator.
+     */
+    private void appendToInstructionsArea(String transcript) {
+        SwingUtilities.invokeLater(() -> {
+            var currentText = instructionsArea.getText();
+            String newText;
+            if (isPlaceholderText(currentText) || currentText.isBlank()) {
+                newText = transcript;
+            } else {
+                newText = currentText + " " + transcript;
+            }
+
+            if (isPlaceholderText(instructionsArea.getText()) || !instructionsArea.isEnabled()) {
+                activateCommandInput();
+            }
+            setTextWithUndo(newText, currentText);
+            instructionsArea.requestFocusInWindow();
+            instructionsArea.setCaretPosition(newText.length());
+        });
+    }
+
+    /**
      * Hides the command input overlay, enables the input field and deep scan button, clears the placeholder text if
      * present, and requests focus for the input field.
      */
@@ -2326,7 +2356,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * default if none is available.
      */
     public StreamingChatModel getSelectedModel() {
-        return contextManager.getModelOrDefault(modelSelector.getModel(), "Selected");
+        Service.ModelConfig config = modelSelector.getModel();
+        var service = contextManager.getService();
+        StreamingChatModel model = service.getModel(config);
+        if (model != null) {
+            return model;
+        }
+
+        return contextManager.getService().getModel(ModelProperties.ModelType.ARCHITECT);
     }
 
     // TODO this is unnecessary if we can push config into StreamingChatModel
@@ -2789,6 +2826,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         @Override
         protected void paintComponent(Graphics g) {
+            // 1) Custom rounded background
             Graphics2D g2 = (Graphics2D) g.create();
             try {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -2804,15 +2842,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
                 g2.setColor(bg);
                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
+            } finally {
+                g2.dispose();
+            }
 
-                // Draw divider line and dropdown icon only if dropdown is enabled and not in stop mode
-                if (!inStopMode && dropdownEnabled) {
+            // 2) Let the LAF draw text/icon (with contentAreaFilled=false this won't overpaint our bg)
+            super.paintComponent(g);
+
+            // 3) Draw divider + dropdown chevron on top so they can't be overpainted by the LAF
+            if (!inStopMode && dropdownEnabled) {
+                Graphics2D g3 = (Graphics2D) g.create();
+                try {
+                    g3.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                     int dropdownX = getWidth() - DROPDOWN_WIDTH;
                     boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
-                    g2.setColor(isHighContrast ? Color.BLACK : Color.WHITE);
-                    g2.drawLine(dropdownX, 6, dropdownX, getHeight() - 6);
+                    g3.setColor(isHighContrast ? Color.BLACK : Color.WHITE);
+                    g3.drawLine(dropdownX, 6, dropdownX, getHeight() - 6);
 
-                    // Lazy-load and paint dropdown icon centered in the dropdown area
                     if (dropdownIcon == null) {
                         dropdownIcon = Icons.KEYBOARD_DOWN_LIGHT;
                     }
@@ -2822,20 +2868,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     Icon iconToPaint = (dropdownIcon instanceof SwingUtil.ThemedIcon themedIcon)
                             ? themedIcon.delegate()
                             : dropdownIcon;
-                    // Apply high-contrast processing to dropdown icon
                     iconToPaint = ColorUtil.createHighContrastIcon(iconToPaint, getBackground(), isHighContrast);
                     if (iconToPaint != null) {
                         int iw = iconToPaint.getIconWidth();
                         int ih = iconToPaint.getIconHeight();
                         int ix = dropdownX + Math.max(0, (DROPDOWN_WIDTH - iw) / 2);
                         int iy = Math.max(0, (getHeight() - ih) / 2);
-                        iconToPaint.paintIcon(this, g2, ix, iy);
+                        iconToPaint.paintIcon(this, g3, ix, iy);
                     }
+                } finally {
+                    g3.dispose();
                 }
-            } finally {
-                g2.dispose();
             }
-            super.paintComponent(g);
         }
 
         @Override
@@ -2882,6 +2926,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
             }
 
+            // Ensure custom painting is not overpainted by LAF after theme changes
+            setContentAreaFilled(false);
+            setOpaque(false);
+
             // Now update icon - this will trigger high-contrast processing with the new background
             if (this.originalIcon != null) {
                 setIcon(this.originalIcon);
@@ -2894,6 +2942,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         @Override
         public void applyTheme(GuiTheme guiTheme) {
             applyTheme(guiTheme, false);
+        }
+
+        @Override
+        public void updateUI() {
+            super.updateUI();
+            // Prevent LAF from painting a full rectangular background over our custom rendering
+            setContentAreaFilled(false);
+            setOpaque(false);
+            // Re-apply compact custom border that uses current theme border color
+            Color borderColor = UIManager.getColor("Component.borderColor");
+            if (borderColor == null) borderColor = Color.GRAY;
+            setBorder(BorderFactory.createCompoundBorder(
+                    new LineBorder(borderColor, 1, true), BorderFactory.createEmptyBorder(4, 0, 4, 8)));
         }
     }
 

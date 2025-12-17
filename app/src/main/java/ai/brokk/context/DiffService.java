@@ -373,15 +373,35 @@ public final class DiffService {
             // Compute left content based on left reference
             String leftContent = "";
             if (!leftRef.isBlank()) {
-                var leftFrag = ContextFragment.GitFileFragment.fromCommit(file, leftRef, gitRepo);
-                leftContent = leftFrag.text().join();
+                if ("WORKING".equals(leftRef)) {
+                    leftContent = file.read().orElse("");
+                } else {
+                    try {
+                        var leftFrag = ContextFragment.GitFileFragment.fromCommit(file, leftRef, gitRepo);
+                        leftContent = leftFrag.text().join();
+                    } catch (RuntimeException e) {
+                        // File doesn't exist at leftRef (new file) - treat as empty baseline
+                        logger.debug("File {} not found at {}, treating as new file", file, leftRef);
+                        leftContent = "";
+                    }
+                }
             }
 
             // Compute right content based on right reference
             String rightContent = "";
             if (!rightRef.isBlank()) {
-                var rightFrag = ContextFragment.GitFileFragment.fromCommit(file, rightRef, gitRepo);
-                rightContent = rightFrag.text().join();
+                if ("WORKING".equals(rightRef)) {
+                    rightContent = file.read().orElse("");
+                } else {
+                    try {
+                        var rightFragTmp = ContextFragment.GitFileFragment.fromCommit(file, rightRef, gitRepo);
+                        rightContent = rightFragTmp.text().join();
+                    } catch (RuntimeException e) {
+                        // File doesn't exist at rightRef (deleted file) - treat as empty right side
+                        logger.debug("File {} not found at {}, treating as deleted file", file, rightRef);
+                        rightContent = "";
+                    }
+                }
             }
 
             // Compute line counts
@@ -398,12 +418,47 @@ public final class DiffService {
             totalDeleted += deleted;
 
             // Build DiffEntry using the right-side fragment as representative
-            var rightFrag = ContextFragment.GitFileFragment.fromCommit(file, rightRef, gitRepo);
-            var de = new Context.DiffEntry(rightFrag, "", added, deleted, leftContent, rightContent);
+            ContextFragment.GitFileFragment rightFragForEntry;
+            if ("WORKING".equals(rightRef)) {
+                rightFragForEntry = new ContextFragment.GitFileFragment(file, "WORKING", rightContent);
+            } else {
+                try {
+                    rightFragForEntry = ContextFragment.GitFileFragment.fromCommit(file, rightRef, gitRepo);
+                } catch (RuntimeException e) {
+                    // File doesn't exist at rightRef (e.g., deleted) - synthesize with current computed rightContent
+                    rightFragForEntry = new ContextFragment.GitFileFragment(file, rightRef, rightContent);
+                }
+            }
+
+            var de = new Context.DiffEntry(rightFragForEntry, "", added, deleted, leftContent, rightContent);
             perFileChanges.add(de);
         }
 
         return new CumulativeChanges(perFileChanges.size(), totalAdded, totalDeleted, perFileChanges);
+    }
+
+    /**
+     * Pre-computes titles for DiffEntries off-EDT to avoid blocking calls on the UI thread.
+     * Deduplicates by title and returns a stable-sorted list.
+     *
+     * @param res the cumulative changes containing per-file diff entries
+     * @return list of (title, DiffEntry) pairs sorted by title
+     */
+    @Blocking
+    public static List<Map.Entry<String, Context.DiffEntry>> preparePerFileSummaries(CumulativeChanges res) {
+        var list = new ArrayList<Map.Entry<String, Context.DiffEntry>>(
+                res.perFileChanges().size());
+        var seen = new HashSet<String>();
+        for (var de : res.perFileChanges()) {
+            String title = de.title();
+            if (!seen.add(title)) {
+                logger.warn("Duplicate cumulative change title '{}' detected; skipping extra entry.", title);
+                continue;
+            }
+            list.add(Map.entry(title, de));
+        }
+        list.sort(Comparator.comparing(Map.Entry::getKey));
+        return list;
     }
 
     /** Cumulative changes summary across multiple files. */

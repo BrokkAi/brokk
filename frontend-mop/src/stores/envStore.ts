@@ -1,12 +1,17 @@
 import { writable } from 'svelte/store';
 
+export type LanguageInfo = {
+  name: string;
+  fileCount: number;
+  depCount: number;
+};
+
 export type EnvInfo = {
   version?: string;
   projectName?: string;
-  nativeFileCount?: number;
   totalFileCount?: number;
   analyzerReady?: boolean;
-  analyzerLanguages?: string | string[];
+  analyzerLanguages?: LanguageInfo[];
 };
 
 const initial: EnvInfo = {

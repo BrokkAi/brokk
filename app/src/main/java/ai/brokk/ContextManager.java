@@ -372,9 +372,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             globalGitignorePath = abstractProject.getGlobalGitignorePath().orElse(null);
         }
         // Create watch service using factory (selects best implementation for platform)
+        // Use project.getRoot() for gitRepoRoot so worktrees resolve their external git metadata
         var watchService = WatchServiceFactory.create(
                 project.getRoot(),
-                project.hasGit() ? project.getRepo().getGitTopLevel() : null,
+                project.hasGit() ? project.getRoot() : null,
                 globalGitignorePath,
                 List.of() // Start with empty listeners
                 );
@@ -530,7 +531,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     IWatchService.Listener createFileWatchListener() {
         Path gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
-        FileWatcherHelper helper = new FileWatcherHelper(project.getRoot(), gitRepoRoot);
+        FileWatcherHelper helper = new FileWatcherHelper(gitRepoRoot);
 
         return new IWatchService.Listener() {
             @Override
@@ -998,7 +999,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return submitExclusiveAction(() -> {
             var newLive = Context.createFrom(
                             targetContext, liveContext(), liveContext().getTaskHistory())
-                    .copyAndRefresh();
+                    .copyAndRefresh("Copy from History");
             contextHistory.pushContext(newLive);
             contextHistory.addResetEdge(targetContext, newLive);
             SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
@@ -1014,7 +1015,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Future<?> resetContextToIncludingHistoryAsync(Context targetContext) {
         return submitExclusiveAction(() -> {
             var newLive = Context.createFrom(targetContext, liveContext(), targetContext.getTaskHistory())
-                    .copyAndRefresh();
+                    .copyAndRefresh("Copy from History");
             contextHistory.pushContext(newLive);
             contextHistory.addResetEdge(targetContext, newLive);
             SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
@@ -1093,7 +1094,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                                 currentLiveCtx.getGroupId(),
                                 currentLiveCtx.getGroupLabel(),
                                 currentLiveCtx.getMarkedReadonlyFragments().collect(Collectors.toSet()))
-                        .copyAndRefresh();
+                        .copyAndRefresh("Copy from History");
             });
 
             io.showNotification(IConsoleIO.NotificationRole.INFO, actionMessage);
@@ -2425,7 +2426,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var sessionManager = project.getSessionManager();
         var newSessionInfo = sessionManager.newSession(newSessionName);
         updateActiveSession(newSessionInfo.id());
-        var ctx = newContextFrom(sourceContext).copyAndRefresh();
+        var ctx = newContextFrom(sourceContext).copyAndRefresh("Load External Changes");
 
         // the intent is that we save a history to the new session that initializeCurrentSessionAndHistory will pull in
         // later
@@ -2457,7 +2458,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     // 2. Create the initial context for the new session.
                     // Only its top-level action/parsedOutput will be changed to reflect it's a new session.
                     var initialContextForNewSession =
-                            newContextFrom(sourceContext).copyAndRefresh();
+                            newContextFrom(sourceContext).copyAndRefresh("Load External Changes");
 
                     // 3. Initialize the ContextManager's history for the new session with this single context.
                     // Context should already be live from migration logic

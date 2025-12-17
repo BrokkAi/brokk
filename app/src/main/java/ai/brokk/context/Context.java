@@ -433,37 +433,29 @@ public class Context {
                 .filter(ContextFragment.ProjectPathFragment.class::isInstance)
                 .map(ContextFragment.ProjectPathFragment.class::cast)
                 .map(pf -> {
-                    if (pf.file().exists()) {
-                        try {
-                            return new EditableFileWithMtime(pf, pf.file().mtime());
-                        } catch (IOException e) {
-                            logger.warn(
-                                    "Could not get mtime for editable file [{}], it will be excluded from ordered editable fragments.",
-                                    pf.shortDescription().renderNowOr(toString()),
-                                    e);
-                            return new EditableFileWithMtime(pf, -1L);
-                        }
-                    } else {
-                        logger.warn(
-                                "Could not get mtime for editable file [{}] as it no longer exists. It will be excluded from ordered editable fragments.",
-                                pf.shortDescription().renderNowOr(toString()));
+                    // exists() and mtime() are both a syscall, so we just call the latter and catch errors
+                    long mtime;
+                    try {
+                        mtime = pf.file().mtime();
+                    } catch (IOException e) {
+                        // this is expected to happen when deserializing old Sessions so we leave it at debug
+                        logger.debug(
+                                "Could not get mtime for editable file [{}], it will be excluded from ordered editable fragments.",
+                                pf.shortDescription().renderNowOr(toString()),
+                                e);
                         return new EditableFileWithMtime(pf, -1L);
                     }
+                    return new EditableFileWithMtime(pf, mtime);
                 })
                 .filter(mf -> mf.mtime() >= 0)
                 .sorted(Comparator.comparingLong(EditableFileWithMtime::mtime))
                 .map(EditableFileWithMtime::fragment);
 
-        Stream<ContextFragment> otherEditablePathFragments = fragments.stream()
-                .filter(f -> f.getType().isPath() && !(f instanceof ContextFragment.ProjectPathFragment));
+        Stream<ContextFragment> otherEditable = fragments.stream()
+                .filter(f -> !(f instanceof ContextFragment.ProjectPathFragment)
+                        && f.getType().isEditable());
 
-        Stream<ContextFragment> editableVirtuals = fragments.stream()
-                .filter(f -> !f.getType().isPath() && f.getType().isEditable());
-
-        return Streams.concat(
-                        editableVirtuals,
-                        otherEditablePathFragments,
-                        sortedProjectFiles.map(ContextFragment.class::cast))
+        return Streams.concat(otherEditable, sortedProjectFiles.map(ContextFragment.class::cast))
                 .filter(cf -> !markedReadonlyFragments.contains(cf));
     }
 
@@ -1192,23 +1184,24 @@ public class Context {
 
     /**
      * Refreshes all computed fragments in this context without filtering.
-     * Equivalent to calling {@link #copyAndRefresh(Set)} with all fragments.
+     * Equivalent to calling {@link #copyAndRefresh(Set, String)} with all fragments.
      *
      * @return a new context with refreshed fragments, or this context if no changes occurred
      */
     @Blocking
-    public Context copyAndRefresh() {
-        return copyAndRefreshInternal(Set.copyOf(fragments));
+    public Context copyAndRefresh(String action) {
+        return copyAndRefreshInternal(Set.copyOf(fragments), action);
     }
 
     /**
      * Refreshes fragments whose source files intersect the provided set.
      *
-     * @param maybeChanged set of project files that may have changed
+     * @param maybeChanged     set of project files that may have changed
+     * @param action description string for Activity history
      * @return a new context with refreshed fragments, or this context if no changes occurred
      */
     @Blocking
-    public Context copyAndRefresh(Set<ProjectFile> maybeChanged) {
+    public Context copyAndRefresh(Set<ProjectFile> maybeChanged, String action) {
         if (maybeChanged.isEmpty()) {
             return this;
         }
@@ -1221,7 +1214,7 @@ public class Context {
             }
         }
 
-        return copyAndRefreshInternal(fragmentsToRefresh);
+        return copyAndRefreshInternal(fragmentsToRefresh, action);
     }
 
     /**
@@ -1229,10 +1222,11 @@ public class Context {
      * Handles remapping read-only membership for replaced fragments.
      *
      * @param maybeChanged the set of fragments to potentially refresh
+     * @param action the action description for this refresh operation
      * @return a new context with refreshed fragments, or this context if no changes occurred
      */
     @Blocking
-    private Context copyAndRefreshInternal(Set<ContextFragment> maybeChanged) {
+    private Context copyAndRefreshInternal(Set<ContextFragment> maybeChanged, String action) {
         if (maybeChanged.isEmpty()) {
             return this;
         }
@@ -1288,7 +1282,7 @@ public class Context {
                 newFragments,
                 taskHistory,
                 parsedOutput,
-                CompletableFuture.completedFuture("Load external changes"),
+                CompletableFuture.completedFuture(action),
                 this.groupId,
                 this.groupLabel,
                 newReadOnly);

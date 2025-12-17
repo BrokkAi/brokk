@@ -69,6 +69,16 @@ public class Brokk {
             logger.info(line);
         }
         logger.info("Version: {}", BuildInfo.version);
+
+        String jdeployVersion = System.getProperty("jdeploy.app.version");
+        if (jdeployVersion != null && !jdeployVersion.isBlank()) {
+            logger.info("jDeploy version: {}", jdeployVersion);
+        } else {
+            logger.info("jDeploy version: (not set)");
+        }
+
+        logger.info("OS: {}", Environment.getOsDescription());
+        logger.info("JRE: {}", Environment.getJreDescription());
         logger.info("Starting Brokk semantic code assistant...");
         logger.info("");
     }

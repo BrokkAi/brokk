@@ -869,7 +869,15 @@ public class EditBlock {
             return file;
         }
 
-        // 2. Check editable files (case-insensitive basename match)
+        // 1b. Authoritative path rule: if the provided name contains directories, do not fuzzy-match.
+        // Treat as "not found" so the caller can create the file explicitly.
+        final String normalizedStripped = stripped.replace('\\', '/');
+        if (normalizedStripped.contains("/")) {
+            throw new SymbolNotFoundException(
+                    "Filename '%s' could not be resolved to an existing file.".formatted(filename));
+        }
+
+        // 2. Check editable files (case-insensitive basename match), then narrow by provided path if ambiguous
         var editableMatches = ctx.getAllFragmentsInDisplayOrder().stream()
                 .flatMap(f -> f.files().join().stream())
                 .filter(f -> f.getFileName().equalsIgnoreCase(file.getFileName()))
@@ -879,20 +887,43 @@ public class EditBlock {
             return editableMatches.getFirst();
         }
         if (editableMatches.size() > 1) {
-            throw new SymbolAmbiguousException(
-                    "Filename '%s' matches multiple editable files: %s".formatted(filename, editableMatches));
+            // Try to disambiguate using the provided (possibly partial) path substring
+            final String normalizedCandidate = stripped.replace('\\', '/');
+            var narrowedEditable = editableMatches.stream()
+                    .filter(f -> f.toString().replace('\\', '/').contains(normalizedCandidate))
+                    .toList();
+            if (narrowedEditable.size() == 1) {
+                logger.debug(
+                        "Resolved ambiguous editable filename [{}] to unique match [{}]",
+                        filename,
+                        narrowedEditable.getFirst());
+                return narrowedEditable.getFirst();
+            }
+            throw new SymbolAmbiguousException("Filename '%s' matches multiple editable files: %s"
+                    .formatted(filename, narrowedEditable.isEmpty() ? editableMatches : narrowedEditable));
         }
 
-        // 3. Check tracked files in git repo (basename match only)
+        // 3. Check tracked files in git repo (substring match)
         var repo = cm.getRepo();
         var trackedMatches = repo.getTrackedFiles().stream()
-                .filter(f -> f.getFileName().equalsIgnoreCase(file.getFileName()))
+                .filter(f -> f.toString().replace('\\', '/').contains(normalizedStripped))
                 .toList();
         if (trackedMatches.size() == 1) {
             logger.debug("Resolved partial filename [{}] to tracked file [{}]", filename, trackedMatches.getFirst());
             return trackedMatches.getFirst();
         }
         if (trackedMatches.size() > 1) {
+            // Prefer exact basename match if available among tracked files
+            var exactBaseMatches = trackedMatches.stream()
+                    .filter(f -> f.getFileName().equalsIgnoreCase(file.getFileName()))
+                    .toList();
+            if (exactBaseMatches.size() == 1) {
+                logger.debug(
+                        "Resolved ambiguous tracked filename [{}] to exact basename match [{}]",
+                        filename,
+                        exactBaseMatches.getFirst());
+                return exactBaseMatches.getFirst();
+            }
             throw new SymbolAmbiguousException(
                     "Filename '%s' matches multiple tracked files: %s".formatted(filename, trackedMatches));
         }

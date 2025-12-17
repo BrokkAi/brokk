@@ -127,6 +127,12 @@ public final class MainProject extends AbstractProject {
     private static volatile Boolean isDataShareAllowedCache = null;
 
     @Nullable
+    private static volatile String headlessBrokkApiKeyOverride = null;
+
+    @Nullable
+    private static volatile LlmProxySetting headlessProxySettingOverride = null;
+
+    @Nullable
     @VisibleForTesting
     public static Properties globalPropertiesCache = null; // protected by synchronized
 
@@ -425,109 +431,17 @@ public final class MainProject extends AbstractProject {
         }
     }
 
-    private ModelConfig getModelConfigInternal(ModelType modelType) {
+    @Override
+    public ModelConfig getModelConfig(ModelType modelType) {
         var props = loadGlobalProperties();
         return ModelProperties.getModelConfig(props, modelType);
     }
 
-    /**
-     * Returns the code-defined default ModelConfig for the Quick role.
-     *
-     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
-     * persisted user settings or overrides.
-     */
-    public static ModelConfig getDefaultQuickModelConfig() {
-        return ModelProperties.ModelType.QUICK.preferredConfig();
-    }
-
-    /**
-     * Returns the code-defined default ModelConfig for the Quick Edit role.
-     *
-     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
-     * persisted user settings or overrides.
-     */
-    public static ModelConfig getDefaultQuickEditModelConfig() {
-        return ModelProperties.ModelType.QUICK_EDIT.preferredConfig();
-    }
-
-    /**
-     * Returns the code-defined default ModelConfig for the Quickest role.
-     *
-     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
-     * persisted user settings or overrides.
-     */
-    public static ModelConfig getDefaultQuickestModelConfig() {
-        return ModelProperties.ModelType.QUICKEST.preferredConfig();
-    }
-
-    /**
-     * Returns the code-defined default ModelConfig for the Scan role.
-     *
-     * <p>This reflects the preferred default in {@link ModelProperties} and is independent of any
-     * persisted user settings or overrides.
-     */
-    public static ModelConfig getDefaultScanModelConfig() {
-        return ModelProperties.ModelType.SCAN.preferredConfig();
-    }
-
-    private void setModelConfigInternal(ModelType modelType, ModelConfig config) {
+    @Override
+    public void setModelConfig(ModelType modelType, ModelConfig config) {
         var props = loadGlobalProperties();
         ModelProperties.setModelConfig(props, modelType, config);
         saveGlobalProperties(props);
-    }
-
-    @Override
-    public ModelConfig getQuickModelConfig() {
-        return getModelConfigInternal(ModelType.QUICK);
-    }
-
-    @Override
-    public void setQuickModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.QUICK, config);
-    }
-
-    @Override
-    public ModelConfig getCodeModelConfig() {
-        return getModelConfigInternal(ModelType.CODE);
-    }
-
-    @Override
-    public void setCodeModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.CODE, config);
-    }
-
-    @Override
-    public ModelConfig getArchitectModelConfig() {
-        return getModelConfigInternal(ModelType.ARCHITECT);
-    }
-
-    @Override
-    public void setArchitectModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.ARCHITECT, config);
-    }
-
-    public ModelConfig getQuickEditModelConfig() {
-        return getModelConfigInternal(ModelType.QUICK_EDIT);
-    }
-
-    public void setQuickEditModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.QUICK_EDIT, config);
-    }
-
-    public ModelConfig getQuickestModelConfig() {
-        return getModelConfigInternal(ModelType.QUICKEST);
-    }
-
-    public void setQuickestModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.QUICKEST, config);
-    }
-
-    public ModelConfig getScanModelConfig() {
-        return getModelConfigInternal(ModelType.SCAN);
-    }
-
-    public void setScanModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.SCAN, config);
     }
 
     @Override
@@ -924,6 +838,12 @@ public final class MainProject extends AbstractProject {
     }
 
     public static LlmProxySetting getProxySetting() {
+        // Check headless executor override first (process-scoped)
+        LlmProxySetting override = headlessProxySettingOverride;
+        if (override != null) {
+            return override;
+        }
+        // Fall back to global properties
         var props = loadGlobalProperties();
         String val = props.getProperty(LLM_PROXY_SETTING_KEY, LlmProxySetting.BROKK.name());
         try {
@@ -937,6 +857,19 @@ public final class MainProject extends AbstractProject {
         var props = loadGlobalProperties();
         props.setProperty(LLM_PROXY_SETTING_KEY, setting.name());
         saveGlobalProperties(props);
+    }
+
+    /**
+     * Set a process-scoped override for the LLM proxy setting.
+     * Used by headless executors to use a per-executor proxy configuration instead of the global config.
+     * If set to a non-null value, getProxySetting() will return this override instead of
+     * reading from global properties.
+     *
+     * @param setting the proxy setting override, or null to clear the override
+     */
+    public static void setHeadlessProxySettingOverride(@Nullable LlmProxySetting setting) {
+        headlessProxySettingOverride = setting;
+        logger.debug("Set headless proxy setting override: {}", setting != null ? setting.name() : "(cleared)");
     }
 
     public static String getProxyUrl() {
@@ -1762,8 +1695,30 @@ public final class MainProject extends AbstractProject {
     }
 
     public static String getBrokkKey() {
+        // Check headless executor override first (process-scoped)
+        String override = headlessBrokkApiKeyOverride;
+        if (override != null && !override.isBlank()) {
+            return override;
+        }
+        // Fall back to global properties
         var props = loadGlobalProperties();
         return props.getProperty("brokkApiKey", "");
+    }
+
+    /**
+     * Set a process-scoped override for the Brokk API key.
+     * Used by headless executors to use a per-executor API key instead of the global config.
+     * If set to a non-blank value, getBrokkKey() will return this override instead of
+     * reading from global properties.
+     *
+     * @param key the API key override, or null/blank to clear the override
+     */
+    public static void setHeadlessBrokkApiKeyOverride(@Nullable String key) {
+        headlessBrokkApiKeyOverride = key;
+        isDataShareAllowedCache = null; // Clear cache since key changed
+        logger.debug(
+                "Set headless Brokk API key override: {}",
+                (key != null && !key.isBlank()) ? "(non-blank, length=" + key.length() + ")" : "(cleared)");
     }
 
     public static void setBrokkKey(String key) {

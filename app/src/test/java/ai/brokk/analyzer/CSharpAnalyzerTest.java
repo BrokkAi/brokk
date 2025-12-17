@@ -185,12 +185,13 @@ public final class CSharpAnalyzerTest {
                                 }""";
         String expectedMethodAOverload2Source =
                 """
-                        // Overloaded Method
+                                // Overloaded Method
                                 public void MethodA(int param)
                                 {
                                     // Overloaded method body
                                     int x = param + 1;
-                                }""";
+                                }
+                        """;
         String expectedCombinedMethodASource = expectedMethodAOverload1Source + "\n\n" + expectedMethodAOverload2Source;
 
         assertCodeEquals(

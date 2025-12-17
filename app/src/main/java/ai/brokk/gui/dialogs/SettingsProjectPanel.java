@@ -289,7 +289,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.weightx = 0.0;
         gbc.anchor = GridBagConstraints.NORTHWEST;
         gbc.fill = GridBagConstraints.NONE;
-        generalPanel.add(new JLabel("Style Guide:"), gbc);
+        generalPanel.add(new JLabel("AGENTS.md:"), gbc);
         styleGuideArea.setWrapStyleWord(true);
         styleGuideArea.setLineWrap(true);
         var styleScrollPane = new JScrollPane(styleGuideArea);

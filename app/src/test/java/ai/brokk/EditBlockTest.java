@@ -683,6 +683,75 @@ class EditBlockTest {
                 () -> EditBlock.resolveProjectFile(cm.liveContext(), "%ssrc%sfoo.txt".formatted(sep, sep)));
     }
 
+    @Test
+    void testResolveFilenameSubstringMatchWithBasenameTieBreaker(@TempDir Path tempDir) throws Exception {
+        Path mainUtilDir = tempDir.resolve("app")
+                .resolve("src")
+                .resolve("main")
+                .resolve("java")
+                .resolve("ai")
+                .resolve("brokk")
+                .resolve("util");
+        Path testUtilDir = tempDir.resolve("app")
+                .resolve("src")
+                .resolve("test")
+                .resolve("java")
+                .resolve("ai")
+                .resolve("brokk")
+                .resolve("util");
+        Files.createDirectories(mainUtilDir);
+        Files.createDirectories(testUtilDir);
+
+        Files.writeString(mainUtilDir.resolve("IndentUtil.java"), "main content\n");
+        Files.writeString(testUtilDir.resolve("IndentUtil.java"), "test content\n");
+
+        TestContextManager ctx = new TestContextManager(
+                tempDir,
+                Set.of(
+                        "app/src/main/java/ai/brokk/util/IndentUtil.java",
+                        "app/src/test/java/ai/brokk/util/IndentUtil.java"));
+
+        var resolved =
+                EditBlock.resolveProjectFile(ctx.liveContext(), "app/src/test/java/ai/brokk/util/IndentUtil.java");
+        assertEquals(testUtilDir.resolve("IndentUtil.java"), resolved.absPath());
+    }
+
+    /**
+     * Authoritative slashed path behavior:
+     * If the provided filename includes directories and the exact path does not exist,
+     * the resolver must NOT fuzzy-resolve to some other existing file (e.g., a/b/c/file.java).
+     * Instead, EditBlock.apply should treat it as a new file (b/c/file.java) and create it.
+     * This prevents accidental edits to wrong files when similar names exist in multiple folders.
+     */
+    @Test
+    void testAuthoritativeSlashedPathCreatesNewFile(@TempDir Path tempDir) throws Exception {
+        TestConsoleIO io = new TestConsoleIO();
+
+        // Existing: a/b/c/file.java
+        Path existingDir = tempDir.resolve("a").resolve("b").resolve("c");
+        Files.createDirectories(existingDir);
+        Path existingFile = existingDir.resolve("file.java");
+        Files.writeString(existingFile, "old\n");
+
+        TestContextManager ctx = new TestContextManager(tempDir, Set.of("a/b/c/file.java"));
+
+        // Request edit for b/c/file.java (non-existent exact path)
+        var block = new EditBlock.SearchReplaceBlock("b/c/file.java", "BRK_ENTIRE_FILE\n", "new\n");
+
+        var result = EditBlock.apply(ctx, io, List.of(block));
+
+        // New file should be created at the authoritative path
+        Path newFile = tempDir.resolve("b").resolve("c").resolve("file.java");
+        assertTrue(Files.exists(newFile), "Expected new 'b/c/file.java' to be created");
+        assertEquals("new\n", Files.readString(newFile), "New file content should be written");
+
+        // Original file must remain unchanged
+        assertEquals("old\n", Files.readString(existingFile), "Existing 'a/b/c/file.java' must remain unchanged");
+
+        // And no failures
+        assertTrue(result.failedBlocks().isEmpty(), "No failures expected");
+    }
+
     // ----------------------------------------------------
     // Tests for BRK_CONFLICT handling
     // ----------------------------------------------------

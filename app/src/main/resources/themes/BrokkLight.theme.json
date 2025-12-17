@@ -36,6 +36,7 @@
 
       "git_badge_background": "#DC3545",
       "git_badge_text": "#FFFFFF",
+      "ci_excluded_foreground": "#999999",
 
       "action_button_bg_default": "#478ac9",
       "action_button_bg_stop": "#DC3545",
