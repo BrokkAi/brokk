@@ -231,14 +231,14 @@ public final class FilterBox extends JPanel implements ThemeAware {
             iconLabel.setIcon(CLEAR_BASE);
         }
         // Apply initial theme
-        applyTheme(chrome.themeManager);
+        applyTheme(chrome.getThemeManager());
     }
 
     /* ----------  popup logic  ---------- */
 
     private void showPopup() {
         JPopupMenu pop = new JPopupMenu();
-        chrome.themeManager.registerPopupMenu(pop);
+        chrome.getThemeManager().registerPopupMenu(pop);
 
         JTextField search = new JTextField();
         // Add search field first, so it's always at the top

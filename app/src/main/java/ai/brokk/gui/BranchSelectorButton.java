@@ -43,7 +43,7 @@ public class BranchSelectorButton extends SplitButton {
             try {
                 var menu = buildBranchMenu();
                 try {
-                    chrome.themeManager.registerPopupMenu(menu);
+                    chrome.getThemeManager().registerPopupMenu(menu);
                 } catch (Exception e) {
                     logger.debug("Error registering popup menu", e);
                 }
@@ -140,7 +140,7 @@ public class BranchSelectorButton extends SplitButton {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Branches refreshed");
                     var newMenu = buildBranchMenu();
                     try {
-                        chrome.themeManager.registerPopupMenu(newMenu);
+                        chrome.getThemeManager().registerPopupMenu(newMenu);
                     } catch (Exception e) {
                         logger.debug("Error registering popup menu", e);
                     }

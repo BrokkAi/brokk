@@ -494,7 +494,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 e -> chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of()));
         tokenUsageBarPopupMenu.add(pasteMenuItem);
 
-        SwingUtilities.invokeLater(() -> chrome.themeManager.registerPopupMenu(tokenUsageBarPopupMenu));
+        SwingUtilities.invokeLater(() -> chrome.getThemeManager().registerPopupMenu(tokenUsageBarPopupMenu));
 
         this.contextAreaContainer = createContextAreaContainer();
         // Top Bar (History, Configure Models, Stop) (North)
@@ -1506,7 +1506,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         dropdown.addActionListener(ev -> SwingUtilities.invokeLater(() -> {
             try {
                 var menu = historyMenuSupplier.get();
-                chrome.themeManager.registerPopupMenu(menu);
+                chrome.getThemeManager().registerPopupMenu(menu);
                 menu.show(dropdown, 0, dropdown.getHeight());
             } catch (Exception ex) {
                 logger.error("Error showing history dropdown", ex);

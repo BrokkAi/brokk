@@ -256,7 +256,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
     private JPopupMenu getOrCreateContextMenu() {
         if (currentContextMenu == null) {
             currentContextMenu = new JPopupMenu();
-            chrome.themeManager.registerPopupMenu(currentContextMenu);
+            chrome.getThemeManager().registerPopupMenu(currentContextMenu);
         }
         return currentContextMenu;
     }

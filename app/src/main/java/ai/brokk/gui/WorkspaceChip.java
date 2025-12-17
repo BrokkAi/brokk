@@ -848,7 +848,7 @@ public class WorkspaceChip extends JPanel {
         }
 
         try {
-            chrome.themeManager.registerPopupMenu(menu);
+            chrome.getThemeManager().registerPopupMenu(menu);
         } catch (Exception ex) {
             logger.debug("Failed to register chip popup menu with theme manager", ex);
         }
@@ -1189,7 +1189,7 @@ public class WorkspaceChip extends JPanel {
             }
 
             try {
-                chrome.themeManager.registerPopupMenu(menu);
+                chrome.getThemeManager().registerPopupMenu(menu);
             } catch (Exception ex) {
                 logger.debug("Failed to register synthetic chip popup menu with theme manager", ex);
             }

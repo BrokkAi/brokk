@@ -166,7 +166,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     // Resolve notification colors from ThemeColors for current theme.
     // Returns a list of [background, foreground, border] colors.
     private List<Color> resolveNotificationColors(IConsoleIO.NotificationRole role) {
-        boolean isDark = chrome.themeManager.isDarkTheme();
+        boolean isDark = chrome.getThemeManager().isDarkTheme();
         return switch (role) {
             case ERROR ->
                 List.of(
@@ -355,7 +355,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             scroll.setPreferredSize(new Dimension(prefWidth, cappedHeight));
 
             popup.add(scroll);
-            chrome.themeManager.registerPopupMenu(popup);
+            chrome.getThemeManager().registerPopupMenu(popup);
             return popup;
         });
         this.sessionNameLabel.addActionListener(e -> this.sessionNameLabel.showPopupMenuInternal());
@@ -840,7 +840,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         popup.add(newSessionFromWorkspaceItem);
 
         // Register popup with theme manager
-        chrome.themeManager.registerPopupMenu(popup);
+        chrome.getThemeManager().registerPopupMenu(popup);
 
         // Show popup menu
         popup.show(historyTable, x, y);
@@ -1237,7 +1237,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 compressItem.setEnabled(compressButton.isEnabled());
                 popup.add(compressItem);
 
-                chrome.themeManager.registerPopupMenu(popup);
+                chrome.getThemeManager().registerPopupMenu(popup);
                 popup.show(e.getComponent(), e.getX(), e.getY());
             }
 

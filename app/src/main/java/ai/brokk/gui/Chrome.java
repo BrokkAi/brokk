@@ -1037,7 +1037,7 @@ public class Chrome
     }
 
     // Theme manager and constants
-    GuiTheme themeManager;
+    private GuiTheme themeManager;
 
     // Shared analyzer rebuild status strip
     private final AnalyzerStatusStrip analyzerStatusStrip;
@@ -2934,6 +2934,10 @@ public class Chrome
         boolean inHistoryTable = historyOutputPanel.getHistoryTable() != null
                 && SwingUtilities.isDescendingFrom(focusOwner, historyOutputPanel.getHistoryTable());
         return inContextPanel || inHistoryTable;
+    }
+
+    public GuiTheme getThemeManager() {
+        return themeManager;
     }
 
     // --- Global Undo/Redo Action Classes ---

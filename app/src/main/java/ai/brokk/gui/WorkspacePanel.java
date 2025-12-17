@@ -628,7 +628,7 @@ public class WorkspacePanel extends JPanel {
         }
 
         public void show(Component invoker, int x, int y) {
-            chrome.themeManager.registerPopupMenu(popup);
+            chrome.getThemeManager().registerPopupMenu(popup);
             popup.show(invoker, x, y);
         }
     }
@@ -893,7 +893,7 @@ public class WorkspacePanel extends JPanel {
 
         // Create a single JPopupMenu for the table
         JPopupMenu contextMenu = new JPopupMenu();
-        chrome.themeManager.registerPopupMenu(contextMenu);
+        chrome.getThemeManager().registerPopupMenu(contextMenu);
 
         // Add a mouse listener so we control exactly when the popup shows
         contextTable.addMouseListener(new MouseAdapter() {
@@ -927,7 +927,7 @@ public class WorkspacePanel extends JPanel {
                         });
                         contextMenu.removeAll();
                         contextMenu.add(copyItem);
-                        chrome.themeManager.registerPopupMenu(contextMenu);
+                        chrome.getThemeManager().registerPopupMenu(contextMenu);
                         contextMenu.show(contextTable, e.getX(), e.getY());
                     }
                     return;
@@ -947,7 +947,7 @@ public class WorkspacePanel extends JPanel {
                 // Show empty table menu if no selection
                 if (row < 0 || selectedFragments.isEmpty()) {
                     tablePopupMenu.show(contextTable, e.getX(), e.getY());
-                    chrome.themeManager.registerPopupMenu(tablePopupMenu);
+                    chrome.getThemeManager().registerPopupMenu(tablePopupMenu);
                     return;
                 }
 
@@ -1140,7 +1140,7 @@ public class WorkspacePanel extends JPanel {
         tablePopupMenu.add(pasteMenuItem);
 
         // Register the popup menu with the theme manager
-        chrome.themeManager.registerPopupMenu(tablePopupMenu);
+        chrome.getThemeManager().registerPopupMenu(tablePopupMenu);
 
         // Build summary panel
         var contextSummaryPanel = new JPanel(new BorderLayout());
