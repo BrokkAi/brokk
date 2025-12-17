@@ -16,9 +16,11 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
@@ -257,17 +259,8 @@ class DiffServiceTest {
 
     private static ContextFragment.FragmentSnapshot snapshot(String description, String shortDescription, String text) {
         return new ContextFragment.FragmentSnapshot(
-                description,
-                shortDescription,
-                text,
-                SyntaxConstants.SYNTAX_STYLE_NONE,
-                java.util.Set.of(),
-                java.util.Set.of(),
-                (java.util.List<Byte>) null);
-    }
-
-    private static ContextFragment.FragmentSnapshot snapshot(String description, String text) {
-        return snapshot(description, description, text);
+                description, shortDescription, text, SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), Set.of(), (List<Byte>)
+                        null);
     }
 
     private static void writeImage(ProjectFile file, Color color) throws Exception {
@@ -334,7 +327,7 @@ class DiffServiceTest {
         var history2 = new ContextHistory(ctx1);
         history2.pushContext(ctx2);
 
-        var ids = history2.getHistory().stream().map(Context::id).collect(java.util.stream.Collectors.toSet());
+        var ids = history2.getHistory().stream().map(Context::id).collect(Collectors.toSet());
         history2.getDiffService().seedFrom(snapshot, ids);
 
         // Peek should hit cache immediately without recomputation
@@ -466,7 +459,7 @@ class DiffServiceTest {
         var gate = new CountDownLatch(1);
 
         // Build old context with precomputed snapshots
-        var oldFrags = new java.util.ArrayList<ContextFragment>();
+        var oldFrags = new ArrayList<ContextFragment>();
         for (int i = 0; i < fragmentCount; i++) {
             var snap = snapshot("d" + i, "d" + i, "old-" + i);
             oldFrags.add(
@@ -475,7 +468,7 @@ class DiffServiceTest {
         var oldCtx = new Context(contextManager, oldFrags, List.of(), null, CompletableFuture.completedFuture("old"));
 
         // Build new context with delayed computation
-        var newFrags = new java.util.ArrayList<ContextFragment>();
+        var newFrags = new ArrayList<ContextFragment>();
         for (int i = 0; i < fragmentCount; i++) {
             final int idx = i;
             var task = (Callable<ContextFragment.FragmentSnapshot>) () -> {
@@ -522,7 +515,7 @@ class DiffServiceTest {
         Files.createDirectories(pf.absPath().getParent());
 
         // Build a chain of contexts with incremental changes
-        var contexts = new java.util.ArrayList<Context>();
+        var contexts = new ArrayList<Context>();
         for (int i = 0; i < 8; i++) {
             Files.writeString(pf.absPath(), "v" + i + "\n");
             var frag = new ContextFragment.ProjectPathFragment(pf, contextManager);

@@ -15,6 +15,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -52,17 +53,14 @@ public final class DiffService {
     private final java.util.concurrent.Semaphore warmupFragmentSemaphore;
 
     // Instrumentation counters (per DiffService instance)
-    private final java.util.concurrent.atomic.AtomicLong warmupBatchesStarted =
-            new java.util.concurrent.atomic.AtomicLong(0);
-    private final java.util.concurrent.atomic.AtomicLong diffsScheduled = new java.util.concurrent.atomic.AtomicLong(0);
-    private final java.util.concurrent.atomic.AtomicLong diffsCompleted = new java.util.concurrent.atomic.AtomicLong(0);
+    private final AtomicLong warmupBatchesStarted = new AtomicLong(0);
+    private final AtomicLong diffsScheduled = new AtomicLong(0);
+    private final AtomicLong diffsCompleted = new AtomicLong(0);
 
     // Test hooks for measuring warm-up concurrency in unit tests (package-visible via static accessors)
     private static volatile boolean ENABLE_WARMUP_CONCURRENCY_HOOK = false;
-    private static final java.util.concurrent.atomic.AtomicInteger WARMUP_IN_FLIGHT =
-            new java.util.concurrent.atomic.AtomicInteger(0);
-    private static final java.util.concurrent.atomic.AtomicInteger WARMUP_MAX_IN_FLIGHT =
-            new java.util.concurrent.atomic.AtomicInteger(0);
+    private static final AtomicInteger WARMUP_IN_FLIGHT = new AtomicInteger(0);
+    private static final AtomicInteger WARMUP_MAX_IN_FLIGHT = new AtomicInteger(0);
 
     public static void enableWarmupConcurrencyTestHook(boolean enable) {
         ENABLE_WARMUP_CONCURRENCY_HOOK = enable;
@@ -199,9 +197,6 @@ public final class DiffService {
             // from a prior session load while preserving the computed diff data.
             CompletableFuture<List<Context.DiffEntry>> remappedFuture = e.getValue()
                     .thenApply(list -> {
-                        if (list == null) {
-                            return List.<Context.DiffEntry>of();
-                        }
                         List<Context.DiffEntry> out = new ArrayList<>(list.size());
                         for (var de : list) {
                             var oldFrag = de.fragment();
@@ -279,21 +274,6 @@ public final class DiffService {
     }
 
     public static final int DEFAULT_WARMUP_RECENT = 10;
-
-    /**
-     * Best-effort prefetch: triggers diff computation for all contexts with a predecessor.
-     *
-     * <p>Useful for warming up the cache with multiple contexts in parallel. Does not block the caller.
-     *
-     * @param contexts the list of contexts to prefetch diffs for
-     */
-    public void warmUp(List<Context> contexts) {
-        for (var c : contexts) {
-            if (history.previousOf(c) != null) {
-                diff(c);
-            }
-        }
-    }
 
     /**
      * Warm up diffs for the most recent contexts only, using a single coordinator task and bounded concurrency.

@@ -88,8 +88,7 @@ public class SessionManager implements AutoCloseable {
     private final Path sessionsDir;
     private final Map<UUID, SessionInfo> sessionsCache;
     // In-memory per-session diff cache snapshots, not persisted on disk.
-    private final ConcurrentHashMap<UUID, ai.brokk.context.DiffService.DiffCache> diffCachesBySession =
-            new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, DiffService.DiffCache> diffCachesBySession = new ConcurrentHashMap<>();
 
     public SessionManager(Path sessionsDir) {
         this.sessionsDir = sessionsDir;
@@ -731,7 +730,7 @@ public class SessionManager implements AutoCloseable {
      * Retrieve a previously saved diff cache snapshot for a session (in-memory only).
      */
     @Nullable
-    public ai.brokk.context.DiffService.DiffCache getDiffCache(UUID sessionId) {
+    public DiffService.DiffCache getDiffCache(UUID sessionId) {
         return diffCachesBySession.get(sessionId);
     }
 
