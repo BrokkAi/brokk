@@ -108,10 +108,6 @@ public final class DiffService {
     public static final class DiffCache extends ConcurrentHashMap<UUID, CompletableFuture<List<Context.DiffEntry>>> {
         private static final long serialVersionUID = 1L;
 
-        public DiffCache() {
-            super();
-        }
-
         public DiffCache(Map<UUID, CompletableFuture<List<Context.DiffEntry>>> src) {
             super(src);
         }
@@ -201,39 +197,48 @@ public final class DiffService {
             // Wrap the seeded future so that, when it completes, its DiffEntry fragments are remapped
             // to the active instances for this history (by fragment id). This avoids stale references
             // from a prior session load while preserving the computed diff data.
-            CompletableFuture<List<Context.DiffEntry>> remappedFuture = e.getValue().thenApply(list -> {
-                if (list == null) {
-                    return List.<Context.DiffEntry>of();
-                }
-                List<Context.DiffEntry> out = new ArrayList<>(list.size());
-                for (var de : list) {
-                    var oldFrag = de.fragment();
-                    var mapped = fragmentsById.get(oldFrag.id());
-                    out.add(mapped == null
-                            ? de
-                            : new Context.DiffEntry(
-                                    mapped, de.diff(), de.linesAdded(), de.linesDeleted(), de.oldContent(), de.newContent()));
-                }
-                return List.copyOf(out);
-            });
+            CompletableFuture<List<Context.DiffEntry>> remappedFuture = e.getValue()
+                    .thenApply(list -> {
+                        if (list == null) {
+                            return List.<Context.DiffEntry>of();
+                        }
+                        List<Context.DiffEntry> out = new ArrayList<>(list.size());
+                        for (var de : list) {
+                            var oldFrag = de.fragment();
+                            var mapped = fragmentsById.get(oldFrag.id());
+                            out.add(
+                                    mapped == null
+                                            ? de
+                                            : new Context.DiffEntry(
+                                                    mapped,
+                                                    de.diff(),
+                                                    de.linesAdded(),
+                                                    de.linesDeleted(),
+                                                    de.oldContent(),
+                                                    de.newContent()));
+                        }
+                        return List.copyOf(out);
+                    });
 
             // Defensive guard: if the seeded future never completes (e.g., was never scheduled),
             // resubmit a computation after a short delay and race the result.
             var prevCtx = history.previousOf(currentCtx);
             CompletableFuture<List<Context.DiffEntry>> fallbackFuture;
             if (prevCtx != null) {
-                var delayedExec =
-                        CompletableFuture.delayedExecutor(SEEDED_FUTURE_GUARD_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS, getOuterExecutorSafe());
-                fallbackFuture = CompletableFuture.supplyAsync(() -> {
-                    if (remappedFuture.isDone()) {
-                        try {
-                            return remappedFuture.join();
-                        } catch (Throwable t) {
-                            // fall through to recompute below on exceptional completion
-                        }
-                    }
-                    return computeDiff(currentCtx, prevCtx);
-                }, delayedExec);
+                var delayedExec = CompletableFuture.delayedExecutor(
+                        SEEDED_FUTURE_GUARD_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS, getOuterExecutorSafe());
+                fallbackFuture = CompletableFuture.supplyAsync(
+                        () -> {
+                            if (remappedFuture.isDone()) {
+                                try {
+                                    return remappedFuture.join();
+                                } catch (Throwable t) {
+                                    // fall through to recompute below on exceptional completion
+                                }
+                            }
+                            return computeDiff(currentCtx, prevCtx);
+                        },
+                        delayedExec);
             } else {
                 // No predecessor => diff is empty; provide a no-op fallback
                 fallbackFuture = CompletableFuture.completedFuture(List.of());
@@ -334,14 +339,13 @@ public final class DiffService {
                 () -> {
                     int concurrencyHint =
                             Math.max(1, Math.min(3, Runtime.getRuntime().availableProcessors() / 2));
-                    var fragmentExec = Executors.newFixedThreadPool(concurrencyHint, r -> {
+
+                    try (var fragmentExec = Executors.newFixedThreadPool(concurrencyHint, r -> {
                         var t = new Thread(r);
                         t.setDaemon(true);
                         t.setName("DiffWarmUp-" + t.threadId());
                         return t;
-                    });
-
-                    try {
+                    })) {
                         List<CompletableFuture<Void>> futures = new ArrayList<>(recent.size());
                         for (var ctx : recent) {
                             var prev = history.previousOf(ctx);
@@ -400,8 +404,6 @@ public final class DiffService {
                         }
                         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                                 .join();
-                    } finally {
-                        fragmentExec.shutdown();
                     }
                 },
                 outerExec);
