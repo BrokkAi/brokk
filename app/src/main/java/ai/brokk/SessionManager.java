@@ -485,6 +485,7 @@ public class SessionManager implements AutoCloseable {
      * Counts AI responses for a session without loading full history.
      * This is much faster than loadHistory() for just getting the count.
      */
+    @Blocking
     public int countAiResponses(UUID sessionId) {
         var zipPath = getSessionHistoryPath(sessionId);
         try {
