@@ -11,6 +11,7 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -37,6 +38,8 @@ public final class DiffService {
     private final ContextHistory history;
     private final IContextManager cm;
     private final ConcurrentHashMap<UUID, CompletableFuture<List<Context.DiffEntry>>> cache = new ConcurrentHashMap<>();
+    // Generation token to invalidate/bounce warm-up tasks and cache writes after session switches.
+    private final AtomicLong generation = new AtomicLong(0);
 
     /**
      * A snapshot container for diff cache entries keyed by context id.
@@ -143,91 +146,105 @@ public final class DiffService {
         }
     }
 
-    /**
-     * Warm up diffs for the most recent contexts only, using a single coordinator task and bounded concurrency.
-     * This avoids scheduling one background task per context on the global executor.
-     *
-     * @param max maximum number of most recent contexts (with a predecessor) to warm up
-     */
-    public void warmUpRecent(int max) {
-        if (max <= 0) {
-            return;
-        }
-        var contexts = history.getHistory();
-        if (contexts.size() <= 1) {
-            return;
-        }
-
-        // Collect up to `max` most recent contexts that have a predecessor.
-        var recent = new ArrayList<Context>(Math.min(max, contexts.size()));
-        for (int i = contexts.size() - 1; i >= 0 && recent.size() < max; i--) {
-            var c = contexts.get(i);
-            if (history.previousOf(c) != null) {
-                recent.add(c);
-            }
-        }
-        if (recent.isEmpty()) {
-            return;
-        }
-
-        // Single coordinator task; bounded concurrency inside with a small local executor.
-        cm.submitBackgroundTask("Warm up diffs (recent " + recent.size() + ")", () -> {
-            int concurrencyHint = Math.max(1, Math.min(3, Runtime.getRuntime().availableProcessors() / 2));
-            var exec = java.util.concurrent.Executors.newFixedThreadPool(concurrencyHint, r -> {
-                var t = new Thread(r);
-                t.setDaemon(true);
-                t.setName("DiffWarmUp-" + t.threadId());
-                return t;
-            });
-
-            try {
-                List<CompletableFuture<Void>> futures = new ArrayList<>(recent.size());
-                for (var ctx : recent) {
-                    var prev = history.previousOf(ctx);
-                    if (prev == null) {
-                        continue;
-                    }
-                    // Use local bounded executor to compute diffs and seed the cache without creating
-                    // one global background task per context.
-                    var f = CompletableFuture.runAsync(() -> {
-                        try {
-                            var result = computeDiff(ctx, prev);
-                            cache.compute(ctx.id(), (id, existing) -> {
-                                if (existing == null) {
-                                    var cf = new CompletableFuture<List<Context.DiffEntry>>();
-                                    cf.complete(result);
-                                    return cf;
-                                } else {
-                                    if (!existing.isDone()) {
-                                        existing.complete(result);
-                                    }
-                                    return existing;
-                                }
-                            });
-                        } catch (Throwable t) {
-                            cache.compute(ctx.id(), (id, existing) -> {
-                                if (existing == null) {
-                                    var cf = new CompletableFuture<List<Context.DiffEntry>>();
-                                    cf.completeExceptionally(t);
-                                    return cf;
-                                } else {
-                                    if (!existing.isDone()) {
-                                        existing.completeExceptionally(t);
-                                    }
-                                    return existing;
-                                }
-                            });
-                        }
-                    }, exec);
-                    futures.add(f);
-                }
-                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-                return null;
-            } finally {
-                exec.shutdown();
-            }
-        });
+/**
+ * Warm up diffs for the most recent contexts only, using a single coordinator task and bounded concurrency.
+ * This avoids scheduling one background task per context on the global executor.
+ *
+ * @param max maximum number of most recent contexts (with a predecessor) to warm up
+ */
+public void warmUpRecent(int max) {
+    if (max <= 0) {
+        return;
     }
+    var contexts = history.getHistory();
+    if (contexts.size() <= 1) {
+        return;
+    }
+
+    // Collect up to `max` most recent contexts that have a predecessor.
+    var recent = new ArrayList<Context>(Math.min(max, contexts.size()));
+    for (int i = contexts.size() - 1; i >= 0 && recent.size() < max; i--) {
+        var c = contexts.get(i);
+        if (history.previousOf(c) != null) {
+            recent.add(c);
+        }
+    }
+    if (recent.isEmpty()) {
+        return;
+    }
+
+    // Capture current generation to guard against staleness.
+    final long genAtSchedule = generation.get();
+
+    // Single coordinator task; bounded concurrency inside with a small local executor.
+    cm.submitBackgroundTask("Warm up diffs (recent " + recent.size() + ")", () -> {
+        int concurrencyHint = Math.max(1, Math.min(3, Runtime.getRuntime().availableProcessors() / 2));
+        var exec = java.util.concurrent.Executors.newFixedThreadPool(concurrencyHint, r -> {
+            var t = new Thread(r);
+            t.setDaemon(true);
+            t.setName("DiffWarmUp-" + t.threadId());
+            return t;
+        });
+
+        try {
+            List<CompletableFuture<Void>> futures = new ArrayList<>(recent.size());
+            for (var ctx : recent) {
+                var prev = history.previousOf(ctx);
+                if (prev == null) {
+                    continue;
+                }
+                var f = CompletableFuture.runAsync(() -> {
+                    // Early exit if invalidated before starting this unit of work
+                    if (generation.get() != genAtSchedule) {
+                        return;
+                    }
+                    try {
+                        var result = computeDiff(ctx, prev);
+
+                        // Skip cache write if this work became stale.
+                        if (generation.get() != genAtSchedule) {
+                            return;
+                        }
+
+                        cache.compute(ctx.id(), (id, existing) -> {
+                            if (existing == null) {
+                                var cf = new CompletableFuture<List<Context.DiffEntry>>();
+                                cf.complete(result);
+                                return cf;
+                            } else {
+                                if (!existing.isDone()) {
+                                    existing.complete(result);
+                                }
+                                return existing;
+                            }
+                        });
+                    } catch (Throwable t) {
+                        if (generation.get() != genAtSchedule) {
+                            return;
+                        }
+                        cache.compute(ctx.id(), (id, existing) -> {
+                            if (existing == null) {
+                                var cf = new CompletableFuture<List<Context.DiffEntry>>();
+                                cf.completeExceptionally(t);
+                                return cf;
+                            } else {
+                                if (!existing.isDone()) {
+                                    existing.completeExceptionally(t);
+                                }
+                                return existing;
+                            }
+                        });
+                    }
+                }, exec);
+                futures.add(f);
+            }
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+            return null;
+        } finally {
+            exec.shutdown();
+        }
+    });
+}
 
     /**
      * Clears all cached diff entries.
@@ -236,6 +253,22 @@ public final class DiffService {
      */
     public void clear() {
         cache.clear();
+    }
+
+    /**
+     * Invalidates any in-flight warm-up by bumping the generation and clearing cache state.
+     * Stale warm-up workers will skip cache writes after this is invoked.
+     */
+    public void invalidate() {
+        generation.incrementAndGet();
+        clear();
+    }
+
+    /**
+     * Alias for invalidate; provided for lifecycle symmetry.
+     */
+    public void close() {
+        invalidate();
     }
 
     /**

@@ -313,4 +313,87 @@ class DiffServiceTest {
         assertTrue(peeked.isPresent(), "Seeded cache should allow peek to hit without recompute");
         assertFalse(peeked.get().isEmpty(), "Seeded diff should not be empty");
     }
+
+    @Test
+    void warmup_stale_tasks_do_not_populate_cache_after_invalidate() throws Exception {
+        class SlowFragment extends ContextFragment.AbstractComputedFragment implements ContextFragment.DynamicIdentity {
+            private final ContextFragment.FragmentType type;
+
+            SlowFragment(
+                    String id,
+                    IContextManager cm,
+                    @Nullable ContextFragment.FragmentSnapshot snapshot,
+                    @Nullable Callable<ContextFragment.FragmentSnapshot> task,
+                    ContextFragment.FragmentType type) {
+                super(id, cm, snapshot, task);
+                this.type = type;
+            }
+
+            @Override
+            public ContextFragment.FragmentType getType() {
+                return type;
+            }
+
+            @Override
+            public boolean isEligibleForAutoContext() {
+                return true;
+            }
+
+            @Override
+            public String repr() {
+                return "SlowFragment";
+            }
+
+            @Override
+            public ContextFragment refreshCopy() {
+                return this;
+            }
+        }
+
+        var oldSnap = new ContextFragment.FragmentSnapshot(
+                "desc", "desc", "old", SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), Set.of(), (List<Byte>) null);
+        var newSnap = new ContextFragment.FragmentSnapshot(
+                "desc", "desc", "new", SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), Set.of(), (List<Byte>) null);
+
+        var latch = new CountDownLatch(1);
+
+        var oldFrag = new SlowFragment("S1", contextManager, oldSnap, null, ContextFragment.FragmentType.PROJECT_PATH);
+        var newFrag = new SlowFragment(
+                "S1",
+                contextManager,
+                null,
+                () -> {
+                    // delay until we invalidate warm-up
+                    latch.await();
+                    return newSnap;
+                },
+                ContextFragment.FragmentType.PROJECT_PATH);
+
+        var ctx1 = new Context(
+                contextManager, List.of(oldFrag), List.of(), null, CompletableFuture.completedFuture("old"));
+        var history = new ContextHistory(ctx1);
+
+        var ctx2 = new Context(
+                contextManager, List.of(newFrag), List.of(), null, CompletableFuture.completedFuture("new"));
+        history.pushContext(ctx2);
+
+        var ds = history.getDiffService();
+
+        ds.warmUpRecent(5);
+        // Invalidate before releasing the latch so warm-up tasks become stale
+        ds.invalidate();
+        latch.countDown();
+
+        // Give warm-up threads a brief moment to finish
+        Thread.sleep(150);
+
+        // Stale warm-up must not populate the cache
+        assertTrue(ds.peek(ctx2).isEmpty(), "Stale warm-up should not populate cache after invalidate");
+
+        // On-demand diff should still compute and populate
+        var diffs = ds.diff(ctx2).join();
+        assertNotNull(diffs);
+        assertFalse(diffs.isEmpty(), "On-demand diff should compute after invalidate");
+        assertTrue(ds.peek(ctx2).isPresent(), "After on-demand computation, diff should be cached");
+    }
 }
