@@ -42,14 +42,8 @@ public final class HeadlessExecutorMain {
     private static final Logger logger = LogManager.getLogger(HeadlessExecutorMain.class);
 
     // Valid argument keys that the application accepts
-    private static final Set<String> VALID_ARGS = Set.of(
-            "exec-id",
-            "listen-addr",
-            "auth-token",
-            "workspace-dir",
-            "brokk-api-key",
-            "proxy-setting",
-            "help");
+    private static final Set<String> VALID_ARGS =
+            Set.of("exec-id", "listen-addr", "auth-token", "workspace-dir", "brokk-api-key", "proxy-setting", "help");
 
     private final UUID execId;
     private final SimpleHttpServer server;
