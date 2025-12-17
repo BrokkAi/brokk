@@ -299,6 +299,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
             contextHistory = loadedCH;
         }
 
+        // Seed any previously saved diff cache and warm-up after seeding
+        var cache = sessionManager.getDiffCache(currentSessionId);
+        if (cache != null) {
+            var ids = contextHistory.getHistory().stream().map(Context::id).collect(Collectors.toSet());
+            contextHistory.getDiffService().seedFrom(cache, ids);
+        }
+        contextHistory.getDiffService().warmUpRecent(ai.brokk.context.DiffService.DEFAULT_WARMUP_RECENT);
+
         // make it official
         updateActiveSession(currentSessionId);
 
@@ -2543,8 +2551,22 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (loadedCh == null) {
             io.toolError("Error while loading history for session '%s'.".formatted(sessionName));
         } else {
+            // Persist old cache snapshot before switching
+            if (contextHistory != null) {
+                var oldCache = contextHistory.getDiffService().snapshot();
+                sessionManager.saveDiffCache(currentSessionId, oldCache);
+            }
+
             updateActiveSession(sessionId); // Mark as active
             contextHistory = loadedCh;
+
+            // Seed diff cache for the new session, then warm up
+            var cache = sessionManager.getDiffCache(sessionId);
+            if (cache != null) {
+                var ids = contextHistory.getHistory().stream().map(Context::id).collect(Collectors.toSet());
+                contextHistory.getDiffService().seedFrom(cache, ids);
+            }
+            contextHistory.getDiffService().warmUpRecent(ai.brokk.context.DiffService.DEFAULT_WARMUP_RECENT);
 
             // Activate session: migrate legacy tasks then notify UI on EDT
             finalizeSessionActivation(sessionId);

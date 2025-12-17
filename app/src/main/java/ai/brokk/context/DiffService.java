@@ -38,6 +38,22 @@ public final class DiffService {
     private final IContextManager cm;
     private final ConcurrentHashMap<UUID, CompletableFuture<List<Context.DiffEntry>>> cache = new ConcurrentHashMap<>();
 
+    /**
+     * A snapshot container for diff cache entries keyed by context id.
+     * Values are the same futures used by this DiffService; intended for in-memory reuse across session switches.
+     */
+    public static final class DiffCache extends ConcurrentHashMap<UUID, CompletableFuture<List<Context.DiffEntry>>> {
+        private static final long serialVersionUID = 1L;
+
+        public DiffCache() {
+            super();
+        }
+
+        public DiffCache(Map<UUID, CompletableFuture<List<Context.DiffEntry>>> src) {
+            super(src);
+        }
+    }
+
     DiffService(ContextHistory history) {
         this.history = history;
         this.cm = history.liveContext().getContextManager();
@@ -58,6 +74,32 @@ public final class DiffService {
             return Optional.ofNullable(cf.getNow(null));
         }
         return Optional.empty();
+    }
+
+    /**
+     * Returns a shallow snapshot of the internal cache suitable for reuse within the same JVM.
+     * Futures are not duplicated; references are carried over.
+     */
+    public DiffCache snapshot() {
+        return new DiffCache(cache);
+    }
+
+    /**
+     * Seed this service's cache from a previously captured snapshot. Only entries whose ids are present in allowedIds
+     * are seeded. Existing entries are not overwritten.
+     *
+     * @param snapshot a non-null snapshot
+     * @param allowedIds the set of context ids valid for the current history
+     */
+    public void seedFrom(DiffCache snapshot, Set<UUID> allowedIds) {
+        if (snapshot == null || snapshot.isEmpty() || allowedIds.isEmpty()) {
+            return;
+        }
+        for (var e : snapshot.entrySet()) {
+            var id = e.getKey();
+            if (!allowedIds.contains(id)) continue;
+            cache.putIfAbsent(id, e.getValue());
+        }
     }
 
     /**

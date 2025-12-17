@@ -277,4 +277,40 @@ class DiffServiceTest {
             Files.deleteIfExists(tempFile);
         }
     }
+
+    @Test
+    void seed_snapshot_allows_peek_without_recompute() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Seed.txt");
+        Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "a\n");
+
+        var frag1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        frag1.text().await(Duration.ofSeconds(2));
+        var ctx1 = new Context(
+                contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("Initial"));
+
+        var history1 = new ContextHistory(ctx1);
+
+        Files.writeString(pf.absPath(), "a\nb\n");
+        var frag2 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var ctx2 = new Context(
+                contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("Updated"));
+        history1.pushContext(ctx2);
+
+        // Compute and snapshot from first history/service
+        history1.getDiffService().diff(ctx2).join();
+        var snapshot = history1.getDiffService().snapshot();
+
+        // Create a fresh history and seed before any warm-up
+        var history2 = new ContextHistory(ctx1);
+        history2.pushContext(ctx2);
+
+        var ids = history2.getHistory().stream().map(Context::id).collect(java.util.stream.Collectors.toSet());
+        history2.getDiffService().seedFrom(snapshot, ids);
+
+        // Peek should hit cache immediately without recomputation
+        var peeked = history2.getDiffService().peek(ctx2);
+        assertTrue(peeked.isPresent(), "Seeded cache should allow peek to hit without recompute");
+        assertFalse(peeked.get().isEmpty(), "Seeded diff should not be empty");
+    }
 }
