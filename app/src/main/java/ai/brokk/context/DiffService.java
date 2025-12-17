@@ -9,12 +9,7 @@ import ai.brokk.project.MainProject;
 import ai.brokk.util.ContentDiffUtils;
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
@@ -50,7 +45,7 @@ public final class DiffService {
     // Warm-up throttle: bound concurrent per-fragment diff computations during warm-up only.
     // Value is read from MainProject.getDiffWarmupConcurrency() when this service is constructed.
     private final int warmupFragmentConcurrency;
-    private final java.util.concurrent.Semaphore warmupFragmentSemaphore;
+    private final Semaphore warmupFragmentSemaphore;
 
     // Instrumentation counters (per DiffService instance)
     private final AtomicLong warmupBatchesStarted = new AtomicLong(0);
