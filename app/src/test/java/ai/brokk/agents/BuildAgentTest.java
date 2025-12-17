@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Predicate;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.Test;
@@ -286,5 +287,47 @@ class BuildAgentTest {
         String result = BuildAgent.interpolateMustacheTemplate(template, modules, "modules", "");
 
         assertEquals("uv run tests.e2e", result);
+    }
+
+    @Test
+    void testReportBuildDetailsPreservesExistingPatterns(@TempDir Path tempDir) throws Exception {
+        // Create a project with existing exclusion patterns
+        Files.createDirectory(tempDir.resolve("src"));
+        Files.createDirectory(tempDir.resolve("build"));
+        var testProject = new ai.brokk.testutil.TestProject(tempDir);
+        testProject.setExclusionPatterns(Set.of("*.svg", "*.png", "build"));
+
+        // Create a BuildAgent - we don't need LLM for this test
+        var agent = new BuildAgent(testProject, null, null);
+
+        // Call reportBuildDetails with new patterns from "LLM"
+        // This simulates what happens when BuildAgent runs again
+        agent.reportBuildDetails(
+                "mvn compile",
+                "mvn test",
+                "mvn test -Dtest={{#classes}}{{value}}{{/classes}}",
+                List.of("target"), // LLM suggests target directory
+                List.of("*.gif") // LLM suggests gif pattern
+                );
+
+        // Verify existing patterns are preserved AND new patterns are added
+        var reportedDetails = agent.getReportedDetails();
+        assert reportedDetails != null;
+        var finalPatterns = reportedDetails.exclusionPatterns();
+
+        // Existing patterns should be preserved
+        assertTrue(finalPatterns.contains("*.svg"), "Existing *.svg pattern should be preserved");
+        assertTrue(finalPatterns.contains("*.png"), "Existing *.png pattern should be preserved");
+        assertTrue(finalPatterns.contains("build"), "Existing build pattern should be preserved");
+
+        // New LLM patterns should be added
+        assertTrue(finalPatterns.contains("*.gif"), "New *.gif pattern should be added");
+        // Note: target directory is filtered out because it doesn't exist in tempDir
+
+        // Verify llmAddedPatterns only contains patterns from this run
+        var llmPatterns = agent.getLlmAddedPatterns();
+        assertTrue(llmPatterns.contains("*.gif"), "LLM patterns should include *.gif");
+        assertFalse(llmPatterns.contains("*.svg"), "LLM patterns should NOT include existing *.svg");
+        assertFalse(llmPatterns.contains("build"), "LLM patterns should NOT include existing build");
     }
 }

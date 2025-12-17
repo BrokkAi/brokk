@@ -103,6 +103,15 @@ public class BuildAgent {
     }
 
     /**
+     * Returns the details reported by the tool, for testing only.
+     */
+    @VisibleForTesting
+    @Nullable
+    BuildDetails getReportedDetails() {
+        return reportedDetails;
+    }
+
+    /**
      * Execute the build information gathering process.
      *
      * @return The gathered BuildDetails record, or EMPTY if the process fails or is interrupted.
@@ -333,16 +342,19 @@ public class BuildAgent {
                 A baseline set of excluded directories has been established from build conventions and .gitignore: %s
                 When you use `reportBuildDetails`, the `excludedDirectories` parameter should contain *additional* directories
                 you identify that should be excluded from code intelligence, beyond this baseline.
-                IMPORTANT: Only provide literal directory names. DO NOT use glob patterns (e.g., "**/target", "**/.idea"),
-                these are already handled by .gitignore processing.
+                IMPORTANT:
+                - Only suggest directories that ACTUALLY EXIST in this project - verify before including
+                - Only provide literal directory names. DO NOT use glob patterns (e.g., "**/target", "**/.idea"),
+                  these are already handled by .gitignore processing.
 
                 Use the `excludedFilePatterns` parameter to specify patterns for files that add cost without value.
                 IMPORTANT pattern format rules:
+                - Only suggest patterns for files that ACTUALLY EXIST in this project
                 - For file extensions, use simple `*.ext` format (e.g., `*.svg`, `*.png`) - do NOT use `**/*.ext`
                 - For specific filenames, use the literal name (e.g., `package-lock.json`) - do NOT use `**/filename`
                 - Do NOT duplicate directories here - if a directory is in `excludedDirectories`, don't add it as a pattern
 
-                Common file pattern exclusions (only include if present in this project):
+                Common file pattern exclusions (only include if files with these extensions exist in this project):
                 - Lock files: package-lock.json, yarn.lock, pnpm-lock.yaml
                 - Binary/media files: *.svg, *.png, *.gif, *.jpg, *.woff, *.ttf
                 - Minified files: *.min.js, *.min.css
@@ -394,11 +406,20 @@ public class BuildAgent {
 
         // Only store LLM-suggested patterns, NOT the gitignore baseline
         // Gitignore exclusions are handled separately by FileFilteringService
+        // Also filter out directories that don't actually exist
+        var projectRoot = project.getRoot();
         var llmDirPatterns = excludedDirectories.stream()
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .filter(s -> !containsGlobPattern(s))
                 .map(s -> Path.of(s).normalize().toString())
+                .filter(s -> {
+                    var exists = Files.isDirectory(projectRoot.resolve(s));
+                    if (!exists) {
+                        logger.debug("Filtering out non-existent directory: {}", s);
+                    }
+                    return exists;
+                })
                 .collect(Collectors.toSet());
 
         var filePatterns = excludedFilePatterns.stream()
@@ -406,16 +427,24 @@ public class BuildAgent {
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.toSet());
 
-        logger.debug("Processed LLM dirExcludes: {}", llmDirPatterns);
+        logger.debug("Processed LLM dirExcludes (verified existing): {}", llmDirPatterns);
         logger.debug("Processed filePatterns: {}", filePatterns);
 
-        // Only LLM patterns go into exclusionPatterns (gitignore handles baseline)
+        // Load existing user-added patterns and merge with LLM suggestions
+        // This preserves patterns the user added manually in the UI
+        var existingPatterns = project.getExclusionPatterns();
+        logger.debug("Existing user patterns (will be preserved): {}", existingPatterns);
+
+        // Merge: existing patterns + LLM suggestions (gitignore handled separately)
         var finalPatterns = new LinkedHashSet<String>();
+        finalPatterns.addAll(existingPatterns);
         finalPatterns.addAll(llmDirPatterns);
         finalPatterns.addAll(filePatterns);
-        this.llmAddedPatterns = finalPatterns;
+        this.llmAddedPatterns = new LinkedHashSet<>(llmDirPatterns);
+        this.llmAddedPatterns.addAll(filePatterns);
 
-        logger.debug("Final exclusionPatterns (LLM only): {}", finalPatterns);
+        logger.debug("Final exclusionPatterns (existing + LLM): {}", finalPatterns);
+        logger.debug("New patterns from this LLM run: {}", llmAddedPatterns);
         this.reportedDetails = new BuildDetails(
                 buildLintCommand, testAllCommand, testSomeCommand, finalPatterns, defaultEnvForProject());
         logger.debug("reportBuildDetails tool executed. Exclusion patterns: {}", finalPatterns);

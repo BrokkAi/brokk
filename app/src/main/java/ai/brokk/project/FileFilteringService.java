@@ -303,7 +303,7 @@ public final class FileFilteringService {
             }
 
             if (Files.exists(globalIgnore)) {
-                logger.debug("Using global gitignore from core.excludesfile: {}", globalIgnore);
+                logger.trace("Using global gitignore from core.excludesfile: {}", globalIgnore);
                 return Optional.of(globalIgnore);
             }
         }
@@ -311,13 +311,13 @@ public final class FileFilteringService {
         File userHome = FS.DETECTED.userHome();
         Path xdgIgnore = userHome.toPath().resolve(".config/git/ignore");
         if (Files.exists(xdgIgnore)) {
-            logger.debug("Using global gitignore from XDG location: {}", xdgIgnore);
+            logger.trace("Using global gitignore from XDG location: {}", xdgIgnore);
             return Optional.of(xdgIgnore);
         }
 
         Path legacyIgnore = userHome.toPath().resolve(".gitignore_global");
         if (Files.exists(legacyIgnore)) {
-            logger.debug("Using global gitignore from legacy location: {}", legacyIgnore);
+            logger.trace("Using global gitignore from legacy location: {}", legacyIgnore);
             return Optional.of(legacyIgnore);
         }
 
