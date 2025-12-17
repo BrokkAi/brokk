@@ -41,6 +41,10 @@ import org.jetbrains.annotations.Nullable;
 public final class HeadlessExecutorMain {
     private static final Logger logger = LogManager.getLogger(HeadlessExecutorMain.class);
 
+    // Valid argument keys that the application accepts
+    private static final Set<String> VALID_ARGS =
+            Set.of("exec-id", "listen-addr", "auth-token", "workspace-dir", "brokk-api-key", "proxy-setting", "help");
+
     private final UUID execId;
     private final SimpleHttpServer server;
     private final ContextManager contextManager;
@@ -52,13 +56,19 @@ public final class HeadlessExecutorMain {
     // Used to gate /health/ready until the first session is available.
     private volatile boolean sessionLoaded = false;
 
+    /**
+     * Result of parsing command-line arguments, including both parsed args and invalid keys.
+     */
+    private record ParseArgsResult(Map<String, String> args, Set<String> invalidKeys) {}
+
     /*
      * Parse command-line arguments into a map of normalized keys to values.
      * Supports both --key value and --key=value forms.
-     * Normalized keys: exec-id, listen-addr, auth-token, workspace-dir, sessions-dir.
+     * Returns both valid parsed args and any unrecognized keys found.
      */
-    private static Map<String, String> parseArgs(String[] args) {
+    private static ParseArgsResult parseArgs(String[] args) {
         var result = new HashMap<String, String>();
+        var invalidKeys = new HashSet<String>();
         for (int i = 0; i < args.length; i++) {
             var arg = args[i];
             if (arg.startsWith("--")) {
@@ -81,11 +91,15 @@ public final class HeadlessExecutorMain {
                     }
                 }
 
-                // Normalize the key
-                result.put(key, value);
+                // Track invalid keys
+                if (!VALID_ARGS.contains(key)) {
+                    invalidKeys.add(key);
+                } else {
+                    result.put(key, value);
+                }
             }
         }
-        return result;
+        return new ParseArgsResult(result, invalidKeys);
     }
 
     /*
@@ -99,6 +113,54 @@ public final class HeadlessExecutorMain {
             return argValue;
         }
         return System.getenv(envVarName);
+    }
+
+    /**
+     * Create a copy of the parsed arguments map with sensitive values redacted.
+     * Sensitive keys include: auth-token, brokk-api-key
+     *
+     * @param parsedArgs the original parsed arguments map
+     * @return a new map with sensitive values replaced with [REDACTED]
+     */
+    private static Map<String, String> redactSensitiveArgs(Map<String, String> parsedArgs) {
+        var redacted = new HashMap<>(parsedArgs);
+        if (redacted.containsKey("auth-token")) {
+            redacted.put("auth-token", "[REDACTED]");
+        }
+        if (redacted.containsKey("brokk-api-key")) {
+            redacted.put("brokk-api-key", "[REDACTED]");
+        }
+        return redacted;
+    }
+
+    /**
+     * Print usage/help information and exit.
+     * If invalidArgs is non-empty, prints an error message first and exits with code 1.
+     * If invalidArgs is empty, prints help and exits with code 0.
+     */
+    private static void printUsageAndExit(Set<String> invalidArgs) {
+        if (!invalidArgs.isEmpty()) {
+            System.err.println("Error: Unknown argument(s): "
+                    + invalidArgs.stream().map(arg -> "--" + arg).collect(Collectors.joining(", ")));
+            System.err.println();
+        }
+
+        System.out.println("Usage: java HeadlessExecutorMain [options]");
+        System.out.println();
+        System.out.println("Options:");
+        System.out.println("  --exec-id <uuid>           Executor UUID (required)");
+        System.out.println("  --listen-addr <host:port>  Address to listen on (required)");
+        System.out.println("  --auth-token <token>       Authentication token (required)");
+        System.out.println("  --workspace-dir <path>     Path to workspace directory (required)");
+        System.out.println("  --brokk-api-key <key>      Brokk API key override (optional)");
+        System.out.println("  --proxy-setting <setting>  LLM proxy: BROKK, LOCALHOST, STAGING (optional)");
+        System.out.println("  --help                     Show this help message");
+        System.out.println();
+        System.out.println("Arguments can also be provided via environment variables:");
+        System.out.println("  EXEC_ID, LISTEN_ADDR, AUTH_TOKEN, WORKSPACE_DIR, BROKK_API_KEY, PROXY_SETTING");
+        System.out.println();
+
+        System.exit(invalidArgs.isEmpty() ? 0 : 1);
     }
 
     public HeadlessExecutorMain(UUID execId, String listenAddr, String authToken, ContextManager contextManager)
@@ -1497,8 +1559,27 @@ public final class HeadlessExecutorMain {
 
     public static void main(String[] args) {
         try {
-            // Parse command-line arguments
-            var parsedArgs = parseArgs(args);
+            // Parse command-line arguments and validate them
+            var parseResult = parseArgs(args);
+            var parsedArgs = parseResult.args();
+            var invalidKeys = parseResult.invalidKeys();
+
+            // Log parsed arguments (with sensitive values redacted) early for debugging
+            var redactedArgs = redactSensitiveArgs(parsedArgs);
+            var argsDisplay = redactedArgs.entrySet().stream()
+                    .map(e -> e.getKey() + "=" + e.getValue())
+                    .collect(Collectors.joining(", "));
+            logger.info("Parsed arguments: {}", argsDisplay);
+            System.out.println("Parsed arguments: {" + argsDisplay + "}");
+
+            // Check for help flag or invalid arguments
+            if (parsedArgs.containsKey("help")) {
+                printUsageAndExit(Set.of());
+            }
+
+            if (!invalidKeys.isEmpty()) {
+                printUsageAndExit(invalidKeys);
+            }
 
             // Get configuration from args or environment
             var execIdStr = getConfigValue(parsedArgs, "exec-id", "EXEC_ID");

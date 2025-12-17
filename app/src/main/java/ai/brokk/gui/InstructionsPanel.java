@@ -1620,7 +1620,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (selectedModel == null) {
             chrome.toolError("Selected model '" + config.name() + "' is not available with reasoning level "
                     + config.reasoning());
-            var fallbackModel = models.getModel(Service.GPT_5_MINI);
+            var fallbackModel = models.getModel(ModelProperties.GPT_5_MINI);
             if (fallbackModel != null) {
                 selectedModel = fallbackModel;
             }

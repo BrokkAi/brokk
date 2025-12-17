@@ -35,6 +35,41 @@ public final class GitHubErrorUtil {
     }
 
     /**
+     * Checks if the exception chain represents the GitHub PR validation error
+     * "No commits between &lt;base&gt; and &lt;head&gt;" (HTTP 422).
+     *
+     * <p>This is a best-effort heuristic based on substring matching. GitHub's API
+     * does not expose structured error codes for this condition.
+     */
+    public static boolean isNoCommitsBetweenError(@Nullable Throwable cause) {
+        while (cause != null) {
+            if (cause instanceof HttpException httpEx) {
+                if (httpEx.getResponseCode() == 422) {
+                    var msg = httpEx.getMessage();
+                    if (msg != null && msg.toLowerCase(Locale.ROOT).contains("no commits between")) {
+                        return true;
+                    }
+                }
+            }
+            cause = cause.getCause();
+        }
+        return false;
+    }
+
+    /**
+     * Formats a user-friendly message for a "no commits between" pull request validation error.
+     */
+    public static String formatNoCommitsBetweenError(String baseBranch, String headBranch) {
+        return "GitHub reports no commits to include in a pull request between '"
+                + headBranch
+                + "' and '"
+                + baseBranch
+                + "'. Make new commits on '"
+                + headBranch
+                + "', push them to GitHub, or select a different target branch.";
+    }
+
+    /**
      * Formats a GitHub API error for display to users.
      * Returns a user-friendly message for rate limits, or a generic error with the exception message.
      */
