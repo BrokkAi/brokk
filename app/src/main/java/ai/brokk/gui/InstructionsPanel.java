@@ -494,7 +494,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 e -> chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of()));
         tokenUsageBarPopupMenu.add(pasteMenuItem);
 
-        chrome.getThemeManager().registerPopupMenu(tokenUsageBarPopupMenu);
+        SwingUtilities.invokeLater(() -> {
+            // invokeLater postpones this until chrome finishes initializing themeManager
+            chrome.getThemeManager().registerPopupMenu(tokenUsageBarPopupMenu);
+        });
 
         this.contextAreaContainer = createContextAreaContainer();
         // Top Bar (History, Configure Models, Stop) (North)

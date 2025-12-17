@@ -2889,8 +2889,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Propagate theme to child output area
         llmStreamArea.applyTheme(guiTheme);
         // Propagate to aggregated Changes panel (BrokkDiffPanel implements ThemeAware)
-        if (aggregatedChangesPanel instanceof ThemeAware ta) {
-            ta.applyTheme(guiTheme);
+        if (aggregatedChangesPanel != null) {
+            aggregatedChangesPanel.applyTheme(guiTheme);
         }
 
         // Recompute the Changes tab title colors to match the new theme if we have a computed summary
@@ -3311,7 +3311,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             changesToCommitButton.addActionListener(e -> {
                 SwingUtilities.invokeLater(() -> {
                     var content = new GitCommitTab(chrome, contextManager);
-                    content.updateCommitPanel();
+                    content.requestUpdate();
 
                     var dialog = new BaseThemedDialog(chrome.getFrame(), "Changes");
                     dialog.setDefaultCloseOperation(BaseThemedDialog.DISPOSE_ON_CLOSE);
@@ -3334,7 +3334,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             requestDiffUpdate();
                             var commitTab = chrome.getGitCommitTab();
                             if (commitTab != null) {
-                                commitTab.updateCommitPanel();
+                                commitTab.requestUpdate();
                             }
                         }
                     });
