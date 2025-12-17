@@ -497,9 +497,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
 
         // Remote branch context menu
         JPopupMenu remoteBranchContextMenu = new JPopupMenu();
-        SwingUtilities.invokeLater(() -> {
-            chrome.getTheme().registerPopupMenu(remoteBranchContextMenu);
-        });
+        chrome.getTheme().registerPopupMenu(remoteBranchContextMenu);
         JMenuItem remoteCheckoutItem = new JMenuItem("Checkout");
         JMenuItem remoteNewBranchItem = new JMenuItem("New Branch From This");
         JMenuItem remoteMergeItem = new JMenuItem(); // text set dynamically
