@@ -443,11 +443,11 @@ public class Context {
                                 "Could not get mtime for editable file [{}], it will be excluded from ordered editable fragments.",
                                 pf.shortDescription().renderNowOr(toString()),
                                 e);
-                        return new EditableFileWithMtime(pf, -1L);
+                        // sort does-not-exist to the end of the list (it may be more likely to be edited)
+                        return new EditableFileWithMtime(pf, Long.MAX_VALUE);
                     }
                     return new EditableFileWithMtime(pf, mtime);
                 })
-                .filter(mf -> mf.mtime() >= 0)
                 .sorted(Comparator.comparingLong(EditableFileWithMtime::mtime))
                 .map(EditableFileWithMtime::fragment);
 

@@ -432,7 +432,7 @@ public class ContextHistoryTest {
                     id,
                     cm,
                     new ContextFragment.FragmentSnapshot(
-                            "Mock Usage", "Usage", text, "text", Set.of(), Set.of(), (byte[]) null));
+                            "Mock Usage", "Usage", text, "text", Set.of(), Set.of(), (List<Byte>) null, true));
         }
 
         @Override

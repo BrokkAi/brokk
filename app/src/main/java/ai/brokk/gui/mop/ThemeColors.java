@@ -126,6 +126,9 @@ public class ThemeColors {
     public static final String CHIP_NEUTRAL_BACKGROUND = "chip_neutral_bg";
     public static final String CHIP_NEUTRAL_FOREGROUND = "chip_neutral_fg";
     public static final String CHIP_NEUTRAL_BORDER = "chip_neutral_border";
+    public static final String CHIP_INVALID_BACKGROUND = "chip_invalid_bg";
+    public static final String CHIP_INVALID_FOREGROUND = "chip_invalid_fg";
+    public static final String CHIP_INVALID_BORDER = "chip_invalid_border";
 
     // Extended palette colors for modern visuals (gradients, transparency, overlays)
     public static final String ACCENT_GRADIENT_START = "accent_gradient_start";
