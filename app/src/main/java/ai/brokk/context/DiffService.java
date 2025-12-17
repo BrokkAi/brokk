@@ -84,6 +84,8 @@ public final class DiffService {
         });
     }
 
+    public static final int DEFAULT_WARMUP_RECENT = 10;
+
     /**
      * Best-effort prefetch: triggers diff computation for all contexts with a predecessor.
      *
@@ -97,6 +99,92 @@ public final class DiffService {
                 diff(c);
             }
         }
+    }
+
+    /**
+     * Warm up diffs for the most recent contexts only, using a single coordinator task and bounded concurrency.
+     * This avoids scheduling one background task per context on the global executor.
+     *
+     * @param max maximum number of most recent contexts (with a predecessor) to warm up
+     */
+    public void warmUpRecent(int max) {
+        if (max <= 0) {
+            return;
+        }
+        var contexts = history.getHistory();
+        if (contexts.size() <= 1) {
+            return;
+        }
+
+        // Collect up to `max` most recent contexts that have a predecessor.
+        var recent = new ArrayList<Context>(Math.min(max, contexts.size()));
+        for (int i = contexts.size() - 1; i >= 0 && recent.size() < max; i--) {
+            var c = contexts.get(i);
+            if (history.previousOf(c) != null) {
+                recent.add(c);
+            }
+        }
+        if (recent.isEmpty()) {
+            return;
+        }
+
+        // Single coordinator task; bounded concurrency inside with a small local executor.
+        cm.submitBackgroundTask("Warm up diffs (recent " + recent.size() + ")", () -> {
+            int concurrencyHint = Math.max(1, Math.min(3, Runtime.getRuntime().availableProcessors() / 2));
+            var exec = java.util.concurrent.Executors.newFixedThreadPool(concurrencyHint, r -> {
+                var t = new Thread(r);
+                t.setDaemon(true);
+                t.setName("DiffWarmUp-" + t.threadId());
+                return t;
+            });
+
+            try {
+                List<CompletableFuture<Void>> futures = new ArrayList<>(recent.size());
+                for (var ctx : recent) {
+                    var prev = history.previousOf(ctx);
+                    if (prev == null) {
+                        continue;
+                    }
+                    // Use local bounded executor to compute diffs and seed the cache without creating
+                    // one global background task per context.
+                    var f = CompletableFuture.runAsync(() -> {
+                        try {
+                            var result = computeDiff(ctx, prev);
+                            cache.compute(ctx.id(), (id, existing) -> {
+                                if (existing == null) {
+                                    var cf = new CompletableFuture<List<Context.DiffEntry>>();
+                                    cf.complete(result);
+                                    return cf;
+                                } else {
+                                    if (!existing.isDone()) {
+                                        existing.complete(result);
+                                    }
+                                    return existing;
+                                }
+                            });
+                        } catch (Throwable t) {
+                            cache.compute(ctx.id(), (id, existing) -> {
+                                if (existing == null) {
+                                    var cf = new CompletableFuture<List<Context.DiffEntry>>();
+                                    cf.completeExceptionally(t);
+                                    return cf;
+                                } else {
+                                    if (!existing.isDone()) {
+                                        existing.completeExceptionally(t);
+                                    }
+                                    return existing;
+                                }
+                            });
+                        }
+                    }, exec);
+                    futures.add(f);
+                }
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+                return null;
+            } finally {
+                exec.shutdown();
+            }
+        });
     }
 
     /**

@@ -264,18 +264,37 @@ public class ContextHistoryTest {
                 contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("Action 2"));
         history.pushContext(context2);
 
+        // Modify again to create a third, most-recent context with changes
+        Files.writeString(pf1.absPath(), "Content 1\nMore\nEven more\n");
+        var frag3 = new ContextFragment.ProjectPathFragment(pf1, contextManager);
+        var context3 = new Context(
+                contextManager, List.of(frag3), List.of(), null, CompletableFuture.completedFuture("Action 3"));
+        history.pushContext(context3);
+
         var diffService = history.getDiffService();
 
-        // Warm up the diff service with all contexts
-        var contexts = history.getHistory();
-        diffService.warmUp(contexts);
+        // Warm up only the most recent context (cap = 1)
+        diffService.warmUpRecent(1);
 
-        for (var ctx : contexts) {
-            if (history.previousOf(ctx) != null) {
-                diffService.diff(ctx).join();
-                assertTrue(diffService.peek(ctx).isPresent(), "After join, diff should be cached");
-            }
+        // Wait briefly for warm-up to complete for the most recent context
+        long waitUntil = System.currentTimeMillis() + 2000;
+        while (System.currentTimeMillis() < waitUntil && diffService.peek(context3).isEmpty()) {
+            Thread.sleep(25);
         }
+
+        // Assert: most recent context should be warmed; the older one should not be warmed by cap=1
+        assertTrue(
+                diffService.peek(context3).isPresent(),
+                "Most recent context should be warmed by warmUpRecent(1)");
+        assertTrue(
+                diffService.peek(context2).isEmpty(),
+                "Older context should not be warmed when cap is 1");
+
+        // On-demand diff for the older context should still work
+        diffService.diff(context2).join();
+        assertTrue(
+                diffService.peek(context2).isPresent(),
+                "After on-demand computation, older context diff should be cached");
     }
 
     /**

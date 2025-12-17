@@ -63,8 +63,8 @@ public class ContextHistory {
     public ContextHistory(Context liveContext) {
         pushContext(liveContext);
         this.diffService = new DiffService(this);
-        // Warm-up diffs for all contexts so UI can peek results soon after load
-        this.diffService.warmUp(getHistory());
+        // Warm up only the most recent contexts to limit background load
+        this.diffService.warmUpRecent(DiffService.DEFAULT_WARMUP_RECENT);
     }
 
     public ContextHistory(List<Context> contexts) {
@@ -93,8 +93,8 @@ public class ContextHistory {
         this.entryInfos.putAll(entryInfos);
         selected = history.peekLast();
         this.diffService = new DiffService(this);
-        // Warm-up diffs for all contexts so the restored session has diffs computed asynchronously
-        this.diffService.warmUp(getHistory());
+        // Warm up only the most recent contexts to limit background load
+        this.diffService.warmUpRecent(DiffService.DEFAULT_WARMUP_RECENT);
     }
 
     /* ───────────────────────── public API ─────────────────────────── */
