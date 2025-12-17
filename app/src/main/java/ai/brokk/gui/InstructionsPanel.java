@@ -2298,17 +2298,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private void appendToInstructionsArea(String transcript) {
         SwingUtilities.invokeLater(() -> {
             var currentText = instructionsArea.getText();
-            String newText;
-            if (isPlaceholderText(currentText) || currentText.isBlank()) {
-                newText = transcript;
-            } else {
-                newText = currentText + " " + transcript;
-            }
+            var isEmpty = isPlaceholderText(currentText) || currentText.isBlank();
 
-            if (isPlaceholderText(instructionsArea.getText()) || !instructionsArea.isEnabled()) {
+            if (isEmpty || !instructionsArea.isEnabled()) {
                 activateCommandInput();
             }
-            setTextWithUndo(newText, currentText);
+
+            var newText = isEmpty ? transcript : currentText + " " + transcript;
+            setTextWithUndo(newText, isEmpty ? "" : currentText);
             instructionsArea.requestFocusInWindow();
             instructionsArea.setCaretPosition(newText.length());
         });
@@ -2323,9 +2320,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         commandInputOverlay.hideOverlay(); // Hide the overlay
         // Enable input and deep scan button
         instructionsArea.setEnabled(true);
-        // Clear placeholder only if it's still present
+        // Clear placeholder only if it's still present (inline to avoid invokeLater race)
         if (isPlaceholderText(instructionsArea.getText())) {
-            clearCommandInput();
+            instructionsArea.setText("");
+            commandInputUndoManager.discardAllEdits();
         }
         // Enable undo listener now that real content can be entered
         enableUndoListener();
