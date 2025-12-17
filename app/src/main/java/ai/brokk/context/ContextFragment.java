@@ -207,35 +207,11 @@ public interface ContextFragment {
 
     /**
      * Extracts ProjectFile references from a pasted list of file paths.
-     * Performs a strict line-by-line lookup where each non-empty line must exactly match a
-     * project-relative path. Lines containing embedded paths (compiler errors, stack traces,
-     * grep output) are intentionally not matched to avoid false positives. Lines that do not
-     * resolve to existing ProjectFile instances are ignored. Returns all matched files, or an
-     * empty set if none are found or the context manager/project root are not available.
      */
     static Set<ProjectFile> extractFilesFromText(String text, IContextManager contextManager) {
-        Set<ProjectFile> files = new HashSet<>();
-        for (String line : text.lines().toList()) {
-            var trimmed = line.trim();
-            if (trimmed.isEmpty()) {
-                continue;
-            }
-
-            ProjectFile projectFile;
-            try {
-                projectFile = contextManager.toFile(trimmed);
-            } catch (IllegalArgumentException e) {
-                continue;
-            }
-
-            if (!projectFile.exists()) {
-                continue;
-            }
-
-            files.add(projectFile);
-        }
-
-        return files;
+        return contextManager.getProject().getAllFiles().parallelStream()
+                .filter(f -> text.contains(f.toString()))
+                .collect(Collectors.toSet());
     }
 
     /**

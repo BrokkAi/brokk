@@ -2121,12 +2121,7 @@ public class ContextSerializationTest {
     }
 
     @Test
-    void testNonPathLinesAreIgnored() throws Exception {
-        // The file extractor uses strict line-by-line matching: each line must be EXACTLY
-        // a project-relative path. Lines containing file paths embedded in other text
-        // (compiler errors, stack traces, grep output) are intentionally NOT extracted.
-        // This prevents false positives when pasting terminal output that happens to
-        // mention file paths.
+    void testPathsMayOccurAnywhere() throws Exception {
         var file = new ProjectFile(tempDir, "src/TestFile.java");
         Files.createDirectories(file.absPath().getParent());
         Files.writeString(file.absPath(), "class TestFile {}");
@@ -2142,7 +2137,7 @@ public class ContextSerializationTest {
         var fragment = new ContextFragment.StringFragment(
                 mockContextManager, mixedFormats, "Mixed formats", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        assertTrue(fragment.files().join().isEmpty());
+        assertFalse(fragment.files().join().isEmpty());
     }
 
     @Test
