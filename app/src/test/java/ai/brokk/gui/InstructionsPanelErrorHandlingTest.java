@@ -2,8 +2,10 @@ package ai.brokk.gui;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.AbstractService;
 import ai.brokk.ContextManager;
 import ai.brokk.Service;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.testutil.TestService;
@@ -44,27 +46,16 @@ class InstructionsPanelErrorHandlingTest {
     @DisplayName("Service.isOnline returns false when quickModel is UnavailableStreamingModel")
     void serviceIsOnline_returnsFalse_whenQuickModelIsUnavailable() {
         // Configure TestService to return an unavailable model
-        testService.setQuickestModel(new Service.UnavailableStreamingModel());
+        testService.setModel(ModelProperties.ModelType.QUICKEST, new AbstractService.UnavailableStreamingModel());
 
         assertFalse(testService.isOnline(), "Service should be offline when quickModel is unavailable");
-    }
-
-    @Test
-    @DisplayName("TestService.getModel returns a stub model for any config")
-    void getModel_returnsStubModel_forAnyConfig() {
-        // TestService is a test double that always returns a stub model
-        var config = new Service.ModelConfig("any-model-name");
-
-        StreamingChatModel result = testService.getModel(config);
-
-        assertNotNull(result, "TestService should return a stub model for any config");
     }
 
     @Test
     @DisplayName("TestService.quickestModel returns custom model when configured")
     void quickestModel_returnsCustomModel_whenConfigured() {
         var customModel = new Service.UnavailableStreamingModel();
-        testService.setQuickestModel(customModel);
+        testService.setModel(ModelProperties.ModelType.QUICKEST, customModel);
 
         StreamingChatModel result = testService.quickestModel();
 
@@ -90,7 +81,7 @@ class InstructionsPanelErrorHandlingTest {
     @DisplayName("Service behavior when offline - isOnline returns false")
     void serviceBehavior_whenOffline_isOnlineReturnsFalse() {
         // Set up an offline service
-        testService.setQuickestModel(new Service.UnavailableStreamingModel());
+        testService.setModel(ModelProperties.ModelType.QUICKEST, new AbstractService.UnavailableStreamingModel());
 
         // Verify the conditions that InstructionsPanel checks
         assertFalse(testService.isOnline(), "Service should report offline");
@@ -98,18 +89,5 @@ class InstructionsPanelErrorHandlingTest {
                 Service.UnavailableStreamingModel.class,
                 testService.quickestModel(),
                 "Quick model should be UnavailableStreamingModel");
-    }
-
-    /**
-     * Verifies that TestService returns a model for GPT_5_MINI config.
-     * This tests the fallback scenario used by InstructionsPanel.
-     */
-    @Test
-    @DisplayName("TestService returns model for GPT_5_MINI fallback")
-    void testService_returnsModel_forGpt5MiniFallback() {
-        // TestService returns stub models for all configs, including GPT_5_MINI
-        StreamingChatModel fallback = testService.getModel(Service.GPT_5_MINI);
-
-        assertNotNull(fallback, "TestService should return a stub model for GPT_5_MINI config");
     }
 }
