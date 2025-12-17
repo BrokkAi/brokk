@@ -373,7 +373,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 },
                 null,
                 this::isPlaceholderText,
-                this::populateInstructionsArea,
+                this::appendToInstructionsArea,
                 msg -> chrome.toolError(msg, "Error"));
         micButton.setFocusable(true);
         // Add explicit focus border to make focus visible on the mic button
@@ -2285,6 +2285,29 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     onComplete.run();
                 }
             });
+        });
+    }
+
+    /**
+     * Appends transcript text to the instructions area (used by voice input).
+     * If placeholder is active, replaces it; otherwise appends with space separator.
+     */
+    private void appendToInstructionsArea(String transcript) {
+        SwingUtilities.invokeLater(() -> {
+            var currentText = instructionsArea.getText();
+            String newText;
+            if (isPlaceholderText(currentText) || currentText.isBlank()) {
+                newText = transcript;
+            } else {
+                newText = currentText + " " + transcript;
+            }
+
+            if (isPlaceholderText(instructionsArea.getText()) || !instructionsArea.isEnabled()) {
+                activateCommandInput();
+            }
+            setTextWithUndo(newText, currentText);
+            instructionsArea.requestFocusInWindow();
+            instructionsArea.setCaretPosition(newText.length());
         });
     }
 
