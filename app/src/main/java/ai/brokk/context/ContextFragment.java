@@ -213,18 +213,8 @@ public interface ContextFragment {
      * resolve to existing ProjectFile instances are ignored. Returns all matched files, or an
      * empty set if none are found or the context manager/project root are not available.
      */
-    static Set<ProjectFile> extractFilesFromPathList(String text, @Nullable IContextManager contextManager) {
-        if (text.isBlank() || contextManager == null) {
-            return Set.of();
-        }
-
-        try {
-            contextManager.getProject().getRoot();
-        } catch (UnsupportedOperationException e) {
-            return Set.of();
-        }
-
-        Set<ProjectFile> files = new LinkedHashSet<>();
+    static Set<ProjectFile> extractFilesFromText(String text, IContextManager contextManager) {
+        Set<ProjectFile> files = new HashSet<>();
         for (String line : text.lines().toList()) {
             var trimmed = line.trim();
             if (trimmed.isEmpty()) {
@@ -234,7 +224,7 @@ public interface ContextFragment {
             ProjectFile projectFile;
             try {
                 projectFile = contextManager.toFile(trimmed);
-            } catch (Exception e) {
+            } catch (IllegalArgumentException e) {
                 continue;
             }
 
@@ -245,7 +235,7 @@ public interface ContextFragment {
             files.add(projectFile);
         }
 
-        return files.isEmpty() ? Set.of() : files;
+        return files;
     }
 
     /**
@@ -1107,7 +1097,7 @@ public interface ContextFragment {
             if (!diffFiles.isEmpty()) {
                 return diffFiles;
             }
-            return extractFilesFromPathList(text, contextManager);
+            return extractFilesFromText(text, contextManager);
         }
 
         /**
@@ -1115,10 +1105,6 @@ public interface ContextFragment {
          * Returns an empty set if parsing fails or yields no recognizable file paths.
          */
         private static Set<ProjectFile> extractFilesFromUnifiedDiff(String text, IContextManager contextManager) {
-            if (text.isBlank()) {
-                return Set.of();
-            }
-
             try (ByteArrayInputStream in = new ByteArrayInputStream(text.getBytes(StandardCharsets.UTF_8))) {
                 UnifiedDiff diff = UnifiedDiffReader.parseUnifiedDiff(in);
                 if (diff == null) {
@@ -1138,7 +1124,7 @@ public interface ContextFragment {
                     }
                 }
                 return files;
-            } catch (Exception e) {
+            } catch (IOException e) {
                 return Set.of();
             }
         }
@@ -1308,7 +1294,7 @@ public interface ContextFragment {
                 logger.error("Unable to compute PasteTextFragment syntax style within specified timeout period", e);
             }
 
-            var files = extractFilesFromPathList(text, contextManager);
+            var files = extractFilesFromText(text, contextManager);
             return new FragmentSnapshot(desc, desc, text, syntax, Set.of(), files, (List<Byte>) null);
         }
 
