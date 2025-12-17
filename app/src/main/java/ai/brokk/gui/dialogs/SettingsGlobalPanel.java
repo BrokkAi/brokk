@@ -57,7 +57,6 @@ import org.jetbrains.annotations.Nullable;
 
 public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsChangeListener {
     private static final Logger logger = LogManager.getLogger(SettingsGlobalPanel.class);
-    public static final String MODELS_TAB_TITLE = "Models"; // kept for compatibility where referenced
 
     private final Chrome chrome;
     private final SettingsDialog parentDialog; // To access project for data retention refresh

@@ -2,8 +2,8 @@ package ai.brokk.gui.components;
 
 import ai.brokk.Service;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.dialogs.SettingsAdvancedPanel;
 import ai.brokk.gui.dialogs.SettingsDialog;
-import ai.brokk.gui.dialogs.SettingsGlobalPanel;
 import ai.brokk.project.MainProject;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
@@ -203,7 +203,7 @@ public class ModelSelector {
             var before = MainProject.loadFavoriteModels();
 
             // Open the full Settings dialog to the Favorite Models tab
-            SettingsDialog.showSettingsDialog(chrome, SettingsGlobalPanel.MODELS_TAB_TITLE);
+            SettingsDialog.showSettingsDialog(chrome, SettingsAdvancedPanel.MODELS_TAB_TITLE);
 
             // After the modal dialog closes, reload favorites and detect any new favorite
             var after = MainProject.loadFavoriteModels();

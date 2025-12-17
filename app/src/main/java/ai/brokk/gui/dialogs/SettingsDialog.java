@@ -304,7 +304,7 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
                         dialog.tabbedPane.setSelectedIndex(globalTabIndex); // Select "Global" parent
                         if (globalSubTabs.isEnabledAt(i)
                                 || targetTabName.equals(
-                                        SettingsGlobalPanel
+                                        SettingsAdvancedPanel
                                                 .MODELS_TAB_TITLE)) { // Models tab content itself handles enablement
                             globalSubTabs.setSelectedIndex(i);
                             tabSelected = true;

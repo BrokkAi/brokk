@@ -23,8 +23,8 @@ import ai.brokk.gui.components.ModelSelector;
 import ai.brokk.gui.components.OverlayPanel;
 import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.components.TokenUsageBar;
+import ai.brokk.gui.dialogs.SettingsAdvancedPanel;
 import ai.brokk.gui.dialogs.SettingsDialog;
-import ai.brokk.gui.dialogs.SettingsGlobalPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -1560,7 +1560,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         if (choice == JOptionPane.YES_OPTION) { // Open Settings
             SwingUtilities.invokeLater(
-                    () -> SettingsDialog.showSettingsDialog(chrome, SettingsGlobalPanel.MODELS_TAB_TITLE));
+                    () -> SettingsDialog.showSettingsDialog(chrome, SettingsAdvancedPanel.MODELS_TAB_TITLE));
         }
         // In either case (Settings opened or Cancel pressed), the original action is aborted by returning from the
         // caller.
