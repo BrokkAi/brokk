@@ -172,10 +172,51 @@ public final class DiffService {
         if (snapshot.isEmpty() || allowedIds.isEmpty()) {
             return;
         }
+
+        // Build a quick lookup of current contexts by id for remapping fragments to the
+        // active instances on this DiffService/history.
+        var historyById = new HashMap<UUID, Context>();
+        for (var c : history.getHistory()) {
+            historyById.put(c.id(), c);
+        }
+
         for (var e : snapshot.entrySet()) {
-            var id = e.getKey();
-            if (!allowedIds.contains(id)) continue;
-            cache.putIfAbsent(id, e.getValue());
+            var contextId = e.getKey();
+            if (!allowedIds.contains(contextId)) {
+                continue;
+            }
+
+            // If we cannot find a current Context instance for this id, just seed as-is.
+            var currentCtx = historyById.get(contextId);
+            if (currentCtx == null) {
+                cache.putIfAbsent(contextId, e.getValue());
+                continue;
+            }
+
+            // Map current fragments by their stable fragment id for remapping.
+            var fragmentsById = new HashMap<String, ContextFragment>();
+            currentCtx.allFragments().forEach(f -> fragmentsById.put(f.id(), f));
+
+            // Wrap the seeded future so that, when it completes, its DiffEntry fragments are remapped
+            // to the active instances for this history (by fragment id). This avoids stale references
+            // from a prior session load while preserving the computed diff data.
+            CompletableFuture<List<Context.DiffEntry>> remappedFuture = e.getValue().thenApply(list -> {
+                if (list == null) {
+                    return List.<Context.DiffEntry>of();
+                }
+                List<Context.DiffEntry> out = new ArrayList<>(list.size());
+                for (var de : list) {
+                    var oldFrag = de.fragment();
+                    var mapped = fragmentsById.get(oldFrag.id());
+                    out.add(mapped == null
+                            ? de
+                            : new Context.DiffEntry(
+                                    mapped, de.diff(), de.linesAdded(), de.linesDeleted(), de.oldContent(), de.newContent()));
+                }
+                return List.copyOf(out);
+            });
+
+            cache.putIfAbsent(contextId, remappedFuture);
         }
     }
 
