@@ -348,6 +348,20 @@ jDeploy detects pre-releases based on semantic versioning:
 
 Prereleases are marked appropriately in GitHub releases and distribution channels.
 
+### Prelaunch JAR for Legacy Launchers
+
+A `jdeploy-prelaunch.jar` is included in jDeploy distributions to ensure older launchers (pre-0.18.0) prompt users to update before launching incompatible app versions. Prior to 0.18.0, launchers could auto-update the app JAR but not themselves, potentially breaking when the app required launcher features that weren't present. Starting with 0.18.0, the launcher supports the `jdeploy.minLauncherInitialAppVersion` property to enforce minimum launcher versions, but this doesn't help users already on older launchers.
+
+The prelaunch JAR (source: https://github.com/shannah/brokk-jdeploy-prelaunch) runs before the main app and detects launchers older than 0.18.0, prompting users to download and install the latest version for a smooth upgrade experience.
+
+Configuration:
+- **Version**: Specified in `package.json` via the `jdeployPrelaunchVersion` property (currently `v0.0.4`)
+- **Download**: Both `jdeploy.yml` and `release.yml` workflows download the prelaunch JAR from GitHub releases before building
+- **Inclusion**: The JAR is copied to `app/build/libs/` and included via `jdeploy.files` configuration
+- **Auto-update**: When users update the app, the prelaunch JAR updates with it
+
+This is a temporary measure to migrate legacy users to modern launchers and can be removed once most users are on 0.18.0 or newer.
+
 ### Development Builds
 
 Automatic development builds are created by the `jdeploy.yaml` workflow on every commit to the `master` branch. These builds allow developers to test the latest changes without waiting for an official release.

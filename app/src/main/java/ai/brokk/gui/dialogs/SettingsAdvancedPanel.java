@@ -276,13 +276,22 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                     ModelProperties.ModelType.SCAN, new AbstractService.ModelConfig(Service.GPT_5_MINI));
         } else if ("Anthropic".equals(selectedVendor)) {
             mainProject.setModelConfig(
-                    ModelProperties.ModelType.QUICK, new AbstractService.ModelConfig(Service.HAIKU_4_5));
+                    ModelProperties.ModelType.QUICK, new AbstractService.ModelConfig(Service.HAIKU_3));
             mainProject.setModelConfig(
                     ModelProperties.ModelType.QUICK_EDIT, new AbstractService.ModelConfig(Service.HAIKU_4_5));
             mainProject.setModelConfig(
-                    ModelProperties.ModelType.QUICKEST, new AbstractService.ModelConfig(Service.HAIKU_4_5));
+                    ModelProperties.ModelType.QUICKEST, new AbstractService.ModelConfig(Service.HAIKU_3));
             mainProject.setModelConfig(
                     ModelProperties.ModelType.SCAN, new AbstractService.ModelConfig(Service.HAIKU_4_5));
+        } else if ("Gemini".equals(selectedVendor)) {
+            mainProject.setModelConfig(
+                    ModelProperties.ModelType.QUICK, new AbstractService.ModelConfig(Service.GEMINI_2_0_FLASH));
+            mainProject.setModelConfig(
+                    ModelProperties.ModelType.QUICK_EDIT, new AbstractService.ModelConfig(Service.GEMINI_2_5_FLASH));
+            mainProject.setModelConfig(
+                    ModelProperties.ModelType.QUICKEST, new AbstractService.ModelConfig(Service.GEMINI_2_0_FLASH_LITE));
+            mainProject.setModelConfig(
+                    ModelProperties.ModelType.SCAN, new AbstractService.ModelConfig(Service.GEMINI_2_5_FLASH));
         } else {
             mainProject.setModelConfig(
                     ModelProperties.ModelType.QUICK, ModelProperties.ModelType.QUICK.defaultConfig());
@@ -448,6 +457,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         if (availableNames.contains(Service.GPT_5_NANO) && availableNames.contains(Service.GPT_5_MINI)) {
             vendors.add("OpenAI");
         }
+        vendors.add("Gemini");
 
         otherModelsVendorCombo.setModel(new javax.swing.DefaultComboBoxModel<>(vendors.toArray(new String[0])));
 
@@ -945,6 +955,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 + "Selecting a vendor sets Quick, Quick Edit, Quickest, and Scan to vendor defaults.<br/><br/>"
                 + "<b>OpenAI:</b> Quick=gpt-5-nano; Quick Edit=gpt-5-nano; Quickest=gpt-5-nano; Scan=gpt-5-mini<br/>"
                 + "<b>Anthropic:</b> Quick=claude-haiku-4-5; Quick Edit=claude-haiku-4-5; Quickest=claude-haiku-4-5; Scan=claude-haiku-4-5<br/>"
+                + "<b>Gemini:</b> Quick=TODO; Quick Edit=TODO; Quickest=TODO; Scan=TODO<br/>"
                 + "<b>Default:</b> Quick="
                 + defaultQuick
                 + "; Quick Edit="

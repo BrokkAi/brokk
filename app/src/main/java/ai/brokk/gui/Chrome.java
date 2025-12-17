@@ -490,7 +490,7 @@ public class Chrome
             // Initial refreshes are now done in the background
             contextManager.submitBackgroundTask("Loading project state", () -> {
                 updateGitRepo();
-                projectFilesPanel.updatePanel();
+                projectFilesPanel.requestUpdate();
                 return null;
             });
         } else {
@@ -1037,7 +1037,7 @@ public class Chrome
     }
 
     // Theme manager and constants
-    GuiTheme themeManager;
+    private GuiTheme themeManager;
 
     // Shared analyzer rebuild status strip
     private final AnalyzerStatusStrip analyzerStatusStrip;
@@ -1133,7 +1133,7 @@ public class Chrome
     @Override
     public void updateCommitPanel() {
         if (gitCommitTab != null) {
-            gitCommitTab.updateCommitPanel();
+            gitCommitTab.requestUpdate();
         }
     }
 
@@ -1186,31 +1186,31 @@ public class Chrome
         // Update individual Git-related panels and log what is being updated
         if (gitCommitTab != null) {
             logger.trace("updateGitRepo: updating GitCommitTab");
-            gitCommitTab.updateCommitPanel();
+            gitCommitTab.requestUpdate();
         } else {
             logger.trace("updateGitRepo: GitCommitTab not present (skipping)");
         }
 
         if (gitLogTab != null) {
             logger.trace("updateGitRepo: updating GitLogTab");
-            gitLogTab.update();
+            gitLogTab.requestUpdate();
         } else {
             logger.trace("updateGitRepo: GitLogTab not present (skipping)");
         }
 
         if (gitWorktreeTab != null) {
             logger.trace("updateGitRepo: refreshing GitWorktreeTab");
-            gitWorktreeTab.refresh();
+            gitWorktreeTab.requestUpdate();
         } else {
             logger.trace("updateGitRepo: GitWorktreeTab not present (skipping)");
         }
 
         logger.trace("updateGitRepo: updating ProjectFilesPanel");
-        projectFilesPanel.updatePanel();
+        projectFilesPanel.requestUpdate();
 
         // Ensure the Changes tab reflects the current repo/branch state
         try {
-            historyOutputPanel.refreshBranchDiffPanel();
+            historyOutputPanel.requestDiffUpdate();
         } catch (Exception ex) {
             logger.debug("Unable to refresh Changes tab after repo update", ex);
         }
@@ -1723,7 +1723,7 @@ public class Chrome
     @Override
     public void onTrackedFileChange() {
         // Also refresh the Review tab to show updated changes
-        historyOutputPanel.refreshBranchDiffPanel();
+        historyOutputPanel.requestDiffUpdate();
     }
 
     /**
@@ -1938,7 +1938,7 @@ public class Chrome
         addSplitPaneListeners(project);
 
         // Apply title bar now that layout is complete
-        applyTitleBar(frame, frame.getTitle());
+        ThemeTitleBarManager.maybeApplyMacTitleBar(frame, frame.getTitle());
 
         // Force a complete layout validation
         frame.revalidate();
@@ -2316,7 +2316,7 @@ public class Chrome
 
     public void updateLogTab() {
         if (gitLogTab != null) {
-            gitLogTab.update();
+            gitLogTab.requestUpdate();
         }
     }
 
@@ -2936,6 +2936,10 @@ public class Chrome
         return inContextPanel || inHistoryTable;
     }
 
+    public GuiTheme getThemeManager() {
+        return themeManager;
+    }
+
     // --- Global Undo/Redo Action Classes ---
     private class GlobalUndoAction extends AbstractAction {
         public GlobalUndoAction(String name) {
@@ -3216,8 +3220,8 @@ public class Chrome
     public static JFrame newFrame(String title, boolean initializeTitleBar) {
         JFrame frame = new JFrame(title);
         applyIcon(frame);
-        applyMacOSFullWindowContent(frame);
-        if (initializeTitleBar) applyTitleBar(frame, title);
+        maybeApplyMacFullWindowContent(frame);
+        if (initializeTitleBar) ThemeTitleBarManager.maybeApplyMacTitleBar(frame, title);
         return frame;
     }
 
@@ -3228,7 +3232,7 @@ public class Chrome
      *
      * @param window A JFrame or JDialog (any RootPaneContainer)
      */
-    public static void applyMacOSFullWindowContent(RootPaneContainer window) {
+    public static void maybeApplyMacFullWindowContent(RootPaneContainer window) {
         if (!SystemInfo.isMacOS || !SystemInfo.isMacFullWindowContentSupported) {
             return;
         }
@@ -3246,39 +3250,6 @@ public class Chrome
 
     public static JFrame newFrame(String title) {
         return newFrame(title, true);
-    }
-
-    /** Applies macOS title bar styling to an existing dialog. No-op on other platforms. */
-    public static void applyDialogTitleBar(JDialog dialog, String title) {
-        if (!SystemInfo.isMacOS || !SystemInfo.isMacFullWindowContentSupported) {
-            return;
-        }
-        dialog.getRootPane().putClientProperty("apple.awt.fullWindowContent", true);
-        dialog.getRootPane().putClientProperty("apple.awt.transparentTitleBar", true);
-
-        // hide window title
-        if (SystemInfo.isJava_17_orLater) dialog.getRootPane().putClientProperty("apple.awt.windowTitleVisible", false);
-        else dialog.setTitle(null);
-
-        ThemeTitleBarManager.applyTitleBar(dialog, title);
-    }
-
-    /**
-     * If using full window content, creates a themed title bar.
-     * Uses ThemeTitleBarManager for unified theme-driven configuration.
-     *
-     * @see <a href="https://www.formdev.com/flatlaf/macos/">FlatLaf macOS Window Decorations</a>
-     */
-    public static void applyTitleBar(JFrame frame, String title) {
-        ThemeTitleBarManager.applyTitleBar(frame, title);
-    }
-
-    /**
-     * Updates the title bar styling for existing frames when theme changes.
-     * Uses ThemeTitleBarManager for unified theme-driven configuration.
-     */
-    public static void updateTitleBarStyling(JFrame frame) {
-        ThemeTitleBarManager.updateTitleBarStyling(frame);
     }
 
     /**

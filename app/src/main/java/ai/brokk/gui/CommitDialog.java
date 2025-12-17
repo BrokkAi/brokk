@@ -37,7 +37,7 @@ public class CommitDialog extends BaseThemedDialog {
     private Color normalForeground;
 
     public CommitDialog(
-            Frame owner,
+            @Nullable Window owner,
             Chrome chrome,
             ContextManager contextManager,
             GitWorkflow workflowService,
@@ -47,7 +47,7 @@ public class CommitDialog extends BaseThemedDialog {
     }
 
     public CommitDialog(
-            Frame owner,
+            @Nullable Window owner,
             Chrome chrome,
             ContextManager contextManager,
             GitWorkflow workflowService,
