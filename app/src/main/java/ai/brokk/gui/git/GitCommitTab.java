@@ -13,6 +13,7 @@ import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.CommitDialog;
 import ai.brokk.gui.Constants;
+import ai.brokk.gui.DeferredUpdateHelper;
 import ai.brokk.gui.DiffWindowManager;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
@@ -68,6 +69,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
 
     // Thread-safe cached list of modified files
     private volatile List<ProjectFile> cachedModifiedFiles = List.of();
+    private final DeferredUpdateHelper deferredUpdateHelper;
 
     // Guard to avoid repeatedly offering AI merge while a conflict is active
     private volatile boolean mergeOfferShown = false;
@@ -89,6 +91,8 @@ public class GitCommitTab extends JPanel implements ThemeAware {
         this.contextManager = contextManager;
         this.workflowService = new GitWorkflow(contextManager);
         buildCommitTabUI();
+        // Deferred update helper: run full commit-panel update when visible, otherwise mark dirty.
+        this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::performUpdateCommitPanel);
     }
 
     /** Builds the Changes tab UI elements. */
@@ -260,7 +264,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                                 "Committed "
                                         + getRepo().shortHash(commitResult.commitId())
                                         + ": " + commitResult.firstLine());
-                        updateCommitPanel(); // Refresh file list
+                        requestUpdate(); // Refresh file list
                         chrome.updateLogTab();
                         chrome.selectCurrentBranchInLogTab();
                     });
@@ -339,8 +343,14 @@ public class GitCommitTab extends JPanel implements ThemeAware {
         return (GitRepo) repo;
     }
 
-    /** Populates the uncommitted files table and enables/disables commit-related buttons. */
-    public void updateCommitPanel() {
+    /** Populates the uncommitted files table and enables/disables commit-related buttons.
+     *  This defers the update when the tab is not visible. */
+    public void requestUpdate() {
+        deferredUpdateHelper.requestUpdate();
+    }
+
+    /** Performs the actual update logic previously in updateCommitPanel(). */
+    private void performUpdateCommitPanel() {
         logger.trace("Starting updateCommitPanel");
         // Store currently selected rows before updating
         int[] selectedRowsIndices = uncommittedFilesTable.getSelectedRows();
@@ -780,7 +790,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 SwingUtilities.invokeLater(() -> {
                     String successMessage = "Rolled back " + fileList + " to HEAD state. Use Ctrl+Z to undo.";
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, successMessage);
-                    updateCommitPanel();
+                    requestUpdate();
                     chrome.updateLogTab();
                 });
             } catch (Exception ex) {
@@ -820,7 +830,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO, "Stashed " + fileList + ": " + stashDescription);
             }
-            updateCommitPanel(); // Refresh file list
+            requestUpdate(); // Refresh file list
             chrome.updateLogTab(); // Refresh log
         });
     }
@@ -1054,7 +1064,7 @@ Would you like to resolve these conflicts with the Merge Agent?
                             () -> chrome.toolError("AI merge failed: " + ex.getMessage(), "Merge Agent Error"));
                 } finally {
                     SwingUtilities.invokeLater(() -> {
-                        updateCommitPanel();
+                        requestUpdate();
                         chrome.updateLogTab();
                     });
                 }

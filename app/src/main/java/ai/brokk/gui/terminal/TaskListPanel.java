@@ -274,6 +274,18 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     return;
                 }
 
+                // If nothing is selected, select the row under the mouse so the context menu
+                // targets the item under the cursor.
+                if (list.getSelectedIndices().length == 0) {
+                    int idx = list.locationToIndex(e.getPoint());
+                    if (idx >= 0) {
+                        Rectangle cell = list.getCellBounds(idx, idx);
+                        if (cell != null && cell.contains(e.getPoint())) {
+                            list.setSelectedIndex(idx);
+                        }
+                    }
+                }
+
                 // When read-only, all edit actions are disabled; allow only Copy
                 if (!taskListEditable) {
                     toggleItem.setEnabled(false);

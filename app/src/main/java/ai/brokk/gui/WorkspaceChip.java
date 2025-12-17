@@ -745,7 +745,7 @@ public class WorkspaceChip extends JPanel {
         }
         menu.add(dropOther);
 
-        chrome.themeManager.registerPopupMenu(menu);
+        chrome.getThemeManager().registerPopupMenu(menu);
         return menu;
     }
 
@@ -1334,7 +1334,7 @@ public class WorkspaceChip extends JPanel {
                 menu.add(item);
             }
 
-            chrome.themeManager.registerPopupMenu(menu);
+            chrome.getThemeManager().registerPopupMenu(menu);
             return menu;
         }
 

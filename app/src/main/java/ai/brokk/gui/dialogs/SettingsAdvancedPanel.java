@@ -1,5 +1,7 @@
 package ai.brokk.gui.dialogs;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.AbstractService;
 import ai.brokk.Service;
 import ai.brokk.gui.Chrome;
@@ -265,42 +267,12 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         }
         MainProject.setOtherModelsVendorPreference(normalizedVendorPref);
 
-        if ("OpenAI".equals(selectedVendor)) {
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.QUICK, new AbstractService.ModelConfig(Service.GPT_5_NANO));
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.QUICK_EDIT, new AbstractService.ModelConfig(Service.GPT_5_NANO));
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.QUICKEST, new AbstractService.ModelConfig(Service.GPT_5_NANO));
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.SCAN, new AbstractService.ModelConfig(Service.GPT_5_MINI));
-        } else if ("Anthropic".equals(selectedVendor)) {
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.QUICK, new AbstractService.ModelConfig(Service.HAIKU_3));
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.QUICK_EDIT, new AbstractService.ModelConfig(Service.HAIKU_4_5));
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.QUICKEST, new AbstractService.ModelConfig(Service.HAIKU_3));
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.SCAN, new AbstractService.ModelConfig(Service.HAIKU_4_5));
-        } else if ("Gemini".equals(selectedVendor)) {
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.QUICK, new AbstractService.ModelConfig(Service.GEMINI_2_0_FLASH));
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.QUICK_EDIT, new AbstractService.ModelConfig(Service.GEMINI_2_5_FLASH));
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.QUICKEST, new AbstractService.ModelConfig(Service.GEMINI_2_0_FLASH_LITE));
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.SCAN, new AbstractService.ModelConfig(Service.GEMINI_2_5_FLASH));
-        } else {
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.QUICK, ModelProperties.ModelType.QUICK.defaultConfig());
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.QUICK_EDIT, ModelProperties.ModelType.QUICK_EDIT.defaultConfig());
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.QUICKEST, ModelProperties.ModelType.QUICKEST.defaultConfig());
-            mainProject.setModelConfig(ModelProperties.ModelType.SCAN, ModelProperties.ModelType.SCAN.defaultConfig());
-        }
+        var vendorModels = requireNonNull(ModelProperties.getVendorModels(selectedVendor));
+        mainProject.setModelConfig(ModelProperties.ModelType.QUICK, vendorModels.quick());
+        mainProject.setModelConfig(ModelProperties.ModelType.QUICK_EDIT, vendorModels.quickEdit());
+        mainProject.setModelConfig(ModelProperties.ModelType.QUICKEST, vendorModels.quickest());
+        mainProject.setModelConfig(ModelProperties.ModelType.SCAN, vendorModels.scan());
+        mainProject.setModelConfig(ModelProperties.ModelType.BUILD_PROCESSOR, vendorModels.buildProcessor());
 
         String currentVendorSelection = normalizedVendorPref.isBlank() ? "Default" : normalizedVendorPref;
         if (!previousVendorSelection.equals(currentVendorSelection)) {
@@ -451,10 +423,11 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         var availableNames = service.getAvailableModels().keySet();
         var vendors = new ArrayList<String>();
         vendors.add("Default");
-        if (availableNames.contains(Service.HAIKU_4_5)) {
+        if (availableNames.contains(ModelProperties.HAIKU_4_5)) {
             vendors.add("Anthropic");
         }
-        if (availableNames.contains(Service.GPT_5_NANO) && availableNames.contains(Service.GPT_5_MINI)) {
+        if (availableNames.contains(ModelProperties.GPT_5_NANO)
+                && availableNames.contains(ModelProperties.GPT_5_MINI)) {
             vendors.add("OpenAI");
         }
         vendors.add("Gemini");

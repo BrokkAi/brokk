@@ -373,7 +373,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 },
                 null,
                 this::isPlaceholderText,
-                this::populateInstructionsArea,
+                this::appendToInstructionsArea,
                 msg -> chrome.toolError(msg, "Error"));
         micButton.setFocusable(true);
         // Add explicit focus border to make focus visible on the mic button
@@ -494,7 +494,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 e -> chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of()));
         tokenUsageBarPopupMenu.add(pasteMenuItem);
 
-        SwingUtilities.invokeLater(() -> chrome.themeManager.registerPopupMenu(tokenUsageBarPopupMenu));
+        SwingUtilities.invokeLater(() -> {
+            // invokeLater postpones this until chrome finishes initializing themeManager
+            chrome.getThemeManager().registerPopupMenu(tokenUsageBarPopupMenu);
+        });
 
         this.contextAreaContainer = createContextAreaContainer();
         // Top Bar (History, Configure Models, Stop) (North)
@@ -1506,7 +1509,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         dropdown.addActionListener(ev -> SwingUtilities.invokeLater(() -> {
             try {
                 var menu = historyMenuSupplier.get();
-                chrome.themeManager.registerPopupMenu(menu);
+                chrome.getThemeManager().registerPopupMenu(menu);
                 menu.show(dropdown, 0, dropdown.getHeight());
             } catch (Exception ex) {
                 logger.error("Error showing history dropdown", ex);
@@ -1617,7 +1620,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (selectedModel == null) {
             chrome.toolError("Selected model '" + config.name() + "' is not available with reasoning level "
                     + config.reasoning());
-            var fallbackModel = models.getModel(Service.GPT_5_MINI);
+            var fallbackModel = models.getModel(ModelProperties.GPT_5_MINI);
             if (fallbackModel != null) {
                 selectedModel = fallbackModel;
             }
@@ -2285,6 +2288,29 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     onComplete.run();
                 }
             });
+        });
+    }
+
+    /**
+     * Appends transcript text to the instructions area (used by voice input).
+     * If placeholder is active, replaces it; otherwise appends with space separator.
+     */
+    private void appendToInstructionsArea(String transcript) {
+        SwingUtilities.invokeLater(() -> {
+            var currentText = instructionsArea.getText();
+            String newText;
+            if (isPlaceholderText(currentText) || currentText.isBlank()) {
+                newText = transcript;
+            } else {
+                newText = currentText + " " + transcript;
+            }
+
+            if (isPlaceholderText(instructionsArea.getText()) || !instructionsArea.isEnabled()) {
+                activateCommandInput();
+            }
+            setTextWithUndo(newText, currentText);
+            instructionsArea.requestFocusInWindow();
+            instructionsArea.setCaretPosition(newText.length());
         });
     }
 
