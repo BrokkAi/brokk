@@ -50,11 +50,19 @@ public final class ModelProperties {
     public static final Set<String> SYSTEM_ONLY_MODELS = Set.of(FLASH_2_0_LITE, GPT_5_NANO, HAIKU_3);
 
     // Json stuff
-    private static final String FAVORITE_MODELS_KEY = "favoriteModelsJson";
+    public static final String FAVORITE_MODELS_KEY = "favoriteModelsJson";
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
     /** Default vendor selection for "Other Models" settings. */
     public static final String DEFAULT_VENDOR = "Default";
+
+    /**
+     * Current version for model settings. Increment this to force a reset of favorite models,
+     * code model, and architect model to their current defaults on the next app upgrade.
+     */
+    public static final int MODEL_SETTINGS_VERSION = 1;
+
+    public static final String MODEL_SETTINGS_VERSION_KEY = "modelSettingsVersion";
 
     private ModelProperties() {}
 
@@ -81,7 +89,7 @@ public final class ModelProperties {
         SCAN("scanConfig", flash3, gcf1),
         BUILD_PROCESSOR("buildProcessorConfig", gpt5Mini, gpt5Nano);
 
-        private final String propertyKey;
+        public final String propertyKey;
         private final ModelConfig defaultConfig;
         private final ModelConfig defaultFreeConfig;
 

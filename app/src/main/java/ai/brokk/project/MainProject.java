@@ -252,6 +252,7 @@ public final class MainProject extends AbstractProject {
         }
 
         var props = new Properties();
+        boolean needsSave = false;
         if (Files.exists(GLOBAL_PROPERTIES_PATH)) {
             try (var reader = Files.newBufferedReader(GLOBAL_PROPERTIES_PATH)) {
                 props.load(reader);
@@ -261,16 +262,57 @@ public final class MainProject extends AbstractProject {
                 return props;
             }
         }
+
+        // Perform model settings migration if needed
+        int storedVersion = 0;
+        String versionStr = props.getProperty(ModelProperties.MODEL_SETTINGS_VERSION_KEY);
+        if (versionStr != null) {
+            try {
+                storedVersion = Integer.parseInt(versionStr.trim());
+            } catch (NumberFormatException e) {
+                logger.warn("Invalid model settings version in properties: {}", versionStr);
+            }
+        }
+
+        if (storedVersion < ModelProperties.MODEL_SETTINGS_VERSION) {
+            logger.info(
+                    "Migrating model settings from version {} to {}. Resetting model defaults.",
+                    storedVersion,
+                    ModelProperties.MODEL_SETTINGS_VERSION);
+
+            // Remove keys to force fallback to current defaults in ModelProperties
+            props.remove(ModelProperties.FAVORITE_MODELS_KEY);
+            props.remove(ModelType.CODE.propertyKey);
+            props.remove(ModelType.ARCHITECT.propertyKey);
+
+            props.setProperty(
+                    ModelProperties.MODEL_SETTINGS_VERSION_KEY, String.valueOf(ModelProperties.MODEL_SETTINGS_VERSION));
+            needsSave = true;
+        }
+
+        if (needsSave) {
+            saveGlobalProperties(props);
+        }
+
         globalPropertiesCache = (Properties) props.clone();
         return props;
     }
 
     private static synchronized void saveGlobalProperties(Properties props) {
         try {
-            var existingProps = loadGlobalProperties();
+            // Load directly from disk to avoid re-triggering migration in loadGlobalProperties
+            var existingProps = new Properties();
+            if (Files.exists(GLOBAL_PROPERTIES_PATH)) {
+                try (var reader = Files.newBufferedReader(GLOBAL_PROPERTIES_PATH)) {
+                    existingProps.load(reader);
+                } catch (IOException e) {
+                    // Proceed with save even if we can't read existing props
+                }
+            }
             if (existingProps.equals(props)) {
                 return;
             }
+
             // Log brokkApiKey changes to help diagnose disappearing key issues
             var existingKey = existingProps.getProperty("brokkApiKey", "");
             var newKey = props.getProperty("brokkApiKey", "");
