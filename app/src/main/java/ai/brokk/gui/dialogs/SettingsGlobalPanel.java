@@ -57,7 +57,6 @@ import org.jetbrains.annotations.Nullable;
 
 public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsChangeListener {
     private static final Logger logger = LogManager.getLogger(SettingsGlobalPanel.class);
-    public static final String MODELS_TAB_TITLE = "Models"; // kept for compatibility where referenced
 
     private final Chrome chrome;
     private final SettingsDialog parentDialog; // To access project for data retention refresh
@@ -109,7 +108,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         this.chrome = chrome;
         this.parentDialog = parentDialog;
         setLayout(new BorderLayout());
-        initComponents();
+        initComponents(); // This will fully initialize or conditionally initialize fields
+        // NOTE: loadSettings() is now called explicitly in SettingsDialog.showSettingsDialog()
+        // to ensure consistent timing with project panel
+
+        // Disable panel until data is loaded
         setEnabled(false);
         MainProject.addSettingsChangeListener(this);
     }
@@ -760,6 +763,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         adder.add("global.toggleMicrophone", "Toggle Microphone");
         adder.add("global.openSettings", "Open Settings");
         adder.add("global.closeWindow", "Close Window");
+        adder.add("global.closeTab", "Close Tab");
         adder.add("panel.switchToProjectFiles", "Switch to Project Files");
         adder.add("panel.switchToDependencies", "Switch to Dependencies");
         adder.add("panel.switchToChanges", "Switch to Changes");
@@ -891,6 +895,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "global.toggleMicrophone",
             "global.openSettings",
             "global.closeWindow",
+            "global.closeTab",
             "panel.switchToProjectFiles",
             "panel.switchToDependencies",
             "panel.switchToChanges",
@@ -931,6 +936,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             case "global.toggleMicrophone" -> "Toggle Microphone";
             case "global.openSettings" -> "Open Settings";
             case "global.closeWindow" -> "Close Window";
+            case "global.closeTab" -> "Close Tab";
             case "panel.switchToProjectFiles" -> "Switch to Project Files";
             case "panel.switchToDependencies" -> "Switch to Dependencies";
             case "panel.switchToChanges" -> "Switch to Changes";
@@ -963,6 +969,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "global.toggleMicrophone",
             "global.openSettings",
             "global.closeWindow",
+            "global.closeTab",
             "panel.switchToProjectFiles",
             "panel.switchToDependencies",
             "panel.switchToChanges",
@@ -2288,6 +2295,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W);
     }
 
+    private static KeyStroke defaultCloseTab() {
+        return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W);
+    }
+
     private static KeyStroke defaultOpenSettings() {
         return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA);
     }
@@ -2356,6 +2367,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             case "view.resetZoom" -> defaultResetZoom();
             case "global.openSettings" -> defaultOpenSettings();
             case "global.closeWindow" -> defaultCloseWindow();
+            case "global.closeTab" -> defaultCloseTab();
             case "workspace.attachContext" -> KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I);
             case "workspace.attachFilesAndSummarize" ->
                 KeyStroke.getKeyStroke(KeyEvent.VK_I, InputEvent.CTRL_DOWN_MASK);

@@ -1,5 +1,6 @@
 package ai.brokk.gui.dialogs;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.Completions;
 import ai.brokk.ContextManager;
 import ai.brokk.FuzzyMatcher;
@@ -29,10 +30,7 @@ import java.awt.event.WindowEvent;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
 import javax.swing.ButtonGroup;
@@ -70,8 +68,6 @@ public class AttachContextDialog extends BaseThemedDialog {
         USAGES
     }
 
-    public record Result(Set<ContextFragment> fragments, boolean summarize) {}
-
     private final ContextManager cm;
 
     // Segmented control
@@ -98,7 +94,7 @@ public class AttachContextDialog extends BaseThemedDialog {
     private final SymbolsProvider methodsProvider = new SymbolsProvider(SymbolsProvider.Mode.METHODS);
     private final SymbolsProvider usagesProvider = new SymbolsProvider(SymbolsProvider.Mode.ALL);
 
-    private @Nullable Result selection = null;
+    private @Nullable Set<ContextFragment> selection = null;
 
     private static final String ANALYZER_NOT_READY_TOOLTIP =
             " will be available after code intelligence is initialized.";
@@ -321,7 +317,7 @@ public class AttachContextDialog extends BaseThemedDialog {
         this.summarizeCheck.setSelected(defaultSummarizeChecked);
     }
 
-    public @Nullable Result getSelection() {
+    public @Nullable Set<ContextFragment> getSelectedFragments() {
         return selection;
     }
 
@@ -352,6 +348,7 @@ public class AttachContextDialog extends BaseThemedDialog {
         // Update checkbox visibility for each tab
         includeSubfoldersCheck.setVisible(getActiveTab() == TabType.FOLDERS);
         includeTestFilesCheck.setVisible(getActiveTab() == TabType.USAGES);
+        summarizeCheck.setVisible(true);
 
         searchField.requestFocusInWindow();
     }
@@ -448,53 +445,15 @@ public class AttachContextDialog extends BaseThemedDialog {
     }
 
     private void confirmFile(String input) {
-        ProjectFile chosen = cm.toFile(input);
-        if (!cm.getProject().getAllFiles().contains(chosen)) {
-            selection = null;
-            dispose();
-            return;
-        }
-
-        var frag = new ContextFragment.ProjectPathFragment(chosen, cm);
-
-        selection = new Result(Set.of(frag), summarizeCheck.isSelected());
+        var frag = AnalyzerUtil.selectFileFragment(cm, input, summarizeCheck.isSelected());
+        selection = frag.map(Set::of).orElse(null);
         dispose();
     }
 
     private void confirmFolder(String input) {
-        var rel = input.replace("\\", "/");
-        rel = rel.startsWith("/") ? rel.substring(1) : rel;
-        rel = rel.endsWith("/") ? rel.substring(0, rel.length() - 1) : rel;
-
-        var includeSubfolders = includeSubfoldersCheck.isSelected();
-        var relPath = Path.of(rel);
-
-        Set<ProjectFile> all = cm.getProject().getAllFiles();
-        Set<ProjectFile> selected = new LinkedHashSet<>();
-        for (var pf : all) {
-            Path fileRel = pf.getRelPath();
-            if (includeSubfolders) {
-                if (fileRel.startsWith(relPath)) {
-                    selected.add(pf);
-                }
-            } else {
-                Path parent = fileRel.getParent();
-                if (Objects.equals(parent, relPath)) {
-                    selected.add(pf);
-                }
-            }
-        }
-
-        if (selected.isEmpty()) {
-            selection = null;
-            dispose();
-            return;
-        }
-
-        Set<ContextFragment> fragments = selected.stream()
-                .map(pf -> (ContextFragment) new ContextFragment.ProjectPathFragment(pf, cm))
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-        selection = new Result(fragments, summarizeCheck.isSelected());
+        Set<ContextFragment> fragments = AnalyzerUtil.selectFolderFragments(
+                cm, input, includeSubfoldersCheck.isSelected(), summarizeCheck.isSelected());
+        selection = fragments.isEmpty() ? null : fragments;
         dispose();
     }
 
@@ -505,26 +464,8 @@ public class AttachContextDialog extends BaseThemedDialog {
             dispose();
             return;
         }
-
-        Optional<CodeUnit> opt = analyzer.getDefinitions(input).stream()
-                .filter(CodeUnit::isClass)
-                .findFirst();
-        if (opt.isEmpty()) {
-            var s = analyzer.searchDefinitions(input).stream()
-                    .filter(CodeUnit::isClass)
-                    .findFirst();
-            opt = s;
-        }
-        if (opt.isEmpty()) {
-            selection = null;
-            dispose();
-            return;
-        }
-
-        var cu = opt.get();
-
-        var frag = new ContextFragment.CodeFragment(cm, cu);
-        selection = new Result(Set.of(frag), summarizeCheck.isSelected());
+        var frag = AnalyzerUtil.selectClassFragment(analyzer, cm, input, summarizeCheck.isSelected());
+        selection = frag.map(Set::of).orElse(null);
         dispose();
     }
 
@@ -535,26 +476,8 @@ public class AttachContextDialog extends BaseThemedDialog {
             dispose();
             return;
         }
-
-        Optional<CodeUnit> opt = analyzer.getDefinitions(input).stream()
-                .filter(CodeUnit::isFunction)
-                .findFirst();
-        if (opt.isEmpty()) {
-            var s = analyzer.searchDefinitions(input).stream()
-                    .filter(CodeUnit::isFunction)
-                    .findFirst();
-            opt = s;
-        }
-        if (opt.isEmpty()) {
-            selection = null;
-            dispose();
-            return;
-        }
-
-        var cu = opt.get();
-
-        var frag = new ContextFragment.CodeFragment(cm, cu);
-        selection = new Result(Set.of(frag), summarizeCheck.isSelected());
+        var frag = AnalyzerUtil.selectMethodFragment(analyzer, cm, input, summarizeCheck.isSelected());
+        selection = frag.map(Set::of).orElse(null);
         dispose();
     }
 
@@ -565,30 +488,9 @@ public class AttachContextDialog extends BaseThemedDialog {
             dispose();
             return;
         }
-
-        // Find best matching symbol (class or method). Prefer method if exact.
-        Optional<CodeUnit> exactMethod = analyzer.getDefinitions(input).stream()
-                .filter(CodeUnit::isFunction)
-                .findFirst();
-        Optional<CodeUnit> any = exactMethod.isPresent()
-                ? exactMethod
-                : analyzer.getDefinitions(input).stream()
-                        .findFirst()
-                        .or(() -> analyzer.searchDefinitions(input).stream().findFirst());
-
-        if (summarizeCheck.isSelected() && any.isPresent() && any.get().isFunction()) {
-            var methodFqn = any.get().fqName();
-            var frag = new ContextFragment.CallGraphFragment(cm, methodFqn, 1, false);
-            // No direct CM API to publish this VirtualFragment immediately; selection will be applied by the caller.
-            selection = new Result(Set.of(frag), true);
-            dispose();
-            return;
-        }
-
-        var target = any.map(CodeUnit::fqName).orElse(input);
-
-        var frag = new ContextFragment.UsageFragment(cm, target, includeTestFilesCheck.isSelected());
-        selection = new Result(Set.of(frag), summarizeCheck.isSelected());
+        var frag = AnalyzerUtil.selectUsageFragment(
+                analyzer, cm, input, includeTestFilesCheck.isSelected(), summarizeCheck.isSelected());
+        selection = frag.map(Set::of).orElse(null);
         dispose();
     }
 

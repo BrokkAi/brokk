@@ -1244,11 +1244,10 @@ public class BlitzForgeDialog extends BaseThemedDialog {
         var dlg = new AttachContextDialog(chrome.getFrame(), chrome.getContextManager(), false);
         dlg.setLocationRelativeTo(this);
         dlg.setVisible(true);
-        var result = dlg.getSelection();
-        if (result == null) {
+        var fragments = dlg.getSelectedFragments();
+        if (fragments == null) {
             return;
         }
-        Set<ContextFragment> fragments = result.fragments();
         var cm = chrome.getContextManager();
         cm.submitBackgroundTask("Attach files", () -> fragments.stream()
                         .flatMap(frag -> frag.files().join().stream())

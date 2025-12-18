@@ -798,6 +798,10 @@
       "chip_tasklist_fg": "#00EAFF",
       "chip_tasklist_border": "#00FFFF",
 
+      "chip_invalid_bg": "#4D0000",
+      "chip_invalid_fg": "#FF9999",
+      "chip_invalid_border": "#FF3333",
+
       "action_button_bg_default": "#3333FF",
       "action_button_bg_stop": "#FF3633",
 

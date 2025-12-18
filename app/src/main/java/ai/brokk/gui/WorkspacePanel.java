@@ -223,7 +223,7 @@ public class WorkspacePanel extends JPanel {
                     }
 
                     // Summarize the exact fragment instance that was clicked, so we can drop that same instance after.
-                    actions.add(new AbstractAction("Summarize " + fileData.getFullPath()) {
+                    actions.add(new AbstractAction("Summarize " + fileData.getFileName()) {
                         @Override
                         public void actionPerformed(ActionEvent e) {
                             panel.performContextActionAsync(ContextAction.SUMMARIZE, List.of(fragment));
@@ -2094,12 +2094,9 @@ public class WorkspacePanel extends JPanel {
         var dlg = new AttachContextDialog(chrome.getFrame(), contextManager, defaultSummarizeChecked);
         dlg.setLocationRelativeTo(chrome.getFrame());
         dlg.setVisible(true); // modal; blocks until closed and selection is set
-        var result = dlg.getSelection();
+        var fragments = dlg.getSelectedFragments();
 
-        if (result == null) return;
-
-        Set<ContextFragment> fragments = result.fragments();
-        boolean summarize = result.summarize();
+        if (fragments == null) return;
 
         contextManager.submitContextTask(() -> {
             if (fragments.isEmpty()) {
@@ -2108,12 +2105,7 @@ public class WorkspacePanel extends JPanel {
 
             for (var fragment : fragments) {
                 if (fragment instanceof ContextFragment.PathFragment pathFrag) {
-                    if (summarize) {
-                        var files = pathFrag.files().join(); // we are in a background task so we may block
-                        contextManager.addSummaries(files, Collections.emptySet());
-                    } else {
-                        contextManager.addFragmentAsync(pathFrag);
-                    }
+                    contextManager.addFragmentAsync(pathFrag);
                 } else {
                     contextManager.addFragments(fragment);
                 }
