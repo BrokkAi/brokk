@@ -33,7 +33,6 @@ public final class DiffService {
     private static final Logger logger = LogManager.getLogger(DiffService.class);
 
     private static final Duration TEXT_FALLBACK_TIMEOUT = Duration.ofSeconds(2);
-    public static final int DEFAULT_WARMUP_RECENT = 0;
 
     private final ContextHistory history;
     private final IContextManager cm;
