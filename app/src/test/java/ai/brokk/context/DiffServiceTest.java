@@ -312,7 +312,6 @@ class DiffServiceTest {
         }
     }
 
-
     @Test
     void seed_snapshot_allows_peek_without_recompute() throws Exception {
         var pf = new ProjectFile(tempDir, "src/Seed.txt");
@@ -348,8 +347,6 @@ class DiffServiceTest {
         assertTrue(peeked.isPresent(), "Seeded cache should allow peek to hit without recompute");
         assertFalse(peeked.get().isEmpty(), "Seeded diff should not be empty");
     }
-
-
 
     @Test
     void on_demand_diff_only_computes_subset_requested() throws Exception {
@@ -387,5 +384,4 @@ class DiffServiceTest {
             }
         }
     }
-
 }

@@ -1,9 +1,9 @@
 package ai.brokk.gui;
 
-import ai.brokk.SessionManager.SessionInfo;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.*;
+import ai.brokk.SessionManager.SessionInfo;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;

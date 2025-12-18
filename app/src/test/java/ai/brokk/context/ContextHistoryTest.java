@@ -285,7 +285,6 @@ public class ContextHistoryTest {
         assertTrue(diffs.isEmpty(), diffs.toString());
     }
 
-
     /**
      * Verifies that undo/redo operations restore file content from the context snapshot,
      * not from the live file system state at the time of undo/redo.

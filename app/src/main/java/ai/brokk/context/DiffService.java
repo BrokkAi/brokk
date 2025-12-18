@@ -11,8 +11,8 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
-import javax.swing.SwingUtilities;
 import java.util.stream.Stream;
+import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
@@ -38,7 +38,8 @@ public final class DiffService {
     private final IContextManager cm;
     private final ConcurrentHashMap<UUID, CompletableFuture<List<Context.DiffEntry>>> cache = new ConcurrentHashMap<>();
 
-    // EDT batching support: queue of context ids awaiting computation, with de-duplication and a single scheduled runner.
+    // EDT batching support: queue of context ids awaiting computation, with de-duplication and a single scheduled
+    // runner.
     private final ConcurrentLinkedQueue<UUID> edtQueue = new ConcurrentLinkedQueue<>();
     private final Set<UUID> enqueuedIds = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean batchScheduled = new AtomicBoolean(false);
@@ -85,110 +86,110 @@ public final class DiffService {
         return new DiffCache(cache);
     }
 
-/**
- * Seed this service's cache from a previously captured snapshot. Only entries whose ids are present in allowedIds
- * are seeded. Existing entries are not overwritten.
- *
- * @param snapshot a non-null snapshot
- * @param allowedIds the set of context ids valid for the current history
- */
-public void seedFrom(DiffCache snapshot, Set<UUID> allowedIds) {
-    if (snapshot.isEmpty() || allowedIds.isEmpty()) {
-        return;
-    }
-
-    // Build a quick lookup of current contexts by id for remapping fragments to the
-    // active instances on this DiffService/history.
-    var historyById = new HashMap<UUID, Context>();
-    for (var c : history.getHistory()) {
-        historyById.put(c.id(), c);
-    }
-
-    for (var e : snapshot.entrySet()) {
-        var contextId = e.getKey();
-        if (!allowedIds.contains(contextId)) {
-            continue;
+    /**
+     * Seed this service's cache from a previously captured snapshot. Only entries whose ids are present in allowedIds
+     * are seeded. Existing entries are not overwritten.
+     *
+     * @param snapshot a non-null snapshot
+     * @param allowedIds the set of context ids valid for the current history
+     */
+    public void seedFrom(DiffCache snapshot, Set<UUID> allowedIds) {
+        if (snapshot.isEmpty() || allowedIds.isEmpty()) {
+            return;
         }
 
-        var currentCtx = historyById.get(contextId);
-
-        final Map<String, ContextFragment> fragmentsById;
-        if (currentCtx != null) {
-            var map = new HashMap<String, ContextFragment>();
-            currentCtx.allFragments().forEach(f -> map.put(f.id(), f));
-            fragmentsById = map;
-        } else {
-            fragmentsById = Map.of();
+        // Build a quick lookup of current contexts by id for remapping fragments to the
+        // active instances on this DiffService/history.
+        var historyById = new HashMap<UUID, Context>();
+        for (var c : history.getHistory()) {
+            historyById.put(c.id(), c);
         }
 
-        // Wrap the seeded future so that, when it completes, its DiffEntry fragments are remapped
-        // to the active instances for this history (by fragment id). If a fragment is not present,
-        // the original DiffEntry is preserved.
-        CompletableFuture<List<Context.DiffEntry>> remappedFuture = e.getValue()
-                .thenApply(list -> {
-                    List<Context.DiffEntry> out = new ArrayList<>(list.size());
-                    for (var de : list) {
-                        var mapped = fragmentsById.get(de.fragment().id());
-                        out.add(
-                                mapped == null
-                                        ? de
-                                        : new Context.DiffEntry(
-                                                mapped,
-                                                de.diff(),
-                                                de.linesAdded(),
-                                                de.linesDeleted(),
-                                                de.oldContent(),
-                                                de.newContent()));
-                    }
-                    return List.copyOf(out);
-                });
+        for (var e : snapshot.entrySet()) {
+            var contextId = e.getKey();
+            if (!allowedIds.contains(contextId)) {
+                continue;
+            }
 
-        cache.putIfAbsent(contextId, remappedFuture);
-    }
-}
+            var currentCtx = historyById.get(contextId);
 
-/**
- * Computes or retrieves cached diff between this context and its predecessor.
- * - If result is absent and caller is on EDT, enqueue for batched background computation and return the future.
- * - If result is absent and caller is not on EDT, compute synchronously on the calling thread and complete the future.
- *
- * @param curr the current (new) context to compute diffs for
- * @return CompletableFuture that will contain the list of diff entries
- */
-public CompletableFuture<List<Context.DiffEntry>> diff(Context curr) {
-    // Fast-path: existing future present
-    var existing = cache.get(curr.id());
-    if (existing != null) {
-        return existing;
-    }
+            final Map<String, ContextFragment> fragmentsById;
+            if (currentCtx != null) {
+                var map = new HashMap<String, ContextFragment>();
+                currentCtx.allFragments().forEach(f -> map.put(f.id(), f));
+                fragmentsById = map;
+            } else {
+                fragmentsById = Map.of();
+            }
 
-    // Create or return the existing future atomically
-    var future = new CompletableFuture<List<Context.DiffEntry>>();
-    var prior = cache.putIfAbsent(curr.id(), future);
-    if (prior != null) {
-        return prior;
-    }
+            // Wrap the seeded future so that, when it completes, its DiffEntry fragments are remapped
+            // to the active instances for this history (by fragment id). If a fragment is not present,
+            // the original DiffEntry is preserved.
+            CompletableFuture<List<Context.DiffEntry>> remappedFuture = e.getValue()
+                    .thenApply(list -> {
+                        List<Context.DiffEntry> out = new ArrayList<>(list.size());
+                        for (var de : list) {
+                            var mapped = fragmentsById.get(de.fragment().id());
+                            out.add(
+                                    mapped == null
+                                            ? de
+                                            : new Context.DiffEntry(
+                                                    mapped,
+                                                    de.diff(),
+                                                    de.linesAdded(),
+                                                    de.linesDeleted(),
+                                                    de.oldContent(),
+                                                    de.newContent()));
+                        }
+                        return List.copyOf(out);
+                    });
 
-    if (SwingUtilities.isEventDispatchThread()) {
-        // Enqueue for batched background processing
-        if (enqueuedIds.add(curr.id())) {
-            edtQueue.add(curr.id());
+            cache.putIfAbsent(contextId, remappedFuture);
         }
-        scheduleBatchIfNeeded();
+    }
+
+    /**
+     * Computes or retrieves cached diff between this context and its predecessor.
+     * - If result is absent and caller is on EDT, enqueue for batched background computation and return the future.
+     * - If result is absent and caller is not on EDT, compute synchronously on the calling thread and complete the future.
+     *
+     * @param curr the current (new) context to compute diffs for
+     * @return CompletableFuture that will contain the list of diff entries
+     */
+    public CompletableFuture<List<Context.DiffEntry>> diff(Context curr) {
+        // Fast-path: existing future present
+        var existing = cache.get(curr.id());
+        if (existing != null) {
+            return existing;
+        }
+
+        // Create or return the existing future atomically
+        var future = new CompletableFuture<List<Context.DiffEntry>>();
+        var prior = cache.putIfAbsent(curr.id(), future);
+        if (prior != null) {
+            return prior;
+        }
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            // Enqueue for batched background processing
+            if (enqueuedIds.add(curr.id())) {
+                edtQueue.add(curr.id());
+            }
+            scheduleBatchIfNeeded();
+            return future;
+        }
+
+        // Not on EDT: compute synchronously on the current thread
+        try {
+            var prev = history.previousOf(curr);
+            var result = (prev == null) ? List.<Context.DiffEntry>of() : computeDiff(curr, prev);
+            future.complete(result);
+        } catch (Throwable t) {
+            future.completeExceptionally(t);
+            throw new RuntimeException(t);
+        }
         return future;
     }
-
-    // Not on EDT: compute synchronously on the current thread
-    try {
-        var prev = history.previousOf(curr);
-        var result = (prev == null) ? List.<Context.DiffEntry>of() : computeDiff(curr, prev);
-        future.complete(result);
-    } catch (Throwable t) {
-        future.completeExceptionally(t);
-        throw new RuntimeException(t);
-    }
-    return future;
-}
 
     private void scheduleBatchIfNeeded() {
         if (batchScheduled.compareAndSet(false, true)) {
