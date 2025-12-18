@@ -31,7 +31,15 @@ public class CommitPrompts {
 
     private CommitPrompts() {}
 
-    public List<ChatMessage> collectMessages(IProject project, String diffTxt) {
+    /**
+     * Collect chat messages for asking the model to produce a commit message.
+     *
+     * @param project the project for obtaining format instructions
+     * @param diffTxt unified diff text
+     * @param oneLine if true, request a single-line commit message; if false, request a subject + body
+     * @return list of ChatMessage for the LLM, or empty list if diff is blank or unparseable
+     */
+    public List<ChatMessage> collectMessages(IProject project, String diffTxt, boolean oneLine) {
         if (diffTxt.isEmpty()) {
             return List.of();
         }
@@ -44,39 +52,70 @@ public class CommitPrompts {
         var formatInstructions = project.getCommitMessageFormat();
 
         var context = """
-        <diff>
-        %s
-        </diff>
-        """.formatted(trimmedDiff);
+            <diff>
+            %s
+            </diff>
+            """.formatted(trimmedDiff);
 
-        var instructions =
-                """
-        <goal>
-        Here is my diff, please give me a concise commit message based on the format instructions provided in the system prompt.
-        </goal>
-        """;
+        final String instructions;
+        if (oneLine) {
+            instructions =
+                    """
+                    <goal>
+                    Here is my diff. Provide a single-line commit subject.
+
+                    Requirements:
+                    - Generate exactly one line, no more.
+                    - Do not exceed 72 characters.
+                    - If a single file is changed, include its short filename (not the path, not the extension).
+                    - Reply only with the commit message, without any additional text, explanations, or line breaks.
+                    </goal>
+                    """;
+        } else {
+            instructions =
+                    """
+                    <goal>
+                    Generate a concise Git commit message based on the provided diff.\s
+
+                    Your primary objective is brevity. Most commits should ONLY contain the subject line.
+                    Use a multi-line body only for significant logic changes or architectural shifts.
+
+                    ## Formatting Rules:
+                    1. Subject Line: Max 72 characters. If one file changed, include its name (no path/extension).
+                    2. Body: Only include if the diff introduces high complexity.\s
+                       - Start with one blank line.
+                       - Explain major logic changes using single-line bullets.
+                       - DO NOT describe "how" the code changed (the diff shows that); describe "why" or "what" the high-level impact is.
+                    3. Constraints: Wrap at 72 chars. Plain text only. No markdown headers or code fences. Use backticks for `filenames`.
+
+                    ## Filtering Criteria:
+                    Ignore the following for the detailed explanation (include them in the subject only):
+                    - Variable/function renaming.
+                    - Whitespace, formatting, or linting fixes.
+                    - Adding/removing logs or print statements.
+                    - Trivial logic tweaks or one-line fixes.
+
+                    If the change is simple, output ONLY the subject line.
+                    </goal>
+                    """;
+        }
+
         return List.of(
                 new SystemMessage(systemIntro(formatInstructions)), new UserMessage(context + "\n\n" + instructions));
     }
 
     private String systemIntro(String formatInstructions) {
         return """
-               You are an expert software engineer that generates concise,
-               one-line Git commit messages based on the provided diffs.
+               You are an expert software engineer that generates Git commit messages based on provided diffs.
                Review the provided context and diffs which are about to be committed to a git repo.
                Review the diffs carefully.
-               Generate a one-line commit message for those changes, following the format instructions below.
+
+               General guidelines:
+               - Use the imperative mood (e.g., "Add feature" not "Added feature" or "Adding feature").
+               - No trailing period on the subject line.
+
+               Follow these format preferences:
                %s
-
-               Ensure the commit message:
-               - Follows the specified format.
-               - Is in the imperative mood (e.g., "Add feature" not "Added feature" or "Adding feature").
-               - Does not exceed 72 characters.
-
-               Additionally, if a single file is changed be sure to include the short filename (not the path, not the extension).
-
-               Reply only with the one-line commit message, without any additional text, explanations,
-               or line breaks.
                """
                 .formatted(formatInstructions);
     }

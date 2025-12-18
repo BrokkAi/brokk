@@ -5,8 +5,8 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.gui.ChipColorUtils;
 import ai.brokk.gui.Chrome;
-import ai.brokk.gui.FragmentColorUtils;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -287,7 +287,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         // Dispose prior subscriptions bound to this component before rebinding
         ComputedSubscription.disposeAll(this);
 
-        this.fragments = List.copyOf(fragments);
+        this.fragments = fragments.stream().filter(ContextFragment::isValid).toList();
         // Invalidate token cache entries for removed ids to keep memory bounded
         var validIds = this.fragments.stream().map(ContextFragment::id).collect(Collectors.toSet());
         tokenCache.keySet().retainAll(validIds);
@@ -306,7 +306,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     /**
      * Update the bar with fragments from the given Context.
      * - Schedules UI update on the EDT.
-     * - Pre-warms token counts off-EDT to avoid doing heavy work during paint.
+     * - Pre-warms token counts and classifications off-EDT to avoid doing heavy work during paint.
      * - Repaints on completion so segment widths reflect computed tokens.
      */
     public void setFragmentsForContext(Context context) {
@@ -315,7 +315,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         // Update UI on EDT (and attach listeners)
         SwingUtilities.invokeLater(() -> setFragments(frags));
 
-        // Precompute token counts off-EDT to avoid jank during paint and tooltips
+        // Precompute token counts and classifications off-EDT to avoid jank during paint and tooltips
         new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() {
@@ -323,6 +323,12 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                     if (f.isText() || f.getType().isOutput()) {
                         // This will compute and cache the token count for the fragment (non-blocking text path)
                         tokensForFragment(f);
+                    }
+                }
+                // Pre-compute classifications to avoid blocking calls during computeSegments
+                for (var f : frags) {
+                    if (f.isText() || f.getType().isOutput()) {
+                        ChipColorUtils.classify(f);
                     }
                 }
                 return null;
@@ -722,6 +728,10 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 .filter(f -> f.getType() != ContextFragment.FragmentType.SKELETON)
                 .toList();
 
+        // Pre-compute classifications for non-summary fragments
+        var classifiedNonSummaries =
+                nonSummaries.stream().map(ChipColorUtils::classify).toList();
+
         int tokensSummaries =
                 summaries.stream().mapToInt(this::tokensForFragment).sum();
         int tokensNonSummaries =
@@ -870,17 +880,21 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             if (w.width <= 0) continue;
 
             if (w.item.isSummaryGroup) {
-                Color bg = FragmentColorUtils.getBackgroundColor(FragmentColorUtils.FragmentKind.SUMMARY, isDark);
+                Color bg = ChipColorUtils.getBackgroundColor(ChipColorUtils.ChipKind.SUMMARY, isDark);
                 Set<ContextFragment> segmentFrags = Set.copyOf(summaries);
                 out.add(new Segment(x, w.width, bg, segmentFrags, true));
             } else if (w.item.isOther) {
-                Color bg = FragmentColorUtils.getBackgroundColor(FragmentColorUtils.FragmentKind.OTHER, isDark);
+                Color bg = ChipColorUtils.getBackgroundColor(ChipColorUtils.ChipKind.OTHER, isDark);
                 Set<ContextFragment> segmentFrags = Set.copyOf(small);
                 out.add(new Segment(x, w.width, bg, segmentFrags, false));
             } else {
                 ContextFragment frag = Objects.requireNonNull(w.item.frag);
-                FragmentColorUtils.FragmentKind kind = FragmentColorUtils.classify(frag);
-                Color bg = FragmentColorUtils.getBackgroundColor(kind, isDark);
+                ChipColorUtils.ChipKind kind = classifiedNonSummaries.stream()
+                        .filter(cf -> cf.fragment().equals(frag))
+                        .map(ChipColorUtils.ClassifiedFragment::kind)
+                        .findFirst()
+                        .orElse(ChipColorUtils.ChipKind.OTHER);
+                Color bg = ChipColorUtils.getBackgroundColor(kind, isDark);
                 Set<ContextFragment> segmentFrags = Set.of(frag);
                 out.add(new Segment(x, w.width, bg, segmentFrags, false));
             }

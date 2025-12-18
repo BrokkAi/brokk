@@ -113,9 +113,9 @@ public interface ContextFragment {
             String syntaxStyle,
             Set<CodeUnit> sources,
             Set<ProjectFile> files,
-            @Nullable List<Byte> imageByteList
             // may not be a byte[] object as records require immutability which cannot be enforced by arrays
-            ) {
+            @Nullable List<Byte> imageByteList,
+            boolean valid) {
 
         public FragmentSnapshot(
                 String description,
@@ -124,12 +124,28 @@ public interface ContextFragment {
                 String syntaxStyle,
                 Set<CodeUnit> sources,
                 Set<ProjectFile> files,
-                byte @Nullable [] imageBytes) {
-            this(description, shortDescription, text, syntaxStyle, sources, files, convertToList(imageBytes));
+                byte @Nullable [] imageBytes,
+                boolean valid) {
+            this(description, shortDescription, text, syntaxStyle, sources, files, convertToList(imageBytes), valid);
         }
 
-        public FragmentSnapshot(String description, String shortDescription, String text, String syntaxStyle) {
-            this(description, shortDescription, text, syntaxStyle, Set.of(), Set.of(), (List<Byte>) null);
+        /**
+         * Factory method for valid text fragments with no image content.
+         */
+        public static FragmentSnapshot textSnapshot(
+                String description,
+                String shortDescription,
+                String text,
+                String syntaxStyle,
+                Set<CodeUnit> sources,
+                Set<ProjectFile> files) {
+            return new FragmentSnapshot(
+                    description, shortDescription, text, syntaxStyle, sources, files, (List<Byte>) null, true);
+        }
+
+        public static FragmentSnapshot textSnapshot(
+                String description, String shortDescription, String text, String syntaxStyle) {
+            return textSnapshot(description, shortDescription, text, syntaxStyle, Set.of(), Set.of());
         }
 
         public byte @Nullable [] imageBytes() {
@@ -137,7 +153,7 @@ public interface ContextFragment {
         }
 
         public static FragmentSnapshot EMPTY =
-                new FragmentSnapshot("", "", "", "", Set.of(), Set.of(), (List<Byte>) null);
+                new FragmentSnapshot("", "", "", "", Set.of(), Set.of(), (List<Byte>) null, true);
     }
 
     private static byte @Nullable [] convertToByteArray(@Nullable List<Byte> imageBytes) {
@@ -330,6 +346,19 @@ public interface ContextFragment {
     IContextManager getContextManager();
 
     /**
+     * For live fragments ONLY, isValid reflects current external state (a file fragment whose file is missing is invalid);
+     * historical/frozen fragments have already snapshotted their state and are always valid. However, if
+     * a fragment is unable to snapshot its content before the source is removed out from under it, it will also
+     * end up invalid.
+     *
+     * @return true if the fragment is valid, false otherwise
+     */
+    @Blocking
+    default boolean isValid() {
+        return true;
+    }
+
+    /**
      * Convenience method to get the analyzer in a non-blocking way using the fragment's context manager.
      *
      * @return The IAnalyzer instance if available, or null if it's not ready yet or if the context manager is not
@@ -453,6 +482,13 @@ public interface ContextFragment {
         public @Nullable ComputedValue<byte[]> imageBytes() {
             // Can be overridden by image fragments
             return null;
+        }
+
+        @Blocking
+        @Override
+        public boolean isValid() {
+            var snapshot = snapshotCv.tryGet().orElse(null);
+            return snapshot != null && snapshot.valid();
         }
 
         @Override
@@ -611,10 +647,11 @@ public interface ContextFragment {
                 logger.error("Failed to analyze declarations for file {}, sources will be empty", name, t);
                 sources = Set.of();
             }
-            return new FragmentSnapshot(desc, name, text, syntax, sources, Set.of(file), (List<Byte>) null);
+            return new FragmentSnapshot(desc, name, text, syntax, sources, Set.of(file), (List<Byte>) null, true);
         }
 
         private static FragmentSnapshot computeSnapshotFor(ProjectFile file, IContextManager contextManager) {
+            boolean valid = file.exists();
             String text = file.read().orElse("");
             String name = file.getFileName();
             String desc = file.getParent().equals(Path.of("")) ? name : "%s [%s]".formatted(name, file.getParent());
@@ -626,7 +663,7 @@ public interface ContextFragment {
                 logger.error("Failed to analyze declarations for file {}, sources will be empty", name, e);
             }
 
-            return new FragmentSnapshot(desc, name, text, syntax, sources, Set.of(file), (List<Byte>) null);
+            return new FragmentSnapshot(desc, name, text, syntax, sources, Set.of(file), (List<Byte>) null, valid);
         }
 
         private ProjectPathFragment(
@@ -819,14 +856,14 @@ public interface ContextFragment {
             String text = new String(bytes, StandardCharsets.UTF_8);
             String name = file.toString();
             String syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
-            return new FragmentSnapshot(name, name, text, syntax);
+            return FragmentSnapshot.textSnapshot(name, name, text, syntax);
         }
 
         private static FragmentSnapshot computeSnapshotFor(ExternalFile file) {
             String text = file.read().orElse("");
             String name = file.toString();
             String syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
-            return new FragmentSnapshot(name, name, text, syntax);
+            return new FragmentSnapshot(name, name, text, syntax, Set.of(), Set.of(), (byte[]) null, file.exists());
         }
 
         private ExternalPathFragment(
@@ -973,7 +1010,8 @@ public interface ContextFragment {
                     SyntaxConstants.SYNTAX_STYLE_NONE,
                     Set.of(),
                     (file instanceof ProjectFile pf) ? Set.of(pf) : Set.of(),
-                    bytes);
+                    bytes,
+                    file.exists());
         }
 
         @Override
@@ -1061,7 +1099,8 @@ public interface ContextFragment {
                             syntaxStyle,
                             Set.of(),
                             extractFilesFromDiff(text, contextManager),
-                            (List<Byte>) null));
+                            (List<Byte>) null,
+                            true));
         }
 
         /**
@@ -1160,8 +1199,14 @@ public interface ContextFragment {
                     id,
                     contextManager,
                     new FragmentSnapshot(
-                            description, description, text, syntaxStyle, Set.of(), Set.copyOf(files), (List<Byte>)
-                                    null));
+                            description,
+                            description,
+                            text,
+                            syntaxStyle,
+                            Set.of(),
+                            Set.copyOf(files),
+                            (List<Byte>) null,
+                            true));
         }
 
         @Override
@@ -1271,7 +1316,7 @@ public interface ContextFragment {
             }
 
             var files = extractFilesFromText(text, contextManager);
-            return new FragmentSnapshot(desc, desc, text, syntax, Set.of(), files, (List<Byte>) null);
+            return FragmentSnapshot.textSnapshot(desc, desc, text, syntax, Set.of(), files);
         }
 
         @Override
@@ -1358,7 +1403,8 @@ public interface ContextFragment {
                     SyntaxConstants.SYNTAX_STYLE_NONE,
                     Set.of(),
                     Set.of(),
-                    bytes);
+                    bytes,
+                    true);
         }
 
         @Override
@@ -1409,7 +1455,7 @@ public interface ContextFragment {
             super(
                     id,
                     contextManager,
-                    new FragmentSnapshot(
+                    FragmentSnapshot.textSnapshot(
                             "stacktrace of " + exception,
                             "stacktrace of " + exception,
                             original + "\n\nStacktrace methods in this project:\n\n" + code,
@@ -1417,8 +1463,7 @@ public interface ContextFragment {
                                     ? SyntaxConstants.SYNTAX_STYLE_NONE
                                     : sources.iterator().next().source().getSyntaxStyle(),
                             sources,
-                            sources.stream().map(CodeUnit::source).collect(Collectors.toSet()),
-                            (List<Byte>) null));
+                            sources.stream().map(CodeUnit::source).collect(Collectors.toSet())));
             this.original = original;
             this.exception = exception;
             this.code = code;
@@ -1581,7 +1626,7 @@ public interface ContextFragment {
                 syntax = units.iterator().next().source().getSyntaxStyle();
             }
 
-            return new FragmentSnapshot(desc, desc, text, syntax, units, files, (List<Byte>) null);
+            return FragmentSnapshot.textSnapshot(desc, desc, text, syntax, units, files);
         }
 
         @Override
@@ -1642,10 +1687,17 @@ public interface ContextFragment {
                     .map(s -> s.source().getSyntaxStyle())
                     .orElse(SyntaxConstants.SYNTAX_STYLE_NONE);
 
+            // Validity based on whether definitions exist
+            boolean valid = !analyzer.getDefinitions(targetIdentifier).isEmpty();
             return new FragmentSnapshot(
-                    "Uses of " + targetIdentifier, "Uses of " + targetIdentifier, text, syntax, sources, files, (List<
-                                    Byte>)
-                            null);
+                    "Uses of " + targetIdentifier,
+                    "Uses of " + targetIdentifier,
+                    text,
+                    syntax,
+                    sources,
+                    files,
+                    (List<Byte>) null,
+                    valid);
         }
 
         @Override
@@ -1706,7 +1758,7 @@ public interface ContextFragment {
                 logger.warn("Unable to resolve CodeUnit for fqName: {}", fullyQualifiedName);
             }
 
-            return new FragmentSnapshot(desc, fullyQualifiedName, text, syntax, units, files, (List<Byte>) null);
+            return FragmentSnapshot.textSnapshot(desc, fullyQualifiedName, text, syntax, units, files);
         }
 
         public CodeFragment(IContextManager contextManager, CodeUnit unit) {
@@ -1745,20 +1797,27 @@ public interface ContextFragment {
             String text;
             var analyzer = contextManager.getAnalyzerUninterrupted();
             var scpOpt = analyzer.as(SourceCodeProvider.class);
+            boolean hasSourceCode = false;
             if (scpOpt.isEmpty()) {
                 text = "Code Intelligence cannot extract source for: " + fullyQualifiedName;
             } else {
                 var scp = scpOpt.get();
                 if (unit.isFunction()) {
-                    String code = scp.getMethodSource(unit, true).orElse("");
-                    text = !code.isEmpty()
-                            ? new AnalyzerUtil.CodeWithSource(code, unit).text()
-                            : "No source found for method: " + fullyQualifiedName;
+                    var codeOpt = scp.getMethodSource(unit, true);
+                    if (codeOpt.isPresent()) {
+                        text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
+                        hasSourceCode = true;
+                    } else {
+                        text = "No source found for method: " + fullyQualifiedName;
+                    }
                 } else {
-                    String code = scp.getClassSource(unit, true).orElse("");
-                    text = !code.isEmpty()
-                            ? new AnalyzerUtil.CodeWithSource(code, unit).text()
-                            : "No source found for class: " + fullyQualifiedName;
+                    var codeOpt = scp.getClassSource(unit, true);
+                    if (codeOpt.isPresent()) {
+                        text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
+                        hasSourceCode = true;
+                    } else {
+                        text = "No source found for class: " + fullyQualifiedName;
+                    }
                 }
             }
 
@@ -1769,7 +1828,8 @@ public interface ContextFragment {
                     unit.source().getSyntaxStyle(),
                     Set.of(unit),
                     Set.of(unit.source()),
-                    (List<Byte>) null);
+                    (List<Byte>) null,
+                    hasSourceCode);
         }
 
         @Override
@@ -1854,8 +1914,9 @@ public interface ContextFragment {
             String desc = "%s of %s (depth %d)".formatted(type, methodName, depth);
             Set<ProjectFile> files = sources.stream().map(CodeUnit::source).collect(Collectors.toSet());
 
+            boolean valid = analyzer.getDefinitions(methodName).stream().anyMatch(CodeUnit::isFunction);
             return new FragmentSnapshot(
-                    desc, desc, text, SyntaxConstants.SYNTAX_STYLE_NONE, sources, files, (List<Byte>) null);
+                    desc, desc, text, SyntaxConstants.SYNTAX_STYLE_NONE, sources, files, (List<Byte>) null, valid);
         }
 
         @Override
@@ -2030,9 +2091,10 @@ public interface ContextFragment {
             String desc = "Summary of %s".formatted(targetIdentifier);
             Set<CodeUnit> sources = skeletonsMap.keySet();
             Set<ProjectFile> files = sources.stream().map(CodeUnit::source).collect(Collectors.toSet());
+            boolean valid = !primaryTargets.isEmpty();
 
             return new FragmentSnapshot(
-                    desc, desc, text, SyntaxConstants.SYNTAX_STYLE_JAVA, sources, files, (List<Byte>) null);
+                    desc, desc, text, SyntaxConstants.SYNTAX_STYLE_JAVA, sources, files, (List<Byte>) null, valid);
         }
 
         public static String combinedText(List<SummaryFragment> fragments) {
@@ -2092,7 +2154,7 @@ public interface ContextFragment {
             super(
                     id,
                     contextManager,
-                    new FragmentSnapshot(
+                    FragmentSnapshot.textSnapshot(
                             "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : ""),
                             "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : ""),
                             TaskEntry.formatMessages(history.stream()
@@ -2166,7 +2228,7 @@ public interface ContextFragment {
             super(
                     id,
                     contextManager,
-                    new FragmentSnapshot(
+                    FragmentSnapshot.textSnapshot(
                             description,
                             description,
                             TaskEntry.formatMessages(messages),

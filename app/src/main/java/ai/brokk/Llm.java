@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.project.AbstractProject;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.LogDescription;
@@ -339,7 +340,7 @@ public class Llm {
                 ifNotCancelled.accept(() -> {
                     // Gate formatting to GPT-5 (and other variants like mini) only, and only after the first reasoning
                     // chunk
-                    boolean isGpt5 = contextManager.getService().nameOf(model).startsWith(Service.GPT_5);
+                    boolean isGpt5 = contextManager.getService().nameOf(model).startsWith(ModelProperties.GPT_5);
                     String out = isGpt5 ? addReasoningNewlinesForGpt5(reasoningContent) : reasoningContent;
 
                     accumulatedReasoningBuilder.append(out);

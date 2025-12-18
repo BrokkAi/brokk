@@ -23,8 +23,8 @@ import ai.brokk.gui.components.ModelSelector;
 import ai.brokk.gui.components.OverlayPanel;
 import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.components.TokenUsageBar;
+import ai.brokk.gui.dialogs.SettingsAdvancedPanel;
 import ai.brokk.gui.dialogs.SettingsDialog;
-import ai.brokk.gui.dialogs.SettingsGlobalPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -1560,7 +1560,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         if (choice == JOptionPane.YES_OPTION) { // Open Settings
             SwingUtilities.invokeLater(
-                    () -> SettingsDialog.showSettingsDialog(chrome, SettingsGlobalPanel.MODELS_TAB_TITLE));
+                    () -> SettingsDialog.showSettingsDialog(chrome, SettingsAdvancedPanel.MODELS_TAB_TITLE));
         }
         // In either case (Settings opened or Cancel pressed), the original action is aborted by returning from the
         // caller.
@@ -1620,7 +1620,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (selectedModel == null) {
             chrome.toolError("Selected model '" + config.name() + "' is not available with reasoning level "
                     + config.reasoning());
-            var fallbackModel = models.getModel(Service.GPT_5_MINI);
+            var fallbackModel = models.getModel(ModelProperties.GPT_5_MINI);
             if (fallbackModel != null) {
                 selectedModel = fallbackModel;
             }
@@ -2298,17 +2298,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private void appendToInstructionsArea(String transcript) {
         SwingUtilities.invokeLater(() -> {
             var currentText = instructionsArea.getText();
-            String newText;
-            if (isPlaceholderText(currentText) || currentText.isBlank()) {
-                newText = transcript;
-            } else {
-                newText = currentText + " " + transcript;
-            }
+            var isEmpty = isPlaceholderText(currentText) || currentText.isBlank();
 
-            if (isPlaceholderText(instructionsArea.getText()) || !instructionsArea.isEnabled()) {
+            if (isEmpty || !instructionsArea.isEnabled()) {
                 activateCommandInput();
             }
-            setTextWithUndo(newText, currentText);
+
+            var newText = isEmpty ? transcript : currentText + " " + transcript;
+            setTextWithUndo(newText, isEmpty ? "" : currentText);
             instructionsArea.requestFocusInWindow();
             instructionsArea.setCaretPosition(newText.length());
         });
@@ -2323,9 +2320,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         commandInputOverlay.hideOverlay(); // Hide the overlay
         // Enable input and deep scan button
         instructionsArea.setEnabled(true);
-        // Clear placeholder only if it's still present
+        // Clear placeholder only if it's still present (inline to avoid invokeLater race)
         if (isPlaceholderText(instructionsArea.getText())) {
-            clearCommandInput();
+            instructionsArea.setText("");
+            commandInputUndoManager.discardAllEdits();
         }
         // Enable undo listener now that real content can be entered
         enableUndoListener();

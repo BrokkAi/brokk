@@ -17,6 +17,7 @@ import ai.brokk.gui.components.GitHubAppInstallLabel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.MaterialLoadingButton;
 import ai.brokk.gui.git.GitCommitBrowserPanel;
+import ai.brokk.gui.git.GitHubErrorUtil;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.widgets.FileStatusTable;
 import java.awt.*;
@@ -652,13 +653,22 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     private class SuggestPrDetailsWorker extends ExceptionAwareSwingWorker<GitWorkflow.PrSuggestion, Void> {
         private final String sourceBranch;
         private final String targetBranch;
-        private final PrDetailsConsoleIO streamingIO;
+        private final TextAreaConsoleIO streamingIO;
 
         SuggestPrDetailsWorker(String sourceBranch, String targetBranch) {
             super(chrome);
             this.sourceBranch = sourceBranch;
             this.targetBranch = targetBranch;
-            this.streamingIO = new PrDetailsConsoleIO(titleField, descriptionArea, chrome);
+
+            // Dialog takes responsibility for the title field UI while generation runs.
+            SwingUtilities.invokeLater(() -> {
+                titleField.setEnabled(false);
+                titleField.setText("Generating title");
+                titleField.setCaretPosition(0);
+            });
+
+            // Create a TextAreaConsoleIO for streaming description tokens. Use a descriptive initial message.
+            this.streamingIO = new TextAreaConsoleIO(descriptionArea, chrome, "Generating description...\nThinking");
         }
 
         @Override
@@ -680,11 +690,18 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                 return;
             }
             SwingUtilities.invokeLater(() -> {
+                // Ensure description streaming finishes and UI is updated
                 streamingIO.onComplete();
+
+                // Title is managed by the dialog: set and re-enable it.
                 titleField.setText(suggestion.title());
-                descriptionArea.setText(suggestion.description());
+                titleField.setEnabled(true);
                 titleField.setCaretPosition(0);
+
+                // Description area gets final content from the suggestion (tool execution result).
+                descriptionArea.setText(suggestion.description());
                 descriptionArea.setCaretPosition(0);
+
                 showDescriptionHint(suggestion.usedCommitMessages());
             });
         }
@@ -778,7 +795,20 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
             } catch (Exception ex) {
                 logger.error("Pull Request creation failed", ex);
                 SwingUtilities.invokeLater(() -> {
-                    chrome.toolError("Unable to create Pull Request:\n" + ex.getMessage(), "PR Creation Error");
+                    String message;
+                    if (GitHubErrorUtil.isNoCommitsBetweenError(ex)) {
+                        var sourceBranch = (String) sourceBranchComboBox.getSelectedItem();
+                        var targetBranch = (String) targetBranchComboBox.getSelectedItem();
+                        var base = targetBranch != null ? targetBranch : "the target branch";
+                        var head = sourceBranch != null ? sourceBranch : "the source branch";
+                        message = GitHubErrorUtil.formatNoCommitsBetweenError(base, head);
+                    } else {
+                        var exMessage = ex.getMessage();
+                        message =
+                                "Unable to create Pull Request:\n" + (exMessage != null ? exMessage : "Unknown error");
+                    }
+
+                    chrome.toolError(message, "PR Creation Error");
                     if (isDisplayable()) {
                         createPrButton.setLoading(false, null);
                     }
