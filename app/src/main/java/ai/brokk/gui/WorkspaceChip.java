@@ -1386,4 +1386,112 @@ public class WorkspaceChip extends JPanel {
             });
         }
     }
+
+    /**
+     * Synthetic, non-droppable chip that represents the merged AGENTS.md style guide.
+     * It is informational only and cannot be removed by the user.
+     */
+    public static final class StyleGuideChip extends WorkspaceChip {
+
+        public StyleGuideChip(
+                Chrome chrome,
+                ContextManager contextManager,
+                Supplier<Boolean> readOnlySupplier,
+                @Nullable BiConsumer<ContextFragment, Boolean> hoverCallback,
+                @Nullable Consumer<ContextFragment> onRemoveFragment,
+                ContextFragment fragment) {
+            super(
+                    chrome,
+                    contextManager,
+                    readOnlySupplier,
+                    hoverCallback,
+                    onRemoveFragment,
+                    Set.of(fragment),
+                    ChipKind.OTHER);
+
+            setCloseEnabled(false);
+            label.setText("AGENTS.md");
+
+            var ac = label.getAccessibleContext();
+            if (ac != null) {
+                ac.setAccessibleName("AGENTS.md");
+                ac.setAccessibleDescription("Project style guide (AGENTS.md). Informational; cannot be removed.");
+            }
+
+            label.setToolTipText(wrapTooltipHtml(
+                    "<b>AGENTS.md</b> — informational Style Guide<br/>"
+                            + "It is always applied automatically to prompts.<br/><br/>"
+                            + "<i>This chip cannot be removed.</i>",
+                    420));
+
+            closeButton.setToolTipText("Informational; cannot be removed");
+        }
+
+        @Override
+        protected void onCloseClick() {
+            chrome.systemNotify(
+                    "AGENTS.md is informational and cannot be removed.",
+                    "Workspace",
+                    JOptionPane.INFORMATION_MESSAGE);
+        }
+
+        @Override
+        protected void updateTextAndTooltip(ContextFragment fragment) {
+            String newLabelText = "AGENTS.md";
+            if (!Objects.equals(label.getText(), newLabelText)) {
+                label.setText(newLabelText);
+            }
+
+            String newTooltip = wrapTooltipHtml(
+                    "<b>AGENTS.md</b> — informational Style Guide<br/>"
+                            + "It is always applied automatically to prompts.<br/><br/>"
+                            + "<i>This chip cannot be removed.</i>",
+                    420);
+
+            if (!Objects.equals(label.getToolTipText(), newTooltip)) {
+                label.setToolTipText(newTooltip);
+            }
+
+            var ac = label.getAccessibleContext();
+            if (ac != null) {
+                String newDesc = "Project style guide (AGENTS.md). Informational; cannot be removed.";
+                if (!Objects.equals(ac.getAccessibleDescription(), newDesc)) {
+                    ac.setAccessibleDescription(newDesc);
+                }
+            }
+        }
+
+        @Override
+        protected @Nullable JPopupMenu createContextMenu() {
+            ContextFragment fragment = getPrimaryFragment();
+            JPopupMenu menu = new JPopupMenu();
+
+            var scenario = new WorkspacePanel.SingleFragment(fragment);
+            var actions = scenario.getActions(chrome.getContextPanel());
+            boolean addedAnyAction = false;
+            for (var action : actions) {
+                if (action == null) {
+                    continue;
+                }
+                if (isDropAction(action)) {
+                    continue;
+                }
+                Object nameObj = action.getValue(Action.NAME);
+                if (nameObj instanceof String s && ("Drop".equals(s) || "Drop Others".equals(s))) {
+                    continue;
+                }
+                menu.add(action);
+                addedAnyAction = true;
+            }
+
+            if (!addedAnyAction) {
+                JMenuItem info = new JMenuItem("AGENTS.md is informational and cannot be removed");
+                info.setEnabled(false);
+                menu.add(info);
+            }
+
+            chrome.getThemeManager().registerPopupMenu(menu);
+            return menu;
+        }
+    }
 }
