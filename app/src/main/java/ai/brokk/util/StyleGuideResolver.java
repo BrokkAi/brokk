@@ -197,7 +197,7 @@ public final class StyleGuideResolver {
      * @param files a list of ProjectFile inputs used to locate relevant AGENTS.md files
      * @return aggregated style guide content
      */
-    public static String resolve(List<ProjectFile> files) {
+    private static String resolve(List<ProjectFile> files) {
         return new StyleGuideResolver(files).resolveCompositeGuide();
     }
 

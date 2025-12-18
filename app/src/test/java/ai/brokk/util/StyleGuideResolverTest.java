@@ -49,7 +49,9 @@ public class StyleGuideResolverTest {
         // Aggregate the style guide exactly as prompts do (via StyleGuideResolver)
         var projectFileA = new ProjectFile(master, master.relativize(fileA));
         var projectFileB = new ProjectFile(master, master.relativize(fileB));
-        String guide = StyleGuideResolver.resolve(List.of(projectFileA, projectFileB));
+        // Mock-like implementation of IProject
+        IProject mockProject = createMockProject("PROJECT-FALLBACK");
+        String guide = StyleGuideResolver.resolve(List.of(projectFileA, projectFileB), mockProject);
 
         String headerA = "### AGENTS.md at a";
         String headerB = "### AGENTS.md at b";
@@ -219,16 +221,20 @@ public class StyleGuideResolverTest {
         var projectFile = new ProjectFile(master, master.relativize(fileX));
 
         // Mock-like implementation of IProject
-        IProject mockProject = new IProject() {
-            @Override public String getStyleGuide() { return "PROJECT-FALLBACK"; }
-            // Unsupported members for brevity in this specific test context
-            @Override public Path getRoot() { return master; }
-            public boolean exists(ProjectFile file) { return false; }
-            @Override public void close() {}
-        };
+        IProject mockProject = createMockProject("PROJECT-FALLBACK");
 
         String result = StyleGuideResolver.resolve(List.of(projectFile), mockProject);
         assertEquals("PROJECT-FALLBACK", result, "Should fall back to project style guide when no AGENTS.md found");
+    }
+
+    private static IProject createMockProject(String styleGuide) {
+        return new IProject() {
+            @Override public String getStyleGuide() { return styleGuide; }
+            // Unsupported members for brevity in this specific test context
+            @Override public Path getRoot() { return Path.of(""); }
+            public boolean exists(ProjectFile file) { return false; }
+            @Override public void close() {}
+        };
     }
 
     private static int countOccurrences(String text, String needle) {
