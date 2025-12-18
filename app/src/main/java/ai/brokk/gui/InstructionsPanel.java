@@ -1574,7 +1574,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         try {
             var models = contextManager.getService();
             // If we have an UnavailableStreamingModel, the service failed to initialize
-            if (models.quickModel() instanceof Service.UnavailableStreamingModel) {
+            if (models.quickestModel() instanceof Service.UnavailableStreamingModel) {
                 return "Service contains unavailable model stub (initialization may have failed)";
             }
             return "Service appears initialized; check network connectivity and API key validity";

@@ -17,6 +17,7 @@ import java.awt.*;
 import java.util.ArrayList;
 import java.util.EventObject;
 import java.util.List;
+import java.util.Map;
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
 import javax.swing.DefaultListCellRenderer;
@@ -98,6 +99,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             @Nullable Service.FavoriteModel selectedCodeFavorite,
             @Nullable Service.FavoriteModel selectedPrimaryFavorite,
             String otherModelsVendor,
+            Map<ModelProperties.ModelType, AbstractService.ModelConfig> vendorModelMap,
             boolean showCostNotifications,
             boolean showFreeInternalLLMCostNotifications,
             boolean showErrorNotifications,
@@ -180,6 +182,9 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             vendor = ModelProperties.DEFAULT_VENDOR;
         }
 
+        Map<ModelProperties.ModelType, AbstractService.ModelConfig> vendorModelMap;
+        vendorModelMap = requireNonNull(ModelProperties.getVendorModels(vendor));
+
         return new AdvancedValues(
                 jvmSettings,
                 startupMode,
@@ -191,6 +196,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 selectedCodeFavorite,
                 selectedPrimaryFavorite,
                 vendor,
+                vendorModelMap,
                 showCostNotificationsCheckbox.isSelected(),
                 showFreeInternalLLMCheckbox.isSelected(),
                 showErrorNotificationsCheckbox.isSelected(),
@@ -256,10 +262,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
 
         // Vendor preference and Quick/Scan mappings for other models
         String selectedVendor = values.otherModelsVendor();
-        if (selectedVendor == null || selectedVendor.isBlank()) {
-            selectedVendor = ModelProperties.DEFAULT_VENDOR;
-        }
-
         String normalizedVendorPref;
         if (ModelProperties.DEFAULT_VENDOR.equals(selectedVendor)) {
             normalizedVendorPref = "";
@@ -268,14 +270,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         }
         MainProject.setOtherModelsVendorPreference(normalizedVendorPref);
 
-        var vendorModels = ModelProperties.DEFAULT_VENDOR.equals(selectedVendor)
-                ? ModelProperties.getDefaultVendorModels()
-                : requireNonNull(ModelProperties.getVendorModels(selectedVendor));
-        mainProject.setModelConfig(ModelProperties.ModelType.QUICK, vendorModels.quick());
-        mainProject.setModelConfig(ModelProperties.ModelType.QUICK_EDIT, vendorModels.quickEdit());
-        mainProject.setModelConfig(ModelProperties.ModelType.QUICKEST, vendorModels.quickest());
-        mainProject.setModelConfig(ModelProperties.ModelType.SCAN, vendorModels.scan());
-        mainProject.setModelConfig(ModelProperties.ModelType.BUILD_PROCESSOR, vendorModels.buildProcessor());
+        values.vendorModelMap().forEach(mainProject::setModelConfig);
 
         String currentVendorSelection =
                 normalizedVendorPref.isBlank() ? ModelProperties.DEFAULT_VENDOR : normalizedVendorPref;
@@ -921,26 +916,9 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         otherModelsVendorHolder = new JPanel(new BorderLayout(0, 0));
         otherModelsVendorHolder.add(otherModelsVendorCombo, BorderLayout.CENTER);
 
-        String defaultQuick = ModelProperties.ModelType.QUICK.defaultConfig().name();
-        String defaultQuickEdit =
-                ModelProperties.ModelType.QUICK_EDIT.defaultConfig().name();
-        String defaultQuickest =
-                ModelProperties.ModelType.QUICKEST.defaultConfig().name();
-        String defaultScan = ModelProperties.ModelType.SCAN.defaultConfig().name();
-
         String vendorTooltip = "<html><div style='width: 340px;'>"
-                + "Selecting a vendor sets Quick, Quick Edit, Quickest, and Scan to vendor defaults.<br/><br/>"
-                + "<b>OpenAI:</b> Quick=gpt-5-nano; Quick Edit=gpt-5-nano; Quickest=gpt-5-nano; Scan=gpt-5-mini<br/>"
-                + "<b>Anthropic:</b> Quick=claude-haiku-4-5; Quick Edit=claude-haiku-4-5; Quickest=claude-haiku-4-5; Scan=claude-haiku-4-5<br/>"
-                + "<b>Gemini:</b> Quick=TODO; Quick Edit=TODO; Quickest=TODO; Scan=TODO<br/>"
-                + "<b>Default:</b> Quick="
-                + defaultQuick
-                + "; Quick Edit="
-                + defaultQuickEdit
-                + "; Quickest="
-                + defaultQuickest
-                + "; Scan="
-                + defaultScan
+                + "Brokk will use the best model for each internal task (scanning, summarizing, etc.) by default, "
+                + "but you can pin these activities to a single vendor if others have an outage."
                 + "</div></html>";
 
         var vendorHelpButton = new MaterialButton();

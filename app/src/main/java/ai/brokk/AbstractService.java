@@ -635,8 +635,8 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         return getModel(ModelType.QUICKEST);
     }
 
-    public StreamingChatModel quickModel() {
-        return getModel(ModelType.QUICK);
+    public StreamingChatModel summarizeModel() {
+        return getModel(ModelType.SUMMARIZE);
     }
 
     public StreamingChatModel quickEditModel() {
