@@ -2302,8 +2302,18 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 currentFragmentId,
                 lastTaskListFragmentId);
 
-        if (sessionChanged || fragmentChanged) {
+        if (sessionChanged) {
             SwingUtilities.invokeLater(this::loadTasksForCurrentSession);
+            return;
+        }
+
+        if (fragmentChanged) {
+            lastTaskListFragmentId = currentFragmentId;
+            SwingUtilities.invokeLater(() -> {
+                model.fireRefresh();
+                updateTasksTabBadge();
+                updateButtonStates();
+            });
         }
     }
 
