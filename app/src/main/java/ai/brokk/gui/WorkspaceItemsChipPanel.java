@@ -8,7 +8,6 @@ import ai.brokk.gui.search.ScrollingUtils;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.MainProject;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import java.awt.Container;
 import java.awt.Cursor;
 import java.awt.Dimension;
@@ -28,6 +27,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -334,12 +334,11 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
             return;
         }
 
-        boolean needCreate = styleGuideChip == null;
-        if (needCreate) {
+        if (styleGuideChip == null) {
             // Minimal, static fragment used only to anchor the chip in menus/preview.
             // Not tied to workspace hover/selection or computed updates.
-            ContextFragment fragment =
-                    new ContextFragment.StringFragment(contextManager, "", "AGENTS.md", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+            ContextFragment fragment = new ContextFragment.StringFragment(
+                    contextManager, "", "AGENTS.md", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
             styleGuideChip = new WorkspaceChip.StyleGuideChip(
                     chrome, contextManager, () -> readOnly, null, onRemoveFragment, fragment);
             styleGuideChip.setBorder(new EmptyBorder(0, 0, 0, 0));

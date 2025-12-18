@@ -1462,9 +1462,7 @@ public class WorkspaceChip extends JPanel {
         @Override
         protected void onCloseClick() {
             chrome.systemNotify(
-                    "AGENTS.md is informational and cannot be removed.",
-                    "Workspace",
-                    JOptionPane.INFORMATION_MESSAGE);
+                    "AGENTS.md is informational and cannot be removed.", "Workspace", JOptionPane.INFORMATION_MESSAGE);
         }
 
         @Override
@@ -1509,27 +1507,27 @@ public class WorkspaceChip extends JPanel {
                         .collect(Collectors.toList());
             }
 
-            contextManager.submitBackgroundTask("Compute AGENTS.md", () -> {
-                try {
-                    String resolved = StyleGuideResolver.resolve(candidateFiles);
-                    if (resolved == null || resolved.isBlank()) {
-                        String fallback = contextManager.getProject().getStyleGuide();
-                        return fallback == null ? "" : fallback;
-                    }
-                    return resolved;
-                } catch (Throwable t) {
-                    logger.warn("Failed to resolve style guide; using fallback", t);
-                    String fallback = contextManager.getProject().getStyleGuide();
-                    return fallback == null ? "" : fallback;
-                }
-            }).thenAccept(content -> SwingUtilities.invokeLater(() -> {
-                var syntheticFragment = new ContextFragment.StringFragment(
-                        chrome.getContextManager(),
-                        content,
-                        "AGENTS.md",
-                        SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
-                chrome.openFragmentPreview(syntheticFragment);
-            }));
+            contextManager
+                    .submitBackgroundTask("Compute AGENTS.md", () -> {
+                        try {
+                            String resolved = StyleGuideResolver.resolve(candidateFiles);
+                            if (resolved.isBlank()) {
+                                return contextManager.getProject().getStyleGuide();
+                            }
+                            return resolved;
+                        } catch (Throwable t) {
+                            logger.warn("Failed to resolve style guide; using fallback", t);
+                            return contextManager.getProject().getStyleGuide();
+                        }
+                    })
+                    .thenAccept(content -> SwingUtilities.invokeLater(() -> {
+                        var syntheticFragment = new ContextFragment.StringFragment(
+                                chrome.getContextManager(),
+                                content,
+                                "AGENTS.md",
+                                SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+                        chrome.openFragmentPreview(syntheticFragment);
+                    }));
         }
 
         @Override
