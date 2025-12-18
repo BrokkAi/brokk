@@ -847,9 +847,14 @@ public class BuildAgent {
             var envVars = details.environmentVariables();
             var execCfg = ExecutorConfig.fromProject(cm.getProject());
 
-            long timeoutSeconds = cm.getProject().getMainProject().getRunCommandTimeoutSeconds();
-            Duration timeout =
-                    Duration.ofSeconds(timeoutSeconds > 0L ? timeoutSeconds : Environment.DEFAULT_TIMEOUT.toSeconds());
+            Duration timeout = Duration.ofSeconds(Environment.DEFAULT_TIMEOUT.toSeconds());
+            try {
+                // `getMainProject` will not be implemented by, for example, TestProject
+                long timeoutSeconds = cm.getProject().getMainProject().getRunCommandTimeoutSeconds();
+                timeout = timeoutSeconds > 0L ? Duration.ofSeconds(timeoutSeconds) : timeout;
+            } catch (UnsupportedOperationException unsupportedOperationException) {
+                logger.debug("Unable to obtain configured command timeout, using default.");
+            }
 
             var output = Environment.instance.runShellCommand(
                     verificationCommand,
