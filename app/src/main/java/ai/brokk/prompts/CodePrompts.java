@@ -324,10 +324,8 @@ public abstract class CodePrompts {
         var projectFiles =
                 ctx.fileFragments().flatMap(cf -> cf.files().join().stream()).toList();
 
-        // Resolve composite style guide from AGENTS.md files nearest to current context files; fall back to project
-        // root guide.
-        var resolvedGuide = StyleGuideResolver.resolve(projectFiles);
-        var styleGuide = resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
+        // Resolve composite style guide from AGENTS.md files nearest to current context files.
+        var styleGuide = StyleGuideResolver.resolve(projectFiles, cm.getProject());
 
         var text =
                 """
@@ -351,15 +349,13 @@ public abstract class CodePrompts {
     protected SystemMessage systemMessage(IContextManager cm, String reminder) {
         var workspaceSummary = formatWorkspaceToc(cm.liveContext());
 
-        // Resolve composite style guide from AGENTS.md files nearest to files in the top context;
-        // fall back to the project root style guide if none found.
+        // Resolve composite style guide from AGENTS.md files nearest to files in the top context.
         var projectFiles = cm.liveContext()
                 .fileFragments()
                 .flatMap(cf -> cf.files().join().stream())
                 .collect(Collectors.toList());
 
-        var resolvedGuide = StyleGuideResolver.resolve(projectFiles);
-        var styleGuide = resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
+        var styleGuide = StyleGuideResolver.resolve(projectFiles, cm.getProject());
 
         var text =
                 """
