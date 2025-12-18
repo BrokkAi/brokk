@@ -279,10 +279,21 @@ class DiffServiceTest {
                 "New content should fall back to error message on timeout");
     }
 
-    private static ContextFragment.FragmentSnapshot snapshot(String description, String shortDescription, String text) {
+    private static ContextFragment.FragmentSnapshot snapshot(
+            String description, String shortDescription, String text, boolean isValid) {
         return new ContextFragment.FragmentSnapshot(
-                description, shortDescription, text, SyntaxConstants.SYNTAX_STYLE_NONE, Set.of(), Set.of(), (List<Byte>)
-                        null);
+                description,
+                shortDescription,
+                text,
+                SyntaxConstants.SYNTAX_STYLE_NONE,
+                Set.of(),
+                Set.of(),
+                (List<Byte>) null,
+                isValid);
+    }
+
+    private static ContextFragment.FragmentSnapshot snapshot(String description, String shortDescription, String text) {
+        return snapshot(description, shortDescription, text, true);
     }
 
     private static void writeImage(ProjectFile file, Color color) throws Exception {
