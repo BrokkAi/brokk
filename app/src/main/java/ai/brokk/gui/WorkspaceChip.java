@@ -1414,6 +1414,8 @@ public class WorkspaceChip extends JPanel {
                     ChipKind.OTHER);
 
             setCloseEnabled(false);
+            closeButton.setVisible(false);
+            separator.setVisible(false);
             label.setText("AGENTS.md");
 
             var ac = label.getAccessibleContext();
@@ -1535,9 +1537,12 @@ public class WorkspaceChip extends JPanel {
             ContextFragment fragment = getPrimaryFragment();
             JPopupMenu menu = new JPopupMenu();
 
+            JMenuItem showContentsItem = new JMenuItem("Show Contents");
+            showContentsItem.addActionListener(e -> onPrimaryClick());
+            menu.add(showContentsItem);
+
             var scenario = new WorkspacePanel.SingleFragment(fragment);
             var actions = scenario.getActions(chrome.getContextPanel());
-            boolean addedAnyAction = false;
             for (var action : actions) {
                 if (action == null) {
                     continue;
@@ -1546,17 +1551,16 @@ public class WorkspaceChip extends JPanel {
                     continue;
                 }
                 Object nameObj = action.getValue(Action.NAME);
-                if (nameObj instanceof String s && ("Drop".equals(s) || "Drop Others".equals(s))) {
-                    continue;
+                if (nameObj instanceof String s) {
+                    if ("Show Contents".equals(s)) {
+                        // Replace default "Show Contents" with our custom item above
+                        continue;
+                    }
+                    if ("Drop".equals(s) || "Drop Others".equals(s)) {
+                        continue;
+                    }
                 }
                 menu.add(action);
-                addedAnyAction = true;
-            }
-
-            if (!addedAnyAction) {
-                JMenuItem info = new JMenuItem("AGENTS.md is informational and cannot be removed");
-                info.setEnabled(false);
-                menu.add(info);
             }
 
             chrome.getThemeManager().registerPopupMenu(menu);
