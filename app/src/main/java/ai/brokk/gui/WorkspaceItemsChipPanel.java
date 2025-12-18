@@ -8,6 +8,7 @@ import ai.brokk.gui.search.ScrollingUtils;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.MainProject;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import java.awt.Container;
 import java.awt.Cursor;
 import java.awt.Dimension;
@@ -47,6 +48,7 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
     // Cross-hover state: chip lookup by fragment id and external hover callback
     private final Map<String, WorkspaceChip> chipById = new ConcurrentHashMap<>();
     private @Nullable WorkspaceChip.SummaryChip syntheticSummaryChip = null;
+    private @Nullable WorkspaceChip.StyleGuideChip styleGuideChip = null;
     private @Nullable BiConsumer<ContextFragment, Boolean> onHover;
     private Set<ContextFragment> hoveredFragments = Set.of();
     private Set<String> hoveredFragmentIds = Set.of();
@@ -289,6 +291,8 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
                 setComponentZOrder(syntheticSummaryChip, getComponentCount() - 1);
             }
 
+            ensureStyleGuideChip(true);
+
             revalidate();
             repaint();
 
@@ -315,6 +319,38 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
                 chrome, contextManager, () -> readOnly, onHover, onRemoveFragment, summaries);
         chip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         return chip;
+    }
+
+    /**
+     * Ensures the pinned Style Guide chip is inserted (first) or removed.
+     * This chip is UI-only and is not tracked in chipById nor included in cross-hover.
+     */
+    private void ensureStyleGuideChip(boolean present) {
+        if (!present) {
+            if (styleGuideChip != null) {
+                remove(styleGuideChip);
+                styleGuideChip = null;
+            }
+            return;
+        }
+
+        boolean needCreate = styleGuideChip == null;
+        if (needCreate) {
+            // Minimal, static fragment used only to anchor the chip in menus/preview.
+            // Not tied to workspace hover/selection or computed updates.
+            ContextFragment fragment =
+                    new ContextFragment.StringFragment(contextManager, "", "AGENTS.md", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+            styleGuideChip = new WorkspaceChip.StyleGuideChip(
+                    chrome, contextManager, () -> readOnly, null, onRemoveFragment, fragment);
+            styleGuideChip.setBorder(new EmptyBorder(0, 0, 0, 0));
+            styleGuideChip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            add(styleGuideChip);
+        } else if (styleGuideChip.getParent() != this) {
+            add(styleGuideChip);
+        }
+
+        // Pin at the first position.
+        setComponentZOrder(styleGuideChip, 0);
     }
 
     // Scrollable support and width-tracking preferred size for proper wrapping inside JScrollPane
