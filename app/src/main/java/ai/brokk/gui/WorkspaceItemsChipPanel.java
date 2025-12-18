@@ -291,7 +291,7 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
                 setComponentZOrder(syntheticSummaryChip, getComponentCount() - 1);
             }
 
-            ensureStyleGuideChip(true);
+            ensureStyleGuideChip();
 
             revalidate();
             repaint();
@@ -322,18 +322,10 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
     }
 
     /**
-     * Ensures the pinned Style Guide chip is inserted (first) or removed.
+     * Ensures the pinned Style Guide chip is inserted (first).
      * This chip is UI-only and is not tracked in chipById nor included in cross-hover.
      */
-    private void ensureStyleGuideChip(boolean present) {
-        if (!present) {
-            if (styleGuideChip != null) {
-                remove(styleGuideChip);
-                styleGuideChip = null;
-            }
-            return;
-        }
-
+    private void ensureStyleGuideChip() {
         if (styleGuideChip == null) {
             // Minimal, static fragment used only to anchor the chip in menus/preview.
             // Not tied to workspace hover/selection or computed updates.

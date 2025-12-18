@@ -1397,6 +1397,14 @@ public class WorkspaceChip extends JPanel {
      */
     public static final class StyleGuideChip extends WorkspaceChip {
 
+        private static final String LABEL_TEXT = "AGENTS.md";
+        private static final String ACCESSIBLE_DESC = "Project style guide (AGENTS.md). Informational; cannot be removed.";
+        private static final String TOOLTIP_HTML = wrapTooltipHtml(
+                "<b>AGENTS.md</b> — informational Style Guide<br/>"
+                        + "It is always applied automatically to prompts.<br/><br/>"
+                        + "<i>This chip cannot be removed.</i>",
+                420);
+
         public StyleGuideChip(
                 Chrome chrome,
                 ContextManager contextManager,
@@ -1416,20 +1424,15 @@ public class WorkspaceChip extends JPanel {
             setCloseEnabled(false);
             closeButton.setVisible(false);
             separator.setVisible(false);
-            label.setText("AGENTS.md");
+            label.setText(LABEL_TEXT);
 
             var ac = label.getAccessibleContext();
             if (ac != null) {
-                ac.setAccessibleName("AGENTS.md");
-                ac.setAccessibleDescription("Project style guide (AGENTS.md). Informational; cannot be removed.");
+                ac.setAccessibleName(LABEL_TEXT);
+                ac.setAccessibleDescription(ACCESSIBLE_DESC);
             }
 
-            label.setToolTipText(wrapTooltipHtml(
-                    "<b>AGENTS.md</b> — informational Style Guide<br/>"
-                            + "It is always applied automatically to prompts.<br/><br/>"
-                            + "<i>This chip cannot be removed.</i>",
-                    420));
-
+            label.setToolTipText(TOOLTIP_HTML);
             closeButton.setToolTipText("Informational; cannot be removed");
         }
 
@@ -1467,26 +1470,18 @@ public class WorkspaceChip extends JPanel {
 
         @Override
         protected void updateTextAndTooltip(ContextFragment fragment) {
-            String newLabelText = "AGENTS.md";
-            if (!Objects.equals(label.getText(), newLabelText)) {
-                label.setText(newLabelText);
+            if (!Objects.equals(label.getText(), LABEL_TEXT)) {
+                label.setText(LABEL_TEXT);
             }
 
-            String newTooltip = wrapTooltipHtml(
-                    "<b>AGENTS.md</b> — informational Style Guide<br/>"
-                            + "It is always applied automatically to prompts.<br/><br/>"
-                            + "<i>This chip cannot be removed.</i>",
-                    420);
-
-            if (!Objects.equals(label.getToolTipText(), newTooltip)) {
-                label.setToolTipText(newTooltip);
+            if (!Objects.equals(label.getToolTipText(), TOOLTIP_HTML)) {
+                label.setToolTipText(TOOLTIP_HTML);
             }
 
             var ac = label.getAccessibleContext();
             if (ac != null) {
-                String newDesc = "Project style guide (AGENTS.md). Informational; cannot be removed.";
-                if (!Objects.equals(ac.getAccessibleDescription(), newDesc)) {
-                    ac.setAccessibleDescription(newDesc);
+                if (!Objects.equals(ac.getAccessibleDescription(), ACCESSIBLE_DESC)) {
+                    ac.setAccessibleDescription(ACCESSIBLE_DESC);
                 }
             }
         }
@@ -1524,7 +1519,7 @@ public class WorkspaceChip extends JPanel {
                         var syntheticFragment = new ContextFragment.StringFragment(
                                 chrome.getContextManager(),
                                 content,
-                                "AGENTS.md",
+                                LABEL_TEXT,
                                 SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
                         chrome.openFragmentPreview(syntheticFragment);
                     }));
