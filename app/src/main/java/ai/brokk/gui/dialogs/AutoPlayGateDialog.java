@@ -6,6 +6,7 @@ import java.awt.BorderLayout;
 import java.awt.Dialog;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.GridLayout;
 import java.awt.Window;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
@@ -22,7 +23,8 @@ import javax.swing.SwingUtilities;
 import org.jetbrains.annotations.Nullable;
 
 public final class AutoPlayGateDialog extends BaseThemedDialog {
-    private final Set<String> incompleteTasks;
+    private final Set<String> existingTasks;
+    private final Set<String> newTasks;
     private UserChoice choice = UserChoice.KEEP_OLD;
 
     /** User's choice from the dialog. */
@@ -35,122 +37,130 @@ public final class AutoPlayGateDialog extends BaseThemedDialog {
         KEEP_BOTH,
     }
 
-    private AutoPlayGateDialog(@Nullable Window owner, Set<String> incompleteTasks) {
-        super(owner, "New Tasks Found", Dialog.ModalityType.APPLICATION_MODAL);
-        this.incompleteTasks = incompleteTasks;
+    private AutoPlayGateDialog(@Nullable Window owner, Set<String> existingTasks, Set<String> newTasks) {
+            super(owner, "New Tasks Found", Dialog.ModalityType.APPLICATION_MODAL);
+            this.existingTasks = existingTasks;
+            this.newTasks = newTasks;
 
-        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
-        addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosing(WindowEvent e) {
-                choice = UserChoice.KEEP_OLD;
-            }
-        });
+            setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+            addWindowListener(new WindowAdapter() {
+                    @Override
+                    public void windowClosing(WindowEvent e) {
+                            choice = UserChoice.KEEP_OLD;
+                    }
+            });
 
-        buildUI();
-        pack();
-        setLocationRelativeTo(owner);
+            buildUI();
+            pack();
+            setLocationRelativeTo(owner);
     }
 
     private void buildUI() {
-        var root = getContentRoot();
-        root.setLayout(new BorderLayout(8, 8));
-        root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            var root = getContentRoot();
+            root.setLayout(new BorderLayout(8, 8));
+            root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        String introText = "New tasks were generated, and you already have incomplete tasks.\n"
-                + "How would you like to proceed?\n\n"
-                + "- Keep existing tasks: discard the newly generated tasks and keep your current list.\n"
-                + "- Use new tasks: replace your current list with the newly generated tasks.\n"
-                + "- Keep both (merge): append new incomplete tasks to your existing incomplete tasks (deduplicated).";
+            String introText = "New tasks were generated, and you already have incomplete tasks.\n"
+                            + "Review both lists below to decide how to proceed:\n\n"
+                            + "- Keep existing tasks: discard the newly generated tasks and keep your current list.\n"
+                            + "- Use new tasks: replace your current list with the newly generated tasks.\n"
+                            + "- Keep both (merge): append new incomplete tasks to your existing incomplete tasks (deduplicated).";
 
-        var intro = new JTextArea(introText);
-        intro.setEditable(false);
-        intro.setOpaque(false);
-        intro.setLineWrap(true);
-        intro.setWrapStyleWord(true);
-        root.add(intro, BorderLayout.NORTH);
+            var intro = new JTextArea(introText);
+            intro.setEditable(false);
+            intro.setOpaque(false);
+            intro.setLineWrap(true);
+            intro.setWrapStyleWord(true);
+            root.add(intro, BorderLayout.NORTH);
 
-        var listPanel = new JPanel(new BorderLayout(6, 6));
-        listPanel.add(new JLabel("Existing incomplete tasks:"), BorderLayout.NORTH);
+            var listsContainer = new JPanel(new GridLayout(1, 2, 8, 0));
 
-        var taskTextArea = new JTextArea();
-        taskTextArea.setEditable(false);
-        taskTextArea.setLineWrap(true);
-        taskTextArea.setWrapStyleWord(true);
-        var taskText =
-                String.join("\n\n", incompleteTasks.stream().map(t -> "• " + t).toList());
-        taskTextArea.setText(taskText);
-        taskTextArea.setCaretPosition(0);
+            // Existing tasks panel
+            var existingPanel = new JPanel(new BorderLayout(6, 6));
+            existingPanel.add(new JLabel("Existing incomplete tasks:"), BorderLayout.NORTH);
+            var existingTextArea = new JTextArea();
+            existingTextArea.setEditable(false);
+            existingTextArea.setLineWrap(true);
+            existingTextArea.setWrapStyleWord(true);
+            var existingText = String.join("\n\n", existingTasks.stream().map(t -> "• " + t).toList());
+            existingTextArea.setText(existingText);
+            existingTextArea.setCaretPosition(0);
+            var existingScroll = new JScrollPane(
+                            existingTextArea,
+                            JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
+                            JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+            existingScroll.setPreferredSize(new Dimension(380, 300));
+            existingPanel.add(existingScroll, BorderLayout.CENTER);
+            listsContainer.add(existingPanel);
 
-        var scroll = new JScrollPane(
-                taskTextArea, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        scroll.setPreferredSize(new Dimension(600, 300));
-        listPanel.add(scroll, BorderLayout.CENTER);
+            // New tasks panel
+            var newPanel = new JPanel(new BorderLayout(6, 6));
+            newPanel.add(new JLabel("Newly generated tasks:"), BorderLayout.NORTH);
+            var newTextArea = new JTextArea();
+            newTextArea.setEditable(false);
+            newTextArea.setLineWrap(true);
+            newTextArea.setWrapStyleWord(true);
+            var newText = String.join("\n\n", newTasks.stream().map(t -> "• " + t).toList());
+            newTextArea.setText(newText);
+            newTextArea.setCaretPosition(0);
+            var newScroll = new JScrollPane(
+                            newTextArea,
+                            JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
+                            JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+            newScroll.setPreferredSize(new Dimension(380, 300));
+            newPanel.add(newScroll, BorderLayout.CENTER);
+            listsContainer.add(newPanel);
 
-        root.add(listPanel, BorderLayout.CENTER);
+            root.add(listsContainer, BorderLayout.CENTER);
 
-        var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
-        var keepOldBtn = new MaterialButton("Keep existing tasks");
-        var keepNewBtn = new MaterialButton("Use new tasks");
-        SwingUtil.applyPrimaryButtonStyle(keepNewBtn);
-        var keepBothBtn = new MaterialButton("Keep both (merge)");
-        buttons.add(keepOldBtn);
-        buttons.add(keepNewBtn);
-        buttons.add(keepBothBtn);
-        root.add(buttons, BorderLayout.SOUTH);
+            var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+            var keepOldBtn = new MaterialButton("Keep existing tasks");
+            var keepNewBtn = new MaterialButton("Use new tasks");
+            SwingUtil.applyPrimaryButtonStyle(keepNewBtn);
+            var keepBothBtn = new MaterialButton("Keep both (merge)");
+            buttons.add(keepOldBtn);
+            buttons.add(keepNewBtn);
+            buttons.add(keepBothBtn);
+            root.add(buttons, BorderLayout.SOUTH);
 
-        keepOldBtn.addActionListener(e -> {
-            choice = UserChoice.KEEP_OLD;
-            dispose();
-        });
-        keepNewBtn.addActionListener(e -> {
-            choice = UserChoice.KEEP_NEW;
-            dispose();
-        });
-        keepBothBtn.addActionListener(e -> {
-            choice = UserChoice.KEEP_BOTH;
-            dispose();
-        });
+            keepOldBtn.addActionListener(e -> {
+                    choice = UserChoice.KEEP_OLD;
+                    dispose();
+            });
+            keepNewBtn.addActionListener(e -> {
+                    choice = UserChoice.KEEP_NEW;
+                    dispose();
+            });
+            keepBothBtn.addActionListener(e -> {
+                    choice = UserChoice.KEEP_BOTH;
+                    dispose();
+            });
 
-        getRootPane().setDefaultButton(keepNewBtn);
+            getRootPane().setDefaultButton(keepNewBtn);
 
-        getRootPane()
-                .registerKeyboardAction(
-                        evt -> {
-                            choice = UserChoice.KEEP_OLD;
-                            dispose();
-                        },
-                        KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
-                        JComponent.WHEN_IN_FOCUSED_WINDOW);
+            getRootPane()
+                            .registerKeyboardAction(
+                                            evt -> {
+                                                    choice = UserChoice.KEEP_OLD;
+                                                    dispose();
+                                            },
+                                            KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
+                                            JComponent.WHEN_IN_FOCUSED_WINDOW);
     }
 
-    /**
-     * Shows the pre-execution gating dialog and returns the user's choice.
-     * Must be called on EDT.
-     *
-     * @param parent Parent component for dialog positioning
-     * @param incompleteTasks Set of incomplete task texts to display
-     * @return User's choice (KEEP_OLD, KEEP_NEW, or KEEP_BOTH)
-     */
-    public static UserChoice show(@Nullable Window parent, Set<String> incompleteTasks) {
-        assert SwingUtilities.isEventDispatchThread() : "AutoPlayGateDialog.show must be called on EDT";
-        var dialog = new AutoPlayGateDialog(parent, incompleteTasks);
-        dialog.setVisible(true); // Blocks until dialog is closed
-        return dialog.choice;
-    }
-
-    /**
-     * Shows the replace-only gating dialog and returns the user's choice.
-     * Alias of show(parent, incompleteTasks). Must be called on EDT.
-     *
-     * @param parent Parent window for dialog positioning
-     * @param incompleteTasks Set of incomplete task texts to display
-     * @return User's choice (KEEP_OLD, KEEP_NEW, or KEEP_BOTH)
-     */
-    public static UserChoice showReplaceOnly(@Nullable Window parent, Set<String> incompleteTasks) {
-        assert SwingUtilities.isEventDispatchThread() : "AutoPlayGateDialog.showReplaceOnly must be called on EDT";
-        var dialog = new AutoPlayGateDialog(parent, incompleteTasks);
-        dialog.setVisible(true); // Blocks until dialog is closed
-        return dialog.choice;
-    }
+/**
+ * Shows the pre-execution gating dialog and returns the user's choice.
+ * Must be called on EDT.
+ *
+ * @param parent Parent component for dialog positioning
+ * @param existingTasks Set of existing incomplete task texts to display
+ * @param newTasks Set of newly generated incomplete task texts to display
+ * @return User's choice (KEEP_OLD, KEEP_NEW, or KEEP_BOTH)
+ */
+public static UserChoice show(@Nullable Window parent, Set<String> existingTasks, Set<String> newTasks) {
+    assert SwingUtilities.isEventDispatchThread() : "AutoPlayGateDialog.show must be called on EDT";
+    var dialog = new AutoPlayGateDialog(parent, existingTasks, newTasks);
+    dialog.setVisible(true); // Blocks until dialog is closed
+    return dialog.choice;
+}
 }

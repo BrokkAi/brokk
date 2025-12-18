@@ -1906,7 +1906,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             boolean success = result.stopDetails().reason() == TaskResult.StopReason.SUCCESS;
 
             // Compute AFTER state from the result's context
-            var afterData = result.context().getTaskListDataOrEmpty();
+            context = result.context();
+            var afterData = context.getTaskListDataOrEmpty();
 
             boolean changedByAgent = agentCreatedOrReplacedTasks(before, afterData);
 
@@ -1916,7 +1917,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 try {
                     SwingUtilities.invokeAndWait(() -> {
                         var owner = SwingUtilities.getWindowAncestor(this);
-                        choiceHolder[0] = AutoPlayGateDialog.show(owner, before.incompleteTexts());
+                        choiceHolder[0] = AutoPlayGateDialog.show(
+                                owner, before.incompleteTexts(), incompleteTextSet(afterData));
                     });
                 } catch (Exception ex) {
                     logger.debug("Error showing gate dialog", ex);
@@ -1927,7 +1929,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         choiceHolder[0] == null ? AutoPlayGateDialog.UserChoice.KEEP_OLD : choiceHolder[0];
 
                 // Apply user's choice for ALL modes (Lutz EZ, Lutz Advanced, Plan)
-                TaskList.TaskListData finalData = applyGateChoice(choice, before, afterData);
+                context = applyGateChoice(choice, context, before, afterData);
+                var finalData = context.getTaskListDataOrEmpty();
 
                 // Auto-run only in Lutz EZ if successful and there are incomplete tasks available
                 boolean isLutzEz = ACTION_LUTZ.equals(action) && !GlobalUiSettings.isAdvancedMode();
@@ -3396,26 +3399,25 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return !afterIncomplete.isEmpty() && !afterIncomplete.equals(before.incompleteTexts());
     }
 
-    private TaskList.TaskListData applyGateChoice(
-            AutoPlayGateDialog.UserChoice choice, TaskListSnapshot before, TaskList.TaskListData after) {
+    private Context applyGateChoice(
+            AutoPlayGateDialog.UserChoice choice, Context context, TaskListSnapshot before, TaskList.TaskListData after) {
         var cm = chrome.getContextManager();
 
         TaskList.TaskListData finalData;
         switch (choice) {
             case KEEP_NEW -> {
                 finalData = after;
-                cm.setTaskList(finalData, "Use new tasks");
+                return cm.setTaskList(context, finalData, "Use new tasks");
             }
             case KEEP_BOTH -> {
                 finalData = mergeTaskLists(before.data(), after);
-                cm.setTaskList(finalData, "Merged existing and new tasks");
+                return cm.setTaskList(context, finalData, "Merged existing and new tasks");
             }
             default -> {
                 finalData = before.data();
-                cm.setTaskList(finalData, "Kept existing tasks");
+                return cm.setTaskList(context, finalData, "Kept existing tasks");
             }
         }
-        return finalData;
     }
 
     private static TaskList.TaskListData mergeTaskLists(TaskList.TaskListData before, TaskList.TaskListData after) {
