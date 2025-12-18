@@ -1,5 +1,6 @@
 package ai.brokk.agents;
 
+import static ai.brokk.project.FileFilteringService.normalizeExclusionPattern;
 import static ai.brokk.project.FileFilteringService.toUnixPath;
 import static java.util.Objects.requireNonNull;
 
@@ -440,14 +441,20 @@ public class BuildAgent {
         finalPatterns.addAll(existingPatterns);
         finalPatterns.addAll(llmDirPatterns);
         finalPatterns.addAll(filePatterns);
+
+        // Deduplicate against gitignore
+        var deduplicatedPatterns = removeGitignoreDuplicates(finalPatterns);
+
+        // Track LLM patterns after deduplication (UI shows what's actually stored)
         this.llmAddedPatterns = new LinkedHashSet<>(llmDirPatterns);
         this.llmAddedPatterns.addAll(filePatterns);
+        this.llmAddedPatterns.retainAll(deduplicatedPatterns);
 
-        logger.debug("Final exclusionPatterns (existing + LLM): {}", finalPatterns);
+        logger.debug("Final exclusionPatterns (existing + LLM, deduplicated): {}", deduplicatedPatterns);
         logger.debug("New patterns from this LLM run: {}", llmAddedPatterns);
         this.reportedDetails = new BuildDetails(
-                buildLintCommand, testAllCommand, testSomeCommand, finalPatterns, defaultEnvForProject());
-        logger.debug("reportBuildDetails tool executed. Exclusion patterns: {}", finalPatterns);
+                buildLintCommand, testAllCommand, testSomeCommand, deduplicatedPatterns, defaultEnvForProject());
+        logger.debug("reportBuildDetails tool executed. Exclusion patterns: {}", deduplicatedPatterns);
         return "Build details report received and processed.";
     }
 
@@ -462,6 +469,53 @@ public class BuildAgent {
 
     private static boolean containsGlobPattern(String s) {
         return s.contains("*") || s.contains("?") || s.contains("[") || s.contains("]");
+    }
+
+    private static boolean isFileExtensionPattern(String pattern) {
+        return pattern.startsWith("*.") && !pattern.contains("/");
+    }
+
+    /**
+     * Remove patterns that are redundant because they match gitignored directories.
+     * FileFilteringService already applies gitignore rules at runtime, so storing
+     * gitignored directories in exclusion patterns is redundant.
+     */
+    @VisibleForTesting
+    Set<String> removeGitignoreDuplicates(Set<String> patterns) {
+        if (!project.hasGit()) {
+            return patterns;
+        }
+
+        var result = new LinkedHashSet<String>();
+        var removedCount = 0;
+
+        for (String pattern : patterns) {
+            String normalized = normalizeExclusionPattern(pattern);
+
+            if (isFileExtensionPattern(normalized)) {
+                result.add(pattern);
+                continue;
+            }
+
+            if (containsGlobPattern(normalized)) {
+                result.add(pattern);
+                continue;
+            }
+
+            Path patternPath = Path.of(normalized);
+            if (project.isGitignored(patternPath)) {
+                logger.debug("Removing redundant gitignored pattern: {}", pattern);
+                removedCount++;
+            } else {
+                result.add(pattern);
+            }
+        }
+
+        if (removedCount > 0) {
+            logger.info("Removed {} gitignore-redundant patterns from exclusions", removedCount);
+        }
+
+        return result;
     }
 
     /** Holds semi-structured information about a project's build process */

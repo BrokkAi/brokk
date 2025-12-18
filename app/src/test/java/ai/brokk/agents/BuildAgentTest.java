@@ -330,4 +330,84 @@ class BuildAgentTest {
         assertFalse(llmPatterns.contains("*.svg"), "LLM patterns should NOT include existing *.svg");
         assertFalse(llmPatterns.contains("build"), "LLM patterns should NOT include existing build");
     }
+
+    @Test
+    void testRemoveGitignoreDuplicatesFiltersRedundantDirectories(@TempDir Path tempDir) throws Exception {
+        try (var git = Git.init().setDirectory(tempDir.toFile()).call()) {
+            var config = git.getRepository().getConfig();
+            config.setString("user", null, "name", "Test User");
+            config.setString("user", null, "email", "test@example.com");
+            config.save();
+
+            Files.writeString(tempDir.resolve(".gitignore"), "node_modules/\ntarget/\n");
+            Files.createDirectories(tempDir.resolve("node_modules"));
+            Files.createDirectories(tempDir.resolve("target"));
+            Files.createDirectories(tempDir.resolve("build"));
+
+            git.add().addFilepattern(".").call();
+            git.commit().setSign(false).setMessage("Initial").call();
+        }
+
+        var project = new MainProject(tempDir);
+        var agent = new BuildAgent(project, null, null);
+
+        var patterns = Set.of(
+                "node_modules", // Gitignored - should be removed
+                "target", // Gitignored - should be removed
+                "build", // Not gitignored - should be kept
+                "*.svg", // File pattern - should be kept
+                "**/*.generated" // Glob pattern - should be kept
+                );
+
+        var deduplicated = agent.removeGitignoreDuplicates(patterns);
+
+        assertFalse(deduplicated.contains("node_modules"), "Gitignored dir should be removed");
+        assertFalse(deduplicated.contains("target"), "Gitignored dir should be removed");
+        assertTrue(deduplicated.contains("build"), "Non-gitignored dir should be kept");
+        assertTrue(deduplicated.contains("*.svg"), "File pattern should be kept");
+        assertTrue(deduplicated.contains("**/*.generated"), "Glob pattern should be kept");
+
+        project.close();
+    }
+
+    @Test
+    void testReportBuildDetailsDeduplicatesGitignorePatterns(@TempDir Path tempDir) throws Exception {
+        try (var git = Git.init().setDirectory(tempDir.toFile()).call()) {
+            var config = git.getRepository().getConfig();
+            config.setString("user", null, "name", "Test User");
+            config.setString("user", null, "email", "test@example.com");
+            config.save();
+
+            Files.writeString(tempDir.resolve(".gitignore"), "node_modules/\n");
+            Files.createDirectories(tempDir.resolve("node_modules"));
+            Files.createDirectories(tempDir.resolve("build"));
+
+            git.add().addFilepattern(".").call();
+            git.commit().setSign(false).setMessage("Initial").call();
+        }
+
+        var project = new MainProject(tempDir);
+        var agent = new BuildAgent(project, null, null);
+
+        agent.reportBuildDetails(
+                "npm run build",
+                "npm test",
+                "npm test {{#files}}{{value}}{{/files}}",
+                List.of("node_modules", "build"),
+                List.of("*.map"));
+
+        var details = agent.getReportedDetails();
+        assert details != null;
+        var finalPatterns = details.exclusionPatterns();
+
+        assertFalse(finalPatterns.contains("node_modules"), "Gitignored directory should not be in final patterns");
+        assertTrue(finalPatterns.contains("build"), "Non-gitignored directory should be in final patterns");
+        assertTrue(finalPatterns.contains("*.map"), "File pattern should be in final patterns");
+
+        var llmPatterns = agent.getLlmAddedPatterns();
+        assertFalse(llmPatterns.contains("node_modules"), "Deduplicated pattern should not be in LLM tracking");
+        assertTrue(llmPatterns.contains("build"), "Kept pattern should be in LLM tracking");
+
+        project.close();
+    }
 }

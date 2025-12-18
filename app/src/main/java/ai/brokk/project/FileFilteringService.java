@@ -57,10 +57,7 @@ public final class FileFilteringService {
     public Set<ProjectFile> filterFiles(Set<ProjectFile> files, Set<String> exclusionPatterns) {
         // Normalize patterns: strip leading slashes, trailing slashes, normalize separators
         var normalizedPatterns = exclusionPatterns.stream()
-                .map(s -> toUnixPath(s).trim())
-                .map(s -> s.startsWith("/") ? s.substring(1) : s)
-                .map(s -> s.startsWith("./") ? s.substring(2) : s)
-                .map(s -> s.endsWith("/") ? s.substring(0, s.length() - 1) : s)
+                .map(FileFilteringService::normalizeExclusionPattern)
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.toSet());
 
@@ -400,6 +397,21 @@ public final class FileFilteringService {
     /** Normalize a string path to use forward slashes. */
     public static String toUnixPath(String path) {
         return path.replace('\\', '/');
+    }
+
+    /**
+     * Normalize an exclusion pattern by:
+     * - Converting to Unix path separators
+     * - Trimming whitespace
+     * - Removing leading "/" or "./"
+     * - Removing trailing "/"
+     */
+    public static String normalizeExclusionPattern(String pattern) {
+        String p = toUnixPath(pattern).trim();
+        if (p.startsWith("/")) p = p.substring(1);
+        if (p.startsWith("./")) p = p.substring(2);
+        if (p.endsWith("/")) p = p.substring(0, p.length() - 1);
+        return p;
     }
 
     /**
