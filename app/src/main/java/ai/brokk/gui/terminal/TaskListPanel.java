@@ -34,6 +34,7 @@ import java.awt.datatransfer.Transferable;
 import java.awt.event.*;
 import java.util.*;
 import java.util.List;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -2573,5 +2574,36 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     public void enablePlay() {
         // Recompute full state when an LLM action completes (accounts for selection, queue, etc.)
         SwingUtilities.invokeLater(this::updateButtonStates);
+    }
+
+    public static final class TaskListModel extends AbstractListModel<TaskList.TaskItem> {
+        private final Supplier<List<TaskList.TaskItem>> tasksSupplier;
+
+        public TaskListModel(ContextManager cm) {
+            this(() -> cm.getTaskList().tasks());
+        }
+
+        public TaskListModel(Supplier<List<TaskList.TaskItem>> tasksSupplier) {
+            this.tasksSupplier = Objects.requireNonNull(tasksSupplier);
+        }
+
+        private List<TaskList.TaskItem> tasks() {
+            List<TaskList.TaskItem> t = tasksSupplier.get();
+            return t != null ? t : Collections.emptyList();
+        }
+
+        @Override
+        public int getSize() {
+            return tasks().size();
+        }
+
+        @Override
+        public TaskList.TaskItem getElementAt(int index) {
+            return tasks().get(index);
+        }
+
+        public void fireRefresh() {
+            fireContentsChanged(this, 0, getSize() - 1);
+        }
     }
 }
