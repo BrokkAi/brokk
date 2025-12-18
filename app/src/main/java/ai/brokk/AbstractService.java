@@ -395,8 +395,11 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             logger.warn("Location not found for model name {}, assuming no processing tier support.", modelName);
             return false;
         }
-        // GPT-5 family and reasoning models support processing tiers
-        return location.startsWith("openai/gpt-5") || location.startsWith("openai/o");
+        var info = getModelInfo(location);
+        if (info == null || !info.containsKey("supports_processing_tier")) {
+            return false;
+        }
+        return (Boolean) info.get("supports_processing_tier");
     }
 
     public boolean supportsReasoningDisable(String modelName) {
