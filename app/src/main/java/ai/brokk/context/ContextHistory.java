@@ -152,32 +152,20 @@ public class ContextHistory {
     }
 
     public synchronized Context push(Function<Context, Context> contextGenerator) {
-            var base = liveContext();
-            var updatedLiveContext = contextGenerator.apply(base);
-            // we deliberately do NOT use a deep equals() here, since we don't want to block for dynamic fragments to
-            // materialize
-            if (Objects.equals(base, updatedLiveContext)) {
-                    return liveContext();
-            }
+                var base = liveContext();
+                var updatedLiveContext = contextGenerator.apply(base);
+                // we deliberately do NOT use a deep equals() here, since we don't want to block for dynamic fragments to
+                // materialize
+                if (Objects.equals(base, updatedLiveContext)) {
+                            return liveContext();
+                }
 
-            // Push without taking a blocking snapshot; schedule snapshot asynchronously.
-            pushContextInternal(updatedLiveContext, false);
+                // Push without taking a blocking snapshot; schedule snapshot asynchronously.
+                pushContextInternal(updatedLiveContext, false);
 
-            if (logger.isDebugEnabled()) {
-                    logger.debug("Queued async snapshot warm-up for context {}", updatedLiveContext);
-            }
+                warmUpSnapshotAsync(updatedLiveContext);
 
-            ContextFragment.getFragmentExecutor().submit(() -> {
-                    if (logger.isDebugEnabled()) {
-                            logger.debug("Starting async snapshot warm-up for context {}", updatedLiveContext);
-                    }
-                    snapshotContext(updatedLiveContext);
-                    if (logger.isDebugEnabled()) {
-                            logger.debug("Completed async snapshot warm-up for context {}", updatedLiveContext);
-                    }
-            });
-
-            return liveContext();
+                return liveContext();
     }
 
     /**
@@ -433,18 +421,15 @@ public class ContextHistory {
         }
     }
 
-    /**
-     * Internal helper to push a context with control over whether to capture a snapshot immediately.
-     */
-    private synchronized void pushContextInternal(Context ctx, boolean snapshotNow) {
+private synchronized void pushContextInternal(Context ctx, boolean snapshotNow) {
         history.addLast(ctx);
         if (snapshotNow) {
-            snapshotContext(ctx);
+            warmUpSnapshotAsync(ctx);
         }
         truncateHistory();
         redo.clear();
         selected = ctx;
-    }
+}
 
     /**
      * Internal helper to replace the top of the history with control over immediate snapshotting.
@@ -469,6 +454,33 @@ public class ContextHistory {
             } catch (Exception e) {
                 logger.warn("Snapshot task failed for fragment {}: {}", fragment.id(), e.toString());
             }
+        }
+    }
+
+    /**
+     * Queues a background task to warm up fragment snapshots for the given context without blocking the caller.
+     * Errors are logged and swallowed.
+     */
+    private void warmUpSnapshotAsync(Context ctx) {
+        try {
+            if (logger.isDebugEnabled()) {
+                logger.debug("Queued async snapshot warm-up for context {}", ctx);
+            }
+            ContextFragment.getFragmentExecutor().submit(() -> {
+                try {
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("Starting async snapshot warm-up for context {}", ctx);
+                    }
+                    snapshotContext(ctx);
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("Completed async snapshot warm-up for context {}", ctx);
+                    }
+                } catch (Throwable t) {
+                    logger.warn("Async snapshot warm-up failed for context {}: {}", ctx, t.toString(), t);
+                }
+            });
+        } catch (Throwable t) {
+            logger.warn("Failed to enqueue snapshot warm-up task: {}", t.toString(), t);
         }
     }
 
