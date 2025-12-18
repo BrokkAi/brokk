@@ -977,13 +977,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         updateTasksTabBadge();
     }
 
-    private void syncToContext(String action) {
-        if (!SwingUtilities.isEventDispatchThread()) {
-            SwingUtilities.invokeLater(() -> syncToContext(action));
-            return;
-        }
-        model.fireRefresh();
-    }
 
     private void runArchitectOnSelected() {
         if (!taskListEditable) {
@@ -2254,11 +2247,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             autoPlayListener = null;
         }
 
-        try {
-            syncToContext("Tasks saved");
-        } catch (Exception e) {
-            logger.debug("Error saving tasks on removeNotify", e);
-        }
+        model.fireRefresh();
         var cm = this.cm;
         cm.removeContextListener(this);
 
