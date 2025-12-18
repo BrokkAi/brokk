@@ -229,11 +229,22 @@ public class StyleGuideResolverTest {
 
     private static IProject createMockProject(String styleGuide) {
         return new IProject() {
-            @Override public String getStyleGuide() { return styleGuide; }
+            @Override
+            public String getStyleGuide() {
+                return styleGuide;
+            }
             // Unsupported members for brevity in this specific test context
-            @Override public Path getRoot() { return Path.of(""); }
-            public boolean exists(ProjectFile file) { return false; }
-            @Override public void close() {}
+            @Override
+            public Path getRoot() {
+                return Path.of("");
+            }
+
+            public boolean exists(ProjectFile file) {
+                return false;
+            }
+
+            @Override
+            public void close() {}
         };
     }
 
