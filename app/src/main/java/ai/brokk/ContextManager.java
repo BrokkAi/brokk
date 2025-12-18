@@ -1210,13 +1210,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
-    /** usage for identifier with control over including test files */
-    public void usageForIdentifier(String identifier, boolean includeTestFiles) {
-        var fragment = new ContextFragment.UsageFragment(this, identifier, includeTestFiles);
+/** usage for identifier with control over including test files */
+public void usageForIdentifier(String identifier, boolean includeTestFiles) {
+    var fragment = new ContextFragment.UsageFragment(this, identifier, includeTestFiles);
+    submitContextTask(() -> {
         pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
         String message = "Added uses of " + identifier + (includeTestFiles ? " (including tests)" : "");
-        io.showNotification(IConsoleIO.NotificationRole.INFO, message);
-    }
+        SwingUtilities.invokeLater(() -> io.showNotification(IConsoleIO.NotificationRole.INFO, message));
+    });
+}
 
     public void sourceCodeForCodeUnit(IAnalyzer analyzer, CodeUnit codeUnit) {
         String sourceCode = analyzer.as(SourceCodeProvider.class)
