@@ -305,7 +305,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             var ids = contextHistory.getHistory().stream().map(Context::id).collect(Collectors.toSet());
             contextHistory.getDiffService().seedFrom(cache, ids);
         }
-        contextHistory.getDiffService().warmUpRecent(ai.brokk.context.DiffService.DEFAULT_WARMUP_RECENT);
 
         // make it official
         updateActiveSession(currentSessionId);
@@ -2566,7 +2565,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 var ids = contextHistory.getHistory().stream().map(Context::id).collect(Collectors.toSet());
                 contextHistory.getDiffService().seedFrom(cache, ids);
             }
-            contextHistory.getDiffService().warmUpRecent(ai.brokk.context.DiffService.DEFAULT_WARMUP_RECENT);
 
             // Activate session: migrate legacy tasks then notify UI on EDT
             finalizeSessionActivation(sessionId);
