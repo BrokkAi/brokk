@@ -5,6 +5,7 @@ import static java.lang.Math.min;
 
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.project.ModelProperties.ModelType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
@@ -42,21 +43,6 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public static final long NEXT_TOKEN_TIMEOUT_SECONDS = DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS;
 
     public static final String UNAVAILABLE = "AI is unavailable";
-
-    // Model name constants
-    public static final String GPT_5 = "gpt-5";
-    public static final String GPT_5_2 = "gpt-5.2";
-    public static final String GEMINI_2_5_PRO = "gemini-2.5-pro";
-    public static final String GEMINI_2_0_FLASH = "gemini-2.0-flash";
-    public static final String GPT_5_NANO = "gpt-5-nano";
-    public static final String GPT_5_MINI = "gpt-5-mini";
-    public static final String GCF_1 = "grok-code-fast-1";
-    public static final String HAIKU_4_5 = "claude-haiku-4-5";
-    public static final String OPUS_4_5 = "claude-opus-4-5";
-    public static final String GEMINI_2_0_FLASH_LITE = "gemini-2.0-flash-lite";
-
-    // these models are defined for low-latency use cases that don't require high intelligence
-    private static final Set<String> SYSTEM_ONLY_MODELS = Set.of("gemini-2.0-flash-lite", "gpt-4.1-nano");
 
     protected final Logger logger = LogManager.getLogger(AbstractService.class);
     protected final ObjectMapper objectMapper = new ObjectMapper();
@@ -280,7 +266,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
      */
     public Map<String, String> getAvailableModels() {
         return modelLocations.entrySet().stream()
-                .filter(e -> !SYSTEM_ONLY_MODELS.contains(e.getKey()))
+                .filter(e -> !ModelProperties.SYSTEM_ONLY_MODELS.contains(e.getKey()))
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
@@ -649,8 +635,8 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         return getModel(ModelType.QUICKEST);
     }
 
-    public StreamingChatModel quickModel() {
-        return getModel(ModelType.QUICK);
+    public StreamingChatModel summarizeModel() {
+        return getModel(ModelType.SUMMARIZE);
     }
 
     public StreamingChatModel quickEditModel() {

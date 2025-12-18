@@ -690,7 +690,7 @@ public class SearchAgent {
         }
 
         // Human-in-the-loop tool (only meaningful when GUI is available; safe to include otherwise)
-        if (io instanceof Chrome) {
+        if (io instanceof Chrome && objective != Objective.WORKSPACE_ONLY) {
             names.add("askHuman");
         }
 

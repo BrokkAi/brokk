@@ -23,8 +23,8 @@ import ai.brokk.gui.components.ModelSelector;
 import ai.brokk.gui.components.OverlayPanel;
 import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.components.TokenUsageBar;
+import ai.brokk.gui.dialogs.SettingsAdvancedPanel;
 import ai.brokk.gui.dialogs.SettingsDialog;
-import ai.brokk.gui.dialogs.SettingsGlobalPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -373,7 +373,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 },
                 null,
                 this::isPlaceholderText,
-                this::populateInstructionsArea,
+                this::appendToInstructionsArea,
                 msg -> chrome.toolError(msg, "Error"));
         micButton.setFocusable(true);
         // Add explicit focus border to make focus visible on the mic button
@@ -494,7 +494,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 e -> chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of()));
         tokenUsageBarPopupMenu.add(pasteMenuItem);
 
-        SwingUtilities.invokeLater(() -> chrome.themeManager.registerPopupMenu(tokenUsageBarPopupMenu));
+        SwingUtilities.invokeLater(() -> {
+            // invokeLater postpones this until chrome finishes initializing themeManager
+            chrome.getThemeManager().registerPopupMenu(tokenUsageBarPopupMenu);
+        });
 
         this.contextAreaContainer = createContextAreaContainer();
         // Top Bar (History, Configure Models, Stop) (North)
@@ -913,10 +916,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     } else {
                         rows++;
                         lineWidth = w;
-                        if (rows >= 2) break;
+                        int maxRows = GlobalUiSettings.isVerticalActivityLayout() ? 3 : 2;
+                        if (rows >= maxRows) break;
                     }
                 }
-                return Math.max(1, Math.min(2, rows));
+                int maxRows = GlobalUiSettings.isVerticalActivityLayout() ? 3 : 2;
+                return Math.max(1, Math.min(maxRows, rows));
             }
 
             @Override
@@ -1504,7 +1509,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         dropdown.addActionListener(ev -> SwingUtilities.invokeLater(() -> {
             try {
                 var menu = historyMenuSupplier.get();
-                chrome.themeManager.registerPopupMenu(menu);
+                chrome.getThemeManager().registerPopupMenu(menu);
                 menu.show(dropdown, 0, dropdown.getHeight());
             } catch (Exception ex) {
                 logger.error("Error showing history dropdown", ex);
@@ -1555,7 +1560,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         if (choice == JOptionPane.YES_OPTION) { // Open Settings
             SwingUtilities.invokeLater(
-                    () -> SettingsDialog.showSettingsDialog(chrome, SettingsGlobalPanel.MODELS_TAB_TITLE));
+                    () -> SettingsDialog.showSettingsDialog(chrome, SettingsAdvancedPanel.MODELS_TAB_TITLE));
         }
         // In either case (Settings opened or Cancel pressed), the original action is aborted by returning from the
         // caller.
@@ -1569,7 +1574,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         try {
             var models = contextManager.getService();
             // If we have an UnavailableStreamingModel, the service failed to initialize
-            if (models.quickModel() instanceof Service.UnavailableStreamingModel) {
+            if (models.quickestModel() instanceof Service.UnavailableStreamingModel) {
                 return "Service contains unavailable model stub (initialization may have failed)";
             }
             return "Service appears initialized; check network connectivity and API key validity";
@@ -1615,7 +1620,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (selectedModel == null) {
             chrome.toolError("Selected model '" + config.name() + "' is not available with reasoning level "
                     + config.reasoning());
-            var fallbackModel = models.getModel(Service.GPT_5_MINI);
+            var fallbackModel = models.getModel(ModelProperties.GPT_5_MINI);
             if (fallbackModel != null) {
                 selectedModel = fallbackModel;
             }
@@ -1780,12 +1785,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // If Workspace is empty, ask the user how to proceed
         if (chrome.getContextManager().liveContext().isEmpty()) {
             String message =
-                    "Are you sure you want to code against an empty Workspace? This is the right thing to do if you want to create new source files with no other context. Otherwise, run Search first or manually add context to the Workspace.";
+                    "Are you sure you want to code with no attached context? This is the right thing to do if you want to create new source files from scratch. Otherwise, run Search first or manually attach context.";
             Object[] options = {"Code", "Search", "Cancel"};
             int choice = JOptionPane.showOptionDialog(
                     chrome.getFrame(),
                     message,
-                    "Empty Workspace",
+                    "No Context",
                     JOptionPane.YES_NO_CANCEL_OPTION,
                     JOptionPane.QUESTION_MESSAGE,
                     null,
@@ -2287,6 +2292,26 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
+     * Appends transcript text to the instructions area (used by voice input).
+     * If placeholder is active, replaces it; otherwise appends with space separator.
+     */
+    private void appendToInstructionsArea(String transcript) {
+        SwingUtilities.invokeLater(() -> {
+            var currentText = instructionsArea.getText();
+            var isEmpty = isPlaceholderText(currentText) || currentText.isBlank();
+
+            if (isEmpty || !instructionsArea.isEnabled()) {
+                activateCommandInput();
+            }
+
+            var newText = isEmpty ? transcript : currentText + " " + transcript;
+            setTextWithUndo(newText, isEmpty ? "" : currentText);
+            instructionsArea.requestFocusInWindow();
+            instructionsArea.setCaretPosition(newText.length());
+        });
+    }
+
+    /**
      * Hides the command input overlay, enables the input field and deep scan button, clears the placeholder text if
      * present, and requests focus for the input field.
      */
@@ -2295,9 +2320,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         commandInputOverlay.hideOverlay(); // Hide the overlay
         // Enable input and deep scan button
         instructionsArea.setEnabled(true);
-        // Clear placeholder only if it's still present
+        // Clear placeholder only if it's still present (inline to avoid invokeLater race)
         if (isPlaceholderText(instructionsArea.getText())) {
-            clearCommandInput();
+            instructionsArea.setText("");
+            commandInputUndoManager.discardAllEdits();
         }
         // Enable undo listener now that real content can be entered
         enableUndoListener();
@@ -2801,6 +2827,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         @Override
         protected void paintComponent(Graphics g) {
+            // 1) Custom rounded background
             Graphics2D g2 = (Graphics2D) g.create();
             try {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -2816,15 +2843,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
                 g2.setColor(bg);
                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
+            } finally {
+                g2.dispose();
+            }
 
-                // Draw divider line and dropdown icon only if dropdown is enabled and not in stop mode
-                if (!inStopMode && dropdownEnabled) {
+            // 2) Let the LAF draw text/icon (with contentAreaFilled=false this won't overpaint our bg)
+            super.paintComponent(g);
+
+            // 3) Draw divider + dropdown chevron on top so they can't be overpainted by the LAF
+            if (!inStopMode && dropdownEnabled) {
+                Graphics2D g3 = (Graphics2D) g.create();
+                try {
+                    g3.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                     int dropdownX = getWidth() - DROPDOWN_WIDTH;
                     boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
-                    g2.setColor(isHighContrast ? Color.BLACK : Color.WHITE);
-                    g2.drawLine(dropdownX, 6, dropdownX, getHeight() - 6);
+                    g3.setColor(isHighContrast ? Color.BLACK : Color.WHITE);
+                    g3.drawLine(dropdownX, 6, dropdownX, getHeight() - 6);
 
-                    // Lazy-load and paint dropdown icon centered in the dropdown area
                     if (dropdownIcon == null) {
                         dropdownIcon = Icons.KEYBOARD_DOWN_LIGHT;
                     }
@@ -2834,20 +2869,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     Icon iconToPaint = (dropdownIcon instanceof SwingUtil.ThemedIcon themedIcon)
                             ? themedIcon.delegate()
                             : dropdownIcon;
-                    // Apply high-contrast processing to dropdown icon
                     iconToPaint = ColorUtil.createHighContrastIcon(iconToPaint, getBackground(), isHighContrast);
                     if (iconToPaint != null) {
                         int iw = iconToPaint.getIconWidth();
                         int ih = iconToPaint.getIconHeight();
                         int ix = dropdownX + Math.max(0, (DROPDOWN_WIDTH - iw) / 2);
                         int iy = Math.max(0, (getHeight() - ih) / 2);
-                        iconToPaint.paintIcon(this, g2, ix, iy);
+                        iconToPaint.paintIcon(this, g3, ix, iy);
                     }
+                } finally {
+                    g3.dispose();
                 }
-            } finally {
-                g2.dispose();
             }
-            super.paintComponent(g);
         }
 
         @Override
@@ -2894,6 +2927,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
             }
 
+            // Ensure custom painting is not overpainted by LAF after theme changes
+            setContentAreaFilled(false);
+            setOpaque(false);
+
             // Now update icon - this will trigger high-contrast processing with the new background
             if (this.originalIcon != null) {
                 setIcon(this.originalIcon);
@@ -2906,6 +2943,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         @Override
         public void applyTheme(GuiTheme guiTheme) {
             applyTheme(guiTheme, false);
+        }
+
+        @Override
+        public void updateUI() {
+            super.updateUI();
+            // Prevent LAF from painting a full rectangular background over our custom rendering
+            setContentAreaFilled(false);
+            setOpaque(false);
+            // Re-apply compact custom border that uses current theme border color
+            Color borderColor = UIManager.getColor("Component.borderColor");
+            if (borderColor == null) borderColor = Color.GRAY;
+            setBorder(BorderFactory.createCompoundBorder(
+                    new LineBorder(borderColor, 1, true), BorderFactory.createEmptyBorder(4, 0, 4, 8)));
         }
     }
 

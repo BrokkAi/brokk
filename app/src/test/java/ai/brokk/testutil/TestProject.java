@@ -26,6 +26,7 @@ public class TestProject implements IProject {
     private IProject.CodeAgentTestScope codeAgentTestScope = IProject.CodeAgentTestScope.WORKSPACE;
     private String styleGuide = "";
     private Set<String> exclusionPatterns = Set.of();
+    private boolean hasGit = false;
 
     public TestProject(Path root) {
         this(root, Languages.NONE);
@@ -78,6 +79,15 @@ public class TestProject implements IProject {
     @Override
     public Set<String> getExclusionPatterns() {
         return exclusionPatterns;
+    }
+
+    public void setHasGit(boolean hasGit) {
+        this.hasGit = hasGit;
+    }
+
+    @Override
+    public boolean hasGit() {
+        return hasGit;
     }
 
     @Override

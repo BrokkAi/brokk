@@ -2,6 +2,7 @@ package ai.brokk.gui.dialogs;
 
 import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
+import ai.brokk.context.Context;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
@@ -16,6 +17,7 @@ import ai.brokk.gui.components.GitHubAppInstallLabel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.MaterialLoadingButton;
 import ai.brokk.gui.git.GitCommitBrowserPanel;
+import ai.brokk.gui.git.GitHubErrorUtil;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.widgets.FileStatusTable;
 import java.awt.*;
@@ -24,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -650,13 +653,22 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     private class SuggestPrDetailsWorker extends ExceptionAwareSwingWorker<GitWorkflow.PrSuggestion, Void> {
         private final String sourceBranch;
         private final String targetBranch;
-        private final PrDetailsConsoleIO streamingIO;
+        private final TextAreaConsoleIO streamingIO;
 
         SuggestPrDetailsWorker(String sourceBranch, String targetBranch) {
             super(chrome);
             this.sourceBranch = sourceBranch;
             this.targetBranch = targetBranch;
-            this.streamingIO = new PrDetailsConsoleIO(titleField, descriptionArea, chrome);
+
+            // Dialog takes responsibility for the title field UI while generation runs.
+            SwingUtilities.invokeLater(() -> {
+                titleField.setEnabled(false);
+                titleField.setText("Generating title");
+                titleField.setCaretPosition(0);
+            });
+
+            // Create a TextAreaConsoleIO for streaming description tokens. Use a descriptive initial message.
+            this.streamingIO = new TextAreaConsoleIO(descriptionArea, chrome, "Generating description...\nThinking");
         }
 
         @Override
@@ -678,11 +690,18 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                 return;
             }
             SwingUtilities.invokeLater(() -> {
+                // Ensure description streaming finishes and UI is updated
                 streamingIO.onComplete();
+
+                // Title is managed by the dialog: set and re-enable it.
                 titleField.setText(suggestion.title());
-                descriptionArea.setText(suggestion.description());
+                titleField.setEnabled(true);
                 titleField.setCaretPosition(0);
+
+                // Description area gets final content from the suggestion (tool execution result).
+                descriptionArea.setText(suggestion.description());
                 descriptionArea.setCaretPosition(0);
+
                 showDescriptionHint(suggestion.usedCommitMessages());
             });
         }
@@ -776,7 +795,20 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
             } catch (Exception ex) {
                 logger.error("Pull Request creation failed", ex);
                 SwingUtilities.invokeLater(() -> {
-                    chrome.toolError("Unable to create Pull Request:\n" + ex.getMessage(), "PR Creation Error");
+                    String message;
+                    if (GitHubErrorUtil.isNoCommitsBetweenError(ex)) {
+                        var sourceBranch = (String) sourceBranchComboBox.getSelectedItem();
+                        var targetBranch = (String) targetBranchComboBox.getSelectedItem();
+                        var base = targetBranch != null ? targetBranch : "the target branch";
+                        var head = sourceBranch != null ? sourceBranch : "the source branch";
+                        message = GitHubErrorUtil.formatNoCommitsBetweenError(base, head);
+                    } else {
+                        var exMessage = ex.getMessage();
+                        message =
+                                "Unable to create Pull Request:\n" + (exMessage != null ? exMessage : "Unknown error");
+                    }
+
+                    chrome.toolError(message, "PR Creation Error");
                     if (isDisplayable()) {
                         createPrButton.setLoading(false, null);
                     }
@@ -832,7 +864,8 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         // Compute cumulative changes in background
         contextManager.submitBackgroundTask("Computing review diff", () -> {
             var changes = computeCumulativeChanges(files);
-            SwingUtilities.invokeLater(() -> updateReviewTabContent(changes));
+            var prepared = DiffService.preparePerFileSummaries(changes);
+            SwingUtilities.invokeLater(() -> updateReviewTabContent(changes, prepared));
             return changes;
         });
     }
@@ -860,7 +893,8 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         return DiffService.summarizeDiff(repo, mergeBaseCommit, sourceBranch, fileSet);
     }
 
-    private void updateReviewTabContent(DiffService.CumulativeChanges res) {
+    private void updateReviewTabContent(
+            DiffService.CumulativeChanges res, List<Map.Entry<String, Context.DiffEntry>> prepared) {
         assert SwingUtilities.isEventDispatchThread() : "updateReviewTabContent must run on EDT";
 
         // Dispose any previous diff panel
@@ -888,7 +922,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         }
 
         try {
-            var aggregatedPanel = buildAggregatedChangesPanel(res);
+            var aggregatedPanel = buildAggregatedChangesPanel(prepared);
             reviewTabPlaceholder.add(aggregatedPanel, BorderLayout.CENTER);
         } catch (Throwable t) {
             logger.warn("Failed to build aggregated Changes panel", t);
@@ -928,7 +962,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         }
     }
 
-    private JPanel buildAggregatedChangesPanel(DiffService.CumulativeChanges res) {
+    private JPanel buildAggregatedChangesPanel(List<Map.Entry<String, Context.DiffEntry>> prepared) {
         var wrapper = new JPanel(new BorderLayout());
 
         // Build header
@@ -949,9 +983,12 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                 .setMultipleCommitsContext(false)
                 .setRootTitle("PR Changes");
 
-        for (var change : res.perFileChanges()) {
-            var left = new BufferSource.StringSource(change.oldContent(), change.title() + " (base)");
-            var right = new BufferSource.StringSource(change.newContent(), change.title());
+        // Use precomputed list in stable order; do not call Context.DiffEntry::title here
+        for (var entry : prepared) {
+            String title = entry.getKey();
+            Context.DiffEntry de = entry.getValue();
+            var left = new BufferSource.StringSource(de.oldContent(), title + " (base)");
+            var right = new BufferSource.StringSource(de.newContent(), title);
             builder.leftSource(left).rightSource(right);
         }
 

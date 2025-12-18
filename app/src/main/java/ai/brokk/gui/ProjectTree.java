@@ -34,6 +34,7 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.event.TreeExpansionEvent;
@@ -257,7 +258,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
     private JPopupMenu getOrCreateContextMenu() {
         if (currentContextMenu == null) {
             currentContextMenu = new JPopupMenu();
-            chrome.themeManager.registerPopupMenu(currentContextMenu);
+            chrome.getThemeManager().registerPopupMenu(currentContextMenu);
         }
         return currentContextMenu;
     }
@@ -268,10 +269,19 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
 
         boolean hasTargets = !targetFiles.isEmpty();
 
-        // Add "Show History" item only for a single file and non-bulk usage
+        // Add "Show History" and "View" items only for a single file and non-bulk usage
         if (!bulk && targetFiles.size() == 1) {
             JMenuItem historyItem = getHistoryMenuItem(targetFiles);
             contextMenu.add(historyItem);
+
+            JMenuItem viewItem = new JMenuItem("View");
+            viewItem.addActionListener(ev -> {
+                ProjectFile file = targetFiles.getFirst();
+                var fragment = new ContextFragment.ProjectPathFragment(file, contextManager);
+                chrome.openFragmentPreview(fragment);
+            });
+            contextMenu.add(viewItem);
+
             contextMenu.addSeparator();
         }
 
@@ -567,60 +577,86 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             return;
         }
 
+        // If already loaded, nothing to do.
         if (treeNode.isChildrenLoaded()) {
             return;
         }
 
-        // Remove loading placeholder
-        node.removeAllChildren();
+        // Ensure there's a visible "Loading..." placeholder while background work runs.
+        if (node.getChildCount() == 0) {
+            node.add(new DefaultMutableTreeNode(LOADING_PLACEHOLDER));
+            ((DefaultTreeModel) getModel()).nodeStructureChanged(node);
+        }
 
         File directory = treeNode.getFile();
         if (!directory.isDirectory()) {
             return;
         }
 
-        try {
-            File[] children = directory.listFiles();
-            if (children == null) {
-                return;
-            }
+        // Capture the directory reference to validate the node hasn't changed by the time the worker completes.
+        final File expectedDirectory = directory;
 
-            // Sort: directories first, then files, case-insensitive
-            Arrays.sort(children, (f1, f2) -> {
-                boolean f1IsDir = f1.isDirectory();
-                boolean f2IsDir = f2.isDirectory();
-                if (f1IsDir && !f2IsDir) return -1;
-                if (!f1IsDir && f2IsDir) return 1;
-                return f1.getName().compareToIgnoreCase(f2.getName());
-            });
+        // Perform expensive filesystem operations off the EDT.
+        CompletableFuture.supplyAsync(() -> {
+                    File[] children = expectedDirectory.listFiles();
+                    if (children == null) {
+                        return List.<File>of();
+                    }
 
-            List<DefaultMutableTreeNode> childNodes = new ArrayList<>();
-            for (File child : children) {
-                ProjectTreeNode childTreeNode = new ProjectTreeNode(child, false);
-                DefaultMutableTreeNode childNode = new DefaultMutableTreeNode(childTreeNode);
+                    Arrays.sort(children, (f1, f2) -> {
+                        boolean f1IsDir = f1.isDirectory();
+                        boolean f2IsDir = f2.isDirectory();
+                        if (f1IsDir && !f2IsDir) return -1;
+                        if (!f1IsDir && f2IsDir) return 1;
+                        return f1.getName().compareToIgnoreCase(f2.getName());
+                    });
 
-                if (child.isDirectory()) {
-                    // Add loading placeholder for directories
-                    childNode.add(new DefaultMutableTreeNode(LOADING_PLACEHOLDER));
-                }
+                    return Arrays.asList(children);
+                })
+                .thenAccept(childrenList -> {
+                    // Apply changes to the Swing model on the EDT.
+                    SwingUtilities.invokeLater(() -> {
+                        try {
+                            // Validate node still represents the same directory and is present in tree.
+                            if (!(node.getUserObject() instanceof ProjectTreeNode currentTreeNode)) {
+                                return;
+                            }
+                            if (!currentTreeNode.getFile().equals(expectedDirectory)) {
+                                return;
+                            }
 
-                childNodes.add(childNode);
-            }
+                            // Clear placeholder(s) and populate children.
+                            node.removeAllChildren();
 
-            // Add all children to the tree
-            for (DefaultMutableTreeNode childNode : childNodes) {
-                node.add(childNode);
-            }
+                            for (File child : childrenList) {
+                                ProjectTreeNode childTreeNode = new ProjectTreeNode(child, false);
+                                DefaultMutableTreeNode childNode = new DefaultMutableTreeNode(childTreeNode);
 
-            treeNode.setChildrenLoaded(true);
-            ((DefaultTreeModel) getModel()).nodeStructureChanged(node);
+                                if (child.isDirectory()) {
+                                    // Keep placeholder for directories for lazy loading.
+                                    childNode.add(new DefaultMutableTreeNode(LOADING_PLACEHOLDER));
+                                }
 
-            // Auto-expand single directory children recursively
-            expandSingleDirectoryChildren(node);
+                                node.add(childNode);
+                            }
 
-        } catch (Exception e) {
-            logger.error("Error loading children for directory: " + directory.getAbsolutePath(), e);
-        }
+                            currentTreeNode.setChildrenLoaded(true);
+                            ((DefaultTreeModel) getModel()).nodeStructureChanged(node);
+
+                            // Attempt to auto-expand single-directory chains as before.
+                            expandSingleDirectoryChildren(node);
+                        } catch (Exception ex) {
+                            logger.error("Error applying loaded children to tree node", ex);
+                            SwingUtilities.invokeLater(
+                                    () -> chrome.toolError("Failed to update project tree: " + ex.getMessage()));
+                        }
+                    });
+                })
+                .exceptionally(ex -> {
+                    logger.error("Error loading directory contents async for: " + expectedDirectory, ex);
+                    SwingUtilities.invokeLater(() -> chrome.toolError("Failed to read directory: " + ex.getMessage()));
+                    return null;
+                });
     }
 
     private void expandSingleDirectoryChildren(DefaultMutableTreeNode parentNode) {

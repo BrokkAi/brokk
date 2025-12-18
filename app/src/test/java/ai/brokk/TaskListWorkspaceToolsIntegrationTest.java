@@ -19,7 +19,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
 
     @Test
     void workspaceTools_createOrReplaceTaskList_delegatesToContextManager() {
-        var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
+        var cm = new TestContextManager(Paths.get(".").toAbsolutePath().normalize(), new TestConsoleIO());
         var context = new Context(cm);
         var wst = new WorkspaceTools(context);
 
@@ -42,7 +42,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
 
     @Test
     void workspaceTools_appendTaskList_delegatesToContextManager() {
-        var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
+        var cm = new TestContextManager(Paths.get(".").toAbsolutePath().normalize(), new TestConsoleIO());
         var initial = new Context(cm);
 
         // Create initial list (simulate via withTaskList)
@@ -72,7 +72,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
 
     @Test
     void workspaceTools_bothTaskListTools_updateContextImmutably() {
-        var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
+        var cm = new TestContextManager(Paths.get(".").toAbsolutePath().normalize(), new TestConsoleIO());
         var context = new Context(cm);
         var wst = new WorkspaceTools(context);
 
@@ -94,7 +94,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
 
     @Test
     void workspaceTools_createOrReplaceTaskList_outputFormatted() {
-        var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
+        var cm = new TestContextManager(Paths.get(".").toAbsolutePath().normalize(), new TestConsoleIO());
         var context = new Context(cm);
         var wst = new WorkspaceTools(context);
 
@@ -110,7 +110,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
 
     @Test
     void workspaceTools_appendTaskList_outputFormatted() {
-        var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
+        var cm = new TestContextManager(Paths.get(".").toAbsolutePath().normalize(), new TestConsoleIO());
         var initial = new Context(cm);
 
         // Create initial list via Context API
@@ -130,7 +130,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
 
     @Test
     void workspaceTools_createOrReplace_dropsCompletedFromPrevious() {
-        var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
+        var cm = new TestContextManager(Paths.get(".").toAbsolutePath().normalize(), new TestConsoleIO());
         var initial = new Context(cm);
 
         // Create list with mixed states
@@ -152,7 +152,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
 
     @Test
     void workspaceTools_appendTaskList_preservesCompletedFromPrevious() {
-        var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
+        var cm = new TestContextManager(Paths.get(".").toAbsolutePath().normalize(), new TestConsoleIO());
         var initial = new Context(cm);
 
         // Create list with completed task
@@ -172,7 +172,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
 
     @Test
     void workspaceTools_taskTitlesAutoSummarized_inBothMethods() {
-        var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
+        var cm = new TestContextManager(Paths.get(".").toAbsolutePath().normalize(), new TestConsoleIO());
         var context = new Context(cm);
         var wst = new WorkspaceTools(context);
 

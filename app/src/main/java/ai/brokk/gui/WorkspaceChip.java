@@ -6,6 +6,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
+import ai.brokk.gui.ChipColorUtils.ChipKind;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
@@ -23,6 +24,7 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.Insets;
+import java.awt.Polygon;
 import java.awt.RenderingHints;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -48,6 +50,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
 import org.apache.commons.text.StringEscapeUtils;
 import org.apache.logging.log4j.LogManager;
@@ -62,13 +65,6 @@ import org.jetbrains.annotations.Nullable;
  * clientProperty string keys except for ComputedValue subscription bookkeeping.
  */
 public class WorkspaceChip extends JPanel {
-
-    public enum ChipKind {
-        EDIT,
-        SUMMARY,
-        HISTORY,
-        OTHER
-    }
 
     private static final Logger logger = LogManager.getLogger(WorkspaceChip.class);
 
@@ -93,8 +89,8 @@ public class WorkspaceChip extends JPanel {
     protected final @Nullable Consumer<ContextFragment> onRemoveFragment;
     protected final ChipKind kind;
 
-    private Color borderColor = Color.GRAY;
-    private final int arc = 12;
+    protected Color borderColor = Color.GRAY;
+    protected static final int arc = 12;
 
     // Maximum characters to display on a chip label before truncating.
     // This keeps the chip (and its close button) visible even for very long descriptions.
@@ -107,38 +103,6 @@ public class WorkspaceChip extends JPanel {
 
     protected boolean closeEnabled = true;
     private Set<ContextFragment> fragments = Set.of();
-
-    public WorkspaceChip(
-            Chrome chrome,
-            ContextManager contextManager,
-            Supplier<Boolean> readOnlySupplier,
-            @Nullable BiConsumer<ContextFragment, Boolean> hoverCallback,
-            @Nullable Consumer<ContextFragment> onRemoveFragment,
-            ContextFragment fragment,
-            ChipKind kind) {
-        super(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        setOpaque(false);
-        this.chrome = chrome;
-        this.contextManager = contextManager;
-        this.readOnlySupplier = readOnlySupplier;
-        this.hoverCallback = hoverCallback;
-        this.onRemoveFragment = onRemoveFragment;
-        this.kind = kind;
-
-        setFragmentsInternal(Set.of(fragment));
-
-        this.readOnlyIcon = new JLabelWithAccessible();
-        this.readOnlyIcon.setBorder(new EmptyBorder(0, 0, 0, 2));
-
-        this.label = new JLabelWithAccessible();
-        this.closeButton = new MaterialButton("");
-        this.separator = new JPanel();
-
-        initUi();
-        applyTheme();
-        updateReadOnlyIcon();
-        bindComputed();
-    }
 
     /**
      * For synthetic summary chip; use SummaryChip instead of this constructor directly.
@@ -455,32 +419,10 @@ public class WorkspaceChip extends JPanel {
     }
 
     public void applyTheme() {
-        Color bg;
-        Color fg;
-        Color border;
-
-        switch (kind) {
-            case EDIT -> {
-                bg = ThemeColors.getColor(ThemeColors.CHIP_EDIT_BACKGROUND);
-                fg = ThemeColors.getColor(ThemeColors.CHIP_EDIT_FOREGROUND);
-                border = ThemeColors.getColor(ThemeColors.CHIP_EDIT_BORDER);
-            }
-            case SUMMARY -> {
-                bg = ThemeColors.getColor(ThemeColors.CHIP_SUMMARY_BACKGROUND);
-                fg = ThemeColors.getColor(ThemeColors.CHIP_SUMMARY_FOREGROUND);
-                border = ThemeColors.getColor(ThemeColors.CHIP_SUMMARY_BORDER);
-            }
-            case HISTORY -> {
-                bg = ThemeColors.getColor(ThemeColors.CHIP_HISTORY_BACKGROUND);
-                fg = ThemeColors.getColor(ThemeColors.CHIP_HISTORY_FOREGROUND);
-                border = ThemeColors.getColor(ThemeColors.CHIP_HISTORY_BORDER);
-            }
-            default -> {
-                bg = ThemeColors.getColor(ThemeColors.CHIP_OTHER_BACKGROUND);
-                fg = ThemeColors.getColor(ThemeColors.CHIP_OTHER_FOREGROUND);
-                border = ThemeColors.getColor(ThemeColors.CHIP_OTHER_BORDER);
-            }
-        }
+        boolean isDarkTheme = UIManager.getBoolean("laf.dark");
+        Color bg = ChipColorUtils.getBackgroundColor(kind, isDarkTheme);
+        Color fg = ChipColorUtils.getForegroundColor(kind, isDarkTheme);
+        Color border = ChipColorUtils.getBorderColor(kind, isDarkTheme);
 
         // Special styling for Task List: dedicated color scheme
         ContextFragment fragment = getPrimaryFragment();
@@ -589,12 +531,8 @@ public class WorkspaceChip extends JPanel {
         ContextFragment fragment = getPrimaryFragment();
         // Ensure UI updates occur on the EDT and avoid scheduling background tasks.
         SwingUtilities.invokeLater(() -> {
-            try {
-                updateTextAndTooltip(fragment);
-                applyTheme();
-            } catch (Exception ex) {
-                logger.warn("Failed to refresh chip UI for fragment {}", fragment, ex);
-            }
+            updateTextAndTooltip(fragment);
+            applyTheme();
         });
     }
 
@@ -602,31 +540,13 @@ public class WorkspaceChip extends JPanel {
         String newLabelText;
         if (kind == ChipKind.SUMMARY) {
             // Base WorkspaceChip is not used for summaries; SummaryChip overrides this.
-            String sd;
-            try {
-                sd = fragment.shortDescription().renderNowOr("Loading...");
-            } catch (Exception e) {
-                logger.warn("Unable to obtain short description from {}!", fragment, e);
-                sd = "<Error obtaining description>";
-            }
+            String sd = fragment.shortDescription().renderNowOr("Loading...");
             newLabelText = truncateForDisplay(sd);
         } else if (kind == ChipKind.OTHER) {
-            String sd;
-            try {
-                sd = fragment.shortDescription().renderNowOr("Loading...");
-            } catch (Exception e) {
-                logger.warn("Unable to obtain short description from {}!", fragment, e);
-                sd = "<Error obtaining description>";
-            }
+            String sd = fragment.shortDescription().renderNowOr("Loading...");
             newLabelText = truncateForDisplay(capitalizeFirst(sd));
         } else {
-            String sd;
-            try {
-                sd = fragment.shortDescription().renderNowOr("Loading...");
-            } catch (Exception e) {
-                logger.warn("Unable to obtain short description from {}!", fragment, e);
-                sd = "<Error obtaining description>";
-            }
+            String sd = fragment.shortDescription().renderNowOr("Loading...");
             if (sd.isBlank()) {
                 // Keep whatever label text we already had (e.g., "Loading...")
                 newLabelText = label.getText();
@@ -787,36 +707,20 @@ public class WorkspaceChip extends JPanel {
             addedAnyAction = true;
         }
 
-        try {
-            JMenuItem dropOther = new JMenuItem("Drop Others");
-            try {
-                dropOther.getAccessibleContext().setAccessibleName("Drop Others");
-            } catch (Exception ex) {
-                logger.trace("Failed to set accessible name for 'Drop Others' menu item", ex);
-            }
+        JMenuItem dropOther = new JMenuItem("Drop Others");
+        dropOther.getAccessibleContext().setAccessibleName("Drop Others");
 
-            try {
-                var selected = contextManager.selectedContext();
-                if (selected == null) {
-                    dropOther.setEnabled(false);
-                } else {
-                    var possible = selected.getAllFragmentsInDisplayOrder().stream()
-                            .filter(f -> !Objects.equals(f, fragment))
-                            .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
-                            .toList();
-                    dropOther.setEnabled(!possible.isEmpty());
-                }
-            } catch (Exception ex) {
-                dropOther.setEnabled(true);
-            }
-
+        var selected = contextManager.selectedContext();
+        if (selected == null) {
+            dropOther.setEnabled(false);
+        } else {
+            var possible = selected.getAllFragmentsInDisplayOrder().stream()
+                    .filter(f -> !Objects.equals(f, fragment))
+                    .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
+                    .toList();
+            dropOther.setEnabled(!possible.isEmpty());
             dropOther.addActionListener(e -> {
                 if (!ensureMutatingAllowed()) {
-                    return;
-                }
-                var selected = contextManager.selectedContext();
-                if (selected == null) {
-                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No context available");
                     return;
                 }
 
@@ -831,28 +735,17 @@ public class WorkspaceChip extends JPanel {
                 }
 
                 contextManager.submitContextTask(() -> {
-                    try {
-                        contextManager.dropWithHistorySemantics(toDrop);
-                    } catch (Exception ex) {
-                        logger.error("Drop Others action failed", ex);
-                    }
+                    contextManager.dropWithHistorySemantics(toDrop);
                 });
             });
-
-            if (addedAnyAction) {
-                menu.addSeparator();
-            }
-            menu.add(dropOther);
-        } catch (Exception ex) {
-            logger.debug("Failed to add 'Drop Others' action to chip popup", ex);
         }
 
-        try {
-            chrome.themeManager.registerPopupMenu(menu);
-        } catch (Exception ex) {
-            logger.debug("Failed to register chip popup menu with theme manager", ex);
+        if (addedAnyAction) {
+            menu.addSeparator();
         }
+        menu.add(dropOther);
 
+        chrome.getThemeManager().registerPopupMenu(menu);
         return menu;
     }
 
@@ -873,8 +766,7 @@ public class WorkspaceChip extends JPanel {
         if (fragment.isText() || fragment.getType().isOutput()) {
             FragmentMetrics metrics = getOrComputeMetrics(fragment);
             return String.format(
-                    "<div>%s LOC \u2022 ~%s tokens</div><br/>",
-                    formatCount(metrics.loc()), formatCount(metrics.tokens()));
+                    "<div>%s LOC • ~%s tokens</div><br/>", formatCount(metrics.loc()), formatCount(metrics.tokens()));
         }
         return "";
     }
@@ -953,8 +845,22 @@ public class WorkspaceChip extends JPanel {
      */
     public static final class SummaryChip extends WorkspaceChip {
 
+        /**
+         * Enum representing the validity state of summary fragments in this chip.
+         */
+        private enum ValidityState {
+            ALL_VALID,
+            MIXED,
+            ALL_INVALID
+        }
+
         @SuppressWarnings("NullAway.Init") // Initialized in constructor
         private List<ContextFragment> summaryFragments;
+
+        private int invalidSummaryCount = 0;
+
+        /** Tracks validity state for painting */
+        private ValidityState validityState = ValidityState.ALL_VALID;
 
         public SummaryChip(
                 Chrome chrome,
@@ -982,6 +888,7 @@ public class WorkspaceChip extends JPanel {
         protected void setFragmentsInternal(Set<ContextFragment> fragments) {
             super.setFragmentsInternal(fragments);
             this.summaryFragments = List.copyOf(fragments);
+            updateValidityState();
         }
 
         @Override
@@ -1001,9 +908,238 @@ public class WorkspaceChip extends JPanel {
             }
 
             this.summaryFragments = new ArrayList<>(newSummaries);
+            this.invalidSummaryCount =
+                    (int) newSummaries.stream().filter(f -> !f.isValid()).count();
             super.setFragmentsInternal(new LinkedHashSet<>(newSummaries));
+            updateValidityState();
             bindComputed();
             refreshLabelAndTooltip();
+        }
+
+        private void updateValidityState() {
+            long invalidCount =
+                    summaryFragments.stream().filter(f -> !f.isValid()).count();
+            if (invalidCount == 0) {
+                validityState = ValidityState.ALL_VALID;
+            } else if (invalidCount == summaryFragments.size()) {
+                validityState = ValidityState.ALL_INVALID;
+            } else {
+                validityState = ValidityState.MIXED;
+            }
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            if (validityState == ValidityState.ALL_VALID || validityState == ValidityState.ALL_INVALID) {
+                // All valid or all invalid: use standard painting from parent
+                super.paintComponent(g);
+                return;
+            }
+
+            // Mixed case: diagonal split painting with 45-degree line through center
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+                int w = getWidth();
+                int h = getHeight();
+
+                // Get colors for both halves
+                Color summaryBg = ThemeColors.getColor(ThemeColors.CHIP_SUMMARY_BACKGROUND);
+                Color invalidBg = ThemeColors.getColor(ThemeColors.CHIP_INVALID_BACKGROUND);
+
+                // Calculate 45-degree line endpoints through center
+                // Line goes from bottom-left toward top-right (forward slash shape)
+                int centerX = w / 2;
+                int centerY = h / 2;
+                int halfDiag = Math.max(w, h); // Ensure line extends beyond chip bounds
+
+                // 45-degree line: for each unit right, go one unit up
+                int x1 = centerX - halfDiag;
+                int y1 = centerY + halfDiag;
+                int x2 = centerX + halfDiag;
+                int y2 = centerY - halfDiag;
+
+                Polygon rightPoly = new Polygon();
+                rightPoly.addPoint(x1, y1);
+                rightPoly.addPoint(x2, y2);
+                rightPoly.addPoint(w + halfDiag, h + halfDiag);
+                rightPoly.addPoint(-halfDiag, h + halfDiag);
+
+                Polygon leftPoly = new Polygon();
+                leftPoly.addPoint(x1, y1);
+                leftPoly.addPoint(x2, y2);
+                leftPoly.addPoint(w + halfDiag, -halfDiag);
+                leftPoly.addPoint(-halfDiag, -halfDiag);
+
+                // Draw bottom-left half with valid (summary) color
+                g2.setClip(leftPoly);
+                g2.setColor(summaryBg);
+                g2.fillRoundRect(0, 0, w - 1, h - 1, arc, arc);
+
+                // Draw top-right half with invalid color
+                g2.setClip(rightPoly);
+                g2.setColor(invalidBg);
+                g2.fillRoundRect(0, 0, w - 1, h - 1, arc, arc);
+
+                // Reset clip for child painting
+                g2.setClip(null);
+            } finally {
+                g2.dispose();
+            }
+
+            // Paint children (label, close button, etc.) - skip JPanel's paintComponent to avoid
+            // overwriting our custom background
+            paintChildren(g);
+        }
+
+        @Override
+        protected void paintBorder(Graphics g) {
+            if (validityState == ValidityState.ALL_VALID || validityState == ValidityState.ALL_INVALID) {
+                super.paintBorder(g);
+                return;
+            }
+
+            // Mixed case: draw border with a 45-degree diagonal line through center
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                int w = getWidth();
+                int h = getHeight();
+
+                // Use summary border color for consistency
+                Color summaryBorder = ThemeColors.getColor(ThemeColors.CHIP_SUMMARY_BORDER);
+                g2.setColor(summaryBorder);
+                g2.drawRoundRect(0, 0, w - 1, h - 1, arc, arc);
+
+                // Draw the 45-degree diagonal line through center (forward slash shape)
+                int centerX = w / 2;
+                int centerY = h / 2;
+                int halfLen = Math.min(w, h) / 2;
+
+                // Line from bottom-left to top-right, clipped to chip bounds
+                int x1 = centerX - halfLen;
+                int y1 = centerY + halfLen;
+                int x2 = centerX + halfLen;
+                int y2 = centerY - halfLen;
+
+                Color invalidBorder = ThemeColors.getColor(ThemeColors.CHIP_INVALID_BORDER);
+                g2.setColor(invalidBorder);
+                g2.setStroke(new BasicStroke(1.0f));
+                g2.drawLine(x1, y1, x2, y2);
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        @Override
+        public void applyTheme() {
+            updateValidityState();
+
+            if (validityState == ValidityState.ALL_INVALID) {
+                // All invalid: use invalid colors
+                Color bg = ThemeColors.getColor(ThemeColors.CHIP_INVALID_BACKGROUND);
+                Color fg = ThemeColors.getColor(ThemeColors.CHIP_INVALID_FOREGROUND);
+                Color border = ThemeColors.getColor(ThemeColors.CHIP_INVALID_BORDER);
+
+                setBackground(bg);
+                label.setForeground(fg);
+                borderColor = border;
+
+                int h = Math.max(label.getPreferredSize().height - 6, 10);
+                separator.setBackground(border);
+                separator.setPreferredSize(new Dimension(separator.getPreferredSize().width, h));
+                separator.revalidate();
+                separator.repaint();
+
+                closeButton.setIcon(buildCloseIconForChip(bg));
+                updateReadOnlyIcon();
+                revalidate();
+                repaint();
+            } else if (validityState == ValidityState.MIXED) {
+                // Mixed: use summary foreground for text readability, but background is painted custom
+                Color summaryBg = ThemeColors.getColor(ThemeColors.CHIP_SUMMARY_BACKGROUND);
+                Color summaryFg = ThemeColors.getColor(ThemeColors.CHIP_SUMMARY_FOREGROUND);
+                Color summaryBorder = ThemeColors.getColor(ThemeColors.CHIP_SUMMARY_BORDER);
+
+                setBackground(summaryBg); // Base background for any unpainted areas
+                label.setForeground(summaryFg);
+                borderColor = summaryBorder;
+
+                int h = Math.max(label.getPreferredSize().height - 6, 10);
+                separator.setBackground(summaryBorder);
+                separator.setPreferredSize(new Dimension(separator.getPreferredSize().width, h));
+                separator.revalidate();
+                separator.repaint();
+
+                closeButton.setIcon(buildCloseIconForChip(summaryBg));
+                updateReadOnlyIcon();
+                revalidate();
+                repaint();
+            } else {
+                // All valid: use standard summary colors via parent
+                super.applyTheme();
+            }
+        }
+
+        private Icon buildCloseIconForChip(Color chipBackground) {
+            int targetW = 10;
+            int targetH = 10;
+
+            boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
+            if (isHighContrast) {
+                BufferedImage icon = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g2 = icon.createGraphics();
+                try {
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    Color iconColor = ai.brokk.difftool.utils.ColorUtil.contrastingText(chipBackground);
+                    g2.setColor(iconColor);
+                    g2.setStroke(new BasicStroke(1.2f));
+                    g2.drawLine(2, 2, targetW - 3, targetH - 3);
+                    g2.drawLine(2, targetH - 3, targetW - 3, 2);
+                } finally {
+                    g2.dispose();
+                }
+                return new ImageIcon(icon);
+            }
+
+            Icon uiIcon = javax.swing.UIManager.getIcon("Brokk.close");
+            if (uiIcon == null) {
+                uiIcon = Icons.CLOSE;
+            }
+
+            Icon source = uiIcon;
+            Image scaled;
+            if (source instanceof ImageIcon ii) {
+                scaled = ii.getImage().getScaledInstance(targetW, targetH, Image.SCALE_SMOOTH);
+            } else {
+                int w = Math.max(1, source.getIconWidth());
+                int h = Math.max(1, source.getIconHeight());
+                BufferedImage buf = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g2 = buf.createGraphics();
+                try {
+                    source.paintIcon(null, g2, 0, 0);
+                } finally {
+                    g2.dispose();
+                }
+                scaled = buf.getScaledInstance(targetW, targetH, Image.SCALE_SMOOTH);
+            }
+
+            if (scaled == null) {
+                BufferedImage fallback = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g2 = fallback.createGraphics();
+                try {
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setColor(Color.GRAY);
+                    g2.drawLine(1, 1, targetW - 2, targetH - 2);
+                    g2.drawLine(1, targetH - 2, targetW - 2, 1);
+                } finally {
+                    g2.dispose();
+                }
+                return new ImageIcon(fallback);
+            }
+
+            return new ImageIcon(scaled);
         }
 
         @Override
@@ -1084,32 +1220,23 @@ public class WorkspaceChip extends JPanel {
             }
 
             // Only update tooltip if changed
-            try {
-                String currentTooltip = label.getToolTipText();
-                if (!Objects.equals(currentTooltip, toolTip)) {
-                    label.setToolTipText(toolTip);
-                }
+            String currentTooltip = label.getToolTipText();
+            if (!Objects.equals(currentTooltip, toolTip)) {
+                label.setToolTipText(toolTip);
+            }
 
-                var ac = label.getAccessibleContext();
-                if (ac != null) {
-                    String currentDesc = ac.getAccessibleDescription();
-                    String newDesc = "All summaries combined";
-                    if (!Objects.equals(currentDesc, newDesc)) {
-                        ac.setAccessibleDescription(newDesc);
-                    }
+            var ac = label.getAccessibleContext();
+            if (ac != null) {
+                String currentDesc = ac.getAccessibleDescription();
+                String newDesc = "All summaries combined";
+                if (!Objects.equals(currentDesc, newDesc)) {
+                    ac.setAccessibleDescription(newDesc);
                 }
-            } catch (Exception ex) {
-                logger.warn("Failed to set tooltip for synthetic summary chip", ex);
             }
         }
 
         private String computeSummaryLabel() {
-            int totalFiles = (int) summaryFragments.stream()
-                    .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
-                    .map(ProjectFile::toString)
-                    .distinct()
-                    .count();
-            return totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
+            return summaryFragments.size() > 0 ? "Summaries (" + summaryFragments.size() + ")" : "Summaries";
         }
 
         private String computeAggregateSummaryTooltip() {
@@ -1125,26 +1252,22 @@ public class WorkspaceChip extends JPanel {
             // Best-effort metrics using non-blocking renders
             int totalLoc = 0;
             int totalTokens = 0;
-            try {
-                for (var summary : summaryFragments) {
-                    FragmentMetrics metrics = getOrComputeMetrics(summary);
-                    totalLoc += metrics.loc();
-                    totalTokens += metrics.tokens();
-                }
-                body.append("<div>")
-                        .append(formatCount(totalLoc))
-                        .append(" LOC \u2022 ~")
-                        .append(formatCount(totalTokens))
-                        .append(" tokens</div><br/>");
-            } catch (Exception e) {
-                logger.error(e);
+            for (var summary : summaryFragments) {
+                FragmentMetrics metrics = getOrComputeMetrics(summary);
+                totalLoc += metrics.loc();
+                totalTokens += metrics.tokens();
             }
+            body.append("<div>")
+                    .append(formatCount(totalLoc))
+                    .append(" LOC • ~")
+                    .append(formatCount(totalTokens))
+                    .append(" tokens</div><br/>");
 
             body.append("<div><b>Summaries</b></div>");
             body.append("<hr style='border:0;border-top:1px solid #ccc;margin:4px 0 6px 0;'/>");
 
             if (allFiles.isEmpty()) {
-                body.append("Multiple summaries");
+                body.append("[No summaries with valid filenames]");
             } else {
                 body.append("<ul style='margin:0;padding-left:16px'>");
                 for (var f : allFiles) {
@@ -1181,6 +1304,29 @@ public class WorkspaceChip extends JPanel {
                 menu.addSeparator();
             }
 
+            // Add "Drop Invalid Summaries" if there are any invalid summaries
+            if (invalidSummaryCount > 0) {
+                var invalidSummaries =
+                        summaryFragments.stream().filter(f -> !f.isValid()).toList();
+                String dropInvalidLabel = invalidSummaryCount == 1
+                        ? "Drop Invalid Summary"
+                        : "Drop Invalid Summaries (" + invalidSummaryCount + ")";
+                JMenuItem dropInvalidItem = new JMenuItem(dropInvalidLabel);
+                dropInvalidItem.addActionListener(e -> {
+                    if (!ensureMutatingAllowed()) {
+                        return;
+                    }
+                    contextManager.submitContextTask(() -> {
+                        for (var f : invalidSummaries) {
+                            metricsCache.remove(f);
+                        }
+                        contextManager.dropWithHistorySemantics(invalidSummaries);
+                    });
+                });
+                menu.add(dropInvalidItem);
+                menu.addSeparator();
+            }
+
             for (var fragment : summaryFragments) {
                 String labelText = buildIndividualDropLabel(fragment);
                 JMenuItem item = new JMenuItem(labelText);
@@ -1188,61 +1334,12 @@ public class WorkspaceChip extends JPanel {
                 menu.add(item);
             }
 
-            try {
-                chrome.themeManager.registerPopupMenu(menu);
-            } catch (Exception ex) {
-                logger.debug("Failed to register synthetic chip popup menu with theme manager", ex);
-            }
+            chrome.getThemeManager().registerPopupMenu(menu);
             return menu;
         }
 
         private String buildIndividualDropLabel(ContextFragment fragment) {
-            var files = fragment.files().renderNowOr(Set.of()).stream()
-                    .map(pf -> {
-                        String path = pf.toString();
-                        int lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-                        return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
-                    })
-                    .toList();
-
-            if (files.isEmpty()) {
-                return "Drop: no files";
-            }
-
-            StringBuilder label = new StringBuilder("Drop: ");
-            int charCount = 0;
-            int filesAdded = 0;
-
-            for (String file : files) {
-                if (filesAdded > 0) {
-                    if (charCount + 2 + file.length() > 20) {
-                        label.append("...");
-                        break;
-                    }
-                    label.append(", ");
-                    charCount += 2;
-                }
-
-                if (charCount + file.length() > 20) {
-                    int remaining = 20 - charCount;
-                    if (remaining > 3) {
-                        label.append(file, 0, remaining - 3).append("...");
-                    } else {
-                        label.append("...");
-                    }
-                    break;
-                }
-
-                label.append(file);
-                charCount += file.length();
-                filesAdded++;
-            }
-
-            if (filesAdded < files.size() && !label.toString().endsWith("...")) {
-                label.append("...");
-            }
-
-            return label.toString();
+            return "Drop: " + fragment.shortDescription().renderNowOr("[loading]");
         }
 
         private void previewSyntheticChip() {

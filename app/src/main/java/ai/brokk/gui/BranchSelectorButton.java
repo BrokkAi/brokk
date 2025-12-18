@@ -40,17 +40,9 @@ public class BranchSelectorButton extends SplitButton {
         setMenuSupplier(this::buildBranchMenu);
 
         addActionListener(ev -> SwingUtilities.invokeLater(() -> {
-            try {
-                var menu = buildBranchMenu();
-                try {
-                    chrome.themeManager.registerPopupMenu(menu);
-                } catch (Exception e) {
-                    logger.debug("Error registering popup menu", e);
-                }
-                menu.show(this, 0, getHeight());
-            } catch (Exception ex) {
-                logger.error("Error showing branch dropdown", ex);
-            }
+            var menu = buildBranchMenu();
+            chrome.getThemeManager().registerPopupMenu(menu);
+            menu.show(this, 0, getHeight());
         }));
 
         initializeCurrentBranch();
@@ -139,11 +131,7 @@ public class BranchSelectorButton extends SplitButton {
                 SwingUtilities.invokeLater(() -> {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Branches refreshed");
                     var newMenu = buildBranchMenu();
-                    try {
-                        chrome.themeManager.registerPopupMenu(newMenu);
-                    } catch (Exception e) {
-                        logger.debug("Error registering popup menu", e);
-                    }
+                    chrome.getThemeManager().registerPopupMenu(newMenu);
                     newMenu.show(this, 0, getHeight());
                 });
             });

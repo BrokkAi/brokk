@@ -12,7 +12,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
 import ai.brokk.context.Context;
 import ai.brokk.context.ViewingPolicy;
-import ai.brokk.gui.Chrome;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.tools.ToolExecutionResult;
@@ -480,10 +480,6 @@ public class ArchitectAgent {
                 allowed.add("dropWorkspaceFragments");
                 allowed.add("explainCommit");
 
-                if (io instanceof Chrome) {
-                    allowed.add("askHuman");
-                }
-
                 // Agent tools
                 allowed.add("callCodeAgent");
 
@@ -519,14 +515,14 @@ public class ArchitectAgent {
                 // we know workspace is too large; we don't know by how much so we'll guess 0.8 as the threshold
                 messages = buildPrompt(workspaceTokenSize, (int) (workspaceTokenSize * 0.8), workspaceContentMessages);
                 var currentModelTokens = modelsService.getMaxInputTokens(this.planningModel);
-                var fallbackModel = requireNonNull(modelsService.getModel(ai.brokk.Service.GEMINI_2_5_PRO));
+                var fallbackModel = requireNonNull(modelsService.getModel(ModelProperties.GEMINI_3_PRO_PREVIEW));
                 var fallbackModelTokens = modelsService.getMaxInputTokens(fallbackModel);
                 if (fallbackModelTokens < currentModelTokens * 1.2) {
                     return resultWithMessages(StopReason.LLM_ERROR);
                 }
                 logger.warn(
                         "Context too large for current model; attempting emergency retry with {} (tokens: {} vs {})",
-                        ai.brokk.Service.GEMINI_2_5_PRO,
+                        ModelProperties.GEMINI_3_PRO_PREVIEW,
                         fallbackModelTokens,
                         currentModelTokens);
 
@@ -799,9 +795,6 @@ public class ArchitectAgent {
         allowed.add("dropWorkspaceFragments");
         allowed.add("addFileSummariesToWorkspace");
         allowed.add("appendNote");
-        if (io instanceof Chrome) {
-            allowed.add("askHuman");
-        }
         return allowed;
     }
 
@@ -838,7 +831,7 @@ public class ArchitectAgent {
     private int getPriorityRank(String toolName) {
         return switch (toolName) {
             case "dropWorkspaceFragments" -> 1;
-            case "appendNote", "askHuman" -> 2;
+            case "appendNote" -> 2;
             case "addFilesToWorkspace" -> 3;
             case "addFileSummariesToWorkspace" -> 4;
             case "addUrlContentsToWorkspace" -> 5;

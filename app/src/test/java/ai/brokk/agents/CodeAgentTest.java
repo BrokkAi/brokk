@@ -15,6 +15,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.project.IProject;
+import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.testutil.TestConsoleIO;
@@ -778,7 +779,7 @@ class CodeAgentTest {
         var countingModel = new CountingPreprocessorModel(cannedPreprocessedOutput);
 
         // Configure the context manager to use the counting model for GPT_5_NANO (used by preprocessor)
-        cm.setNanoModel(countingModel);
+        cm.getService().setModel(ModelType.BUILD_PROCESSOR, countingModel);
 
         // Configure build to fail with output that exceeds threshold (> 500 lines)
         var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of());

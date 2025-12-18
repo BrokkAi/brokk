@@ -1,5 +1,7 @@
 package ai.brokk.gui.dialogs;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.AbstractService;
 import ai.brokk.Service;
 import ai.brokk.gui.Chrome;
@@ -15,6 +17,7 @@ import java.awt.*;
 import java.util.ArrayList;
 import java.util.EventObject;
 import java.util.List;
+import java.util.Map;
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
 import javax.swing.DefaultListCellRenderer;
@@ -75,7 +78,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
     private FavoriteModelsTableModel quickModelsTableModel = new FavoriteModelsTableModel(new ArrayList<>());
     private JComboBox<Service.FavoriteModel> preferredCodeModelCombo = new JComboBox<>();
     private JComboBox<Service.FavoriteModel> primaryModelCombo = new JComboBox<>();
-    private JComboBox<String> otherModelsVendorCombo = new JComboBox<>(new String[] {"Default"});
+    private JComboBox<String> otherModelsVendorCombo = new JComboBox<>();
 
     @Nullable
     private JLabel otherModelsVendorLabel;
@@ -96,6 +99,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             @Nullable Service.FavoriteModel selectedCodeFavorite,
             @Nullable Service.FavoriteModel selectedPrimaryFavorite,
             String otherModelsVendor,
+            Map<ModelProperties.ModelType, AbstractService.ModelConfig> vendorModelMap,
             boolean showCostNotifications,
             boolean showFreeInternalLLMCostNotifications,
             boolean showErrorNotifications,
@@ -175,8 +179,11 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         Service.FavoriteModel selectedPrimaryFavorite = (Service.FavoriteModel) primaryModelCombo.getSelectedItem();
         String vendor = (String) otherModelsVendorCombo.getSelectedItem();
         if (vendor == null) {
-            vendor = "Default";
+            vendor = ModelProperties.DEFAULT_VENDOR;
         }
+
+        Map<ModelProperties.ModelType, AbstractService.ModelConfig> vendorModelMap;
+        vendorModelMap = requireNonNull(ModelProperties.getVendorModels(vendor));
 
         return new AdvancedValues(
                 jvmSettings,
@@ -189,6 +196,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 selectedCodeFavorite,
                 selectedPrimaryFavorite,
                 vendor,
+                vendorModelMap,
                 showCostNotificationsCheckbox.isSelected(),
                 showFreeInternalLLMCheckbox.isSelected(),
                 showErrorNotificationsCheckbox.isSelected(),
@@ -207,7 +215,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         boolean previousAdvancedMode = GlobalUiSettings.isAdvancedMode();
 
         String previousVendorPref = MainProject.getOtherModelsVendorPreference();
-        String previousVendorSelection = previousVendorPref.isBlank() ? "Default" : previousVendorPref;
+        String previousVendorSelection =
+                previousVendorPref.isBlank() ? ModelProperties.DEFAULT_VENDOR : previousVendorPref;
 
         // JVM memory
         MainProject.setJvmMemorySettings(values.jvmMemorySettings());
@@ -253,47 +262,18 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
 
         // Vendor preference and Quick/Scan mappings for other models
         String selectedVendor = values.otherModelsVendor();
-        if (selectedVendor == null || selectedVendor.isBlank()) {
-            selectedVendor = "Default";
-        }
-
         String normalizedVendorPref;
-        if ("Default".equalsIgnoreCase(selectedVendor)) {
+        if (ModelProperties.DEFAULT_VENDOR.equals(selectedVendor)) {
             normalizedVendorPref = "";
         } else {
             normalizedVendorPref = selectedVendor.trim();
         }
         MainProject.setOtherModelsVendorPreference(normalizedVendorPref);
 
-        if ("OpenAI".equals(selectedVendor)) {
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.QUICK, new AbstractService.ModelConfig(Service.GPT_5_NANO));
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.QUICK_EDIT, new AbstractService.ModelConfig(Service.GPT_5_NANO));
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.QUICKEST, new AbstractService.ModelConfig(Service.GPT_5_NANO));
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.SCAN, new AbstractService.ModelConfig(Service.GPT_5_MINI));
-        } else if ("Anthropic".equals(selectedVendor)) {
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.QUICK, new AbstractService.ModelConfig(Service.HAIKU_4_5));
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.QUICK_EDIT, new AbstractService.ModelConfig(Service.HAIKU_4_5));
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.QUICKEST, new AbstractService.ModelConfig(Service.HAIKU_4_5));
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.SCAN, new AbstractService.ModelConfig(Service.HAIKU_4_5));
-        } else {
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.QUICK, ModelProperties.ModelType.QUICK.defaultConfig());
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.QUICK_EDIT, ModelProperties.ModelType.QUICK_EDIT.defaultConfig());
-            mainProject.setModelConfig(
-                    ModelProperties.ModelType.QUICKEST, ModelProperties.ModelType.QUICKEST.defaultConfig());
-            mainProject.setModelConfig(ModelProperties.ModelType.SCAN, ModelProperties.ModelType.SCAN.defaultConfig());
-        }
+        values.vendorModelMap().forEach(mainProject::setModelConfig);
 
-        String currentVendorSelection = normalizedVendorPref.isBlank() ? "Default" : normalizedVendorPref;
+        String currentVendorSelection =
+                normalizedVendorPref.isBlank() ? ModelProperties.DEFAULT_VENDOR : normalizedVendorPref;
         if (!previousVendorSelection.equals(currentVendorSelection)) {
             chrome.getContextManager().reloadService();
         }
@@ -441,13 +421,15 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
 
         var availableNames = service.getAvailableModels().keySet();
         var vendors = new ArrayList<String>();
-        vendors.add("Default");
-        if (availableNames.contains(Service.HAIKU_4_5)) {
+        vendors.add(ModelProperties.DEFAULT_VENDOR);
+        if (availableNames.contains(ModelProperties.HAIKU_4_5)) {
             vendors.add("Anthropic");
         }
-        if (availableNames.contains(Service.GPT_5_NANO) && availableNames.contains(Service.GPT_5_MINI)) {
+        if (availableNames.contains(ModelProperties.GPT_5_NANO)
+                && availableNames.contains(ModelProperties.GPT_5_MINI)) {
             vendors.add("OpenAI");
         }
+        vendors.add("Gemini");
 
         otherModelsVendorCombo.setModel(new javax.swing.DefaultComboBoxModel<>(vendors.toArray(new String[0])));
 
@@ -456,7 +438,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         if (!persistedVendor.isBlank() && vendors.contains(persistedVendor)) {
             vendorToSelect = persistedVendor;
         } else {
-            vendorToSelect = "Default";
+            vendorToSelect = ModelProperties.DEFAULT_VENDOR;
         }
         otherModelsVendorCombo.setSelectedItem(vendorToSelect);
 
@@ -928,31 +910,15 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         otherModelsVendorLabel = new JLabel("Vendor for Other Models:");
         rolesPanel.add(otherModelsVendorLabel, gbcRoles);
 
-        otherModelsVendorCombo = new JComboBox<>(new String[] {"Anthropic", "Default", "OpenAI"});
+        otherModelsVendorCombo = new JComboBox<>(new String[] {"Anthropic", ModelProperties.DEFAULT_VENDOR, "OpenAI"});
         otherModelsVendorCombo.setToolTipText(
                 "Selects the default models for Quick, Quick Edit, Quickest, and Scan operations.");
         otherModelsVendorHolder = new JPanel(new BorderLayout(0, 0));
         otherModelsVendorHolder.add(otherModelsVendorCombo, BorderLayout.CENTER);
 
-        String defaultQuick = ModelProperties.ModelType.QUICK.defaultConfig().name();
-        String defaultQuickEdit =
-                ModelProperties.ModelType.QUICK_EDIT.defaultConfig().name();
-        String defaultQuickest =
-                ModelProperties.ModelType.QUICKEST.defaultConfig().name();
-        String defaultScan = ModelProperties.ModelType.SCAN.defaultConfig().name();
-
         String vendorTooltip = "<html><div style='width: 340px;'>"
-                + "Selecting a vendor sets Quick, Quick Edit, Quickest, and Scan to vendor defaults.<br/><br/>"
-                + "<b>OpenAI:</b> Quick=gpt-5-nano; Quick Edit=gpt-5-nano; Quickest=gpt-5-nano; Scan=gpt-5-mini<br/>"
-                + "<b>Anthropic:</b> Quick=claude-haiku-4-5; Quick Edit=claude-haiku-4-5; Quickest=claude-haiku-4-5; Scan=claude-haiku-4-5<br/>"
-                + "<b>Default:</b> Quick="
-                + defaultQuick
-                + "; Quick Edit="
-                + defaultQuickEdit
-                + "; Quickest="
-                + defaultQuickest
-                + "; Scan="
-                + defaultScan
+                + "Brokk will use the best model for each internal task (scanning, summarizing, etc.) by default, "
+                + "but you can pin these activities to a single vendor if others have an outage."
                 + "</div></html>";
 
         var vendorHelpButton = new MaterialButton();
@@ -1001,7 +967,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 return;
             }
 
-            otherModelsVendorCombo.setSelectedItem("Default");
+            otherModelsVendorCombo.setSelectedItem(ModelProperties.DEFAULT_VENDOR);
 
             // Get preferred defaults from ModelProperties
             var architectConfig = ModelProperties.ModelType.ARCHITECT.defaultConfig();

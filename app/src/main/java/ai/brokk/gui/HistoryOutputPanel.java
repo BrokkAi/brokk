@@ -4,6 +4,7 @@ import static ai.brokk.SessionManager.SessionInfo;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.*;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -25,6 +26,7 @@ import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.gui.theme.ThemeTitleBarManager;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.IProject;
@@ -134,7 +136,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private JPanel changesTabPlaceholder;
 
     @Nullable
-    private JComponent aggregatedChangesPanel;
+    private BrokkDiffPanel aggregatedChangesPanel;
 
     @Nullable
     private JTextArea captureDescriptionArea;
@@ -148,6 +150,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private final MaterialButton captureButton;
     private final MaterialButton openWindowButton;
     private final JPanel notificationAreaPanel;
+    private final DeferredUpdateHelper deferredUpdateHelper;
 
     private final MaterialButton notificationsButton = new MaterialButton();
     private final List<NotificationEntry> notifications = new CopyOnWriteArrayList<>();
@@ -164,7 +167,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     // Resolve notification colors from ThemeColors for current theme.
     // Returns a list of [background, foreground, border] colors.
     private List<Color> resolveNotificationColors(IConsoleIO.NotificationRole role) {
-        boolean isDark = chrome.themeManager.isDarkTheme();
+        boolean isDark = chrome.getThemeManager().isDarkTheme();
         return switch (role) {
             case ERROR ->
                 List.of(
@@ -353,7 +356,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             scroll.setPreferredSize(new Dimension(prefWidth, cappedHeight));
 
             popup.add(scroll);
-            chrome.themeManager.registerPopupMenu(popup);
+            chrome.getThemeManager().registerPopupMenu(popup);
             return popup;
         });
         this.sessionNameLabel.addActionListener(e -> this.sessionNameLabel.showPopupMenuInternal());
@@ -423,6 +426,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         // Respect current Advanced Mode on construction
         setAdvancedMode(GlobalUiSettings.isAdvancedMode());
+
+        // Deferred update helper for Changes tab recomputation
+        this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::performRefreshBranchDiffPanel);
     }
 
     private void buildSessionSwitchPanel() {
@@ -838,7 +844,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         popup.add(newSessionFromWorkspaceItem);
 
         // Register popup with theme manager
-        chrome.themeManager.registerPopupMenu(popup);
+        chrome.getThemeManager().registerPopupMenu(popup);
 
         // Show popup menu
         popup.show(historyTable, x, y);
@@ -1178,6 +1184,18 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
         buttonsPanel.add(openWindowButton);
 
+        // Capture button (Advanced Mode only)
+        captureButton.setToolTipText("Capture output to workspace");
+        captureButton.addActionListener(e -> presentCaptureChoice());
+        SwingUtilities.invokeLater(() -> {
+            captureButton.setIcon(Icons.CONTENT_CAPTURE);
+            captureButton.setPreferredSize(new Dimension(24, 24));
+            captureButton.setMinimumSize(new Dimension(24, 24));
+            captureButton.setMaximumSize(new Dimension(24, 24));
+        });
+        captureButton.setVisible(GlobalUiSettings.isAdvancedMode());
+        buttonsPanel.add(captureButton);
+
         // Notifications button
         notificationsButton.setToolTipText("Show notifications");
         notificationsButton.addActionListener(e -> showNotificationsDialog());
@@ -1223,7 +1241,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 compressItem.setEnabled(compressButton.isEnabled());
                 popup.add(compressItem);
 
-                chrome.themeManager.registerPopupMenu(popup);
+                chrome.getThemeManager().registerPopupMenu(popup);
                 popup.show(e.getComponent(), e.getX(), e.getY());
             }
 
@@ -1658,7 +1676,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         notificationsDialog = Chrome.newFrame(title);
         notificationsDialog.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
         notificationsDialog.setLayout(new BorderLayout(8, 8));
-        Chrome.applyTitleBar(notificationsDialog, title);
+        ThemeTitleBarManager.maybeApplyMacTitleBar(notificationsDialog, title);
         notificationsDialog.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosed(WindowEvent e) {
@@ -2118,13 +2136,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             historyModel.setRowCount(0);
 
             // Dispose and clear any existing aggregated Changes panel
-            if (aggregatedChangesPanel instanceof BrokkDiffPanel diffPanel) {
-                try {
-                    diffPanel.dispose();
-                } catch (Throwable t) {
-                    logger.debug(
-                            "Ignoring error disposing previous aggregated BrokkDiffPanel during session switch", t);
-                }
+            if (aggregatedChangesPanel != null) {
+                aggregatedChangesPanel.dispose();
             }
             aggregatedChangesPanel = null;
 
@@ -2227,17 +2240,18 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     /**
      * Public entry-point to refresh the branch-based Changes tab on demand.
-     * Safe to call from any thread.
+     * Safe to call from any thread. Defers the heavy recompute if the panel is not visible.
      */
-    public void refreshBranchDiffPanel() {
+    public void requestDiffUpdate() {
+        deferredUpdateHelper.requestUpdate();
+    }
+
+    /** Runs the original refreshBranchDiffPanel logic when visible. */
+    private void performRefreshBranchDiffPanel() {
         SwingUtil.runOnEdt(() -> {
             // Dispose and clear any existing aggregated diff panel
-            if (aggregatedChangesPanel instanceof BrokkDiffPanel diffPanel) {
-                try {
-                    diffPanel.dispose();
-                } catch (Throwable t) {
-                    logger.debug("Ignoring error disposing previous aggregated BrokkDiffPanel during refresh", t);
-                }
+            if (aggregatedChangesPanel != null) {
+                aggregatedChangesPanel.dispose();
             }
             aggregatedChangesPanel = null;
 
@@ -2541,8 +2555,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             }
 
             // Apply macOS full-window-content and title bar styling
-            Chrome.applyMacOSFullWindowContent(this);
-            Chrome.applyTitleBar(this, determineWindowTitle(titleHint, isTaskInProgress));
+            Chrome.maybeApplyMacFullWindowContent(this);
+            ThemeTitleBarManager.maybeApplyMacTitleBar(this, determineWindowTitle(titleHint, isTaskInProgress));
 
             this.project = parentPanel.contextManager.getProject(); // Get project reference
             setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
@@ -2697,6 +2711,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         Runnable r = () -> {
             // Open in new window button (Output panel)
             openWindowButton.setVisible(advanced);
+            // Capture button (Output panel)
+            captureButton.setVisible(advanced);
             var btnParent = openWindowButton.getParent();
             if (btnParent != null) {
                 btnParent.revalidate();
@@ -2873,8 +2889,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Propagate theme to child output area
         llmStreamArea.applyTheme(guiTheme);
         // Propagate to aggregated Changes panel (BrokkDiffPanel implements ThemeAware)
-        if (aggregatedChangesPanel instanceof ThemeAware ta) {
-            ta.applyTheme(guiTheme);
+        if (aggregatedChangesPanel != null) {
+            aggregatedChangesPanel.applyTheme(guiTheme);
         }
 
         // Recompute the Changes tab title colors to match the new theme if we have a computed summary
@@ -2912,7 +2928,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         } else {
                             chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Pull: " + pullResult);
                         }
-                        refreshBranchDiffPanel();
+                        requestDiffUpdate();
                         chrome.updateGitRepo();
                     });
                 } catch (Exception e) {
@@ -2955,7 +2971,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         } else {
                             chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Push: " + pushResult);
                         }
-                        refreshBranchDiffPanel();
+                        requestDiffUpdate();
                         chrome.updateGitRepo();
                     });
                 } catch (Exception e) {
@@ -2989,18 +3005,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     public void dispose() {
         assert SwingUtilities.isEventDispatchThread() : "dispose must be called on EDT";
         // Dispose aggregated changes panel if present
-        if (aggregatedChangesPanel instanceof BrokkDiffPanel diffPanel) {
-            try {
-                diffPanel.dispose();
-            } catch (Throwable t) {
-                logger.debug(
-                        "Ignoring error disposing aggregated BrokkDiffPanel during HistoryOutputPanel.dispose()", t);
-            } finally {
-                aggregatedChangesPanel = null;
-            }
-        } else {
-            aggregatedChangesPanel = null;
+        if (aggregatedChangesPanel != null) {
+            aggregatedChangesPanel.dispose();
         }
+        aggregatedChangesPanel = null;
         // Dispose the web-based markdown output panel
         try {
             llmStreamArea.dispose();
@@ -3101,7 +3109,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     }
 
                     try {
-                        Set<IGitRepo.ModifiedFile> fileSet = new java.util.HashSet<>();
+                        // use map: deduplicate by file path, preferring working tree status over branch/commit status
+                        // => don't show a file twice when the state in the 2 branchses differs
+                        Map<ProjectFile, IGitRepo.ModifiedFile> fileMap = new HashMap<>();
                         String leftCommitSha = null;
                         String currentBranch = gitRepo.getCurrentBranch();
 
@@ -3111,32 +3121,52 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 // Use fully-qualified ref to avoid ambiguity with tags
                                 String defaultBranchRef = "refs/heads/" + defaultBranch;
 
-                                // Get files changed between branches
-                                var branchChanges =
-                                        gitRepo.listFilesChangedBetweenBranches(currentBranch, defaultBranchRef);
-                                fileSet.addAll(branchChanges);
-
-                                // Union with working tree changes
-                                fileSet.addAll(gitRepo.getModifiedFiles());
-
-                                // Get merge base for left content
+                                // Get merge base first - this is the fork point
                                 leftCommitSha = gitRepo.getMergeBase(currentBranch, defaultBranchRef);
+
+                                // Get files changed on our side only (merge-base to HEAD) when merge-base exists
+                                if (leftCommitSha != null) {
+                                    var myChanges = gitRepo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
+                                    for (var mf : myChanges) {
+                                        fileMap.putIfAbsent(mf.file(), mf);
+                                    }
+                                } else {
+                                    // Fallback: no merge-base found; restrict baseline to HEAD (working tree only)
+                                    leftCommitSha = "HEAD";
+                                }
+
+                                // Union with working tree changes (prefer working tree status)
+                                for (var mf : gitRepo.getModifiedFiles()) {
+                                    fileMap.put(mf.file(), mf);
+                                }
                             }
                             case DEFAULT_WITH_UPSTREAM -> {
                                 String upstreamRef = baseline.baselineRef();
-                                leftCommitSha =
-                                        gitRepo.resolveToCommit(upstreamRef).getName();
 
-                                // Get files changed between HEAD and upstream
-                                var upstreamChanges = gitRepo.listFilesChangedBetweenCommits("HEAD", upstreamRef);
-                                fileSet.addAll(upstreamChanges);
+                                // Use merge-base as baseline to show only our changes
+                                leftCommitSha = gitRepo.getMergeBase("HEAD", upstreamRef);
 
-                                // Union with working tree changes
-                                fileSet.addAll(gitRepo.getModifiedFiles());
+                                // Get files changed on our side only (merge-base to HEAD) when merge-base exists
+                                if (leftCommitSha != null) {
+                                    var myChanges = gitRepo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
+                                    for (var mf : myChanges) {
+                                        fileMap.putIfAbsent(mf.file(), mf);
+                                    }
+                                } else {
+                                    // Fallback: no merge-base found; restrict baseline to HEAD (working tree only)
+                                    leftCommitSha = "HEAD";
+                                }
+
+                                // Union with working tree changes (prefer working tree status)
+                                for (var mf : gitRepo.getModifiedFiles()) {
+                                    fileMap.put(mf.file(), mf);
+                                }
                             }
                             case DEFAULT_LOCAL_ONLY -> {
                                 // Only working tree changes
-                                fileSet.addAll(gitRepo.getModifiedFiles());
+                                for (var mf : gitRepo.getModifiedFiles()) {
+                                    fileMap.put(mf.file(), mf);
+                                }
                                 leftCommitSha = "HEAD";
                             }
                             case DETACHED, NO_BASELINE -> {
@@ -3144,6 +3174,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                 throw new AssertionError();
                             }
                         }
+
+                        // Deduplicated set of files to summarize
+                        var fileSet = new java.util.HashSet<>(fileMap.values());
 
                         // Use DiffService to summarize changes between baseline and working tree
                         var summarizedChanges =
@@ -3179,32 +3212,31 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     }
                 })
                 .thenApply(result -> {
+                    // Precompute titles/contents and sorting OFF the EDT
+                    var preparedSummaries = DiffService.preparePerFileSummaries(result);
                     // Update UI on EDT
                     SwingUtilities.invokeLater(() -> {
                         lastCumulativeChanges = result;
                         setChangesTabTitleAndTooltip(result);
-                        updateChangesTabContent(result);
+                        updateChangesTabContentUi(result, preparedSummaries);
                     });
                     return result;
                 });
     }
 
-    // Build and insert the aggregated multi-file diff panel into the Changes tab.
+    // Build and insert the aggregated multi-file diff panel into the Changes tab using precomputed data.
     // Must be called on the EDT.
-    private void updateChangesTabContent(DiffService.CumulativeChanges res) {
-        assert SwingUtilities.isEventDispatchThread() : "updateChangesTabContent must run on EDT";
+    private void updateChangesTabContentUi(
+            DiffService.CumulativeChanges res, List<Map.Entry<String, Context.DiffEntry>> prepared) {
+        assert SwingUtilities.isEventDispatchThread() : "updateChangesTabContentUi must run on EDT";
         var container = changesTabPlaceholder;
         if (container == null) {
             return;
         }
 
         // Dispose any previous diff panel to free resources
-        if (aggregatedChangesPanel instanceof BrokkDiffPanel diffPanel) {
-            try {
-                diffPanel.dispose();
-            } catch (Throwable t) {
-                logger.debug("Ignoring error disposing previous BrokkDiffPanel", t);
-            }
+        if (aggregatedChangesPanel != null) {
+            aggregatedChangesPanel.dispose();
         }
         aggregatedChangesPanel = null;
 
@@ -3232,26 +3264,15 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        try {
-            var aggregatedPanel = buildAggregatedChangesPanel(res);
-            container.setLayout(new BorderLayout());
-            container.add(aggregatedPanel, BorderLayout.CENTER);
-        } catch (Throwable t) {
-            logger.warn("Failed to build aggregated Changes panel", t);
-            container.setLayout(new BorderLayout());
-            var err = new JLabel("Unable to display aggregated changes.", SwingConstants.CENTER);
-            err.setBorder(new EmptyBorder(20, 0, 20, 0));
-            container.removeAll();
-            container.add(err, BorderLayout.CENTER);
-            aggregatedChangesPanel = null;
-        }
+        var aggregatedPanel = buildAggregatedChangesPanel(res, prepared);
+        container.setLayout(new BorderLayout());
+        container.add(aggregatedPanel, BorderLayout.CENTER);
         container.revalidate();
         container.repaint();
     }
 
-    // Constructs a panel containing a summary header and a BrokkDiffPanel with per-file comparisons.
-    // Sets aggregatedChangesPanel to the created BrokkDiffPanel for lifecycle management.
-    private JPanel buildAggregatedChangesPanel(DiffService.CumulativeChanges res) {
+    private JPanel buildAggregatedChangesPanel(
+            DiffService.CumulativeChanges res, List<Map.Entry<String, Context.DiffEntry>> prepared) {
         var wrapper = new JPanel(new BorderLayout());
 
         // Build header with baseline label and buttons
@@ -3290,7 +3311,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             changesToCommitButton.addActionListener(e -> {
                 SwingUtilities.invokeLater(() -> {
                     var content = new GitCommitTab(chrome, contextManager);
-                    content.updateCommitPanel();
+                    content.requestUpdate();
 
                     var dialog = new BaseThemedDialog(chrome.getFrame(), "Changes");
                     dialog.setDefaultCloseOperation(BaseThemedDialog.DISPOSE_ON_CLOSE);
@@ -3310,10 +3331,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     dialog.addWindowListener(new WindowAdapter() {
                         @Override
                         public void windowClosed(WindowEvent e) {
-                            refreshBranchDiffPanel();
+                            requestDiffUpdate();
                             var commitTab = chrome.getGitCommitTab();
                             if (commitTab != null) {
-                                commitTab.updateCommitPanel();
+                                commitTab.requestUpdate();
                             }
                         }
                     });
@@ -3390,18 +3411,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 .setInitialFileIndex(0)
                 .setForceFileTree(true);
 
-        // Stable order by display file path
-        var changes = new ArrayList<>(res.perFileChanges());
-        changes.sort(Comparator.comparing(Context.DiffEntry::title));
-
-        for (var change : changes) {
-            String path = change.title();
-            String leftContent = change.oldContent();
-            String rightContent = change.newContent();
-
-            // Use non-ref titles to avoid accidental git ref resolution; keep filename for syntax highlighting.
-            BufferSource left = new BufferSource.StringSource(leftContent, "", path, null);
-            BufferSource right = new BufferSource.StringSource(rightContent, "", path, null);
+        // Use precomputed list in stable order; do not call Context.DiffEntry::title here
+        for (var entry : prepared) {
+            String path = entry.getKey();
+            Context.DiffEntry de = entry.getValue();
+            BufferSource left = new BufferSource.StringSource(de.oldContent(), "", path, null);
+            BufferSource right = new BufferSource.StringSource(de.newContent(), "", path, null);
             builder.addComparison(left, right);
         }
 

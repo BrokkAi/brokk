@@ -2087,7 +2087,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     node.getEndPoint().getRow(),
                     node.getStartByte());
 
-            var finalRange = (cu.isClass() || cu.isFunction()) ? expandRangeWithComments(node, false) : originalRange;
+            var finalRange =
+                    (cu.isClass() || cu.isFunction()) ? expandRangeWithComments(node, sourceContent) : originalRange;
 
             localSourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(finalRange);
             localCuByFqName.put(cu.fqName(), cu);
@@ -3676,10 +3677,58 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Expands a source range to include contiguous leading metadata (comments and attribute-like nodes) immediately
-     * preceding the declaration node. Operates directly on the provided declaration node.
+     * Checks if the byte range contains only whitespace (spaces and tabs).
      */
-    protected Range expandRangeWithComments(TSNode declarationNode, boolean ignoredIncludeOnlyDocLike) {
+    private boolean isOnlyWhitespace(byte[] bytes, int start, int end) {
+        for (int i = start; i < end; i++) {
+            byte b = bytes[i];
+            if (b != ' ' && b != '\t') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Finds the byte offset of the start of the line containing the given byte offset.
+     * Scans backward from the offset to find the preceding newline (or beginning of file).
+     *
+     * @param byteOffset the byte offset to find the line start for
+     * @param sourceContent the source content wrapper
+     * @return the byte offset of the first character on the line (after the newline, or 0 if at file start)
+     */
+    private int findLineStartByte(int byteOffset, SourceContent sourceContent) {
+        if (byteOffset <= 0) {
+            return 0;
+        }
+
+        byte[] bytes = sourceContent.utf8Bytes();
+        if (byteOffset > bytes.length) {
+            byteOffset = bytes.length;
+        }
+
+        // Scan backward from byteOffset - 1 to find the preceding newline
+        for (int i = byteOffset - 1; i >= 0; i--) {
+            if (bytes[i] == '\n') {
+                // Found newline; line starts after it
+                return i + 1;
+            }
+        }
+
+        // No newline found; line starts at beginning of file
+        return 0;
+    }
+
+    /**
+     * Expands a source range to include contiguous leading metadata (comments and attribute-like nodes) immediately
+     * preceding the declaration node. Backs up to the start of the line containing the first metadata node
+     * to capture any indentation, but only if there's pure whitespace before the metadata.
+     *
+     * @param declarationNode the declaration node to expand
+     * @param sourceContent the source content wrapper for byte offset calculations
+     * @return the expanded range with commentStartByte including leading indentation
+     */
+    protected Range expandRangeWithComments(TSNode declarationNode, SourceContent sourceContent) {
         var originalRange = new Range(
                 declarationNode.getStartByte(),
                 declarationNode.getEndByte(),
@@ -3706,14 +3755,20 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         // Reverse to get earliest-first
         Collections.reverse(leading);
-        int newStartByte = leading.getFirst().getStartByte();
+        int firstMetadataNodeStartByte = leading.getFirst().getStartByte();
+
+        // Back up to line start only if content before metadata is pure whitespace
+        int lineStartByte = findLineStartByte(firstMetadataNodeStartByte, sourceContent);
+        int commentStartByte = isOnlyWhitespace(sourceContent.utf8Bytes(), lineStartByte, firstMetadataNodeStartByte)
+                ? lineStartByte
+                : firstMetadataNodeStartByte;
 
         Range expandedRange = new Range(
                 originalRange.startByte(),
                 originalRange.endByte(),
                 originalRange.startLine(),
                 originalRange.endLine(),
-                newStartByte);
+                commentStartByte);
 
         log.trace(
                 "Expanded range for node. Body range [{}, {}], comment range starts at {} (added {} preceding metadata nodes)",
