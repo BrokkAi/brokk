@@ -13,6 +13,7 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Messages;
+import ai.brokk.util.StyleGuideResolver;
 import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -1459,6 +1460,45 @@ public class WorkspaceChip extends JPanel {
                     ac.setAccessibleDescription(newDesc);
                 }
             }
+        }
+
+        @Override
+        protected void onPrimaryClick() {
+            var selected = contextManager.selectedContext();
+
+            final List<ProjectFile> candidateFiles;
+            if (selected == null) {
+                candidateFiles = List.of();
+            } else {
+                candidateFiles = selected.getAllFragmentsInDisplayOrder().stream()
+                        .filter(f -> !(f instanceof ContextFragment.SummaryFragment))
+                        .filter(f -> f.getType() != ContextFragment.FragmentType.SKELETON)
+                        .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
+                        .distinct()
+                        .collect(Collectors.toList());
+            }
+
+            contextManager.submitBackgroundTask("Compute AGENTS.md", () -> {
+                try {
+                    String resolved = StyleGuideResolver.resolve(candidateFiles);
+                    if (resolved == null || resolved.isBlank()) {
+                        String fallback = contextManager.getProject().getStyleGuide();
+                        return fallback == null ? "" : fallback;
+                    }
+                    return resolved;
+                } catch (Throwable t) {
+                    logger.warn("Failed to resolve style guide; using fallback", t);
+                    String fallback = contextManager.getProject().getStyleGuide();
+                    return fallback == null ? "" : fallback;
+                }
+            }).thenAccept(content -> SwingUtilities.invokeLater(() -> {
+                var syntheticFragment = new ContextFragment.StringFragment(
+                        chrome.getContextManager(),
+                        content,
+                        "AGENTS.md",
+                        SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+                chrome.openFragmentPreview(syntheticFragment);
+            }));
         }
 
         @Override
