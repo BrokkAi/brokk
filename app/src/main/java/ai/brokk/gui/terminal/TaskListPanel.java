@@ -44,7 +44,6 @@ import static java.util.Objects.requireNonNull;
 public class TaskListPanel extends JPanel implements ThemeAware, IContextManager.ContextListener {
 
     private static final Logger logger = LogManager.getLogger(TaskListPanel.class);
-    private boolean isLoadingTasks = false;
     private @Nullable UUID sessionIdAtLoad = null;
     // Track the last-seen Task List fragment id so we can detect updates within the same session
     private @Nullable String lastTaskListFragmentId = null;
@@ -485,12 +484,21 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         southPanel.add(controls);
         add(southPanel, BorderLayout.SOUTH);
 
-        // Ensure correct initial layout and reload tasks when the panel becomes visible
+        // Ensure correct initial layout and refresh the delegating model when the panel becomes visible
         addHierarchyListener(e -> {
             if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) {
                 SwingUtilities.invokeLater(() -> {
-                    // Reload tasks from the ContextManager so newly appended tasks appear
-                    loadTasksForCurrentSession();
+                    sessionIdAtLoad = getCurrentSessionId();
+                    var mgr = chrome.getContextManager();
+                    Context sel = mgr.selectedContext();
+                    Context base = (sel != null) ? sel : mgr.liveContext();
+                    lastTaskListFragmentId = base.getTaskListFragment().map(ContextFragment::id).orElse(null);
+
+                    model.fireRefresh();
+                    clearExpansionOnStructureChange();
+                    updateButtonStates();
+                    updateTasksTabBadge();
+
                     list.revalidate();
                     list.repaint();
                 });
@@ -527,7 +535,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         });
         runningFadeTimer.setRepeats(true);
 
-        loadTasksForCurrentSession();
+        // Initial model sync from current context
+        sessionIdAtLoad = getCurrentSessionId();
+        var mgrInit = chrome.getContextManager();
+        Context selInit = mgrInit.selectedContext();
+        Context baseInit = (selInit != null) ? selInit : mgrInit.liveContext();
+        lastTaskListFragmentId = baseInit.getTaskListFragment().map(ContextFragment::id).orElse(null);
+        model.fireRefresh();
+        clearExpansionOnStructureChange();
+        updateButtonStates();
+        updateTasksTabBadge();
 
         IContextManager cm = chrome.getContextManager();
         this.cm = (ContextManager) cm;
@@ -878,63 +895,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         return chrome.getContextManager().getCurrentSessionId();
     }
 
-    private void loadTasksForCurrentSession() {
-        loadTasksForCurrentSession(null);
-    }
 
-    private void loadTasksForCurrentSession(@Nullable Runnable onComplete) {
-        if (!SwingUtilities.isEventDispatchThread()) {
-            SwingUtilities.invokeLater(() -> loadTasksForCurrentSession(onComplete));
-            return;
-        }
-        var sid = getCurrentSessionId();
-        var previous = this.sessionIdAtLoad;
-        this.sessionIdAtLoad = sid;
-        isLoadingTasks = true;
-
-        // Clear immediately when switching sessions to avoid showing stale tasks
-        if (!Objects.equals(previous, sid)) {
-            resetEphemeralUiStateForSessionSwitch();
-        }
-
-        try {
-            var cm = chrome.getContextManager();
-            var selected = cm.selectedContext();
-            TaskList.TaskListData data = (selected != null)
-                    ? selected.getTaskListDataOrEmpty()
-                    : cm.liveContext().getTaskListDataOrEmpty();
-
-            // Only populate if still the same sessionId
-            if (!sid.equals(this.sessionIdAtLoad)) {
-                return;
-            }
-
-            SwingUtilities.invokeLater(() -> {
-                model.fireRefresh();
-                clearExpansionOnStructureChange();
-                updateButtonStates();
-                if (onComplete != null) {
-                    try {
-                        onComplete.run();
-                    } catch (Exception ex) {
-                        logger.debug("onComplete runnable threw", ex);
-                    }
-                }
-            });
-        } finally {
-            isLoadingTasks = false;
-            // Update the last-seen fragment ID after successful load (respecting selected context)
-            var cm = chrome.getContextManager();
-            Context sel = cm.selectedContext();
-            Context baseCtx = (sel != null) ? sel : cm.liveContext();
-            lastTaskListFragmentId =
-                    baseCtx.getTaskListFragment().map(ContextFragment::id).orElse(null);
-
-            clearExpansionOnStructureChange();
-            // Ensure the Tasks tab badge reflects the freshly loaded model.
-            updateTasksTabBadge();
-        }
-    }
 
 
     /**
@@ -1605,20 +1566,42 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         });
     }
 
+
     /**
-     * Public refresh hook to reload the list model from the ContextManager. Safe to call from any thread. If we're
-     * already on the EDT, refresh immediately.
+     * Refresh the model from ContextManager. Since the model delegates directly,
+     * this just triggers a UI refresh.
      */
     public void refreshFromManager() {
-        refreshFromManager(null);
+        SwingUtilities.invokeLater(() -> {
+            model.fireRefresh();
+            updateButtonStates();
+            updateTasksTabBadge();
+        });
     }
 
+    /**
+     * Refresh the model from ContextManager, then run the callback on EDT.
+     */
     public void refreshFromManager(@Nullable Runnable onComplete) {
-        if (SwingUtilities.isEventDispatchThread()) {
-            loadTasksForCurrentSession(onComplete);
-        } else {
-            SwingUtilities.invokeLater(() -> loadTasksForCurrentSession(onComplete));
-        }
+        SwingUtilities.invokeLater(() -> {
+            model.fireRefresh();
+            updateButtonStates();
+            updateTasksTabBadge();
+            if (onComplete != null) {
+                onComplete.run();
+            }
+        });
+    }
+
+    /**
+     * Helper that runs an action after ensuring the model is refreshed.
+     * With the delegating model, this just schedules on EDT.
+     */
+    private void runAfterModelRefresh(Runnable action) {
+        SwingUtilities.invokeLater(() -> {
+            model.fireRefresh();
+            action.run();
+        });
     }
 
     /**
@@ -2281,10 +2264,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         Context selected = cm.selectedContext();
         boolean onLatest = (selected == null) || selected.equals(cm.liveContext());
 
-        // Toggle read-only state based on whether we're viewing history
         SwingUtilities.invokeLater(() -> setTaskListEditable(onLatest));
 
-        // Extract current Task List fragment ID from the newly selected context
         String currentFragmentId = (selected != null ? selected : newCtx)
                 .getTaskListFragment()
                 .map(ContextFragment::id)
@@ -2303,7 +2284,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 lastTaskListFragmentId);
 
         if (sessionChanged) {
-            SwingUtilities.invokeLater(this::loadTasksForCurrentSession);
+            SwingUtilities.invokeLater(() -> {
+                resetEphemeralUiStateForSessionSwitch();
+                sessionIdAtLoad = current;
+                lastTaskListFragmentId = currentFragmentId;
+                model.fireRefresh();
+                updateTasksTabBadge();
+                updateButtonStates();
+            });
             return;
         }
 
