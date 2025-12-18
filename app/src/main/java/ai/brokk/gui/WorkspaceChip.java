@@ -1398,7 +1398,8 @@ public class WorkspaceChip extends JPanel {
     public static final class StyleGuideChip extends WorkspaceChip {
 
         private static final String LABEL_TEXT = "AGENTS.md";
-        private static final String ACCESSIBLE_DESC = "Project style guide (AGENTS.md). Informational; cannot be removed.";
+        private static final String ACCESSIBLE_DESC =
+                "Project style guide (AGENTS.md). Informational; cannot be removed.";
         private static final String TOOLTIP_HTML = wrapTooltipHtml(
                 "<b>AGENTS.md</b> — informational Style Guide<br/>"
                         + "It is always applied automatically to prompts.<br/><br/>"
@@ -1513,10 +1514,7 @@ public class WorkspaceChip extends JPanel {
                     })
                     .thenAccept(content -> SwingUtilities.invokeLater(() -> {
                         var syntheticFragment = new ContextFragment.StringFragment(
-                                chrome.getContextManager(),
-                                content,
-                                LABEL_TEXT,
-                                SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+                                chrome.getContextManager(), content, LABEL_TEXT, SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
                         chrome.openFragmentPreview(syntheticFragment);
                     }));
         }
