@@ -22,10 +22,9 @@ public abstract class ArchitectPrompts extends CodePrompts {
         var projectFiles =
                 ctx.fileFragments().flatMap(cf -> cf.files().join().stream()).toList();
 
-        // Resolve composite style guide from AGENTS.md files nearest to current context files; fall back to project
-        // root guide.
-        var resolvedGuide = StyleGuideResolver.resolve(projectFiles);
-        return resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
+        // Resolve composite style guide from AGENTS.md files nearest to current context files; 
+        // falls back to project root guide internally.
+        return StyleGuideResolver.resolve(projectFiles, cm.getProject());
     }
 
     @Override

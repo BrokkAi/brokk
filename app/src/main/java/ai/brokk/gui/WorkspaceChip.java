@@ -1505,11 +1505,7 @@ public class WorkspaceChip extends JPanel {
             contextManager
                     .submitBackgroundTask("Compute AGENTS.md", () -> {
                         try {
-                            String resolved = StyleGuideResolver.resolve(candidateFiles);
-                            if (resolved.isBlank()) {
-                                return contextManager.getProject().getStyleGuide();
-                            }
-                            return resolved;
+                            return StyleGuideResolver.resolve(candidateFiles, contextManager.getProject());
                         } catch (Throwable t) {
                             logger.warn("Failed to resolve style guide; using fallback", t);
                             return contextManager.getProject().getStyleGuide();

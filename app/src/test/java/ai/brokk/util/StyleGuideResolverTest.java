@@ -3,6 +3,7 @@ package ai.brokk.util;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.project.IProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -204,6 +205,30 @@ public class StyleGuideResolverTest {
         assertTrue(guide.contains("A-GUIDE"), "Content from a/AGENTS.md should be present");
         assertTrue(guide.contains("B-GUIDE"), "Content from b/AGENTS.md should be present");
         assertTrue(guide.contains("ROOT"), "Content from root AGENTS.md should be present");
+    }
+
+    @Test
+    void resolve_withFallbackToProject(@TempDir Path temp) throws IOException {
+        Path master = temp.resolve("repo");
+        Files.createDirectories(master);
+
+        // No AGENTS.md files created.
+        Path fileX = master.resolve("SomeFile.java");
+        Files.writeString(fileX, "// content");
+
+        var projectFile = new ProjectFile(master, master.relativize(fileX));
+
+        // Mock-like implementation of IProject
+        IProject mockProject = new IProject() {
+            @Override public String getStyleGuide() { return "PROJECT-FALLBACK"; }
+            // Unsupported members for brevity in this specific test context
+            @Override public Path getRoot() { return master; }
+            public boolean exists(ProjectFile file) { return false; }
+            @Override public void close() {}
+        };
+
+        String result = StyleGuideResolver.resolve(List.of(projectFile), mockProject);
+        assertEquals("PROJECT-FALLBACK", result, "Should fall back to project style guide when no AGENTS.md found");
     }
 
     private static int countOccurrences(String text, String needle) {
