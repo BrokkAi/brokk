@@ -10,6 +10,7 @@ import static dev.langchain4j.model.openai.internal.OpenAiUtils.fromOpenAiRespon
 import static dev.langchain4j.model.openai.internal.OpenAiUtils.toOpenAiChatRequest;
 import static java.time.Duration.ofSeconds;
 
+import ai.brokk.AbstractService.ProcessingTier;
 import dev.langchain4j.http.client.HttpClientBuilder;
 import dev.langchain4j.internal.ExceptionMapper;
 import dev.langchain4j.model.ModelProvider;
@@ -200,7 +201,7 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
         private Boolean parallelToolCalls;
         private Boolean store;
         private Map<String, String> metadata;
-        private String serviceTier;
+        private ProcessingTier serviceTier;
         private Duration timeout;
         private Boolean logRequests;
         private Boolean logResponses;
@@ -336,7 +337,7 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
             return this;
         }
 
-        public OpenAiStreamingChatModelBuilder serviceTier(String serviceTier) {
+        public OpenAiStreamingChatModelBuilder serviceTier(ProcessingTier serviceTier) {
             this.serviceTier = serviceTier;
             return this;
         }

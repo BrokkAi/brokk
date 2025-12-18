@@ -400,7 +400,7 @@ public class OpenAiUtils {
                 .user(parameters.user())
                 .store(parameters.store())
                 .metadata(parameters.metadata())
-                .serviceTier(parameters.serviceTier())
+                .serviceTier(parameters.serviceTier() != null ? parameters.serviceTier().toApiString() : null)
                 .reasoningEffort(parameters.reasoningEffort());
     }
 }

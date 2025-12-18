@@ -192,6 +192,11 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             }
             return DEFAULT;
         }
+
+        /** Returns the API string value, or null for DEFAULT (no tier override). */
+        public @Nullable String toApiString() {
+            return this == DEFAULT ? null : name().toLowerCase(Locale.ROOT);
+        }
     }
 
     public enum ReasoningLevel {
@@ -503,13 +508,11 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
                 .logResponses(true)
                 .strictJsonSchema(true)
                 .baseUrl(baseUrl)
+                .serviceTier(config.tier)
                 .timeout(Duration.ofSeconds(
                         config.tier == ProcessingTier.FLEX
                                 ? FLEX_FIRST_TOKEN_TIMEOUT_SECONDS
                                 : Math.max(DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS, NEXT_TOKEN_TIMEOUT_SECONDS)));
-        if (config.tier != ProcessingTier.DEFAULT) {
-            builder.serviceTier(config.tier.toString().toLowerCase(Locale.ROOT));
-        }
         params = params.maxCompletionTokens(getMaxOutputTokens(location));
 
         if (MainProject.getProxySetting() == MainProject.LlmProxySetting.LOCALHOST) {
@@ -677,7 +680,8 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     /** Returns the configured processing tier for the given model (defaults to DEFAULT). */
     public static ProcessingTier getProcessingTier(StreamingChatModel model) {
         if (model instanceof OpenAiStreamingChatModel om) {
-            return ProcessingTier.fromString(om.defaultRequestParameters().serviceTier());
+            var tier = om.defaultRequestParameters().serviceTier();
+            return tier != null ? tier : ProcessingTier.DEFAULT;
         }
         return ProcessingTier.DEFAULT;
     }
