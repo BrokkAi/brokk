@@ -1,6 +1,6 @@
 package ai.brokk.gui;
 
-import static ai.brokk.SessionManager.SessionInfo;
+import ai.brokk.SessionManager.SessionInfo;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.*;
