@@ -12,7 +12,6 @@ import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
 import ai.brokk.context.Context;
 import ai.brokk.context.ViewingPolicy;
-import ai.brokk.gui.Chrome;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.CodePrompts;
@@ -481,10 +480,6 @@ public class ArchitectAgent {
                 allowed.add("dropWorkspaceFragments");
                 allowed.add("explainCommit");
 
-                if (io instanceof Chrome) {
-                    allowed.add("askHuman");
-                }
-
                 // Agent tools
                 allowed.add("callCodeAgent");
 
@@ -800,9 +795,6 @@ public class ArchitectAgent {
         allowed.add("dropWorkspaceFragments");
         allowed.add("addFileSummariesToWorkspace");
         allowed.add("appendNote");
-        if (io instanceof Chrome) {
-            allowed.add("askHuman");
-        }
         return allowed;
     }
 
@@ -839,7 +831,7 @@ public class ArchitectAgent {
     private int getPriorityRank(String toolName) {
         return switch (toolName) {
             case "dropWorkspaceFragments" -> 1;
-            case "appendNote", "askHuman" -> 2;
+            case "appendNote" -> 2;
             case "addFilesToWorkspace" -> 3;
             case "addFileSummariesToWorkspace" -> 4;
             case "addUrlContentsToWorkspace" -> 5;
