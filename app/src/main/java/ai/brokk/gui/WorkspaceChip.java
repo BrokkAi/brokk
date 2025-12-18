@@ -579,7 +579,7 @@ public class WorkspaceChip extends JPanel {
         }
     }
 
-    private Icon buildCloseIcon(Color chipBackground) {
+    protected Icon buildCloseIcon(Color chipBackground) {
         int targetW = 10;
         int targetH = 10;
 
@@ -1391,6 +1391,9 @@ public class WorkspaceChip extends JPanel {
     /**
      * Synthetic, non-droppable chip that represents the merged AGENTS.md style guide.
      * It is informational only and cannot be removed by the user.
+     *
+     * UI-only: shows system instructions visibility for the project Style Guide. It is not part of the
+     * editable Workspace and will not appear in TokenUsageBar.
      */
     public static final class StyleGuideChip extends WorkspaceChip {
 
@@ -1426,6 +1429,32 @@ public class WorkspaceChip extends JPanel {
                     420));
 
             closeButton.setToolTipText("Informational; cannot be removed");
+        }
+
+        @Override
+        public void applyTheme() {
+            // UI-only informational chip showing system instructions visibility; not part of the editable
+            // Workspace and therefore intentionally omitted from TokenUsageBar.
+            Color bg = ThemeColors.getColor(ThemeColors.NOTIF_INFO_BG);
+            Color fg = ThemeColors.getColor(ThemeColors.NOTIF_INFO_FG);
+            Color border = ThemeColors.getColor(ThemeColors.NOTIF_INFO_BORDER);
+
+            setBackground(bg);
+            label.setForeground(fg);
+            borderColor = border;
+
+            int h = Math.max(label.getPreferredSize().height - 6, 10);
+            separator.setBackground(border);
+            separator.setPreferredSize(new Dimension(separator.getPreferredSize().width, h));
+            separator.revalidate();
+            separator.repaint();
+
+            // Ensure icon has sufficient contrast with background and keeps consistent sizing.
+            closeButton.setIcon(buildCloseIcon(bg));
+            updateReadOnlyIcon();
+
+            revalidate();
+            repaint();
         }
 
         @Override
