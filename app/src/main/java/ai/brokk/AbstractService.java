@@ -252,7 +252,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             return new ModelPricing(List.of());
         }
         var info = getModelInfo(location);
-        if (info == null) {
+        if (info.isEmpty()) {
             logger.warn("Model info not found for location {}, cannot get prices.", location);
             return new ModelPricing(List.of());
         }
@@ -321,7 +321,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         var info = getModelInfo(location);
 
         Integer value;
-        if (info == null || !info.containsKey("max_output_tokens")) {
+        if (!info.containsKey("max_output_tokens")) {
             logger.warn("max_output_tokens not found for model location: {}", location);
             value = 8192;
         } else {
@@ -343,7 +343,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     private int getMaxInputTokens(String location) {
         var info = getModelInfo(location);
-        if (info == null || !info.containsKey("max_input_tokens")) {
+        if (!info.containsKey("max_input_tokens")) {
             logger.warn("max_input_tokens not found for model location: {}", location);
             return 65536;
         }
@@ -358,7 +358,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public @Nullable Integer getMaxConcurrentRequests(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
         var info = getModelInfo(location);
-        if (info == null || !info.containsKey("max_concurrent_requests")) {
+        if (!info.containsKey("max_concurrent_requests")) {
             return null;
         }
         return (Integer) info.get("max_concurrent_requests");
@@ -368,7 +368,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public @Nullable Integer getTokensPerMinute(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
         var info = getModelInfo(location);
-        if (info == null || !info.containsKey("tokens_per_minute")) {
+        if (!info.containsKey("tokens_per_minute")) {
             return null;
         }
         return (Integer) info.get("tokens_per_minute");
@@ -382,7 +382,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             return false;
         }
         var info = getModelInfo(location);
-        if (info == null || !info.containsKey("supports_tool_choice")) {
+        if (!info.containsKey("supports_tool_choice")) {
             return false;
         }
 
@@ -396,7 +396,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             return false;
         }
         var info = getModelInfo(location);
-        if (info == null || !info.containsKey("supports_processing_tier")) {
+        if (!info.containsKey("supports_processing_tier")) {
             return false;
         }
         return (Boolean) info.get("supports_processing_tier");
@@ -409,7 +409,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             return false;
         }
         var info = getModelInfo(location);
-        if (info == null) {
+        if (info.isEmpty()) {
             logger.warn("Model info not found for location {}, assuming no reasoning-disable support.", location);
             return false;
         }
@@ -428,7 +428,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     private boolean supportsReasoningEffortInternal(String location) {
         var info = getModelInfo(location);
-        if (info == null) {
+        if (info.isEmpty()) {
             logger.warn("Model info not found for location {}, assuming no reasoning effort support.", location);
             return false;
         }
@@ -441,7 +441,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     private boolean supportsReasoning(String location) {
         var info = getModelInfo(location);
-        if (info == null) {
+        if (info.isEmpty()) {
             logger.trace("Model info not found for location {}, assuming no reasoning support.", location);
             return false;
         }
@@ -523,7 +523,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             return false;
         }
 
-        if (info == null) {
+        if (info.isEmpty()) {
             logger.warn("Model info not found for location {}, assuming no JSON schema support.", location);
             return false;
         }
@@ -546,7 +546,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         var location = model.defaultRequestParameters().modelName();
 
         var info = getModelInfo(location);
-        if (info == null) {
+        if (info.isEmpty()) {
             logger.warn("Model info not found for location {}, assuming tool emulation required.", location);
             return true;
         }
@@ -555,18 +555,19 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         return !(b instanceof Boolean bVal) || !bVal;
     }
 
-    protected @Nullable Map<String, Object> getModelInfo(String location) {
+    protected Map<String, Object> getModelInfo(String location) {
         try {
-            return modelInfoMap.get(location);
+            var info = modelInfoMap.get(location);
+            return info != null ? info : Map.of();
         } catch (NullPointerException e) {
-            return null;
+            return Map.of();
         }
     }
 
     public boolean supportsParallelCalls(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
         var info = getModelInfo(location);
-        if (info == null) {
+        if (info.isEmpty()) {
             logger.warn("Model info not found for location {}, assuming no parallel tool call support.", location);
             return false;
         }
@@ -621,7 +622,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public boolean usesThinkTags(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
         var info = getModelInfo(location);
-        if (info == null) {
+        if (info.isEmpty()) {
             logger.warn("Model info not found for location {}, assuming no think-tag usage.", location);
             return false;
         }
@@ -632,7 +633,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public boolean supportsVision(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
         var info = getModelInfo(location);
-        if (info == null) {
+        if (info.isEmpty()) {
             logger.warn("Model info not found for location {}, assuming no vision support.", location);
             return false;
         }
@@ -659,7 +660,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             return false;
         }
         var info = getModelInfo(location);
-        if (info == null) {
+        if (info.isEmpty()) {
             logger.warn("Model info not found for location {}, assuming not free-tier.", location);
             return false;
         }
