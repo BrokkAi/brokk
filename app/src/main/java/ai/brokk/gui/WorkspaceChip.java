@@ -184,8 +184,24 @@ public class WorkspaceChip extends JPanel {
 
         add(readOnlyIcon);
         add(label);
-        add(separator);
-        add(closeButton);
+
+        boolean isDroppable = true;
+        if (fragment instanceof ContextFragment.StringFragment sf) {
+            try {
+                isDroppable = sf.droppable();
+            } catch (Exception ex) {
+                // Default to droppable on any unexpected error determining droppability
+                isDroppable = true;
+            }
+        }
+
+        if (isDroppable) {
+            add(separator);
+            add(closeButton);
+        } else {
+            separator.setVisible(false);
+            closeButton.setVisible(false);
+        }
 
         installInteractionHandlers();
         installHoverListeners();
