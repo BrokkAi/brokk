@@ -262,15 +262,6 @@ public final class DiffService {
     }
 
     /**
-     * No-op compatibility shim. Warm-up logic has been removed; diffs are computed on demand.
-     *
-     * @param max number of recent contexts to warm, ignored
-     */
-    public void warmUpRecent(int max) {
-        // no-op
-    }
-
-    /**
      * Clears all cached diff entries.
      *
      * <p>Useful for freeing memory or forcing recomputation of diffs.
