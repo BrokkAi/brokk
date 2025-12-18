@@ -75,14 +75,14 @@ public class CommitPrompts {
             instructions =
                     """
                     <goal>
-                    Generate a concise Git commit message based on the provided diff.\s
+                    Generate a concise Git commit message based on the provided diff.
 
                     Your primary objective is brevity. Most commits should ONLY contain the subject line.
                     Use a multi-line body only for significant logic changes or architectural shifts.
 
                     ## Formatting Rules:
                     1. Subject Line: Max 72 characters. If one file changed, include its name (no path/extension).
-                    2. Body: Only include if the diff introduces high complexity.\s
+                    2. Body: Only include if the diff introduces high complexity.
                        - Start with one blank line.
                        - Explain major logic changes using single-line bullets.
                        - DO NOT describe "how" the code changed (the diff shows that); describe "why" or "what" the high-level impact is.
