@@ -442,47 +442,41 @@ private synchronized void pushContextInternal(Context ctx, boolean snapshotNow) 
         selected = newLive;
     }
 
-    /**
-     * Performs synchronous snapshotting of the given context to ensure stable, historical restoration.
-     */
-    private void snapshotContext(Context ctx) {
-        for (var fragment : ctx.allFragments().toList()) {
+/**
+ * Performs synchronous snapshotting of the given context to ensure stable, historical restoration.
+ */
+private void snapshotContext(Context ctx) {
+    for (var fragment : ctx.allFragments().toList()) {
+        if (fragment instanceof ContextFragment.AbstractComputedFragment cf) {
             try {
-                if (fragment instanceof ContextFragment.AbstractComputedFragment cf) {
-                    cf.await(SNAPSHOT_AWAIT_TIMEOUT);
-                }
-            } catch (Exception e) {
-                logger.warn("Snapshot task failed for fragment {}: {}", fragment.id(), e.toString());
+                cf.await(SNAPSHOT_AWAIT_TIMEOUT);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(e);
             }
         }
     }
+}
 
-    /**
-     * Queues a background task to warm up fragment snapshots for the given context without blocking the caller.
-     * Errors are logged and swallowed.
-     */
-    private void warmUpSnapshotAsync(Context ctx) {
-        try {
-            if (logger.isDebugEnabled()) {
-                logger.debug("Queued async snapshot warm-up for context {}", ctx);
-            }
-            ContextFragment.getFragmentExecutor().submit(() -> {
-                try {
-                    if (logger.isDebugEnabled()) {
-                        logger.debug("Starting async snapshot warm-up for context {}", ctx);
-                    }
-                    snapshotContext(ctx);
-                    if (logger.isDebugEnabled()) {
-                        logger.debug("Completed async snapshot warm-up for context {}", ctx);
-                    }
-                } catch (Throwable t) {
-                    logger.warn("Async snapshot warm-up failed for context {}: {}", ctx, t.toString(), t);
-                }
-            });
-        } catch (Throwable t) {
-            logger.warn("Failed to enqueue snapshot warm-up task: {}", t.toString(), t);
-        }
+/**
+ * Queues a background task to warm up fragment snapshots for the given context without blocking the caller.
+ * Errors are not swallowed here; failures during submission will propagate to the caller and failures
+ * during execution will be handled by the executor's uncaught exception handler.
+ */
+private void warmUpSnapshotAsync(Context ctx) {
+    if (logger.isDebugEnabled()) {
+        logger.debug("Queued async snapshot warm-up for context {}", ctx);
     }
+    ContextFragment.getFragmentExecutor().submit(() -> {
+        if (logger.isDebugEnabled()) {
+            logger.debug("Starting async snapshot warm-up for context {}", ctx);
+        }
+        snapshotContext(ctx);
+        if (logger.isDebugEnabled()) {
+            logger.debug("Completed async snapshot warm-up for context {}", ctx);
+        }
+    });
+}
 
     private Set<UUID> getContextIds() {
         return history.stream().map(Context::id).collect(Collectors.toSet());
