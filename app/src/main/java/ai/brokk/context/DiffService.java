@@ -192,8 +192,12 @@ public CompletableFuture<List<Context.DiffEntry>> diff(Context curr) {
 
     private void scheduleBatchIfNeeded() {
         if (batchScheduled.compareAndSet(false, true)) {
-            var exec = cm.getBackgroundTasks();
-            exec.execute(this::runBatchComputation);
+            try {
+                var exec = cm.getBackgroundTasks();
+                exec.execute(this::runBatchComputation);
+            } catch (RuntimeException e) {
+                CompletableFuture.runAsync(this::runBatchComputation);
+            }
         }
     }
 

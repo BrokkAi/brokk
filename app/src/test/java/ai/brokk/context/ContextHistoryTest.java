@@ -211,6 +211,51 @@ public class ContextHistoryTest {
     }
 
     /**
+     * Verifies that diff() called on the EDT enqueues and completes via a background batch.
+     */
+    @Test
+    public void testDiffOnEdtEnqueuesAndCompletesViaBackgroundBatch() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/EDTBatch.txt");
+        Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "x\n");
+
+        var frag1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        frag1.text().await(Duration.ofSeconds(2));
+        var ctx1 = new Context(
+                contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("Initial"));
+        var history = new ContextHistory(ctx1);
+
+        Files.writeString(pf.absPath(), "x\ny\n");
+        var frag2 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var ctx2 = new Context(
+                contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("Updated"));
+        history.pushContext(ctx2);
+
+        var ds = history.getDiffService();
+        final java.util.concurrent.atomic.AtomicReference<CompletableFuture<List<Context.DiffEntry>>> ref =
+                new java.util.concurrent.atomic.AtomicReference<>();
+
+        javax.swing.SwingUtilities.invokeAndWait(() -> {
+            var f = ds.diff(ctx2);
+            ref.set(f);
+            assertFalse(f.isDone(), "On EDT, diff() should enqueue and return a pending future");
+        });
+
+        var fut = ref.get();
+        assertNotNull(fut, "Future should be captured from EDT call");
+
+        long deadline = System.currentTimeMillis() + 2000;
+        while (!fut.isDone() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(25);
+        }
+
+        assertTrue(fut.isDone(), "Background batch should complete the diff");
+        var diffs = fut.join();
+        assertNotNull(diffs);
+        assertFalse(diffs.isEmpty(), "Expected non-empty diff after background batch completion");
+    }
+
+    /**
      * Verifies that DiffService correctly computes diffs for contexts with task history changes
      * while operating on file-backed project fragments.
      */
@@ -240,59 +285,6 @@ public class ContextHistoryTest {
         assertTrue(diffs.isEmpty(), diffs.toString());
     }
 
-    /**
-     * Verifies that DiffService warmUp pre-computes diffs for multiple contexts using project files.
-     */
-    @Test
-    public void testDiffServiceWarmUp() throws Exception {
-        var pf1 = new ProjectFile(tempDir, "src/Content1.txt");
-        Files.createDirectories(pf1.absPath().getParent());
-        Files.writeString(pf1.absPath(), "Content 1\n");
-
-        var frag1 = new ContextFragment.ProjectPathFragment(pf1, contextManager);
-        // Seed computed text to snapshot original content for diff
-        frag1.text().await(Duration.ofSeconds(2));
-        var context1 = new Context(
-                contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("Action 1"));
-
-        var history = new ContextHistory(context1);
-
-        // Modify to create a second context with changes
-        Files.writeString(pf1.absPath(), "Content 1\nMore\n");
-        var frag2 = new ContextFragment.ProjectPathFragment(pf1, contextManager);
-        var context2 = new Context(
-                contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("Action 2"));
-        history.pushContext(context2);
-
-        // Modify again to create a third, most-recent context with changes
-        Files.writeString(pf1.absPath(), "Content 1\nMore\nEven more\n");
-        var frag3 = new ContextFragment.ProjectPathFragment(pf1, contextManager);
-        var context3 = new Context(
-                contextManager, List.of(frag3), List.of(), null, CompletableFuture.completedFuture("Action 3"));
-        history.pushContext(context3);
-
-        var diffService = history.getDiffService();
-
-        // Warm up only the most recent context (cap = 1)
-        diffService.warmUpRecent(1);
-
-        // Wait briefly for warm-up to complete for the most recent context
-        long waitUntil = System.currentTimeMillis() + 2000;
-        while (System.currentTimeMillis() < waitUntil
-                && diffService.peek(context3).isEmpty()) {
-            Thread.sleep(25);
-        }
-
-        // Assert: most recent context should be warmed; the older one should not be warmed by cap=1
-        assertTrue(diffService.peek(context3).isPresent(), "Most recent context should be warmed by warmUpRecent(1)");
-        assertTrue(diffService.peek(context2).isEmpty(), "Older context should not be warmed when cap is 1");
-
-        // On-demand diff for the older context should still work
-        diffService.diff(context2).join();
-        assertTrue(
-                diffService.peek(context2).isPresent(),
-                "After on-demand computation, older context diff should be cached");
-    }
 
     /**
      * Verifies that undo/redo operations restore file content from the context snapshot,

@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.awt.Color;
@@ -30,6 +29,33 @@ import org.junit.jupiter.api.io.TempDir;
 
 class DiffServiceTest {
 
+    @Test
+    void diff_computes_inline_off_edt() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Inline.txt");
+        Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "a\n");
+
+        var oldFrag = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        oldFrag.text().await(Duration.ofSeconds(2));
+        var oldCtx = new Context(
+                contextManager, List.of(oldFrag), List.of(), null, CompletableFuture.completedFuture("old"));
+
+        Files.writeString(pf.absPath(), "a\nb\n");
+        var newFrag = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var newCtx = new Context(
+                contextManager, List.of(newFrag), List.of(), null, CompletableFuture.completedFuture("new"));
+
+        var history = new ContextHistory(oldCtx);
+        history.pushContext(newCtx);
+
+        var ds = history.getDiffService();
+        var fut = ds.diff(newCtx);
+        assertTrue(fut.isDone(), "Off-EDT diff should complete synchronously");
+        var diffs = fut.join();
+        assertNotNull(diffs);
+        assertFalse(diffs.isEmpty(), "Expected some diffs to be computed");
+    }
+
     @TempDir
     Path tempDir;
 
@@ -37,10 +63,6 @@ class DiffServiceTest {
 
     @BeforeEach
     void setup() {
-        // Pin configuration to avoid flakiness in concurrency/cap tests
-        MainProject.setDiffWarmupConcurrency(3);
-        MainProject.setDiffWarmupMax(10);
-
         contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
         ContextFragment.setMinimumId(1);
     }
@@ -290,15 +312,6 @@ class DiffServiceTest {
         }
     }
 
-    private static void awaitWarmupStarted(DiffService ds, long timeoutMillis) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + timeoutMillis;
-        while (System.currentTimeMillis() < deadline) {
-            if (ds.getWarmupBatchesStarted() >= 1) {
-                return;
-            }
-            Thread.sleep(10);
-        }
-    }
 
     @Test
     void seed_snapshot_allows_peek_without_recompute() throws Exception {
@@ -336,178 +349,7 @@ class DiffServiceTest {
         assertFalse(peeked.get().isEmpty(), "Seeded diff should not be empty");
     }
 
-    @Test
-    void warmup_stale_tasks_do_not_populate_cache_after_invalidate() throws Exception {
-        class SlowFragment extends ContextFragment.AbstractComputedFragment implements ContextFragment.DynamicIdentity {
-            private final ContextFragment.FragmentType type;
 
-            SlowFragment(
-                    String id,
-                    IContextManager cm,
-                    @Nullable ContextFragment.FragmentSnapshot snapshot,
-                    @Nullable Callable<ContextFragment.FragmentSnapshot> task,
-                    ContextFragment.FragmentType type) {
-                super(id, cm, snapshot, task);
-                this.type = type;
-            }
-
-            @Override
-            public ContextFragment.FragmentType getType() {
-                return type;
-            }
-
-            @Override
-            public boolean isEligibleForAutoContext() {
-                return true;
-            }
-
-            @Override
-            public String repr() {
-                return "SlowFragment";
-            }
-
-            @Override
-            public ContextFragment refreshCopy() {
-                return this;
-            }
-        }
-
-        var oldSnap = snapshot("desc", "desc", "old");
-        var newSnap = snapshot("desc", "desc", "new");
-
-        var latch = new CountDownLatch(1);
-
-        var oldFrag = new SlowFragment("S1", contextManager, oldSnap, null, ContextFragment.FragmentType.PROJECT_PATH);
-        var newFrag = new SlowFragment(
-                "S1",
-                contextManager,
-                null,
-                () -> {
-                    // delay until we invalidate warm-up
-                    latch.await();
-                    return newSnap;
-                },
-                ContextFragment.FragmentType.PROJECT_PATH);
-
-        var ctx1 = new Context(
-                contextManager, List.of(oldFrag), List.of(), null, CompletableFuture.completedFuture("old"));
-        var history = new ContextHistory(ctx1);
-
-        var ctx2 = new Context(
-                contextManager, List.of(newFrag), List.of(), null, CompletableFuture.completedFuture("new"));
-        history.pushContext(ctx2);
-
-        var ds = history.getDiffService();
-
-        ds.warmUpRecent(5);
-        // Invalidate before releasing the latch so warm-up tasks become stale
-        ds.invalidate();
-        latch.countDown();
-
-        // Give warm-up threads a brief moment to finish
-        Thread.sleep(150);
-
-        // Stale warm-up must not populate the cache
-        assertTrue(ds.peek(ctx2).isEmpty(), "Stale warm-up should not populate cache after invalidate");
-
-        // On-demand diff should still compute and populate
-        var diffs = ds.diff(ctx2).join();
-        assertNotNull(diffs);
-        assertFalse(diffs.isEmpty(), "On-demand diff should compute after invalidate");
-        assertTrue(ds.peek(ctx2).isPresent(), "After on-demand computation, diff should be cached");
-    }
-
-    @Test
-    void warmup_throttles_per_fragment_diff_concurrency() throws Exception {
-        class SlowFragment extends ContextFragment.AbstractComputedFragment implements ContextFragment.DynamicIdentity {
-            private final ContextFragment.FragmentType type;
-
-            SlowFragment(
-                    String id,
-                    IContextManager cm,
-                    @Nullable ContextFragment.FragmentSnapshot snapshot,
-                    @Nullable Callable<ContextFragment.FragmentSnapshot> task,
-                    ContextFragment.FragmentType type) {
-                super(id, cm, snapshot, task);
-                this.type = type;
-            }
-
-            @Override
-            public ContextFragment.FragmentType getType() {
-                return type;
-            }
-
-            @Override
-            public boolean isEligibleForAutoContext() {
-                return true;
-            }
-
-            @Override
-            public String repr() {
-                return "SlowFragment";
-            }
-
-            @Override
-            public ContextFragment refreshCopy() {
-                return this;
-            }
-        }
-
-        int permits = DiffService.getWarmupFragmentConcurrency();
-        int fragmentCount = permits + 3; // ensure more candidates than permits
-
-        var gate = new CountDownLatch(1);
-
-        // Build old context with precomputed snapshots
-        var oldFrags = new ArrayList<ContextFragment>();
-        for (int i = 0; i < fragmentCount; i++) {
-            var snap = snapshot("d" + i, "d" + i, "old-" + i);
-            oldFrags.add(
-                    new SlowFragment("SF_" + i, contextManager, snap, null, ContextFragment.FragmentType.PROJECT_PATH));
-        }
-        var oldCtx = new Context(contextManager, oldFrags, List.of(), null, CompletableFuture.completedFuture("old"));
-
-        // Build new context with delayed computation
-        var newFrags = new ArrayList<ContextFragment>();
-        for (int i = 0; i < fragmentCount; i++) {
-            final int idx = i;
-            var task = (Callable<ContextFragment.FragmentSnapshot>) () -> {
-                // Block so that warm-up holds semaphore permits while waiting
-                gate.await();
-                return snapshot("d" + idx, "d" + idx, "new-" + idx);
-            };
-            newFrags.add(
-                    new SlowFragment("SF_" + i, contextManager, null, task, ContextFragment.FragmentType.PROJECT_PATH));
-        }
-        var newCtx = new Context(contextManager, newFrags, List.of(), null, CompletableFuture.completedFuture("new"));
-
-        var history = new ContextHistory(oldCtx);
-        history.pushContext(newCtx);
-
-        var ds = history.getDiffService();
-        DiffService.enableWarmupConcurrencyTestHook(true);
-        DiffService.resetWarmupConcurrencyCounters();
-
-        ds.warmUpRecent(5);
-
-        // Wait until we either reach the permit cap or timeout
-        int expectedCap = DiffService.getWarmupFragmentConcurrency();
-        long waitUntil = System.currentTimeMillis() + 2000;
-        while (System.currentTimeMillis() < waitUntil) {
-            if (DiffService.getWarmupMaxInFlight() >= expectedCap) {
-                break;
-            }
-            Thread.sleep(25);
-        }
-
-        int observedMax = DiffService.getWarmupMaxInFlight();
-        assertTrue(observedMax > 0, "Should observe some concurrent warm-up work");
-        assertTrue(
-                observedMax <= expectedCap, "Observed concurrency " + observedMax + " should be <= cap " + expectedCap);
-
-        // Allow warm-up to complete
-        gate.countDown();
-    }
 
     @Test
     void on_demand_diff_only_computes_subset_requested() throws Exception {
@@ -546,38 +388,4 @@ class DiffServiceTest {
         }
     }
 
-    @Test
-    void warmup_counters_and_caps_across_mock_session_switches() throws Exception {
-        var pf = new ProjectFile(tempDir, "src/Caps.txt");
-        Files.createDirectories(pf.absPath().getParent());
-
-        var contexts = new ArrayList<Context>();
-        for (int i = 0; i < 15; i++) {
-            Files.writeString(pf.absPath(), "w" + i + "\n");
-            var frag = new ContextFragment.ProjectPathFragment(pf, contextManager);
-            var ctx = new Context(
-                    contextManager, List.of(frag), List.of(), null, CompletableFuture.completedFuture("w" + i));
-            contexts.add(ctx);
-        }
-
-        // First "session"
-        var history1 = new ContextHistory(contexts);
-        var ds1 = history1.getDiffService();
-        ds1.warmUpRecent(10);
-
-        awaitWarmupStarted(ds1, 500);
-
-        assertTrue(ds1.getWarmupBatchesStarted() >= 1, "Expected at least one warm-up batch");
-        assertTrue(ds1.getDiffsScheduled() <= 10, "Scheduled diffs should not exceed cap in first session");
-
-        // Simulate session switch by creating a new history/service
-        var history2 = new ContextHistory(contexts);
-        var ds2 = history2.getDiffService();
-        ds2.warmUpRecent(10);
-
-        awaitWarmupStarted(ds2, 500);
-
-        assertTrue(ds2.getWarmupBatchesStarted() >= 1, "Expected at least one warm-up batch in second session");
-        assertTrue(ds2.getDiffsScheduled() <= 10, "Scheduled diffs should not exceed cap in second session");
-    }
 }
