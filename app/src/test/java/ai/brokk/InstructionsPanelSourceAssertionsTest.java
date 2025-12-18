@@ -23,12 +23,10 @@ public class InstructionsPanelSourceAssertionsTest {
     void gating_is_wired_for_both_Lutz_and_Plan_and_uses_replaceOnly_dialog() throws Exception {
         String src = read("src/main/java/ai/brokk/gui/InstructionsPanel.java");
 
-        boolean usesShow = src.contains("AutoPlayGateDialog.show(")
-                || src.contains("AutoPlayGateDialog.showReplaceOnly(");
+        boolean usesShow =
+                src.contains("AutoPlayGateDialog.show(") || src.contains("AutoPlayGateDialog.showReplaceOnly(");
 
-        assertTrue(
-                usesShow,
-                "AutoPlayGateDialog.show or showReplaceOnly should be used for gating");
+        assertTrue(usesShow, "AutoPlayGateDialog.show or showReplaceOnly should be used for gating");
         assertTrue(src.contains("ACTION_LUTZ"), "Lutz action constant should be present in InstructionsPanel");
         assertTrue(src.contains("ACTION_PLAN"), "Plan action constant should be present in InstructionsPanel");
     }

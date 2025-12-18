@@ -2756,8 +2756,6 @@ public class Chrome
         }
     }
 
-
-
     /**
      * Schedules the build settings dialog to show after initialization completes.
      * Uses OnboardingOrchestrator to determine which dialogs are needed and

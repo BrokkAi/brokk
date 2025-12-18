@@ -1539,11 +1539,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data, action));
     }
 
-
     public Context setTaskList(Context context, TaskList.TaskListData data, String action) {
         return context.withTaskList(data, action);
     }
-
 
     private void finalizeSessionActivation(UUID sessionId) {
         // Always migrate legacy Task List for the active session first, then notify UI.

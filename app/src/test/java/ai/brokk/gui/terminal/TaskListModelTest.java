@@ -1,15 +1,14 @@
 package ai.brokk.gui.terminal;
 
-import ai.brokk.tasks.TaskList;
-import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
 
-import javax.swing.event.ListDataEvent;
-import javax.swing.event.ListDataListener;
+import ai.brokk.tasks.TaskList;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
-
-import static org.junit.jupiter.api.Assertions.*;
+import javax.swing.event.ListDataEvent;
+import javax.swing.event.ListDataListener;
+import org.junit.jupiter.api.Test;
 
 public class TaskListModelTest {
 
@@ -41,9 +40,16 @@ public class TaskListModelTest {
 
         AtomicReference<ListDataEvent> lastEvent = new AtomicReference<>();
         model.addListDataListener(new ListDataListener() {
-            @Override public void intervalAdded(ListDataEvent e) {}
-            @Override public void intervalRemoved(ListDataEvent e) {}
-            @Override public void contentsChanged(ListDataEvent e) { lastEvent.set(e); }
+            @Override
+            public void intervalAdded(ListDataEvent e) {}
+
+            @Override
+            public void intervalRemoved(ListDataEvent e) {}
+
+            @Override
+            public void contentsChanged(ListDataEvent e) {
+                lastEvent.set(e);
+            }
         });
 
         model.fireRefresh();

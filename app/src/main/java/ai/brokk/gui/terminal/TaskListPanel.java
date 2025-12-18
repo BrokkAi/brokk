@@ -1,5 +1,7 @@
 package ai.brokk.gui.terminal;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
@@ -20,14 +22,6 @@ import ai.brokk.gui.util.BadgedIcon;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.tasks.TaskList;
 import com.google.common.base.Splitter;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
-import javax.swing.Timer;
-import javax.swing.event.ListDataEvent;
-import javax.swing.event.ListDataListener;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
@@ -37,8 +31,12 @@ import java.util.List;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-
-import static java.util.Objects.requireNonNull;
+import javax.swing.*;
+import javax.swing.Timer;
+import javax.swing.event.ListDataListener;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /** A simple, theme-aware task list panel supporting add, remove and complete toggle. */
 public class TaskListPanel extends JPanel implements ThemeAware, IContextManager.ContextListener {
@@ -103,7 +101,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.addListSelectionListener(e -> {
             updateButtonStates();
         });
-
 
         // Enable drag-and-drop reordering
         list.setDragEnabled(true);
@@ -492,15 +489,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     var mgr = chrome.getContextManager();
                     Context sel = mgr.selectedContext();
                     Context base = (sel != null) ? sel : mgr.liveContext();
-                    lastTaskListFragmentId = base.getTaskListFragment().map(ContextFragment::id).orElse(null);
+                    lastTaskListFragmentId =
+                            base.getTaskListFragment().map(ContextFragment::id).orElse(null);
 
-                    model.fireRefresh();
-                    clearExpansionOnStructureChange();
-                    updateButtonStates();
-                    updateTasksTabBadge();
-
-                    list.revalidate();
-                    list.repaint();
+                    refreshUi(true);
                 });
             }
         });
@@ -540,11 +532,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var mgrInit = chrome.getContextManager();
         Context selInit = mgrInit.selectedContext();
         Context baseInit = (selInit != null) ? selInit : mgrInit.liveContext();
-        lastTaskListFragmentId = baseInit.getTaskListFragment().map(ContextFragment::id).orElse(null);
-        model.fireRefresh();
-        clearExpansionOnStructureChange();
-        updateButtonStates();
-        updateTasksTabBadge();
+        lastTaskListFragmentId =
+                baseInit.getTaskListFragment().map(ContextFragment::id).orElse(null);
+        refreshUi(true);
 
         IContextManager cm = chrome.getContextManager();
         this.cm = (ContextManager) cm;
@@ -552,117 +542,106 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void addTask() {
-            if (!taskListEditable) {
-                    Toolkit.getDefaultToolkit().beep();
-                    return;
-            }
-            var raw = input.getText();
-            if (raw == null) return;
-            var lines = Splitter.on(Pattern.compile("\\R+")).split(raw.strip());
-            int added = 0;
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
+        var raw = input.getText();
+        if (raw == null) return;
+        var lines = Splitter.on(Pattern.compile("\\R+")).split(raw.strip());
+        int added = 0;
 
-            var items = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
-            for (var line : lines) {
-                    var text = line.strip();
-                    if (!text.isEmpty()) {
-                            items.add(new TaskList.TaskItem(text, text, false));
-                            added++;
-                    }
+        var items = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
+        for (var line : lines) {
+            var text = line.strip();
+            if (!text.isEmpty()) {
+                items.add(new TaskList.TaskItem(text, text, false));
+                added++;
             }
-            if (added > 0) {
-                    input.setText("");
-                    input.requestFocusInWindow();
-                    clearExpansionOnStructureChange();
+        }
+        if (added > 0) {
+            input.setText("");
+            input.requestFocusInWindow();
 
-                    cm.setTaskList(new TaskList.TaskListData(items), "Tasks added");
-                    model.fireRefresh();
-
-                    updateButtonStates();
-                    SwingUtilities.invokeLater(this::updateTasksTabBadge);
-            }
+            cm.setTaskList(new TaskList.TaskListData(items), "Tasks added");
+            refreshUi(true);
+        }
     }
 
     private void removeSelected() {
-            if (!taskListEditable) {
-                    Toolkit.getDefaultToolkit().beep();
-                    return;
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
+        int[] indices = list.getSelectedIndices();
+        if (indices.length > 0) {
+            int deletableCount = 0;
+            for (int idx : indices) {
+                if (runningIndex != null && idx == runningIndex.intValue()) continue;
+                if (pendingQueue.contains(idx)) continue;
+                if (idx >= 0 && idx < model.getSize()) deletableCount++;
             }
-            int[] indices = list.getSelectedIndices();
-            if (indices.length > 0) {
-                    int deletableCount = 0;
-                    for (int idx : indices) {
-                            if (runningIndex != null && idx == runningIndex.intValue()) continue;
-                            if (pendingQueue.contains(idx)) continue;
-                            if (idx >= 0 && idx < model.getSize()) deletableCount++;
-                    }
 
-                    if (deletableCount == 0) {
-                            updateButtonStates();
-                            return;
-                    }
-
-                    String plural = deletableCount == 1 ? "task" : "tasks";
-                    String message = "This will remove " + deletableCount + " selected " + plural + " from this session.\n"
-                                    + "Tasks that are running or queued will not be removed.";
-                    int result = chrome.showConfirmDialog(
-                                    message, "Remove Selected Tasks?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-
-                    if (result != JOptionPane.YES_OPTION) {
-                            updateButtonStates();
-                            return;
-                    }
-
-                    boolean removedAny = false;
-                    var items = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
-                    Arrays.sort(indices);
-                    for (int i = indices.length - 1; i >= 0; i--) {
-                            int idx = indices[i];
-                            if (runningIndex != null && idx == runningIndex.intValue()) continue;
-                            if (pendingQueue.contains(idx)) continue;
-                            if (idx >= 0 && idx < items.size()) {
-                                    items.remove(idx);
-                                    removedAny = true;
-                            }
-                    }
-                    if (removedAny) {
-                            cm.setTaskList(new TaskList.TaskListData(items), "Tasks removed");
-                            model.fireRefresh();
-
-                            clearExpansionOnStructureChange();
-                            updateButtonStates();
-                            SwingUtilities.invokeLater(this::updateTasksTabBadge);
-                    } else {
-                            updateButtonStates();
-                    }
+            if (deletableCount == 0) {
+                updateButtonStates();
+                return;
             }
+
+            String plural = deletableCount == 1 ? "task" : "tasks";
+            String message = "This will remove " + deletableCount + " selected " + plural + " from this session.\n"
+                    + "Tasks that are running or queued will not be removed.";
+            int result = chrome.showConfirmDialog(
+                    message, "Remove Selected Tasks?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+
+            if (result != JOptionPane.YES_OPTION) {
+                updateButtonStates();
+                return;
+            }
+
+            boolean removedAny = false;
+            var items = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
+            Arrays.sort(indices);
+            for (int i = indices.length - 1; i >= 0; i--) {
+                int idx = indices[i];
+                if (runningIndex != null && idx == runningIndex.intValue()) continue;
+                if (pendingQueue.contains(idx)) continue;
+                if (idx >= 0 && idx < items.size()) {
+                    items.remove(idx);
+                    removedAny = true;
+                }
+            }
+            if (removedAny) {
+                cm.setTaskList(new TaskList.TaskListData(items), "Tasks removed");
+                refreshUi(true);
+            } else {
+                updateButtonStates();
+            }
+        }
     }
 
     private void toggleSelectedDone() {
-            if (!taskListEditable) {
-                    Toolkit.getDefaultToolkit().beep();
-                    return;
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
+        int[] indices = list.getSelectedIndices();
+        if (indices.length > 0) {
+            boolean changed = false;
+            var items = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
+            for (int idx : indices) {
+                if (runningIndex != null && idx == runningIndex.intValue()) continue;
+                if (pendingQueue.contains(idx)) continue;
+                if (idx >= 0 && idx < items.size()) {
+                    var it = requireNonNull(items.get(idx));
+                    items.set(idx, new TaskList.TaskItem(it.title(), it.text(), !it.done()));
+                    changed = true;
+                }
             }
-            int[] indices = list.getSelectedIndices();
-            if (indices.length > 0) {
-                    boolean changed = false;
-                    var items = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
-                    for (int idx : indices) {
-                            if (runningIndex != null && idx == runningIndex.intValue()) continue;
-                            if (pendingQueue.contains(idx)) continue;
-                            if (idx >= 0 && idx < items.size()) {
-                                    var it = requireNonNull(items.get(idx));
-                                    items.set(idx, new TaskList.TaskItem(it.title(), it.text(), !it.done()));
-                                    changed = true;
-                            }
-                    }
-                    if (changed) {
-                            cm.setTaskList(new TaskList.TaskListData(items), "Tasks done state toggled");
-                            model.fireRefresh();
-
-                            updateButtonStates();
-                            SwingUtilities.invokeLater(this::updateTasksTabBadge);
-                    }
+            if (changed) {
+                cm.setTaskList(new TaskList.TaskListData(items), "Tasks done state toggled");
+                refreshUi(false);
             }
+        }
     }
 
     private void onGoStopButtonPressed() {
@@ -703,101 +682,98 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void openEditDialog(int index) {
-            TaskList.TaskItem current = requireNonNull(model.getElementAt(index));
+        TaskList.TaskItem current = requireNonNull(model.getElementAt(index));
 
-            Window owner = SwingUtilities.getWindowAncestor(this);
-            var dialog = new BaseThemedDialog(owner, "Edit Task", Dialog.ModalityType.APPLICATION_MODAL);
+        Window owner = SwingUtilities.getWindowAncestor(this);
+        var dialog = new BaseThemedDialog(owner, "Edit Task", Dialog.ModalityType.APPLICATION_MODAL);
 
-            JPanel content = new JPanel(new BorderLayout(6, 6));
-            content.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        JPanel content = new JPanel(new BorderLayout(6, 6));
+        content.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-            JPanel fieldsPanel = new JPanel();
-            fieldsPanel.setLayout(new BoxLayout(fieldsPanel, BoxLayout.PAGE_AXIS));
+        JPanel fieldsPanel = new JPanel();
+        fieldsPanel.setLayout(new BoxLayout(fieldsPanel, BoxLayout.PAGE_AXIS));
 
-            JLabel titleLabel = new JLabel("Title:");
-            titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-            fieldsPanel.add(titleLabel);
+        JLabel titleLabel = new JLabel("Title:");
+        titleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        fieldsPanel.add(titleLabel);
 
-            JTextField titleField = new JTextField(current.title());
-            titleField.setFont(list.getFont());
-            titleField.setEditable(taskListEditable);
-            titleField.setAlignmentX(Component.LEFT_ALIGNMENT);
-            fieldsPanel.add(titleField);
+        JTextField titleField = new JTextField(current.title());
+        titleField.setFont(list.getFont());
+        titleField.setEditable(taskListEditable);
+        titleField.setAlignmentX(Component.LEFT_ALIGNMENT);
+        fieldsPanel.add(titleField);
 
-            fieldsPanel.add(Box.createVerticalStrut(8));
+        fieldsPanel.add(Box.createVerticalStrut(8));
 
-            JLabel bodyLabel = new JLabel("Body:");
-            bodyLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-            fieldsPanel.add(bodyLabel);
+        JLabel bodyLabel = new JLabel("Body:");
+        bodyLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        fieldsPanel.add(bodyLabel);
 
-            JTextArea bodyArea = new JTextArea(current.text());
-            bodyArea.setLineWrap(true);
-            bodyArea.setWrapStyleWord(true);
-            bodyArea.setFont(list.getFont());
-            bodyArea.setRows(8);
-            bodyArea.setEditable(taskListEditable);
+        JTextArea bodyArea = new JTextArea(current.text());
+        bodyArea.setLineWrap(true);
+        bodyArea.setWrapStyleWord(true);
+        bodyArea.setFont(list.getFont());
+        bodyArea.setRows(8);
+        bodyArea.setEditable(taskListEditable);
 
-            JScrollPane bodyScroll = new JScrollPane(
-                            bodyArea, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-            bodyScroll.setPreferredSize(new Dimension(520, 180));
-            bodyScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
-            fieldsPanel.add(bodyScroll);
+        JScrollPane bodyScroll = new JScrollPane(
+                bodyArea, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        bodyScroll.setPreferredSize(new Dimension(520, 180));
+        bodyScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+        fieldsPanel.add(bodyScroll);
 
-            content.add(fieldsPanel, BorderLayout.CENTER);
+        content.add(fieldsPanel, BorderLayout.CENTER);
 
-            JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-            MaterialButton saveBtn = new MaterialButton("Save");
-            SwingUtil.applyPrimaryButtonStyle(saveBtn);
-            saveBtn.setEnabled(taskListEditable);
-            if (!taskListEditable) {
-                    saveBtn.setToolTipText(READ_ONLY_TIP);
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        MaterialButton saveBtn = new MaterialButton("Save");
+        SwingUtil.applyPrimaryButtonStyle(saveBtn);
+        saveBtn.setEnabled(taskListEditable);
+        if (!taskListEditable) {
+            saveBtn.setToolTipText(READ_ONLY_TIP);
+        }
+        MaterialButton cancelBtn = new MaterialButton("Cancel");
+
+        saveBtn.addActionListener(e -> {
+            String newTitle = titleField.getText();
+            String newText = bodyArea.getText();
+            if (newTitle != null) {
+                newTitle = newTitle.strip();
+            } else {
+                newTitle = "";
             }
-            MaterialButton cancelBtn = new MaterialButton("Cancel");
+            if (newText != null) {
+                newText = newText.strip();
+            } else {
+                newText = "";
+            }
 
-            saveBtn.addActionListener(e -> {
-                    String newTitle = titleField.getText();
-                    String newText = bodyArea.getText();
-                    if (newTitle != null) {
-                            newTitle = newTitle.strip();
-                    } else {
-                            newTitle = "";
-                    }
-                    if (newText != null) {
-                            newText = newText.strip();
-                    } else {
-                            newText = "";
-                    }
+            if (!newText.isEmpty() && (!newText.equals(current.text()) || !newTitle.equals(current.title()))) {
+                var items = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
+                if (index >= 0 && index < items.size()) {
+                    var cur = items.get(index);
+                    items.set(index, new TaskList.TaskItem(newTitle, newText, cur.done()));
+                    cm.setTaskList(new TaskList.TaskListData(items), "Task edited");
+                    refreshUi(false);
+                }
+            }
+            dialog.dispose();
+        });
+        cancelBtn.addActionListener(e -> dialog.dispose());
 
-                    if (!newText.isEmpty() && (!newText.equals(current.text()) || !newTitle.equals(current.title()))) {
-                            var items = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
-                            if (index >= 0 && index < items.size()) {
-                                    var cur = items.get(index);
-                                    items.set(index, new TaskList.TaskItem(newTitle, newText, cur.done()));
-                                    cm.setTaskList(new TaskList.TaskListData(items), "Task edited");
-                                    model.fireRefresh();
+        buttons.add(saveBtn);
+        buttons.add(cancelBtn);
+        content.add(buttons, BorderLayout.SOUTH);
 
-                                    list.revalidate();
-                                    list.repaint();
-                            }
-                    }
-                    dialog.dispose();
-            });
-            cancelBtn.addActionListener(e -> dialog.dispose());
+        dialog.getContentRoot().add(content);
+        dialog.setResizable(true);
+        dialog.getRootPane().setDefaultButton(saveBtn);
+        dialog.pack();
+        dialog.setLocationRelativeTo(owner);
 
-            buttons.add(saveBtn);
-            buttons.add(cancelBtn);
-            content.add(buttons, BorderLayout.SOUTH);
+        titleField.requestFocusInWindow();
+        titleField.selectAll();
 
-            dialog.getContentRoot().add(content);
-            dialog.setResizable(true);
-            dialog.getRootPane().setDefaultButton(saveBtn);
-            dialog.pack();
-            dialog.setLocationRelativeTo(owner);
-
-            titleField.requestFocusInWindow();
-            titleField.selectAll();
-
-            dialog.setVisible(true);
+        dialog.setVisible(true);
     }
 
     private void updateButtonStates() {
@@ -895,9 +871,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         return chrome.getContextManager().getCurrentSessionId();
     }
 
-
-
-
     /**
      * Reset ephemeral run state (running/queued/auto-play) when switching sessions.
      * Must be called on the EDT.
@@ -918,7 +891,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             autoPlayListener = null;
         }
     }
-
 
     private void runArchitectOnSelected() {
         if (!taskListEditable) {
@@ -961,81 +933,81 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void runArchitectOnIndices(int[] selected) {
-            Arrays.sort(selected);
-            var toRun = new ArrayList<Integer>(selected.length);
-            for (int idx : selected) {
-                    if (idx >= 0 && idx < model.getSize()) {
-                            TaskList.TaskItem it = requireNonNull(model.getElementAt(idx));
-                            if (!it.done()) {
-                                    toRun.add(idx);
-                            }
-                    }
+        Arrays.sort(selected);
+        var toRun = new ArrayList<Integer>(selected.length);
+        for (int idx : selected) {
+            if (idx >= 0 && idx < model.getSize()) {
+                TaskList.TaskItem it = requireNonNull(model.getElementAt(idx));
+                if (!it.done()) {
+                    toRun.add(idx);
+                }
             }
-            if (toRun.isEmpty()) {
-                    JOptionPane.showMessageDialog(
-                                    this, "All selected tasks are already done.", "Nothing to run", JOptionPane.INFORMATION_MESSAGE);
-                    return;
-            }
+        }
+        if (toRun.isEmpty()) {
+            JOptionPane.showMessageDialog(
+                    this, "All selected tasks are already done.", "Nothing to run", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
 
-            goStopButton.setEnabled(false);
-            goStopButton.setToolTipText("Preparing to run tasks...");
+        goStopButton.setEnabled(false);
+        goStopButton.setToolTipText("Preparing to run tasks...");
 
-            currentRunOrder = List.copyOf(toRun);
+        currentRunOrder = List.copyOf(toRun);
 
-            int first = toRun.get(0);
-            pendingQueue.clear();
-            if (toRun.size() > 1) {
-                    for (int i = 1; i < toRun.size(); i++) pendingQueue.add(toRun.get(i));
-                    queueActive = true;
-            } else {
-                    queueActive = false;
-            }
+        int first = toRun.get(0);
+        pendingQueue.clear();
+        if (toRun.size() > 1) {
+            for (int i = 1; i < toRun.size(); i++) pendingQueue.add(toRun.get(i));
+            queueActive = true;
+        } else {
+            queueActive = false;
+        }
 
-            list.repaint();
+        list.repaint();
 
-            var cm = chrome.getContextManager();
-            chrome.showOutputSpinner("Compressing history...");
-            var cf = cm.compressHistoryAsync();
-            cf.whenComplete((v, ex) -> SwingUtilities.invokeLater(() -> {
-                    chrome.hideOutputSpinner();
-                    startRunForIndex(first);
-            }));
+        var cm = chrome.getContextManager();
+        chrome.showOutputSpinner("Compressing history...");
+        var cf = cm.compressHistoryAsync();
+        cf.whenComplete((v, ex) -> SwingUtilities.invokeLater(() -> {
+            chrome.hideOutputSpinner();
+            startRunForIndex(first);
+        }));
     }
 
     private void startRunForIndex(int idx) {
-            if (idx < 0 || idx >= model.getSize()) {
-                    startNextIfAny();
-                    return;
-            }
-            TaskList.TaskItem item = requireNonNull(model.getElementAt(idx));
-            if (item.done()) {
-                    startNextIfAny();
-                    return;
-            }
+        if (idx < 0 || idx >= model.getSize()) {
+            startNextIfAny();
+            return;
+        }
+        TaskList.TaskItem item = requireNonNull(model.getElementAt(idx));
+        if (item.done()) {
+            startNextIfAny();
+            return;
+        }
 
-            String originalPrompt = item.text();
-            if (originalPrompt.isBlank()) {
-                    startNextIfAny();
-                    return;
-            }
+        String originalPrompt = item.text();
+        if (originalPrompt.isBlank()) {
+            startNextIfAny();
+            return;
+        }
 
-            runningIndex = idx;
-            updateButtonStates();
-            runningAnimStartMs = System.currentTimeMillis();
-            runningFadeTimer.start();
-            list.repaint();
+        runningIndex = idx;
+        updateButtonStates();
+        runningAnimStartMs = System.currentTimeMillis();
+        runningFadeTimer.start();
+        list.repaint();
 
-            int totalToRun = currentRunOrder != null ? currentRunOrder.size() : 1;
-            int pos = (currentRunOrder != null) ? currentRunOrder.indexOf(idx) : -1;
-            final int numTask = (pos >= 0) ? pos + 1 : 1;
-            SwingUtilities.invokeLater(() -> chrome.showNotification(
-                            IConsoleIO.NotificationRole.INFO,
-                            "Submitted " + totalToRun + " task(s) for execution. Running task " + numTask + " of " + totalToRun
-                                            + "..."));
+        int totalToRun = currentRunOrder != null ? currentRunOrder.size() : 1;
+        int pos = (currentRunOrder != null) ? currentRunOrder.indexOf(idx) : -1;
+        final int numTask = (pos >= 0) ? pos + 1 : 1;
+        SwingUtilities.invokeLater(() -> chrome.showNotification(
+                IConsoleIO.NotificationRole.INFO,
+                "Submitted " + totalToRun + " task(s) for execution. Running task " + numTask + " of " + totalToRun
+                        + "..."));
 
-            var cm = chrome.getContextManager();
+        var cm = chrome.getContextManager();
 
-            runArchitectOnTaskAsync(idx, cm);
+        runArchitectOnTaskAsync(idx, cm);
     }
 
     private void startRunWithCommitGate(int[] indices) {
@@ -1131,50 +1103,50 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     void runArchitectOnTaskAsync(int idx, ContextManager cm) {
-            cm.submitLlmAction(() -> {
-                    chrome.showOutputSpinner("Executing Task command...");
-                    final TaskResult result;
-                    try {
-                            result = cm.executeTask(cm.getTaskList().tasks().get(idx));
-                    } catch (InterruptedException e) {
-                            logger.debug("Task execution interrupted by user");
-                            SwingUtilities.invokeLater(this::finishQueueOnError);
-                            return;
-                    } catch (RuntimeException ex) {
-                            logger.error("Internal error running architect", ex);
-                            SwingUtilities.invokeLater(this::finishQueueOnError);
-                            return;
-                    } finally {
-                            chrome.hideOutputSpinner();
-                            cm.checkBalanceAndNotify();
+        cm.submitLlmAction(() -> {
+            chrome.showOutputSpinner("Executing Task command...");
+            final TaskResult result;
+            try {
+                result = cm.executeTask(cm.getTaskList().tasks().get(idx));
+            } catch (InterruptedException e) {
+                logger.debug("Task execution interrupted by user");
+                SwingUtilities.invokeLater(this::finishQueueOnError);
+                return;
+            } catch (RuntimeException ex) {
+                logger.error("Internal error running architect", ex);
+                SwingUtilities.invokeLater(this::finishQueueOnError);
+                return;
+            } finally {
+                chrome.hideOutputSpinner();
+                cm.checkBalanceAndNotify();
+            }
+
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+                        finishQueueOnError();
+                        return;
                     }
 
-                    SwingUtilities.invokeLater(() -> {
-                            try {
-                                    if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-                                            finishQueueOnError();
-                                            return;
-                                    }
-
-                                    if (Objects.equals(runningIndex, idx)) {
-                                            var items = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
-                                            if (idx >= 0 && idx < items.size()) {
-                                                    var it = requireNonNull(items.get(idx));
-                                                    items.set(idx, new TaskList.TaskItem(it.title(), it.text(), true));
-                                                    cm.setTaskList(new TaskList.TaskListData(items), "Task marked done");
-                                                    model.fireRefresh();
-                                                    updateTasksTabBadge();
-                                            }
-                                    }
-                            } finally {
-                                    runningIndex = null;
-                                    runningFadeTimer.stop();
-                                    list.repaint();
-                                    updateButtonStates();
-                                    startNextIfAny();
-                            }
-                    });
+                    if (Objects.equals(runningIndex, idx)) {
+                        var items = new ArrayList<TaskList.TaskItem>(
+                                cm.getTaskList().tasks());
+                        if (idx >= 0 && idx < items.size()) {
+                            var it = requireNonNull(items.get(idx));
+                            items.set(idx, new TaskList.TaskItem(it.title(), it.text(), true));
+                            cm.setTaskList(new TaskList.TaskListData(items), "Task marked done");
+                            refreshUi(false);
+                        }
+                    }
+                } finally {
+                    runningIndex = null;
+                    runningFadeTimer.stop();
+                    list.repaint();
+                    updateButtonStates();
+                    startNextIfAny();
+                }
             });
+        });
     }
 
     private void startNextIfAny() {
@@ -1347,6 +1319,25 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 logger.debug("Error updating tasks tab badge", ex);
             }
         });
+    }
+
+    /**
+     * Centralized UI refresh. Ensures EDT, refreshes model, buttons, badge, and optionally performs
+     * structural layout invalidation when list structure changes (add/remove/reorder/split/combine/clear).
+     */
+    private void refreshUi(boolean structuralChange) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> refreshUi(structuralChange));
+            return;
+        }
+        model.fireRefresh();
+        updateButtonStates();
+        updateTasksTabBadge();
+        if (structuralChange) {
+            clearExpansionOnStructureChange();
+        } else {
+            list.repaint();
+        }
     }
 
     /**
@@ -1546,17 +1537,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         });
     }
 
-
     /**
      * Refresh the model from ContextManager. Since the model delegates directly,
      * this just triggers a UI refresh.
      */
     public void refreshFromManager() {
-        SwingUtilities.invokeLater(() -> {
-            model.fireRefresh();
-            updateButtonStates();
-            updateTasksTabBadge();
-        });
+        SwingUtilities.invokeLater(() -> refreshUi(false));
     }
 
     /**
@@ -1564,9 +1550,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
      */
     public void refreshFromManager(@Nullable Runnable onComplete) {
         SwingUtilities.invokeLater(() -> {
-            model.fireRefresh();
-            updateButtonStates();
-            updateTasksTabBadge();
+            refreshUi(false);
             if (onComplete != null) {
                 onComplete.run();
             }
@@ -1579,7 +1563,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
      */
     private void runAfterModelRefresh(Runnable action) {
         SwingUtilities.invokeLater(() -> {
-            model.fireRefresh();
+            refreshUi(false);
             action.run();
         });
     }
@@ -1722,12 +1706,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             addCount = moved.size();
 
             cm.setTaskList(new TaskList.TaskListData(items), "Tasks reordered");
-            model.fireRefresh();
 
             if (addCount > 0) {
                 list.setSelectionInterval(adjusted, adjusted + addCount - 1);
             }
-            clearExpansionOnStructureChange();
+            refreshUi(true);
             return true;
         }
 
@@ -1740,169 +1723,156 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void combineSelectedTasks() {
-            if (!taskListEditable) {
-                    Toolkit.getDefaultToolkit().beep();
-                    return;
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
+        int[] indices = list.getSelectedIndices();
+        if (indices.length < 2) {
+            JOptionPane.showMessageDialog(
+                    this, "Select at least two tasks to combine.", "Invalid Selection", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        for (int idx : indices) {
+            if (runningIndex != null && idx == runningIndex) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Cannot combine tasks while one is currently running.",
+                        "Combine Disabled",
+                        JOptionPane.INFORMATION_MESSAGE);
+                return;
             }
-            int[] indices = list.getSelectedIndices();
-            if (indices.length < 2) {
-                    JOptionPane.showMessageDialog(
-                                    this, "Select at least two tasks to combine.", "Invalid Selection", JOptionPane.WARNING_MESSAGE);
-                    return;
+            if (pendingQueue.contains(idx)) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Cannot combine tasks while one is queued for running.",
+                        "Combine Disabled",
+                        JOptionPane.INFORMATION_MESSAGE);
+                return;
             }
+        }
 
-            for (int idx : indices) {
-                    if (runningIndex != null && idx == runningIndex) {
-                            JOptionPane.showMessageDialog(
-                                            this,
-                                            "Cannot combine tasks while one is currently running.",
-                                            "Combine Disabled",
-                                            JOptionPane.INFORMATION_MESSAGE);
-                            return;
-                    }
-                    if (pendingQueue.contains(idx)) {
-                            JOptionPane.showMessageDialog(
-                                            this,
-                                            "Cannot combine tasks while one is queued for running.",
-                                            "Combine Disabled",
-                                            JOptionPane.INFORMATION_MESSAGE);
-                            return;
-                    }
+        Arrays.sort(indices);
+        int firstIdx = indices[0];
+
+        if (firstIdx < 0 || firstIdx >= model.getSize()) {
+            return;
+        }
+
+        var items = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
+        var taskTexts = new ArrayList<String>(indices.length);
+        for (int idx : indices) {
+            if (idx < 0 || idx >= items.size()) continue;
+            TaskList.TaskItem task = requireNonNull(items.get(idx));
+            taskTexts.add(task.text());
+        }
+        if (taskTexts.isEmpty()) return;
+
+        String combinedText = String.join(" | ", taskTexts);
+
+        TaskList.TaskItem combinedTask = new TaskList.TaskItem("", combinedText, false);
+
+        items.set(firstIdx, combinedTask);
+
+        for (int i = indices.length - 1; i > 0; i--) {
+            int idx = indices[i];
+            if (idx >= 0 && idx < items.size()) {
+                items.remove(idx);
             }
+        }
 
-            Arrays.sort(indices);
-            int firstIdx = indices[0];
+        cm.setTaskList(new TaskList.TaskListData(items), "Tasks combined");
+        list.setSelectedIndex(firstIdx);
+        refreshUi(true);
 
-            if (firstIdx < 0 || firstIdx >= model.getSize()) {
-                    return;
-            }
-
-            var items = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
-            var taskTexts = new ArrayList<String>(indices.length);
-            for (int idx : indices) {
-                    if (idx < 0 || idx >= items.size()) continue;
-                    TaskList.TaskItem task = requireNonNull(items.get(idx));
-                    taskTexts.add(task.text());
-            }
-            if (taskTexts.isEmpty()) return;
-
-            String combinedText = String.join(" | ", taskTexts);
-
-            TaskList.TaskItem combinedTask = new TaskList.TaskItem("", combinedText, false);
-
-            items.set(firstIdx, combinedTask);
-
-            for (int i = indices.length - 1; i > 0; i--) {
-                    int idx = indices[i];
-                    if (idx >= 0 && idx < items.size()) {
-                            items.remove(idx);
-                    }
-            }
-
-            cm.setTaskList(new TaskList.TaskListData(items), "Tasks combined");
-            model.fireRefresh();
-
-            list.setSelectedIndex(firstIdx);
-
-            clearExpansionOnStructureChange();
-            updateButtonStates();
-            SwingUtilities.invokeLater(this::updateTasksTabBadge);
-
-            summarizeAndUpdateTaskTitleAtIndex(firstIdx);
+        summarizeAndUpdateTaskTitleAtIndex(firstIdx);
     }
 
     private void splitSelectedTask() {
-            if (!taskListEditable) {
-                    Toolkit.getDefaultToolkit().beep();
-                    return;
-            }
-            int[] indices = list.getSelectedIndices();
-            if (indices.length != 1) {
-                    JOptionPane.showMessageDialog(
-                                    this, "Select exactly one task to split.", "Invalid Selection", JOptionPane.WARNING_MESSAGE);
-                    return;
-            }
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
+        int[] indices = list.getSelectedIndices();
+        if (indices.length != 1) {
+            JOptionPane.showMessageDialog(
+                    this, "Select exactly one task to split.", "Invalid Selection", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
 
-            int idx = indices[0];
+        int idx = indices[0];
 
-            if (runningIndex != null && idx == runningIndex) {
-                    JOptionPane.showMessageDialog(
-                                    this,
-                                    "Cannot split a task that is currently running.",
-                                    "Split Disabled",
-                                    JOptionPane.INFORMATION_MESSAGE);
-                    return;
-            }
-            if (pendingQueue.contains(idx)) {
-                    JOptionPane.showMessageDialog(
-                                    this,
-                                    "Cannot split a task that is queued for running.",
-                                    "Split Disabled",
-                                    JOptionPane.INFORMATION_MESSAGE);
-                    return;
-            }
+        if (runningIndex != null && idx == runningIndex) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Cannot split a task that is currently running.",
+                    "Split Disabled",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        if (pendingQueue.contains(idx)) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Cannot split a task that is queued for running.",
+                    "Split Disabled",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
 
-            if (queueActive) {
-                    JOptionPane.showMessageDialog(
-                                    this,
-                                    "Cannot split tasks while a run is in progress.",
-                                    "Split Disabled",
-                                    JOptionPane.INFORMATION_MESSAGE);
-                    return;
-            }
+        if (queueActive) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Cannot split tasks while a run is in progress.",
+                    "Split Disabled",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
 
-            if (idx < 0 || idx >= model.getSize()) {
-                    return;
-            }
+        if (idx < 0 || idx >= model.getSize()) {
+            return;
+        }
 
-            TaskList.TaskItem original = requireNonNull(model.getElementAt(idx));
+        TaskList.TaskItem original = requireNonNull(model.getElementAt(idx));
 
-            var textArea = new JTextArea();
-            textArea.setLineWrap(true);
-            textArea.setWrapStyleWord(true);
-            textArea.setText(original.text());
+        var textArea = new JTextArea();
+        textArea.setLineWrap(true);
+        textArea.setWrapStyleWord(true);
+        textArea.setText(original.text());
 
-            var scroll = new JScrollPane(
-                            textArea, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-            scroll.setPreferredSize(new Dimension(420, 180));
+        var scroll = new JScrollPane(
+                textArea, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        scroll.setPreferredSize(new Dimension(420, 180));
 
-            var panel = new JPanel(new BorderLayout(6, 6));
-            panel.add(new JLabel("Enter one task per line:"), BorderLayout.NORTH);
-            panel.add(scroll, BorderLayout.CENTER);
+        var panel = new JPanel(new BorderLayout(6, 6));
+        panel.add(new JLabel("Enter one task per line:"), BorderLayout.NORTH);
+        panel.add(scroll, BorderLayout.CENTER);
 
-            int result = JOptionPane.showConfirmDialog(
-                            this, panel, "Split Task", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        int result = JOptionPane.showConfirmDialog(
+                this, panel, "Split Task", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
 
-            if (result != JOptionPane.OK_OPTION) {
-                    return;
-            }
+        if (result != JOptionPane.OK_OPTION) {
+            return;
+        }
 
-            var lines = normalizeSplitLines(textArea.getText());
-            if (lines.isEmpty()) {
-                    return;
-            }
+        var lines = normalizeSplitLines(textArea.getText());
+        if (lines.isEmpty()) {
+            return;
+        }
 
-            var items = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
-            items.set(idx, new TaskList.TaskItem("", lines.getFirst(), false));
-            for (int i = 1; i < lines.size(); i++) {
-                    items.add(idx + i, new TaskList.TaskItem("", lines.get(i), false));
-            }
+        var items = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
+        items.set(idx, new TaskList.TaskItem("", lines.getFirst(), false));
+        for (int i = 1; i < lines.size(); i++) {
+            items.add(idx + i, new TaskList.TaskItem("", lines.get(i), false));
+        }
 
-            cm.setTaskList(new TaskList.TaskListData(items), "Tasks split");
-            model.fireRefresh();
+        cm.setTaskList(new TaskList.TaskListData(items), "Tasks split");
+        list.setSelectionInterval(idx, idx + lines.size() - 1);
+        refreshUi(true);
 
-            list.setSelectionInterval(idx, idx + lines.size() - 1);
-
-            clearExpansionOnStructureChange();
-            updateButtonStates();
-            SwingUtilities.invokeLater(this::updateTasksTabBadge);
-
-            for (int i = 0; i < lines.size(); i++) {
-                    summarizeAndUpdateTaskTitleAtIndex(idx + i);
-            }
-
-            list.revalidate();
-            list.repaint();
+        for (int i = 0; i < lines.size(); i++) {
+            summarizeAndUpdateTaskTitleAtIndex(idx + i);
+        }
     }
 
     static List<String> normalizeSplitLines(@Nullable String input) {
@@ -1972,57 +1942,54 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void clearCompletedTasks() {
-            if (!taskListEditable) {
-                    Toolkit.getDefaultToolkit().beep();
-                    return;
-            }
-            if (model.getSize() == 0) {
-                    return;
-            }
+        if (!taskListEditable) {
+            Toolkit.getDefaultToolkit().beep();
+            return;
+        }
+        if (model.getSize() == 0) {
+            return;
+        }
 
-            int completedCount = 0;
-            for (int i = 0; i < model.getSize(); i++) {
-                    TaskList.TaskItem it = requireNonNull(model.getElementAt(i));
-                    if (it.done()) {
-                            if (runningIndex != null && i == runningIndex) continue;
-                            completedCount++;
-                    }
+        int completedCount = 0;
+        for (int i = 0; i < model.getSize(); i++) {
+            TaskList.TaskItem it = requireNonNull(model.getElementAt(i));
+            if (it.done()) {
+                if (runningIndex != null && i == runningIndex) continue;
+                completedCount++;
             }
+        }
 
-            if (completedCount == 0) {
-                    updateButtonStates();
-                    return;
-            }
-
-            String plural = completedCount == 1 ? "task" : "tasks";
-            String message = "This will remove " + completedCount + " completed " + plural + " from this session.";
-            int result = chrome.showConfirmDialog(
-                            message, "Clear Completed Tasks?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-
-            if (result != JOptionPane.YES_OPTION) {
-                    updateButtonStates();
-                    return;
-            }
-
-            boolean removedAny = false;
-            var items = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
-            for (int i = items.size() - 1; i >= 0; i--) {
-                    TaskList.TaskItem it = requireNonNull(items.get(i));
-                    if (it.done()) {
-                            if (runningIndex != null && i == runningIndex) continue;
-                            items.remove(i);
-                            removedAny = true;
-                    }
-            }
-
-            if (removedAny) {
-                    cm.setTaskList(new TaskList.TaskListData(items), "Completed tasks cleared");
-                    model.fireRefresh();
-
-                    clearExpansionOnStructureChange();
-                    SwingUtilities.invokeLater(this::updateTasksTabBadge);
-            }
+        if (completedCount == 0) {
             updateButtonStates();
+            return;
+        }
+
+        String plural = completedCount == 1 ? "task" : "tasks";
+        String message = "This will remove " + completedCount + " completed " + plural + " from this session.";
+        int result = chrome.showConfirmDialog(
+                message, "Clear Completed Tasks?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+
+        if (result != JOptionPane.YES_OPTION) {
+            updateButtonStates();
+            return;
+        }
+
+        boolean removedAny = false;
+        var items = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
+        for (int i = items.size() - 1; i >= 0; i--) {
+            TaskList.TaskItem it = requireNonNull(items.get(i));
+            if (it.done()) {
+                if (runningIndex != null && i == runningIndex) continue;
+                items.remove(i);
+                removedAny = true;
+            }
+        }
+
+        if (removedAny) {
+            cm.setTaskList(new TaskList.TaskListData(items), "Completed tasks cleared");
+            refreshUi(true);
+        }
+        updateButtonStates();
     }
 
     private void copySelectedTasks() {
@@ -2068,15 +2035,15 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     if (index < 0 || index >= model.getSize()) return;
 
                     // Verify the same logical item (by text)
-                    var items = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
+                    var items =
+                            new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
                     if (index < 0 || index >= items.size()) return;
                     var cur = requireNonNull(items.get(index));
                     if (!Objects.equals(cur.text(), originalText)) return;
 
                     items.set(index, new TaskList.TaskItem(originalText.strip(), cur.text(), cur.done()));
                     cm.setTaskList(new TaskList.TaskListData(items), "Task title updated");
-                    model.fireRefresh();
-                    list.repaint();
+                    refreshUi(false);
                 } catch (Exception e) {
                     logger.debug("Error updating short task title at index {}", index, e);
                 }
@@ -2100,7 +2067,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 try {
                     if (index < 0 || index >= model.getSize()) return;
 
-                    var items = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
+                    var items =
+                            new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
                     if (index < 0 || index >= items.size()) return;
                     var cur = requireNonNull(items.get(index));
                     // Guard against changes while we were summarizing
@@ -2108,8 +2076,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
                     items.set(index, new TaskList.TaskItem(summary.strip(), cur.text(), cur.done()));
                     cm.setTaskList(new TaskList.TaskListData(items), "Task title summarized");
-                    model.fireRefresh();
-                    list.repaint();
+                    refreshUi(false);
                 } catch (Exception e) {
                     logger.debug("Error applying summarized task title at index {}", index, e);
                 }
@@ -2268,9 +2235,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 resetEphemeralRunState();
                 sessionIdAtLoad = current;
                 lastTaskListFragmentId = currentFragmentId;
-                model.fireRefresh();
-                updateTasksTabBadge();
-                updateButtonStates();
+                refreshUi(true);
             });
             return;
         }
@@ -2278,9 +2243,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (fragmentChanged) {
             lastTaskListFragmentId = currentFragmentId;
             SwingUtilities.invokeLater(() -> {
-                model.fireRefresh();
-                updateTasksTabBadge();
-                updateButtonStates();
+                refreshUi(true);
             });
         }
     }

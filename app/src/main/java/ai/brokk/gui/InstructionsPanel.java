@@ -23,11 +23,9 @@ import ai.brokk.gui.components.ModelSelector;
 import ai.brokk.gui.components.OverlayPanel;
 import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.components.TokenUsageBar;
+import ai.brokk.gui.dialogs.AutoPlayGateDialog;
 import ai.brokk.gui.dialogs.SettingsAdvancedPanel;
 import ai.brokk.gui.dialogs.SettingsDialog;
-import ai.brokk.gui.dialogs.AutoPlayGateDialog;
-import ai.brokk.gui.dialogs.SettingsDialog;
-import ai.brokk.gui.dialogs.SettingsGlobalPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -66,7 +64,6 @@ import java.util.concurrent.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.Border;
 import javax.swing.border.EmptyBorder;
@@ -83,7 +80,6 @@ import org.fife.ui.autocomplete.AutoCompletion;
 import org.fife.ui.autocomplete.Completion;
 import org.fife.ui.autocomplete.DefaultCompletionProvider;
 import org.fife.ui.autocomplete.ShorthandCompletion;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -1879,9 +1875,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         autoClearCompletedTasks();
 
         // Derive objective from action
-        SearchAgent.Objective objective = ACTION_PLAN.equals(action)
-                ? SearchAgent.Objective.TASKS_ONLY
-                : SearchAgent.Objective.LUTZ;
+        SearchAgent.Objective objective =
+                ACTION_PLAN.equals(action) ? SearchAgent.Objective.TASKS_ONLY : SearchAgent.Objective.LUTZ;
 
         submitAction(action, query, scope -> {
             assert !query.isBlank();
@@ -1903,7 +1898,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         cm.getIo().getLlmRawMessages(),
                         cm.liveContext(),
                         new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
-                        new TaskResult.TaskMeta(TaskResult.Type.SEARCH, Service.ModelConfig.from(modelToUse, cm.getService())));
+                        new TaskResult.TaskMeta(
+                                TaskResult.Type.SEARCH, Service.ModelConfig.from(modelToUse, cm.getService())));
             }
 
             var result = agent.execute();
@@ -1927,9 +1923,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     choiceHolder[0] = AutoPlayGateDialog.UserChoice.KEEP_OLD;
                 }
 
-                AutoPlayGateDialog.UserChoice choice = choiceHolder[0] == null
-                        ? AutoPlayGateDialog.UserChoice.KEEP_OLD
-                        : choiceHolder[0];
+                AutoPlayGateDialog.UserChoice choice =
+                        choiceHolder[0] == null ? AutoPlayGateDialog.UserChoice.KEEP_OLD : choiceHolder[0];
 
                 // Apply user's choice for ALL modes (Lutz EZ, Lutz Advanced, Plan)
                 TaskList.TaskListData finalData = applyGateChoice(choice, before, afterData);
@@ -1951,22 +1946,25 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
     }
 
-    private static ArrayList<TaskList.TaskItem> getTaskItems(List<TaskList.TaskItem> preExistingIncompleteItems, List<TaskList.TaskItem> newIncompleteItems, Set<String> preExistingIncompleteTasks) {
+    private static ArrayList<TaskList.TaskItem> getTaskItems(
+            List<TaskList.TaskItem> preExistingIncompleteItems,
+            List<TaskList.TaskItem> newIncompleteItems,
+            Set<String> preExistingIncompleteTasks) {
         var seen = new java.util.LinkedHashSet<String>();
         var combined = new ArrayList<TaskList.TaskItem>(preExistingIncompleteItems.size() + newIncompleteItems.size());
 
         for (var it : preExistingIncompleteItems) {
-                String text = it.text().strip();
-                if (!text.isEmpty() && seen.add(text)) {
-                        // Preserve original title/text/done=false (pre-existing were incomplete)
-                        combined.add(new TaskList.TaskItem(it.title(), it.text(), false));
-                }
+            String text = it.text().strip();
+            if (!text.isEmpty() && seen.add(text)) {
+                // Preserve original title/text/done=false (pre-existing were incomplete)
+                combined.add(new TaskList.TaskItem(it.title(), it.text(), false));
+            }
         }
         for (var it : newIncompleteItems) {
-                String text = it.text().strip();
-                if (!text.isEmpty() && !preExistingIncompleteTasks.contains(text) && seen.add(text)) {
-                        combined.add(new TaskList.TaskItem(it.title(), it.text(), false));
-                }
+            String text = it.text().strip();
+            if (!text.isEmpty() && !preExistingIncompleteTasks.contains(text) && seen.add(text)) {
+                combined.add(new TaskList.TaskItem(it.title(), it.text(), false));
+            }
         }
         return combined;
     }
@@ -3420,8 +3418,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return finalData;
     }
 
-    private static TaskList.TaskListData mergeTaskLists(
-            TaskList.TaskListData before, TaskList.TaskListData after) {
+    private static TaskList.TaskListData mergeTaskLists(TaskList.TaskListData before, TaskList.TaskListData after) {
         // Preserve the entire previous list ordering and status; append NEW incomplete tasks not already present.
         var existing = new ArrayList<>(before.tasks());
         var seenIncomplete = new LinkedHashSet<String>();

@@ -13,11 +13,11 @@ import java.awt.event.WindowEvent;
 import java.util.Set;
 import javax.swing.BorderFactory;
 import javax.swing.JComponent;
-import javax.swing.KeyStroke;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
+import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import org.jetbrains.annotations.Nullable;
 
@@ -41,7 +41,8 @@ public final class AutoPlayGateDialog extends BaseThemedDialog {
 
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
-            @Override public void windowClosing(WindowEvent e) {
+            @Override
+            public void windowClosing(WindowEvent e) {
                 choice = UserChoice.KEEP_OLD;
             }
         });
@@ -56,12 +57,11 @@ public final class AutoPlayGateDialog extends BaseThemedDialog {
         root.setLayout(new BorderLayout(8, 8));
         root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        String introText =
-                "New tasks were generated, and you already have incomplete tasks.\n"
-                        + "How would you like to proceed?\n\n"
-                        + "- Keep existing tasks: discard the newly generated tasks and keep your current list.\n"
-                        + "- Use new tasks: replace your current list with the newly generated tasks.\n"
-                        + "- Keep both (merge): append new incomplete tasks to your existing incomplete tasks (deduplicated).";
+        String introText = "New tasks were generated, and you already have incomplete tasks.\n"
+                + "How would you like to proceed?\n\n"
+                + "- Keep existing tasks: discard the newly generated tasks and keep your current list.\n"
+                + "- Use new tasks: replace your current list with the newly generated tasks.\n"
+                + "- Keep both (merge): append new incomplete tasks to your existing incomplete tasks (deduplicated).";
 
         var intro = new JTextArea(introText);
         intro.setEditable(false);
@@ -114,13 +114,14 @@ public final class AutoPlayGateDialog extends BaseThemedDialog {
 
         getRootPane().setDefaultButton(keepNewBtn);
 
-        getRootPane().registerKeyboardAction(
-                evt -> {
-                    choice = UserChoice.KEEP_OLD;
-                    dispose();
-                },
-                KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
-                JComponent.WHEN_IN_FOCUSED_WINDOW);
+        getRootPane()
+                .registerKeyboardAction(
+                        evt -> {
+                            choice = UserChoice.KEEP_OLD;
+                            dispose();
+                        },
+                        KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
+                        JComponent.WHEN_IN_FOCUSED_WINDOW);
     }
 
     /**
