@@ -45,6 +45,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
@@ -846,11 +847,17 @@ public class BuildAgent {
             var envVars = details.environmentVariables();
             var execCfg = ExecutorConfig.fromProject(cm.getProject());
 
+            long timeoutSeconds = cm.getProject().getMainProject().getRunCommandTimeoutSeconds();
+            if (timeoutSeconds <= 0L) {
+                timeoutSeconds = Environment.DEFAULT_TIMEOUT.toSeconds();
+            }
+            Duration timeout = Duration.ofSeconds(timeoutSeconds);
+
             var output = Environment.instance.runShellCommand(
                     verificationCommand,
                     cm.getProject().getRoot(),
                     line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM),
-                    Environment.UNLIMITED_TIMEOUT,
+                    timeout,
                     execCfg,
                     envVars);
             io.llmOutput("\n```", ChatMessageType.CUSTOM);
