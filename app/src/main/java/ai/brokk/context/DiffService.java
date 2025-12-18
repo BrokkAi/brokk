@@ -9,7 +9,9 @@ import ai.brokk.util.ContentDiffUtils;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
+import javax.swing.SwingUtilities;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -36,6 +38,11 @@ public final class DiffService {
     private final ContextHistory history;
     private final IContextManager cm;
     private final ConcurrentHashMap<UUID, CompletableFuture<List<Context.DiffEntry>>> cache = new ConcurrentHashMap<>();
+
+    // EDT batching support: queue of context ids awaiting computation, with de-duplication and a single scheduled runner.
+    private final ConcurrentLinkedQueue<UUID> edtQueue = new ConcurrentLinkedQueue<>();
+    private final Set<UUID> enqueuedIds = ConcurrentHashMap.newKeySet();
+    private final AtomicBoolean batchScheduled = new AtomicBoolean(false);
 
     /**
      * A snapshot container for diff cache entries keyed by context id.
@@ -142,28 +149,113 @@ public final class DiffService {
         }
     }
 
-    /**
-     * Computes or retrieves cached diff between this context and its predecessor using the project's background executor.
-     *
-     * @param curr the current (new) context to compute diffs for
-     * @return CompletableFuture that will contain the list of diff entries
-     */
-    public CompletableFuture<List<Context.DiffEntry>> diff(Context curr) {
-        return cache.computeIfAbsent(curr.id(), id -> {
-            var cf = new CompletableFuture<List<Context.DiffEntry>>();
-            cm.submitBackgroundTask("Compute diffs for context " + id, () -> {
-                try {
-                    var prev = history.previousOf(curr);
-                    var result = (prev == null) ? List.<Context.DiffEntry>of() : computeDiff(curr, prev);
-                    cf.complete(result);
-                    return result;
-                } catch (Throwable t) {
-                    cf.completeExceptionally(t);
-                    throw new RuntimeException(t);
+/**
+ * Computes or retrieves cached diff between this context and its predecessor.
+ * - If result is absent and caller is on EDT, enqueue for batched background computation and return the future.
+ * - If result is absent and caller is not on EDT, compute synchronously on the calling thread and complete the future.
+ *
+ * @param curr the current (new) context to compute diffs for
+ * @return CompletableFuture that will contain the list of diff entries
+ */
+public CompletableFuture<List<Context.DiffEntry>> diff(Context curr) {
+    // Fast-path: existing future present
+    var existing = cache.get(curr.id());
+    if (existing != null) {
+        return existing;
+    }
+
+    // Create or return the existing future atomically
+    var future = new CompletableFuture<List<Context.DiffEntry>>();
+    var prior = cache.putIfAbsent(curr.id(), future);
+    if (prior != null) {
+        return prior;
+    }
+
+    if (SwingUtilities.isEventDispatchThread()) {
+        // Enqueue for batched background processing
+        if (enqueuedIds.add(curr.id())) {
+            edtQueue.add(curr.id());
+        }
+        scheduleBatchIfNeeded();
+        return future;
+    }
+
+    // Not on EDT: compute synchronously on the current thread
+    try {
+        var prev = history.previousOf(curr);
+        var result = (prev == null) ? List.<Context.DiffEntry>of() : computeDiff(curr, prev);
+        future.complete(result);
+    } catch (Throwable t) {
+        future.completeExceptionally(t);
+        throw new RuntimeException(t);
+    }
+    return future;
+}
+
+    private void scheduleBatchIfNeeded() {
+        if (batchScheduled.compareAndSet(false, true)) {
+            var exec = cm.getBackgroundTasks();
+            exec.execute(this::runBatchComputation);
+        }
+    }
+
+    private void runBatchComputation() {
+        try {
+            while (true) {
+                // Drain queue into a local list
+                List<UUID> drained = new ArrayList<>();
+                UUID id;
+                while ((id = edtQueue.poll()) != null) {
+                    drained.add(id);
                 }
-            });
-            return cf;
-        });
+
+                if (drained.isEmpty()) {
+                    break;
+                }
+
+                // Clear de-duplication set for drained ids
+                for (UUID d : drained) {
+                    enqueuedIds.remove(d);
+                }
+
+                // Snapshot current history and build id->context map once per drain cycle
+                List<Context> snapshot = history.getHistory();
+                Map<UUID, Context> byId = new HashMap<>(snapshot.size());
+                for (Context c : snapshot) {
+                    byId.put(c.id(), c);
+                }
+
+                // Compute diffs for drained contexts if their futures are still pending
+                for (UUID cid : drained) {
+                    var ctx = byId.get(cid);
+                    var cf = cache.get(cid);
+
+                    if (cf == null || cf.isDone()) {
+                        continue;
+                    }
+                    if (ctx == null) {
+                        // Context no longer present; complete with empty result
+                        cf.complete(List.of());
+                        continue;
+                    }
+
+                    try {
+                        var prev = history.previousOf(ctx);
+                        var result = (prev == null) ? List.<Context.DiffEntry>of() : computeDiff(ctx, prev);
+                        cf.complete(result);
+                    } catch (Throwable t) {
+                        cf.completeExceptionally(t);
+                        logger.warn("Error computing diffs for context {}", cid, t);
+                    }
+                }
+            }
+        } finally {
+            batchScheduled.set(false);
+            // If new work arrived while finishing, schedule another batch
+            if (!edtQueue.isEmpty()) {
+                scheduleBatchIfNeeded();
+            }
+        }
     }
 
     /**
