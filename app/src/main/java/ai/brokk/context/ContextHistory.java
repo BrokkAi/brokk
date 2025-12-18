@@ -152,15 +152,32 @@ public class ContextHistory {
     }
 
     public synchronized Context push(Function<Context, Context> contextGenerator) {
-        var updatedLiveContext = contextGenerator.apply(liveContext());
-        // we deliberately do NOT use a deep equals() here, since we don't want to block for dynamic fragments to
-        // materialize
-        if (Objects.equals(liveContext(), updatedLiveContext)) {
-            return liveContext();
-        }
+            var base = liveContext();
+            var updatedLiveContext = contextGenerator.apply(base);
+            // we deliberately do NOT use a deep equals() here, since we don't want to block for dynamic fragments to
+            // materialize
+            if (Objects.equals(base, updatedLiveContext)) {
+                    return liveContext();
+            }
 
-        pushContext(updatedLiveContext);
-        return liveContext();
+            // Push without taking a blocking snapshot; schedule snapshot asynchronously.
+            pushContextInternal(updatedLiveContext, false);
+
+            if (logger.isDebugEnabled()) {
+                    logger.debug("Queued async snapshot warm-up for context {}", updatedLiveContext);
+            }
+
+            ContextFragment.getFragmentExecutor().submit(() -> {
+                    if (logger.isDebugEnabled()) {
+                            logger.debug("Starting async snapshot warm-up for context {}", updatedLiveContext);
+                    }
+                    snapshotContext(updatedLiveContext);
+                    if (logger.isDebugEnabled()) {
+                            logger.debug("Completed async snapshot warm-up for context {}", updatedLiveContext);
+                    }
+            });
+
+            return liveContext();
     }
 
     /**
