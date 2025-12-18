@@ -2096,21 +2096,11 @@ public class WorkspacePanel extends JPanel {
         dlg.setVisible(true); // modal; blocks until closed and selection is set
         var fragments = dlg.getSelectedFragments();
 
-        if (fragments == null) return;
+        if (fragments == null || fragments.isEmpty()) return;
 
-        contextManager.submitContextTask(() -> {
-            if (fragments.isEmpty()) {
-                return;
-            }
-
-            for (var fragment : fragments) {
-                if (fragment instanceof ContextFragment.PathFragment pathFrag) {
-                    contextManager.addFragmentAsync(pathFrag);
-                } else {
-                    contextManager.addFragments(fragment);
-                }
-            }
-        });
+        for (var fragment : fragments) {
+            contextManager.addFragmentAsync(fragment);
+        }
     }
 
     @Blocking
