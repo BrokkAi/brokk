@@ -2756,21 +2756,7 @@ public class Chrome
         }
     }
 
-    public void refreshTaskListUI() {
-        refreshTaskListUI(null);
-    }
 
-    public void refreshTaskListUI(@Nullable Runnable onComplete) {
-        SwingUtilities.invokeLater(() -> {
-            int idx = rightTabbedPanel.indexOfTab("Tasks");
-            if (idx != -1) rightTabbedPanel.setSelectedIndex(idx);
-            if (onComplete == null) {
-                taskListPanel.refreshFromManager();
-            } else {
-                taskListPanel.refreshFromManager(onComplete);
-            }
-        });
-    }
 
     /**
      * Schedules the build settings dialog to show after initialization completes.

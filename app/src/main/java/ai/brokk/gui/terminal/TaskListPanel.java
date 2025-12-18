@@ -1136,7 +1136,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     final TaskResult result;
                     try {
                             result = cm.executeTask(cm.getTaskList().tasks().get(idx));
-                            chrome.refreshTaskListUI();
                     } catch (InterruptedException e) {
                             logger.debug("Task execution interrupted by user");
                             SwingUtilities.invokeLater(this::finishQueueOnError);

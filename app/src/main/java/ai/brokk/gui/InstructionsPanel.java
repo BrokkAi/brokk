@@ -1937,15 +1937,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 // Auto-run only in Lutz EZ if successful and there are incomplete tasks available
                 boolean isLutzEz = ACTION_LUTZ.equals(action) && !GlobalUiSettings.isAdvancedMode();
                 if (isLutzEz && success && hasIncomplete(finalData)) {
-                    SwingUtilities.invokeLater(() ->
-                            chrome.refreshTaskListUI(() -> chrome.getTaskListPanel().runArchitectOnAll()));
+                    SwingUtilities.invokeLater(() -> chrome.getTaskListPanel().runAllAfterModelRefresh());
                 }
             } else {
                 // No gating needed. Auto-run only in Lutz EZ if successful.
                 boolean isLutzEz = ACTION_LUTZ.equals(action) && !GlobalUiSettings.isAdvancedMode();
                 if (isLutzEz && success) {
-                    SwingUtilities.invokeLater(() ->
-                            chrome.refreshTaskListUI(() -> chrome.getTaskListPanel().runArchitectOnAll()));
+                    SwingUtilities.invokeLater(() -> chrome.getTaskListPanel().runAllAfterModelRefresh());
                 }
             }
 
@@ -3318,7 +3316,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // If any tasks were removed, update the task list and refresh UI
         if (filtered.size() < originalTasks.size()) {
             cm.setTaskList(new TaskList.TaskListData(filtered), "Auto-cleared completed tasks");
-            chrome.refreshTaskListUI();
         }
     }
 
@@ -3420,7 +3417,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 cm.setTaskList(finalData, "Kept existing tasks");
             }
         }
-        chrome.refreshTaskListUI();
         return finalData;
     }
 
