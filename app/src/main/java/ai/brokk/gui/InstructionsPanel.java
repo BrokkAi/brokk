@@ -1277,24 +1277,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             Service.ModelConfig config,
             int successRate,
             boolean isTested) {}
-    /** Calculate cost estimate mirroring WorkspacePanel for only the model currently selected in InstructionsPanel. */
+    /** Calculate cost estimate for the model currently selected in InstructionsPanel. */
     private String calculateCostEstimate(Service.ModelConfig config, int inputTokens, AbstractService service) {
-        var pricing = service.getModelPricing(config.name());
-        if (pricing.bands().isEmpty()) {
-            return "";
-        }
-
-        long estimatedOutputTokens = Math.min(4000, inputTokens / 2);
-        if (service.isReasoning(config)) {
-            estimatedOutputTokens += 1000;
-        }
-        double estimatedCost = pricing.getCostFor(inputTokens, 0, estimatedOutputTokens, config.tier());
-
-        if (service.isFreeTier(config.name())) {
-            return "$0.00 (Free Tier)";
-        } else {
-            return String.format("$%.2f", estimatedCost);
-        }
+        return service.estimateCost(config, inputTokens).formatted();
     }
 
     private static String buildBrokkRankingOnlyTooltip(int successRate) {

@@ -960,8 +960,6 @@ public class BlitzForgeDialog extends BaseThemedDialog {
         boolean includeWorkspace = includeWorkspaceCheckbox.isSelected();
         String relatedText =
                 Objects.toString(relatedClassesCombo.getEditor().getItem(), "").trim();
-        String modelName = fav.config().name();
-        var tier = fav.config().tier();
 
         // Increment generation so that older tasks become stale.
         int generation = costEstimateGeneration.incrementAndGet();
@@ -978,8 +976,6 @@ public class BlitzForgeDialog extends BaseThemedDialog {
             double cost;
             boolean hadError = false;
             try {
-                var pricing = service.getModelPricing(modelName);
-
                 // Token counting and any file I/O happen in this background thread.
                 long tokensFiles =
                         files.parallelStream().mapToLong(this::getTokenCount).sum();
@@ -1007,7 +1003,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
 
                 long totalInput = tokensFiles + workspaceAdd + relatedAdd;
                 long estOutput = Math.min(4000, totalInput / 2);
-                cost = pricing.getCostFor(totalInput, 0, estOutput, tier);
+                cost = service.estimateCost(fav.config(), totalInput, estOutput).cost();
             } catch (Throwable t) {
                 logger.debug("Failed to compute BlitzForge cost estimate", t);
                 hadError = true;

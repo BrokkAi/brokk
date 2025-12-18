@@ -221,6 +221,9 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     /** Represents the parsed Brokk API key components. */
     public record KeyParts(UUID userId, String token) {}
 
+    /** Represents a cost estimate with both the raw value and formatted string. */
+    public record CostEstimate(double cost, String formatted) {}
+
     /** Represents a user-defined favorite model alias. */
     public record FavoriteModel(String alias, ModelConfig config) {}
 
@@ -291,6 +294,35 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             var band = new PriceBand(0, Long.MAX_VALUE, inputCost, cachedInputCost, outputCost);
             return new ModelPricing(List.of(band));
         }
+    }
+
+    /**
+     * Estimates the cost for a request given the model config and input token count.
+     * Assumes output is min(4000, inputTokens/2), plus 1000 for reasoning models.
+     */
+    public CostEstimate estimateCost(ModelConfig config, long inputTokens) {
+        long estimatedOutputTokens = Math.min(4000, inputTokens / 2);
+        if (isReasoning(config)) {
+            estimatedOutputTokens += 1000;
+        }
+        return estimateCost(config, inputTokens, estimatedOutputTokens);
+    }
+
+    /**
+     * Estimates the cost for a request with explicit output token count.
+     */
+    public CostEstimate estimateCost(ModelConfig config, long inputTokens, long outputTokens) {
+        var pricing = getModelPricing(config.name());
+        if (pricing.bands().isEmpty()) {
+            return new CostEstimate(0, "");
+        }
+
+        double cost = pricing.getCostFor(inputTokens, 0, outputTokens, config.tier());
+
+        if (isFreeTier(config.name())) {
+            return new CostEstimate(0, "$0.00 (Free Tier)");
+        }
+        return new CostEstimate(cost, String.format("$%.2f", cost));
     }
 
     /** Returns the display name for a given model instance */
