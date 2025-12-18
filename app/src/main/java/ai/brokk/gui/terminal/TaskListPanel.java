@@ -2020,14 +2020,13 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     Toolkit.getDefaultToolkit().beep();
                     return;
             }
-            var currentItems = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
-            if (currentItems.isEmpty()) {
+            if (model.getSize() == 0) {
                     return;
             }
 
             int completedCount = 0;
-            for (int i = 0; i < currentItems.size(); i++) {
-                    TaskList.TaskItem it = requireNonNull(currentItems.get(i));
+            for (int i = 0; i < model.getSize(); i++) {
+                    TaskList.TaskItem it = requireNonNull(model.getElementAt(i));
                     if (it.done()) {
                             if (runningIndex != null && i == runningIndex) continue;
                             completedCount++;
@@ -2050,17 +2049,18 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
 
             boolean removedAny = false;
-            for (int i = currentItems.size() - 1; i >= 0; i--) {
-                    TaskList.TaskItem it = requireNonNull(currentItems.get(i));
+            var items = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
+            for (int i = items.size() - 1; i >= 0; i--) {
+                    TaskList.TaskItem it = requireNonNull(items.get(i));
                     if (it.done()) {
                             if (runningIndex != null && i == runningIndex) continue;
-                            currentItems.remove(i);
+                            items.remove(i);
                             removedAny = true;
                     }
             }
 
             if (removedAny) {
-                    cm.setTaskList(new TaskList.TaskListData(currentItems), "Completed tasks cleared");
+                    cm.setTaskList(new TaskList.TaskListData(items), "Completed tasks cleared");
                     model.fireRefresh();
 
                     clearExpansionOnStructureChange();
