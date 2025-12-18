@@ -899,21 +899,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
 
     /**
-     * Reset all ephemeral UI and model state when switching sessions to avoid
-     * stale running/queued flags and fragment tracking leaking into the new session.
+     * Reset ephemeral run state (running/queued/auto-play) when switching sessions.
      * Must be called on the EDT.
      */
-    private void resetEphemeralUiStateForSessionSwitch() {
-        assert SwingUtilities.isEventDispatchThread() : "resetEphemeralUiStateForSessionSwitch must run on EDT";
-        // Stop any running visuals
-        runningFadeTimer.stop();
-        // Clear execution/queue state
+    private void resetEphemeralRunState() {
+        assert SwingUtilities.isEventDispatchThread() : "resetEphemeralRunState must run on EDT";
         runningIndex = null;
         pendingQueue.clear();
         queueActive = false;
         currentRunOrder = null;
 
-        // Remove auto-play listener if present to avoid cross-session leaks
         if (autoPlayListener != null) {
             try {
                 model.removeListDataListener(autoPlayListener);
@@ -922,20 +917,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
             autoPlayListener = null;
         }
-
-        // no modelRefreshListener to remove
-
-        // Clear the transient fragment marker until the new session is loaded
-        model.fireRefresh();
-        lastTaskListFragmentId = null;
-
-        // Reset read-only flag when switching sessions
-        taskListEditable = true;
-
-        // Update UI
-        clearExpansionOnStructureChange();
-        updateButtonStates();
-        updateTasksTabBadge();
     }
 
 
@@ -2285,7 +2266,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         if (sessionChanged) {
             SwingUtilities.invokeLater(() -> {
-                resetEphemeralUiStateForSessionSwitch();
+                resetEphemeralRunState();
                 sessionIdAtLoad = current;
                 lastTaskListFragmentId = currentFragmentId;
                 model.fireRefresh();
