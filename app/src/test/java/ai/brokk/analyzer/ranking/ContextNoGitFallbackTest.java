@@ -231,11 +231,24 @@ public class ContextNoGitFallbackTest {
 
             // Mock Git results: return only 'D'
             IGitRepo stubRepo = new IGitRepo() {
-                @Override public Set<ProjectFile> getTrackedFiles() { return Set.of(a, b, c, d); }
-                @Override public Set<ModifiedFile> getModifiedFiles() { return Set.of(); }
-                @Override public void add(Collection<ProjectFile> files) {}
-                @Override public void add(ProjectFile file) {}
-                @Override public void remove(ProjectFile file) {}
+                @Override
+                public Set<ProjectFile> getTrackedFiles() {
+                    return Set.of(a, b, c, d);
+                }
+
+                @Override
+                public Set<ModifiedFile> getModifiedFiles() {
+                    return Set.of();
+                }
+
+                @Override
+                public void add(Collection<ProjectFile> files) {}
+
+                @Override
+                public void add(ProjectFile file) {}
+
+                @Override
+                public void remove(ProjectFile file) {}
             };
 
             // We need to bypass the real GitDistance.getRelatedFiles because it's static/hard to mock,
@@ -246,14 +259,25 @@ public class ContextNoGitFallbackTest {
             // If Git returns 1 result (D), it should supplement with 2 from imports (B, C).
 
             IContextManager cm = new IContextManager() {
-                @Override public IAnalyzer getAnalyzer() { return analyzer; }
-                @Override public IProject getProject() { return project; }
-                @Override public IGitRepo getRepo() { return stubRepo; }
+                @Override
+                public IAnalyzer getAnalyzer() {
+                    return analyzer;
+                }
+
+                @Override
+                public IProject getProject() {
+                    return project;
+                }
+
+                @Override
+                public IGitRepo getRepo() {
+                    return stubRepo;
+                }
             };
 
             Context ctx = new Context(cm).addFragments(new ContextFragment.ProjectPathFragment(a, cm));
 
-            // We want topK = 3. 
+            // We want topK = 3.
             // 1. Git Distance will run (because hasGit is true and seeds are tracked).
             // 2. Git Distance will return some results.
             // 3. If results < 3, ImportPageRanker will supplement.
@@ -262,11 +286,11 @@ public class ContextNoGitFallbackTest {
             // Assertions
             assertFalse(results.contains(a), "Seed A should be excluded");
             assertTrue(results.size() >= 2, "Should have at least B and C from imports if Git returns little");
-            
+
             // Ensure no duplicates
             Set<ProjectFile> resultSet = new HashSet<>(results);
             assertEquals(results.size(), resultSet.size(), "Results should not contain duplicates");
-            
+
             // Check that B and C (linked via imports) are present
             assertTrue(results.contains(b), "Expected B.java (direct import)");
             assertTrue(results.contains(c), "Expected C.java (indirect import)");
