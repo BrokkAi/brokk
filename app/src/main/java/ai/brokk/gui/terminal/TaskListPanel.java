@@ -1558,29 +1558,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         });
     }
 
-    /**
-     * Helper that runs an action after ensuring the model is refreshed.
-     * With the delegating model, this just schedules on EDT.
-     */
-    private void runAfterModelRefresh(Runnable action) {
-        SwingUtilities.invokeLater(() -> {
-            refreshUi(false);
-            action.run();
-        });
-    }
-
-    /**
-     * Wait for the model to refresh and then run all tasks in order.
-     * Safe to call from any thread.
-     */
-    public void runAllAfterModelRefresh() {
-        if (!SwingUtilities.isEventDispatchThread()) {
-            SwingUtilities.invokeLater(this::runAllAfterModelRefresh);
-            return;
-        }
-        runArchitectOnAll();
-    }
-
     private final class TaskReorderTransferHandler extends TransferHandler {
         private int @Nullable [] indices = null;
         private int addIndex = -1;

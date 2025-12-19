@@ -1889,7 +1889,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             SearchAgent agent = new SearchAgent(context, query, modelToUse, objective, scope);
             try {
-                agent.scanInitialContext();
+                context = agent.scanInitialContext();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return new TaskResult(
@@ -1945,10 +1945,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             // Auto-run only in Lutz EZ if successful and there are incomplete tasks available
             boolean isLutzEz = ACTION_LUTZ.equals(action) && !GlobalUiSettings.isAdvancedMode();
             if (isLutzEz && success && hasIncomplete(context.getTaskListDataOrEmpty())) {
-                SwingUtilities.invokeLater(() -> chrome.getTaskListPanel().runAllAfterModelRefresh());
+                SwingUtilities.invokeLater(() -> chrome.getTaskListPanel().runArchitectOnAll());
             }
-
-            return result;
+            return result.withContext(context);
         });
     }
 
