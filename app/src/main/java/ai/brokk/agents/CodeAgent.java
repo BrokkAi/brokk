@@ -122,13 +122,13 @@ public class CodeAgent {
     }
 
     @Blocking
-    TaskResult runTask(Context initialContext, List<ChatMessage> prologue, String userInput, Set<Option> options) {
+    TaskResult runTask(Context initialContext, String userInput, Set<Option> options) {
         // pause watching for external changes (so they don't get added to activity history while we're still making
         // changes);
         // this means that we're responsible for refreshing the analyzer when we make changes
         contextManager.getAnalyzerWrapper().pause();
         try {
-            return runTaskInternal(initialContext, prologue, userInput, options);
+            return runTaskInternal(initialContext, List.of(), userInput, options);
         } finally {
             contextManager.getAnalyzerWrapper().resume();
         }

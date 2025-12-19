@@ -159,7 +159,7 @@ public class ArchitectAgent {
         if (deferBuild) {
             opts.add(CodeAgent.Option.DEFER_BUILD);
         }
-        var result = agent.runTask(context, List.of(), instructions, opts);
+        var result = agent.runTask(context, instructions, opts);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
         // Update local context with the CodeAgent's resulting context

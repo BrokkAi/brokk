@@ -1140,7 +1140,7 @@ public class SearchAgent {
         // Keep a snapshot to determine if changes occurred
         Context contextBefore = context;
 
-        var result = agent.runTask(context, List.of(), instructions, opts);
+        var result = agent.runTask(context, instructions, opts);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
 
