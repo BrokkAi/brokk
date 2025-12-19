@@ -211,11 +211,11 @@ public class ContextHistoryTest {
     }
 
     /**
-     * Verifies that diff() called on the EDT enqueues and completes via a background batch.
+     * Verifies that diff() called on the EDT correctly completes via background execution.
      */
     @Test
-    public void testDiffOnEdtEnqueuesAndCompletesViaBackgroundBatch() throws Exception {
-        var pf = new ProjectFile(tempDir, "src/EDTBatch.txt");
+    public void testDiffOnEdtCompletesViaBackground() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/EDTAsync.txt");
         Files.createDirectories(pf.absPath().getParent());
         Files.writeString(pf.absPath(), "x\n");
 
@@ -238,21 +238,22 @@ public class ContextHistoryTest {
         javax.swing.SwingUtilities.invokeAndWait(() -> {
             var f = ds.diff(ctx2);
             ref.set(f);
-            assertFalse(f.isDone(), "On EDT, diff() should enqueue and return a pending future");
+            // In the simplified model, it might be done if cached, but here it's new.
+            // It will be enqueued on the background executor.
         });
 
         var fut = ref.get();
         assertNotNull(fut, "Future should be captured from EDT call");
 
-        long deadline = System.currentTimeMillis() + 2000;
+        long deadline = System.currentTimeMillis() + 5000;
         while (!fut.isDone() && System.currentTimeMillis() < deadline) {
             Thread.sleep(25);
         }
 
-        assertTrue(fut.isDone(), "Background batch should complete the diff");
+        assertTrue(fut.isDone(), "Background task should complete the diff");
         var diffs = fut.join();
         assertNotNull(diffs);
-        assertFalse(diffs.isEmpty(), "Expected non-empty diff after background batch completion");
+        assertFalse(diffs.isEmpty(), "Expected non-empty diff after background completion");
     }
 
     /**

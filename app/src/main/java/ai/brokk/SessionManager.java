@@ -87,9 +87,6 @@ public class SessionManager implements AutoCloseable {
     private final SerialByKeyExecutor sessionExecutorByKey;
     private final Path sessionsDir;
     private final Map<UUID, SessionInfo> sessionsCache;
-    // In-memory per-session diff cache snapshots, not persisted on disk.
-    private final ConcurrentHashMap<UUID, DiffService.DiffCache> diffCachesBySession = new ConcurrentHashMap<>();
-
     public SessionManager(Path sessionsDir) {
         this.sessionsDir = sessionsDir;
         // Use a CPU-aware pool size to better handle concurrent session I/O in tests and production
@@ -172,7 +169,6 @@ public class SessionManager implements AutoCloseable {
 
     public void deleteSession(UUID sessionId) throws Exception {
         sessionsCache.remove(sessionId);
-        diffCachesBySession.remove(sessionId);
         var deleteFuture = sessionExecutorByKey.submit(sessionId.toString(), () -> {
             Path historyZipPath = getSessionHistoryPath(sessionId);
             try {
@@ -200,7 +196,6 @@ public class SessionManager implements AutoCloseable {
      */
     public void moveSessionToUnreadable(UUID sessionId) {
         sessionsCache.remove(sessionId);
-        diffCachesBySession.remove(sessionId);
 
         // Check for re-entrancy: if we're already on a SessionManager executor thread, execute directly
         if (SessionExecutorThreadFactory.isOnSessionExecutorThread()) {
@@ -230,7 +225,6 @@ public class SessionManager implements AutoCloseable {
             Path targetPath = unreadableDir.resolve(historyZipPath.getFileName());
             Files.move(historyZipPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
             logger.info("Moved session zip {} to {}", historyZipPath.getFileName(), unreadableDir);
-            diffCachesBySession.remove(sessionId);
         } catch (IOException e) {
             logger.error("Error moving history zip for session {} to unreadable: {}", sessionId, e.getMessage());
         }
@@ -729,25 +723,6 @@ public class SessionManager implements AutoCloseable {
 
     public Path getSessionsDir() {
         return sessionsDir;
-    }
-
-    /**
-     * Save a snapshot of the diff cache for a session (in-memory only).
-     */
-    public void saveDiffCache(UUID sessionId, DiffService.DiffCache cache) {
-        if (cache.isEmpty()) {
-            diffCachesBySession.remove(sessionId);
-        } else {
-            diffCachesBySession.put(sessionId, cache);
-        }
-    }
-
-    /**
-     * Retrieve a previously saved diff cache snapshot for a session (in-memory only).
-     */
-    @Nullable
-    public DiffService.DiffCache getDiffCache(UUID sessionId) {
-        return diffCachesBySession.get(sessionId);
     }
 
     @Override

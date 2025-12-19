@@ -6,13 +6,13 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.util.ContentDiffUtils;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.swing.SwingUtilities;
@@ -24,40 +24,36 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Computes and caches diffs between consecutive history entries using a live-context, non-blocking async model.
  *
- * <p>Keys by current context id assuming a single stable predecessor per context. Works directly with live
- * contexts (containing {@link ai.brokk.util.ComputedValue} futures) and uses bounded awaits during diff
- * computation to avoid blocking the UI indefinitely. For fragments that timeout during diff computation,
- * falls back to empty content rather than blocking.
- *
- * <p>This service materializes computed values
- * asynchronously as needed via {@link ai.brokk.util.ComputedValue#await(java.time.Duration)}.
+ * <p>Uses a global bounded cache of (prev, curr) context pairs to avoid redundant computations across sessions.
+ * This service materializes computed values asynchronously as needed via
+ * {@link ai.brokk.util.ComputedValue#await(java.time.Duration)}.
  */
 public final class DiffService {
     private static final Logger logger = LogManager.getLogger(DiffService.class);
 
     private static final Duration TEXT_FALLBACK_TIMEOUT = Duration.ofSeconds(2);
+    private static final int MAX_CACHE_SIZE = 1000;
+
+    /** Identity-based pair for caching diffs between two specific context instances. */
+    private record ContextPair(@Nullable Context prev, Context curr) {
+        @Override
+        public boolean equals(@Nullable Object o) {
+            if (this == o) return true;
+            if (!(o instanceof ContextPair that)) return false;
+            return prev == that.prev && curr == that.curr;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(System.identityHashCode(prev), System.identityHashCode(curr));
+        }
+    }
+
+    private static final Cache<ContextPair, CompletableFuture<List<Context.DiffEntry>>> cache =
+            Caffeine.newBuilder().maximumSize(MAX_CACHE_SIZE).build();
 
     private final ContextHistory history;
     private final IContextManager cm;
-    private final ConcurrentHashMap<UUID, CompletableFuture<List<Context.DiffEntry>>> cache = new ConcurrentHashMap<>();
-
-    // EDT batching support: queue of context ids awaiting computation, with de-duplication and a single scheduled
-    // runner.
-    private final ConcurrentLinkedQueue<UUID> edtQueue = new ConcurrentLinkedQueue<>();
-    private final Set<UUID> enqueuedIds = ConcurrentHashMap.newKeySet();
-    private final AtomicBoolean batchScheduled = new AtomicBoolean(false);
-
-    /**
-     * A snapshot container for diff cache entries keyed by context id.
-     * Values are the same futures used by this DiffService; intended for in-memory reuse across session switches.
-     */
-    public static final class DiffCache extends ConcurrentHashMap<UUID, CompletableFuture<List<Context.DiffEntry>>> {
-        private static final long serialVersionUID = 1L;
-
-        public DiffCache(Map<UUID, CompletableFuture<List<Context.DiffEntry>>> src) {
-            super(src);
-        }
-    }
 
     DiffService(ContextHistory history) {
         this.history = history;
@@ -73,204 +69,74 @@ public final class DiffService {
      * @return Optional containing the diff list if already computed, or empty if not ready
      */
     public Optional<List<Context.DiffEntry>> peek(Context curr) {
-        var cf = cache.get(curr.id());
+        var prev = history.previousOf(curr);
+        var cf = cache.getIfPresent(new ContextPair(prev, curr));
         if (cf != null && cf.isDone()) {
-            //noinspection DataFlowIssue (return of `getNow` is not detected as nullable)
+            //noinspection DataFlowIssue
             return Optional.ofNullable(cf.getNow(null));
         }
         return Optional.empty();
     }
 
     /**
-     * Returns a shallow snapshot of the internal cache suitable for reuse within the same JVM.
-     * Futures are not duplicated; references are carried over.
-     */
-    public DiffCache snapshot() {
-        return new DiffCache(cache);
-    }
-
-    /**
-     * Seed this service's cache from a previously captured snapshot. Only entries whose ids are present in allowedIds
-     * are seeded. Existing entries are not overwritten.
-     *
-     * @param snapshot a non-null snapshot
-     * @param allowedIds the set of context ids valid for the current history
-     */
-    public void seedFrom(DiffCache snapshot, Set<UUID> allowedIds) {
-        if (snapshot.isEmpty() || allowedIds.isEmpty()) {
-            return;
-        }
-
-        // Build a quick lookup of current contexts by id for remapping fragments to the
-        // active instances on this DiffService/history.
-        var historyById = new HashMap<UUID, Context>();
-        for (var c : history.getHistory()) {
-            historyById.put(c.id(), c);
-        }
-
-        for (var e : snapshot.entrySet()) {
-            var contextId = e.getKey();
-            if (!allowedIds.contains(contextId)) {
-                continue;
-            }
-
-            var currentCtx = historyById.get(contextId);
-
-            final Map<String, ContextFragment> fragmentsById;
-            if (currentCtx != null) {
-                var map = new HashMap<String, ContextFragment>();
-                currentCtx.allFragments().forEach(f -> map.put(f.id(), f));
-                fragmentsById = map;
-            } else {
-                fragmentsById = Map.of();
-            }
-
-            // Wrap the seeded future so that, when it completes, its DiffEntry fragments are remapped
-            // to the active instances for this history (by fragment id). If a fragment is not present,
-            // the original DiffEntry is preserved.
-            CompletableFuture<List<Context.DiffEntry>> remappedFuture = e.getValue()
-                    .thenApply(list -> {
-                        List<Context.DiffEntry> out = new ArrayList<>(list.size());
-                        for (var de : list) {
-                            var mapped = fragmentsById.get(de.fragment().id());
-                            out.add(
-                                    mapped == null
-                                            ? de
-                                            : new Context.DiffEntry(
-                                                    mapped,
-                                                    de.diff(),
-                                                    de.linesAdded(),
-                                                    de.linesDeleted(),
-                                                    de.oldContent(),
-                                                    de.newContent()));
-                        }
-                        return List.copyOf(out);
-                    });
-
-            cache.putIfAbsent(contextId, remappedFuture);
-        }
-    }
-
-    /**
      * Computes or retrieves cached diff between this context and its predecessor.
-     * - If result is absent and caller is on EDT, enqueue for batched background computation and return the future.
-     * - If result is absent and caller is not on EDT, compute synchronously on the calling thread and complete the future.
+     * - If result is absent and caller is on EDT, submits background computation and returns the future.
+     * - If result is absent and caller is not on EDT, computes synchronously on the calling thread.
      *
      * @param curr the current (new) context to compute diffs for
      * @return CompletableFuture that will contain the list of diff entries
      */
     public CompletableFuture<List<Context.DiffEntry>> diff(Context curr) {
-        // Fast-path: existing future present
-        var existing = cache.get(curr.id());
+        var prev = history.previousOf(curr);
+        var key = new ContextPair(prev, curr);
+
+        var existing = cache.getIfPresent(key);
         if (existing != null) {
             return existing;
         }
 
-        // Create or return the existing future atomically
         var future = new CompletableFuture<List<Context.DiffEntry>>();
-        var prior = cache.putIfAbsent(curr.id(), future);
-        if (prior != null) {
-            return prior;
-        }
+        // Caffeine's Cache doesn't have putIfAbsent that returns existing, so we use manual management for simplicity.
+        // Race is fine here as computeDiff is idempotent.
+        cache.put(key, future);
 
         if (SwingUtilities.isEventDispatchThread()) {
-            // Enqueue for batched background processing
-            if (enqueuedIds.add(curr.id())) {
-                edtQueue.add(curr.id());
+            Executor executor;
+            try {
+                executor = cm.getBackgroundTasks();
+            } catch (UnsupportedOperationException | NullPointerException e) {
+                // Fallback for tests or contexts where no background executor is available
+                executor = CompletableFuture::runAsync;
             }
-            scheduleBatchIfNeeded();
+
+            executor.execute(() -> {
+                try {
+                    var result = (prev == null) ? List.<Context.DiffEntry>of() : computeDiff(curr, prev);
+                    future.complete(result);
+                } catch (Throwable t) {
+                    future.completeExceptionally(t);
+                    logger.warn("Error computing diffs for context {}", curr.id(), t);
+                }
+            });
             return future;
         }
 
-        // Not on EDT: compute synchronously on the current thread
+        // Not on EDT: compute synchronously
         try {
-            var prev = history.previousOf(curr);
             var result = (prev == null) ? List.<Context.DiffEntry>of() : computeDiff(curr, prev);
             future.complete(result);
+            return future;
         } catch (Throwable t) {
             future.completeExceptionally(t);
             throw new RuntimeException(t);
-        }
-        return future;
-    }
-
-    private void scheduleBatchIfNeeded() {
-        if (batchScheduled.compareAndSet(false, true)) {
-            try {
-                var exec = cm.getBackgroundTasks();
-                exec.execute(this::runBatchComputation);
-            } catch (RuntimeException e) {
-                CompletableFuture.runAsync(this::runBatchComputation);
-            }
-        }
-    }
-
-    private void runBatchComputation() {
-        try {
-            while (true) {
-                // Drain queue into a local list
-                List<UUID> drained = new ArrayList<>();
-                UUID id;
-                while ((id = edtQueue.poll()) != null) {
-                    drained.add(id);
-                }
-
-                if (drained.isEmpty()) {
-                    break;
-                }
-
-                // Clear de-duplication set for drained ids
-                for (UUID d : drained) {
-                    enqueuedIds.remove(d);
-                }
-
-                // Snapshot current history and build id->context map once per drain cycle
-                List<Context> snapshot = history.getHistory();
-                Map<UUID, Context> byId = new HashMap<>(snapshot.size());
-                for (Context c : snapshot) {
-                    byId.put(c.id(), c);
-                }
-
-                // Compute diffs for drained contexts if their futures are still pending
-                for (UUID cid : drained) {
-                    var ctx = byId.get(cid);
-                    var cf = cache.get(cid);
-
-                    if (cf == null || cf.isDone()) {
-                        continue;
-                    }
-                    if (ctx == null) {
-                        // Context no longer present; complete with empty result
-                        cf.complete(List.of());
-                        continue;
-                    }
-
-                    try {
-                        var prev = history.previousOf(ctx);
-                        var result = (prev == null) ? List.<Context.DiffEntry>of() : computeDiff(ctx, prev);
-                        cf.complete(result);
-                    } catch (Throwable t) {
-                        cf.completeExceptionally(t);
-                        logger.warn("Error computing diffs for context {}", cid, t);
-                    }
-                }
-            }
-        } finally {
-            batchScheduled.set(false);
-            // If new work arrived while finishing, schedule another batch
-            if (!edtQueue.isEmpty()) {
-                scheduleBatchIfNeeded();
-            }
         }
     }
 
     /**
      * Clears all cached diff entries.
-     *
-     * <p>Useful for freeing memory or forcing recomputation of diffs.
      */
     public void clear() {
-        cache.clear();
+        cache.invalidateAll();
     }
 
     /**
@@ -280,23 +146,14 @@ public final class DiffService {
         clear();
     }
 
-    /**
-     * Alias for invalidate; provided for lifecycle symmetry.
-     */
     public void close() {
-        invalidate();
+        // Global cache, nothing instance-specific to close.
     }
 
     /**
-     * Retains only diffs for the provided set of context ids, discarding all others.
-     *
-     * <p>Used during history truncation to keep the cache bounded.
-     *
-     * @param currentIds the set of context ids whose diffs should be retained
+     * No-op in global bounded cache model.
      */
-    public void retainOnly(Set<UUID> currentIds) {
-        cache.keySet().retainAll(currentIds);
-    }
+    public void retainOnly(Set<UUID> currentIds) {}
 
     @Blocking
     private static boolean isNewFileInGit(ContextFragment fragment, IGitRepo repo) {
