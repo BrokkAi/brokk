@@ -59,7 +59,7 @@ public class ImportPageRankerTest {
 
             Map<String, ProjectFile> byName = new HashMap<>();
             for (CodeUnit cu : analyzer.getAllDeclarations()) {
-                String name = cu.source().getFileName().toLowerCase(Locale.ROOT);
+                String name = cu.source().getFileName().toString().toLowerCase(Locale.ROOT);
                 byName.putIfAbsent(name, cu.source());
             }
 
@@ -81,6 +81,77 @@ public class ImportPageRankerTest {
             assertTrue(
                     (first.equals(b) && second.equals(c)) || (first.equals(c) && second.equals(b)),
                     "Top two related files should be B and C (any order)");
+        }
+    }
+
+    @Test
+    public void seedsExcludeSelfAndRankImportersHigher_reversedTrue() throws Exception {
+        try (var project = InlineTestProjectCreator.code(
+                        """
+                        package test;
+                        import test.B;
+                        public class A {
+                            public void a() {}
+                        }
+                        """,
+                        "test/A.java")
+                .addFileContents(
+                        """
+                        package test;
+                        import test.C;
+                        public class B {
+                            public void b() {}
+                        }
+                        """,
+                        "test/B.java")
+                .addFileContents(
+                        """
+                        package test;
+                        public class C {
+                            public void c() {}
+                        }
+                        """,
+                        "test/C.java")
+                .build()) {
+
+            IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+
+            Map<String, ProjectFile> byName = new HashMap<>();
+            for (CodeUnit cu : analyzer.getAllDeclarations()) {
+                String name = cu.source().getFileName().toString().toLowerCase(Locale.ROOT);
+                byName.putIfAbsent(name, cu.source());
+            }
+
+            ProjectFile a = byName.get("a.java");
+            ProjectFile b = byName.get("b.java");
+            ProjectFile c = byName.get("c.java");
+
+            // Teleport from C. With reversed=true, we follow edges C -> B -> A
+            Map<ProjectFile, Double> seeds = Map.of(c, 1.0);
+
+            List<IAnalyzer.FileRelevance> results =
+                    ImportPageRanker.getRelatedFilesByImports(analyzer, seeds, 10, true);
+
+            assertFalse(results.stream().anyMatch(fr -> fr.file().equals(c)), "Seed C should be excluded");
+
+            assertTrue(results.size() >= 2, "Expected at least two related files (A and B)");
+
+            // Find the scores for A and B in the results
+            double scoreA = results.stream()
+                    .filter(fr -> fr.file().equals(a))
+                    .findFirst()
+                    .map(IAnalyzer.FileRelevance::score)
+                    .orElse(0.0);
+            double scoreB = results.stream()
+                    .filter(fr -> fr.file().equals(b))
+                    .findFirst()
+                    .map(IAnalyzer.FileRelevance::score)
+                    .orElse(0.0);
+
+            // B is a direct importer of C, A is an importer of B.
+            // B should have a higher score than A because it's closer to the seed in the reversed graph.
+            assertTrue(scoreB > scoreA,
+                    "Direct importer B (score=" + scoreB + ") should have higher score than indirect importer A (score=" + scoreA + ")");
         }
     }
 }

@@ -55,7 +55,7 @@ public class ContextNoGitFallbackTest {
 
             Map<String, ProjectFile> byName = new HashMap<>();
             for (CodeUnit cu : analyzer.getAllDeclarations()) {
-                String name = cu.source().getFileName().toLowerCase(Locale.ROOT);
+                String name = cu.source().getFileName().toString().toLowerCase(Locale.ROOT);
                 byName.putIfAbsent(name, cu.source());
             }
 
@@ -67,9 +67,9 @@ public class ContextNoGitFallbackTest {
 
             IGitRepo stubRepo = new IGitRepo() {
                 @Override
-                public Set<GitRepo.ModifiedFile> getModifiedFiles() {
+                public Set<IGitRepo.ModifiedFile> getModifiedFiles() {
                     repoInvoked.set(true);
-                    return java.util.Set.of();
+                    return Set.of();
                 }
 
                 @Override
@@ -79,12 +79,12 @@ public class ContextNoGitFallbackTest {
                 }
 
                 @Override
-                public void add(Collection<ai.brokk.analyzer.ProjectFile> files) {
+                public void add(Collection<ProjectFile> files) {
                     repoInvoked.set(true);
                 }
 
                 @Override
-                public void add(Path path) {
+                public void add(ProjectFile file) {
                     repoInvoked.set(true);
                 }
 

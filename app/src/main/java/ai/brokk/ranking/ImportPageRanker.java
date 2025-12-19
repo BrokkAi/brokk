@@ -39,15 +39,16 @@ public final class ImportPageRanker {
     /** Import reach depth when constructing the candidate set. */
     private static final int IMPORT_DEPTH = 2;
     /** Optional background set size to avoid tiny graphs. */
-    private static final int BACKGROUND_BUDGET = 64;
+    private static final int BACKGROUND_BUDGET = 0;
     /** Node threshold above which we log a warning about graph size. */
     private static final int LARGE_GRAPH_NODE_THRESHOLD = 2000;
 
     /**
-     * Builds a candidate set by starting from the seed files and expanding via imported files
+     * Builds a candidate set by starting from the seed files and expanding via import relationships
      * up to IMPORT_DEPTH. Optionally mixes in a small background set for stability.
      */
-    private static Set<ProjectFile> buildCandidateSet(IAnalyzer analyzer, Map<ProjectFile, Double> seedWeights) {
+    private static Set<ProjectFile> buildCandidateSet(
+            IAnalyzer analyzer, Map<ProjectFile, Double> seedWeights, boolean reversed) {
         LinkedHashSet<ProjectFile> candidates = new LinkedHashSet<>();
         ArrayDeque<ProjectFile> frontier = new ArrayDeque<>();
 
@@ -61,7 +62,9 @@ public final class ImportPageRanker {
             ArrayDeque<ProjectFile> next = new ArrayDeque<>();
             while (!frontier.isEmpty()) {
                 ProjectFile pf = frontier.removeFirst();
-                for (ProjectFile dep : importedFilesFor(analyzer, pf)) {
+                Collection<ProjectFile> neighbors =
+                        reversed ? importersOf(analyzer, pf) : importedFilesFor(analyzer, pf);
+                for (ProjectFile dep : neighbors) {
                     if (candidates.add(dep)) {
                         next.add(dep);
                     }
@@ -110,20 +113,30 @@ public final class ImportPageRanker {
         }
 
         // Build small candidate universe by import reach from seeds
-        Set<ProjectFile> candidates = buildCandidateSet(analyzer, positiveSeeds);
+        Set<ProjectFile> candidates = buildCandidateSet(analyzer, positiveSeeds, reversed);
 
-        // Build adjacency map restricted to candidate set
+        // Build adjacency map restricted to candidate set.
         Map<ProjectFile, Set<ProjectFile>> adjacency = new HashMap<>();
         for (ProjectFile pf : candidates) {
-            adjacency.computeIfAbsent(pf, __ -> new LinkedHashSet<>());
-            Set<ProjectFile> imported = importedFilesFor(analyzer, pf);
-            for (ProjectFile dep : imported) {
-                if (!candidates.contains(dep)) continue;
-                adjacency.computeIfAbsent(dep, __ -> new LinkedHashSet<>());
-                if (reversed) {
-                    adjacency.get(dep).add(pf); // reverse edge: dep -> pf (importers of dep)
-                } else {
-                    adjacency.get(pf).add(dep); // normal edge: pf -> dep (imports)
+            adjacency.put(pf, new LinkedHashSet<>());
+        }
+
+        // Build adjacency map restricted to candidate set.
+        // We iterate over every file in the candidate set (pf) and its imports (target).
+        // This defines the ground truth of the import graph.
+        // The PageRank 'flow' direction is then determined by the 'reversed' flag:
+        // - Normal (reversed=false): Rank flows from Importer to Imported (pf -> target).
+        // - Importers (reversed=true): Rank flows from Imported back to Importer (target -> pf).
+        for (ProjectFile pf : candidates) {
+            for (ProjectFile target : importedFilesFor(analyzer, pf)) {
+                if (candidates.contains(target)) {
+                    if (reversed) {
+                        // Mass flows from the file being imported back to the importer
+                        adjacency.get(target).add(pf);
+                    } else {
+                        // Mass flows from the importer to the file being imported
+                        adjacency.get(pf).add(target);
+                    }
                 }
             }
         }
@@ -205,11 +218,12 @@ public final class ImportPageRanker {
                 }
             }
 
-            // Distribute dangling mass uniformly
+            // Distribute dangling mass back to the teleport vector (Personalized PageRank variation).
+            // This ensures that mass doesn't drift away from the seeds in small graphs with sinks.
             if (Math.abs(danglingMass) > 1.0e-10d) {
-                double add = ALPHA * danglingMass * uniform;
+                double add = ALPHA * danglingMass;
                 for (int i = 0; i < n; i++) {
-                    next[i] += add;
+                    next[i] += add * v[i];
                 }
             }
 
@@ -251,6 +265,7 @@ public final class ImportPageRanker {
         return ranked.subList(0, k);
     }
 
+
     /**
      * Resolve imported files for the given source file using the most accurate analyzer APIs available.
      */
@@ -286,5 +301,21 @@ public final class ImportPageRanker {
         for (CodeUnit cu : defs) {
             out.add(cu.source());
         }
+    }
+
+    /**
+     * Resolve files that import the given file.
+     */
+    private static Set<ProjectFile> importersOf(IAnalyzer analyzer, ProjectFile file) {
+        // Scan all declarations to find files that import the target file.
+        // This is necessary because IAnalyzer does not provide a direct reverse-lookup for imports.
+        Set<ProjectFile> importers = new LinkedHashSet<>();
+        for (CodeUnit cu : analyzer.getAllDeclarations()) {
+            ProjectFile src = cu.source();
+            if (importedFilesFor(analyzer, src).contains(file)) {
+                importers.add(src);
+            }
+        }
+        return importers;
     }
 }
