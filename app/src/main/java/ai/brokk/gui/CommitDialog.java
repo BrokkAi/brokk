@@ -223,6 +223,7 @@ public class CommitDialog extends BaseThemedDialog {
         commitButton.setEnabled(false);
         cancelButton.setEnabled(false);
         commitMessageArea.setEnabled(false);
+        regenerateButton.setEnabled(false);
 
         contextManager.submitBackgroundTask("Committing changes", () -> {
             try {
@@ -243,5 +244,13 @@ public class CommitDialog extends BaseThemedDialog {
             }
             return null;
         });
+    }
+
+    @Override
+    public void dispose() {
+        if (currentWorker != null) {
+            currentWorker.cancel(true);
+        }
+        super.dispose();
     }
 }
