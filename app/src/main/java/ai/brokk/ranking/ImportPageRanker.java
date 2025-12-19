@@ -52,7 +52,8 @@ public final class ImportPageRanker {
      * Builds a candidate set and the associated import graph by starting from the seed files
      * and expanding via import relationships up to IMPORT_DEPTH.
      */
-    private static Graph buildGraph(IAnalyzer analyzer, Set<ProjectFile> seeds) {
+    private static Graph buildGraph(
+            IAnalyzer analyzer, Set<ProjectFile> seeds, Map<ProjectFile, Set<ProjectFile>> cache) {
         Map<ProjectFile, Set<ProjectFile>> forward = new HashMap<>();
         Map<ProjectFile, Set<ProjectFile>> reverse = new HashMap<>();
         ArrayDeque<ProjectFile> frontier = new ArrayDeque<>();
@@ -70,7 +71,7 @@ public final class ImportPageRanker {
             ArrayDeque<ProjectFile> next = new ArrayDeque<>();
             while (!frontier.isEmpty()) {
                 ProjectFile pf = frontier.removeFirst();
-                for (ProjectFile target : importedFilesFor(analyzer, pf)) {
+                for (ProjectFile target : importedFilesFor(analyzer, pf, cache)) {
                     // Always record the edge if we've seen or are about to see the target
                     // To keep the graph small, we only add new nodes to the frontier within IMPORT_DEPTH
                     if (!forward.containsKey(target)) {
@@ -87,7 +88,7 @@ public final class ImportPageRanker {
 
         // Backfill reverse edges for nodes discovered at the boundary
         for (ProjectFile node : forward.keySet()) {
-            for (ProjectFile target : importedFilesFor(analyzer, node)) {
+            for (ProjectFile target : importedFilesFor(analyzer, node, cache)) {
                 if (forward.containsKey(target)) {
                     forward.get(node).add(target);
                     reverse.get(target).add(node);
@@ -122,8 +123,11 @@ public final class ImportPageRanker {
             return List.of();
         }
 
+        // Local cache for import resolution during this ranking run
+        Map<ProjectFile, Set<ProjectFile>> importCache = new HashMap<>();
+
         // Build the localized graph from seeds
-        Graph graph = buildGraph(analyzer, positiveSeeds.keySet());
+        Graph graph = buildGraph(analyzer, positiveSeeds.keySet(), importCache);
 
         // The PageRank 'flow' direction is determined by the 'reversed' flag:
         // - Normal (reversed=false): Rank flows from Importer to Imported (Forward).
@@ -254,25 +258,35 @@ public final class ImportPageRanker {
 
     /**
      * Resolve imported files for the given source file using the most accurate analyzer APIs available.
+     * Uses the provided cache to avoid redundant analysis.
      */
-    private static Set<ProjectFile> importedFilesFor(IAnalyzer analyzer, ProjectFile file) {
+    private static Set<ProjectFile> importedFilesFor(
+            IAnalyzer analyzer, ProjectFile file, Map<ProjectFile, Set<ProjectFile>> cache) {
+        Set<ProjectFile> cached = cache.get(file);
+        if (cached != null) {
+            return cached;
+        }
+
+        Set<ProjectFile> resolved;
         // Prefer TreeSitterAnalyzer if available for accurate resolution
         if (analyzer instanceof TreeSitterAnalyzer tsa) {
             Set<CodeUnit> cus = tsa.importedCodeUnitsOf(file);
-            return toFiles(cus);
-        }
-
-        // Fallback using import statements + definition lookup
-        Set<ProjectFile> out = new LinkedHashSet<>();
-        List<String> imports = analyzer.importStatementsOf(file);
-        for (String imp : imports) {
-            int before = out.size();
-            addDefinitions(analyzer.getDefinitions(imp), out);
-            if (out.size() == before) {
-                addDefinitions(analyzer.searchDefinitions(imp), out);
+            resolved = toFiles(cus);
+        } else {
+            // Fallback using import statements + definition lookup
+            resolved = new LinkedHashSet<>();
+            List<String> imports = analyzer.importStatementsOf(file);
+            for (String imp : imports) {
+                int before = resolved.size();
+                addDefinitions(analyzer.getDefinitions(imp), resolved);
+                if (resolved.size() == before) {
+                    addDefinitions(analyzer.searchDefinitions(imp), resolved);
+                }
             }
         }
-        return out;
+
+        cache.put(file, resolved);
+        return resolved;
     }
 
     private static Set<ProjectFile> toFiles(Collection<CodeUnit> codeUnits) {
