@@ -15,7 +15,6 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
@@ -39,8 +38,8 @@ public final class DiffService {
         @Override
         public boolean equals(@Nullable Object o) {
             if (this == o) return true;
-            if (!(o instanceof ContextPair that)) return false;
-            return prev == that.prev && curr == that.curr;
+            if (!(o instanceof ContextPair(Context prev1, Context curr1))) return false;
+            return Objects.equals(prev, prev1) && Objects.equals(curr, curr1);
         }
 
         @Override

@@ -13,13 +13,11 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
-import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
@@ -356,15 +354,30 @@ class DiffServiceTest {
         Files.createDirectories(pf.absPath().getParent());
 
         Files.writeString(pf.absPath(), "v1\n");
-        var ctx1 = new Context(contextManager, List.of(new ContextFragment.ProjectPathFragment(pf, contextManager)), List.of(), null, CompletableFuture.completedFuture("1"));
+        var ctx1 = new Context(
+                contextManager,
+                List.of(new ContextFragment.ProjectPathFragment(pf, contextManager)),
+                List.of(),
+                null,
+                CompletableFuture.completedFuture("1"));
         ctx1.allFragments().forEach(f -> f.text().await(Duration.ofSeconds(1)));
 
         Files.writeString(pf.absPath(), "v2\n");
-        var ctx2 = new Context(contextManager, List.of(new ContextFragment.ProjectPathFragment(pf, contextManager)), List.of(), null, CompletableFuture.completedFuture("2"));
+        var ctx2 = new Context(
+                contextManager,
+                List.of(new ContextFragment.ProjectPathFragment(pf, contextManager)),
+                List.of(),
+                null,
+                CompletableFuture.completedFuture("2"));
         ctx2.allFragments().forEach(f -> f.text().await(Duration.ofSeconds(1)));
 
         Files.writeString(pf.absPath(), "v3\n");
-        var ctx3 = new Context(contextManager, List.of(new ContextFragment.ProjectPathFragment(pf, contextManager)), List.of(), null, CompletableFuture.completedFuture("3"));
+        var ctx3 = new Context(
+                contextManager,
+                List.of(new ContextFragment.ProjectPathFragment(pf, contextManager)),
+                List.of(),
+                null,
+                CompletableFuture.completedFuture("3"));
 
         var history = new ContextHistory(List.of(ctx1, ctx2, ctx3));
         var ds = history.getDiffService();

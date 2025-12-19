@@ -86,6 +86,7 @@ public class SessionManager implements AutoCloseable {
     private final SerialByKeyExecutor sessionExecutorByKey;
     private final Path sessionsDir;
     private final Map<UUID, SessionInfo> sessionsCache;
+
     public SessionManager(Path sessionsDir) {
         this.sessionsDir = sessionsDir;
         // Use a CPU-aware pool size to better handle concurrent session I/O in tests and production
