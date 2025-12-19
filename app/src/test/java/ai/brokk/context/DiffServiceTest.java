@@ -50,7 +50,7 @@ class DiffServiceTest {
 
         var ds = history.getDiffService();
         var fut = ds.diff(newCtx);
-        assertTrue(fut.isDone(), "Off-EDT diff should complete synchronously");
+        // We join here as diff() now consistently submits to the background executor.
         var diffs = fut.join();
         assertNotNull(diffs);
         assertFalse(diffs.isEmpty(), "Expected some diffs to be computed");

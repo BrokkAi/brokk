@@ -80,8 +80,7 @@ public final class DiffService {
 
     /**
      * Computes or retrieves cached diff between this context and its predecessor.
-     * - If result is absent and caller is on EDT, submits background computation and returns the future.
-     * - If result is absent and caller is not on EDT, computes synchronously on the calling thread.
+     * Submits background computation via the context manager's background executor.
      *
      * @param curr the current (new) context to compute diffs for
      * @return CompletableFuture that will contain the list of diff entries
@@ -100,36 +99,25 @@ public final class DiffService {
         // Race is fine here as computeDiff is idempotent.
         cache.put(key, future);
 
-        if (SwingUtilities.isEventDispatchThread()) {
-            Executor executor;
-            try {
-                executor = cm.getBackgroundTasks();
-            } catch (UnsupportedOperationException | NullPointerException e) {
-                // Fallback for tests or contexts where no background executor is available
-                executor = CompletableFuture::runAsync;
-            }
-
-            executor.execute(() -> {
-                try {
-                    var result = (prev == null) ? List.<Context.DiffEntry>of() : computeDiff(curr, prev);
-                    future.complete(result);
-                } catch (Throwable t) {
-                    future.completeExceptionally(t);
-                    logger.warn("Error computing diffs for context {}", curr.id(), t);
-                }
-            });
-            return future;
-        }
-
-        // Not on EDT: compute synchronously
+        Executor executor;
         try {
-            var result = (prev == null) ? List.<Context.DiffEntry>of() : computeDiff(curr, prev);
-            future.complete(result);
-            return future;
-        } catch (Throwable t) {
-            future.completeExceptionally(t);
-            throw new RuntimeException(t);
+            executor = cm.getBackgroundTasks();
+        } catch (UnsupportedOperationException | NullPointerException e) {
+            // Fallback for tests or contexts where no background executor is available
+            executor = CompletableFuture::runAsync;
         }
+
+        executor.execute(() -> {
+            try {
+                var result = (prev == null) ? List.<Context.DiffEntry>of() : computeDiff(curr, prev);
+                future.complete(result);
+            } catch (Throwable t) {
+                future.completeExceptionally(t);
+                logger.warn("Error computing diffs for context {}", curr.id(), t);
+            }
+        });
+
+        return future;
     }
 
     /**
