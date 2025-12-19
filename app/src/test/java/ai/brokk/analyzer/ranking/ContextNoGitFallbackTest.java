@@ -1,5 +1,6 @@
 package ai.brokk.analyzer.ranking;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -183,5 +184,92 @@ public class ContextNoGitFallbackTest {
         Map<ProjectFile, Double> seeds10 =
                 Map.of(p1, 1.0, p2, 1.0, p3, 1.0, p4, 1.0, p5, 1.0, p6, 1.0, p7, 1.0, p8, 1.0, p9, 1.0, p10, 1.0);
         assertTrue(ctx.areManySeedsNew(seeds10, stubRepo), "3/10 untracked is >= 30%, should return true");
+    }
+
+    @Test
+    public void testHybridGitAndImportResults() throws Exception {
+        try (var project = InlineTestProjectCreator.code(
+                        """
+                        package test;
+                        import test.B;
+                        public class A { }
+                        """,
+                        "test/A.java")
+                .addFileContents(
+                        """
+                        package test;
+                        import test.C;
+                        public class B { }
+                        """,
+                        "test/B.java")
+                .addFileContents(
+                        """
+                        package test;
+                        public class C { }
+                        """,
+                        "test/C.java")
+                .addFileContents(
+                        """
+                        package test;
+                        public class D { }
+                        """,
+                        "test/D.java")
+                .build()) {
+
+            IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+
+            Map<String, ProjectFile> byName = new HashMap<>();
+            for (CodeUnit cu : analyzer.getAllDeclarations()) {
+                String name = cu.source().getFileName().toString().toLowerCase(Locale.ROOT);
+                byName.putIfAbsent(name, cu.source());
+            }
+
+            ProjectFile a = byName.get("a.java");
+            ProjectFile b = byName.get("b.java");
+            ProjectFile c = byName.get("c.java");
+            ProjectFile d = byName.get("d.java");
+
+            // Mock Git results: return only 'D'
+            IGitRepo stubRepo = new IGitRepo() {
+                @Override public Set<ProjectFile> getTrackedFiles() { return Set.of(a, b, c, d); }
+                @Override public Set<ModifiedFile> getModifiedFiles() { return Set.of(); }
+                @Override public void add(Collection<ProjectFile> files) {}
+                @Override public void add(ProjectFile file) {}
+                @Override public void remove(ProjectFile file) {}
+            };
+
+            // We need to bypass the real GitDistance.getRelatedFiles because it's static/hard to mock,
+            // but we can influence the IContextManager to use our stub repo.
+            // Since we want to test the MERGING logic in Context.getMostRelevantFiles,
+            // and GitDistance is called directly, we rely on the fact that A/B/C/D are tracked.
+            // However, to ensure a hybrid result, we ask for topK=3.
+            // If Git returns 1 result (D), it should supplement with 2 from imports (B, C).
+
+            IContextManager cm = new IContextManager() {
+                @Override public IAnalyzer getAnalyzer() { return analyzer; }
+                @Override public IProject getProject() { return project; }
+                @Override public IGitRepo getRepo() { return stubRepo; }
+            };
+
+            Context ctx = new Context(cm).addFragments(new ContextFragment.ProjectPathFragment(a, cm));
+
+            // We want topK = 3. 
+            // 1. Git Distance will run (because hasGit is true and seeds are tracked).
+            // 2. Git Distance will return some results.
+            // 3. If results < 3, ImportPageRanker will supplement.
+            List<ProjectFile> results = ctx.getMostRelevantFiles(3);
+
+            // Assertions
+            assertFalse(results.contains(a), "Seed A should be excluded");
+            assertTrue(results.size() >= 2, "Should have at least B and C from imports if Git returns little");
+            
+            // Ensure no duplicates
+            Set<ProjectFile> resultSet = new HashSet<>(results);
+            assertEquals(results.size(), resultSet.size(), "Results should not contain duplicates");
+            
+            // Check that B and C (linked via imports) are present
+            assertTrue(results.contains(b), "Expected B.java (direct import)");
+            assertTrue(results.contains(c), "Expected C.java (indirect import)");
+        }
     }
 }
