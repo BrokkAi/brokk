@@ -60,7 +60,6 @@ public class TaskListPersistenceTest {
         assertEquals(data.tasks(), deserialized.tasks());
     }
 
-
     @Test
     void createOrReplaceTaskList_dropsCompletedTasks_persistsCorrectly() throws Exception {
         var initial =
@@ -92,7 +91,6 @@ public class TaskListPersistenceTest {
             assertFalse(task.done());
         }
     }
-
 
     @Test
     void taskListFragment_usesCorrectSyntaxStyle() throws Exception {

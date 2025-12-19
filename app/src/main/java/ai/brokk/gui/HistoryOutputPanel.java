@@ -2491,9 +2491,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     var toolSpecs = new ArrayList<ToolSpecification>();
                     toolSpecs.addAll(tr.getTools(List.of("createOrReplaceTaskList")));
                     if (toolSpecs.isEmpty()) {
-                        chrome.toolError(
-                                "Required tool 'createOrReplaceTaskList' is not registered.",
-                                "Task List");
+                        chrome.toolError("Required tool 'createOrReplaceTaskList' is not registered.", "Task List");
                         return;
                     }
 

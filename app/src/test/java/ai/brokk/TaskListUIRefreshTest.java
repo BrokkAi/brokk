@@ -97,7 +97,6 @@ public class TaskListUIRefreshTest {
         // (Verified at UI layer)
     }
 
-
     @Test
     void setTaskList_fragmentDescriptionAndSyntaxConsistent() {
         var cm = new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO());

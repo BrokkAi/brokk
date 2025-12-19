@@ -157,5 +157,4 @@ public class TaskListTest {
         var action = result.getAction();
         assertTrue(action.toLowerCase().contains("replaced"), "Action should indicate replacement");
     }
-
 }

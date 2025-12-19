@@ -477,27 +477,27 @@ public class PreviewManager {
     }
 
     private void showStringPreview(ContextFragment.StringFragment sf, String initialTitle) {
-            String text = sf.previewText();
-            String style = sf.previewSyntaxStyle();
+        String text = sf.previewText();
+        String style = sf.previewSyntaxStyle();
 
-            logger.debug(
-                            "showStringPreview: title='{}', textLength={}, style='{}'",
-                            initialTitle,
-                            (text != null ? text.length() : -1),
-                            style);
+        logger.debug(
+                "showStringPreview: title='{}', textLength={}, style='{}'",
+                initialTitle,
+                (text != null ? text.length() : -1),
+                style);
 
-            JComponent panel;
-            if (org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(style)) {
-                    var markdownPanel = ai.brokk.gui.mop.MarkdownOutputPool.instance().borrow();
-                    markdownPanel.updateTheme(ai.brokk.project.MainProject.getTheme());
-                    markdownPanel.setText(java.util.List.of(ai.brokk.util.Messages.customSystem(text)));
-                    panel = createSearchableContentPanel(java.util.List.of(markdownPanel), null, false);
-            } else {
-                    panel = new ai.brokk.gui.dialogs.PreviewTextPanel(cm, null, text, style, chrome.getTheme(), sf);
-            }
+        JComponent panel;
+        if (org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(style)) {
+            var markdownPanel = ai.brokk.gui.mop.MarkdownOutputPool.instance().borrow();
+            markdownPanel.updateTheme(ai.brokk.project.MainProject.getTheme());
+            markdownPanel.setText(java.util.List.of(ai.brokk.util.Messages.customSystem(text)));
+            panel = createSearchableContentPanel(java.util.List.of(markdownPanel), null, false);
+        } else {
+            panel = new ai.brokk.gui.dialogs.PreviewTextPanel(cm, null, text, style, chrome.getTheme(), sf);
+        }
 
-            showPreviewFrame(initialTitle, panel, sf);
-            bindTitleUpdate(sf, panel, initialTitle);
+        showPreviewFrame(initialTitle, panel, sf);
+        bindTitleUpdate(sf, panel, initialTitle);
     }
 
     /**
