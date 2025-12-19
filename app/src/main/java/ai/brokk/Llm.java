@@ -1484,7 +1484,8 @@ public class Llm {
                 if (pricing.bands().isEmpty()) {
                     message = "Cost unknown for %s (%s)".formatted(modelName, tokenSummary);
                 } else {
-                    double cost = pricing.getCostFor(uncached, cached, output);
+                    var tier = Service.getProcessingTier(model);
+                    double cost = pricing.getCostFor(uncached, cached, output, tier);
                     DecimalFormat df = (DecimalFormat) NumberFormat.getNumberInstance(Locale.US);
                     df.applyPattern("#,##0.0000");
                     String costStr = df.format(cost);
