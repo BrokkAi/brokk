@@ -12,7 +12,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * Integration tests verifying WorkspaceTools task list methods delegate correctly
+ * Integration tests verifying WorkspaceTools task list method delegates correctly
  * to ContextManager and produce the expected task list state.
  */
 public class TaskListWorkspaceToolsIntegrationTest {
@@ -38,7 +38,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
     }
 
     @Test
-    void workspaceTools_bothTaskListTools_updateContextImmutably() {
+    void workspaceTools_createOrReplaceTaskList_updateContextImmutably() {
         var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
         var context = new Context(cm);
         var wst = new WorkspaceTools(context);
