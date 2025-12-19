@@ -451,15 +451,16 @@ class DiffServiceTest {
         for (int i = 0; i < threadCount; i++) {
             final int idx = i;
             new Thread(() -> {
-                try {
-                    startLatch.await();
-                    futures[idx] = ds.diff(ctx2);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                } finally {
-                    doneLatch.countDown();
-                }
-            }).start();
+                        try {
+                            startLatch.await();
+                            futures[idx] = ds.diff(ctx2);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        } finally {
+                            doneLatch.countDown();
+                        }
+                    })
+                    .start();
         }
 
         startLatch.countDown();
@@ -534,13 +535,13 @@ class DiffServiceTest {
 
         var oldFrag = new ContextFragment.ProjectPathFragment(pf, fallbackCm);
         oldFrag.text().await(Duration.ofSeconds(1));
-        var oldCtx = new Context(
-                fallbackCm, List.of(oldFrag), List.of(), null, CompletableFuture.completedFuture("old"));
+        var oldCtx =
+                new Context(fallbackCm, List.of(oldFrag), List.of(), null, CompletableFuture.completedFuture("old"));
 
         Files.writeString(pf.absPath(), "v2\n");
         var newFrag = new ContextFragment.ProjectPathFragment(pf, fallbackCm);
-        var newCtx = new Context(
-                fallbackCm, List.of(newFrag), List.of(), null, CompletableFuture.completedFuture("new"));
+        var newCtx =
+                new Context(fallbackCm, List.of(newFrag), List.of(), null, CompletableFuture.completedFuture("new"));
 
         var history = new ContextHistory(oldCtx);
         history.pushContext(newCtx);
