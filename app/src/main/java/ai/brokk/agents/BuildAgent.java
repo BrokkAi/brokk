@@ -116,6 +116,13 @@ public class BuildAgent {
                 .filter(f -> f.getParent().equals(Path.of("")))
                 .map(ProjectFile::toString)
                 .toList();
+
+        // Early exit if project has no relevant files
+        if (files.isEmpty()) {
+            logger.info("No tracked files found in project root - skipping BuildAgent execution");
+            return BuildDetails.EMPTY;
+        }
+
         BuildSystem detectedSystem = BuildToolConventions.determineBuildSystem(files);
         this.currentExcludedDirectories = new ArrayList<>(BuildToolConventions.getDefaultExcludes(detectedSystem));
         logger.info(
@@ -280,6 +287,17 @@ public class BuildAgent {
 
                 Use the tools to examine build files (like `pom.xml`, `build.gradle`, etc.), configuration files, and linting files,
                 as necessary, to determine the information needed by `reportBuildDetails`.
+
+                **IMPORTANT**: If after initial exploration you find:
+                - The project root is empty or contains no code files
+                - No recognized build files (pom.xml, build.gradle, package.json, cargo.toml, etc.)
+                - The project structure is unclear or unsupported
+
+                Then call `abortBuildDetails` immediately with an explanation. Do NOT continue exploring indefinitely.
+                Examples of when to abort:
+                - `listFiles(".")` returns "No files found"
+                - Only .git directory exists with no other content
+                - After checking root and common subdirectories, no build configuration is found
 
                 When selecting build or test commands, prefer flags or sub-commands that minimise console output (for example, Maven -q, Gradle --quiet, npm test --silent, sbt -error).
                 Avoid verbose flags such as --info, --debug, or -X unless they are strictly required for correct operation.
