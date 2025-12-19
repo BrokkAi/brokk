@@ -366,6 +366,22 @@ public class CodeAgent {
             assert es.pendingBlocks().isEmpty() : es;
 
             if (options.contains(Option.DEFER_BUILD)) {
+                // Report Java lint diagnostics before stopping (issue #2131)
+                if (!es.javaLintDiagnostics().isEmpty()) {
+                    var diagnosticMessages = new StringBuilder();
+                    diagnosticMessages.append("Java syntax issues detected:\n\n");
+                    for (var entry : es.javaLintDiagnostics().entrySet()) {
+                        var pf = entry.getKey();
+                        var diags = entry.getValue();
+                        diagnosticMessages.append(String.format("**%s**: %d issue(s)\n", pf.getFileName(), diags.size()));
+                        for (var diag : diags) {
+                            diagnosticMessages.append("  - ").append(diag.description()).append("\n");
+                        }
+                        diagnosticMessages.append("\n");
+                    }
+                    report(diagnosticMessages.toString());
+                }
+
                 reportComplete(
                         es.blocksAppliedWithoutBuild() > 0
                                 ? "Edits applied. Build/check deferred."
