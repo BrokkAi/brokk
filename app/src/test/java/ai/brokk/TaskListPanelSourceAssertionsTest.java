@@ -17,11 +17,10 @@ public class TaskListPanelSourceAssertionsTest {
     }
 
     @Test
-    void has_runAfterModelRefresh_and_runAllAfterModelRefresh() throws Exception {
+    void exposes_runArchitectOnAll() throws Exception {
         String src = read("src/main/java/ai/brokk/gui/terminal/TaskListPanel.java");
-        assertTrue(src.contains("runAfterModelRefresh("), "TaskListPanel should include runAfterModelRefresh helper");
         assertTrue(
-                src.contains("public void runAllAfterModelRefresh()"),
-                "TaskListPanel should expose runAllAfterModelRefresh for post-refresh execution");
+                src.contains("public void runArchitectOnAll()"),
+                "TaskListPanel should expose runArchitectOnAll for running all tasks");
     }
 }

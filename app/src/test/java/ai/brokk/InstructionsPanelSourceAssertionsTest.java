@@ -20,22 +20,27 @@ public class InstructionsPanelSourceAssertionsTest {
     }
 
     @Test
-    void gating_is_wired_for_both_Lutz_and_Plan_and_uses_replaceOnly_dialog() throws Exception {
+    void gating_is_wired_for_both_Lutz_and_Plan_via_option_dialog() throws Exception {
         String src = read("src/main/java/ai/brokk/gui/InstructionsPanel.java");
 
-        boolean usesShow =
-                src.contains("AutoPlayGateDialog.show(") || src.contains("AutoPlayGateDialog.showReplaceOnly(");
-
-        assertTrue(usesShow, "AutoPlayGateDialog.show or showReplaceOnly should be used for gating");
+        assertTrue(
+                src.contains("JOptionPane.showOptionDialog"),
+                "InstructionsPanel should use an option dialog for gating when pre-existing tasks exist");
+        assertTrue(
+                src.contains("New tasks were created. What would you like to do?"),
+                "Gating dialog should prompt the user about new tasks");
+        assertTrue(
+                src.contains("Append to existing") && src.contains("Replace with new"),
+                "Gating dialog should offer append vs replace options");
         assertTrue(src.contains("ACTION_LUTZ"), "Lutz action constant should be present in InstructionsPanel");
         assertTrue(src.contains("ACTION_PLAN"), "Plan action constant should be present in InstructionsPanel");
     }
 
     @Test
-    void autoplay_waits_for_model_refresh_before_run_all() throws Exception {
+    void autoplay_triggers_run_architect_on_all() throws Exception {
         String src = read("src/main/java/ai/brokk/gui/InstructionsPanel.java");
         assertTrue(
-                src.contains("runAllAfterModelRefresh()"),
-                "InstructionsPanel should trigger TaskListPanel.runAllAfterModelRefresh after Lutz completion");
+                src.contains("runArchitectOnAll()"),
+                "InstructionsPanel should trigger TaskListPanel.runArchitectOnAll after Lutz completion in EZ mode");
     }
 }

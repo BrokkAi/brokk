@@ -39,7 +39,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
 
     @Test
     void workspaceTools_createOrReplaceTaskList_updateContextImmutably() {
-        var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
+        var cm = new TestContextManager(Paths.get(".").toAbsolutePath().normalize(), new TestConsoleIO());
         var context = new Context(cm);
         var wst = new WorkspaceTools(context);
 
@@ -92,7 +92,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
 
     @Test
     void workspaceTools_taskTitlesAutoSummarized_inBothMethods() {
-        var cm = new TestContextManager(Paths.get("."), new TestConsoleIO());
+        var cm = new TestContextManager(Paths.get(".").toAbsolutePath().normalize(), new TestConsoleIO());
         var context = new Context(cm);
         var wst = new WorkspaceTools(context);
 
