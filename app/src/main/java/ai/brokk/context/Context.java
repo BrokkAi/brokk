@@ -10,6 +10,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment.HistoryFragment;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.ActivityTableRenderers;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.ranking.ImportPageRanker;
@@ -369,7 +370,7 @@ public class Context {
         return List.copyOf(resultFiles);
     }
 
-    private boolean areManySeedsNew(Map<ProjectFile, Double> weightedSeeds, GitRepo repo) {
+    public boolean areManySeedsNew(Map<ProjectFile, Double> weightedSeeds, IGitRepo repo) {
         if (weightedSeeds.isEmpty()) {
             return false;
         }
