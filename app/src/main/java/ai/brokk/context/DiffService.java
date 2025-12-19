@@ -39,7 +39,7 @@ public final class DiffService {
         public boolean equals(@Nullable Object o) {
             if (this == o) return true;
             if (!(o instanceof ContextPair(Context prev1, Context curr1))) return false;
-            return Objects.equals(prev, prev1) && Objects.equals(curr, curr1);
+            return prev == prev1 && curr == curr1;
         }
 
         @Override
