@@ -1553,8 +1553,43 @@ public class Chrome
     public void close() {
         logger.info("Closing Chrome UI");
 
-        contextManager.close();
-        frame.dispose();
+        // IMPORTANT: This method MUST NOT block the Swing Event Dispatch Thread (EDT).
+        // The ContextManager.shutdown/close can perform potentially slow operations
+        // (executor shutdown, flushing logs, network calls, etc.). Blocking here would
+        // make the UI unresponsive and can lead to deadlocks during window close.
+        //
+        // Policy: initiate shutdown asynchronously and do not wait on the EDT.
+        // - We call ContextManager.closeAsync(...) to start shutdown off-EDT.
+        // - Any completion handling (logging, cleanup) runs asynchronously on completion.
+        // - We dispose the frame immediately so the window visibly closes promptly.
+        //
+        // Placing the shutdown initiation inside a try/catch prevents any unexpected
+        // exceptions from escaping the EDT.
+        try {
+            logger.debug(
+                    "Initiating asynchronous ContextManager.closeAsync(1_000) for project {} (non-blocking EDT)",
+                    contextManager.getProject().getRoot());
+            var shutdownFuture = contextManager.closeAsync(1_000);
+            logger.debug("ContextManager.closeAsync(1_000) invoked (shutdown proceeding asynchronously)");
+            shutdownFuture.whenComplete((v, t) -> {
+                if (t != null) {
+                    logger.warn("Asynchronous ContextManager shutdown completed with error", t);
+                } else {
+                    logger.debug("Asynchronous ContextManager shutdown completed successfully");
+                }
+            });
+        } catch (Throwable t) {
+            // Defensive: never let shutdown initiation throw on the EDT
+            logger.warn("Failed to initiate asynchronous ContextManager shutdown", t);
+        }
+
+        // Dispose UI immediately so window close is responsive.
+        try {
+            frame.dispose();
+        } catch (Throwable t) {
+            logger.warn("Error while disposing frame", t);
+        }
+
         // Unregister this instance
         openInstances.remove(this);
     }
