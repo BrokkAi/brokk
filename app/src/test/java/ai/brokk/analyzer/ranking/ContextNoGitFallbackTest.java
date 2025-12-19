@@ -15,12 +15,16 @@ import ai.brokk.project.IProject;
 import ai.brokk.testutil.AnalyzerCreator;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestContextManager;
-import java.nio.file.Paths;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 public class ContextNoGitFallbackTest {
+
+    @TempDir
+    Path tempDir;
 
     @Test
     public void noGitFallbackUsesImportPageRanker() throws Exception {
@@ -132,7 +136,7 @@ public class ContextNoGitFallbackTest {
 
     @Test
     public void testAreManySeedsNewBoundary() {
-        TestContextManager tcm = new TestContextManager(Paths.get("/tmp"), Set.of());
+        TestContextManager tcm = new TestContextManager(tempDir, Set.of());
         Context ctx = new Context(tcm);
 
         ProjectFile p1 = tcm.toFile("p1");
