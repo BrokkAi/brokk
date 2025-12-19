@@ -1968,7 +1968,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             project.saveBuildDetails(inferredDetails);
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "Build details inferred and saved");
+
+            // Show appropriate notification based on whether build details were found
+            if (inferredDetails == BuildDetails.EMPTY) {
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "Could not determine build configuration - project structure may be unsupported or incomplete");
+            } else {
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "Build details inferred and saved");
+            }
+
             return inferredDetails;
         });
     }
