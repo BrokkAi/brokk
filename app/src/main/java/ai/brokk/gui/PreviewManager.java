@@ -483,7 +483,7 @@ public class PreviewManager {
         logger.debug(
                 "showStringPreview: title='{}', textLength={}, style='{}'",
                 initialTitle,
-                (text != null ? text.length() : -1),
+                text.length(),
                 style);
 
         JComponent panel;
