@@ -480,11 +480,7 @@ public class PreviewManager {
         String text = sf.previewText();
         String style = sf.previewSyntaxStyle();
 
-        logger.debug(
-                "showStringPreview: title='{}', textLength={}, style='{}'",
-                initialTitle,
-                text.length(),
-                style);
+        logger.debug("showStringPreview: title='{}', textLength={}, style='{}'", initialTitle, text.length(), style);
 
         JComponent panel;
         if (org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(style)) {

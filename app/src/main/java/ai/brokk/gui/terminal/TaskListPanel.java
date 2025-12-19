@@ -1979,7 +1979,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var taskTexts = new ArrayList<String>(indices.length);
         for (int idx : indices) {
             if (idx >= 0 && idx < model.getSize()) {
-                var item = requireNonNull(model.getElementAt(idx));
+                var item = model.getElementAt(idx);
                 taskTexts.add(item.text());
             }
         }
@@ -2415,7 +2415,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         private final Supplier<List<TaskList.TaskItem>> tasksSupplier;
 
         public TaskListModel(Supplier<List<TaskList.TaskItem>> tasksSupplier) {
-            this.tasksSupplier = Objects.requireNonNull(tasksSupplier);
+            this.tasksSupplier = tasksSupplier;
         }
 
         private List<TaskList.TaskItem> tasks() {
