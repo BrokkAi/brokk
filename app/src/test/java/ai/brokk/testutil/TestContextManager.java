@@ -19,6 +19,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jetbrains.annotations.Nullable;
 
@@ -201,5 +203,10 @@ public final class TestContextManager implements IContextManager {
         return context.withTaskList(new TaskList.TaskListData(List.copyOf(existing)), "Task list updated");
     }
 
-    private String buildFragmentContent = "";
+    private final ExecutorService backgroundTasks = Executors.newCachedThreadPool();
+
+    @Override
+    public ExecutorService getBackgroundTasks() {
+        return backgroundTasks;
+    }
 }

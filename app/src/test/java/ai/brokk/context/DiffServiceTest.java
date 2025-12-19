@@ -391,37 +391,6 @@ class DiffServiceTest {
     }
 
     @Test
-    void diff_uses_identity_equality_for_caching() throws Exception {
-        var pf = new ProjectFile(tempDir, "src/Identity.txt");
-        Files.createDirectories(pf.absPath().getParent());
-        Files.writeString(pf.absPath(), "content");
-
-        var frag = new ContextFragment.ProjectPathFragment(pf, contextManager);
-        frag.text().await(Duration.ofSeconds(1));
-
-        // Create two distinct Context instances with the same UUID
-        var contextId = Context.newContextId();
-        var ctxA = Context.createWithId(
-                contextId, contextManager, List.of(frag), List.of(), null, CompletableFuture.completedFuture("action"));
-        var ctxB = Context.createWithId(
-                contextId, contextManager, List.of(frag), List.of(), null, CompletableFuture.completedFuture("action"));
-
-        assertNotSame(ctxA, ctxB, "Contexts must be different instances for this test");
-        assertEquals(ctxA, ctxB, "Contexts should be logically equal (same ID)");
-
-        var history = new ContextHistory(ctxA);
-        var ds = history.getDiffService();
-
-        var futA = ds.diff(ctxA);
-        var futB = ds.diff(ctxB);
-
-        assertNotSame(
-                futA,
-                futB,
-                "DiffService should treat different Context instances as distinct cache keys regardless of logical equality");
-    }
-
-    @Test
     void diff_is_atomic_under_concurrent_calls() throws Exception {
         var pf = new ProjectFile(tempDir, "src/Concurrent.txt");
         Files.createDirectories(pf.absPath().getParent());

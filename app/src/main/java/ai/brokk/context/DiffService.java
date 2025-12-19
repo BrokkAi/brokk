@@ -1,5 +1,7 @@
 package ai.brokk.context;
 
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+
 import ai.brokk.ExceptionReporter;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
@@ -11,7 +13,6 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -34,8 +35,7 @@ public final class DiffService {
     private static final int MAX_CACHE_SIZE = 1000;
 
     /** Identity-based pair for caching diffs between two specific context instances. */
-    private record ContextPair(@Nullable Context prev, Context curr) {
-    }
+    private record ContextPair(@Nullable Context prev, Context curr) {}
 
     private final AsyncCache<ContextPair, List<Context.DiffEntry>> cache =
             Caffeine.newBuilder().maximumSize(MAX_CACHE_SIZE).buildAsync();
@@ -82,7 +82,7 @@ public final class DiffService {
                 return CompletableFuture.completedFuture(List.of());
             }
             return CompletableFuture.supplyAsync(
-                    () -> computeDiff(k.curr(), k.prev()), cm.getBackgroundTasks());
+                    () -> computeDiff(k.curr(), castNonNull(k.prev())), cm.getBackgroundTasks());
         });
     }
 
@@ -138,6 +138,8 @@ public final class DiffService {
      * are resolved and the diff is computed.
      * Triggers async computations but does not block on them.
      * Errors are logged and result in a placeholder DiffEntry with empty diff.
+     *
+     * The DiffEntry returned is Nullable!
      */
     @Blocking
     private static CompletableFuture<Context.DiffEntry> computeDiffForFragment(
@@ -432,7 +434,7 @@ public final class DiffService {
             }
             list.add(Map.entry(title, de));
         }
-        list.sort(Comparator.comparing(Map.Entry::getKey));
+        list.sort(Map.Entry.comparingByKey());
         return list;
     }
 
