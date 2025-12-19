@@ -23,7 +23,6 @@ import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.AtomicWrites;
 import ai.brokk.util.BrokkConfigPaths;
 import ai.brokk.util.DependencyUpdateScheduler;
-import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.PathNormalizer;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -110,7 +109,6 @@ public final class MainProject extends AbstractProject {
     private static final String JIRA_PROJECT_KEY_KEY = "jiraProjectKey";
 
     private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
-    private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
     private static final String COMMIT_MESSAGE_FORMAT_KEY = "commitMessageFormat";
     private static final String EXCEPTION_REPORTING_ENABLED_KEY = "exceptionReportingEnabled";
@@ -500,6 +498,7 @@ public final class MainProject extends AbstractProject {
         notifyAutoUpdateGitDependenciesChanged();
     }
 
+    @Override
     public long getRunCommandTimeoutSeconds() {
         String valueStr = projectProps.getProperty(RUN_COMMAND_TIMEOUT_SECONDS_KEY);
         if (valueStr == null) {
