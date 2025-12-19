@@ -18,10 +18,22 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class EditBlockTest {
+    @BeforeEach
+    void setupEach() {
+        SyntaxAwareConfig.setSyntaxAwareExtensions(Set.of("java"));
+    }
+
+    @AfterEach
+    void teardownEach() {
+        SyntaxAwareConfig.resetSyntaxAwareExtensions();
+    }
+
     @Test
     void testParseEditBlocksSimple() {
         String edit =
