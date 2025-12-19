@@ -1319,8 +1319,8 @@ public class CodeAgent {
          * history compaction without depending on the diff library package structure at compile time.
          */
         @VisibleForTesting
-        SequencedSet<EditBlock.SearchReplaceBlock> toSearchReplaceBlocks() {
-            var results = new LinkedHashSet<EditBlock.SearchReplaceBlock>();
+        List<EditBlock.SearchReplaceBlock> toSearchReplaceBlocks() {
+            var results = new ArrayList<EditBlock.SearchReplaceBlock>();
             var originals = originalFileContents();
 
             // Include both files we have originals for and new files created in this turn

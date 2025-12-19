@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.EditBlock.OutputBlock;
 import ai.brokk.prompts.EditBlockParser;
-import java.util.ArrayList;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -367,12 +366,12 @@ class EditBlockParserTest {
 
             @Test
             >>>>>>> REPLACE
-        ```
+            ```
         """;
 
         var editsOnly = EditBlockParser.instance.parseEditBlocks(input, Set.of());
         assertNull(editsOnly.parseError(), "No parse errors expected");
-        var blocks = new ArrayList<>(editsOnly.blocks());
+        var blocks = editsOnly.blocks();
         assertEquals(3, blocks.size(), "Should parse exactly three edit blocks");
 
         // Block 1 assertions

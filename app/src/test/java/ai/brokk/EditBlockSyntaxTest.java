@@ -15,7 +15,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -54,7 +53,9 @@ public class EditBlockSyntaxTest {
 
     @AfterEach
     void teardownEach() {
-        testProject.close();
+        if (testProject != null) {
+            testProject.close();
+        }
     }
 
     // ==================== BRK_FUNCTION Tests ====================
@@ -907,10 +908,9 @@ public class EditBlockSyntaxTest {
     }
 
     private List<EditBlock.SearchReplaceBlock> parseBlocks(String response, TestContextManager ctx) {
-        var blocks = EditBlockParser.instance
+        return EditBlockParser.instance
                 .parseEditBlocks(response, ctx.getFilesInContext())
                 .blocks();
-        return new ArrayList<>(blocks);
     }
 
     /**

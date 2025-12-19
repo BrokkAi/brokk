@@ -40,7 +40,7 @@ class EditBlockTest {
                       Hope you like it!
                       """;
 
-        var blocks = parseBlocks(edit, Set.of("foo.txt"));
+        EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("foo.txt"));
         assertEquals(1, blocks.length);
         assertEquals("foo.txt", blocks[0].rawFileName().toString());
         assertEquals("Two\n", blocks[0].beforeText());
@@ -66,7 +66,7 @@ class EditBlockTest {
                       Hope you like it!
                       """;
 
-        var blocks = parseBlocks(edit, Set.of("foo.txt"));
+        EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("foo.txt"));
         assertEquals(1, blocks.length);
         assertEquals("foo.txt", blocks[0].rawFileName().toString());
         assertEquals("Two\n", blocks[0].beforeText());
@@ -100,7 +100,7 @@ class EditBlockTest {
                       Hope you like it!
                       """;
 
-        var blocks = parseBlocks(edit, Set.of("foo.txt"));
+        EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("foo.txt"));
         assertEquals(2, blocks.length);
         // first block
         assertEquals("foo.txt", blocks[0].rawFileName().toString());
@@ -134,7 +134,7 @@ class EditBlockTest {
                       >>>>>>> REPLACE
                       ```"""; // no final newline
 
-        var blocks = parseBlocks(edit, Set.of("foo/coder.py"));
+        EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("foo/coder.py"));
         assertEquals(2, blocks.length);
         assertEquals("lineA\n", blocks[0].beforeText());
         assertEquals("lineB\n", blocks[0].afterText());
@@ -171,7 +171,7 @@ class EditBlockTest {
                       Hope you like it!
                       """;
 
-        var blocks = parseBlocks(edit, Set.of("filename/to/a/file1.txt"));
+        EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("filename/to/a/file1.txt"));
         assertEquals(2, blocks.length);
         assertEquals("filename/to/a/file2.txt", blocks[0].rawFileName());
         assertEquals("BRK_ENTIRE_FILE\n", blocks[0].beforeText());
