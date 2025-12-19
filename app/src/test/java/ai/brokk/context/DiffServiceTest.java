@@ -471,4 +471,44 @@ class DiffServiceTest {
             assertSame(firstFuture, futures[i], "All concurrent calls must return the exact same future instance");
         }
     }
+
+    @Test
+    void cache_clear_invalidates_all_entries() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Clear.txt");
+        Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "v1");
+
+        var ctx1 = new Context(
+                contextManager,
+                List.of(new ContextFragment.ProjectPathFragment(pf, contextManager)),
+                List.of(),
+                null,
+                CompletableFuture.completedFuture("1"));
+        Files.writeString(pf.absPath(), "v2");
+        var ctx2 = new Context(
+                contextManager,
+                List.of(new ContextFragment.ProjectPathFragment(pf, contextManager)),
+                List.of(),
+                null,
+                CompletableFuture.completedFuture("2"));
+
+        var history = new ContextHistory(List.of(ctx1, ctx2));
+        var ds = history.getDiffService();
+
+        // 1. Compute and ensure it's in cache
+        var results = ds.diff(ctx2).join();
+        assertFalse(results.isEmpty());
+        assertTrue(ds.peek(ctx2).isPresent());
+
+        // 2. Clear cache
+        ds.clear();
+
+        // 3. Verify peek returns empty
+        assertFalse(ds.peek(ctx2).isPresent(), "Cache should be empty after clear()");
+
+        // 4. Verify re-computation works
+        var results2 = ds.diff(ctx2).join();
+        assertEquals(results, results2, "Recomputed results should match original results");
+        assertTrue(ds.peek(ctx2).isPresent(), "Cache should be populated again after re-computation");
+    }
 }
