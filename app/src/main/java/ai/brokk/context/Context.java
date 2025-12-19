@@ -728,7 +728,7 @@ public class Context {
      * Creates a new Context with a modified task history list. This generates a new context state with a new ID and
      * action.
      */
-    public Context withCompressedHistory(List<TaskEntry> newHistory) {
+    public Context withHistory(List<TaskEntry> newHistory) {
         return new Context(
                 newContextId(),
                 contextManager,
