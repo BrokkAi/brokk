@@ -44,7 +44,14 @@ import org.jetbrains.annotations.Nullable;
 public class SessionManager implements AutoCloseable {
     /** Record representing session metadata for the sessions management system. */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record SessionInfo(UUID id, String name, long created, long modified) {
+    public record SessionInfo(
+            UUID id,
+            String name,
+            long created,
+            long modified,
+            @com.fasterxml.jackson.annotation.JsonProperty(defaultValue = "true") boolean isReadOnly,
+            @com.fasterxml.jackson.annotation.JsonProperty(defaultValue = "false") boolean isManagedContext,
+            @com.fasterxml.jackson.annotation.JsonProperty(defaultValue = "false") boolean isPlanMode) {
 
         @JsonIgnore
         public boolean isSessionModified() {
@@ -122,7 +129,7 @@ public class SessionManager implements AutoCloseable {
     public SessionInfo newSession(String name) {
         var sessionId = newSessionId();
         var currentTime = System.currentTimeMillis();
-        var newSessionInfo = new SessionInfo(sessionId, name, currentTime, currentTime);
+        var newSessionInfo = new SessionInfo(sessionId, name, currentTime, currentTime, true, false, false);
         sessionsCache.put(sessionId, newSessionInfo);
 
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
@@ -151,7 +158,14 @@ public class SessionManager implements AutoCloseable {
     public void renameSession(UUID sessionId, String newName) {
         SessionInfo oldInfo = sessionsCache.get(sessionId);
         if (oldInfo != null) {
-            var updatedInfo = new SessionInfo(oldInfo.id(), newName, oldInfo.created(), System.currentTimeMillis());
+            var updatedInfo = new SessionInfo(
+                    oldInfo.id(),
+                    newName,
+                    oldInfo.created(),
+                    System.currentTimeMillis(),
+                    oldInfo.isReadOnly(),
+                    oldInfo.isManagedContext(),
+                    oldInfo.isPlanMode());
             sessionsCache.put(sessionId, updatedInfo);
             sessionExecutorByKey.submit(sessionId.toString(), () -> {
                 try {
@@ -289,7 +303,7 @@ public class SessionManager implements AutoCloseable {
     public SessionInfo copySession(UUID originalSessionId, String newSessionName) throws Exception {
         var newSessionId = newSessionId();
         var currentTime = System.currentTimeMillis();
-        var newSessionInfo = new SessionInfo(newSessionId, newSessionName, currentTime, currentTime);
+        var newSessionInfo = new SessionInfo(newSessionId, newSessionName, currentTime, currentTime, true, false, false);
 
         var copyFuture = sessionExecutorByKey.submit(originalSessionId.toString(), () -> {
             try {
@@ -408,7 +422,13 @@ public class SessionManager implements AutoCloseable {
         if (currentInfo != null) {
             if (!isSessionEmpty(currentInfo, contextHistory)) {
                 infoToSave = new SessionInfo(
-                        currentInfo.id(), currentInfo.name(), currentInfo.created(), System.currentTimeMillis());
+                        currentInfo.id(),
+                        currentInfo.name(),
+                        currentInfo.created(),
+                        System.currentTimeMillis(),
+                        currentInfo.isReadOnly(),
+                        currentInfo.isManagedContext(),
+                        currentInfo.isPlanMode());
                 sessionsCache.put(sessionId, infoToSave); // Update cache before async task
             } // else, session info is not modified, we are just adding an empty initial context (e.g. welcome message)
             // to the session
