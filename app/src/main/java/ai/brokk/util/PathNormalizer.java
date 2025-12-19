@@ -226,17 +226,16 @@ public final class PathNormalizer {
     @Nullable
     private static String tryRelativizeAgainstProject(String absForwardSlashPath, Path projectRoot) {
         try {
-            Path projectAbs = projectRoot.toAbsolutePath().normalize();
-
             // Convert absForwardSlashPath into a system path best-effort for comparison.
             Path asSystemPath = toSystemPath(absForwardSlashPath);
             if (asSystemPath == null || !asSystemPath.isAbsolute()) {
                 return null;
             }
-            Path norm = asSystemPath.normalize();
 
-            if (norm.startsWith(projectAbs)) {
-                Path rel = projectAbs.relativize(norm);
+            Path projectAbs = projectRoot.toAbsolutePath();
+
+            if (asSystemPath.startsWith(projectAbs)) {
+                Path rel = projectAbs.relativize(asSystemPath);
                 // Ensure forward slashes
                 String relStr = rel.toString().replace('\\', '/');
                 // Sanitize "./" and trailing '/'

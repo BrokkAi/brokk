@@ -23,8 +23,8 @@ import ai.brokk.gui.components.ModelSelector;
 import ai.brokk.gui.components.OverlayPanel;
 import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.components.TokenUsageBar;
+import ai.brokk.gui.dialogs.SettingsAdvancedPanel;
 import ai.brokk.gui.dialogs.SettingsDialog;
-import ai.brokk.gui.dialogs.SettingsGlobalPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -32,7 +32,9 @@ import ai.brokk.gui.util.FileDropHandlerFactory;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.gui.wand.WandAction;
+import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.GlobalUiSettings;
@@ -57,7 +59,6 @@ import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -290,6 +291,47 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return lum < 0.5 ? Color.WHITE : new Color(0x1E1E1E);
     }
 
+    /**
+     * Extracts the completion token from the provided line text (from the line start up to the caret).
+     * - Splits on the last whitespace (space or tab) and considers the trailing segment as the token.
+     * - Skips leading punctuation such as backticks or parens before the token, but allows '.', '/', '\\'.
+     * - For a leading single '.' before an identifier (e.g. ".Chrome"), drops the dot so only the word is replaced.
+     * - Preserves relative path prefixes like "./", "../" and ".\" on Windows.
+     *
+     * @param lineTextBeforeCaret text from the start of the current line up to the caret
+     * @return sanitized token text to be used for both auto-complete prefix and insertion
+     */
+    public static String extractAlreadyEnteredText(String lineTextBeforeCaret) {
+        int space = lineTextBeforeCaret.lastIndexOf(' ');
+        int tab = lineTextBeforeCaret.lastIndexOf('\t');
+        int separator = Math.max(space, tab);
+        String token = lineTextBeforeCaret.substring(separator + 1);
+
+        int i = 0;
+        while (i < token.length()) {
+            char c = token.charAt(i);
+            if (Character.isWhitespace(c)) {
+                i++;
+                continue;
+            }
+            // Allow letters/digits and common token/path punctuation; skip other leading punctuation.
+            if (Character.isLetterOrDigit(c) || c == '_' || c == '$' || c == '.' || c == '/' || c == '\\') {
+                break;
+            }
+            i++;
+        }
+        String candidate = token.substring(Math.min(i, token.length()));
+
+        if (candidate.startsWith(".") && candidate.length() >= 2) {
+            char next = candidate.charAt(1);
+            boolean looksRelativePath = next == '/' || next == '\\' || next == '.';
+            if (!looksRelativePath && (Character.isLetterOrDigit(next) || next == '_')) {
+                candidate = candidate.substring(1);
+            }
+        }
+        return candidate;
+    }
+
     private final OverlayPanel commandInputOverlay; // Overlay to initially disable command input
     private final UndoManager commandInputUndoManager;
     private AutoCompletion instructionAutoCompletion;
@@ -331,7 +373,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 },
                 null,
                 this::isPlaceholderText,
-                this::populateInstructionsArea,
+                this::appendToInstructionsArea,
                 msg -> chrome.toolError(msg, "Error"));
         micButton.setFocusable(true);
         // Add explicit focus border to make focus visible on the mic button
@@ -407,8 +449,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         modelSelector = new ModelSelector(chrome);
-        modelSelector.selectConfig(chrome.getProject().getArchitectModelConfig());
-        modelSelector.addSelectionListener(cfg -> chrome.getProject().setArchitectModelConfig(cfg));
+        modelSelector.selectConfig(chrome.getProject().getModelConfig(ModelProperties.ModelType.ARCHITECT));
+        modelSelector.addSelectionListener(cfg -> {
+            IProject iProject = chrome.getProject();
+            iProject.setModelConfig(ModelProperties.ModelType.ARCHITECT, cfg);
+        });
         // Also recompute token/cost indicator when model changes
         modelSelector.addSelectionListener(cfg -> updateTokenCostIndicator());
         // Ensure model selector component is focusable
@@ -449,7 +494,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 e -> chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of()));
         tokenUsageBarPopupMenu.add(pasteMenuItem);
 
-        SwingUtilities.invokeLater(() -> chrome.themeManager.registerPopupMenu(tokenUsageBarPopupMenu));
+        SwingUtilities.invokeLater(() -> {
+            // invokeLater postpones this until chrome finishes initializing themeManager
+            chrome.getThemeManager().registerPopupMenu(tokenUsageBarPopupMenu);
+        });
 
         this.contextAreaContainer = createContextAreaContainer();
         // Top Bar (History, Configure Models, Stop) (North)
@@ -868,10 +916,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     } else {
                         rows++;
                         lineWidth = w;
-                        if (rows >= 2) break;
+                        int maxRows = GlobalUiSettings.isVerticalActivityLayout() ? 3 : 2;
+                        if (rows >= maxRows) break;
                     }
                 }
-                return Math.max(1, Math.min(2, rows));
+                int maxRows = GlobalUiSettings.isVerticalActivityLayout() ? 3 : 2;
+                return Math.max(1, Math.min(maxRows, rows));
             }
 
             @Override
@@ -1459,7 +1509,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         dropdown.addActionListener(ev -> SwingUtilities.invokeLater(() -> {
             try {
                 var menu = historyMenuSupplier.get();
-                chrome.themeManager.registerPopupMenu(menu);
+                chrome.getThemeManager().registerPopupMenu(menu);
                 menu.show(dropdown, 0, dropdown.getHeight());
             } catch (Exception ex) {
                 logger.error("Error showing history dropdown", ex);
@@ -1510,7 +1560,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         if (choice == JOptionPane.YES_OPTION) { // Open Settings
             SwingUtilities.invokeLater(
-                    () -> SettingsDialog.showSettingsDialog(chrome, SettingsGlobalPanel.MODELS_TAB_TITLE));
+                    () -> SettingsDialog.showSettingsDialog(chrome, SettingsAdvancedPanel.MODELS_TAB_TITLE));
         }
         // In either case (Settings opened or Cancel pressed), the original action is aborted by returning from the
         // caller.
@@ -1524,7 +1574,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         try {
             var models = contextManager.getService();
             // If we have an UnavailableStreamingModel, the service failed to initialize
-            if (models.quickModel() instanceof Service.UnavailableStreamingModel) {
+            if (models.quickestModel() instanceof Service.UnavailableStreamingModel) {
                 return "Service contains unavailable model stub (initialization may have failed)";
             }
             return "Service appears initialized; check network connectivity and API key validity";
@@ -1570,7 +1620,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (selectedModel == null) {
             chrome.toolError("Selected model '" + config.name() + "' is not available with reasoning level "
                     + config.reasoning());
-            var fallbackModel = models.getModel(Service.GPT_5_MINI);
+            var fallbackModel = models.getModel(ModelProperties.GPT_5_MINI);
             if (fallbackModel != null) {
                 selectedModel = fallbackModel;
             }
@@ -1735,12 +1785,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // If Workspace is empty, ask the user how to proceed
         if (chrome.getContextManager().liveContext().isEmpty()) {
             String message =
-                    "Are you sure you want to code against an empty Workspace? This is the right thing to do if you want to create new source files with no other context. Otherwise, run Search first or manually add context to the Workspace.";
+                    "Are you sure you want to code with no attached context? This is the right thing to do if you want to create new source files from scratch. Otherwise, run Search first or manually attach context.";
             Object[] options = {"Code", "Search", "Cancel"};
             int choice = JOptionPane.showOptionDialog(
                     chrome.getFrame(),
                     message,
-                    "Empty Workspace",
+                    "No Context",
                     JOptionPane.YES_NO_CANCEL_OPTION,
                     JOptionPane.QUESTION_MESSAGE,
                     null,
@@ -1801,7 +1851,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
         // Lutz Mode: should auto-execute tasks in EZ mode
-        executeSearchInternal(input, SearchAgent.Objective.LUTZ, true);
+        executeSearchInternal(input, ACTION_LUTZ);
     }
 
     public void runPlanCommand() {
@@ -1814,10 +1864,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
         // Plan Mode: generates tasks but does NOT auto-execute them
-        executeSearchInternal(input, SearchAgent.Objective.TASKS_ONLY, false);
+        executeSearchInternal(input, ACTION_PLAN);
     }
 
-    private void executeSearchInternal(String query, SearchAgent.Objective objective, boolean shouldAutoExecuteTasks) {
+    private void executeSearchInternal(String query, String action) {
         final var modelToUse = selectDropdownModelOrShowError("Search");
         if (modelToUse == null) {
             logger.debug("Model selection failed for Search action: contextHasImages={}", contextHasImages());
@@ -1827,7 +1877,26 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         autoClearCompletedTasks();
 
-        submitAction(ACTION_LUTZ, query, scope -> {
+        // Derive objective and auto-execute behavior from action
+        SearchAgent.Objective objective;
+        boolean shouldAutoExecuteTasks;
+        if (ACTION_PLAN.equals(action)) {
+            objective = SearchAgent.Objective.TASKS_ONLY;
+            shouldAutoExecuteTasks = false;
+        } else {
+            // Default to Lutz for ACTION_LUTZ and any other value
+            objective = SearchAgent.Objective.LUTZ;
+            shouldAutoExecuteTasks = true;
+        }
+
+        // CRITICAL: Capture pre-existing incomplete tasks BEFORE submitAction to avoid race condition.
+        // SearchAgent will modify the task list, so we must capture the state before that happens.
+        final var preExistingIncompleteTasks = contextManager.liveContext().getTaskListDataOrEmpty().tasks().stream()
+                .filter(t -> !t.done())
+                .map(TaskList.TaskItem::text)
+                .collect(Collectors.toSet());
+
+        submitAction(action, query, scope -> {
                     assert !query.isBlank();
 
                     var cm = chrome.getContextManager();
@@ -1853,12 +1922,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     // Lutz Mode (shouldAutoExecuteTasks=true) auto-executes in EZ mode
                     // Plan Mode (shouldAutoExecuteTasks=false) shows tasks but does not execute
                     if (shouldAutoExecuteTasks && !GlobalUiSettings.isAdvancedMode()) {
-                        // Capture pre-existing incomplete tasks for the gate dialog
-                        var preExistingIncompleteTasks =
-                                contextManager.liveContext().getTaskListDataOrEmpty().tasks().stream()
-                                        .filter(t -> !t.done())
-                                        .map(TaskList.TaskItem::text)
-                                        .collect(Collectors.toSet());
+                        logger.debug("EZ-mode: start aut play");
                         SwingUtilities.invokeLater(() ->
                                 chrome.getTaskListPanel().showAutoPlayGateDialogAndAct(preExistingIncompleteTasks));
                     }
@@ -2194,6 +2258,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     public void populateInstructionsArea(String text) {
+        populateInstructionsArea(text, null);
+    }
+
+    public void populateInstructionsArea(String text, @Nullable Runnable onComplete) {
         SwingUtilities.invokeLater(() -> {
             // Check if WandButton captured the original text (before streaming modified the area)
             String capturedOldText = wandButton.getCapturedOriginalText();
@@ -2216,7 +2284,30 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 setTextWithUndo(text, finalOldText); // Use undo-preserving helper with captured old text
                 instructionsArea.requestFocusInWindow(); // Ensure focus after text set
                 instructionsArea.setCaretPosition(text.length()); // Move caret to end
+                if (onComplete != null) {
+                    onComplete.run();
+                }
             });
+        });
+    }
+
+    /**
+     * Appends transcript text to the instructions area (used by voice input).
+     * If placeholder is active, replaces it; otherwise appends with space separator.
+     */
+    private void appendToInstructionsArea(String transcript) {
+        SwingUtilities.invokeLater(() -> {
+            var currentText = instructionsArea.getText();
+            var isEmpty = isPlaceholderText(currentText) || currentText.isBlank();
+
+            if (isEmpty || !instructionsArea.isEnabled()) {
+                activateCommandInput();
+            }
+
+            var newText = isEmpty ? transcript : currentText + " " + transcript;
+            setTextWithUndo(newText, isEmpty ? "" : currentText);
+            instructionsArea.requestFocusInWindow();
+            instructionsArea.setCaretPosition(newText.length());
         });
     }
 
@@ -2229,9 +2320,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         commandInputOverlay.hideOverlay(); // Hide the overlay
         // Enable input and deep scan button
         instructionsArea.setEnabled(true);
-        // Clear placeholder only if it's still present
+        // Clear placeholder only if it's still present (inline to avoid invokeLater race)
         if (isPlaceholderText(instructionsArea.getText())) {
-            clearCommandInput();
+            instructionsArea.setText("");
+            commandInputUndoManager.discardAllEdits();
         }
         // Enable undo listener now that real content can be entered
         enableUndoListener();
@@ -2265,7 +2357,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * default if none is available.
      */
     public StreamingChatModel getSelectedModel() {
-        return contextManager.getModelOrDefault(modelSelector.getModel(), "Selected");
+        Service.ModelConfig config = modelSelector.getModel();
+        var service = contextManager.getService();
+        StreamingChatModel model = service.getModel(config);
+        if (model != null) {
+            return model;
+        }
+
+        return contextManager.getService().getModel(ModelProperties.ModelType.ARCHITECT);
     }
 
     // TODO this is unnecessary if we can push config into StreamingChatModel
@@ -2728,6 +2827,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         @Override
         protected void paintComponent(Graphics g) {
+            // 1) Custom rounded background
             Graphics2D g2 = (Graphics2D) g.create();
             try {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -2743,15 +2843,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
                 g2.setColor(bg);
                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
+            } finally {
+                g2.dispose();
+            }
 
-                // Draw divider line and dropdown icon only if dropdown is enabled and not in stop mode
-                if (!inStopMode && dropdownEnabled) {
+            // 2) Let the LAF draw text/icon (with contentAreaFilled=false this won't overpaint our bg)
+            super.paintComponent(g);
+
+            // 3) Draw divider + dropdown chevron on top so they can't be overpainted by the LAF
+            if (!inStopMode && dropdownEnabled) {
+                Graphics2D g3 = (Graphics2D) g.create();
+                try {
+                    g3.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                     int dropdownX = getWidth() - DROPDOWN_WIDTH;
                     boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
-                    g2.setColor(isHighContrast ? Color.BLACK : Color.WHITE);
-                    g2.drawLine(dropdownX, 6, dropdownX, getHeight() - 6);
+                    g3.setColor(isHighContrast ? Color.BLACK : Color.WHITE);
+                    g3.drawLine(dropdownX, 6, dropdownX, getHeight() - 6);
 
-                    // Lazy-load and paint dropdown icon centered in the dropdown area
                     if (dropdownIcon == null) {
                         dropdownIcon = Icons.KEYBOARD_DOWN_LIGHT;
                     }
@@ -2761,20 +2869,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     Icon iconToPaint = (dropdownIcon instanceof SwingUtil.ThemedIcon themedIcon)
                             ? themedIcon.delegate()
                             : dropdownIcon;
-                    // Apply high-contrast processing to dropdown icon
                     iconToPaint = ColorUtil.createHighContrastIcon(iconToPaint, getBackground(), isHighContrast);
                     if (iconToPaint != null) {
                         int iw = iconToPaint.getIconWidth();
                         int ih = iconToPaint.getIconHeight();
                         int ix = dropdownX + Math.max(0, (DROPDOWN_WIDTH - iw) / 2);
                         int iy = Math.max(0, (getHeight() - ih) / 2);
-                        iconToPaint.paintIcon(this, g2, ix, iy);
+                        iconToPaint.paintIcon(this, g3, ix, iy);
                     }
+                } finally {
+                    g3.dispose();
                 }
-            } finally {
-                g2.dispose();
             }
-            super.paintComponent(g);
         }
 
         @Override
@@ -2821,6 +2927,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
             }
 
+            // Ensure custom painting is not overpainted by LAF after theme changes
+            setContentAreaFilled(false);
+            setOpaque(false);
+
             // Now update icon - this will trigger high-contrast processing with the new background
             if (this.originalIcon != null) {
                 setIcon(this.originalIcon);
@@ -2834,12 +2944,22 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         public void applyTheme(GuiTheme guiTheme) {
             applyTheme(guiTheme, false);
         }
+
+        @Override
+        public void updateUI() {
+            super.updateUI();
+            // Prevent LAF from painting a full rectangular background over our custom rendering
+            setContentAreaFilled(false);
+            setOpaque(false);
+            // Re-apply compact custom border that uses current theme border color
+            Color borderColor = UIManager.getColor("Component.borderColor");
+            if (borderColor == null) borderColor = Color.GRAY;
+            setBorder(BorderFactory.createCompoundBorder(
+                    new LineBorder(borderColor, 1, true), BorderFactory.createEmptyBorder(4, 0, 4, 8)));
+        }
     }
 
     private class InstructionsCompletionProvider extends DefaultCompletionProvider {
-        private final Map<String, List<Completion>> completionCache = new ConcurrentHashMap<>();
-        private static final int CACHE_SIZE = 100;
-
         @Override
         public String getAlreadyEnteredText(JTextComponent comp) {
             Document doc = comp.getDocument();
@@ -2849,57 +2969,89 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             int lineStart = root.getElement(line).getStartOffset();
             try {
                 String lineText = doc.getText(lineStart, dot - lineStart);
-                int space = lineText.lastIndexOf(' ');
-                int tab = lineText.lastIndexOf('\t');
-                int separator = Math.max(space, tab);
-                return lineText.substring(separator + 1);
+                return InstructionsPanel.extractAlreadyEnteredText(lineText);
             } catch (BadLocationException e) {
                 logger.warn("BadLocationException in getAlreadyEnteredText", e);
                 return "";
             }
         }
 
+        /**
+         * Derives the raw token from the current line up to the caret position.
+         * Falls back to the provided value when the document positions cannot be resolved.
+         */
+        private String deriveRawToken(JTextComponent comp, String fallback) {
+            try {
+                Document doc = comp.getDocument();
+                int dot = comp.getCaretPosition();
+                Element root = doc.getDefaultRootElement();
+                int line = root.getElementIndex(dot);
+                int lineStart = root.getElement(line).getStartOffset();
+                String lineText = doc.getText(lineStart, dot - lineStart);
+                int space = lineText.lastIndexOf(' ');
+                int tab = lineText.lastIndexOf('\t');
+                int separator = Math.max(space, tab);
+                return lineText.substring(separator + 1);
+            } catch (BadLocationException e) {
+                logger.warn("BadLocationException while deriving raw token", e);
+                return fallback;
+            }
+        }
+
+        private String lastSegmentForQualifiedToken(String token) {
+            if (token.isEmpty()) return token;
+            int dot = token.lastIndexOf('.');
+            int dollar = token.lastIndexOf('$');
+            int sep = Math.max(dot, dollar);
+            if (sep >= 0 && sep + 1 < token.length()) {
+                return token.substring(sep + 1);
+            }
+            return token;
+        }
+
+        private static String formatCompletionText(String inputText) {
+            return "`" + inputText + "`";
+        }
+
         @Override
         public List<Completion> getCompletions(JTextComponent comp) {
-            String text = getAlreadyEnteredText(comp);
-            if (text.isEmpty()) {
+            String sanitizedText = getAlreadyEnteredText(comp);
+            if (sanitizedText.isEmpty()) {
                 return List.of();
             }
 
-            // Check cache first
-            List<Completion> cached = completionCache.get(text);
-            if (cached != null) {
-                return cached;
-            }
+            // Also compute the raw token (from last whitespace/tab) to use for matching/querying (keeps leading
+            // punctuation).
+            String rawText = deriveRawToken(comp, sanitizedText);
 
             List<Completion> completions;
-            if (text.contains("/") || text.contains("\\")) {
+            if (rawText.contains("/") || rawText.contains("\\")) {
                 var allFiles = contextManager.getProject().getAllFiles();
-                List<ShorthandCompletion> fileCompletions = Completions.scoreShortAndLong(
-                        text,
+                var project = contextManager.getProject();
+                List<ShorthandCompletion> fileCompletions = Completions.scoreProjectFiles(
+                        rawText,
+                        project,
                         allFiles,
                         ProjectFile::getFileName,
                         ProjectFile::toString,
-                        f -> 0,
-                        f -> new ShorthandCompletion(this, f.getFileName(), f.toString()));
+                        f -> new ShorthandCompletion(this, f.getFileName(), formatCompletionText(f.getFileName())),
+                        1);
                 completions = new ArrayList<>(fileCompletions.stream().limit(50).toList());
             } else {
                 var analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
                 if (analyzer == null) {
                     return List.of();
                 }
-                var symbols = Completions.completeSymbols(text, analyzer);
+
+                String queryToken = lastSegmentForQualifiedToken(sanitizedText);
+
+                var symbols = Completions.completeSymbols(queryToken, analyzer);
                 completions = symbols.stream()
                         .limit(50)
-                        .map(symbol -> (Completion) new ShorthandCompletion(this, symbol.shortName(), symbol.fqName()))
+                        .map(symbol -> (Completion) new ShorthandCompletion(
+                                this, symbol.shortName(), formatCompletionText(symbol.shortName())))
                         .toList();
             }
-
-            // Cache the result
-            if (completionCache.size() > CACHE_SIZE) {
-                completionCache.clear();
-            }
-            completionCache.put(text, completions);
 
             return completions;
         }

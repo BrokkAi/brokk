@@ -75,8 +75,15 @@ public final class FileDropHandlerFactory {
                         return false;
                     }
 
-                    // Immediately add dropped files as editable (no dialog)
-                    contextManager.submitContextTask(() -> contextManager.addFiles(projectFiles));
+                    // Check size and confirm before adding large content
+                    ContextSizeGuard.checkAndConfirm(projectFiles, chrome, decision -> {
+                        if (decision == ContextSizeGuard.Decision.ALLOW) {
+                            contextManager.submitContextTask(() -> contextManager.addFiles(projectFiles));
+                        } else if (decision == ContextSizeGuard.Decision.CANCELLED) {
+                            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "File addition cancelled");
+                        }
+                        // BLOCKED case already shows error dialog in checkAndConfirm
+                    });
 
                     return true;
                 } catch (Exception ex) {

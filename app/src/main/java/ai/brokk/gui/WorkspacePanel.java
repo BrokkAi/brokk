@@ -223,7 +223,7 @@ public class WorkspacePanel extends JPanel {
                     }
 
                     // Summarize the exact fragment instance that was clicked, so we can drop that same instance after.
-                    actions.add(new AbstractAction("Summarize " + fileData.getFullPath()) {
+                    actions.add(new AbstractAction("Summarize " + fileData.getFileName()) {
                         @Override
                         public void actionPerformed(ActionEvent e) {
                             panel.performContextActionAsync(ContextAction.SUMMARIZE, List.of(fragment));
@@ -232,8 +232,7 @@ public class WorkspacePanel extends JPanel {
                 });
             } else {
                 var selectedFragments = List.of(fragment);
-                actions.add(WorkspaceAction.EDIT_ALL_REFS.createFragmentsAction(panel, selectedFragments));
-                actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createFragmentsAction(panel, selectedFragments));
+                panel.addEditAndSummarizeActions(selectedFragments, actions);
             }
 
             actions.add(null); // Separator
@@ -279,8 +278,7 @@ public class WorkspacePanel extends JPanel {
 
             actions.add(null); // Separator
 
-            actions.add(WorkspaceAction.EDIT_ALL_REFS.createFragmentsAction(panel, fragments));
-            actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createFragmentsAction(panel, fragments));
+            panel.addEditAndSummarizeActions(fragments, actions);
 
             actions.add(null); // Separator
             actions.add(WorkspaceAction.COPY.createFragmentsAction(panel, fragments));
@@ -444,26 +442,6 @@ public class WorkspacePanel extends JPanel {
                                             "Fragments action not implemented: " + WorkspaceAction.this);
                             };
                     panel.performContextActionAsync(contextAction, fragments);
-
-                    // Apply enable/disable logic for specific actions
-                    if (WorkspaceAction.this == EDIT_ALL_REFS) {
-                        if (!panel.allTrackedProjectFiles(fragments)) {
-                            var hasFiles = panel.hasFiles(fragments);
-                            setEnabled(false);
-                            if (!hasFiles) {
-                                putValue(Action.SHORT_DESCRIPTION, "No files associated with the selection to edit.");
-                            } else {
-                                putValue(
-                                        Action.SHORT_DESCRIPTION,
-                                        "Cannot edit because selection includes untracked or external files.");
-                            }
-                        }
-                    } else if (WorkspaceAction.this == SUMMARIZE_ALL_REFS) {
-                        if (!panel.hasFiles(fragments)) {
-                            setEnabled(false);
-                            putValue(Action.SHORT_DESCRIPTION, "No files associated with the selection to summarize.");
-                        }
-                    }
                 }
             };
         }
@@ -650,7 +628,7 @@ public class WorkspacePanel extends JPanel {
         }
 
         public void show(Component invoker, int x, int y) {
-            chrome.themeManager.registerPopupMenu(popup);
+            chrome.getThemeManager().registerPopupMenu(popup);
             popup.show(invoker, x, y);
         }
     }
@@ -915,7 +893,7 @@ public class WorkspacePanel extends JPanel {
 
         // Create a single JPopupMenu for the table
         JPopupMenu contextMenu = new JPopupMenu();
-        chrome.themeManager.registerPopupMenu(contextMenu);
+        chrome.getThemeManager().registerPopupMenu(contextMenu);
 
         // Add a mouse listener so we control exactly when the popup shows
         contextTable.addMouseListener(new MouseAdapter() {
@@ -949,7 +927,7 @@ public class WorkspacePanel extends JPanel {
                         });
                         contextMenu.removeAll();
                         contextMenu.add(copyItem);
-                        chrome.themeManager.registerPopupMenu(contextMenu);
+                        chrome.getThemeManager().registerPopupMenu(contextMenu);
                         contextMenu.show(contextTable, e.getX(), e.getY());
                     }
                     return;
@@ -969,7 +947,7 @@ public class WorkspacePanel extends JPanel {
                 // Show empty table menu if no selection
                 if (row < 0 || selectedFragments.isEmpty()) {
                     tablePopupMenu.show(contextTable, e.getX(), e.getY());
-                    chrome.themeManager.registerPopupMenu(tablePopupMenu);
+                    chrome.getThemeManager().registerPopupMenu(tablePopupMenu);
                     return;
                 }
 
@@ -1162,7 +1140,7 @@ public class WorkspacePanel extends JPanel {
         tablePopupMenu.add(pasteMenuItem);
 
         // Register the popup menu with the theme manager
-        chrome.themeManager.registerPopupMenu(tablePopupMenu);
+        chrome.getThemeManager().registerPopupMenu(tablePopupMenu);
 
         // Build summary panel
         var contextSummaryPanel = new JPanel(new BorderLayout());
@@ -1617,10 +1595,28 @@ public class WorkspacePanel extends JPanel {
         var allFiles =
                 fragments.stream().flatMap(frag -> frag.files().join().stream()).collect(Collectors.toSet());
 
-        return !allFiles.isEmpty()
-                && allFiles.stream()
-                        .allMatch(pf -> pf.exists()
-                                && project.getRepo().getTrackedFiles().contains(pf));
+        var trackedFiles = project.getRepo().getTrackedFiles();
+        return !allFiles.isEmpty() && allFiles.stream().allMatch(pf -> pf.exists() && trackedFiles.contains(pf));
+    }
+
+    /** Adds Edit All Refs and Summarize All Refs actions based on file availability and tracking status */
+    private void addEditAndSummarizeActions(List<ContextFragment> fragments, List<Action> actions) {
+        boolean hasFiles = hasFiles(fragments);
+        boolean allTracked = hasFiles && allTrackedProjectFiles(fragments);
+
+        if (!hasFiles) {
+            actions.add(WorkspaceAction.EDIT_ALL_REFS.createDisabledAction(
+                    "No files associated with the selection to edit."));
+            actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createDisabledAction(
+                    "No files associated with the selection to summarize."));
+        } else if (!allTracked) {
+            actions.add(WorkspaceAction.EDIT_ALL_REFS.createDisabledAction(
+                    "Cannot edit because selection includes untracked or external files."));
+            actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createFragmentsAction(this, fragments));
+        } else {
+            actions.add(WorkspaceAction.EDIT_ALL_REFS.createFragmentsAction(this, fragments));
+            actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createFragmentsAction(this, fragments));
+        }
     }
 
     /**
@@ -1841,6 +1837,11 @@ public class WorkspacePanel extends JPanel {
         var files = selectedFragments.stream()
                 .flatMap(fragment -> fragment.files().join().stream())
                 .collect(Collectors.toSet());
+        if (files.isEmpty()) {
+            chrome.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "No files associated with the selection to edit.");
+            return;
+        }
         contextManager.addFiles(files);
     }
 
@@ -2093,12 +2094,9 @@ public class WorkspacePanel extends JPanel {
         var dlg = new AttachContextDialog(chrome.getFrame(), contextManager, defaultSummarizeChecked);
         dlg.setLocationRelativeTo(chrome.getFrame());
         dlg.setVisible(true); // modal; blocks until closed and selection is set
-        var result = dlg.getSelection();
+        var fragments = dlg.getSelectedFragments();
 
-        if (result == null) return;
-
-        Set<ContextFragment> fragments = result.fragments();
-        boolean summarize = result.summarize();
+        if (fragments == null) return;
 
         contextManager.submitContextTask(() -> {
             if (fragments.isEmpty()) {
@@ -2107,12 +2105,7 @@ public class WorkspacePanel extends JPanel {
 
             for (var fragment : fragments) {
                 if (fragment instanceof ContextFragment.PathFragment pathFrag) {
-                    if (summarize) {
-                        var files = pathFrag.files().join(); // we are in a background task so we may block
-                        contextManager.addSummaries(files, Collections.emptySet());
-                    } else {
-                        contextManager.addFragmentAsync(pathFrag);
-                    }
+                    contextManager.addFragmentAsync(pathFrag);
                 } else {
                     contextManager.addFragments(fragment);
                 }

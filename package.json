@@ -7,9 +7,15 @@
     "homepage": "https://brokk.ai",
     "repository": "https://github.com/BrokkAi/brokk",
     "version": "1.0.0",
+    "jdeployPrelaunchVersion": "v0.0.5",
     "jdeploy": {
         "jdk": false,
         "jdkProvider": "jbr",
+        "minLauncherInitialAppVersion": "0.18.0",
+        "files": [{
+            "dir": "app/build/libs",
+            "includes": "jdeploy-prelaunch.jar"
+        }],
         "args": ["-Dwatch.service.polling=true"],
         "fallbackToUniversal": false,
         "configFileMac": "{{ path(user.home, \"Library\", \"Application Support\", \"Brokk\", \"jdeploy.json\") }}",
@@ -18,9 +24,9 @@
         "publishTargets": [{
             "name": "github: brokk",
             "type": "GITHUB",
-            "url": "https://github.com/shannah/brokk"
+            "url": "https://github.com/BrokkAi/brokk"
         }],
-        "javaVersion": "25",
+        "javaVersion": "21",
         "permissions": [
             {
                 "name": "user_notifications",

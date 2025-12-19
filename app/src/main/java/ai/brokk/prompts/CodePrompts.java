@@ -324,10 +324,8 @@ public abstract class CodePrompts {
         var projectFiles =
                 ctx.fileFragments().flatMap(cf -> cf.files().join().stream()).toList();
 
-        // Resolve composite style guide from AGENTS.md files nearest to current context files; fall back to project
-        // root guide.
-        var resolvedGuide = StyleGuideResolver.resolve(projectFiles);
-        var styleGuide = resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
+        // Resolve composite style guide from AGENTS.md files nearest to current context files.
+        var styleGuide = StyleGuideResolver.resolve(projectFiles, cm.getProject());
 
         var text =
                 """
@@ -351,15 +349,13 @@ public abstract class CodePrompts {
     protected SystemMessage systemMessage(IContextManager cm, String reminder) {
         var workspaceSummary = formatWorkspaceToc(cm.liveContext());
 
-        // Resolve composite style guide from AGENTS.md files nearest to files in the top context;
-        // fall back to the project root style guide if none found.
+        // Resolve composite style guide from AGENTS.md files nearest to files in the top context.
         var projectFiles = cm.liveContext()
                 .fileFragments()
                 .flatMap(cf -> cf.files().join().stream())
                 .collect(Collectors.toList());
 
-        var resolvedGuide = StyleGuideResolver.resolve(projectFiles);
-        var styleGuide = resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
+        var styleGuide = StyleGuideResolver.resolve(projectFiles, cm.getProject());
 
         var text =
                 """
@@ -400,16 +396,23 @@ public abstract class CodePrompts {
                         Once you understand the request you MUST:
 
                         1. Decide if you need to propose *SEARCH/REPLACE* edits for any code whose source is not available.
-                           You can create new files without asking!
-                           But if you need to propose changes to code you can't see,
-                           you *MUST* tell the user their full filename names and ask them to *add the files to the chat*;
+                           1a. You can create new files without asking!
+                           1b. If you only need to change individual functions whose code you CAN see,
+                               you may do so without having the entire file in the Workspace.
+                           1c. Ask for additional files if having them would enable a cleaner solution,
+                               even if you could hack around it without them.
+                               For example,
+                               - If a field or method is private and you would need reflection to access it,
+                                 ask for the file so you can relax the visibility instead.
+                               - If you could preserve DRY by editing a data structure or a function instead of substantially duplicating
+                                 its functionality.
+                           If you need to propose changes to code you can't see,
+                           tell the user their full class or file names and ask them to *add them to the Workspace*;
                            end your reply and wait for their approval.
-                           But if you only need to change individual functions whose code you can see,
-                           you may do so without having the entire file in the Workspace.
 
-                        2. Explain the needed changes in a few short sentences.
+                        3. Explain the needed changes in a few short sentences.
 
-                        3. Give each change as a *SEARCH/REPLACE* block.
+                        4. Give each change as a *SEARCH/REPLACE* block.
 
                         All changes to files must use this *SEARCH/REPLACE* block format.
 
@@ -627,7 +630,7 @@ public abstract class CodePrompts {
     /**
      * Internal implementation of getWorkspaceReadOnlyMessages that applies the viewing policy.
      */
-    private final Collection<ChatMessage> getWorkspaceReadOnlyMessagesInternal(
+    private Collection<ChatMessage> getWorkspaceReadOnlyMessagesInternal(
             Context ctx, boolean combineSummaries, ViewingPolicy vp) {
         // --- Partition Read-Only Fragments ---
         var readOnlyFragments = ctx.getReadonlyFragments().toList();
@@ -914,29 +917,6 @@ public abstract class CodePrompts {
         return List.of(workspaceUserMessage, new AiMessage("Thank you for providing these Workspace contents."));
     }
 
-    /**
-     * @return a summary of each fragment in the workspace; for most fragment types this is just the description, but
-     *     for some (SearchFragment) it's the full text and for others (files, skeletons) it's the class summaries.
-     */
-    public final Collection<ChatMessage> getWorkspaceSummaryMessages(Context ctx) {
-        var summaries = ContextFragment.describe(ctx.getAllFragmentsInDisplayOrder());
-        if (summaries.isEmpty()) {
-            return List.of();
-        }
-
-        String summaryText =
-                """
-                        <workspace-summary>
-                        %s
-                        </workspace-summary>
-                        """
-                        .formatted(summaries)
-                        .trim();
-
-        var summaryUserMessage = new UserMessage(summaryText);
-        return List.of(summaryUserMessage, new AiMessage("Okay, I have the workspace summary."));
-    }
-
     public List<ChatMessage> getHistoryMessages(Context ctx) {
         var taskHistory = ctx.getTaskHistory();
         var messages = new ArrayList<ChatMessage>();
@@ -1136,19 +1116,26 @@ public abstract class CodePrompts {
         var rows = new ArrayList<String>();
         int priority = 1;
 
+        // Conflicts
         if (flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)) {
             rows.add(
                     "| " + priority++
                             + " | `BRK_CONFLICT_n` | Resolving regions wrapped in BRK_CONFLICT markers when fixing merge conflicts |");
         }
-        if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
-            rows.add("| " + priority++
-                    + " | `BRK_FUNCTION` | Replacing a complete, non-overloaded method (signature + body) |");
-            rows.add("| " + priority++ + " | `BRK_CLASS` | Replacing the entire body of a class-like declaration |");
-        }
 
+        // Line edits
         rows.add("| " + priority++
                 + " | Line-based | Default choice for localized edits and adding new code to existing files |");
+
+        // syntax-based (same priority)
+        if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
+            rows.add("| " + priority
+                    + " | `BRK_FUNCTION` | Replacing a complete, non-overloaded method (signature + body) |");
+            rows.add("| " + priority + " | `BRK_CLASS` | Replacing the entire body of a class-like declaration |");
+            priority++;
+        }
+
+        // entire file
         rows.add("| " + priority
                 + " | `BRK_ENTIRE_FILE` | Creating a new file or intentionally rewriting most of an existing file |");
 

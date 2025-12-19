@@ -16,6 +16,7 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.util.CloneOperationTracker;
+import ai.brokk.util.DependencyUpdater;
 import ai.brokk.util.FileUtil;
 import java.awt.BorderLayout;
 import java.awt.Component;
@@ -164,6 +165,12 @@ public class ImportDependencyDialog {
             tabbedPane.addTab("Local Directory", dirPanel);
 
             tabbedPane.addChangeListener(e -> updateImportButtonState());
+
+            // Select the tab for the project's primary language if available
+            var buildLanguage = project.getBuildLanguage();
+            if (languagePanels.containsKey(buildLanguage)) {
+                tabbedPane.setSelectedComponent(languagePanels.get(buildLanguage));
+            }
 
             mainPanel.add(tabbedPane, BorderLayout.CENTER);
 
@@ -517,6 +524,10 @@ public class ImportDependencyDialog {
                 }
             }
 
+            // Close dialog immediately - copy will run in background
+            dialog.dispose();
+            bringDependenciesDialogToFront();
+
             chrome.getContextManager().submitBackgroundTask("Copying directory: " + sourcePath.getFileName(), () -> {
                 try {
                     Files.createDirectories(dependenciesRoot);
@@ -531,23 +542,18 @@ public class ImportDependencyDialog {
                             .distinct()
                             .toList();
                     copyDirectoryRecursively(sourcePath, targetPath, allowedExtensions);
+                    DependencyUpdater.writeLocalPathDependencyMetadata(
+                            targetPath, sourcePath.toAbsolutePath().normalize());
                     SwingUtilities.invokeLater(() -> {
-                        dialog.dispose();
                         chrome.showNotification(
                                 IConsoleIO.NotificationRole.INFO,
                                 "Directory copied to " + targetPath + ". Reopen project to incorporate the new files.");
                         if (listener != null) listener.dependencyImportFinished(depName);
-                        bringDependenciesDialogToFront();
                     });
                 } catch (IOException ex) {
                     logger.error("Error copying directory {} to {}", sourcePath, targetPath, ex);
                     SwingUtilities.invokeLater(() -> {
-                        JOptionPane.showMessageDialog(
-                                dialog,
-                                "Error copying directory: " + ex.getMessage(),
-                                "Error",
-                                JOptionPane.ERROR_MESSAGE);
-                        importButton.setEnabled(true);
+                        chrome.toolError("Error copying directory: " + ex.getMessage(), "Error");
                     });
                 }
                 return null;
@@ -589,6 +595,10 @@ public class ImportDependencyDialog {
                 SwingUtilities.invokeLater(() -> listener.dependencyImportStarted(repoName));
             }
 
+            // Close dialog immediately - clone will run in background
+            dialog.dispose();
+            bringDependenciesDialogToFront();
+
             chrome.getContextManager().submitBackgroundTask("Cloning repository: " + repoUrl, () -> {
                 try {
                     Files.createDirectories(dependenciesRoot);
@@ -602,6 +612,9 @@ public class ImportDependencyDialog {
 
                     GitRepoFactory.cloneRepo(repoUrl, targetPath, 1, branchOrTag);
 
+                    // Capture commit hash before removing .git
+                    String commitHash = GitRepoFactory.getHeadCommit(targetPath);
+
                     CloneOperationTracker.createInProgressMarker(targetPath, repoUrl, branchOrTag);
                     CloneOperationTracker.registerCloneOperation(targetPath);
 
@@ -611,16 +624,16 @@ public class ImportDependencyDialog {
                             FileUtil.deleteRecursively(gitInternalDir);
                         }
 
+                        DependencyUpdater.writeGitDependencyMetadata(targetPath, repoUrl, branchOrTag, commitHash);
+
                         CloneOperationTracker.createCompleteMarker(targetPath, repoUrl, branchOrTag);
                         CloneOperationTracker.unregisterCloneOperation(targetPath);
 
                         SwingUtilities.invokeLater(() -> {
-                            dialog.dispose();
                             chrome.showNotification(
                                     IConsoleIO.NotificationRole.INFO,
                                     "Repository " + repoName + " imported successfully.");
                             if (listener != null) listener.dependencyImportFinished(repoName);
-                            bringDependenciesDialogToFront();
                         });
                     } catch (Exception postCloneException) {
                         CloneOperationTracker.unregisterCloneOperation(targetPath);
@@ -640,7 +653,6 @@ public class ImportDependencyDialog {
 
                     SwingUtilities.invokeLater(() -> {
                         chrome.toolError("Failed to import repository: " + ex.getMessage(), "Import Error");
-                        importButton.setEnabled(true);
                     });
                 }
                 return null;

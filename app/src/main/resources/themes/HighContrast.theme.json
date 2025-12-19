@@ -729,6 +729,7 @@
 
       "git_badge_background": "#1AEBFF",
       "git_badge_text": "#000000",
+      "ci_excluded_foreground": "#AA6E28",
 
       "mode_answer_bg": "#00FFFF",
       "mode_answer_fg": "#000000",
@@ -796,6 +797,10 @@
       "chip_tasklist_bg": "#004D66",
       "chip_tasklist_fg": "#00EAFF",
       "chip_tasklist_border": "#00FFFF",
+
+      "chip_invalid_bg": "#4D0000",
+      "chip_invalid_fg": "#FF9999",
+      "chip_invalid_border": "#FF3333",
 
       "action_button_bg_default": "#3333FF",
       "action_button_bg_stop": "#FF3633",

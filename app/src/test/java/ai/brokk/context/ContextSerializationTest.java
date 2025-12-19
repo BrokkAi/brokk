@@ -284,10 +284,7 @@ public class ContextSerializationTest {
         assertEquals(expected.repr(), actual.repr(), "Fragment repr mismatch for ID " + expected.id());
 
         // Compare files
-        assertEquals(
-                expected.files().join().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
-                actual.files().join().stream().map(ProjectFile::toString).collect(Collectors.toSet()),
-                "Fragment files mismatch for ID " + expected.id());
+        assertEquals(expected.files().join(), actual.files().join(), "Fragment files mismatch for ID " + expected.id());
     }
 
     private void assertTaskEntriesEqual(TaskEntry expected, TaskEntry actual) {
@@ -1746,5 +1743,453 @@ public class ContextSerializationTest {
         // Also check via text() to ensure it uses the snapshot
         assertEquals(projectFileContent, loadedPpf.text().join());
         assertEquals(externalFileContent, loadedEpf.text().join());
+    }
+
+    @Test
+    void testRoundTripDiffStringFragmentWithFiles() throws Exception {
+        var projectFile1 = new ProjectFile(tempDir, "src/DiffFile1.java");
+        var projectFile2 = new ProjectFile(tempDir, "src/DiffFile2.java");
+        Files.createDirectories(projectFile1.absPath().getParent());
+        Files.writeString(projectFile1.absPath(), "class DiffFile1 {}");
+        Files.writeString(projectFile2.absPath(), "class DiffFile2 {}");
+
+        var associatedFiles = Set.of(projectFile1, projectFile2);
+
+        String diffText =
+                """
+                diff --git a/src/DiffFile1.java b/src/DiffFile1.java
+                --- a/src/DiffFile1.java
+                +++ b/src/DiffFile1.java
+                @@ -1 +1 @@
+                -class DiffFile1 {}
+                +class DiffFile1 { }
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager,
+                diffText,
+                "Diff of DiffFile1.java and DiffFile2.java",
+                SyntaxConstants.SYNTAX_STYLE_NONE,
+                associatedFiles);
+
+        // Live fragment exposes associated files for Edit All Refs
+        assertEquals(associatedFiles, fragment.files().join());
+
+        var context = new Context(mockContextManager).addFragments(fragment);
+        ContextHistory originalHistory = new ContextHistory(context);
+
+        Path zipFile = tempDir.resolve("diff_stringfragment_files_history.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        assertEquals(1, loadedHistory.getHistory().size());
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+
+        var loadedFragment = loadedCtx
+                .virtualFragments()
+                .filter(f -> f instanceof ContextFragment.StringFragment)
+                .map(f -> (ContextFragment.StringFragment) f)
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals(diffText, loadedFragment.text().join());
+        assertEquals(
+                "Diff of DiffFile1.java and DiffFile2.java",
+                loadedFragment.description().join());
+    }
+
+    @Test
+    void testRoundTripGitDiffSingleFileFilesPreserved() throws Exception {
+        var projectFile = new ProjectFile(tempDir, "src/GitDiffSingle.java");
+        Files.createDirectories(projectFile.absPath().getParent());
+        Files.writeString(projectFile.absPath(), "class GitDiffSingle {}");
+
+        String diffText =
+                """
+                diff --git a/src/GitDiffSingle.java b/src/GitDiffSingle.java
+                index e69de29..4b825dc 100644
+                --- a/src/GitDiffSingle.java
+                +++ b/src/GitDiffSingle.java
+                @@ -1 +1 @@
+                -class GitDiffSingle {}
+                +class GitDiffSingle { }
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager, diffText, "Git diff for GitDiffSingle.java", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var expectedPaths = Set.of(projectFile.absPath().toString());
+        var beforePaths = fragment.files().join().stream()
+                .map(pf -> pf.absPath().toString())
+                .collect(Collectors.toSet());
+        assertEquals(expectedPaths, beforePaths);
+
+        var context = new Context(mockContextManager).addFragments(fragment);
+        ContextHistory originalHistory = new ContextHistory(context);
+
+        Path zipFile = tempDir.resolve("gitdiff_single_roundtrip.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+        var loadedFragment = loadedCtx
+                .virtualFragments()
+                .filter(f -> f instanceof ContextFragment.StringFragment)
+                .map(f -> (ContextFragment.StringFragment) f)
+                .findFirst()
+                .orElseThrow();
+
+        var afterPaths = loadedFragment.files().join().stream()
+                .map(pf -> pf.absPath().toString())
+                .collect(Collectors.toSet());
+        assertEquals(expectedPaths, afterPaths);
+    }
+
+    @Test
+    void testRoundTripMultiFileUnifiedDiffFilesPreserved() throws Exception {
+        var projectFileA = new ProjectFile(tempDir, "src/UnifiedA.java");
+        var projectFileB = new ProjectFile(tempDir, "src/UnifiedB.java");
+        Files.createDirectories(projectFileA.absPath().getParent());
+        Files.writeString(projectFileA.absPath(), "class UnifiedA {}");
+        Files.writeString(projectFileB.absPath(), "class UnifiedB {}");
+
+        String diffText =
+                """
+                --- src/UnifiedA.java
+                +++ src/UnifiedA.java
+                @@ -1 +1 @@
+                -class UnifiedA {}
+                +class UnifiedA { }
+
+                --- src/UnifiedB.java
+                +++ src/UnifiedB.java
+                @@ -1 +1 @@
+                -class UnifiedB {}
+                +class UnifiedB { }
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager,
+                diffText,
+                "Unified diff for UnifiedA.java and UnifiedB.java",
+                SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var expectedPaths =
+                Set.of(projectFileA.absPath().toString(), projectFileB.absPath().toString());
+        var beforePaths = fragment.files().join().stream()
+                .map(pf -> pf.absPath().toString())
+                .collect(Collectors.toSet());
+        assertEquals(expectedPaths, beforePaths);
+
+        var context = new Context(mockContextManager).addFragments(fragment);
+        ContextHistory originalHistory = new ContextHistory(context);
+
+        Path zipFile = tempDir.resolve("unified_multi_roundtrip.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+        var loadedFragment = loadedCtx
+                .virtualFragments()
+                .filter(f -> f instanceof ContextFragment.StringFragment)
+                .map(f -> (ContextFragment.StringFragment) f)
+                .findFirst()
+                .orElseThrow();
+
+        var afterPaths = loadedFragment.files().join().stream()
+                .map(pf -> pf.absPath().toString())
+                .collect(Collectors.toSet());
+        assertEquals(expectedPaths, afterPaths);
+    }
+
+    @Test
+    void testRoundTripDeletionDiffWithDevNullFilesPreserved() throws Exception {
+        var projectFile = new ProjectFile(tempDir, "src/Deleted.java");
+        Files.createDirectories(projectFile.absPath().getParent());
+        Files.writeString(projectFile.absPath(), "class Deleted {}");
+
+        String diffText =
+                """
+                diff --git a/src/Deleted.java b/src/Deleted.java
+                deleted file mode 100644
+                index e69de29..0000000
+                --- a/src/Deleted.java
+                +++ /dev/null
+                @@ -1 +0,0 @@
+                -class Deleted {}
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager, diffText, "Deletion diff for Deleted.java", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var expectedPaths = Set.of(projectFile.absPath().toString());
+        var beforePaths = fragment.files().join().stream()
+                .map(pf -> pf.absPath().toString())
+                .collect(Collectors.toSet());
+        assertEquals(expectedPaths, beforePaths);
+
+        var context = new Context(mockContextManager).addFragments(fragment);
+        ContextHistory originalHistory = new ContextHistory(context);
+
+        Path zipFile = tempDir.resolve("deletion_roundtrip.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+        var loadedFragment = loadedCtx
+                .virtualFragments()
+                .filter(f -> f instanceof ContextFragment.StringFragment)
+                .map(f -> (ContextFragment.StringFragment) f)
+                .findFirst()
+                .orElseThrow();
+
+        var afterPaths = loadedFragment.files().join().stream()
+                .map(pf -> pf.absPath().toString())
+                .collect(Collectors.toSet());
+        assertEquals(expectedPaths, afterPaths);
+    }
+
+    @Test
+    void testRoundTripRenameDiffFilesPreserved() throws Exception {
+        var oldFile = new ProjectFile(tempDir, "src/RenamedOld.java");
+        var newFile = new ProjectFile(tempDir, "src/RenamedNew.java");
+        Files.createDirectories(oldFile.absPath().getParent());
+        Files.writeString(oldFile.absPath(), "class RenamedOld {}");
+        Files.writeString(newFile.absPath(), "class RenamedNew {}");
+
+        String diffText =
+                """
+                diff --git a/src/RenamedOld.java b/src/RenamedNew.java
+                similarity index 100%
+                rename from src/RenamedOld.java
+                rename to src/RenamedNew.java
+                --- a/src/RenamedOld.java
+                +++ b/src/RenamedNew.java
+                @@ -1 +1 @@
+                -class RenamedOld {}
+                +class RenamedNew {}
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager,
+                diffText,
+                "Rename diff from RenamedOld.java to RenamedNew.java",
+                SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var expectedPaths = Set.of(newFile.absPath().toString());
+        var beforePaths = fragment.files().join().stream()
+                .map(pf -> pf.absPath().toString())
+                .collect(Collectors.toSet());
+        assertEquals(expectedPaths, beforePaths);
+
+        var context = new Context(mockContextManager).addFragments(fragment);
+        ContextHistory originalHistory = new ContextHistory(context);
+
+        Path zipFile = tempDir.resolve("rename_roundtrip.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+        var loadedFragment = loadedCtx
+                .virtualFragments()
+                .filter(f -> f instanceof ContextFragment.StringFragment)
+                .map(f -> (ContextFragment.StringFragment) f)
+                .findFirst()
+                .orElseThrow();
+
+        var afterPaths = loadedFragment.files().join().stream()
+                .map(pf -> pf.absPath().toString())
+                .collect(Collectors.toSet());
+        assertEquals(expectedPaths, afterPaths);
+    }
+
+    @Test
+    void testRoundTripNonDiffTextHasNoFiles() throws Exception {
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager,
+                "This is not a diff\nJust some plain text.",
+                "Plain text",
+                SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        assertTrue(fragment.files().join().isEmpty());
+
+        var context = new Context(mockContextManager).addFragments(fragment);
+        ContextHistory originalHistory = new ContextHistory(context);
+
+        Path zipFile = tempDir.resolve("nondiff_roundtrip.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+        var loadedFragment = loadedCtx
+                .virtualFragments()
+                .filter(f -> f instanceof ContextFragment.StringFragment)
+                .map(f -> (ContextFragment.StringFragment) f)
+                .findFirst()
+                .orElseThrow();
+
+        assertTrue(loadedFragment.files().join().isEmpty());
+    }
+
+    @Test
+    void testStringFragmentExtractsFilesFromPathList() throws Exception {
+        var file1 = new ProjectFile(tempDir, "src/PathListFile1.java");
+        var file2 = new ProjectFile(tempDir, "src/PathListFile2.java");
+        Files.createDirectories(file1.absPath().getParent());
+        Files.writeString(file1.absPath(), "class PathListFile1 {}");
+        Files.writeString(file2.absPath(), "class PathListFile2 {}");
+
+        String pathList = file1 + "\n" + file2 + "\n";
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager, pathList, "File list", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        assertEquals(Set.of(file1, file2), fragment.files().join());
+    }
+
+    @Test
+    void testPathListExtractionSkipsNonExistentFiles() throws Exception {
+        var existingFile = new ProjectFile(tempDir, "src/ExistingFile.java");
+        Files.createDirectories(existingFile.absPath().getParent());
+        Files.writeString(existingFile.absPath(), "class ExistingFile {}");
+
+        String pathList = existingFile + "\nsrc/NonExistentFile.java\n";
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager, pathList, "Mixed file list", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        assertEquals(Set.of(existingFile), fragment.files().join());
+    }
+
+    @Test
+    void testMixedPastedListCollectsOnlyValidPathsForStringAndPasteFragments() throws Exception {
+        var file1 = new ProjectFile(tempDir, "src/MixedValid1.java");
+        var file2 = new ProjectFile(tempDir, "src/MixedValid2.java");
+        Files.createDirectories(file1.absPath().getParent());
+        Files.writeString(file1.absPath(), "class MixedValid1 {}");
+        Files.writeString(file2.absPath(), "class MixedValid2 {}");
+
+        String mixed = "# comment\n" + file1 + "\nnot/a/real/file.txt\n    " + file2 + "\ngarbage line\n";
+
+        var stringFragment = new ContextFragment.StringFragment(
+                mockContextManager, mixed, "Mixed content", SyntaxConstants.SYNTAX_STYLE_NONE);
+        assertEquals(Set.of(file1, file2), stringFragment.files().join());
+
+        var pasteFragment = new ContextFragment.PasteTextFragment(
+                mockContextManager,
+                mixed,
+                CompletableFuture.completedFuture("Mixed content"),
+                CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
+        assertEquals(Set.of(file1, file2), pasteFragment.files().join());
+    }
+
+    @Test
+    void testDiffTakesPrecedenceOverPathList() throws Exception {
+        var projectFile = new ProjectFile(tempDir, "src/DiffPrecedence.java");
+        Files.createDirectories(projectFile.absPath().getParent());
+        Files.writeString(projectFile.absPath(), "class DiffPrecedence {}");
+
+        String diffText =
+                """
+                diff --git a/src/DiffPrecedence.java b/src/DiffPrecedence.java
+                --- a/src/DiffPrecedence.java
+                +++ b/src/DiffPrecedence.java
+                @@ -1 +1 @@
+                -class DiffPrecedence {}
+                +class DiffPrecedence { }
+                """;
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager, diffText, "Diff content", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        assertEquals(Set.of(projectFile), fragment.files().join());
+    }
+
+    @Test
+    void testPathsMayOccurAnywhere() throws Exception {
+        var file = new ProjectFile(tempDir, "src/TestFile.java");
+        Files.createDirectories(file.absPath().getParent());
+        Files.writeString(file.absPath(), "class TestFile {}");
+
+        String mixedFormats = file + ":10: error: cannot find symbol\n"
+                + file + ":25:    public void method() {\n"
+                + "    at com.example.Test(" + file + ":42)\n"
+                + "https://example.com/docs/api.html\n";
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager, mixedFormats, "Mixed formats", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        assertFalse(fragment.files().join().isEmpty());
+    }
+
+    @Test
+    void testPathsWithSpacesAreExtracted() throws Exception {
+        var fileWithSpace = new ProjectFile(tempDir, "src/My Class.java");
+        var normalFile = new ProjectFile(tempDir, "src/NormalFile.java");
+        Files.createDirectories(fileWithSpace.absPath().getParent());
+        Files.writeString(fileWithSpace.absPath(), "class MyClass {}");
+        Files.writeString(normalFile.absPath(), "class NormalFile {}");
+
+        String pathList = fileWithSpace + "\n" + normalFile + "\n";
+
+        var fragment = new ContextFragment.StringFragment(
+                mockContextManager, pathList, "Path list with spaces", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        assertEquals(Set.of(fileWithSpace, normalFile), fragment.files().join());
+    }
+
+    @Test
+    void testPasteTextFragmentSerializationPreservesFiles() throws Exception {
+        var file1 = new ProjectFile(tempDir, "src/SerializedFile1.java");
+        var file2 = new ProjectFile(tempDir, "src/SerializedFile2.java");
+        Files.createDirectories(file1.absPath().getParent());
+        Files.writeString(file1.absPath(), "class SerializedFile1 {}");
+        Files.writeString(file2.absPath(), "class SerializedFile2 {}");
+
+        String pathList = file1 + "\n" + file2 + "\n";
+
+        var fragment = new ContextFragment.PasteTextFragment(
+                mockContextManager,
+                pathList,
+                CompletableFuture.completedFuture("File list"),
+                CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
+
+        var context = new Context(mockContextManager).addFragments(fragment);
+        var originalHistory = new ContextHistory(context);
+
+        Path zipFile = tempDir.resolve("test_paste_files_serialization.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        var loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        context.awaitContextsAreComputed(Duration.ofSeconds(10));
+        loadedHistory.liveContext().awaitContextsAreComputed(Duration.ofSeconds(10));
+
+        var loadedFragment = (ContextFragment.PasteTextFragment) loadedHistory
+                .liveContext()
+                .allFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.PASTE_TEXT)
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals(Set.of(file1, file2), loadedFragment.files().join());
+    }
+
+    @Test
+    void testPasteTextFragmentExtractsFilesOnFutureTimeout() throws Exception {
+        var file = new ProjectFile(tempDir, "src/TimeoutTest.java");
+        Files.createDirectories(file.absPath().getParent());
+        Files.writeString(file.absPath(), "class TimeoutTest {}");
+
+        var failingDescFuture = new CompletableFuture<String>();
+        failingDescFuture.completeExceptionally(new RuntimeException("Simulated LLM timeout"));
+
+        var failingSyntaxFuture = new CompletableFuture<String>();
+        failingSyntaxFuture.completeExceptionally(new RuntimeException("Simulated LLM failure"));
+
+        var fragment = new ContextFragment.PasteTextFragment(
+                mockContextManager, file.toString(), failingDescFuture, failingSyntaxFuture);
+
+        assertEquals(Set.of(file), fragment.files().join());
+        assertEquals("Paste of pasted content", fragment.description().join());
     }
 }

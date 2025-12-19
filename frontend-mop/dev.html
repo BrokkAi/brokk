@@ -303,18 +303,26 @@ Both approaches:
 `;
 
     function streamAsk() {
-        let index = 0;
+        try {
+            window.brokk.showTransientMessage('Thinking...');
+        } catch (e) {
+            // ignore if bridge not ready yet
+        }
 
-        const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
-        const interval = setInterval(() => {
-            if (index < chunks.length) {
-                simulateEvent('chunk', {text: chunks[index], msgType: 'AI', streaming: true, reasoning: false});
-                index++;
-            } else {
-                clearInterval(interval);
-                simulateEvent('chunk', {text: "Ask command complete!", msgType: 'CUSTOM', streaming: true, isNew: false, reasoning: false});
-            }
-        }, 10);
+        // Start streaming after 3s; first chunk will auto-hide the transient message
+        setTimeout(() => {
+            let index = 0;
+            const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
+            const interval = setInterval(() => {
+                if (index < chunks.length) {
+                    simulateEvent('chunk', {text: chunks[index], msgType: 'AI', streaming: true, reasoning: false});
+                    index++;
+                } else {
+                    clearInterval(interval);
+                    simulateEvent('chunk', {text: "Ask command complete!", msgType: 'CUSTOM', streaming: true, isNew: false, reasoning: false});
+                }
+            }, 10);
+        }, 3000);
     }
 
     function showAskMd() {

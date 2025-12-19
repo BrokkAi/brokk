@@ -431,10 +431,9 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     @Override
-    public synchronized void add(Path path) throws GitAPIException {
+    public synchronized void add(ProjectFile file) throws GitAPIException {
         var addCommand = git.add();
-        var repoRelativePath = gitTopLevel.relativize(path.toAbsolutePath()).toString();
-        addCommand.addFilepattern(repoRelativePath);
+        addCommand.addFilepattern(toRepoRelativePath(file));
         addCommand.call();
     }
 
@@ -663,10 +662,10 @@ public class GitRepo implements Closeable, IGitRepo {
      * @param remoteUrl The remote URL to check
      * @throws GitHubAuthenticationException if GitHub HTTPS URL is detected but no token is configured
      */
-    public <T, C extends TransportCommand<C, T>> void applyGitHubAuthentication(C command, @Nullable String remoteUrl)
+    <T, C extends TransportCommand<C, T>> void applyGitHubAuthentication(C command, @Nullable String remoteUrl)
             throws GitHubAuthenticationException {
         // Only handle GitHub HTTPS URLs - everything else uses JGit defaults
-        if (remoteUrl == null || !remoteUrl.startsWith("https://") || !remoteUrl.contains("github.com")) {
+        if (!GitRepoFactory.isGitHubHttpsUrl(remoteUrl)) {
             return;
         }
 
@@ -678,6 +677,32 @@ public class GitRepo implements Closeable, IGitRepo {
         } else {
             throw new GitHubAuthenticationException("GitHub token required for HTTPS authentication. "
                     + "Configure in Settings -> Global -> GitHub, or use SSH URL instead.");
+        }
+    }
+
+    /**
+     * Checks if a commit's data is fully available and parsable in the local repository.
+     *
+     * @param sha The commit SHA to check
+     * @return true if the commit is resolvable and its object data is parsable, false otherwise
+     */
+    boolean isCommitLocallyAvailable(String sha) {
+        ObjectId objectId = null;
+        try {
+            objectId = resolveToCommit(sha);
+            try (var revWalk = new RevWalk(repository)) {
+                revWalk.parseCommit(objectId);
+                return true;
+            }
+        } catch (MissingObjectException e) {
+            logger.debug(
+                    "Commit object for SHA {} (resolved to {}) is missing locally.",
+                    shortHash(sha),
+                    objectId != null ? objectId.name() : "null");
+            return false;
+        } catch (Exception e) {
+            logger.debug("Cannot resolve or parse SHA {}: {}", shortHash(sha), e.getMessage());
+            return false;
         }
     }
 
@@ -823,9 +848,15 @@ public class GitRepo implements Closeable, IGitRepo {
         } catch (IOException e) {
             throw new GitWrappedIOException(e);
         }
+        // Normalize paths to forward slashes for JGit (required on all platforms)
+        String fromRepo = from.replace('\\', '/');
+        String toRepo = to.replace('\\', '/');
         // Stage as delete + add; Git will detect rename heuristically
-        git.rm().addFilepattern(from).call();
-        git.add().addFilepattern(to).call();
+        git.rm().addFilepattern(fromRepo).call();
+        logger.debug("Staged removal of {} in move operation", fromRepo);
+        // Force add even if file matches gitignore patterns (needed for !AGENTS.md negation to work)
+        var addResult = git.add().addFilepattern(toRepo).call();
+        logger.debug("Staged addition of {} in move operation, result entries: {}", toRepo, addResult.getEntryCount());
         invalidateCaches();
     }
 

@@ -243,7 +243,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected boolean shouldSkipNode(TSNode node, String captureName, byte[] srcBytes) {
+    protected boolean shouldSkipNode(TSNode node, String captureName, SourceContent sourceContent) {
         // Skip property setters to avoid duplicates with property getters
         if (CaptureNames.FUNCTION_DEFINITION.equals(captureName) && DECORATED_DEFINITION.equals(node.getType())) {
             // Check if this is a property setter by looking at decorators
@@ -253,8 +253,9 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                     TSNode decoratorChild = child.getNamedChild(0);
                     if (decoratorChild != null && ATTRIBUTE.equals(decoratorChild.getType())) {
                         // Get the decorator text using the inherited textSlice method
-                        String decoratorText =
-                                textSlice(decoratorChild, srcBytes).trim();
+                        String decoratorText = sourceContent
+                                .substringFromBytes(decoratorChild.getStartByte(), decoratorChild.getEndByte())
+                                .trim();
                         // Skip property setters/deleters: match "<name>.(setter|deleter)" only
                         if (decoratorText.matches("[^.]+\\.(setter|deleter)")) {
                             log.trace("Skipping property setter/deleter with decorator: {}", decoratorText);
@@ -268,9 +269,13 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected boolean shouldReplaceOnDuplicate(CodeUnit cu) {
+    protected boolean shouldReplaceOnDuplicate(CodeUnit existing, CodeUnit candidate) {
         // Python "last wins" semantics: duplicate definitions replace earlier ones
-        return cu.isField() || cu.isClass() || cu.isFunction();
+        // But only replace if same kind - a field shouldn't replace a class (e.g., "Base = FallbackBase")
+        if (existing.kind() != candidate.kind()) {
+            return false;
+        }
+        return candidate.isField() || candidate.isClass() || candidate.isFunction();
     }
 
     @Override
@@ -281,14 +286,19 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected TSNode extractContentFromDecoratedNode(
-            TSNode decoratedNode, List<String> outDecoratorLines, byte[] srcBytes, LanguageSyntaxProfile profile) {
+            TSNode decoratedNode,
+            List<String> outDecoratorLines,
+            SourceContent sourceContent,
+            LanguageSyntaxProfile profile) {
         // Python's decorated_definition: decorators and actual definition are children
         // Process decorators and identify the actual content node
         TSNode nodeForContent = decoratedNode;
         for (int i = 0; i < decoratedNode.getNamedChildCount(); i++) {
             TSNode child = decoratedNode.getNamedChild(i);
             if (profile.decoratorNodeTypes().contains(child.getType())) {
-                outDecoratorLines.add(textSlice(child, srcBytes).stripLeading());
+                outDecoratorLines.add(sourceContent
+                        .substringFromBytes(child.getStartByte(), child.getEndByte())
+                        .stripLeading());
             } else if (profile.functionLikeNodeTypes().contains(child.getType())
                     || profile.classLikeNodeTypes().contains(child.getType())) {
                 nodeForContent = child;
@@ -305,7 +315,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String renderFunctionDeclaration(
             TSNode funcNode,
-            String src,
+            SourceContent sourceContent,
             String exportPrefix,
             String asyncPrefix,
             String functionName,
@@ -336,7 +346,11 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String renderClassHeader(
-            TSNode classNode, String src, String exportPrefix, String signatureText, String baseIndent) {
+            TSNode classNode,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String signatureText,
+            String baseIndent) {
         // The 'baseIndent' parameter is now "" when called from buildSignatureString.
         // Stored signature should be unindented.
         return signatureText; // Do not prepend baseIndent here
@@ -396,7 +410,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src) {
+    protected String determinePackageName(
+            ProjectFile file, TSNode definitionNode, TSNode rootNode, SourceContent sourceContent) {
         // Python's package naming is directory-based, relative to project root or __init__.py markers.
         // The definitionNode, rootNode, and src parameters are not used for Python package determination.
         // Returns module-qualified package (e.g., "mypkg.mod" not just "mypkg") for proper FQN construction.
@@ -477,7 +492,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected List<String> extractRawSupertypesForClassLike(
-            CodeUnit cu, TSNode classNode, String signature, String src) {
+            CodeUnit cu, TSNode classNode, String signature, SourceContent sourceContent) {
         // Extract superclass names from Python class definition
         // Pattern: class Child(Parent1, Parent2): ...
         var query = getThreadLocalQuery();
@@ -523,7 +538,9 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
         List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
         for (var s : aggregateSuperNodes) {
-            var text = textSlice(s, src).strip();
+            var text = sourceContent
+                    .substringFromBytes(s.getStartByte(), s.getEndByte())
+                    .strip();
             if (!text.isEmpty()) {
                 supers.add(text);
             }
@@ -643,6 +660,9 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             String currentModule = null;
             String wildcardModule = null;
 
+            // Prepare SourceContent for this import line to use textSlice overloads
+            SourceContent importSc = SourceContent.of(importLine);
+
             // Collect all captures from this import statement
             while (cursor.nextMatch(match)) {
                 for (var cap : match.getCaptures()) {
@@ -650,7 +670,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                     var node = cap.getNode();
                     if (node == null || node.isNull()) continue;
 
-                    var text = textSlice(node, importLine);
+                    var text = importSc.substringFromBytes(node.getStartByte(), node.getEndByte());
 
                     switch (capName) {
                         case IMPORT_MODULE -> currentModule = text;
@@ -736,6 +756,39 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         }
 
         return Collections.unmodifiableSet(new LinkedHashSet<>(resolvedByName.values()));
+    }
+
+    @Override
+    protected void createModulesFromImports(
+            ProjectFile file,
+            List<String> localImportStatements,
+            TSNode rootNode,
+            String modulePackageName,
+            Map<String, CodeUnit> localCuByFqName,
+            List<CodeUnit> localTopLevelCUs,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges,
+            Map<CodeUnit, List<CodeUnit>> localChildren) {
+
+        if (modulePackageName.isBlank()) {
+            return;
+        }
+
+        int idx = modulePackageName.lastIndexOf('.');
+        String parentPkg = idx >= 0 ? modulePackageName.substring(0, idx) : "";
+        String simpleName = idx >= 0 ? modulePackageName.substring(idx + 1) : modulePackageName;
+
+        CodeUnit moduleCu = CodeUnit.module(file, parentPkg, simpleName);
+
+        List<CodeUnit> children = localTopLevelCUs.stream()
+                .filter(cu -> modulePackageName.equals(cu.packageName()))
+                .filter(cu -> cu.isClass() || cu.isFunction() || cu.isField())
+                .toList();
+
+        localChildren.put(moduleCu, children);
+        localCuByFqName.put(moduleCu.fqName(), moduleCu);
+
+        localSignatures.computeIfAbsent(moduleCu, k -> new ArrayList<>()).add("# module " + modulePackageName);
     }
 
     @Override

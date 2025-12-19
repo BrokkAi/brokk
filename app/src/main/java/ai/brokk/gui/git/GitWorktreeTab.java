@@ -6,6 +6,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.DeferredUpdateHelper;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.FuzzyComboBox;
 import ai.brokk.gui.components.MaterialButton;
@@ -20,7 +21,6 @@ import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -48,6 +48,7 @@ public class GitWorktreeTab extends JPanel {
     private MaterialButton removeButton = new MaterialButton();
     private MaterialButton openButton = new MaterialButton(); // Added
     private MaterialButton refreshButton = new MaterialButton(); // Added
+    private final DeferredUpdateHelper deferredUpdateHelper;
 
     @Nullable
     private MaterialButton mergeButton = null; // Added for worktree merge functionality
@@ -69,6 +70,8 @@ public class GitWorktreeTab extends JPanel {
         } else {
             buildUnsupportedUI();
         }
+        // Deferred update helper for worktree refreshes
+        this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::performRefresh);
     }
 
     private void buildUnsupportedUI() {
@@ -244,7 +247,7 @@ public class GitWorktreeTab extends JPanel {
         refreshButton = new MaterialButton();
         refreshButton.setIcon(Icons.REFRESH);
         refreshButton.setToolTipText("Refresh the list of worktrees");
-        refreshButton.addActionListener(e -> refresh());
+        refreshButton.addActionListener(e -> requestUpdate());
 
         // Add buttons common to both modes first
         buttonPanel.add(addButton);
@@ -368,81 +371,71 @@ public class GitWorktreeTab extends JPanel {
 
     private void loadWorktrees() {
         contextManager.submitBackgroundTask("Loading worktrees", () -> {
-            try {
-                IGitRepo repo = contextManager.getProject().getRepo();
-                if (repo instanceof GitRepo gitRepo) {
-                    var result = gitRepo.worktrees().listWorktreesAndInvalid();
-                    var worktrees = result.worktrees();
-                    var invalidPaths = result.invalidPaths();
+            IGitRepo repo = contextManager.getProject().getRepo();
+            if (repo instanceof GitRepo gitRepo) {
+                var result = gitRepo.worktrees().listWorktreesAndInvalid();
+                var worktrees = result.worktrees();
+                var invalidPaths = result.invalidPaths();
 
-                    if (!invalidPaths.isEmpty()) {
-                        final var dialogFuture = new CompletableFuture<Integer>();
-                        SwingUtilities.invokeLater(() -> {
-                            String pathList =
-                                    invalidPaths.stream().map(Path::toString).collect(Collectors.joining("\n- "));
-                            String message = "The following worktree paths no longer exist on disk:\n\n- " + pathList
-                                    + "\n\nWould you like to clean up this stale metadata? (git worktree prune)";
-                            int choice = chrome.showConfirmDialog(
-                                    message,
-                                    "Prune Stale Worktrees?",
-                                    JOptionPane.YES_NO_OPTION,
-                                    JOptionPane.QUESTION_MESSAGE);
-                            dialogFuture.complete(choice);
+                if (!invalidPaths.isEmpty()) {
+                    final var dialogFuture = new CompletableFuture<Integer>();
+                    SwingUtilities.invokeLater(() -> {
+                        String pathList =
+                                invalidPaths.stream().map(Path::toString).collect(Collectors.joining("\n- "));
+                        String message = "The following worktree paths no longer exist on disk:\n\n- " + pathList
+                                + "\n\nWould you like to clean up this stale metadata? (git worktree prune)";
+                        int choice = chrome.showConfirmDialog(
+                                message,
+                                "Prune Stale Worktrees?",
+                                JOptionPane.YES_NO_OPTION,
+                                JOptionPane.QUESTION_MESSAGE);
+                        dialogFuture.complete(choice);
+                    });
+
+                    int choice = dialogFuture.get();
+                    if (choice == JOptionPane.YES_OPTION) {
+                        contextManager.submitBackgroundTask("Pruning stale worktrees", () -> {
+                            try {
+                                gitRepo.worktrees().pruneWorktrees();
+                                chrome.showNotification(
+                                        IConsoleIO.NotificationRole.INFO, "Successfully pruned stale worktrees.");
+                                SwingUtilities.invokeLater(this::loadWorktrees); // Reload after prune
+                            } catch (Exception e) {
+                                logger.error("Failed to prune stale worktrees", e);
+                                chrome.toolError("Failed to prune stale worktrees: " + e.getMessage());
+                            }
+                            return null;
                         });
-
-                        int choice = dialogFuture.get();
-                        if (choice == JOptionPane.YES_OPTION) {
-                            contextManager.submitBackgroundTask("Pruning stale worktrees", () -> {
-                                try {
-                                    gitRepo.worktrees().pruneWorktrees();
-                                    chrome.showNotification(
-                                            IConsoleIO.NotificationRole.INFO, "Successfully pruned stale worktrees.");
-                                    SwingUtilities.invokeLater(this::loadWorktrees); // Reload after prune
-                                } catch (Exception e) {
-                                    logger.error("Failed to prune stale worktrees", e);
-                                    chrome.toolError("Failed to prune stale worktrees: " + e.getMessage());
-                                }
-                                return null;
-                            });
-                            return null; // The prune task will trigger a reload, so we exit this one.
-                        }
+                        return null; // The prune task will trigger a reload, so we exit this one.
                     }
-
-                    // Normalize the current project's root path for reliable comparison
-                    Path currentProjectRoot =
-                            contextManager.getProject().getRoot().toRealPath();
-
-                    SwingUtilities.invokeLater(() -> {
-                        worktreeTableModel.setRowCount(0); // Clear existing rows
-                        for (IGitRepo.WorktreeInfo wt : worktrees) {
-                            String sessionTitle =
-                                    MainProject.getActiveSessionTitle(wt.path()).orElse("(no session)");
-                            // wt.path() is already a real path from GitRepo.listWorktreesAndInvalid()
-                            boolean isActive = currentProjectRoot.equals(wt.path());
-                            worktreeTableModel.addRow(new Object[] {
-                                isActive, // For the "✓" column
-                                wt.path().toString(),
-                                wt.branch(),
-                                sessionTitle
-                            });
-                        }
-                        updateButtonStates(); // Update after loading
-                    });
-                } else {
-                    SwingUtilities.invokeLater(() -> {
-                        worktreeTableModel.setRowCount(0);
-                        addButton.setEnabled(false);
-                        openButton.setEnabled(false);
-                        removeButton.setEnabled(false);
-                        updateButtonStates(); // Update after loading
-                    });
                 }
-            } catch (Exception e) {
-                logger.error("Error loading worktrees", e);
+
+                // Normalize the current project's root path for reliable comparison
+                Path currentProjectRoot = contextManager.getProject().getRoot().toRealPath();
+
+                SwingUtilities.invokeLater(() -> {
+                    worktreeTableModel.setRowCount(0); // Clear existing rows
+                    for (IGitRepo.WorktreeInfo wt : worktrees) {
+                        String sessionTitle =
+                                MainProject.getActiveSessionTitle(wt.path()).orElse("(no session)");
+                        // wt.path() is already a real path from GitRepo.listWorktreesAndInvalid()
+                        boolean isActive = currentProjectRoot.equals(wt.path());
+                        worktreeTableModel.addRow(new Object[] {
+                            isActive, // For the "✓" column
+                            wt.path().toString(),
+                            wt.branch(),
+                            sessionTitle
+                        });
+                    }
+                    updateButtonStates(); // Update after loading
+                });
+            } else {
                 SwingUtilities.invokeLater(() -> {
                     worktreeTableModel.setRowCount(0);
+                    addButton.setEnabled(false);
+                    openButton.setEnabled(false);
+                    removeButton.setEnabled(false);
                     updateButtonStates(); // Update after loading
-                    // Optionally, show an error message in the table or a dialog
                 });
             }
             return null;
@@ -999,7 +992,13 @@ public class GitWorktreeTab extends JPanel {
         chrome.toolError("Failed to remove worktree '" + pathName + "':\n" + e.getMessage(), "Worktree Removal Error");
     }
 
-    public void refresh() {
+    /** Refresh worktree UI; defers action when tab is not visible. */
+    public void requestUpdate() {
+        deferredUpdateHelper.requestUpdate();
+    }
+
+    /** Performs the actual refresh logic previously in refresh(). */
+    private void performRefresh() {
         IGitRepo repo = contextManager.getProject().getRepo();
         if (repo.supportsWorktrees()) {
             // If UI was previously the unsupported one, rebuild the proper UI
@@ -1048,32 +1047,12 @@ public class GitWorktreeTab extends JPanel {
         logger.debug("Adding worktree for branch '{}' at path {}", branchForWorktree, newWorktreePath);
         gitRepo.addWorktree(branchForWorktree, newWorktreePath);
 
-        // Copy (prefer hard-link) existing language storage caches to the new worktree
-        var enabledLanguages = parentProject.getAnalyzerLanguages();
-        for (var lang : enabledLanguages) {
-            var sourceCache = lang.getStoragePath(parentProject);
-            if (!Files.exists(sourceCache)) {
-                continue;
-            }
-            try {
-                var relative = parentProject.getRoot().relativize(sourceCache);
-                var destCache = newWorktreePath.resolve(relative);
-                Files.createDirectories(destCache.getParent());
-                try {
-                    Files.createLink(destCache, sourceCache); // Try hard-link first
-                    logger.debug("Hard-linked analyzer storage cache from {} to {}", sourceCache, destCache);
-                } catch (UnsupportedOperationException | IOException linkEx) {
-                    Files.copy(sourceCache, destCache, StandardCopyOption.REPLACE_EXISTING);
-                    logger.debug("Copied analyzer storage cache from {} to {}", sourceCache, destCache);
-                }
-            } catch (IOException copyEx) {
-                logger.warn(
-                        "Failed to replicate analyzer storage cache for language {}: {}",
-                        lang.name(),
-                        copyEx.getMessage(),
-                        copyEx);
-            }
-        }
+        // Analyzer storage caches are intentionally not copied or linked to the new worktree.
+        // Reusing caches across different project roots or branches is unsafe because:
+        // - Cache contents often embed absolute paths and root-specific identifiers.
+        // - Hard-linking risks sharing inodes between sessions, which can cause cross-branch contamination
+        //   and corruption when multiple processes save concurrently.
+        // Each worktree must build and persist its own analyzer cache in isolation.
 
         return new WorktreeSetupResult(newWorktreePath, branchForWorktree);
     }

@@ -227,6 +227,7 @@
 
       "git_badge_background": "#757575",
       "git_badge_text": "#ffffff",
+      "ci_excluded_foreground": "#9e9e9e",
 
       "mode_answer_bg": "#757575",
       "mode_answer_fg": "#ffffff",
@@ -296,6 +297,9 @@
       "chip_neutral_bg": "#f0f0f0",
       "chip_neutral_fg": "#4a4a4a",
       "chip_neutral_border": "#e0e0e0",
+      "chip_invalid_bg": "#fce8e8",
+      "chip_invalid_fg": "#6b3030",
+      "chip_invalid_border": "#d4a5a5",
 
       "accent_gradient_start": "#757575",
       "accent_gradient_end": "#616161",

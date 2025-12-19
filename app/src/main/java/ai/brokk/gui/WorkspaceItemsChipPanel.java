@@ -2,13 +2,13 @@ package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.search.ScrollingUtils;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.MainProject;
+import java.awt.Container;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
@@ -16,11 +16,7 @@ import java.awt.Insets;
 import java.awt.Rectangle;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.util.Collection;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -31,6 +27,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -51,6 +48,7 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
     // Cross-hover state: chip lookup by fragment id and external hover callback
     private final Map<String, WorkspaceChip> chipById = new ConcurrentHashMap<>();
     private @Nullable WorkspaceChip.SummaryChip syntheticSummaryChip = null;
+    private @Nullable WorkspaceChip.StyleGuideChip styleGuideChip = null;
     private @Nullable BiConsumer<ContextFragment, Boolean> onHover;
     private Set<ContextFragment> hoveredFragments = Set.of();
     private Set<String> hoveredFragmentIds = Set.of();
@@ -191,198 +189,159 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
     }
 
     private void updateChips(List<ContextFragment> fragments) {
+        updateChips(fragments, false);
+    }
+
+    private void updateChips(List<ContextFragment> fragments, boolean fromBackground) {
+        if (!fromBackground && SwingUtilities.isEventDispatchThread()) {
+            var fragmentsCopy = List.copyOf(fragments);
+            contextManager.submitBackgroundTask(
+                    "WorkspaceItemsChipPanel.updateChips", () -> updateChips(fragmentsCopy, true));
+            return;
+        }
+
         logger.debug(
                 "updateChips (incremental) called with {} fragments (forceToolEmulation={} readOnly={})",
                 fragments.size(),
                 MainProject.getForceToolEmulation(),
                 readOnly);
 
-        var visibleFragments = fragments.stream()
-                .filter(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f))
+        var summaries = fragments.stream()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.SKELETON)
+                .toList();
+        var nonSummaryFragments = fragments.stream()
+                .filter(f -> f.getType() != ContextFragment.FragmentType.SKELETON)
                 .toList();
 
-        var summaries = visibleFragments.stream()
-                .filter(f -> classify(f) == WorkspaceChip.ChipKind.SUMMARY)
-                .toList();
-        var nonsummaries = visibleFragments.stream()
-                .filter(f -> classify(f) != WorkspaceChip.ChipKind.SUMMARY)
-                .toList();
+        // Pre-compute classifications off-EDT
+        var classifiedNonSummaries =
+                nonSummaryFragments.stream().map(ChipColorUtils::classify).toList();
 
         logger.debug(
                 "updateChips: {} visible ({} summaries, {} others) out of {}",
-                visibleFragments.size(),
+                fragments.size(),
                 summaries.size(),
-                nonsummaries.size(),
+                nonSummaryFragments.size(),
                 fragments.size());
 
         Map<String, ContextFragment> newOthersById = new LinkedHashMap<>();
-        for (var f : nonsummaries) {
+        for (var f : nonSummaryFragments) {
             newOthersById.put(f.id(), f);
         }
 
-        // 1) Remove chips that are no longer present
-        var toRemove = chipById.keySet().stream()
-                .filter(oldId -> !newOthersById.containsKey(oldId))
-                .toList();
-        for (var id : toRemove) {
-            var chip = chipById.remove(id);
-            if (chip != null) {
-                remove(chip);
-            }
-        }
+        var orderIds = nonSummaryFragments.stream().map(ContextFragment::id).toList();
 
-        // 2) Add chips that are new
-        for (var entry : newOthersById.entrySet()) {
-            var id = entry.getKey();
-            var frag = entry.getValue();
-            if (!chipById.containsKey(id)) {
-                var chip = createChip(frag);
-                if (chip != null) {
-                    add(chip);
-                    chipById.put(id, chip);
-                }
-            }
-        }
+        SwingUtilities.invokeLater(() -> {
+            // Snapshot current ids to avoid races and inconsistent views during add/remove planning.
+            var currentIds = new HashSet<>(chipById.keySet());
 
-        // 3) Reorder chips to match 'others' order
-        int z = 0;
-        for (var f : nonsummaries) {
-            var chip = chipById.get(f.id());
-            if (chip != null) {
-                try {
-                    setComponentZOrder(chip, z++);
-                } catch (Exception ex) {
-                    logger.debug("Failed to set component z-order for fragment: {}", f.id(), ex);
-                }
-            }
-        }
-
-        // 3b) Rebind existing chips to updated fragment instances
-        for (var f : nonsummaries) {
-            var chip = chipById.get(f.id());
-            if (chip != null) {
-                chip.updateFragment(f);
-            }
-        }
-
-        // 4) Synthetic "Summaries" chip incremental management
-        boolean anyRenderableSummary =
-                summaries.stream().anyMatch(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f));
-
-        if (!anyRenderableSummary) {
-            if (syntheticSummaryChip != null) {
-                remove(syntheticSummaryChip);
-                syntheticSummaryChip = null;
-            }
-        } else {
-            var renderableSummaries = summaries.stream()
-                    .filter(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f))
+            var toRemoveIds = currentIds.stream()
+                    .filter(oldId -> !newOthersById.containsKey(oldId))
                     .toList();
-            if (renderableSummaries.isEmpty()) {
-                logger.debug("No renderable summaries for synthetic chip; skipping.");
-            } else if (syntheticSummaryChip == null) {
-                syntheticSummaryChip = createSyntheticSummaryChip(renderableSummaries);
-                if (syntheticSummaryChip != null) {
-                    add(syntheticSummaryChip);
+
+            for (var id : toRemoveIds) {
+                var chip = chipById.remove(id);
+                if (chip != null) {
+                    remove(chip);
                 }
+            }
+
+            var toAddFrags = nonSummaryFragments.stream()
+                    .filter(f -> !currentIds.contains(f.id()))
+                    .toList();
+
+            for (var frag : toAddFrags) {
+                var classified = classifiedNonSummaries.stream()
+                        .filter(cf -> cf.fragment().equals(frag))
+                        .findFirst()
+                        .orElse(new ChipColorUtils.ClassifiedFragment(frag, ChipColorUtils.ChipKind.OTHER));
+                var chip = createChip(frag, classified.kind());
+                add(chip);
+                chipById.put(frag.id(), chip);
+            }
+
+            int z = 0;
+            for (var id : orderIds) {
+                var chip = chipById.get(id);
+                if (chip != null) {
+                    setComponentZOrder(chip, z++);
+                }
+            }
+
+            for (var f : nonSummaryFragments) {
+                var chip = chipById.get(f.id());
+                if (chip != null) {
+                    chip.updateFragment(f);
+                }
+            }
+
+            if (summaries.isEmpty()) {
+                if (syntheticSummaryChip != null) {
+                    remove(syntheticSummaryChip);
+                    syntheticSummaryChip = null;
+                }
+            } else if (syntheticSummaryChip == null) {
+                syntheticSummaryChip = createSyntheticSummaryChip(summaries);
+                add(syntheticSummaryChip);
             } else {
-                syntheticSummaryChip.updateSummaries(renderableSummaries);
+                syntheticSummaryChip.updateSummaries(summaries);
             }
 
             if (syntheticSummaryChip != null) {
-                try {
-                    setComponentZOrder(syntheticSummaryChip, getComponentCount() - 1);
-                } catch (Exception ex) {
-                    logger.debug("Failed to set component z-order for synthetic summary chip", ex);
+                setComponentZOrder(syntheticSummaryChip, getComponentCount() - 1);
+            }
+
+            ensureStyleGuideChip();
+
+            revalidate();
+            repaint();
+
+            Container p = getParent();
+            while (p != null) {
+                if (p instanceof JComponent jc) {
+                    jc.revalidate();
+                    jc.repaint();
                 }
+                p = p.getParent();
             }
-        }
-
-        revalidate();
-        repaint();
-
-        java.awt.Container p = getParent();
-        while (p != null) {
-            if (p instanceof JComponent jc) {
-                jc.revalidate();
-                jc.repaint();
-            }
-            p = p.getParent();
-        }
+        });
     }
 
-    private WorkspaceChip.ChipKind classify(ContextFragment fragment) {
-        if (fragment.getType().isEditable()) {
-            return WorkspaceChip.ChipKind.EDIT;
-        }
-        if (fragment.getType() == ContextFragment.FragmentType.SKELETON) {
-            return WorkspaceChip.ChipKind.SUMMARY;
-        }
-        if (fragment.getType() == ContextFragment.FragmentType.HISTORY) {
-            return WorkspaceChip.ChipKind.HISTORY;
-        }
-        return WorkspaceChip.ChipKind.OTHER;
-    }
-
-    /**
-     * Conservative predicate deciding whether a fragment has visible/renderable content.
-     * <p>
-     * Rules:
-     * - Immediately return true for ComputedFragment or any dynamic fragment.
-     * - Always keep output fragments (history / outputs).
-     * - For static non-computed text fragments: require non-blank text.
-     * - For static non-text fragments: require at least an image, at least one file, or a non-empty description.
-     * <p>
-     * Any exception during evaluation causes the method to return true (fail-safe: show the fragment).
-     */
-    private boolean hasRenderableContent(ContextFragment f) {
-        try {
-            // Always render output fragments (e.g., HISTORY, TASK, SEARCH) even while async text/desc is loading
-            if (f.getType().isOutput()) {
-                return true;
-            }
-
-            if (f.isText()) {
-                String txt = f.text().renderNowOr("(Loading text...)");
-                return !txt.trim().isEmpty();
-            } else {
-                boolean hasImage = f instanceof ContextFragment.ImageFragment;
-                Set<ProjectFile> files = f.files().renderNowOr(Set.of());
-                String desc = f.description().renderNowOr("(Loading image...)");
-                return hasImage || !files.isEmpty() || !desc.trim().isEmpty();
-            }
-        } catch (Exception ex) {
-            logger.debug("hasRenderableContent threw for fragment {}", f, ex);
-            return true;
-        }
-    }
-
-    private @Nullable WorkspaceChip createChip(ContextFragment fragment) {
-        if (!MainProject.getForceToolEmulation() && !hasRenderableContent(fragment)) {
-            logger.debug("Skipping creation of chip for fragment (no renderable content): {}", fragment);
-            return null;
-        }
-        var kind = classify(fragment);
-        var chip = new WorkspaceChip(chrome, contextManager, () -> readOnly, onHover, onRemoveFragment, fragment, kind);
+    private WorkspaceChip createChip(ContextFragment fragment, ChipColorUtils.ChipKind kind) {
+        var chip = new WorkspaceChip(
+                chrome, contextManager, () -> readOnly, onHover, onRemoveFragment, Set.of(fragment), kind);
         chip.setBorder(new EmptyBorder(0, 0, 0, 0));
         return chip;
     }
 
-    private @Nullable WorkspaceChip.SummaryChip createSyntheticSummaryChip(List<ContextFragment> summaries) {
-        if (summaries.isEmpty()) return null;
-
-        var renderableSummaries = summaries.stream()
-                .filter(f -> MainProject.getForceToolEmulation() || hasRenderableContent(f))
-                .toList();
-        if (renderableSummaries.isEmpty()) {
-            logger.debug("No renderable summaries for synthetic chip; skipping creation.");
-            return null;
-        }
-
+    private WorkspaceChip.SummaryChip createSyntheticSummaryChip(List<ContextFragment> summaries) {
         var chip = new WorkspaceChip.SummaryChip(
-                chrome, contextManager, () -> readOnly, onHover, onRemoveFragment, renderableSummaries);
+                chrome, contextManager, () -> readOnly, onHover, onRemoveFragment, summaries);
         chip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         return chip;
+    }
+
+    /**
+     * Ensures the pinned Style Guide chip is inserted (first).
+     * This chip is UI-only and is not tracked in chipById nor included in cross-hover.
+     */
+    private void ensureStyleGuideChip() {
+        if (styleGuideChip == null) {
+            // Minimal, static fragment used only to anchor the chip in menus/preview.
+            // Not tied to workspace hover/selection or computed updates.
+            ContextFragment fragment = new ContextFragment.StringFragment(
+                    contextManager, "", "AGENTS.md", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+            styleGuideChip = new WorkspaceChip.StyleGuideChip(
+                    chrome, contextManager, () -> readOnly, null, onRemoveFragment, fragment);
+            styleGuideChip.setBorder(new EmptyBorder(0, 0, 0, 0));
+            styleGuideChip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            add(styleGuideChip);
+        } else if (styleGuideChip.getParent() != this) {
+            add(styleGuideChip);
+        }
+
+        // Pin at the first position.
+        setComponentZOrder(styleGuideChip, 0);
     }
 
     // Scrollable support and width-tracking preferred size for proper wrapping inside JScrollPane

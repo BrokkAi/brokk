@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Abstraction for a filename relative to the repo. This exists to make it less difficult to ensure that different
@@ -93,5 +94,9 @@ public class ProjectFile implements BrokkFile {
     @Override
     public int hashCode() {
         return relPath.hashCode();
+    }
+
+    public Optional<Long> size() {
+        return exists() ? Optional.of(absPath().toFile().length()) : Optional.empty();
     }
 }

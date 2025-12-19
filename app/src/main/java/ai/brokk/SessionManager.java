@@ -37,6 +37,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public class SessionManager implements AutoCloseable {
@@ -462,6 +463,7 @@ public class SessionManager implements AutoCloseable {
         return false;
     }
 
+    @Blocking
     @Nullable
     public ContextHistory loadHistory(UUID sessionId, IContextManager contextManager) {
         var future = sessionExecutorByKey.submit(
@@ -477,6 +479,37 @@ public class SessionManager implements AutoCloseable {
             // tryLoadHistoryOrQuarantine already quarantines on failure.
             return null;
         }
+    }
+
+    /**
+     * Counts AI responses for a session without loading full history.
+     * This is much faster than loadHistory() for just getting the count.
+     */
+    @Blocking
+    public int countAiResponses(UUID sessionId) {
+        var zipPath = getSessionHistoryPath(sessionId);
+        try {
+            return HistoryIo.countAiResponses(zipPath);
+        } catch (IOException e) {
+            logger.warn("Failed to count AI responses for session {}", sessionId, e);
+            return 0;
+        }
+    }
+
+    @Blocking
+    @Nullable
+    public ContextHistory loadHistoryAndRefresh(UUID sessionId, IContextManager contextManager) {
+        var ch = loadHistory(sessionId, contextManager);
+        if (ch == null) {
+            return null;
+        }
+
+        var refreshed = ch.liveContext().copyAndRefresh("Load External Changes");
+        if (!refreshed.equals(ch.liveContext())) {
+            ch.pushContext(refreshed);
+        }
+
+        return ch;
     }
 
     private ContextHistory loadHistoryInternal(UUID sessionId, IContextManager contextManager) throws IOException {

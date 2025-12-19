@@ -178,8 +178,7 @@ public class GitRepoData {
     /** Retrieves the contents of {@code file} at a given commit ID, or returns an empty string if not found. */
     public String getFileContent(String commitId, ProjectFile file) throws GitAPIException {
         if (commitId.isBlank()) {
-            logger.debug("getFileContent called with blank commitId; returning empty string");
-            return "";
+            throw new IllegalArgumentException("commitId must not be blank");
         }
 
         var objId = repo.resolveToCommit(commitId);
@@ -202,8 +201,8 @@ public class GitRepoData {
         } catch (IOException e) {
             throw new GitRepo.GitWrappedIOException(e);
         }
-        logger.debug("File '{}' not found at commit '{}'", file, commitId);
-        return "";
+
+        throw new GitRepo.GitRepoException("File '%s' not found at commit '%s'".formatted(file, commitId));
     }
 
     /**

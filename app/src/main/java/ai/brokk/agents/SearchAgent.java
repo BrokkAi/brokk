@@ -15,6 +15,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ViewingPolicy;
+import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.mcp.McpUtils;
 import ai.brokk.metrics.SearchMetrics;
@@ -231,8 +232,8 @@ public class SearchAgent {
             // Beast mode triggers
             var inputLimit = cm.getService().getMaxInputTokens(model);
             // Determine viewing policy based on search objective
-            boolean isLutz = objective == Objective.LUTZ;
-            var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, isLutz);
+            boolean useTaskList = objective == Objective.LUTZ || objective == Objective.TASKS_ONLY;
+            var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, useTaskList);
             // Build workspace messages in insertion order with viewing policy applied
             var workspaceMessages =
                     new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(context, viewingPolicy));
@@ -284,7 +285,7 @@ public class SearchAgent {
             long turnStartTime = System.currentTimeMillis();
 
             // Decide next action(s)
-            io.llmOutput("\n**Brokk Search** is preparing the next actions…\n\n", ChatMessageType.AI, true, false);
+            io.showTransientMessage("Brokk Search is preparing the next actions…");
             var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
 
             long llmTimeMs = System.currentTimeMillis() - turnStartTime;
@@ -388,7 +389,9 @@ public class SearchAgent {
                                 taskMeta());
                     } else if (termReq.name().equals("callCodeAgent")) {
                         if (codeAgentJustSucceeded) {
-                            return createResult(termReq.name(), goal);
+                            // code agent already appended output to history, empty messages are skipped by scope.append
+                            return TaskResult.humanResult(
+                                    cm, "CodeAgent finished", List.of(), context, TaskResult.StopReason.SUCCESS);
                         }
                         // If CodeAgent did not succeed, continue planning/search loop
                     } else {
@@ -435,6 +438,7 @@ public class SearchAgent {
                 .collect(Collectors.joining(", "));
 
         var nonDroppableSection = buildNonDroppableSection();
+        var workspaceToc = CodePrompts.formatWorkspaceToc(context);
 
         var sys = new SystemMessage(
                 """
@@ -478,8 +482,11 @@ public class SearchAgent {
                 %s
                 %s
                 </instructions>
+                <workspace-toc>
+                %s
+                </workspace-toc>
                 """
-                        .formatted(supportedTypes, reminder, nonDroppableSection));
+                        .formatted(supportedTypes, reminder, nonDroppableSection, workspaceToc));
         messages.add(sys);
 
         // Describe available MCP tools
@@ -683,7 +690,7 @@ public class SearchAgent {
         }
 
         // Human-in-the-loop tool (only meaningful when GUI is available; safe to include otherwise)
-        if (io instanceof Chrome) {
+        if (io instanceof Chrome && objective != Objective.WORKSPACE_ONLY) {
             names.add("askHuman");
         }
 
@@ -839,17 +846,17 @@ public class SearchAgent {
 
                 Tools (exactly one):
                 - performedInitialReview(): use ONLY when ALL fragments are short, focused, clean, and directly relevant.
-                - dropWorkspaceFragments({ fragmentId -> explanation }): batch ALL drops in a single call.
+                - dropWorkspaceFragments(fragments: {fragmentId, explanation}[]): batch ALL drops in a single call.
 
                 Default behavior:
                 - If a fragment is large, noisy, or mixed → write a short summary in the drop explanation → DROP it.
                   Large/noisy/mixed = long, multi-file, logs/traces/issues, big diffs, UI/test noise, unfocused content.
 
                 Keep rule:
-                - KEEP only if it is short, focused, directly relevant, AND keeping it is clearer than summarizing.
+                - KEEP only if it is short, focused, directly relevant, AND keeping it is clearer than summarizing (i.e. to much information loss on summary).
 
-                Explanation format per fragment (concise):
-                - Summary: 2–4 identifier-first bullets (files/methods and why they matter).
+                fragment.explanation (string) format:
+                - Summary: information needed to solve the goal (e.g. descriptions, file paths, class names, method names, code snippets, stack traces)
                 - Reason: one short sentence why dropped.
                 - No implementation instructions.
 
@@ -1142,12 +1149,13 @@ public class SearchAgent {
         boolean didChange = !context.getChangedFiles(contextBefore).isEmpty();
 
         if (reason == TaskResult.StopReason.SUCCESS) {
-            // CodeAgent appended its own result; output concise success
-            io.llmOutput("# Code Agent\n\nFinished with a successful build!", ChatMessageType.AI);
-            var resultString = "CodeAgent finished with a successful build!";
+            // housekeeping
+            new GitWorkflow(cm).performAutoCommit(instructions);
+            cm.compressHistory();
+            // CodeAgent appended its own result; we don't need to llmOutput anything redundant
             logger.debug("SearchAgent.callCodeAgent finished successfully");
             codeAgentJustSucceeded = true;
-            return resultString;
+            return "CodeAgent finished with a successful build!";
         }
 
         // propagate critical failures

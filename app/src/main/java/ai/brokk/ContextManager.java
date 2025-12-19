@@ -25,7 +25,6 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.ExceptionAwareSwingWorker;
-import ai.brokk.gui.dialogs.SettingsDialog;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
@@ -62,6 +61,7 @@ import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 /**
  * Manages the current and previous context, along with other state like prompts and message history.
@@ -160,6 +160,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     // BuildAgent task tracking for cancellation
     private volatile @Nullable CompletableFuture<BuildDetails> buildAgentFuture;
+
+    // Style guide generation completion tracking
+    private volatile CompletableFuture<String> styleGuideFuture = CompletableFuture.completedFuture("");
+
+    // Track whether style guide generation was skipped due to missing Git
+    // Used by PostGitStyleRegenerationStep to offer regeneration after Git is configured
+    private volatile boolean styleGenerationSkipped = false;
 
     // Service reload state to prevent concurrent reloads
     private final AtomicBoolean isReloadingService = new AtomicBoolean(false);
@@ -266,10 +273,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.currentSessionId = SessionManager.newSessionId();
     }
 
-    /**
-     * Initializes the current session by loading its history or creating a new one. This is typically called for
-     * standard project openings. This method is synchronous but intended to be called from a background task.
-     */
     private void initializeCurrentSessionAndHistory(boolean forceNew) {
         // load last active session, if present
         var lastActiveSessionId = ((AbstractProject) project).getLastActiveSession();
@@ -290,7 +293,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.currentSessionId = sessionIdToLoad; // Set currentSessionId here
 
         // load session contents
-        var loadedCH = sessionManager.loadHistory(currentSessionId, this);
+        var loadedCH = sessionManager.loadHistoryAndRefresh(currentSessionId, this);
         if (loadedCH == null) {
             if (forceNew) {
                 contextHistory = new ContextHistory(new Context(this));
@@ -347,6 +350,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public CompletableFuture<Void> createGui() {
         assert SwingUtilities.isEventDispatchThread();
 
+        // Ensure style guide is initialized BEFORE creating Chrome
+        // (Chrome's constructor calls scheduleGitConfigurationAfterInit which needs the future)
+        styleGuideFuture = ensureStyleGuide();
+
         this.io = new Chrome(this);
         this.toolRegistry.register(new UiTools((Chrome) this.io));
         this.userActions.setIo(this.io);
@@ -375,9 +382,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             globalGitignorePath = abstractProject.getGlobalGitignorePath().orElse(null);
         }
         // Create watch service using factory (selects best implementation for platform)
+        // Use project.getRoot() for gitRepoRoot so worktrees resolve their external git metadata
         var watchService = WatchServiceFactory.create(
                 project.getRoot(),
-                project.hasGit() ? project.getRepo().getGitTopLevel() : null,
+                project.hasGit() ? project.getRoot() : null,
                 globalGitignorePath,
                 List.of() // Start with empty listeners
                 );
@@ -395,8 +403,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var contextTask =
                 submitBackgroundTask("Loading saved context", () -> initializeCurrentSessionAndHistory(false));
 
-        // Ensure style guide and build details are loaded/generated asynchronously
-        ensureStyleGuide();
+        // Ensure review guide and build details are loaded/generated asynchronously
+        // (style guide was initialized earlier, before Chrome creation)
         ensureReviewGuide();
         ensureBuildDetailsAsync();
         cleanupOldHistoryAsync();
@@ -452,7 +460,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // handleTrackedFileChange().
                 // This method is kept for backward compatibility only.
                 logger.debug("AnalyzerListener.onTrackedFileChange fired (backward compatibility path)");
-                handleTrackedFileChange(Set.of()); // Empty set since we don't have specific files from this path
+                handleTrackedFileChange(project.getAllFiles());
             }
 
             @Override
@@ -533,7 +541,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     IWatchService.Listener createFileWatchListener() {
         Path gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
-        FileWatcherHelper helper = new FileWatcherHelper(project.getRoot(), gitRepoRoot);
+        FileWatcherHelper helper = new FileWatcherHelper(gitRepoRoot);
 
         return new IWatchService.Listener() {
             @Override
@@ -804,6 +812,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return userActions.submitExclusiveAction(task);
     }
 
+    /**
+     * THE PROVIDED TASK IS RESPONSIBLE FOR HANDLING InterruptedException WITHOUT PROPAGATING IT FURTHER.
+     */
     public CompletableFuture<Void> submitLlmAction(ThrowingRunnable task) {
         return userActions.submitLlmAction(task);
     }
@@ -938,26 +949,34 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public boolean undoContext() {
-        UndoResult result = contextHistory.undo(1, io, (AbstractProject) project);
-        if (result.wasUndone()) {
-            notifyContextListeners(liveContext());
-            project.getSessionManager()
-                    .saveHistory(contextHistory, currentSessionId); // Save history of frozen contexts
-            return true;
-        }
-
-        return false;
+        return withFileChangeNotificationsPaused(() -> {
+            UndoResult result = contextHistory.undo(1, io, project);
+            if (result.wasUndone()) {
+                notifyContextListeners(liveContext());
+                project.getSessionManager()
+                        .saveHistory(contextHistory, currentSessionId); // Save history of frozen contexts
+                if (!result.changedFiles().isEmpty()) {
+                    analyzerWrapper.updateFiles(result.changedFiles());
+                }
+                return true;
+            }
+            return false;
+        });
     }
 
     /** undo changes until we reach the target FROZEN context */
     public Future<?> undoContextUntilAsync(Context targetFrozenContext) {
         return submitExclusiveAction(() -> {
-            UndoResult result = contextHistory.undoUntil(targetFrozenContext, io, (AbstractProject) project);
+            UndoResult result =
+                    withFileChangeNotificationsPaused(() -> contextHistory.undoUntil(targetFrozenContext, io, project));
             if (result.wasUndone()) {
                 notifyContextListeners(liveContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
                 String message = "Undid " + result.steps() + " step" + (result.steps() > 1 ? "s" : "") + "!";
                 io.showNotification(IConsoleIO.NotificationRole.INFO, message);
+                if (!result.changedFiles().isEmpty()) {
+                    analyzerWrapper.updateFiles(result.changedFiles());
+                }
             } else {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Context not found or already at that point");
             }
@@ -967,11 +986,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** redo last undone context */
     public Future<?> redoContextAsync() {
         return submitExclusiveAction(() -> {
-            boolean wasRedone = contextHistory.redo(io, (AbstractProject) project);
-            if (wasRedone) {
+            ContextHistory.RedoResult redoResult =
+                    withFileChangeNotificationsPaused(() -> contextHistory.redo(io, project));
+            if (redoResult.wasRedone()) {
                 notifyContextListeners(liveContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Redo!");
+                if (!redoResult.changedFiles().isEmpty()) {
+                    analyzerWrapper.updateFiles(redoResult.changedFiles());
+                }
             } else {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "no redo state available");
             }
@@ -985,7 +1008,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Future<?> resetContextToAsync(Context targetContext) {
         return submitExclusiveAction(() -> {
             var newLive = Context.createFrom(
-                    targetContext, liveContext(), liveContext().getTaskHistory());
+                            targetContext, liveContext(), liveContext().getTaskHistory())
+                    .copyAndRefresh("Copy from History");
             contextHistory.pushContext(newLive);
             contextHistory.addResetEdge(targetContext, newLive);
             SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
@@ -1000,7 +1024,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public Future<?> resetContextToIncludingHistoryAsync(Context targetContext) {
         return submitExclusiveAction(() -> {
-            var newLive = Context.createFrom(targetContext, liveContext(), targetContext.getTaskHistory());
+            var newLive = Context.createFrom(targetContext, liveContext(), targetContext.getTaskHistory())
+                    .copyAndRefresh("Copy from History");
             contextHistory.pushContext(newLive);
             contextHistory.addResetEdge(targetContext, newLive);
             SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
@@ -1070,15 +1095,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     modifiedCtx = modifiedCtx.addFragments(fragmentsToAdd);
                 }
                 return Context.createWithId(
-                        Context.newContextId(),
-                        this,
-                        modifiedCtx.allFragments().toList(),
-                        newHistory,
-                        null,
-                        CompletableFuture.completedFuture(actionMessage),
-                        currentLiveCtx.getGroupId(),
-                        currentLiveCtx.getGroupLabel(),
-                        currentLiveCtx.getMarkedReadonlyFragments().collect(Collectors.toSet()));
+                                Context.newContextId(),
+                                this,
+                                modifiedCtx.allFragments().toList(),
+                                newHistory,
+                                null,
+                                CompletableFuture.completedFuture(actionMessage),
+                                currentLiveCtx.getGroupId(),
+                                currentLiveCtx.getGroupLabel(),
+                                currentLiveCtx.getMarkedReadonlyFragments().collect(Collectors.toSet()))
+                        .copyAndRefresh("Copy from History");
             });
 
             io.showNotification(IConsoleIO.NotificationRole.INFO, actionMessage);
@@ -1583,23 +1609,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Execute a single task using ArchitectAgent with explicit options.
      *
      * @param task Task to execute (non-blank text).
-     * @param autoCommit whether to commit any modified files after a successful run
-     * @param autoCompress whether to compress conversation history after a successful run
      * @return TaskResult from ArchitectAgent execution.
      */
-    public TaskResult executeTask(TaskList.TaskItem task, boolean autoCommit, boolean autoCompress)
-            throws InterruptedException {
+    public TaskResult executeTask(TaskList.TaskItem task) throws InterruptedException {
         var planningModel = io.getInstructionsPanel().getSelectedModel();
         var codeModel = getCodeModel();
-        return executeTask(task, planningModel, codeModel, autoCommit, autoCompress);
+        return executeTask(task, planningModel, codeModel);
     }
 
     public TaskResult executeTask(
-            TaskList.TaskItem task,
-            StreamingChatModel planningModel,
-            StreamingChatModel codeModel,
-            boolean autoCommit,
-            boolean autoCompress)
+            TaskList.TaskItem task, StreamingChatModel planningModel, StreamingChatModel codeModel)
             throws InterruptedException {
         // IMPORTANT: Use task.text() as the LLM prompt, NOT task.title().
         // The title is UI-only metadata for display/organization; the text is the actual task body.
@@ -1619,15 +1638,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-            if (autoCommit) {
+            if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
                 new GitWorkflow(this).performAutoCommit(prompt);
-            }
-            if (autoCompress) {
                 compressHistory(); // synchronous
+                var ctx = markTaskDoneAndPersist(result.context(), task);
+                result = result.withContext(ctx);
             }
-            // Mark the task as done and persist the updated list
-            var ctx = markTaskDoneAndPersist(result.context(), task);
-            result = result.withContext(ctx);
         }
 
         return result;
@@ -1728,10 +1744,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         contextPushed(contextHistory.liveContext());
 
         // Auto-compress conversation history if enabled and exceeds configured threshold of the context window.
-        // This does not run for headless tasks, I think this is not a problem b/c we still compress
-        // after each task; this is to protect users doing repeated manual Ask/Code.
+        // This does not run for headless tasks; protects users doing repeated manual Ask/Code.
         // (null check here against IP is NOT redundant; this is called during Chrome init)
         if (io instanceof Chrome
+                && io.getInstructionsPanel() != null
                 && MainProject.getHistoryAutoCompress()
                 && !newLiveContext.getTaskHistory().isEmpty()) {
             var cf = new ContextFragment.HistoryFragment(this, newLiveContext.getTaskHistory());
@@ -1827,7 +1843,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     List<ChatMessage> messages = List.of(userMessage);
                     Llm.StreamingResult result;
                     try {
-                        result = getLlm(serviceProvider.get().quickModel(), "Summarize pasted image")
+                        result = getLlm(serviceProvider.get().summarizeModel(), "Summarize pasted image")
                                 .sendRequest(messages);
                     } catch (InterruptedException e) {
                         throw new RuntimeException(e);
@@ -1952,14 +1968,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             project.saveBuildDetails(inferredDetails);
-
-            if (io instanceof Chrome chrome) {
-                SwingUtilities.invokeLater(() -> {
-                    var dlg = SettingsDialog.showSettingsDialog(chrome, "Build");
-                    dlg.getProjectPanel().showBuildBanner();
-                });
-            }
-
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Build details inferred and saved");
             return inferredDetails;
         });
@@ -2017,19 +2025,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     // Removed BuildCommand record
 
-    /** Ensure style guide exists, generating if needed */
-    private void ensureStyleGuide() {
-        if (!project.getStyleGuide().isEmpty()) {
-            return;
+    /** Ensure style guide exists, generating if needed. */
+    public CompletableFuture<String> ensureStyleGuide() {
+        String existingStyleGuide = project.getStyleGuide();
+
+        if (!existingStyleGuide.isEmpty()) {
+            logger.info("Style guide already exists; skipping generation");
+            return CompletableFuture.completedFuture(existingStyleGuide);
         }
 
         if (!project.hasGit()) {
+            logger.info("No Git repository found, skipping style guide generation.");
+            styleGenerationSkipped = true;
             io.showNotification(
                     IConsoleIO.NotificationRole.INFO, "No Git repository found, skipping style guide generation.");
-            return;
+            return CompletableFuture.completedFuture("");
         }
 
-        submitBackgroundTask("Generating style guide", () -> {
+        return submitBackgroundTask("Generating style guide", () -> {
             try {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Generating project style guide...");
                 // Use a reasonable limit for style guide generation context
@@ -2039,9 +2052,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     io.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             "No classes found via PageRank for style guide generation.");
-                    project.saveStyleGuide(
-                            "# Style Guide\n\n(Could not be generated automatically - no relevant classes found)\n");
-                    return null;
+                    String fallbackContent =
+                            "# Style Guide\n\n(Could not be generated automatically - no relevant classes found)\n";
+                    project.saveStyleGuide(fallbackContent);
+                    return fallbackContent;
                 }
 
                 var codeForLLM = new StringBuilder();
@@ -2085,7 +2099,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 if (codeForLLM.isEmpty()) {
                     io.showNotification(
                             IConsoleIO.NotificationRole.INFO, "No relevant code found for style guide generation");
-                    return null;
+                    String fallbackContent = "# Style Guide\n\n(No relevant code found for generation)\n";
+                    project.saveStyleGuide(fallbackContent);
+                    return fallbackContent;
                 }
 
                 var messages = List.of(
@@ -2107,16 +2123,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     String message =
                             "Failed to generate style guide: " + result.error().getMessage();
                     io.showNotification(IConsoleIO.NotificationRole.INFO, message);
-                    project.saveStyleGuide("# Style Guide\n\n(Generation failed)\n");
-                    return null;
+                    String fallbackContent = "# Style Guide\n\n(Generation failed)\n";
+                    project.saveStyleGuide(fallbackContent);
+                    return fallbackContent;
                 }
                 var styleGuide = result.text();
                 if (styleGuide.isBlank()) {
                     io.showNotification(IConsoleIO.NotificationRole.INFO, "LLM returned empty style guide.");
-                    project.saveStyleGuide("# Style Guide\n\n(LLM returned empty result)\n");
-                    return null;
+                    String fallbackContent = "# Style Guide\n\n(LLM returned empty result)\n";
+                    project.saveStyleGuide(fallbackContent);
+                    return fallbackContent;
                 }
                 project.saveStyleGuide(styleGuide);
+                styleGenerationSkipped = false; // Reset flag after successful generation
 
                 String savedFileName;
                 Path agentsPath = project.getMasterRootPathForConfig().resolve(AbstractProject.STYLE_GUIDE_FILE);
@@ -2127,11 +2146,30 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
                 io.showNotification(
                         IConsoleIO.NotificationRole.INFO, "Style guide generated and saved to " + savedFileName);
+                return styleGuide;
             } catch (Exception e) {
                 logger.error("Error generating style guide", e);
+                String fallbackContent = "# Style Guide\n\n(Error during generation)\n";
+                project.saveStyleGuide(fallbackContent);
+                return fallbackContent;
             }
-            return null;
         });
+    }
+
+    /**
+     * Returns the CompletableFuture tracking style guide generation completion.
+     * Never returns null; always initialized to a completed future.
+     */
+    public CompletableFuture<String> getStyleGuideFuture() {
+        return styleGuideFuture;
+    }
+
+    /**
+     * Checks if style guide generation was skipped due to missing Git repository.
+     * Used by onboarding to offer regeneration after Git is configured.
+     */
+    public boolean wasStyleGenerationSkipped() {
+        return styleGenerationSkipped;
     }
 
     /** Ensure review guide exists, generating if needed */
@@ -2144,6 +2182,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         io.showNotification(IConsoleIO.NotificationRole.INFO, "Review guide created at .brokk/review.md");
     }
 
+    // Reduced retry count for compression - it's non-critical and shouldn't block session navigation
+    private static final int COMPRESSION_MAX_ATTEMPTS = 2;
+
     /**
      * Compresses a single TaskEntry into a summary string using the quickest model.
      * Preserves the original log and attaches the summary, so the AI uses the summary
@@ -2151,11 +2192,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
      *
      * @param entry The TaskEntry to compress.
      * @return A new TaskEntry with both log and summary, or the original entry if compression fails.
+     * @throws InterruptedException if the operation is cancelled
      */
-    public TaskEntry compressHistory(TaskEntry entry) {
-        // If already has a summary, return as is (already compressed or marked for AI summary)
+    @Blocking
+    public TaskEntry compressHistory(TaskEntry entry) throws InterruptedException {
         if (entry.isCompressed()) {
             return entry;
+        }
+
+        // Check for interruption before starting LLM call
+        if (Thread.currentThread().isInterrupted()) {
+            throw new InterruptedException("Compression cancelled");
         }
 
         // Must have a log to compress
@@ -2167,13 +2214,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Compress the log into a summary
         var historyString = entry.toString();
         var msgs = SummarizerPrompts.instance.compressHistory(historyString);
-        Llm.StreamingResult result;
-        try {
-            result = getLlm(serviceProvider.get().quickModel(), "Compress history entry")
-                    .sendRequest(msgs);
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
+        Llm.StreamingResult result = getLlm(serviceProvider.get().summarizeModel(), "Compress history entry")
+                .sendRequest(msgs, COMPRESSION_MAX_ATTEMPTS);
 
         if (result.error() != null) {
             logger.warn("History compression failed for entry: {}", entry, result.error());
@@ -2252,7 +2294,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
          *
          * @param result   The TaskResult to append.
          */
-        public Context append(TaskResult result) {
+        public Context append(TaskResult result) throws InterruptedException {
             assert !closed : "TaskScope already closed";
 
             // If interrupted before any LLM output, skip
@@ -2285,11 +2327,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return r;
             });
 
+            // optionally compress
+            var updated = result.context().withGroup(groupId, groupLabel);
+            TaskEntry entry = updated.createTaskEntry(result);
+            TaskEntry finalEntry = compressResults ? compressHistory(entry) : entry;
+
             // push context
             var updatedContext = pushContext(currentLiveCtx -> {
-                var updated = result.context().withGroup(groupId, groupLabel);
-                TaskEntry entry = updated.createTaskEntry(result);
-                TaskEntry finalEntry = compressResults ? compressHistory(entry) : entry;
                 return updated.addHistoryEntry(finalEntry, result.output(), actionFuture)
                         .withGroup(groupId, groupLabel);
             });
@@ -2414,7 +2458,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var sessionManager = project.getSessionManager();
         var newSessionInfo = sessionManager.newSession(newSessionName);
         updateActiveSession(newSessionInfo.id());
-        var ctx = newContextFrom(sourceContext);
+        var ctx = newContextFrom(sourceContext).copyAndRefresh("Load External Changes");
+
         // the intent is that we save a history to the new session that initializeCurrentSessionAndHistory will pull in
         // later
         var ch = new ContextHistory(ctx);
@@ -2444,7 +2489,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                     // 2. Create the initial context for the new session.
                     // Only its top-level action/parsedOutput will be changed to reflect it's a new session.
-                    var initialContextForNewSession = newContextFrom(sourceContext);
+                    var initialContextForNewSession =
+                            newContextFrom(sourceContext).copyAndRefresh("Load External Changes");
 
                     // 3. Initialize the ContextManager's history for the new session with this single context.
                     // Context should already be live from migration logic
@@ -2524,7 +2570,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .orElse("(Unknown Name)");
         logger.debug("Switched to session: {} ({})", sessionName, sessionId);
 
-        ContextHistory loadedCh = sessionManager.loadHistory(sessionId, this);
+        ContextHistory loadedCh = sessionManager.loadHistoryAndRefresh(sessionId, this);
 
         if (loadedCh == null) {
             io.toolError("Error while loading history for session '%s'.".formatted(sessionName));
@@ -2591,13 +2637,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 });
     }
 
-    /**
-     * Copies an existing session with a new name and switches to it asynchronously.
-     *
-     * @param originalSessionId The UUID of the session to copy
-     * @param originalSessionName The name of the session to copy
-     * @return A CompletableFuture representing the completion of the session copy task
-     */
     public CompletableFuture<Void> copySessionAsync(UUID originalSessionId, String originalSessionName) {
         return submitExclusiveAction(() -> {
                     var sessionManager = project.getSessionManager();
@@ -2617,14 +2656,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
                             originalSessionId,
                             copiedSessionInfo.name(),
                             copiedSessionInfo.id());
-                    var loadedCh = sessionManager.loadHistory(copiedSessionInfo.id(), this);
+                    var loadedCh = sessionManager.loadHistoryAndRefresh(copiedSessionInfo.id(), this);
                     assert loadedCh != null && !loadedCh.getHistory().isEmpty()
                             : "Copied session history should not be null or empty";
-                    final ContextHistory nnLoadedCh = requireNonNull(
+                    contextHistory = requireNonNull(
                             loadedCh, "Copied session history (loadedCh) should not be null after assertion");
-                    this.contextHistory = nnLoadedCh;
-                    updateActiveSession(copiedSessionInfo.id());
 
+                    updateActiveSession(copiedSessionInfo.id());
                     finalizeSessionActivation(copiedSessionInfo.id());
                 })
                 .exceptionally(e -> {
@@ -2766,16 +2804,22 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /**
      * Asynchronously compresses the entire conversation history of the currently selected context. Replaces the history
-     * with summarized versions of each task entry. This runs as a user action because it visibly modifies the context
-     * history.
+     * with summarized versions of each task entry. This runs as a cancellable LLM action, so it should NOT be
+     * called from other exclusive-tasks (or it will deadlock).
      */
     public CompletableFuture<?> compressHistoryAsync() {
-        return submitExclusiveAction(() -> {
-            compressHistory();
+        return submitLlmAction(() -> {
+            try {
+                compressHistory();
+            } catch (InterruptedException ie) {
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "History compression canceled");
+            }
         });
     }
 
-    public void compressHistory() {
+    @Override
+    @Blocking
+    public void compressHistory() throws InterruptedException {
         io.disableHistoryPanel();
         try {
             // Operate on the task history
@@ -2788,10 +2832,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Compressing conversation history...");
 
             // Use bounded-concurrency executor to avoid overwhelming the LLM provider
-            int concurrency = MainProject.getHistoryCompressionConcurrency();
-            ExecutorService exec = ExecutorServiceUtil.newFixedThreadExecutor(concurrency, "HistoryCompress-");
             List<Future<TaskEntry>> futures = new ArrayList<>(taskHistoryToCompress.size());
-            try {
+            try (var exec = ExecutorServiceUtil.newFixedThreadExecutor(5, "HistoryCompress-")) {
                 // Submit all compression tasks
                 for (TaskEntry entry : taskHistoryToCompress) {
                     futures.add(exec.submit(() -> compressHistory(entry)));
@@ -2803,9 +2845,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     try {
                         compressedTaskEntries.add(futures.get(i).get());
                     } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        compressedTaskEntries.add(taskHistoryToCompress.get(i));
+                        // Cancellation requested - cancel remaining futures and re-throw
+                        logger.debug("History compression interrupted");
+                        for (int j = i + 1; j < futures.size(); j++) {
+                            futures.get(j).cancel(true);
+                        }
+                        throw ie;
                     } catch (ExecutionException ee) {
+                        // Individual task failed - use original entry and continue
                         logger.warn("History compression task failed", ee);
                         compressedTaskEntries.add(taskHistoryToCompress.get(i));
                     }
@@ -2830,8 +2877,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // Entries now have both log and summary, so AI uses summary while UI can show either
                 pushContext(currentLiveCtx -> currentLiveCtx.withCompressedHistory(List.copyOf(compressedTaskEntries)));
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Task history compressed successfully.");
-            } finally {
-                exec.shutdownNow();
             }
         } finally {
             SwingUtilities.invokeLater(io::enableHistoryPanel);
@@ -2866,5 +2911,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
             return summary;
         }
+    }
+
+    @TestOnly
+    public void setAnalyzerWrapper(IAnalyzerWrapper analyzerWrapper) {
+        this.analyzerWrapper = analyzerWrapper;
     }
 }

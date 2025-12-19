@@ -231,14 +231,14 @@ public final class FilterBox extends JPanel implements ThemeAware {
             iconLabel.setIcon(CLEAR_BASE);
         }
         // Apply initial theme
-        applyTheme(chrome.themeManager);
+        applyTheme(chrome.getThemeManager());
     }
 
     /* ----------  popup logic  ---------- */
 
     private void showPopup() {
         JPopupMenu pop = new JPopupMenu();
-        chrome.themeManager.registerPopupMenu(pop);
+        chrome.getThemeManager().registerPopupMenu(pop);
 
         JTextField search = new JTextField();
         // Add search field first, so it's always at the top
@@ -386,14 +386,25 @@ public final class FilterBox extends JPanel implements ThemeAware {
         unselectedFgColor = ThemeColors.getColor(isDark, ThemeColors.FILTER_UNSELECTED_FOREGROUND);
         selectedFgColor = ThemeColors.getColor(isDark, ThemeColors.FILTER_SELECTED_FOREGROUND);
 
-        // Apply current state colors
-        if (selected == null) {
-            // Check if mouse is over for hover state
-            Point mousePos = getMousePosition(true);
-            boolean isMouseOver = mousePos != null && contains(mousePos);
-            textLabel.setForeground(isMouseOver && isEnabled() ? selectedFgColor : unselectedFgColor);
+        if (!isEnabled()) {
+            Color disabledColor = UIManager.getColor("Label.disabledForeground");
+            if (disabledColor == null) {
+                disabledColor = new Color(128, 128, 128);
+            }
+            textLabel.setForeground(disabledColor);
+            iconLabel.setForeground(disabledColor);
+            iconLabel.setIcon(selected != null ? CLEAR_BASE : ARROW_BASE);
         } else {
-            textLabel.setForeground(selectedFgColor);
+            if (selected == null) {
+                Point mousePos = getMousePosition(true);
+                boolean isMouseOver = mousePos != null && contains(mousePos);
+                textLabel.setForeground(isMouseOver ? selectedFgColor : unselectedFgColor);
+                iconLabel.setIcon(isMouseOver ? HOVER_ARROW : ARROW_BASE);
+            } else {
+                textLabel.setForeground(selectedFgColor);
+                iconLabel.setIcon(CLEAR_BASE);
+            }
+            iconLabel.setForeground(textLabel.getForeground());
         }
 
         SwingUtilities.updateComponentTreeUI(this);
@@ -403,6 +414,35 @@ public final class FilterBox extends JPanel implements ThemeAware {
     public void applyTheme(GuiTheme guiTheme, boolean wordWrap) {
         // Word wrap not applicable to filter UI
         applyTheme(guiTheme);
+    }
+
+    @Override
+    public void setEnabled(boolean enabled) {
+        super.setEnabled(enabled);
+        textLabel.setEnabled(enabled);
+        iconLabel.setEnabled(enabled);
+
+        if (!enabled) {
+            Color disabledColor = UIManager.getColor("Label.disabledForeground");
+            if (disabledColor == null) {
+                disabledColor = new Color(128, 128, 128);
+            }
+            textLabel.setForeground(disabledColor);
+            iconLabel.setForeground(disabledColor);
+
+            iconLabel.setIcon(selected != null ? CLEAR_BASE : ARROW_BASE);
+        } else {
+            if (selected == null) {
+                textLabel.setForeground(unselectedFgColor);
+                iconLabel.setIcon(ARROW_BASE);
+            } else {
+                textLabel.setForeground(selectedFgColor);
+                iconLabel.setIcon(CLEAR_BASE);
+            }
+            iconLabel.setForeground(textLabel.getForeground());
+        }
+
+        repaint();
     }
 
     /**
