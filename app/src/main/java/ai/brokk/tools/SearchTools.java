@@ -16,6 +16,7 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
+import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import java.nio.file.Path;
@@ -724,59 +725,75 @@ public class SearchTools {
 
     @Tool(
             """
-                    Returns a hierarchical "bag of identifiers" summary for files matching a package/path pattern.
-                    This provides a quick overview of class members and nested structures without full source code.
-                    Use this to understand the structure of a package or set of related files.
+                    Returns a hierarchical "bag of identifiers" summary for all files within a specified directory.
+                    This provides a quick overview of class members and nested structures by listing names only;
+                    it is significantly less detailed than getFileSummaries as it omits full signatures and field types.
+                    Subdirectories are listed at the top.
+                    If the summary of all files is too large, it returns only the file and directory names.
                     """)
-    public String skimPackage(
-            @P("Java-style regex pattern to match against package names or file paths (relative to project root).")
-                    String packagePattern,
+    public String skimDirectory(
+            @P("Directory path relative to the project root (e.g., '.', 'src/main/java').") String directoryPath,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
                     String reasoning) {
-        if (packagePattern.isBlank()) {
-            throw new IllegalArgumentException("Cannot skim package: pattern is empty");
+        if (directoryPath.isBlank()) {
+            throw new IllegalArgumentException("Directory path cannot be empty");
         }
         if (reasoning.isBlank()) {
-            logger.warn("Missing reasoning for skimPackage call");
+            logger.warn("Missing reasoning for skimDirectory call");
         }
 
-        List<Predicate<String>> predicates = compilePatternsWithFallback(List.of(packagePattern));
-        if (predicates.isEmpty()) {
-            throw new IllegalArgumentException("No valid patterns provided");
-        }
-
+        var project = contextManager.getProject();
         var analyzer = getAnalyzer();
+        var targetDir = Path.of(directoryPath).normalize();
 
-        var matchingFiles = contextManager.getProject().getAllFiles().stream()
-                .filter(ProjectFile::isText)
-                .filter(file -> {
-                    String unixPath = file.toString().replace('\\', '/');
-                    for (Predicate<String> predicate : predicates) {
-                        if (predicate.test(unixPath)) {
-                            return true;
-                        }
-                    }
-                    return false;
-                })
+        var allFiles = project.getAllFiles();
+        var children = allFiles.stream()
+                .filter(f -> f.getParent().equals(targetDir))
                 .sorted()
                 .toList();
 
-        if (matchingFiles.isEmpty()) {
-            return "No project files found matching pattern: " + packagePattern;
+        if (children.isEmpty()) {
+            return "No files found in directory: " + directoryPath;
         }
 
-        StringBuilder result = new StringBuilder();
-        for (var file : matchingFiles) {
-            result.append("<file path=\"")
-                    .append(file.toString().replace('\\', '/'))
-                    .append("\">\n");
+        var subDirs = allFiles.stream()
+                .map(ProjectFile::getParent)
+                .filter(p -> p.getParent() != null && p.getParent().equals(targetDir))
+                .map(p -> p.getFileName().toString() + "/")
+                .distinct()
+                .sorted()
+                .collect(Collectors.joining("\n"));
+
+        StringBuilder sb = new StringBuilder();
+        if (!subDirs.isEmpty()) {
+            sb.append("Directories:\n").append(subDirs).append("\n\n");
+        }
+
+        int totalTokens = Messages.getApproximateTokens(sb.toString());
+        int maxTokens = 12800; // ~10% of 128k
+        boolean tooLarge = false;
+
+        StringBuilder fileSummaries = new StringBuilder();
+        for (var file : children) {
             String identifiers = Context.buildRelatedIdentifiers(analyzer, file);
-            if (!identifiers.isEmpty()) {
-                result.append(identifiers).append("\n");
+            String content = identifiers.isEmpty() ? "- (no symbols found)" : identifiers;
+            String fileBlock = "<file path=\"" + file.toString().replace('\\', '/') + "\">\n" + content + "\n</file>\n";
+
+            totalTokens += Messages.getApproximateTokens(fileBlock);
+            if (totalTokens > maxTokens) {
+                tooLarge = true;
+                break;
             }
-            result.append("</file>\n");
+            fileSummaries.append(fileBlock);
         }
 
-        return result.toString();
+        if (tooLarge) {
+            String fileList = children.stream().map(ProjectFile::getFileName).collect(Collectors.joining("\n"));
+            return sb.append("The directory summary is too large. Files:\n")
+                    .append(fileList)
+                    .toString();
+        }
+
+        return sb.append(fileSummaries).toString();
     }
 }
