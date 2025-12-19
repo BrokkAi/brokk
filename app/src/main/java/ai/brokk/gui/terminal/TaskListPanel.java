@@ -2217,6 +2217,14 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             lastTaskListFragmentId = currentFragmentId;
             SwingUtilities.invokeLater(() -> {
                 refreshUi(true);
+                // Switch to Tasks tab when task list changes
+                JTabbedPane tabs = findParentTabbedPane();
+                if (tabs != null) {
+                    int idx = tabIndexOfSelf(tabs);
+                    if (idx >= 0) {
+                        tabs.setSelectedIndex(idx);
+                    }
+                }
             });
         }
     }
