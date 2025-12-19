@@ -241,44 +241,6 @@ public class ContextHistoryTest {
     }
 
     /**
-     * Verifies that DiffService warmUp pre-computes diffs for multiple contexts using project files.
-     */
-    @Test
-    public void testDiffServiceWarmUp() throws Exception {
-        var pf1 = new ProjectFile(tempDir, "src/Content1.txt");
-        Files.createDirectories(pf1.absPath().getParent());
-        Files.writeString(pf1.absPath(), "Content 1\n");
-
-        var frag1 = new ContextFragment.ProjectPathFragment(pf1, contextManager);
-        // Seed computed text to snapshot original content for diff
-        frag1.text().await(Duration.ofSeconds(2));
-        var context1 = new Context(
-                contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("Action 1"));
-
-        var history = new ContextHistory(context1);
-
-        // Modify to create a second context with changes
-        Files.writeString(pf1.absPath(), "Content 1\nMore\n");
-        var frag2 = new ContextFragment.ProjectPathFragment(pf1, contextManager);
-        var context2 = new Context(
-                contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("Action 2"));
-        history.pushContext(context2);
-
-        var diffService = history.getDiffService();
-
-        // Warm up the diff service with all contexts
-        var contexts = history.getHistory();
-        diffService.warmUp(contexts);
-
-        for (var ctx : contexts) {
-            if (history.previousOf(ctx) != null) {
-                diffService.diff(ctx).join();
-                assertTrue(diffService.peek(ctx).isPresent(), "After join, diff should be cached");
-            }
-        }
-    }
-
-    /**
      * Verifies that undo/redo operations restore file content from the context snapshot,
      * not from the live file system state at the time of undo/redo.
      */

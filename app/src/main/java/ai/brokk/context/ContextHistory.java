@@ -63,8 +63,6 @@ public class ContextHistory {
     public ContextHistory(Context liveContext) {
         pushContext(liveContext);
         this.diffService = new DiffService(this);
-        // Warm-up diffs for all contexts so UI can peek results soon after load
-        this.diffService.warmUp(getHistory());
     }
 
     public ContextHistory(List<Context> contexts) {
@@ -93,8 +91,6 @@ public class ContextHistory {
         this.entryInfos.putAll(entryInfos);
         selected = history.peekLast();
         this.diffService = new DiffService(this);
-        // Warm-up diffs for all contexts so the restored session has diffs computed asynchronously
-        this.diffService.warmUp(getHistory());
     }
 
     /* ───────────────────────── public API ─────────────────────────── */
@@ -408,8 +404,6 @@ public class ContextHistory {
             entryInfos.remove(removed.id());
             var historyIds = getContextIds();
             resetEdges.removeIf(edge -> !historyIds.contains(edge.sourceId()) || !historyIds.contains(edge.targetId()));
-            // keep diff cache bounded to current history
-            diffService.retainOnly(historyIds);
             if (logger.isDebugEnabled()) {
                 logger.debug("Truncated history (removed oldest context: {})", removed);
             }

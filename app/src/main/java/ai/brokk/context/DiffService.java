@@ -1,15 +1,18 @@
 package ai.brokk.context;
 
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+
 import ai.brokk.ExceptionReporter;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.util.ContentDiffUtils;
+import com.github.benmanes.caffeine.cache.AsyncCache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -21,22 +24,24 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Computes and caches diffs between consecutive history entries using a live-context, non-blocking async model.
  *
- * <p>Keys by current context id assuming a single stable predecessor per context. Works directly with live
- * contexts (containing {@link ai.brokk.util.ComputedValue} futures) and uses bounded awaits during diff
- * computation to avoid blocking the UI indefinitely. For fragments that timeout during diff computation,
- * falls back to empty content rather than blocking.
- *
- * <p>This service materializes computed values
- * asynchronously as needed via {@link ai.brokk.util.ComputedValue#await(java.time.Duration)}.
+ * <p>Uses a global bounded cache of (prev, curr) context pairs to avoid redundant computations across sessions.
+ * This service materializes computed values asynchronously as needed via
+ * {@link ai.brokk.util.ComputedValue#await(java.time.Duration)}.
  */
 public final class DiffService {
     private static final Logger logger = LogManager.getLogger(DiffService.class);
 
     private static final Duration TEXT_FALLBACK_TIMEOUT = Duration.ofSeconds(2);
+    private static final int MAX_CACHE_SIZE = 1000;
+
+    /** Identity-based pair for caching diffs between two specific context instances. */
+    private record ContextPair(@Nullable Context prev, Context curr) {}
+
+    private final AsyncCache<ContextPair, List<Context.DiffEntry>> cache =
+            Caffeine.newBuilder().maximumSize(MAX_CACHE_SIZE).buildAsync();
 
     private final ContextHistory history;
     private final IContextManager cm;
-    private final ConcurrentHashMap<UUID, CompletableFuture<List<Context.DiffEntry>>> cache = new ConcurrentHashMap<>();
 
     DiffService(ContextHistory history) {
         this.history = history;
@@ -52,7 +57,8 @@ public final class DiffService {
      * @return Optional containing the diff list if already computed, or empty if not ready
      */
     public Optional<List<Context.DiffEntry>> peek(Context curr) {
-        var cf = cache.get(curr.id());
+        var prev = history.previousOf(curr);
+        var cf = cache.getIfPresent(new ContextPair(prev, curr));
         if (cf != null && cf.isDone()) {
             //noinspection DataFlowIssue (return of `getNow` is not detected as nullable)
             return Optional.ofNullable(cf.getNow(null));
@@ -61,62 +67,31 @@ public final class DiffService {
     }
 
     /**
-     * Computes or retrieves cached diff between this context and its predecessor using the project's background executor.
+     * Computes or retrieves cached diff between this context and its predecessor.
+     * Submits background computation via the context manager's background executor.
      *
      * @param curr the current (new) context to compute diffs for
      * @return CompletableFuture that will contain the list of diff entries
      */
     public CompletableFuture<List<Context.DiffEntry>> diff(Context curr) {
-        return cache.computeIfAbsent(curr.id(), id -> {
-            var cf = new CompletableFuture<List<Context.DiffEntry>>();
-            cm.submitBackgroundTask("Compute diffs for context " + id, () -> {
-                try {
-                    var prev = history.previousOf(curr);
-                    var result = (prev == null) ? List.<Context.DiffEntry>of() : computeDiff(curr, prev);
-                    cf.complete(result);
-                    return result;
-                } catch (Throwable t) {
-                    cf.completeExceptionally(t);
-                    throw new RuntimeException(t);
-                }
-            });
-            return cf;
+        var prev = history.previousOf(curr);
+        var key = new ContextPair(prev, curr);
+
+        return cache.get(key, (k, executor) -> {
+            if (k.prev() == null) {
+                return CompletableFuture.completedFuture(List.of());
+            }
+            return CompletableFuture.supplyAsync(
+                    () -> computeDiff(k.curr(), castNonNull(k.prev())), cm.getBackgroundTasks());
         });
     }
 
     /**
-     * Best-effort prefetch: triggers diff computation for all contexts with a predecessor.
-     *
-     * <p>Useful for warming up the cache with multiple contexts in parallel. Does not block the caller.
-     *
-     * @param contexts the list of contexts to prefetch diffs for
-     */
-    public void warmUp(List<Context> contexts) {
-        for (var c : contexts) {
-            if (history.previousOf(c) != null) {
-                diff(c);
-            }
-        }
-    }
-
-    /**
      * Clears all cached diff entries.
-     *
-     * <p>Useful for freeing memory or forcing recomputation of diffs.
      */
-    public void clear() {
-        cache.clear();
-    }
-
-    /**
-     * Retains only diffs for the provided set of context ids, discarding all others.
-     *
-     * <p>Used during history truncation to keep the cache bounded.
-     *
-     * @param currentIds the set of context ids whose diffs should be retained
-     */
-    public void retainOnly(Set<UUID> currentIds) {
-        cache.keySet().retainAll(currentIds);
+    void clear() {
+        cache.synchronous().invalidateAll();
+        cache.synchronous().cleanUp();
     }
 
     @Blocking
@@ -163,6 +138,8 @@ public final class DiffService {
      * are resolved and the diff is computed.
      * Triggers async computations but does not block on them.
      * Errors are logged and result in a placeholder DiffEntry with empty diff.
+     *
+     * The DiffEntry returned is Nullable!
      */
     @Blocking
     private static CompletableFuture<Context.DiffEntry> computeDiffForFragment(
@@ -457,7 +434,7 @@ public final class DiffService {
             }
             list.add(Map.entry(title, de));
         }
-        list.sort(Comparator.comparing(Map.Entry::getKey));
+        list.sort(Map.Entry.comparingByKey());
         return list;
     }
 
