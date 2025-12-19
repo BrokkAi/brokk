@@ -1638,12 +1638,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-            if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-                new GitWorkflow(this).performAutoCommit(prompt);
-                compressHistory(); // synchronous
-                var ctx = markTaskDoneAndPersist(result.context(), task);
-                result = result.withContext(ctx);
-            }
+            new GitWorkflow(this).performAutoCommit(prompt);
+            compressHistory(); // synchronous
+            var ctx = markTaskDoneAndPersist(result.context(), task);
+            result = result.withContext(ctx);
         }
 
         return result;
@@ -2306,16 +2304,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             // If there is literally nothing to record (no messages and no content changes), skip
             if (result.output().messages().isEmpty()) {
-                try {
-                    // Treat result.context() as new (right) and current topContext() as old (left)
-                    var diffs = result.context().getDiff(liveContext());
-                    if (diffs.isEmpty()) {
-                        logger.debug("Empty TaskResult (no messages and no content changes)");
-                        return result.context();
-                    }
-                } catch (Exception e) {
-                    // Be conservative: if diff computation fails, proceed to record the result
-                    logger.warn("Failed to compute diff for empty-result check; proceeding to record result", e);
+                // Treat result.context() as new (right) and current topContext() as old (left)
+                var diffs = result.context().getDiff(liveContext());
+                if (diffs.isEmpty()) {
+                    logger.debug("Empty TaskResult (no messages and no content changes)");
+                    return result.context();
                 }
             }
 
