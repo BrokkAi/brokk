@@ -434,7 +434,7 @@ class CodeAgentTest {
         codeAgent = new CodeAgent(cm, stubModel, consoleIO);
         project.setBuildDetails(BuildAgent.BuildDetails.EMPTY); // No build command
         var initialContext = newContext();
-        var result = codeAgent.runTask(initialContext, "A request that results in no edits", Set.of());
+        var result = codeAgent.executeWithoutHistory(initialContext, "A request that results in no edits", Set.of());
 
         assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
         assertEquals(initialContext, result.context());
@@ -974,7 +974,7 @@ class CodeAgentTest {
         var agent = new CodeAgent(cm, stubModel, consoleIO);
 
         // Act
-        var result = agent.runTask(ctx, "Change ro.txt from hello to goodbye", Set.of());
+        var result = agent.executeWithoutHistory(ctx, "Change ro.txt from hello to goodbye", Set.of());
 
         // Assert: operation is blocked with READ_ONLY_EDIT and file remains unchanged
         assertEquals(
@@ -1034,7 +1034,7 @@ class CodeAgentTest {
         project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
         // Act
-        var result = agent.runTask(ctx, "Change file from hello to goodbye", Set.of());
+        var result = agent.executeWithoutHistory(ctx, "Change file from hello to goodbye", Set.of());
 
         // Assert: edit should succeed because editable ProjectPathFragment takes precedence
         assertEquals(
@@ -1080,7 +1080,7 @@ class CodeAgentTest {
         project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
         // Act
-        var result = codeAgent.runTask(initialContext, "Change hello to goodbye", Set.of());
+        var result = codeAgent.executeWithoutHistory(initialContext, "Change hello to goodbye", Set.of());
 
         // Assert: Task completed successfully
         assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());

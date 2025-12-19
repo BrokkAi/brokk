@@ -122,24 +122,32 @@ public class CodeAgent {
     }
 
     /**
-     * Executes the coding task against the given context.
-     *
-     * CodeAgent's "conversation" will be included in TaskResult.output, it will NOT be baked into
-     * TaskResult.context.
+     * Executes the coding task against the given context, suppressing the conversation history
+     * for the duration of the task.
      */
     @Blocking
-    TaskResult runTask(Context initialContext, String userInput, Set<Option> options) {
+    TaskResult executeWithoutHistory(Context context, String userInput, Set<Option> options) {
         // pause watching for external changes (so they don't get added to activity history while we're still making
         // changes);
         // this means that we're responsible for refreshing the analyzer when we make changes
         contextManager.getAnalyzerWrapper().pause();
         try {
-            return runTaskInternal(initialContext, List.of(), userInput, options);
+            if (context.getTaskHistory().isEmpty()) {
+                // special case no-history to avoid changing Context identity unnecessarily
+                return runTaskInternal(context, List.of(), userInput, options);
+            } else {
+                return runTaskInternal(context.withHistory(List.of()), List.of(), userInput, options)
+                        .withHistory(context.getTaskHistory());
+            }
         } finally {
             contextManager.getAnalyzerWrapper().resume();
         }
     }
 
+    /**
+     * CodeAgent's "conversation" will be included in TaskResult.output, it will NOT be baked into
+     * TaskResult.context.
+     */
     @Blocking
     TaskResult runTaskInternal(
             Context initialContext, List<ChatMessage> prologue, String userInput, Set<Option> options) {
