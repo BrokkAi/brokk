@@ -19,6 +19,7 @@ import ai.brokk.git.GitRepoFactory;
 import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
+import java.io.File;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -746,27 +747,33 @@ public class SearchTools {
         var analyzer = getAnalyzer();
         var targetDir = Path.of(directoryPath).normalize();
 
-        var allFiles = project.getAllFiles();
-        var children = allFiles.stream()
-                .filter(f -> f.getParent().equals(targetDir))
-                .sorted()
-                .toList();
+        Path absTargetDir = project.getRoot().resolve(targetDir);
+        File[] fsItems = absTargetDir.toFile().listFiles();
 
-        if (children.isEmpty()) {
-            return "No files found in directory: " + directoryPath;
+        if (fsItems == null || fsItems.length == 0) {
+            return "No files or directories found in: " + directoryPath;
         }
 
-        var subDirs = allFiles.stream()
-                .map(ProjectFile::getParent)
-                .filter(p -> p.getParent() != null && p.getParent().equals(targetDir))
-                .map(p -> p.getFileName().toString() + "/")
-                .distinct()
-                .sorted()
-                .collect(Collectors.joining("\n"));
+        List<String> subDirs = new ArrayList<>();
+        List<ProjectFile> children = new ArrayList<>();
+
+        for (File item : fsItems) {
+            String name = item.getName();
+            if (project.isDirectoryIgnored(targetDir.resolve(name))) {
+                continue;
+            }
+            if (item.isDirectory()) {
+                subDirs.add(name + "/");
+            } else {
+                children.add(new ProjectFile(project.getRoot(), targetDir.resolve(name)));
+            }
+        }
 
         StringBuilder sb = new StringBuilder();
         if (!subDirs.isEmpty()) {
-            sb.append("Directories:\n").append(subDirs).append("\n\n");
+            sb.append("<subdirectories>\n  ")
+                    .append(subDirs.stream().sorted().collect(Collectors.joining(", ")))
+                    .append("\n</subdirectories>\n\n");
         }
 
         int totalTokens = Messages.getApproximateTokens(sb.toString());
@@ -774,6 +781,7 @@ public class SearchTools {
         boolean tooLarge = false;
 
         StringBuilder fileSummaries = new StringBuilder();
+        children.sort(ProjectFile::compareTo);
         for (var file : children) {
             String identifiers = Context.buildRelatedIdentifiers(analyzer, file);
             String content = identifiers.isEmpty() ? "- (no symbols found)" : identifiers;
@@ -792,6 +800,10 @@ public class SearchTools {
             return sb.append("The directory summary is too large. Files:\n")
                     .append(fileList)
                     .toString();
+        }
+
+        if (fileSummaries.isEmpty() && subDirs.isEmpty()) {
+            return "No files or directories found in: " + directoryPath;
         }
 
         return sb.append(fileSummaries).toString();
