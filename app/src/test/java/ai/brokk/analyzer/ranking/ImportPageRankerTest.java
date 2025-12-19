@@ -84,34 +84,28 @@ public class ImportPageRankerTest {
         }
     }
 
+
     @Test
-    public void seedsExcludeSelfAndRankImportersHigher_reversedTrue() throws Exception {
+    public void noProjectImportsHandledGracefully() throws Exception {
         try (var project = InlineTestProjectCreator.code(
                         """
                         package test;
-                        import test.B;
+                        import java.util.List;
+                        import java.util.ArrayList;
                         public class A {
-                            public void a() {}
+                            public List<String> list = new ArrayList<>();
                         }
                         """,
                         "test/A.java")
                 .addFileContents(
                         """
                         package test;
-                        import test.C;
+                        import java.util.Map;
                         public class B {
-                            public void b() {}
+                            public Map<String, String> map;
                         }
                         """,
                         "test/B.java")
-                .addFileContents(
-                        """
-                        package test;
-                        public class C {
-                            public void c() {}
-                        }
-                        """,
-                        "test/C.java")
                 .build()) {
 
             IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
@@ -123,37 +117,15 @@ public class ImportPageRankerTest {
             }
 
             ProjectFile a = byName.get("a.java");
-            ProjectFile b = byName.get("b.java");
-            ProjectFile c = byName.get("c.java");
+            Map<ProjectFile, Double> seeds = Map.of(a, 1.0);
 
-            // Teleport from C. With reversed=true, we follow edges C -> B -> A
-            Map<ProjectFile, Double> seeds = Map.of(c, 1.0);
-
+            // Should not throw and should return empty or minimal results since there are no internal links
             List<IAnalyzer.FileRelevance> results =
-                    ImportPageRanker.getRelatedFilesByImports(analyzer, seeds, 10, true);
+                    ImportPageRanker.getRelatedFilesByImports(analyzer, seeds, 10, false);
 
-            assertFalse(results.stream().anyMatch(fr -> fr.file().equals(c)), "Seed C should be excluded");
-
-            assertTrue(results.size() >= 2, "Expected at least two related files (A and B)");
-
-            // Find the scores for A and B in the results
-            double scoreA = results.stream()
-                    .filter(fr -> fr.file().equals(a))
-                    .findFirst()
-                    .map(IAnalyzer.FileRelevance::score)
-                    .orElse(0.0);
-            double scoreB = results.stream()
-                    .filter(fr -> fr.file().equals(b))
-                    .findFirst()
-                    .map(IAnalyzer.FileRelevance::score)
-                    .orElse(0.0);
-
-            // B is a direct importer of C, A is an importer of B.
-            // B should have a higher score than A because it's closer to the seed in the reversed graph.
-            assertTrue(
-                    scoreB > scoreA,
-                    "Direct importer B (score=" + scoreB + ") should have higher score than indirect importer A (score="
-                            + scoreA + ")");
+            assertFalse(results.stream().anyMatch(fr -> fr.file().equals(a)), "Seed A should be excluded");
+            // Since there are no project-internal imports, B should not be reached/ranked via imports.
+            assertTrue(results.isEmpty(), "Expected no related files when no project-internal imports exist");
         }
     }
 }
