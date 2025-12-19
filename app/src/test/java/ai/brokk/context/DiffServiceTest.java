@@ -420,4 +420,55 @@ class DiffServiceTest {
                 futB,
                 "DiffService should treat different Context instances as distinct cache keys regardless of logical equality");
     }
+
+    @Test
+    void diff_is_atomic_under_concurrent_calls() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Concurrent.txt");
+        Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "v1\n");
+
+        var ctx1 = new Context(
+                contextManager,
+                List.of(new ContextFragment.ProjectPathFragment(pf, contextManager)),
+                List.of(),
+                null,
+                CompletableFuture.completedFuture("1"));
+        var ctx2 = new Context(
+                contextManager,
+                List.of(new ContextFragment.ProjectPathFragment(pf, contextManager)),
+                List.of(),
+                null,
+                CompletableFuture.completedFuture("2"));
+
+        var history = new ContextHistory(List.of(ctx1, ctx2));
+        var ds = history.getDiffService();
+
+        int threadCount = 10;
+        var futures = new CompletableFuture[threadCount];
+        var startLatch = new CountDownLatch(1);
+        var doneLatch = new CountDownLatch(threadCount);
+
+        for (int i = 0; i < threadCount; i++) {
+            final int idx = i;
+            new Thread(() -> {
+                try {
+                    startLatch.await();
+                    futures[idx] = ds.diff(ctx2);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    doneLatch.countDown();
+                }
+            }).start();
+        }
+
+        startLatch.countDown();
+        doneLatch.await();
+
+        var firstFuture = futures[0];
+        assertNotNull(firstFuture);
+        for (int i = 1; i < threadCount; i++) {
+            assertSame(firstFuture, futures[i], "All concurrent calls must return the exact same future instance");
+        }
+    }
 }

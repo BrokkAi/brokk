@@ -88,15 +88,11 @@ public final class DiffService {
         var prev = history.previousOf(curr);
         var key = new ContextPair(prev, curr);
 
-        var existing = cache.getIfPresent(key);
-        if (existing != null) {
-            return existing;
-        }
+        var future = cache.get(key, k -> new CompletableFuture<>());
 
-        var future = new CompletableFuture<List<Context.DiffEntry>>();
-        // Caffeine's Cache doesn't have putIfAbsent that returns existing, so we use manual management for simplicity.
-        // Race is fine here as computeDiff is idempotent.
-        cache.put(key, future);
+        if (future.isDone()) {
+            return future;
+        }
 
         Executor executor;
         try {
