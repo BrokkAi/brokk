@@ -35,7 +35,9 @@ public final class DiffService {
 
     /** Identity-based pair for caching diffs between two specific context instances. */
     private record ContextPair(@Nullable Context prev, Context curr) {
+
         @Override
+        @SuppressWarnings("ReferenceEquality")
         public boolean equals(@Nullable Object o) {
             if (this == o) return true;
             if (!(o instanceof ContextPair(Context prev1, Context curr1))) return false;
