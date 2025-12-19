@@ -2,7 +2,9 @@
 
 ## Data Modeling and Identification
 - **Prefer Domain Objects over IDs**: Use domain objects (e.g., `Context`) directly as keys in maps or caches rather than adding UUID indirection. This simplifies lookups, improves type safety, and avoids manual management of ID-to-object mappings.
-- **Identity via Identity**: When caching relationships between specific object instances (like diffs between two `Context` versions), use `System.identityHashCode` or reference equality (via `Objects.equals`) in key wrappers if the objects are logically "snapshots" but share the same identity for a specific computation.
+- **Identity via Identity**: 
+    - Prefer `Objects.equals(a, b)` over `a == b` for null-safe equality checks.
+    - When caching relationships between specific object instances (like diffs between two `Context` versions that may be logically equivalent but represent distinct snapshots), use identity-based keys. In these cases, implement `equals` using reference equality (`this == o`) and `hashCode` using `System.identityHashCode(obj)`.
 
 ## Concurrency and Performance
 - **Avoid Complex Batching**: Avoid complex, stateful batching patterns (e.g., manual EDT timers/queues for coalescing). Prefer simple executor-based patterns or non-blocking queues when asynchronous processing is required.
