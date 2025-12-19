@@ -1030,8 +1030,20 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         bottomLinePanel.add(tokenUsageBar, BorderLayout.CENTER);
 
-        var contextRightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        // Create auto-fill context button
+        var autoFillButton = new HighContrastAwareButton();
+        SwingUtilities.invokeLater(() -> autoFillButton.setIcon(Icons.WAND));
+        autoFillButton.setFocusable(false);
+        autoFillButton.setOpaque(false);
+        autoFillButton.setToolTipText("Auto-fill context using AI analysis of instructions and session history");
+
+        var contextRightPanel = new JPanel();
+        contextRightPanel.setLayout(new BoxLayout(contextRightPanel, BoxLayout.X_AXIS));
         contextRightPanel.setOpaque(false);
+        autoFillButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        attachButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        contextRightPanel.add(autoFillButton);
+        contextRightPanel.add(Box.createHorizontalStrut(4));
         contextRightPanel.add(attachButton);
         bottomLinePanel.add(contextRightPanel, BorderLayout.EAST);
 
