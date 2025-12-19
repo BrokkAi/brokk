@@ -54,6 +54,10 @@ public record TaskResult(
         return new TaskResult(actionDescription, output, ctx, stopDetails, meta);
     }
 
+    public TaskResult withHistory(List<TaskEntry> taskHistory) {
+        return new TaskResult(actionDescription, output, context.withHistory(taskHistory), stopDetails, meta);
+    }
+
     /** Enum representing the reason a session concluded. */
     public enum StopReason {
         /** The agent successfully completed the goal. */

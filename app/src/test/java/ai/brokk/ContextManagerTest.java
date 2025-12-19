@@ -105,7 +105,7 @@ class ContextManagerTest {
         var entry2 = new TaskEntry(202, tf2, null);
 
         // Seed initial history with both entries
-        cm.pushContext(ctx -> ctx.withCompressedHistory(List.of(entry1, entry2)));
+        cm.pushContext(ctx -> ctx.withHistory(List.of(entry1, entry2)));
 
         // Sanity check preconditions
         Context before = cm.liveContext();

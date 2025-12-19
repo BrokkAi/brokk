@@ -114,7 +114,7 @@ class CodeAgentTest {
     private CodeAgent.EditState createEditState(
             List<EditBlock.SearchReplaceBlock> pendingBlocks, int blocksAppliedWithoutBuild) {
         return new CodeAgent.EditState(
-                new ArrayList<>(pendingBlocks), // Modifiable copy
+                new LinkedHashSet<>(pendingBlocks), // Convert to SequencedSet
                 0, // consecutiveParseFailures
                 0, // consecutiveApplyFailures
                 0, // consecutiveBuildFailures
@@ -391,7 +391,7 @@ class CodeAgentTest {
         // otherwise verifyPhase will short-circuit because blocksAppliedWithoutBuild is 0 from the Retry step.
         var cs2 = retryStep.cs();
         var es2 = new CodeAgent.EditState(
-                List.of(), // pending blocks are empty
+                new LinkedHashSet<>(), // pending blocks are empty
                 retryStep.es().consecutiveParseFailures(),
                 retryStep.es().consecutiveApplyFailures(),
                 retryStep.es().consecutiveBuildFailures(),
@@ -434,7 +434,7 @@ class CodeAgentTest {
         codeAgent = new CodeAgent(cm, stubModel, consoleIO);
         project.setBuildDetails(BuildAgent.BuildDetails.EMPTY); // No build command
         var initialContext = newContext();
-        var result = codeAgent.runTask(initialContext, List.of(), "A request that results in no edits", Set.of());
+        var result = codeAgent.executeWithoutHistory(initialContext, "A request that results in no edits", Set.of());
 
         assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
         assertEquals(initialContext, result.context());
@@ -604,7 +604,7 @@ class CodeAgentTest {
         // Turn 1: apply "hello world" -> "goodbye world"
         var block1 = new EditBlock.SearchReplaceBlock(file.toString(), "hello world", "goodbye world");
         var es1 = new CodeAgent.EditState(
-                new ArrayList<>(List.of(block1)),
+                new LinkedHashSet<>(List.of(block1)),
                 0,
                 0,
                 0,
@@ -627,7 +627,7 @@ class CodeAgentTest {
         // Prepare next turn state with empty per-turn baseline and a new change: "goodbye world" -> "ciao world"
         var block2 = new EditBlock.SearchReplaceBlock(file.toString(), "goodbye world", "ciao world");
         var es2 = new CodeAgent.EditState(
-                new ArrayList<>(List.of(block2)),
+                new LinkedHashSet<>(List.of(block2)),
                 0,
                 0,
                 0,
@@ -665,7 +665,7 @@ class CodeAgentTest {
         file.write(revised);
 
         var es = new CodeAgent.EditState(
-                List.of(), // pending blocks
+                new LinkedHashSet<>(), // pending blocks
                 0,
                 0,
                 0,
@@ -704,7 +704,8 @@ class CodeAgentTest {
         var revised = String.join("\n", List.of("alpha", "beta", "ALPHA", "gamma")) + "\n";
         file.write(revised);
 
-        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", changedFiles, originalMap, Collections.emptyMap());
+        var es = new CodeAgent.EditState(
+                new LinkedHashSet<>(), 0, 0, 0, 1, "", changedFiles, originalMap, Collections.emptyMap());
 
         var blocks = es.toSearchReplaceBlocks();
         assertEquals(1, blocks.size(), "Should produce a single unique block");
@@ -731,7 +732,8 @@ class CodeAgentTest {
         var revised = String.join("\n", List.of("line1", "TARGET", "middle", "TARGET", "line5")) + "\n";
         file.write(revised);
 
-        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", changedFiles, originalMap, Collections.emptyMap());
+        var es = new CodeAgent.EditState(
+                new LinkedHashSet<>(), 0, 0, 0, 1, "", changedFiles, originalMap, Collections.emptyMap());
 
         var blocks = es.toSearchReplaceBlocks();
 
@@ -974,7 +976,7 @@ class CodeAgentTest {
         var agent = new CodeAgent(cm, stubModel, consoleIO);
 
         // Act
-        var result = agent.runTask(ctx, List.of(), "Change ro.txt from hello to goodbye", Set.of());
+        var result = agent.executeWithoutHistory(ctx, "Change ro.txt from hello to goodbye", Set.of());
 
         // Assert: operation is blocked with READ_ONLY_EDIT and file remains unchanged
         assertEquals(
@@ -1034,7 +1036,7 @@ class CodeAgentTest {
         project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
         // Act
-        var result = agent.runTask(ctx, List.of(), "Change file from hello to goodbye", Set.of());
+        var result = agent.executeWithoutHistory(ctx, "Change file from hello to goodbye", Set.of());
 
         // Assert: edit should succeed because editable ProjectPathFragment takes precedence
         assertEquals(
@@ -1042,6 +1044,64 @@ class CodeAgentTest {
                 result.stopDetails().reason(),
                 "Editable ProjectPathFragment should take precedence over other fragment types");
         assertEquals("goodbye", file.read().orElseThrow().strip(), "File should be modified");
+    }
+
+    // CONV-1: CodeAgent conversation is included in TaskResult.output but NOT baked into TaskResult.context
+    @Test
+    void testRunTask_conversationInOutputNotInContext() throws IOException {
+        // Arrange: file with initial content
+        var file = cm.toFile("conv.txt");
+        file.write("hello");
+        cm.addEditableFile(file);
+
+        // Create initial context with the file
+        var initialFragment = new ContextFragment.ProjectPathFragment(file, cm);
+        var initialContext = newContext().addFragments(List.of(initialFragment));
+
+        // LLM provides an edit
+        var response =
+                """
+                <block>
+                %s
+                <<<<<<< SEARCH
+                hello
+                =======
+                goodbye
+                >>>>>>> REPLACE
+                </block>
+                """
+                        .formatted(file.toString());
+
+        var stubModel = new TestScriptedLanguageModel(response);
+        codeAgent = new CodeAgent(cm, stubModel, consoleIO);
+
+        // Mock build to succeed
+        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> "Build successful";
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of());
+        project.setBuildDetails(bd);
+        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+
+        // Act
+        var result = codeAgent.executeWithoutHistory(initialContext, "Change hello to goodbye", Set.of());
+
+        // Assert: Task completed successfully
+        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+
+        // Assert: TaskResult.output contains the conversation
+        var outputFragment = result.output();
+        assertNotNull(outputFragment, "TaskResult.output should not be null");
+        var outputText = outputFragment.format().join();
+        assertTrue(outputText.contains("goodbye"), "Output should contain the LLM response with the edit");
+
+        // Assert: TaskResult.context does NOT have the conversation baked in
+        // The context should contain file fragments but not the conversation/task messages
+        var contextFragments = result.context().getAllFragmentsInDisplayOrder();
+        boolean hasTaskFragment = contextFragments.stream().anyMatch(f -> f instanceof ContextFragment.TaskFragment);
+        assertFalse(hasTaskFragment, "TaskResult.context should NOT contain a TaskFragment with the conversation");
+
+        // Additional verification: the context should still have the file fragment
+        var hasFileFragment = contextFragments.stream().anyMatch(f -> f instanceof ContextFragment.ProjectPathFragment);
+        assertTrue(hasFileFragment, "TaskResult.context should still contain file fragments");
     }
 
     // RO-4: computeReadOnlyPaths – precedence for ProjectPathFragment, SummaryFragment, CodeFragment, and explicit

@@ -30,17 +30,31 @@ public final class SyntaxAwareConfig {
     /**
      * Normalized, lower-case set of extensions for which syntax-aware BRK markers are enabled.
      */
-    private static final Set<String> SYNTAX_AWARE_EXTENSIONS = initSyntaxAwareExtensions();
+    private static Set<String> syntaxAwareExtensions = initSyntaxAwareExtensions();
 
     private SyntaxAwareConfig() {
         // utility class
     }
 
+    /**
+     * Overrides the enabled extensions for testing purposes.
+     */
+    static void setSyntaxAwareExtensions(Set<String> extensions) {
+        syntaxAwareExtensions =
+                extensions.stream().map(s -> s.toLowerCase(Locale.ROOT)).collect(Collectors.toUnmodifiableSet());
+    }
+
+    /**
+     * Resets the enabled extensions to the environment default.
+     */
+    static void resetSyntaxAwareExtensions() {
+        syntaxAwareExtensions = initSyntaxAwareExtensions();
+    }
+
     private static Set<String> initSyntaxAwareExtensions() {
         String env = System.getenv(ENV_VAR);
         if (env == null) {
-            // Default: Java-only
-            return Set.of("java");
+            return Set.of();
         }
 
         var exts = Arrays.stream(env.split(","))
@@ -57,7 +71,7 @@ public final class SyntaxAwareConfig {
      * @return the configured syntax-aware extensions (lower-case, unmodifiable).
      */
     public static Set<String> syntaxAwareExtensions() {
-        return SYNTAX_AWARE_EXTENSIONS;
+        return syntaxAwareExtensions;
     }
 
     /**
@@ -71,6 +85,6 @@ public final class SyntaxAwareConfig {
             return false;
         }
         var normalized = extension.toLowerCase(Locale.ROOT);
-        return SYNTAX_AWARE_EXTENSIONS.contains(normalized);
+        return syntaxAwareExtensions.contains(normalized);
     }
 }

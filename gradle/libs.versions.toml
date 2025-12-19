@@ -114,7 +114,7 @@ treesitter-typescript = "io.github.bonede:tree-sitter-typescript:0.21.1"
 treesitter-scala = "io.github.bonede:tree-sitter-scala:0.23.3"
 
 # Eclipse JDT
-eclipse-jdt-core = "org.eclipse.jdt:org.eclipse.jdt.core:3.43.0"
+eclipse-jdt-core = "org.eclipse.jdt:org.eclipse.jdt.core:3.44.0"
 
 # Decompiler
 java-decompiler = "com.jetbrains.intellij.java:java-decompiler-engine:243.25659.59"

@@ -34,7 +34,7 @@ public final class ModelProperties {
     // Common configurations. Note that we override thinking levels in some cases for speed.
     private static final ModelConfig gpt5Nano = new ModelConfig(GPT_5_NANO);
     private static final ModelConfig gpt5Mini = new ModelConfig(GPT_5_MINI, ReasoningLevel.DISABLE);
-    private static final ModelConfig gpt5_2 = new ModelConfig(GPT_5_2);
+    private static final ModelConfig gpt5_2 = new ModelConfig(GPT_5_2, ReasoningLevel.MEDIUM);
 
     private static final ModelConfig haiku3 = new ModelConfig(HAIKU_3);
     private static final ModelConfig haiku45 = new ModelConfig(HAIKU_4_5);

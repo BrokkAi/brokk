@@ -18,10 +18,22 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class EditBlockTest {
+    @BeforeEach
+    void setupEach() {
+        SyntaxAwareConfig.setSyntaxAwareExtensions(Set.of("java"));
+    }
+
+    @AfterEach
+    void teardownEach() {
+        SyntaxAwareConfig.resetSyntaxAwareExtensions();
+    }
+
     @Test
     void testParseEditBlocksSimple() {
         String edit =
@@ -40,7 +52,7 @@ class EditBlockTest {
                       Hope you like it!
                       """;
 
-        EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("foo.txt"));
+        var blocks = parseBlocks(edit, Set.of("foo.txt"));
         assertEquals(1, blocks.length);
         assertEquals("foo.txt", blocks[0].rawFileName().toString());
         assertEquals("Two\n", blocks[0].beforeText());
@@ -66,7 +78,7 @@ class EditBlockTest {
                       Hope you like it!
                       """;
 
-        EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("foo.txt"));
+        var blocks = parseBlocks(edit, Set.of("foo.txt"));
         assertEquals(1, blocks.length);
         assertEquals("foo.txt", blocks[0].rawFileName().toString());
         assertEquals("Two\n", blocks[0].beforeText());
@@ -100,7 +112,7 @@ class EditBlockTest {
                       Hope you like it!
                       """;
 
-        EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("foo.txt"));
+        var blocks = parseBlocks(edit, Set.of("foo.txt"));
         assertEquals(2, blocks.length);
         // first block
         assertEquals("foo.txt", blocks[0].rawFileName().toString());
@@ -134,7 +146,7 @@ class EditBlockTest {
                       >>>>>>> REPLACE
                       ```"""; // no final newline
 
-        EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("foo/coder.py"));
+        var blocks = parseBlocks(edit, Set.of("foo/coder.py"));
         assertEquals(2, blocks.length);
         assertEquals("lineA\n", blocks[0].beforeText());
         assertEquals("lineB\n", blocks[0].afterText());
@@ -171,7 +183,7 @@ class EditBlockTest {
                       Hope you like it!
                       """;
 
-        EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("filename/to/a/file1.txt"));
+        var blocks = parseBlocks(edit, Set.of("filename/to/a/file1.txt"));
         assertEquals(2, blocks.length);
         assertEquals("filename/to/a/file2.txt", blocks[0].rawFileName());
         assertEquals("BRK_ENTIRE_FILE\n", blocks[0].beforeText());
