@@ -58,13 +58,6 @@ public class Context {
     public static final String SUMMARIZING = "(Summarizing)";
     public static final long CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS = 5;
 
-    /**
-     * Experimental threshold for switching to import-based ranking. If the ratio of new/untracked seed
-     * files to total seed files exceeds this value, {@link ai.brokk.ranking.ImportPageRanker} will be used instead of
-     * {@link ai.brokk.git.GitDistance}. This is intended to provide better related files when working on a set of
-     * new, uncommitted files.
-     */
-    private static final double NEW_SEED_FILE_RATIO_THRESHOLD = 0.3d;
 
     private final transient IContextManager contextManager;
 
@@ -318,10 +311,13 @@ public class Context {
     }
 
     /**
-     * Returns the files from the git repo that are most relevant to this context, up to the specified limit.
+     * Returns files relevant to this context, prioritizing Git-based distance and supplementing with
+     * import-based PageRank if fewer than {@code topK} results are found.
      */
     @Blocking
     public List<ProjectFile> getMostRelevantFiles(int topK) throws InterruptedException {
+        if (topK <= 0) return List.of();
+
         var ineligibleSources = fragments.stream()
                 .filter(f -> !f.isEligibleForAutoContext())
                 .flatMap(f -> f.files().join().stream())
@@ -341,33 +337,30 @@ public class Context {
             return List.of();
         }
 
-        IAnalyzer analyzer = contextManager.getAnalyzer();
+        Set<ProjectFile> resultFiles = new LinkedHashSet<>();
         var repoObj = contextManager.getRepo();
-        boolean hasGit = contextManager.getProject().hasGit();
 
-        boolean manyNewSeeds = hasGit && areManySeedsNew(weightedSeeds.keySet());
-
-        if (!hasGit || manyNewSeeds) {
-            var pprResults = ImportPageRanker.getRelatedFilesByImports(analyzer, weightedSeeds, topK, false);
-            return pprResults.stream()
+        // 1. Try Git-based distance first
+        if (contextManager.getProject().hasGit() && repoObj instanceof GitRepo gr) {
+            GitDistance.getRelatedFiles(gr, weightedSeeds, topK, false).stream()
                     .map(IAnalyzer.FileRelevance::file)
                     .filter(file -> !ineligibleSources.contains(file))
-                    .toList();
+                    .forEach(resultFiles::add);
         }
 
-        if (repoObj instanceof GitRepo gr) {
-            var gitDistanceResults = GitDistance.getRelatedFiles(gr, weightedSeeds, topK, false);
-            return gitDistanceResults.stream()
+        // 2. Supplement with Import-based PageRank if we need more results
+        if (resultFiles.size() < topK) {
+            int remaining = topK - resultFiles.size();
+            IAnalyzer analyzer = contextManager.getAnalyzer();
+            ImportPageRanker.getRelatedFilesByImports(analyzer, weightedSeeds, topK, false).stream()
                     .map(IAnalyzer.FileRelevance::file)
                     .filter(file -> !ineligibleSources.contains(file))
-                    .toList();
+                    .filter(file -> !resultFiles.contains(file))
+                    .limit(remaining)
+                    .forEach(resultFiles::add);
         }
 
-        var pprResults = ImportPageRanker.getRelatedFilesByImports(analyzer, weightedSeeds, topK, false);
-        return pprResults.stream()
-                .map(IAnalyzer.FileRelevance::file)
-                .filter(file -> !ineligibleSources.contains(file))
-                .toList();
+        return List.copyOf(resultFiles);
     }
 
     /**
@@ -1355,32 +1348,6 @@ public class Context {
         }
     }
 
-    private boolean areManySeedsNew(Set<ProjectFile> seedFiles) {
-        if (seedFiles.isEmpty()) {
-            return false;
-        }
-        if (!contextManager.getProject().hasGit()) {
-            return false;
-        }
-        var repo = contextManager.getRepo();
-        var tracked = repo.getTrackedFiles();
-        Set<ProjectFile> newlyAdded;
-        try {
-            newlyAdded = repo.getModifiedFiles().stream()
-                    .filter(mf -> mf.status() == ai.brokk.git.IGitRepo.ModificationType.NEW)
-                    .map(ai.brokk.git.IGitRepo.ModifiedFile::file)
-                    .collect(Collectors.toSet());
-        } catch (Exception e) {
-            newlyAdded = Set.of();
-        }
-        int newCount = 0;
-        for (var f : seedFiles) {
-            if (!tracked.contains(f) || newlyAdded.contains(f)) {
-                newCount++;
-            }
-        }
-        return (double) newCount / (double) seedFiles.size() >= NEW_SEED_FILE_RATIO_THRESHOLD;
-    }
 
     private static Set<ContextFragment> validateReadOnlyFragments(
             Set<ContextFragment> readonly, List<ContextFragment> all) {
