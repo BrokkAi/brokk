@@ -633,7 +633,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 if (runningIndex != null && idx == runningIndex.intValue()) continue;
                 if (pendingQueue.contains(idx)) continue;
                 if (idx >= 0 && idx < items.size()) {
-                    var it = requireNonNull(items.get(idx));
+                    var it = items.get(idx);
                     items.set(idx, new TaskList.TaskItem(it.title(), it.text(), !it.done()));
                     changed = true;
                 }
@@ -683,7 +683,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     private void openEditDialog(int index) {
-        TaskList.TaskItem current = requireNonNull(model.getElementAt(index));
+        TaskList.TaskItem current = model.getElementAt(index);
 
         Window owner = SwingUtilities.getWindowAncestor(this);
         var dialog = new BaseThemedDialog(owner, "Edit Task", Dialog.ModalityType.APPLICATION_MODAL);
@@ -827,7 +827,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         // Clear Completed enabled if any task is done
         boolean anyCompleted = false;
         for (int i = 0; i < model.getSize(); i++) {
-            TaskList.TaskItem it2 = requireNonNull(model.getElementAt(i));
+            TaskList.TaskItem it2 = model.getElementAt(i);
             if (it2.done()) {
                 anyCompleted = true;
                 break;
@@ -938,7 +938,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var toRun = new ArrayList<Integer>(selected.length);
         for (int idx : selected) {
             if (idx >= 0 && idx < model.getSize()) {
-                TaskList.TaskItem it = requireNonNull(model.getElementAt(idx));
+                TaskList.TaskItem it = model.getElementAt(idx);
                 if (!it.done()) {
                     toRun.add(idx);
                 }
@@ -980,7 +980,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             startNextIfAny();
             return;
         }
-        TaskList.TaskItem item = requireNonNull(model.getElementAt(idx));
+        TaskList.TaskItem item = model.getElementAt(idx);
         if (item.done()) {
             startNextIfAny();
             return;
@@ -1133,7 +1133,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                         var items = new ArrayList<TaskList.TaskItem>(
                                 cm.getTaskList().tasks());
                         if (idx >= 0 && idx < items.size()) {
-                            var it = requireNonNull(items.get(idx));
+                            var it = items.get(idx);
                             items.set(idx, new TaskList.TaskItem(it.title(), it.text(), true));
                             cm.setTaskList(new TaskList.TaskListData(items), "Task marked done");
                             refreshUi(false);
@@ -1214,7 +1214,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (SwingUtilities.isEventDispatchThread()) {
             int incomplete = 0;
             for (int i = 0; i < model.getSize(); i++) {
-                TaskList.TaskItem it = requireNonNull(model.getElementAt(i));
+                TaskList.TaskItem it = model.getElementAt(i);
                 if (!it.done()) incomplete++;
             }
             return incomplete;
@@ -1742,7 +1742,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         var taskTexts = new ArrayList<String>(indices.length);
         for (int idx : indices) {
             if (idx < 0 || idx >= items.size()) continue;
-            TaskList.TaskItem task = requireNonNull(items.get(idx));
+            TaskList.TaskItem task = items.get(idx);
             taskTexts.add(task.text());
         }
         if (taskTexts.isEmpty()) return;
@@ -1811,7 +1811,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             return;
         }
 
-        TaskList.TaskItem original = requireNonNull(model.getElementAt(idx));
+        TaskList.TaskItem original = model.getElementAt(idx);
 
         var textArea = new JTextArea();
         textArea.setLineWrap(true);
@@ -1930,7 +1930,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         int completedCount = 0;
         for (int i = 0; i < model.getSize(); i++) {
-            TaskList.TaskItem it = requireNonNull(model.getElementAt(i));
+            TaskList.TaskItem it = model.getElementAt(i);
             if (it.done()) {
                 if (runningIndex != null && i == runningIndex) continue;
                 completedCount++;
@@ -1955,7 +1955,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         boolean removedAny = false;
         var items = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
         for (int i = items.size() - 1; i >= 0; i--) {
-            TaskList.TaskItem it = requireNonNull(items.get(i));
+            TaskList.TaskItem it = items.get(i);
             if (it.done()) {
                 if (runningIndex != null && i == runningIndex) continue;
                 items.remove(i);
@@ -2000,7 +2000,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         if (index < 0 || index >= model.getSize()) {
             return;
         }
-        var current = requireNonNull(model.getElementAt(index));
+        var current = model.getElementAt(index);
         var originalText = current.text();
         if (originalText.isBlank()) {
             return;
@@ -2130,7 +2130,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 // Initialize the badge count from the current model.
                 int incomplete = 0;
                 for (int i = 0; i < model.getSize(); i++) {
-                    TaskList.TaskItem it = requireNonNull(model.getElementAt(i));
+                    TaskList.TaskItem it = model.getElementAt(i);
                     if (!it.done()) incomplete++;
                 }
                 tasksTabBadgedIcon.setCount(incomplete, tabs);
@@ -2189,7 +2189,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         Context selected = cm.selectedContext();
         boolean onLatest = (selected == null) || selected.equals(cm.liveContext());
 
-        this.currentContext = onLatest ? cm.liveContext() : selected;
+        this.currentContext = onLatest ? cm.liveContext() : requireNonNull(selected);
 
         SwingUtilities.invokeLater(() -> setTaskListEditable(onLatest));
 
