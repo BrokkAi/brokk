@@ -48,7 +48,8 @@ class DiffServiceTest {
 
         var ds = history.getDiffService();
         var fut = ds.diff(newCtx);
-        // We join here as diff() now consistently submits to the background executor.
+        // We join here because diff() submits work to a background executor when available,
+        // falling back to CompletableFuture.runAsync when it is not.
         var diffs = fut.join();
         assertNotNull(diffs);
         assertFalse(diffs.isEmpty(), "Expected some diffs to be computed");
