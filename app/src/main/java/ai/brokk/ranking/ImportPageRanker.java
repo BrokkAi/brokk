@@ -132,10 +132,10 @@ public final class ImportPageRanker {
                 if (candidates.contains(target)) {
                     if (reversed) {
                         // Mass flows from the file being imported back to the importer
-                        adjacency.get(target).add(pf);
+                        Objects.requireNonNull(adjacency.get(target)).add(pf);
                     } else {
                         // Mass flows from the importer to the file being imported
-                        adjacency.get(pf).add(target);
+                        Objects.requireNonNull(adjacency.get(pf)).add(target);
                     }
                 }
             }
@@ -198,7 +198,6 @@ public final class ImportPageRanker {
         System.arraycopy(v, 0, rank, 0, n); // start from teleport vector
 
         double[] next = new double[n];
-        double uniform = 1.0d / n;
         for (int iter = 0; iter < MAX_ITERS; iter++) {
             // Teleport component
             for (int i = 0; i < n; i++) {
@@ -264,7 +263,6 @@ public final class ImportPageRanker {
         }
         return ranked.subList(0, k);
     }
-
 
     /**
      * Resolve imported files for the given source file using the most accurate analyzer APIs available.

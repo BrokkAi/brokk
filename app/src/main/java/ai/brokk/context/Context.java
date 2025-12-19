@@ -16,7 +16,6 @@ import ai.brokk.ranking.ImportPageRanker;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.*;
-import org.eclipse.jgit.api.errors.GitAPIException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.google.common.collect.Streams;
@@ -59,7 +58,6 @@ public class Context {
     public static final String SUMMARIZING = "(Summarizing)";
     public static final double NEW_SEED_FILE_RATIO_THRESHOLD = 0.30;
     public static final long CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS = 5;
-
 
     private final transient IContextManager contextManager;
 
@@ -384,8 +382,7 @@ public class Context {
         return ratio >= NEW_SEED_FILE_RATIO_THRESHOLD;
     }
 
-    private List<ProjectFile> filterResults(
-            List<IAnalyzer.FileRelevance> results, Set<ProjectFile> ineligibleSources) {
+    private List<ProjectFile> filterResults(List<IAnalyzer.FileRelevance> results, Set<ProjectFile> ineligibleSources) {
         return results.stream()
                 .map(IAnalyzer.FileRelevance::file)
                 .filter(file -> !ineligibleSources.contains(file))
@@ -1376,7 +1373,6 @@ public class Context {
             }
         }
     }
-
 
     private static Set<ContextFragment> validateReadOnlyFragments(
             Set<ContextFragment> readonly, List<ContextFragment> all) {

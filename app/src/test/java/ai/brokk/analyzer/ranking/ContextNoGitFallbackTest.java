@@ -9,12 +9,10 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.AnalyzerCreator;
 import ai.brokk.testutil.InlineTestProjectCreator;
-import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
@@ -129,9 +127,9 @@ public class ContextNoGitFallbackTest {
         }
     }
 
-    // Note: The boundary test for NEW_SEED_FILE_RATIO_THRESHOLD was removed because it 
-    // requires a concrete GitRepo instance (not an IGitRepo stub) to trigger the threshold 
-    // logic in Context.getMostRelevantFiles. Testing this logic accurately requires 
-    // integration tests with a real Git environment or a package-private unit test for 
+    // Note: The boundary test for NEW_SEED_FILE_RATIO_THRESHOLD was removed because it
+    // requires a concrete GitRepo instance (not an IGitRepo stub) to trigger the threshold
+    // logic in Context.getMostRelevantFiles. Testing this logic accurately requires
+    // integration tests with a real Git environment or a package-private unit test for
     // the areManySeedsNew helper.
 }

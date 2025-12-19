@@ -150,8 +150,10 @@ public class ImportPageRankerTest {
 
             // B is a direct importer of C, A is an importer of B.
             // B should have a higher score than A because it's closer to the seed in the reversed graph.
-            assertTrue(scoreB > scoreA,
-                    "Direct importer B (score=" + scoreB + ") should have higher score than indirect importer A (score=" + scoreA + ")");
+            assertTrue(
+                    scoreB > scoreA,
+                    "Direct importer B (score=" + scoreB + ") should have higher score than indirect importer A (score="
+                            + scoreA + ")");
         }
     }
 }
