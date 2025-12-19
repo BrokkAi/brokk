@@ -24,6 +24,9 @@ import ai.brokk.util.ExecutorConfig;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
@@ -69,6 +72,8 @@ public class BuildAgent {
     // Safety limits to prevent infinite loops
     private static final int MAX_ITERATIONS = 10;
     private static final int MAX_REPEATED_TOOL_CALLS = 5;
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final Llm llm;
     private final ToolRegistry globalRegistry;
@@ -437,14 +442,17 @@ public class BuildAgent {
         String signature = request.name();
         String args = request.arguments();
 
-        // Extract directory path for listFiles
-        if (args.contains("\"directoryPath\"")) {
-            int start = args.indexOf("\"directoryPath\"");
-            int end = args.indexOf("}", start);
-            if (end > start) {
-                signature += args.substring(start, end);
+        try {
+            JsonNode tree = OBJECT_MAPPER.readTree(args);
+            if (tree.has("directoryPath")) {
+                signature += ":directoryPath:" + tree.get("directoryPath").asText();
+            } else if (tree.has("pattern")) {
+                signature += ":pattern:" + tree.get("pattern").asText();
+            } else if (tree.has("filename")) {
+                signature += ":filename:" + tree.get("filename").asText();
             }
-        } else if (args.contains("\"pattern\"") || args.contains("\"filename\"")) {
+        } catch (JsonProcessingException e) {
+            // Fallback to hashCode if JSON parsing fails
             signature += ":" + args.hashCode();
         }
 
