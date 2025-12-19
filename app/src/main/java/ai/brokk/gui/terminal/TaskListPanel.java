@@ -493,13 +493,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         addHierarchyListener(e -> {
             if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) {
                 SwingUtilities.invokeLater(() -> {
-//                    sessionIdAtLoad = getCurrentSessionId();
-//                    var mgr = chrome.getContextManager();
-//                    Context sel = mgr.selectedContext();
-//                    Context base = (sel != null) ? sel : mgr.liveContext();
-//                    lastTaskListFragmentId =
-//                            base.getTaskListFragment().map(ContextFragment::id).orElse(null);
-
                     refreshUi(true);
                 });
             }
@@ -2434,12 +2427,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         SwingUtilities.invokeLater(this::updateButtonStates);
     }
 
+    // task list lives only in the context, the supplier provide the current task list based on the context
     public static final class TaskListModel extends AbstractListModel<TaskList.TaskItem> {
         private final Supplier<List<TaskList.TaskItem>> tasksSupplier;
-
-        public TaskListModel(ContextManager cm) {
-            this(() -> cm.getTaskList().tasks());
-        }
 
         public TaskListModel(Supplier<List<TaskList.TaskItem>> tasksSupplier) {
             this.tasksSupplier = Objects.requireNonNull(tasksSupplier);
