@@ -3737,7 +3737,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             return;
         }
         var ds = contextManager.getContextHistory().getDiffService();
-        java.awt.Rectangle viewRect = viewport.getViewRect();
+        Rectangle viewRect = viewport.getViewRect();
 
         int first = historyTable.rowAtPoint(new Point(viewRect.x, viewRect.y));
         if (first < 0) first = 0;
