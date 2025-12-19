@@ -2575,8 +2575,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (loadedCh == null) {
             io.toolError("Error while loading history for session '%s'.".formatted(sessionName));
         } else {
-            contextHistory.getDiffService().close();
-
             updateActiveSession(sessionId); // Mark as active
             contextHistory = loadedCh;
 

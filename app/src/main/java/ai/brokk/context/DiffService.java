@@ -71,7 +71,7 @@ public final class DiffService {
         var prev = history.previousOf(curr);
         var cf = cache.getIfPresent(new ContextPair(prev, curr));
         if (cf != null && cf.isDone()) {
-            //noinspection DataFlowIssue
+            //noinspection DataFlowIssue (return of `getNow` is not detected as nullable)
             return Optional.ofNullable(cf.getNow(null));
         }
         return Optional.empty();
@@ -131,10 +131,6 @@ public final class DiffService {
      */
     public void invalidate() {
         clear();
-    }
-
-    public void close() {
-        // Global cache, nothing instance-specific to close.
     }
 
     @Blocking
