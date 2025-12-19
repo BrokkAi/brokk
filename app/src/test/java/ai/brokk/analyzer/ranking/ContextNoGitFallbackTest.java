@@ -128,4 +128,10 @@ public class ContextNoGitFallbackTest {
             assertFalse(repoInvoked.get(), "IGitRepo should not be invoked when hasGit() is false");
         }
     }
+
+    // Note: The boundary test for NEW_SEED_FILE_RATIO_THRESHOLD was removed because it 
+    // requires a concrete GitRepo instance (not an IGitRepo stub) to trigger the threshold 
+    // logic in Context.getMostRelevantFiles. Testing this logic accurately requires 
+    // integration tests with a real Git environment or a package-private unit test for 
+    // the areManySeedsNew helper.
 }

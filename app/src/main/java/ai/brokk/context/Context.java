@@ -57,6 +57,7 @@ public class Context {
 
     private static final String WELCOME_ACTION = "Session Start";
     public static final String SUMMARIZING = "(Summarizing)";
+    public static final double NEW_SEED_FILE_RATIO_THRESHOLD = 0.30;
     public static final long CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS = 5;
 
 
@@ -342,7 +343,12 @@ public class Context {
         var repoObj = contextManager.getRepo();
 
         // 1. Try Git-based distance first
-        if (contextManager.getProject().hasGit() && repoObj instanceof GitRepo gr) {
+        boolean shouldUseGit = contextManager.getProject().hasGit()
+                && repoObj instanceof GitRepo gr
+                && !areManySeedsNew(weightedSeeds, gr);
+
+        if (shouldUseGit) {
+            GitRepo gr = (GitRepo) repoObj;
             try {
                 var gitResults = GitDistance.getRelatedFiles(gr, weightedSeeds, topK, false);
                 resultFiles.addAll(filterResults(gitResults, ineligibleSources));
@@ -363,6 +369,19 @@ public class Context {
         }
 
         return List.copyOf(resultFiles);
+    }
+
+    private boolean areManySeedsNew(Map<ProjectFile, Double> weightedSeeds, GitRepo repo) {
+        if (weightedSeeds.isEmpty()) {
+            return false;
+        }
+        var trackedFiles = repo.getTrackedFiles();
+        long newSeedsCount = weightedSeeds.keySet().stream()
+                .filter(f -> !trackedFiles.contains(f))
+                .count();
+
+        double ratio = (double) newSeedsCount / weightedSeeds.size();
+        return ratio >= NEW_SEED_FILE_RATIO_THRESHOLD;
     }
 
     private List<ProjectFile> filterResults(
