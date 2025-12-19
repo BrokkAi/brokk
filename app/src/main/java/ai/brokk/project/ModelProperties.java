@@ -15,85 +15,160 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 public final class ModelProperties {
+    private static final Logger logger = LogManager.getLogger(ModelProperties.class);
+
     // Model name constants
     public static final String GPT_5 = "gpt-5";
     public static final String GEMINI_3_PRO_PREVIEW = "gemini-3-pro-preview";
-    public static final String GEMINI_2_0_FLASH = "gemini-2.0-flash";
-    public static final String GEMINI_2_5_FLASH = "gemini-2.5-flash";
+    public static final String FLASH_2_0 = "gemini-2.0-flash";
+    public static final String FLASH_3 = "gemini-3-flash-preview";
     public static final String GPT_5_NANO = "gpt-5-nano";
     public static final String GCF_1 = "grok-code-fast-1";
     public static final String HAIKU_3 = "claude-haiku-3";
-    public static final String GEMINI_2_0_FLASH_LITE = "gemini-2.0-flash-lite";
-    private static final Logger logger = LogManager.getLogger(ModelProperties.class);
-
-    private static final String FAVORITE_MODELS_KEY = "favoriteModelsJson";
-    private static final ObjectMapper objectMapper = new ObjectMapper();
-    // these models are defined for low-latency use cases that don't require high intelligence
-    public static final Set<String> SYSTEM_ONLY_MODELS =
-            Set.of("gemini-2.0-flash-lite", "gpt-5-nano", "claude-haiku-3");
-
-    /** Default vendor selection for "Other Models" settings. */
-    public static final String DEFAULT_VENDOR = "Default";
-
-    private ModelProperties() {}
-
+    public static final String FLASH_2_0_LITE = "gemini-2.0-flash-lite";
     public static final String OPUS_4_5 = "claude-opus-4-5";
     public static final String HAIKU_4_5 = "claude-haiku-4-5";
     public static final String GPT_5_MINI = "gpt-5-mini";
     public static final String GPT_5_2 = "gpt-5.2";
-    // Default favorite models (moved from MainProject)
+
+    // Common configurations. Note that we override thinking levels in some cases for speed.
+    private static final ModelConfig gpt5Nano = new ModelConfig(GPT_5_NANO);
+    private static final ModelConfig gpt5Mini = new ModelConfig(GPT_5_MINI, ReasoningLevel.DISABLE);
+    private static final ModelConfig gpt5_2 = new ModelConfig(GPT_5_2);
+
+    private static final ModelConfig haiku3 = new ModelConfig(HAIKU_3);
+    private static final ModelConfig haiku45 = new ModelConfig(HAIKU_4_5);
+    private static final ModelConfig opus45 = new ModelConfig(OPUS_4_5, ReasoningLevel.DISABLE);
+
+    private static final ModelConfig flash20Lite = new ModelConfig(FLASH_2_0_LITE);
+    private static final ModelConfig flash20 = new ModelConfig(FLASH_2_0);
+    private static final ModelConfig flash3 = new ModelConfig(FLASH_3, ReasoningLevel.DISABLE);
+
+    private static final ModelConfig gcf1 = new ModelConfig(GCF_1);
+
+    // these models are defined for low-latency use cases that don't require high intelligence
+    public static final Set<String> SYSTEM_ONLY_MODELS = Set.of(FLASH_2_0_LITE, GPT_5_NANO, HAIKU_3);
+
+    // Json stuff
+    public static final String FAVORITE_MODELS_KEY = "favoriteModelsJson";
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+
+    /** Default vendor selection for "Other Models" settings. */
+    public static final String DEFAULT_VENDOR = "Default";
+
+    /**
+     * Current version for model settings. Increment this to force a reset of favorite models,
+     * code model, and architect model to their current defaults on the next app upgrade.
+     */
+    public static final int MODEL_SETTINGS_VERSION = 1;
+
+    public static final String MODEL_SETTINGS_VERSION_KEY = "modelSettingsVersion";
+
+    private ModelProperties() {}
+
     static final List<Service.FavoriteModel> DEFAULT_FAVORITE_MODELS = List.of(
-            new Service.FavoriteModel("Opus 4.5", new ModelConfig(OPUS_4_5, ReasoningLevel.DISABLE)),
-            new Service.FavoriteModel("GPT-5.2", new ModelConfig(GPT_5_2)),
-            new Service.FavoriteModel("GPT-5 mini", new ModelConfig(GPT_5_MINI)),
-            new Service.FavoriteModel("Haiku 4.5", new ModelConfig(HAIKU_4_5)));
+            new Service.FavoriteModel("Opus 4.5", opus45),
+            new Service.FavoriteModel("GPT-5.2", gpt5_2),
+            new Service.FavoriteModel("Flash 3", flash3),
+            new Service.FavoriteModel("Haiku 4.5", haiku45));
 
-    public record VendorModels(
-            ModelConfig quick,
-            ModelConfig quickEdit,
-            ModelConfig quickest,
-            ModelConfig commitMessage,
-            ModelConfig scan,
-            ModelConfig buildProcessor) {}
+    /**
+     * Enum representing the different model configuration slots persisted in global properties.
+     * Each enum constant owns its properties key and preferred default ModelConfig.
+     */
+    public enum ModelType {
+        // directly selected in the UI
+        CODE("codeConfig", flash3, gcf1),
+        ARCHITECT("architectConfig", opus45, gcf1),
 
-    private static final Map<String, VendorModels> VENDOR_MODEL_MAP = java.util.Map.of(
-            "OpenAI",
-            new VendorModels(
-                    new ModelConfig(GPT_5_NANO),
-                    new ModelConfig(GPT_5_NANO),
-                    new ModelConfig(GPT_5_NANO),
-                    new ModelConfig(GPT_5_MINI),
-                    new ModelConfig(GPT_5_MINI),
-                    new ModelConfig(GPT_5_MINI)),
-            "Anthropic",
-            new VendorModels(
-                    new ModelConfig(HAIKU_3),
-                    new ModelConfig(HAIKU_4_5),
-                    new ModelConfig(HAIKU_3),
-                    new ModelConfig(HAIKU_3),
-                    new ModelConfig(HAIKU_4_5),
-                    new ModelConfig(HAIKU_4_5)),
-            "Gemini",
-            new VendorModels(
-                    new ModelConfig(GEMINI_2_0_FLASH),
-                    new ModelConfig(GEMINI_2_5_FLASH, ReasoningLevel.DISABLE),
-                    new ModelConfig(GEMINI_2_0_FLASH_LITE),
-                    new ModelConfig(GEMINI_2_5_FLASH, ReasoningLevel.DISABLE),
-                    new ModelConfig(GEMINI_2_5_FLASH),
-                    new ModelConfig(GEMINI_2_5_FLASH)));
+        // indirectly selectable via vendor preference
+        SUMMARIZE("quickConfig", gpt5Mini, gcf1),
+        QUICK_EDIT("quickEditConfig", flash3, gcf1),
+        QUICKEST("quickestConfig", flash20Lite),
+        COMMIT_MESSAGE("commitMessageConfig", gpt5Mini, flash20),
+        SCAN("scanConfig", flash3, gcf1),
+        BUILD_PROCESSOR("buildProcessorConfig", gpt5Mini, gpt5Nano);
 
-    public static @Nullable VendorModels getVendorModels(String vendor) {
-        return VENDOR_MODEL_MAP.get(vendor);
+        public final String propertyKey;
+        private final ModelConfig defaultConfig;
+        private final ModelConfig defaultFreeConfig;
+
+        ModelType(String propertyKey, ModelConfig defaultConfig) {
+            this(propertyKey, defaultConfig, defaultConfig);
+        }
+
+        ModelType(String propertyKey, ModelConfig defaultConfig, ModelConfig defaultFreeConfig) {
+            this.propertyKey = propertyKey;
+            this.defaultConfig = defaultConfig;
+            this.defaultFreeConfig = defaultFreeConfig;
+        }
+
+        public ModelConfig defaultConfig() {
+            return defaultConfig;
+        }
+
+        public ModelConfig freeConfig() {
+            return defaultFreeConfig;
+        }
     }
 
-    public static VendorModels getDefaultVendorModels() {
-        return new VendorModels(
-                ModelType.QUICK.defaultConfig(),
-                ModelType.QUICK_EDIT.defaultConfig(),
-                ModelType.QUICKEST.defaultConfig(),
-                ModelType.COMMIT_MESSAGE.defaultConfig(),
-                ModelType.SCAN.defaultConfig(),
-                ModelType.BUILD_PROCESSOR.defaultConfig());
+    // lazily initialized to avoid circular dependency
+    private static @Nullable Map<String, Map<ModelType, ModelConfig>> vendorModelMap;
+
+    private static Map<String, Map<ModelType, ModelConfig>> getVendorModelMap() {
+        if (vendorModelMap == null) {
+            Map<String, Map<ModelType, ModelConfig>> map = Map.of(
+                    DEFAULT_VENDOR,
+                    Map.of(
+                            ModelType.SUMMARIZE, gpt5Mini,
+                            ModelType.QUICK_EDIT, flash3,
+                            ModelType.QUICKEST, flash20Lite,
+                            ModelType.COMMIT_MESSAGE, gpt5Mini,
+                            ModelType.SCAN, flash3,
+                            ModelType.BUILD_PROCESSOR, gpt5Mini),
+                    "OpenAI",
+                    Map.of(
+                            ModelType.SUMMARIZE, gpt5Mini,
+                            ModelType.QUICK_EDIT, gpt5Mini,
+                            ModelType.QUICKEST, gpt5Nano,
+                            ModelType.COMMIT_MESSAGE, gpt5Mini,
+                            ModelType.SCAN, gpt5Mini,
+                            ModelType.BUILD_PROCESSOR, gpt5Mini),
+                    "Anthropic",
+                    Map.of(
+                            ModelType.SUMMARIZE, haiku3,
+                            ModelType.QUICK_EDIT, haiku45,
+                            ModelType.QUICKEST, haiku3,
+                            ModelType.COMMIT_MESSAGE, haiku3,
+                            ModelType.SCAN, haiku45,
+                            ModelType.BUILD_PROCESSOR, haiku45),
+                    "Gemini",
+                    Map.of(
+                            ModelType.SUMMARIZE, flash3,
+                            ModelType.QUICK_EDIT, flash3,
+                            ModelType.QUICKEST, flash20Lite,
+                            ModelType.COMMIT_MESSAGE, flash3,
+                            ModelType.SCAN, flash3,
+                            ModelType.BUILD_PROCESSOR, flash3));
+
+            // Validate that all vendors have configurations for all internal ModelTypes
+            for (var entry : map.entrySet()) {
+                String vendor = entry.getKey();
+                Map<ModelType, ModelConfig> configs = entry.getValue();
+                for (ModelType type : ModelType.values()) {
+                    if (type == ModelType.CODE || type == ModelType.ARCHITECT) {
+                        continue;
+                    }
+                    assert configs.containsKey(type) : "Vendor '" + vendor + "' is missing config for " + type;
+                }
+            }
+            vendorModelMap = map;
+        }
+        return vendorModelMap;
+    }
+
+    public static @Nullable Map<ModelType, ModelConfig> getVendorModels(String vendor) {
+        return getVendorModelMap().get(vendor);
     }
 
     /**
@@ -179,42 +254,5 @@ public final class ModelProperties {
                 .filter(fm -> fm.alias().equalsIgnoreCase(alias))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Unknown favorite model alias: " + alias));
-    }
-
-    /**
-     * Enum representing the different model configuration slots persisted in global properties.
-     * Each enum constant owns its properties key and preferred default ModelConfig.
-     */
-    public enum ModelType {
-        QUICK("quickConfig", new ModelConfig(GEMINI_2_0_FLASH)),
-        CODE("codeConfig", new ModelConfig(HAIKU_4_5), new ModelConfig(GCF_1)),
-        ARCHITECT("architectConfig", new ModelConfig(OPUS_4_5, ReasoningLevel.DISABLE), new ModelConfig(GCF_1)),
-        QUICK_EDIT("quickEditConfig", new ModelConfig(GCF_1)),
-        QUICKEST("quickestConfig", new ModelConfig(GEMINI_2_0_FLASH_LITE)),
-        COMMIT_MESSAGE("commitMessageConfig", new ModelConfig(HAIKU_4_5), new ModelConfig(GEMINI_2_0_FLASH)),
-        SCAN("scanConfig", new ModelConfig(GPT_5_MINI), new ModelConfig(GCF_1)),
-        BUILD_PROCESSOR("buildProcessorConfig", new ModelConfig(GPT_5_MINI), new ModelConfig(GPT_5_NANO));
-
-        private final String propertyKey;
-        private final ModelConfig defaultConfig;
-        private final ModelConfig defaultFreeConfig;
-
-        ModelType(String propertyKey, ModelConfig defaultConfig) {
-            this(propertyKey, defaultConfig, defaultConfig);
-        }
-
-        ModelType(String propertyKey, ModelConfig defaultConfig, ModelConfig defaultFreeConfig) {
-            this.propertyKey = propertyKey;
-            this.defaultConfig = defaultConfig;
-            this.defaultFreeConfig = defaultFreeConfig;
-        }
-
-        public ModelConfig defaultConfig() {
-            return defaultConfig;
-        }
-
-        public ModelConfig freeConfig() {
-            return defaultFreeConfig;
-        }
     }
 }

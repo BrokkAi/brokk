@@ -219,6 +219,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private final Set<UUID> sessionCountLoading = ConcurrentHashMap.newKeySet();
 
     @Nullable
+    private JList<SessionInfo> sessionsList;
+
+    @Nullable
     private DiffService.CumulativeChanges lastCumulativeChanges;
 
     @Nullable
@@ -276,9 +279,15 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             for (var s : sessions) model.addElement(s);
 
             var list = new JList<SessionInfo>(model);
-            list.setVisibleRowCount(Math.min(8, Math.max(3, model.getSize())));
+            this.sessionsList = list;
+            int visibleRowCount = Math.min(8, Math.max(3, model.getSize()));
+            list.setVisibleRowCount(visibleRowCount);
             list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
             list.setCellRenderer(new SessionInfoRenderer());
+            // Prototype for efficient cell sizing - avoids calling renderer on all cells.
+            // Name content doesn't affect width (scroll pane is fixed at 360px), just need non-empty for height.
+            list.setPrototypeCellValue(
+                    new SessionInfo(UUID.randomUUID(), "X", System.currentTimeMillis(), System.currentTimeMillis()));
 
             // Select current session in the list
             var currentSessionId = contextManager.getCurrentSessionId();
@@ -3771,13 +3780,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Kicks off a background load of the AI-response count for the given session. Runs on a platform thread to avoid
-     * blocking the common ForkJoinPool. Safe to call repeatedly; concurrent calls are deduped by sessionCountLoading.
+     * Kicks off a background load of the AI-response count for a single session.
+     * Safe to call repeatedly; concurrent calls are deduped by sessionCountLoading.
      */
     private void triggerAiCountLoad(SessionInfo session) {
-        final var id = session.id();
-
-        // Fast-path dedupe: if we already have a value or a load is in-flight, bail.
+        var id = session.id();
         if (sessionAiResponseCounts.containsKey(id) || !sessionCountLoading.add(id)) {
             return;
         }
@@ -3786,25 +3793,18 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             int count = 0;
             try {
                 var sm = contextManager.getProject().getSessionManager();
-                var ch = sm.loadHistory(id, contextManager);
-                count = (ch == null) ? 0 : countAiResponses(ch);
+                count = sm.countAiResponses(id);
             } catch (Throwable t) {
-                logger.warn("Failed to load history for session {}", id, t);
-                count = 0;
-            } finally {
-                sessionAiResponseCounts.put(id, count);
-                sessionCountLoading.remove(id);
+                logger.warn("Failed to count AI responses for session {}", id, t);
             }
+            sessionAiResponseCounts.put(id, count);
+            sessionCountLoading.remove(id);
+            SwingUtilities.invokeLater(() -> {
+                if (sessionsList != null) {
+                    sessionsList.repaint();
+                }
+            });
         });
-    }
-
-    private int countAiResponses(ContextHistory ch) {
-        var list = ch.getHistory();
-        int count = 0;
-        for (var ctx : list) {
-            if (ctx.isAiResult()) count++;
-        }
-        return count;
     }
 
     /**
@@ -3947,10 +3947,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             timeLabel.setText(formatModified(value.modified()));
 
             var cnt = sessionAiResponseCounts.get(value.id());
-            countLabel.setText(cnt != null ? String.format("%d %s", cnt, cnt == 1 ? "task" : "tasks") : "");
             if (cnt == null) {
                 triggerAiCountLoad(value);
             }
+            countLabel.setText(cnt != null ? String.format("%d %s", cnt, cnt == 1 ? "task" : "tasks") : "");
 
             var bg = isSelected ? list.getSelectionBackground() : list.getBackground();
             var fg = isSelected ? list.getSelectionForeground() : list.getForeground();

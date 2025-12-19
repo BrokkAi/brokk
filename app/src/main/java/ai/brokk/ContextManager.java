@@ -1850,7 +1850,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     List<ChatMessage> messages = List.of(userMessage);
                     Llm.StreamingResult result;
                     try {
-                        result = getLlm(serviceProvider.get().quickModel(), "Summarize pasted image")
+                        result = getLlm(serviceProvider.get().summarizeModel(), "Summarize pasted image")
                                 .sendRequest(messages);
                     } catch (InterruptedException e) {
                         throw new RuntimeException(e);
@@ -2221,7 +2221,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Compress the log into a summary
         var historyString = entry.toString();
         var msgs = SummarizerPrompts.instance.compressHistory(historyString);
-        Llm.StreamingResult result = getLlm(serviceProvider.get().quickModel(), "Compress history entry")
+        Llm.StreamingResult result = getLlm(serviceProvider.get().summarizeModel(), "Compress history entry")
                 .sendRequest(msgs, COMPRESSION_MAX_ATTEMPTS);
 
         if (result.error() != null) {
