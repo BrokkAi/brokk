@@ -67,8 +67,8 @@ public class BuildAgent {
     private static final Logger logger = LogManager.getLogger(BuildAgent.class);
 
     // Safety limits to prevent infinite loops
-    private static final int MAX_ITERATIONS = 15;
-    private static final int MAX_REPEATED_TOOL_CALLS = 3;
+    private static final int MAX_ITERATIONS = 10;
+    private static final int MAX_REPEATED_TOOL_CALLS = 5;
 
     private final Llm llm;
     private final ToolRegistry globalRegistry;
