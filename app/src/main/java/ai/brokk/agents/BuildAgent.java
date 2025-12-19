@@ -66,6 +66,10 @@ import org.jetbrains.annotations.VisibleForTesting;
 public class BuildAgent {
     private static final Logger logger = LogManager.getLogger(BuildAgent.class);
 
+    // Safety limits to prevent infinite loops
+    private static final int MAX_ITERATIONS = 15;
+    private static final int MAX_REPEATED_TOOL_CALLS = 3;
+
     private final Llm llm;
     private final ToolRegistry globalRegistry;
 
@@ -92,6 +96,10 @@ public class BuildAgent {
      */
     public BuildDetails execute() throws InterruptedException {
         var tr = globalRegistry.builder().register(this).build();
+
+        // Loop safety tracking
+        int iterationCount = 0;
+        List<String> recentToolCalls = new ArrayList<>();
 
         // build message containing root directory contents
         ToolExecutionRequest initialRequest = ToolExecutionRequest.builder()
@@ -257,9 +265,51 @@ public class BuildAgent {
                 ToolExecutionResult execResult = tr.executeTool(request);
                 ToolExecutionResultMessage resultMessage = execResult.toExecutionResultMessage();
 
+                // Log tool result for debugging
+                logger.debug("Tool '{}' result: {}", toolName, execResult.resultText());
+
+                // Track tool call for repetition detection
+                String signature = createToolCallSignature(request);
+                recentToolCalls.add(signature);
+
                 // Record individual tool result history
                 chatHistory.add(resultMessage);
                 logger.trace("Tool result added to history: {}", resultMessage.text());
+            }
+
+            // 8. Check for stuck behavior after this iteration
+            iterationCount++;
+            logger.debug("BuildAgent iteration {} complete", iterationCount);
+
+            // Check maximum iteration limit
+            if (iterationCount >= MAX_ITERATIONS) {
+                logger.warn(
+                        "BuildAgent reached maximum iteration limit ({}) without finding build details. " +
+                        "This suggests the project structure is unclear or unsupported. " +
+                        "Tool calls history: {}",
+                        MAX_ITERATIONS,
+                        recentToolCalls.stream()
+                                .collect(Collectors.groupingBy(s -> s, Collectors.counting())));
+                return BuildDetails.EMPTY;
+            }
+
+            // Check for repetitive tool calls
+            if (recentToolCalls.size() >= MAX_REPEATED_TOOL_CALLS) {
+                List<String> lastNCalls = recentToolCalls.subList(
+                        recentToolCalls.size() - MAX_REPEATED_TOOL_CALLS,
+                        recentToolCalls.size());
+
+                String firstCall = lastNCalls.get(0);
+                boolean allSame = lastNCalls.stream().allMatch(firstCall::equals);
+
+                if (allSame) {
+                    logger.warn(
+                            "BuildAgent detected repetitive behavior: tool '{}' called {} times " +
+                            "consecutively without progress. Aborting build details gathering.",
+                            firstCall,
+                            MAX_REPEATED_TOOL_CALLS);
+                    return BuildDetails.EMPTY;
+                }
             }
         }
     }
@@ -290,14 +340,16 @@ public class BuildAgent {
 
                 **IMPORTANT**: If after initial exploration you find:
                 - The project root is empty or contains no code files
-                - No recognized build files (pom.xml, build.gradle, package.json, cargo.toml, etc.)
+                - No recognized build files (pom.xml, build.gradle, package.json, cargo.toml, go.mod, setup.py, pyproject.toml, CMakeLists.txt, Makefile, *.csproj, *.sln, Gemfile, composer.json, etc.)
+                - Only documentation files (*.md, *.txt, LICENSE, README, etc.) with no build configuration
                 - The project structure is unclear or unsupported
 
                 Then call `abortBuildDetails` immediately with an explanation. Do NOT continue exploring indefinitely.
                 Examples of when to abort:
                 - `listFiles(".")` returns "No files found"
-                - Only .git directory exists with no other content
-                - After checking root and common subdirectories, no build configuration is found
+                - `listFiles(".")` returns files but none are recognized build configuration files
+                - Root directory contains only documentation files (*.md, *.txt, LICENSE, etc.) and no source code or build files
+                - After checking root directory, no recognized build system or project structure is found
 
                 When selecting build or test commands, prefer flags or sub-commands that minimise console output (for example, Maven -q, Gradle --quiet, npm test --silent, sbt -error).
                 Avoid verbose flags such as --info, --debug, or -X unless they are strictly required for correct operation.
@@ -335,7 +387,7 @@ public class BuildAgent {
         // Add final user message indicating the goal (redundant with system prompt but reinforces)
         messages.add(
                 new UserMessage(
-                        "Gather the development build details based on the project files and previous findings. Use the available tools to explore and collect the information, then report it using 'reportBuildDetails'."));
+                        "Determine if this project has a recognizable build system. If build configuration files are found, gather the development build details and report using 'reportBuildDetails'. If no build files are found or the project structure is unclear, call 'abortBuildDetails' with an explanation."));
 
         return messages;
     }
@@ -377,6 +429,28 @@ public class BuildAgent {
         this.abortReason = explanation;
         logger.debug("abortBuildDetails tool executed with explanation: {}", explanation);
         return "Abort signal received and processed.";
+    }
+
+    /**
+     * Creates a normalized signature for a tool call combining name and key arguments.
+     * Used for detecting repetitive tool calls that indicate stuck behavior.
+     */
+    private static String createToolCallSignature(ToolExecutionRequest request) {
+        String signature = request.name();
+        String args = request.arguments();
+
+        // Extract directory path for listFiles
+        if (args.contains("\"directoryPath\"")) {
+            int start = args.indexOf("\"directoryPath\"");
+            int end = args.indexOf("}", start);
+            if (end > start) {
+                signature += args.substring(start, end);
+            }
+        } else if (args.contains("\"pattern\"") || args.contains("\"filename\"")) {
+            signature += ":" + args.hashCode();
+        }
+
+        return signature;
     }
 
     private static boolean containsGlobPattern(String s) {
