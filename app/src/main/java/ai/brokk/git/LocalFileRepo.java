@@ -38,7 +38,7 @@ public class LocalFileRepo implements IGitRepo {
     }
 
     @Override
-    public void add(Path path) throws GitAPIException {
+    public void add(ProjectFile file) throws GitAPIException {
         // no-op
     }
 

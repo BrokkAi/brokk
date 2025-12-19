@@ -15,12 +15,12 @@ import ai.brokk.gui.CommitDialog;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.AutoPlayGateDialog;
+import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.BadgedIcon;
 import ai.brokk.gui.util.Icons;
-import ai.brokk.project.MainProject;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.GlobalUiSettings;
 import com.google.common.base.Splitter;
@@ -67,7 +67,6 @@ import javax.swing.DropMode;
 import javax.swing.Icon;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
-import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JMenuItem;
@@ -273,6 +272,18 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             private void showContextMenu(MouseEvent e) {
                 if (!e.isPopupTrigger()) {
                     return;
+                }
+
+                // If nothing is selected, select the row under the mouse so the context menu
+                // targets the item under the cursor.
+                if (list.getSelectedIndices().length == 0) {
+                    int idx = list.locationToIndex(e.getPoint());
+                    if (idx >= 0) {
+                        Rectangle cell = list.getCellBounds(idx, idx);
+                        if (cell != null && cell.contains(e.getPoint())) {
+                            list.setSelectedIndex(idx);
+                        }
+                    }
                 }
 
                 // When read-only, all edit actions are disabled; allow only Copy
@@ -755,9 +766,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         TaskList.TaskItem current = requireNonNull(model.get(index));
 
         Window owner = SwingUtilities.getWindowAncestor(this);
-        JDialog dialog = (owner != null)
-                ? new JDialog(owner, "Edit Task", Dialog.ModalityType.APPLICATION_MODAL)
-                : new JDialog((Window) null, "Edit Task", Dialog.ModalityType.APPLICATION_MODAL);
+        var dialog = new BaseThemedDialog(owner, "Edit Task", Dialog.ModalityType.APPLICATION_MODAL);
 
         JPanel content = new JPanel(new BorderLayout(6, 6));
         content.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -833,7 +842,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         buttons.add(cancelBtn);
         content.add(buttons, BorderLayout.SOUTH);
 
-        dialog.setContentPane(content);
+        dialog.getContentRoot().add(content);
         dialog.setResizable(true);
         dialog.getRootPane().setDefaultButton(saveBtn);
         dialog.pack();
@@ -1128,17 +1137,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         list.repaint();
 
         var cm = chrome.getContextManager();
-        if (MainProject.getHistoryAutoCompress()) {
-            chrome.showOutputSpinner("Compressing history...");
-            var cf = cm.compressHistoryAsync();
-            cf.whenComplete((v, ex) -> SwingUtilities.invokeLater(() -> {
-                chrome.hideOutputSpinner();
-                startRunForIndex(first);
-            }));
-        } else {
-            // Start the first task immediately when auto-compress is disabled
+        chrome.showOutputSpinner("Compressing history...");
+        var cf = cm.compressHistoryAsync();
+        cf.whenComplete((v, ex) -> SwingUtilities.invokeLater(() -> {
+            chrome.hideOutputSpinner();
             startRunForIndex(first);
-        }
+        }));
     }
 
     private void startRunForIndex(int idx) {
@@ -1196,7 +1200,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         var owner = SwingUtilities.getWindowAncestor(this);
-        var dialog = new JDialog(owner, "Uncommitted Changes", Dialog.ModalityType.APPLICATION_MODAL);
+        var dialog = new BaseThemedDialog(owner, "Uncommitted Changes", Dialog.ModalityType.APPLICATION_MODAL);
 
         var content = new JPanel(new BorderLayout(8, 8));
         content.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -1235,7 +1239,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             dialog.dispose();
         });
 
-        dialog.setContentPane(content);
+        dialog.getContentRoot().add(content);
         dialog.getRootPane().setDefaultButton(commitFirstBtn);
         dialog.pack();
         dialog.setLocationRelativeTo(owner);
@@ -1278,7 +1282,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             chrome.showOutputSpinner("Executing Task command...");
             final TaskResult result;
             try {
-                result = cm.executeTask(cm.getTaskList().tasks().get(idx), queueActive, queueActive);
+                result = cm.executeTask(cm.getTaskList().tasks().get(idx));
             } catch (InterruptedException e) {
                 // User clicked Stop - this is expected, not an error
                 logger.debug("Task execution interrupted by user");
@@ -2595,20 +2599,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         SwingUtilities.invokeLater(this::updateButtonStates);
     }
 
-    /**
-     * EZ-mode only: auto-plays all tasks when idle.
-     * <p>
-     * Guards: EDT-safe, no-op if queue active or LLM is busy.
-     * Prompts if tasks exist.
-     */
-    public void autoPlayAllIfIdle() {
-        if (!SwingUtilities.isEventDispatchThread()) {
-            SwingUtilities.invokeLater(this::autoPlayAllIfIdle);
-            return;
-        }
-        autoPlayAllIfIdle(Set.of());
-    }
-
     public void autoPlayAllIfIdle(Set<String> preExistingIncompleteTasks) {
         if (!SwingUtilities.isEventDispatchThread()) {
             SwingUtilities.invokeLater(() -> this.autoPlayAllIfIdle(preExistingIncompleteTasks));
@@ -2765,11 +2755,16 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
      * Shows EZ-mode dialog prompting the user to execute, remove, or cancel incomplete tasks.
      * @param preExistingIncompleteTasks Set of pre-existing task texts to show in dialog (empty = auto-execute without dialog)
      */
-    private void showAutoPlayGateDialogAndAct(Set<String> preExistingIncompleteTasks) {
+    public void showAutoPlayGateDialogAndAct(Set<String> preExistingIncompleteTasks) {
         if (!SwingUtilities.isEventDispatchThread()) {
             SwingUtilities.invokeLater(() -> this.showAutoPlayGateDialogAndAct(preExistingIncompleteTasks));
             return;
         }
+
+        // Ensure model is up-to-date before checking it.
+        // This fixes a race condition where the model update from setTaskList
+        // may not have completed yet due to nested invokeLater calls.
+        loadTasksForCurrentSession();
 
         try {
             if (model.isEmpty()) {

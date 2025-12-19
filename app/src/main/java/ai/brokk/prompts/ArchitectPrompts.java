@@ -22,10 +22,9 @@ public abstract class ArchitectPrompts extends CodePrompts {
         var projectFiles =
                 ctx.fileFragments().flatMap(cf -> cf.files().join().stream()).toList();
 
-        // Resolve composite style guide from AGENTS.md files nearest to current context files; fall back to project
-        // root guide.
-        var resolvedGuide = StyleGuideResolver.resolve(projectFiles);
-        return resolvedGuide.isBlank() ? cm.getProject().getStyleGuide() : resolvedGuide;
+        // Resolve composite style guide from AGENTS.md files nearest to current context files;
+        // falls back to project root guide internally.
+        return StyleGuideResolver.resolve(projectFiles, cm.getProject());
     }
 
     @Override
@@ -39,9 +38,9 @@ public abstract class ArchitectPrompts extends CodePrompts {
           <instructions>
           %s
           </instructions>
-          <workspace-summary>
+          <workspace-toc>
           %s
-          </workspace-summary>
+          </workspace-toc>
           <style_guide>
           %s
           </style_guide>
@@ -62,9 +61,9 @@ public abstract class ArchitectPrompts extends CodePrompts {
           <instructions>
           %s
           </instructions>
-          <workspace-summary>
+          <workspace-toc>
           %s
-          </workspace-summary>
+          </workspace-toc>
           <style_guide>
           %s
           </style_guide>
@@ -236,9 +235,9 @@ public abstract class ArchitectPrompts extends CodePrompts {
             When you are done, call projectFinished or abortProject.
 
             Here is a summary of the current Workspace. Its full contents were sent earlier in the chat.
-            <workspace_summary>
+            <workspace-toc>
             %s
-            </workspace_summary>
+            </workspace-toc>
 
             %s
             """

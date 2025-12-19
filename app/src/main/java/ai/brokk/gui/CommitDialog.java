@@ -4,11 +4,12 @@ import ai.brokk.ContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.dialogs.BaseThemedDialog;
+import ai.brokk.gui.dialogs.TextAreaConsoleIO;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import java.awt.*;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -17,7 +18,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
-public class CommitDialog extends JDialog {
+public class CommitDialog extends BaseThemedDialog {
     private static final Logger logger = LogManager.getLogger(CommitDialog.class);
 
     private final JTextArea commitMessageArea;
@@ -29,11 +30,8 @@ public class CommitDialog extends JDialog {
     private final transient Consumer<GitWorkflow.CommitResult> onCommitSuccessCallback;
     private final transient Chrome chrome;
 
-    private static final String PLACEHOLDER_INFERRING = "Inferring commit message...";
-    private static final String PLACEHOLDER_FAILURE = "Unable to infer message. Please write one manually.";
-
     public CommitDialog(
-            Frame owner,
+            @Nullable Window owner,
             Chrome chrome,
             ContextManager contextManager,
             GitWorkflow workflowService,
@@ -43,34 +41,29 @@ public class CommitDialog extends JDialog {
     }
 
     public CommitDialog(
-            Frame owner,
+            @Nullable Window owner,
             Chrome chrome,
             ContextManager contextManager,
             GitWorkflow workflowService,
             List<ProjectFile> filesToCommit,
             @Nullable String prefilledMessage,
             Consumer<GitWorkflow.CommitResult> onCommitSuccessCallback) {
-        super(owner, "Commit Changes", true);
+        super(owner, "Commit Changes");
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.workflowService = workflowService;
         this.filesToCommit = filesToCommit;
         this.onCommitSuccessCallback = onCommitSuccessCallback;
 
-        setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-        setLayout(new BorderLayout(10, 10)); // Add some padding
+        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
 
         commitMessageArea = new JTextArea(10, 50);
         commitMessageArea.setLineWrap(true);
         commitMessageArea.setWrapStyleWord(true);
 
-        // If pre-filled message provided, use it directly; otherwise start with placeholder
+        // If pre-filled message provided, use it directly; otherwise TACIO handles placeholder
         if (prefilledMessage != null && !prefilledMessage.isEmpty()) {
             commitMessageArea.setText(prefilledMessage);
-            commitMessageArea.setEnabled(true);
-        } else {
-            commitMessageArea.setEnabled(false);
-            commitMessageArea.setText(PLACEHOLDER_INFERRING);
         }
 
         JScrollPane scrollPane = new JScrollPane(commitMessageArea);
@@ -94,7 +87,10 @@ public class CommitDialog extends JDialog {
         contentPanel.add(scrollPane, BorderLayout.CENTER);
         contentPanel.add(buttonPanel, BorderLayout.SOUTH);
 
-        add(contentPanel, BorderLayout.CENTER);
+        // Route layout through content root instead of directly to dialog
+        JPanel root = getContentRoot();
+        root.setLayout(new BorderLayout(10, 10));
+        root.add(contentPanel, BorderLayout.CENTER);
 
         KeyboardShortcutUtil.registerDialogEscapeKey(getRootPane(), this::dispose);
 
@@ -129,6 +125,12 @@ public class CommitDialog extends JDialog {
     }
 
     private void checkCommitButtonState() {
+        // Never enable the commit button while an LLM suggestion is actively streaming.
+        if (streamingSuggestionInProgress) {
+            commitButton.setEnabled(false);
+            return;
+        }
+
         if (commitMessageArea.isEnabled()) {
             String text = commitMessageArea.getText();
             boolean hasNonCommentText = Arrays.stream(text.split("\n"))
@@ -139,36 +141,55 @@ public class CommitDialog extends JDialog {
         }
     }
 
-    private void initiateCommitMessageSuggestion() {
-        CompletableFuture<String> suggestionFuture = contextManager.submitBackgroundTask(
-                "Suggesting commit message",
-                () -> workflowService.suggestCommitMessage(filesToCommit, "Llm error inferring commit message"));
+    // True while an LLM commit suggestion is actively streaming into the text area.
+    private volatile boolean streamingSuggestionInProgress = false;
 
-        suggestionFuture.whenComplete(
-                (@Nullable String suggestedMessage, @Nullable Throwable throwable) -> SwingUtilities.invokeLater(() -> {
-                    if (throwable == null) {
-                        if (suggestedMessage != null && !suggestedMessage.isEmpty()) {
-                            commitMessageArea.setText(suggestedMessage);
-                        } else {
-                            commitMessageArea.setText(""); // Clear placeholder if suggestion is empty
-                        }
-                        commitMessageArea.setEnabled(true);
-                        commitMessageArea.requestFocusInWindow(); // Focus for editing
-                    } else {
-                        logger.error("Error suggesting commit message for dialog:", throwable);
-                        commitMessageArea.setText(PLACEHOLDER_FAILURE);
-                        commitMessageArea.setEnabled(true);
-                        commitMessageArea.requestFocusInWindow(); // Focus for manual input
-                    }
-                    checkCommitButtonState(); // Update commit button based on new text/state
-                }));
+    private void initiateCommitMessageSuggestion() {
+        // Mark streaming as in-progress so the commit button stays disabled until finished.
+        streamingSuggestionInProgress = true;
+        var streamingIO = new TextAreaConsoleIO(commitMessageArea, chrome, "Inferring commit message");
+
+        var worker = new ExceptionAwareSwingWorker<String, Void>(chrome) {
+            @Override
+            protected String doInBackground() throws Exception {
+                return workflowService.suggestCommitMessageStreaming(filesToCommit, false, streamingIO);
+            }
+
+            @Override
+            protected void done() {
+                super.done(); // centralized exception handling
+                try {
+                    get();
+                    SwingUtilities.invokeLater(() -> {
+                        streamingIO.onComplete();
+                        commitMessageArea.requestFocusInWindow();
+                        commitMessageArea.setCaretPosition(0);
+                        checkCommitButtonState();
+                    });
+                } catch (InterruptedException | java.util.concurrent.ExecutionException ignored) {
+                    // ExceptionAwareSwingWorker.done() already handled logging/notifications
+                    // Ensure text area is usable so user can type manually
+                    SwingUtilities.invokeLater(() -> {
+                        streamingIO.onComplete();
+                        commitMessageArea.setText("");
+                        commitMessageArea.requestFocusInWindow();
+                    });
+                } finally {
+                    // Clear streaming flag regardless of success/failure/cancel.
+                    streamingSuggestionInProgress = false;
+                    // Re-evaluate button state on the EDT to ensure UI consistency.
+                    SwingUtilities.invokeLater(CommitDialog.this::checkCommitButtonState);
+                }
+            }
+        };
+        worker.execute();
     }
 
     private void performCommit() {
         String msg = commitMessageArea.getText().trim();
-        if (msg.isEmpty() || msg.equals(PLACEHOLDER_FAILURE) || msg.equals(PLACEHOLDER_INFERRING)) {
+        if (msg.isEmpty()) {
             // This case should ideally be prevented by button enablement, but as a safeguard:
-            chrome.toolError("Commit message cannot be empty or placeholder.", "Commit Error");
+            chrome.toolError("Commit message cannot be empty.", "Commit Error");
             return;
         }
 

@@ -713,15 +713,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
         // Create quick edit dialog
         var ancestor = SwingUtilities.getWindowAncestor(this);
-        JDialog quickEditDialog;
-        if (ancestor instanceof Frame frame) {
-            quickEditDialog = new JDialog(frame, "Quick Edit", true);
-        } else if (ancestor instanceof Dialog dialog) {
-            quickEditDialog = new JDialog(dialog, "Quick Edit", true);
-        } else {
-            quickEditDialog = new JDialog((Frame) null, "Quick Edit", true);
-        }
-        quickEditDialog.setLayout(new BorderLayout());
+        var quickEditDialog = new BaseThemedDialog(ancestor, "Quick Edit");
+        var quickEditRoot = quickEditDialog.getContentRoot();
+        quickEditRoot.setLayout(new BorderLayout());
 
         // Create main panel for quick edit dialog (without system messages pane)
         var mainPanel = new JPanel(new BorderLayout(5, 5));
@@ -823,7 +817,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         // Assemble quick edit dialog main panel
         mainPanel.add(inputPanel, BorderLayout.CENTER);
         mainPanel.add(buttonPanel, BorderLayout.PAGE_END);
-        quickEditDialog.add(mainPanel);
+        quickEditRoot.add(mainPanel);
 
         // Set a preferred size for the scroll pane
         scrollPane.setPreferredSize(new Dimension(400, 150));
@@ -886,15 +880,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         requireNonNull(file);
 
         var ancestor = SwingUtilities.getWindowAncestor(this);
-        JDialog resultsDialog;
-        if (ancestor instanceof Frame frame) {
-            resultsDialog = new JDialog(frame, "Quick Edit", false);
-        } else if (ancestor instanceof Dialog dialog) {
-            resultsDialog = new JDialog(dialog, "Quick Edit", false);
-        } else {
-            resultsDialog = new JDialog((Frame) null, "Quick Edit", false);
-        }
-        resultsDialog.setLayout(new BorderLayout());
+        var resultsDialog = new BaseThemedDialog(ancestor, "Quick Edit", Dialog.ModalityType.MODELESS);
+        var resultsRoot = resultsDialog.getContentRoot();
+        resultsRoot.setLayout(new BorderLayout());
 
         // System messages pane
         var systemArea = new JTextArea();
@@ -920,8 +908,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         bottomPanel.add(okayButton);
         bottomPanel.add(stopButton);
 
-        resultsDialog.add(systemScrollPane, BorderLayout.CENTER);
-        resultsDialog.add(bottomPanel, BorderLayout.PAGE_END);
+        resultsRoot.add(systemScrollPane, BorderLayout.CENTER);
+        resultsRoot.add(bottomPanel, BorderLayout.PAGE_END);
         resultsDialog.pack();
         resultsDialog.setLocationRelativeTo(this);
 

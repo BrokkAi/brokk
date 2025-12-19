@@ -4,28 +4,21 @@ import ai.brokk.AbstractService;
 import ai.brokk.Service;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties.ModelType;
 import com.fasterxml.jackson.databind.JsonNode;
-import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.chat.request.ChatRequest;
-import dev.langchain4j.model.chat.response.ChatResponse;
-import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
-import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import java.io.File;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 import org.jetbrains.annotations.Nullable;
 
 public final class TestService extends AbstractService {
 
-    private StreamingChatModel customQuickestModel;
+    private final Map<ModelType, StreamingChatModel> modelOverrides = new HashMap<>();
 
     public TestService(IProject project) {
         super(project);
-    }
-
-    public void setQuickestModel(StreamingChatModel model) {
-        this.customQuickestModel = model;
     }
 
     @Override
@@ -53,31 +46,22 @@ public final class TestService extends AbstractService {
         return true;
     }
 
+    public void setModel(ModelType modelType, StreamingChatModel model) {
+        modelOverrides.put(modelType, model);
+    }
+
     @Override
-    public StreamingChatModel getModel(
-            AbstractService.ModelConfig config, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {
-        return new StreamingChatModel() {
-            @Override
-            public void doChat(ChatRequest request, StreamingChatResponseHandler handler) {
-                handler.onCompleteResponse(ChatResponse.builder()
-                        .aiMessage(new AiMessage("```\nnew content\n```"))
-                        .build());
-            }
-        };
+    public @Nullable StreamingChatModel getModel(ModelType modelType) {
+        if (modelOverrides.containsKey(modelType)) {
+            return modelOverrides.get(modelType);
+        }
+        return super.getModel(modelType);
     }
 
     @Override
     public JsonNode reportClientException(String stacktrace, String clientVersion, Map<String, String> optionalFields)
             throws IOException {
         return objectMapper.createObjectNode();
-    }
-
-    @Override
-    public StreamingChatModel quickestModel() {
-        if (customQuickestModel != null) {
-            return customQuickestModel;
-        }
-        return super.quickestModel();
     }
 
     @Override

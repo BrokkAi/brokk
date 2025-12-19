@@ -2,9 +2,10 @@ import './styles/global.scss';
 import {mount, tick} from 'svelte';
 import {get} from 'svelte/store';
 import Mop from './MOP.svelte';
-import {bubblesStore, onBrokkEvent, reparseAll, setLiveTaskInProgress} from './stores/bubblesStore';
+import {bubblesStore, onBrokkEvent, reparseAll, setLiveTaskInProgress, getCurrentLiveThreadId} from './stores/bubblesStore';
 import {onHistoryEvent} from './stores/historyStore';
 import {spinnerStore} from './stores/spinnerStore';
+import {transientStore} from './stores/transientStore';
 import {themeStore} from './stores/themeStore';
 import { threadStore } from './stores/threadStore';
 import {createSearchController, type SearchController} from './search/search';
@@ -14,6 +15,10 @@ import {onFilePathResolutionResponse, clearFilePathCache} from './stores/filePat
 import {zoomIn, zoomOut, resetZoom, zoomStore, getZoomPercentage, setZoom} from './stores/zoomStore';
 import './components/ZoomWidget.ts';
 import { envStore } from './stores/envStore';
+import { setSummaryEntry, deleteSummaryEntry, getSummaryEntry, updateSummaryTree, summaryStore } from './stores/summaryStore';
+import { register, unregister, isRegistered } from './worker/parseRouter';
+import { parse } from './worker/worker-bridge';
+import { allocSummarySeq } from './shared/seq';
 
 const mainLog = createLogger('main');
 
@@ -60,7 +65,15 @@ function setupBrokkInterface(): any[] {
         showSpinner: showSpinnerMessage,
         hideSpinner: hideSpinnerMessage,
         // Task progress API
-        setTaskInProgress: (inProgress: boolean) => setLiveTaskInProgress(inProgress),
+        setTaskInProgress: (inProgress: boolean) => {
+            if (!inProgress) {
+                transientStore.hide();
+            }
+            setLiveTaskInProgress(inProgress);
+        },
+        // Transient message API
+        showTransientMessage: (msg: string) => transientStore.show(msg),
+        hideTransientMessage: () => transientStore.hide(),
 
         // Search API
         setSearch: (query: string, caseSensitive: boolean) => searchCtrl?.setQuery(query, caseSensitive),
@@ -112,6 +125,8 @@ function setupBrokkInterface(): any[] {
 async function handleEvent(payload: any): Promise<void> {
     if (payload.type === 'history-reset' || payload.type === 'history-task') {
         onHistoryEvent(payload);
+    } else if (payload.type === 'live-summary') {
+        onLiveSummary(payload);
     } else {
         onBrokkEvent(payload); // updates store & talks to worker
     }
@@ -121,6 +136,38 @@ async function handleEvent(payload: any): Promise<void> {
     requestAnimationFrame(() => {
         if (payload.epoch) window.javaBridge?.onAck(payload.epoch);
     });
+}
+
+function onLiveSummary(payload: any): void {
+    const { compressed, summary } = payload;
+
+    // Get the current live thread's threadId directly (doesn't depend on bubbles existing)
+    const threadId = getCurrentLiveThreadId();
+
+    // Clear any previous summary entry for this threadId
+    const prevEntry = getSummaryEntry(threadId);
+    if (prevEntry && isRegistered(prevEntry.seq)) {
+        unregister(prevEntry.seq);
+    }
+    deleteSummaryEntry(threadId);
+
+    // Create a new sequence number for this summary parse
+    const summarySeq = allocSummarySeq();
+
+    // Store the summary entry in summaryParseStore (merged metadata)
+    setSummaryEntry(threadId, {
+        seq: summarySeq,
+        text: summary,
+        compressed,
+    });
+
+    // Register a parse result handler
+    register(summarySeq, (msg: any) => {
+        updateSummaryTree(threadId, msg.tree);
+    });
+
+    // Trigger parsing with the worker (slow parse, don't update buffer)
+    parse(summary, summarySeq, false, false);
 }
 
 function getCurrentSelection(): string {

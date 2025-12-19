@@ -1,6 +1,7 @@
 package ai.brokk.project;
 
-import ai.brokk.AbstractService;
+import ai.brokk.AbstractService.ModelConfig;
+import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IssueProvider;
 import ai.brokk.SessionManager;
@@ -9,6 +10,7 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
+import ai.brokk.project.ModelProperties.ModelType;
 import com.jakewharton.disklrucache.DiskLruCache;
 import java.awt.Rectangle;
 import java.io.IOException;
@@ -138,11 +140,11 @@ public interface IProject extends AutoCloseable {
         return CompletableFuture.failedFuture(new UnsupportedOperationException());
     }
 
-    default AbstractService.ModelConfig getCodeModelConfig() {
-        throw new UnsupportedOperationException();
+    default ModelConfig getModelConfig(ModelType modelType) {
+        return new ModelConfig("test-model");
     }
 
-    default AbstractService.ModelConfig getQuickModelConfig() {
+    default void setModelConfig(ModelType modelType, ModelConfig config) {
         throw new UnsupportedOperationException();
     }
 
@@ -289,22 +291,6 @@ public interface IProject extends AutoCloseable {
         return false;
     }
 
-    default void setQuickModelConfig(AbstractService.ModelConfig modelConfig) {
-        throw new UnsupportedOperationException();
-    }
-
-    default void setCodeModelConfig(AbstractService.ModelConfig modelConfig) {
-        throw new UnsupportedOperationException();
-    }
-
-    default AbstractService.ModelConfig getArchitectModelConfig() {
-        throw new UnsupportedOperationException();
-    }
-
-    default void setArchitectModelConfig(AbstractService.ModelConfig config) {
-        throw new UnsupportedOperationException();
-    }
-
     default String getCommitMessageFormat() {
         throw new UnsupportedOperationException();
     }
@@ -379,11 +365,87 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    /**
+     * Whether this project should automatically attempt to update dependencies that were imported
+     * from local directories on disk. Implementations may persist this at the project level.
+     *
+     * Default is {@code false}.
+     */
+    default boolean getAutoUpdateLocalDependencies() {
+        return false;
+    }
+
+    /**
+     * Configure whether this project should automatically attempt to update dependencies that were
+     * imported from local directories on disk.
+     */
+    default void setAutoUpdateLocalDependencies(boolean enabled) {}
+
+    /**
+     * Whether this project should automatically attempt to update dependencies that were imported
+     * from GitHub repositories. Implementations may persist this at the project level.
+     *
+     * Default is {@code false}.
+     */
+    default boolean getAutoUpdateGitDependencies() {
+        return false;
+    }
+
+    /**
+     * Configure whether this project should automatically attempt to update dependencies that were
+     * imported from GitHub repositories.
+     */
+    default void setAutoUpdateGitDependencies(boolean enabled) {}
+
+    /**
+     * Returns all on-disk dependency directories (immediate children of the dependencies folder).
+     */
+    default Set<ProjectFile> getAllOnDiskDependencies() {
+        return Set.of();
+    }
+
+    /**
+     * Returns the set of enabled (live) dependencies.
+     */
+    default Set<Dependency> getLiveDependencies() {
+        return Set.of();
+    }
+
     default Set<String> getExcludedDirectories() {
         return Set.of();
     }
 
     default IConsoleIO getConsoleIO() {
+        throw new UnsupportedOperationException();
+    }
+
+    default void saveLiveDependencies(Set<Path> dependencyTopLevelDirs) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Updates the live dependencies set. If an analyzer is provided, also pauses/resumes
+     * the watcher, computes file diffs, and updates the analyzer.
+     *
+     * @param newLiveDependencyDirs the complete desired set of live dependency directories
+     * @param analyzerWrapper the analyzer to update, or null for persistence-only (CLI usage)
+     * @return CompletableFuture that completes when all operations are done
+     */
+    default CompletableFuture<Void> updateLiveDependencies(
+            Set<Path> newLiveDependencyDirs, @Nullable IAnalyzerWrapper analyzerWrapper) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Adds a dependency to the live set (merge semantics).
+     * Used after importing a new dependency.
+     *
+     * @param dependencyName the name of the dependency directory to add
+     * @param analyzerWrapper the analyzer to update, or null for persistence-only (CLI usage)
+     * @return CompletableFuture that completes when the operation is done
+     */
+    default CompletableFuture<Void> addLiveDependency(
+            String dependencyName, @Nullable IAnalyzerWrapper analyzerWrapper) {
         throw new UnsupportedOperationException();
     }
 

@@ -6,6 +6,7 @@ import ai.brokk.IWatchService.EventBatch;
 import ai.brokk.IWatchService.Listener;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.util.FileUtil;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -14,8 +15,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Tests for AnalyzerWrapper focusing on the new architecture from issue #1575:
@@ -26,20 +27,25 @@ import org.junit.jupiter.api.io.TempDir;
  */
 class AnalyzerWrapperTest {
 
-    @TempDir
-    Path tempDir;
-
+    private Path tempDir;
     private AnalyzerWrapper analyzerWrapper;
     private LegacyProjectWatchService watchService;
 
+    @BeforeEach
+    void setUp() throws Exception {
+        tempDir = Files.createTempDirectory("analyzer-wrapper-test-");
+    }
+
     @AfterEach
     void tearDown() {
-        if (analyzerWrapper != null) {
-            analyzerWrapper.close();
-        }
+        // Close watchService first to release directory handles (required for Windows)
         if (watchService != null) {
             watchService.close();
         }
+        if (analyzerWrapper != null) {
+            analyzerWrapper.close();
+        }
+        FileUtil.deleteRecursively(tempDir);
     }
 
     /**

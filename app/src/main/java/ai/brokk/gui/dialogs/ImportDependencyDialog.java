@@ -16,6 +16,7 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.util.CloneOperationTracker;
+import ai.brokk.util.DependencyUpdater;
 import ai.brokk.util.FileUtil;
 import java.awt.BorderLayout;
 import java.awt.Component;
@@ -39,7 +40,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.function.Predicate;
 import javax.swing.JComboBox;
-import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
@@ -76,7 +76,7 @@ public class ImportDependencyDialog {
     private static class DialogHelper {
         private final Chrome chrome;
         private final Window owner;
-        private JDialog dialog = new JDialog();
+        private BaseThemedDialog dialog;
 
         @Nullable
         private final DependenciesPanel.DependencyLifecycleListener listener;
@@ -120,14 +120,16 @@ public class ImportDependencyDialog {
                     .resolve(AbstractProject.BROKK_DIR)
                     .resolve(AbstractProject.DEPENDENCIES_DIR);
             this.listener = listener;
+            this.dialog = new BaseThemedDialog(owner, "Import Dependency", Dialog.ModalityType.DOCUMENT_MODAL);
 
             CloneOperationTracker.cleanupOrphanedClones(dependenciesRoot);
         }
 
         void buildAndShow() {
-            dialog = new JDialog(owner, "Import Dependency", Dialog.ModalityType.DOCUMENT_MODAL);
-            dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-            dialog.setLayout(new BorderLayout(10, 10));
+            dialog.setDefaultCloseOperation(BaseThemedDialog.DISPOSE_ON_CLOSE);
+
+            var root = dialog.getContentRoot();
+            root.setLayout(new BorderLayout(10, 10));
 
             var mainPanel = new JPanel(new BorderLayout());
             mainPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
@@ -164,6 +166,12 @@ public class ImportDependencyDialog {
 
             tabbedPane.addChangeListener(e -> updateImportButtonState());
 
+            // Select the tab for the project's primary language if available
+            var buildLanguage = project.getBuildLanguage();
+            if (languagePanels.containsKey(buildLanguage)) {
+                tabbedPane.setSelectedComponent(languagePanels.get(buildLanguage));
+            }
+
             mainPanel.add(tabbedPane, BorderLayout.CENTER);
 
             // Buttons
@@ -193,8 +201,8 @@ public class ImportDependencyDialog {
             buttons.add(importButton);
             buttons.add(cancelButton);
 
-            dialog.add(mainPanel, BorderLayout.CENTER);
-            dialog.add(buttons, BorderLayout.SOUTH);
+            root.add(mainPanel, BorderLayout.CENTER);
+            root.add(buttons, BorderLayout.SOUTH);
 
             updateImportButtonState();
 
@@ -382,16 +390,16 @@ public class ImportDependencyDialog {
         // Bring the owning Dependencies dialog to the front (if available), otherwise best-effort search.
         private void bringDependenciesDialogToFront() {
             try {
-                if (owner instanceof JDialog jd && jd.isShowing()) {
-                    jd.toFront();
-                    jd.requestFocus();
+                if (owner instanceof Dialog d && d.isShowing()) {
+                    d.toFront();
+                    d.requestFocus();
                     return;
                 }
                 for (Window w : Window.getWindows()) {
-                    if (w instanceof JDialog jd && jd.isShowing()) {
-                        if (containsDependenciesPanel(jd)) {
-                            jd.toFront();
-                            jd.requestFocus();
+                    if (w instanceof Dialog d && d.isShowing()) {
+                        if (containsDependenciesPanel(d)) {
+                            d.toFront();
+                            d.requestFocus();
                             break;
                         }
                     }
@@ -516,6 +524,10 @@ public class ImportDependencyDialog {
                 }
             }
 
+            // Close dialog immediately - copy will run in background
+            dialog.dispose();
+            bringDependenciesDialogToFront();
+
             chrome.getContextManager().submitBackgroundTask("Copying directory: " + sourcePath.getFileName(), () -> {
                 try {
                     Files.createDirectories(dependenciesRoot);
@@ -530,23 +542,18 @@ public class ImportDependencyDialog {
                             .distinct()
                             .toList();
                     copyDirectoryRecursively(sourcePath, targetPath, allowedExtensions);
+                    DependencyUpdater.writeLocalPathDependencyMetadata(
+                            targetPath, sourcePath.toAbsolutePath().normalize());
                     SwingUtilities.invokeLater(() -> {
-                        dialog.dispose();
                         chrome.showNotification(
                                 IConsoleIO.NotificationRole.INFO,
                                 "Directory copied to " + targetPath + ". Reopen project to incorporate the new files.");
                         if (listener != null) listener.dependencyImportFinished(depName);
-                        bringDependenciesDialogToFront();
                     });
                 } catch (IOException ex) {
                     logger.error("Error copying directory {} to {}", sourcePath, targetPath, ex);
                     SwingUtilities.invokeLater(() -> {
-                        JOptionPane.showMessageDialog(
-                                dialog,
-                                "Error copying directory: " + ex.getMessage(),
-                                "Error",
-                                JOptionPane.ERROR_MESSAGE);
-                        importButton.setEnabled(true);
+                        chrome.toolError("Error copying directory: " + ex.getMessage(), "Error");
                     });
                 }
                 return null;
@@ -588,6 +595,10 @@ public class ImportDependencyDialog {
                 SwingUtilities.invokeLater(() -> listener.dependencyImportStarted(repoName));
             }
 
+            // Close dialog immediately - clone will run in background
+            dialog.dispose();
+            bringDependenciesDialogToFront();
+
             chrome.getContextManager().submitBackgroundTask("Cloning repository: " + repoUrl, () -> {
                 try {
                     Files.createDirectories(dependenciesRoot);
@@ -601,6 +612,9 @@ public class ImportDependencyDialog {
 
                     GitRepoFactory.cloneRepo(repoUrl, targetPath, 1, branchOrTag);
 
+                    // Capture commit hash before removing .git
+                    String commitHash = GitRepoFactory.getHeadCommit(targetPath);
+
                     CloneOperationTracker.createInProgressMarker(targetPath, repoUrl, branchOrTag);
                     CloneOperationTracker.registerCloneOperation(targetPath);
 
@@ -610,16 +624,16 @@ public class ImportDependencyDialog {
                             FileUtil.deleteRecursively(gitInternalDir);
                         }
 
+                        DependencyUpdater.writeGitDependencyMetadata(targetPath, repoUrl, branchOrTag, commitHash);
+
                         CloneOperationTracker.createCompleteMarker(targetPath, repoUrl, branchOrTag);
                         CloneOperationTracker.unregisterCloneOperation(targetPath);
 
                         SwingUtilities.invokeLater(() -> {
-                            dialog.dispose();
                             chrome.showNotification(
                                     IConsoleIO.NotificationRole.INFO,
                                     "Repository " + repoName + " imported successfully.");
                             if (listener != null) listener.dependencyImportFinished(repoName);
-                            bringDependenciesDialogToFront();
                         });
                     } catch (Exception postCloneException) {
                         CloneOperationTracker.unregisterCloneOperation(targetPath);
@@ -639,7 +653,6 @@ public class ImportDependencyDialog {
 
                     SwingUtilities.invokeLater(() -> {
                         chrome.toolError("Failed to import repository: " + ex.getMessage(), "Import Error");
-                        importButton.setEnabled(true);
                     });
                 }
                 return null;

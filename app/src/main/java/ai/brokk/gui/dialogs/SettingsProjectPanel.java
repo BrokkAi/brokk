@@ -10,6 +10,8 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.gui.util.GitDiffUiUtil;
+import ai.brokk.gui.util.GitRepoIdUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.issues.FilterOptions;
 import ai.brokk.issues.IssueProviderType;
@@ -29,9 +31,12 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Function;
 import javax.swing.*;
 import javax.swing.BorderFactory;
 import javax.swing.SwingWorker;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import org.apache.logging.log4j.LogManager;
@@ -46,44 +51,54 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private final SettingsDialog parentDialog;
 
     // General UI Components
-    private JTextArea styleGuideArea = new JTextArea(5, 40);
-    private JTextArea commitFormatArea = new JTextArea(5, 40);
+    private final JTextArea styleGuideArea = new JTextArea(5, 40);
+    private final JTextArea commitFormatArea = new JTextArea(5, 40);
 
     @Nullable
     private JTextArea reviewGuideArea;
 
     // CI Exclusions (moved to build panel; kept list model only for short-term compatibility removal)
     // Analyzer-related UI
-    private DefaultListModel<String> excludedDirectoriesListModel = new DefaultListModel<>();
-    private JList<String> excludedDirectoriesList = new JList<>(excludedDirectoriesListModel);
-    private JScrollPane excludedScrollPane = new JScrollPane(excludedDirectoriesList);
-    private MaterialButton addExcludedDirButton = new MaterialButton();
-    private MaterialButton removeExcludedDirButton = new MaterialButton();
+    private final DefaultListModel<String> excludedDirectoriesListModel = new DefaultListModel<>();
+    private final JList<String> excludedDirectoriesList = new JList<>(excludedDirectoriesListModel);
+    private final JScrollPane excludedScrollPane = new JScrollPane(excludedDirectoriesList);
+    private final MaterialButton addExcludedDirButton = new MaterialButton();
+    private final MaterialButton removeExcludedDirButton = new MaterialButton();
 
-    private Set<Language> currentAnalyzerLanguagesForDialog = new HashSet<>();
+    // Dependency auto-update (Code Intelligence tab)
+    private final JCheckBox autoUpdateLocalDependenciesCheckBox =
+            new JCheckBox("Automatically update local path dependencies");
+    private final JCheckBox autoUpdateGitDependenciesCheckBox =
+            new JCheckBox("Automatically update GitHub dependencies");
 
-    private JTabbedPane projectSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
+    private final Set<Language> currentAnalyzerLanguagesForDialog = new HashSet<>();
+
+    private final JTabbedPane projectSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
     // Issue Provider related UI
-    private JComboBox<IssueProviderType> issueProviderTypeComboBox = new JComboBox<>(IssueProviderType.values());
-    private CardLayout issueProviderCardLayout = new CardLayout();
-    private JPanel issueProviderConfigPanel = new JPanel(issueProviderCardLayout);
+    private final JComboBox<IssueProviderType> issueProviderTypeComboBox = new JComboBox<>(IssueProviderType.values());
+    private final CardLayout issueProviderCardLayout = new CardLayout();
+    private final JPanel issueProviderConfigPanel = new JPanel(issueProviderCardLayout);
 
     // GitHub specific fields
-    private JTextField githubOwnerField = new JTextField(20);
-    private JTextField githubRepoField = new JTextField(20);
-    private JTextField githubHostField = new JTextField(20);
-    private JCheckBox githubOverrideCheckbox = new JCheckBox("Fetch issues from a different GitHub repository");
+    private final JTextField githubOwnerField = new JTextField(20);
+    private final JTextField githubRepoField = new JTextField(20);
+    private final JTextField githubHostField = new JTextField(20);
+    private final JCheckBox githubOverrideCheckbox = new JCheckBox("Fetch issues from a different GitHub repository");
+    private final JLabel githubOwnerLabel = new JLabel();
+    private final JLabel githubRepoLabel = new JLabel();
+    private final JLabel githubHostLabel = new JLabel();
+    private final JLabel githubInfoLabel = new JLabel();
 
     private static final String NONE_CARD = "None";
     private static final String GITHUB_CARD = "GitHub";
     private static final String JIRA_CARD = "Jira";
 
     // Jira specific fields
-    private JTextField jiraProjectKeyField = new JTextField();
-    private JTextField jiraBaseUrlField = new JTextField();
-    private JPasswordField jiraApiTokenField = new JPasswordField();
-    private MaterialButton testJiraConnectionButton = new MaterialButton("Test Jira Connection");
+    private final JTextField jiraProjectKeyField = new JTextField();
+    private final JTextField jiraBaseUrlField = new JTextField();
+    private final JPasswordField jiraApiTokenField = new JPasswordField();
+    private final MaterialButton testJiraConnectionButton = new MaterialButton("Test Jira Connection");
 
     // Holds the analyzer configuration panels so we can persist their settings when the user clicks Apply/OK.
     private final LinkedHashMap<Language, AnalyzerSettingsPanel> analyzerSettingsCache = new LinkedHashMap<>();
@@ -99,13 +114,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     @Nullable
     private LanguagesTableModel languagesTableModel;
 
-    /**
-     * Constructor for creating panel without data (will be populated later).
-     * Panel starts in disabled state until data is loaded.
-     */
     public SettingsProjectPanel(
             Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton) {
-        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         this.chrome = chrome;
         this.parentDialog = parentDialog;
         this.okButtonParent = okButton;
@@ -123,7 +133,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
      * Populates UI fields from pre-loaded settings data. No I/O operations.
      * Must be called on EDT. Enables the panel after populating.
      */
-    public void populateFromData(SettingsData data) {
+    public void populateFromData(SettingsDialog.SettingsData data) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
         // Enable panel now that we have data
@@ -135,7 +145,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         populateBuildTab(data);
     }
 
-    private void populateGeneralTab(SettingsData data) {
+    private void populateGeneralTab(SettingsDialog.SettingsData data) {
         styleGuideArea.setText(data.styleGuide() != null ? data.styleGuide() : "");
         styleGuideArea.setCaretPosition(0); // Reset scroll position to top
         commitFormatArea.setText(data.commitMessageFormat() != null ? data.commitMessageFormat() : "");
@@ -190,16 +200,13 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private void populateBuildTab(SettingsData data) {
+    private void populateBuildTab(SettingsDialog.SettingsData data) {
         // Build details - use pre-loaded data
         if (data.buildDetails() != null) {
             updateExcludedDirectories(data.buildDetails().excludedDirectories());
         } else {
             updateExcludedDirectories(List.of());
         }
-
-        // Build Tab - delegate to buildPanelInstance
-        buildPanelInstance.loadBuildPanelSettings();
     }
 
     private void initComponents() {
@@ -274,7 +281,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.weightx = 0.0;
         gbc.anchor = GridBagConstraints.NORTHWEST;
         gbc.fill = GridBagConstraints.NONE;
-        generalPanel.add(new JLabel("Style Guide:"), gbc);
+        generalPanel.add(new JLabel("AGENTS.md:"), gbc);
         styleGuideArea.setWrapStyleWord(true);
         styleGuideArea.setLineWrap(true);
         var styleScrollPane = new JScrollPane(styleGuideArea);
@@ -485,7 +492,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcGitHub.gridy = githubRow;
         gbcGitHub.weightx = 0.0;
         gbcGitHub.fill = GridBagConstraints.NONE;
-        gitHubCard.add(new JLabel("Owner:"), gbcGitHub);
+        githubOwnerLabel.setText("Owner:");
+        gitHubCard.add(githubOwnerLabel, gbcGitHub);
         gbcGitHub.gridx = 1;
         gbcGitHub.gridy = githubRow++;
         gbcGitHub.weightx = 1.0;
@@ -496,18 +504,43 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcGitHub.gridy = githubRow;
         gbcGitHub.weightx = 0.0;
         gbcGitHub.fill = GridBagConstraints.NONE;
-        gitHubCard.add(new JLabel("Repository:"), gbcGitHub);
+        githubRepoLabel.setText("Repository:");
+        gitHubCard.add(githubRepoLabel, gbcGitHub);
         gbcGitHub.gridx = 1;
         gbcGitHub.gridy = githubRow++;
         gbcGitHub.weightx = 1.0;
         gbcGitHub.fill = GridBagConstraints.HORIZONTAL;
         gitHubCard.add(githubRepoField, gbcGitHub);
 
+        // Individual validation for owner field
+        Function<String, Optional<String>> ownerValidator = ownerText -> {
+            if (!githubOverrideCheckbox.isSelected() || ownerText.isEmpty()) {
+                return Optional.empty();
+            }
+            return GitRepoIdUtil.validateOwnerFormat(ownerText);
+        };
+
+        // Individual validation for repo field
+        Function<String, Optional<String>> repoValidator = repoText -> {
+            if (!githubOverrideCheckbox.isSelected() || repoText.isEmpty()) {
+                return Optional.empty();
+            }
+            return GitRepoIdUtil.validateRepoFormat(repoText);
+        };
+
+        githubOwnerField
+                .getDocument()
+                .addDocumentListener(GitDiffUiUtil.createRealtimeValidationListener(githubOwnerField, ownerValidator));
+        githubRepoField
+                .getDocument()
+                .addDocumentListener(GitDiffUiUtil.createRealtimeValidationListener(githubRepoField, repoValidator));
+
         gbcGitHub.gridx = 0;
         gbcGitHub.gridy = githubRow;
         gbcGitHub.weightx = 0.0;
         gbcGitHub.fill = GridBagConstraints.NONE;
-        gitHubCard.add(new JLabel("Host (optional):"), gbcGitHub);
+        githubHostLabel.setText("Host (optional):");
+        gitHubCard.add(githubHostLabel, gbcGitHub);
         githubHostField.setToolTipText("e.g., github.mycompany.com (leave blank for github.com)");
         gbcGitHub.gridx = 1;
         gbcGitHub.gridy = githubRow++;
@@ -515,33 +548,92 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcGitHub.fill = GridBagConstraints.HORIZONTAL;
         gitHubCard.add(githubHostField, gbcGitHub);
 
-        var ghInfoLabel = new JLabel(
+        // Real-time validation for host field
+        Function<String, Optional<String>> hostValidator = hostText -> {
+            if (hostText.isEmpty() || !githubOverrideCheckbox.isSelected()) {
+                return Optional.empty();
+            }
+            var normalizedOpt = GitRepoIdUtil.normalizeGitHubHost(hostText);
+            return normalizedOpt.flatMap(GitRepoIdUtil::validateGitHubHost);
+        };
+        githubHostField
+                .getDocument()
+                .addDocumentListener(GitDiffUiUtil.createRealtimeValidationListener(githubHostField, hostValidator));
+
+        githubInfoLabel.setText(
                 "<html>If not overridden, issues are fetched from the project's own GitHub repository. Uses global GitHub token. Specify host for GitHub Enterprise.</html>");
-        ghInfoLabel.setFont(ghInfoLabel
+        githubInfoLabel.setFont(githubInfoLabel
                 .getFont()
-                .deriveFont(Font.ITALIC, ghInfoLabel.getFont().getSize() * 0.9f));
+                .deriveFont(Font.ITALIC, githubInfoLabel.getFont().getSize() * 0.9f));
         gbcGitHub.gridx = 0;
         gbcGitHub.gridy = githubRow++;
         gbcGitHub.gridwidth = 2;
         gbcGitHub.insets = new Insets(8, 2, 2, 2);
-        gitHubCard.add(ghInfoLabel, gbcGitHub);
+        gitHubCard.add(githubInfoLabel, gbcGitHub);
 
         githubOverrideCheckbox.addActionListener(e -> {
             boolean selected = githubOverrideCheckbox.isSelected();
+            githubOwnerLabel.setVisible(selected);
+            githubOwnerField.setVisible(selected);
+            githubRepoLabel.setVisible(selected);
+            githubRepoField.setVisible(selected);
+            githubHostLabel.setVisible(selected);
+            githubHostField.setVisible(selected);
+            githubInfoLabel.setVisible(selected);
+
+            // Enable/disable text fields based on checkbox selection
             githubOwnerField.setEnabled(selected);
             githubRepoField.setEnabled(selected);
             githubHostField.setEnabled(selected);
+
             if (!selected) {
-                // Optionally clear or reset fields if needed when unchecked
+                // Clear fields when unchecked - validation listener will restore borders
                 githubOwnerField.setText("");
                 githubRepoField.setText("");
                 githubHostField.setText("");
             }
+
+            // Revalidate and repaint to update layout
+            gitHubCard.revalidate();
+            gitHubCard.repaint();
         });
-        // Initial state
-        githubOwnerField.setEnabled(false);
-        githubRepoField.setEnabled(false);
-        githubHostField.setEnabled(false);
+
+        githubRepoField.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                onRepoFieldChanged();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                onRepoFieldChanged();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                onRepoFieldChanged();
+            }
+
+            private void onRepoFieldChanged() {
+                String repoText = githubRepoField.getText().trim();
+                if (!repoText.isEmpty()) {
+                    var parseResult = GitRepoIdUtil.parseOwnerRepoFlexible(repoText);
+                    parseResult.ifPresent(ownerRepo -> SwingUtilities.invokeLater(() -> {
+                        githubOwnerField.setText(ownerRepo.owner());
+                        githubRepoField.setText(ownerRepo.repo());
+                    }));
+                }
+            }
+        });
+
+        // Initial state - hide all fields and labels until checkbox is checked
+        githubOwnerLabel.setVisible(false);
+        githubOwnerField.setVisible(false);
+        githubRepoLabel.setVisible(false);
+        githubRepoField.setVisible(false);
+        githubHostLabel.setVisible(false);
+        githubHostField.setVisible(false);
+        githubInfoLabel.setVisible(false);
 
         gbcGitHub.gridx = 0;
         gbcGitHub.gridy = githubRow;
@@ -800,6 +892,51 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcCi.anchor = GridBagConstraints.WEST;
         ciPanel.add(excludedButtonsPanel2, gbcCi);
 
+        // Auto-update dependency checkboxes (apply only to Dependencies panel imports)
+        gbcCi.gridx = 0;
+        gbcCi.gridy = ciRow++;
+        gbcCi.gridwidth = 2;
+        gbcCi.weightx = 1.0;
+        gbcCi.weighty = 0.0;
+        gbcCi.anchor = GridBagConstraints.WEST;
+        gbcCi.fill = GridBagConstraints.HORIZONTAL;
+        gbcCi.insets = new Insets(8, 2, 0, 2);
+        ciPanel.add(autoUpdateLocalDependenciesCheckBox, gbcCi);
+
+        gbcCi.gridx = 0;
+        gbcCi.gridy = ciRow++;
+        gbcCi.gridwidth = 2;
+        gbcCi.weightx = 1.0;
+        gbcCi.weighty = 0.0;
+        gbcCi.anchor = GridBagConstraints.WEST;
+        gbcCi.fill = GridBagConstraints.HORIZONTAL;
+        gbcCi.insets = new Insets(2, 2, 0, 2);
+        ciPanel.add(autoUpdateGitDependenciesCheckBox, gbcCi);
+
+        autoUpdateLocalDependenciesCheckBox.setToolTipText(
+                "Automatically refresh dependencies imported from local directories via the Dependencies panel.");
+        autoUpdateGitDependenciesCheckBox.setToolTipText(
+                "Automatically refresh dependencies imported from GitHub repositories via the Dependencies panel.");
+
+        var autoUpdateInfoLabel =
+                new JLabel("<html>Auto-update applies only to dependencies imported via the Dependencies panel "
+                        + "(local directories and GitHub repositories).</html>");
+        autoUpdateInfoLabel.setFont(autoUpdateInfoLabel
+                .getFont()
+                .deriveFont(autoUpdateInfoLabel.getFont().getSize() * 0.9f));
+        gbcCi.gridx = 0;
+        gbcCi.gridy = ciRow++;
+        gbcCi.gridwidth = 2;
+        gbcCi.weightx = 1.0;
+        gbcCi.weighty = 0.0;
+        gbcCi.anchor = GridBagConstraints.WEST;
+        gbcCi.fill = GridBagConstraints.HORIZONTAL;
+        gbcCi.insets = new Insets(4, 2, 2, 2);
+        ciPanel.add(autoUpdateInfoLabel, gbcCi);
+
+        // Restore default insets for any subsequent components
+        gbcCi.insets = new Insets(2, 2, 2, 2);
+
         // Wire add/remove actions for the exclusions buttons.
         this.addExcludedDirButton.addActionListener(e -> {
             String newDir = JOptionPane.showInputDialog(
@@ -943,10 +1080,11 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         @Override
         public Class<?> getColumnClass(int columnIndex) {
-            return switch (columnIndex) {
-                case 0 -> Boolean.class;
-                default -> String.class;
-            };
+            if (columnIndex == 0) {
+                return Boolean.class;
+            } else {
+                return String.class;
+            }
         }
 
         @Override
@@ -1051,6 +1189,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         if (languagesTableModel != null) {
             languagesTableModel.fireTableDataChanged();
         }
+
+        // Load auto-update dependency flags
+        autoUpdateLocalDependenciesCheckBox.setSelected(project.getAutoUpdateLocalDependencies());
+        autoUpdateGitDependenciesCheckBox.setSelected(project.getAutoUpdateGitDependencies());
     }
 
     public boolean applySettings() {
@@ -1079,6 +1221,33 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                     String owner = githubOwnerField.getText().trim();
                     String repo = githubRepoField.getText().trim();
                     String host = githubHostField.getText().trim();
+
+                    var validationError = GitRepoIdUtil.validateOwnerRepo(owner, repo);
+                    if (validationError.isPresent()) {
+                        JOptionPane.showMessageDialog(
+                                parentDialog,
+                                "Invalid GitHub configuration: " + validationError.get(),
+                                "GitHub Configuration Error",
+                                JOptionPane.ERROR_MESSAGE);
+                        return false;
+                    }
+
+                    if (!host.isEmpty()) {
+                        var normalizedHostOpt = GitRepoIdUtil.normalizeGitHubHost(host);
+                        if (normalizedHostOpt.isPresent()) {
+                            var hostValidationError = GitRepoIdUtil.validateGitHubHost(normalizedHostOpt.get());
+                            if (hostValidationError.isPresent()) {
+                                JOptionPane.showMessageDialog(
+                                        parentDialog,
+                                        "Invalid GitHub host: " + hostValidationError.get(),
+                                        "GitHub Host Error",
+                                        JOptionPane.ERROR_MESSAGE);
+                                return false;
+                            }
+                            host = normalizedHostOpt.get();
+                        }
+                    }
+
                     newProviderToSet = IssueProvider.github(owner, repo, host);
                 } else {
                     newProviderToSet = IssueProvider.github(); // Default GitHub (empty owner, repo, host)
@@ -1090,6 +1259,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 break;
         }
         project.setIssuesProvider(newProviderToSet);
+
+        // Code Intelligence Tab - dependency auto-update flags
+        project.setAutoUpdateLocalDependencies(autoUpdateLocalDependenciesCheckBox.isSelected());
+        project.setAutoUpdateGitDependencies(autoUpdateGitDependenciesCheckBox.isSelected());
 
         // Persist CI exclusions from Code Intelligence panel into BuildDetails BEFORE build panel applies its settings
         saveCiExclusions();

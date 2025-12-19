@@ -2,6 +2,7 @@ package ai.brokk.util;
 
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.project.ModelProperties.ModelType;
 import com.google.common.base.Splitter;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -27,13 +28,13 @@ public class BuildOutputPreprocessor {
      * Minimum number of lines in build output to trigger preprocessing. Below this threshold, the original output is
      * returned unchanged.
      */
-    public static final int THRESHOLD_LINES = 200;
+    public static final int THRESHOLD_LINES = 500;
 
     /**
      * Maximum number of errors to extract from the build output. This limits context size while ensuring we capture
      * multiple related issues.
      */
-    public static final int MAX_EXTRACTED_ERRORS = 10;
+    public static final int MAX_EXTRACTED_ERRORS = 5;
 
     /**
      * Lightweight path sanitization without LLM processing. Converts absolute paths to relative paths for cleaner
@@ -93,7 +94,7 @@ public class BuildOutputPreprocessor {
         }
 
         // Limit build output to fit within token constraints
-        var model = cm.getService().quickestModel();
+        var model = cm.getService().getModel(ModelType.BUILD_PROCESSOR);
         var llm = cm.getLlm(model, "BuildOutputPreprocessor");
         String truncatedOutput = truncateToTokenLimit(buildOutput, model, cm);
         return preprocessOutput(truncatedOutput, cm, llm);
@@ -111,17 +112,18 @@ public class BuildOutputPreprocessor {
             Compilers: javac, tsc (TypeScript), rustc, gcc
             Linters: eslint, pylint, spotless, checkstyle
 
-            Focus on up to %d actionable errors that developers need to fix:
+            Focus on the %d most important, actionable errors that developers need to fix:
             1. Compilation errors (syntax errors, type errors, missing imports)
             2. Test failures with specific failure reasons
             3. Dependency resolution failures
             4. Build configuration errors
 
             For each error, include:
-            - File path and line number when available
             - Specific error message
-            - 2-3 lines of context when helpful
-            - Relevant stack trace snippets (not full traces)
+            - File path and line number when available
+            - Full stack trace when available
+            - Relevant debug output: you may TRIM the output to the most relevant portions, but you
+              MUST NOT CHANGE the parts you include
 
             WARNINGS AND ERRORS IN THE SAME FILE:
             Include ALL errors AND warnings from the same file. Warnings often indicate
@@ -136,6 +138,36 @@ public class BuildOutputPreprocessor {
               general startup/shutdown logs
 
             Return the extracted errors in a clean, readable format.
+
+            EXAMPLE showing trimming of framework (junit/jupiter) boilerplate and irrelevant log output, while
+            preserving the most relevant original lines exactly:
+            [ORIGINAL]
+            ```
+            ai.brokk.analyzer.TypeInferenceTest.gtd_fieldDeclaration_returnsFieldRange()
+               GTD on field declaration should find the field ==> expected: <true> but was: <false>
+                  at app//org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:158)
+                  at app//org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:139)
+                  at app//org.junit.jupiter.api.AssertTrue.failNotTrue(AssertTrue.java:69)
+                  at app//org.junit.jupiter.api.AssertTrue.assertTrue(AssertTrue.java:41)
+                  at app//org.junit.jupiter.api.Assertions.assertTrue(Assertions.java:228)
+                  at app//ai.brokk.analyzer.TypeInferenceTest.gtd_fieldDeclaration_returnsFieldRange(TypeInferenceTest.java:960)
+            23:23:15.128 [Test worker] INFO  Environment - Adaptive IO cap from FD limits: maxFD=1048576, openFD=228, freeFD=1048348, cap=16
+            23:23:15.131 [Test worker] DEBUG TreeSitterAnalyzer - Initializing TreeSitterAnalyzer for language: Java, query resource: treesitter/java.scm
+            23:23:15.191 [Test worker] INFO  TreeSitterAnalyzer - File processing summary: 1 files processed successfully
+            23:23:15.192 [Test worker] DEBUG TreeSitterAnalyzer - [Java] Stage timing (wall clock coverage; stages overlap): Read Files=0s 1ms, Parse Files=0s 0ms, Process Files=0s 29ms, Merge Results=0s 0ms, Total=0s 47ms
+            23:23:15.193 [Test worker] DEBUG TreeSitterAnalyzer - [Java] Snapshot TreeSitterAnalyzer created - codeUnits: 5, files: 1
+            23:23:15.195 [Test worker] DEBUG TreeSitterAnalyzer - [Java] Snapshot TreeSitterAnalyzer created - codeUnits: 5, files: 1
+            23:23:15.197 [Test worker] DEBUG TreeSitterAnalyzer - [Java] TreeSitter analysis complete - codeUnits: 5, files: 1
+            23:23:15.198 [Test worker] DEBUG TreeSitterAnalyzer - getDefinitionLocation: file=Test.java, offset=53
+            ```
+            [EXTRACTED]
+            ```
+            ai.brokk.analyzer.TypeInferenceTest.gtd_fieldDeclaration_returnsFieldRange()
+               GTD on field declaration should find the field ==> expected: <true> but was: <false>
+                  at app//ai.brokk.analyzer.TypeInferenceTest.gtd_fieldDeclaration_returnsFieldRange(TypeInferenceTest.java:960)
+            23:23:15.197 [Test worker] DEBUG TreeSitterAnalyzer - [Java] TreeSitter analysis complete - codeUnits: 5, files: 1
+            23:23:15.198 [Test worker] DEBUG TreeSitterAnalyzer - getDefinitionLocation: file=Test.java, offset=53
+            ```
             """
                         .formatted(MAX_EXTRACTED_ERRORS));
 

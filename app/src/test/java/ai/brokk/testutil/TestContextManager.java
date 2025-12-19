@@ -1,6 +1,5 @@
 package ai.brokk.testutil;
 
-import ai.brokk.AbstractService;
 import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
@@ -144,21 +143,13 @@ public final class TestContextManager implements IContextManager {
     }
 
     @Override
-    public AbstractService getService() {
+    public TestService getService() {
         return stubService;
     }
 
     @Override
     public StreamingChatModel getCodeModel() {
         return null;
-    }
-
-    /**
-     * Set a custom model to be returned by getLlm when requesting the quickest model. Used for testing preprocessing
-     * behavior.
-     */
-    public void setQuickestModel(StreamingChatModel model) {
-        stubService.setQuickestModel(model);
     }
 
     public ProjectFile toFile(String relativePath) {
