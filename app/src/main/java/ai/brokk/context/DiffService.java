@@ -6,7 +6,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.util.ContentDiffUtils;
-import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.time.Duration;
 import java.util.*;
@@ -35,23 +35,10 @@ public final class DiffService {
 
     /** Identity-based pair for caching diffs between two specific context instances. */
     private record ContextPair(@Nullable Context prev, Context curr) {
-
-        @Override
-        @SuppressWarnings("ReferenceEquality")
-        public boolean equals(@Nullable Object o) {
-            if (this == o) return true;
-            if (!(o instanceof ContextPair(Context prev1, Context curr1))) return false;
-            return prev == prev1 && curr == curr1;
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(System.identityHashCode(prev), System.identityHashCode(curr));
-        }
     }
 
-    private final Cache<ContextPair, CompletableFuture<List<Context.DiffEntry>>> cache =
-            Caffeine.newBuilder().maximumSize(MAX_CACHE_SIZE).build();
+    private final AsyncCache<ContextPair, List<Context.DiffEntry>> cache =
+            Caffeine.newBuilder().maximumSize(MAX_CACHE_SIZE).buildAsync();
 
     private final ContextHistory history;
     private final IContextManager cm;
@@ -90,46 +77,21 @@ public final class DiffService {
         var prev = history.previousOf(curr);
         var key = new ContextPair(prev, curr);
 
-        var future = cache.get(key, k -> new CompletableFuture<>());
-
-        if (future.isDone()) {
-            return future;
-        }
-
-        Executor executor;
-        try {
-            executor = cm.getBackgroundTasks();
-        } catch (UnsupportedOperationException | NullPointerException e) {
-            // Fallback for tests or contexts where no background executor is available
-            executor = CompletableFuture::runAsync;
-        }
-
-        executor.execute(() -> {
-            try {
-                var result = (prev == null) ? List.<Context.DiffEntry>of() : computeDiff(curr, prev);
-                future.complete(result);
-            } catch (Throwable t) {
-                future.completeExceptionally(t);
-                logger.warn("Error computing diffs for context {}", curr.id(), t);
+        return cache.get(key, (k, executor) -> {
+            if (k.prev() == null) {
+                return CompletableFuture.completedFuture(List.of());
             }
+            return CompletableFuture.supplyAsync(
+                    () -> computeDiff(k.curr(), k.prev()), cm.getBackgroundTasks());
         });
-
-        return future;
     }
 
     /**
      * Clears all cached diff entries.
      */
-    public void clear() {
-        cache.invalidateAll();
-        cache.cleanUp();
-    }
-
-    /**
-     * Invalidates cached results.
-     */
-    public void invalidate() {
-        clear();
+    void clear() {
+        cache.synchronous().invalidateAll();
+        cache.synchronous().cleanUp();
     }
 
     @Blocking
