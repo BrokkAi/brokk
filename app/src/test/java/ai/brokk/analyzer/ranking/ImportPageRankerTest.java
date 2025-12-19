@@ -84,7 +84,6 @@ public class ImportPageRankerTest {
         }
     }
 
-
     @Test
     public void noProjectImportsHandledGracefully() throws Exception {
         try (var project = InlineTestProjectCreator.code(

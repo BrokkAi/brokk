@@ -41,12 +41,7 @@ public final class ImportPageRanker {
     /** Node threshold above which we log a warning about graph size. */
     private static final int LARGE_GRAPH_NODE_THRESHOLD = 2000;
 
-    private record Graph(
-            Map<ProjectFile, Set<ProjectFile>> forward, Map<ProjectFile, Set<ProjectFile>> reverse) {
-        Set<ProjectFile> nodes() {
-            return forward.keySet();
-        }
-    }
+    private record Graph(Map<ProjectFile, Set<ProjectFile>> forward, Map<ProjectFile, Set<ProjectFile>> reverse) {}
 
     /**
      * Builds a candidate set and the associated import graph by starting from the seed files
@@ -79,8 +74,8 @@ public final class ImportPageRanker {
                         reverse.put(target, new LinkedHashSet<>());
                         next.add(target);
                     }
-                    forward.get(pf).add(target);
-                    reverse.get(target).add(pf);
+                    Objects.requireNonNull(forward.get(pf)).add(target);
+                    Objects.requireNonNull(reverse.get(target)).add(pf);
                 }
             }
             frontier = next;
@@ -90,8 +85,8 @@ public final class ImportPageRanker {
         for (ProjectFile node : forward.keySet()) {
             for (ProjectFile target : importedFilesFor(analyzer, node, cache)) {
                 if (forward.containsKey(target)) {
-                    forward.get(node).add(target);
-                    reverse.get(target).add(node);
+                    Objects.requireNonNull(forward.get(node)).add(target);
+                    Objects.requireNonNull(reverse.get(target)).add(node);
                 }
             }
         }
@@ -177,11 +172,7 @@ public final class ImportPageRanker {
         }
 
         if (n > LARGE_GRAPH_NODE_THRESHOLD && log.isWarnEnabled()) {
-            log.warn(
-                    "ImportPageRanker large graph: nodes={}, edges={}, seeds={}",
-                    n,
-                    edgeCount,
-                    positiveSeeds.size());
+            log.warn("ImportPageRanker large graph: nodes={}, edges={}, seeds={}", n, edgeCount, positiveSeeds.size());
         }
 
         // Personalized PageRank
@@ -302,5 +293,4 @@ public final class ImportPageRanker {
             out.add(cu.source());
         }
     }
-
 }

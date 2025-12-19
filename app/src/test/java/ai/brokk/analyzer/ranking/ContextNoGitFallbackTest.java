@@ -9,7 +9,6 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.AnalyzerCreator;
@@ -175,15 +174,14 @@ public class ContextNoGitFallbackTest {
         // Case 1: 2/7 are new (~28.5%). Should be FALSE (not "many" new seeds).
         // New seeds: p1, p2. Tracked: p3, p4, p5, p6, p7.
         stubRepo.tracked = Set.of(p3, p4, p5, p6, p7);
-        Map<ProjectFile, Double> seeds7 = Map.of(
-                p1, 1.0, p2, 1.0, p3, 1.0, p4, 1.0, p5, 1.0, p6, 1.0, p7, 1.0);
+        Map<ProjectFile, Double> seeds7 = Map.of(p1, 1.0, p2, 1.0, p3, 1.0, p4, 1.0, p5, 1.0, p6, 1.0, p7, 1.0);
         assertFalse(ctx.areManySeedsNew(seeds7, stubRepo), "2/7 untracked is < 30%, should return false");
 
         // Case 2: 3/10 are new (30%). Should be TRUE (meets threshold).
         // New seeds: p1, p2, p3. Tracked: p4, p5, p6, p7, p8, p9, p10.
         stubRepo.tracked = Set.of(p4, p5, p6, p7, p8, p9, p10);
-        Map<ProjectFile, Double> seeds10 = Map.of(
-                p1, 1.0, p2, 1.0, p3, 1.0, p4, 1.0, p5, 1.0, p6, 1.0, p7, 1.0, p8, 1.0, p9, 1.0, p10, 1.0);
+        Map<ProjectFile, Double> seeds10 =
+                Map.of(p1, 1.0, p2, 1.0, p3, 1.0, p4, 1.0, p5, 1.0, p6, 1.0, p7, 1.0, p8, 1.0, p9, 1.0, p10, 1.0);
         assertTrue(ctx.areManySeedsNew(seeds10, stubRepo), "3/10 untracked is >= 30%, should return true");
     }
 }
