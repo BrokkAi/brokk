@@ -39,8 +39,7 @@ public final class SyntaxAwareConfig {
     private static Set<String> initSyntaxAwareExtensions() {
         String env = System.getenv(ENV_VAR);
         if (env == null) {
-            // Default: Java-only
-            return Set.of("java");
+            return Set.of();
         }
 
         var exts = Arrays.stream(env.split(","))
