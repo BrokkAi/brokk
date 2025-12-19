@@ -38,54 +38,64 @@ public final class ImportPageRanker {
     private static final int MAX_ITERS = 75;
     /** Import reach depth when constructing the candidate set. */
     private static final int IMPORT_DEPTH = 2;
-    /** Optional background set size to avoid tiny graphs. */
-    private static final int BACKGROUND_BUDGET = 0;
     /** Node threshold above which we log a warning about graph size. */
     private static final int LARGE_GRAPH_NODE_THRESHOLD = 2000;
 
+    private record Graph(
+            Map<ProjectFile, Set<ProjectFile>> forward, Map<ProjectFile, Set<ProjectFile>> reverse) {
+        Set<ProjectFile> nodes() {
+            return forward.keySet();
+        }
+    }
+
     /**
-     * Builds a candidate set by starting from the seed files and expanding via import relationships
-     * up to IMPORT_DEPTH. Optionally mixes in a small background set for stability.
+     * Builds a candidate set and the associated import graph by starting from the seed files
+     * and expanding via import relationships up to IMPORT_DEPTH.
      */
-    private static Set<ProjectFile> buildCandidateSet(
-            IAnalyzer analyzer, Map<ProjectFile, Double> seedWeights, boolean reversed) {
-        LinkedHashSet<ProjectFile> candidates = new LinkedHashSet<>();
+    private static Graph buildGraph(IAnalyzer analyzer, Set<ProjectFile> seeds) {
+        Map<ProjectFile, Set<ProjectFile>> forward = new HashMap<>();
+        Map<ProjectFile, Set<ProjectFile>> reverse = new HashMap<>();
         ArrayDeque<ProjectFile> frontier = new ArrayDeque<>();
 
-        for (ProjectFile pf : seedWeights.keySet()) {
-            if (candidates.add(pf)) {
+        for (ProjectFile pf : seeds) {
+            if (!forward.containsKey(pf)) {
+                forward.put(pf, new LinkedHashSet<>());
+                reverse.put(pf, new LinkedHashSet<>());
                 frontier.add(pf);
             }
         }
 
+        // Discovery phase: Expand from seeds to build the candidate set and edges
         for (int depth = 0; depth < IMPORT_DEPTH && !frontier.isEmpty(); depth++) {
             ArrayDeque<ProjectFile> next = new ArrayDeque<>();
             while (!frontier.isEmpty()) {
                 ProjectFile pf = frontier.removeFirst();
-                Collection<ProjectFile> neighbors =
-                        reversed ? importersOf(analyzer, pf) : importedFilesFor(analyzer, pf);
-                for (ProjectFile dep : neighbors) {
-                    if (candidates.add(dep)) {
-                        next.add(dep);
+                for (ProjectFile target : importedFilesFor(analyzer, pf)) {
+                    // Always record the edge if we've seen or are about to see the target
+                    // To keep the graph small, we only add new nodes to the frontier within IMPORT_DEPTH
+                    if (!forward.containsKey(target)) {
+                        forward.put(target, new LinkedHashSet<>());
+                        reverse.put(target, new LinkedHashSet<>());
+                        next.add(target);
                     }
+                    forward.get(pf).add(target);
+                    reverse.get(target).add(pf);
                 }
             }
             frontier = next;
         }
 
-        if (BACKGROUND_BUDGET > 0) {
-            LinkedHashSet<ProjectFile> background = new LinkedHashSet<>();
-            for (CodeUnit cu : analyzer.getAllDeclarations()) {
-                ProjectFile src = cu.source();
-                if (!candidates.contains(src)) {
-                    background.add(src);
-                    if (background.size() >= BACKGROUND_BUDGET) break;
+        // Backfill reverse edges for nodes discovered at the boundary
+        for (ProjectFile node : forward.keySet()) {
+            for (ProjectFile target : importedFilesFor(analyzer, node)) {
+                if (forward.containsKey(target)) {
+                    forward.get(node).add(target);
+                    reverse.get(target).add(node);
                 }
             }
-            candidates.addAll(background);
         }
 
-        return candidates;
+        return new Graph(forward, reverse);
     }
 
     /**
@@ -112,34 +122,13 @@ public final class ImportPageRanker {
             return List.of();
         }
 
-        // Build small candidate universe by import reach from seeds
-        Set<ProjectFile> candidates = buildCandidateSet(analyzer, positiveSeeds, reversed);
+        // Build the localized graph from seeds
+        Graph graph = buildGraph(analyzer, positiveSeeds.keySet());
 
-        // Build adjacency map restricted to candidate set.
-        Map<ProjectFile, Set<ProjectFile>> adjacency = new HashMap<>();
-        for (ProjectFile pf : candidates) {
-            adjacency.put(pf, new LinkedHashSet<>());
-        }
-
-        // Build adjacency map restricted to candidate set.
-        // We iterate over every file in the candidate set (pf) and its imports (target).
-        // This defines the ground truth of the import graph.
-        // The PageRank 'flow' direction is then determined by the 'reversed' flag:
-        // - Normal (reversed=false): Rank flows from Importer to Imported (pf -> target).
-        // - Importers (reversed=true): Rank flows from Imported back to Importer (target -> pf).
-        for (ProjectFile pf : candidates) {
-            for (ProjectFile target : importedFilesFor(analyzer, pf)) {
-                if (candidates.contains(target)) {
-                    if (reversed) {
-                        // Mass flows from the file being imported back to the importer
-                        Objects.requireNonNull(adjacency.get(target)).add(pf);
-                    } else {
-                        // Mass flows from the importer to the file being imported
-                        Objects.requireNonNull(adjacency.get(pf)).add(target);
-                    }
-                }
-            }
-        }
+        // The PageRank 'flow' direction is determined by the 'reversed' flag:
+        // - Normal (reversed=false): Rank flows from Importer to Imported (Forward).
+        // - Importers (reversed=true): Rank flows from Imported back to Importer (Reverse).
+        Map<ProjectFile, Set<ProjectFile>> adjacency = reversed ? graph.reverse() : graph.forward();
 
         // Index nodes
         List<ProjectFile> nodes = new ArrayList<>(adjacency.keySet());
@@ -185,10 +174,9 @@ public final class ImportPageRanker {
 
         if (n > LARGE_GRAPH_NODE_THRESHOLD && log.isWarnEnabled()) {
             log.warn(
-                    "ImportPageRanker large graph: nodes={}, edges={}, candidates={}, seeds={}",
+                    "ImportPageRanker large graph: nodes={}, edges={}, seeds={}",
                     n,
                     edgeCount,
-                    candidates.size(),
                     positiveSeeds.size());
         }
 
@@ -301,19 +289,4 @@ public final class ImportPageRanker {
         }
     }
 
-    /**
-     * Resolve files that import the given file.
-     */
-    private static Set<ProjectFile> importersOf(IAnalyzer analyzer, ProjectFile file) {
-        // Scan all declarations to find files that import the target file.
-        // This is necessary because IAnalyzer does not provide a direct reverse-lookup for imports.
-        Set<ProjectFile> importers = new LinkedHashSet<>();
-        for (CodeUnit cu : analyzer.getAllDeclarations()) {
-            ProjectFile src = cu.source();
-            if (importedFilesFor(analyzer, src).contains(file)) {
-                importers.add(src);
-            }
-        }
-        return importers;
-    }
 }
