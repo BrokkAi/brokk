@@ -121,6 +121,12 @@ public class CodeAgent {
         }
     }
 
+    /**
+     * Executes the coding task against the given context.
+     *
+     * CodeAgent's "conversation" will be included in TaskResult.output, it will NOT be baked into
+     * TaskResult.context.
+     */
     @Blocking
     TaskResult runTask(Context initialContext, String userInput, Set<Option> options) {
         // pause watching for external changes (so they don't get added to activity history while we're still making
