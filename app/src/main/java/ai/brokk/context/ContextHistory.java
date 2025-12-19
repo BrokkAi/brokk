@@ -404,8 +404,6 @@ public class ContextHistory {
             entryInfos.remove(removed.id());
             var historyIds = getContextIds();
             resetEdges.removeIf(edge -> !historyIds.contains(edge.sourceId()) || !historyIds.contains(edge.targetId()));
-            // keep diff cache bounded to current history
-            diffService.retainOnly(historyIds);
             if (logger.isDebugEnabled()) {
                 logger.debug("Truncated history (removed oldest context: {})", removed);
             }

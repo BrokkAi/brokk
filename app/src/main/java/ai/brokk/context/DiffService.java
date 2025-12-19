@@ -138,11 +138,6 @@ public final class DiffService {
         // Global cache, nothing instance-specific to close.
     }
 
-    /**
-     * No-op in global bounded cache model.
-     */
-    public void retainOnly(Set<UUID> currentIds) {}
-
     @Blocking
     private static boolean isNewFileInGit(ContextFragment fragment, IGitRepo repo) {
         if (!(fragment instanceof ContextFragment.PathFragment)) {
