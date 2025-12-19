@@ -147,13 +147,13 @@ public class SearchAgent {
             StreamingChatModel model,
             Objective objective,
             ContextManager.TaskScope scope,
-            @Nullable IConsoleIO io) {
+            IConsoleIO io) {
         this.goal = goal;
         this.cm = initialContext.getContextManager();
         this.model = model;
         this.scope = scope;
 
-        this.io = io != null ? io : cm.getIo();
+        this.io = io;
         var llmOptions = new Llm.Options(model, "Search: " + goal).withEcho();
         this.llm = cm.getLlm(llmOptions);
         this.llm.setOutput(this.io);
@@ -192,7 +192,13 @@ public class SearchAgent {
             StreamingChatModel model,
             Objective objective,
             ContextManager.TaskScope scope) {
-        this(initialContext, goal, model, objective, scope, null);
+        this(
+                initialContext,
+                goal,
+                model,
+                objective,
+                scope,
+                initialContext.getContextManager().getIo());
     }
 
     /** Entry point. Runs until answer/abort or interruption. */
