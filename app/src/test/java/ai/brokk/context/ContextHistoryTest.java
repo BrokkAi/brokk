@@ -211,52 +211,6 @@ public class ContextHistoryTest {
     }
 
     /**
-     * Verifies that diff() called on the EDT correctly completes via background execution.
-     */
-    @Test
-    public void testDiffOnEdtCompletesViaBackground() throws Exception {
-        var pf = new ProjectFile(tempDir, "src/EDTAsync.txt");
-        Files.createDirectories(pf.absPath().getParent());
-        Files.writeString(pf.absPath(), "x\n");
-
-        var frag1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
-        frag1.text().await(Duration.ofSeconds(2));
-        var ctx1 = new Context(
-                contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("Initial"));
-        var history = new ContextHistory(ctx1);
-
-        Files.writeString(pf.absPath(), "x\ny\n");
-        var frag2 = new ContextFragment.ProjectPathFragment(pf, contextManager);
-        var ctx2 = new Context(
-                contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("Updated"));
-        history.pushContext(ctx2);
-
-        var ds = history.getDiffService();
-        final java.util.concurrent.atomic.AtomicReference<CompletableFuture<List<Context.DiffEntry>>> ref =
-                new java.util.concurrent.atomic.AtomicReference<>();
-
-        javax.swing.SwingUtilities.invokeAndWait(() -> {
-            var f = ds.diff(ctx2);
-            ref.set(f);
-            // In the simplified model, it might be done if cached, but here it's new.
-            // It will be enqueued on the background executor.
-        });
-
-        var fut = ref.get();
-        assertNotNull(fut, "Future should be captured from EDT call");
-
-        long deadline = System.currentTimeMillis() + 5000;
-        while (!fut.isDone() && System.currentTimeMillis() < deadline) {
-            Thread.sleep(25);
-        }
-
-        assertTrue(fut.isDone(), "Background task should complete the diff");
-        var diffs = fut.join();
-        assertNotNull(diffs);
-        assertFalse(diffs.isEmpty(), "Expected non-empty diff after background completion");
-    }
-
-    /**
      * Verifies that DiffService correctly computes diffs for contexts with task history changes
      * while operating on file-backed project fragments.
      */

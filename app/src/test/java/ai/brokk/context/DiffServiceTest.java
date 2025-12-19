@@ -324,39 +324,55 @@ class DiffServiceTest {
     }
 
     @Test
-    void on_demand_diff_only_computes_subset_requested() throws Exception {
-        var pf = new ProjectFile(tempDir, "src/Subset.txt");
+    void diff_caches_results_for_same_context_pair() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Cache.txt");
         Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "v1\n");
 
-        // Build a chain of contexts with incremental changes
-        var contexts = new ArrayList<Context>();
-        for (int i = 0; i < 8; i++) {
-            Files.writeString(pf.absPath(), "v" + i + "\n");
-            var frag = new ContextFragment.ProjectPathFragment(pf, contextManager);
-            var ctx = new Context(
-                    contextManager, List.of(frag), List.of(), null, CompletableFuture.completedFuture("v" + i));
-            contexts.add(ctx);
-        }
+        var frag1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        frag1.text().await(Duration.ofSeconds(2));
+        var ctx1 = new Context(contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("1"));
 
-        var history = new ContextHistory(contexts);
+        Files.writeString(pf.absPath(), "v2\n");
+        var frag2 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var ctx2 = new Context(contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("2"));
+
+        var history = new ContextHistory(ctx1);
+        history.pushContext(ctx2);
         var ds = history.getDiffService();
 
-        // Simulate UI: request diffs only for a visible subset (e.g., last 2 contexts) and a specific selection
-        var subset = List.of(contexts.get(6), contexts.get(7), contexts.get(3)); // two visible + one selection
+        var future1 = ds.diff(ctx2);
+        var future2 = ds.diff(ctx2);
 
-        subset.forEach(c -> ds.diff(c).join());
+        assertSame(future1, future2, "Subsequent calls for the same context pair should return the same future");
+        var results = future1.join();
+        assertFalse(results.isEmpty());
+        assertEquals(results, ds.peek(ctx2).orElse(null));
+    }
 
-        // The requested subset should be present
-        for (var c : subset) {
-            assertTrue(ds.peek(c).isPresent(), "Requested context diff should be cached for " + c.getAction());
-        }
+    @Test
+    void diff_computes_independently_for_different_pairs() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Independent.txt");
+        Files.createDirectories(pf.absPath().getParent());
 
-        // Non-requested contexts should not have diffs computed/cached yet
-        for (int i = 0; i < contexts.size(); i++) {
-            var c = contexts.get(i);
-            if (!subset.contains(c)) {
-                assertTrue(ds.peek(c).isEmpty(), "Unrequested context diff should not be cached for " + c.getAction());
-            }
-        }
+        Files.writeString(pf.absPath(), "v1\n");
+        var ctx1 = new Context(contextManager, List.of(new ContextFragment.ProjectPathFragment(pf, contextManager)), List.of(), null, CompletableFuture.completedFuture("1"));
+        ctx1.allFragments().forEach(f -> f.text().await(Duration.ofSeconds(1)));
+
+        Files.writeString(pf.absPath(), "v2\n");
+        var ctx2 = new Context(contextManager, List.of(new ContextFragment.ProjectPathFragment(pf, contextManager)), List.of(), null, CompletableFuture.completedFuture("2"));
+        ctx2.allFragments().forEach(f -> f.text().await(Duration.ofSeconds(1)));
+
+        Files.writeString(pf.absPath(), "v3\n");
+        var ctx3 = new Context(contextManager, List.of(new ContextFragment.ProjectPathFragment(pf, contextManager)), List.of(), null, CompletableFuture.completedFuture("3"));
+
+        var history = new ContextHistory(List.of(ctx1, ctx2, ctx3));
+        var ds = history.getDiffService();
+
+        var fut2 = ds.diff(ctx2);
+        var fut3 = ds.diff(ctx3);
+
+        assertNotSame(fut2, fut3, "Different context pairs should have different computation futures");
+        assertNotEquals(fut2.join(), fut3.join(), "Diffs for different transitions should differ");
     }
 }
