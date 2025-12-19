@@ -113,21 +113,22 @@ class EditBlockUtilsTest {
     @Test
     void findFilenameNearby_extractsFullPathFromNoisyLine() {
         Path root = Path.of("").toAbsolutePath();
-        var filename = "src/main/java/com/app/Foo.java";
-        var lines = new String[] {"Here's the fix for " + filename + ":", "<<<<<<< SEARCH"};
-        Set<ProjectFile> projectFiles = Set.of(new ProjectFile(root, Path.of(filename)));
+        var pf = new ProjectFile(root, Path.of("src/main/java/com/app/Foo.java"));
+        var lines = new String[] {"Here's the fix for " + pf + ":", "<<<<<<< SEARCH"};
+        Set<ProjectFile> projectFiles = Set.of(pf);
 
         var result = EditBlockUtils.findFilenameNearby(lines, 1, projectFiles, null);
-        assertEquals(filename, result);
+        assertEquals(pf.toString(), result);
     }
 
     @Test
     void findFilenameNearby_ambiguousFullPathsReturnsNull() {
         Path root = Path.of("").toAbsolutePath();
+        var pf1 = new ProjectFile(root, Path.of("a/Foo.java"));
+        var pf2 = new ProjectFile(root, Path.of("b/Foo.java"));
         // Raw line mentions two different project files
-        var lines = new String[] {"Changes in a/Foo.java and b/Foo.java", "<<<<<<< SEARCH"};
-        Set<ProjectFile> projectFiles =
-                Set.of(new ProjectFile(root, Path.of("a/Foo.java")), new ProjectFile(root, Path.of("b/Foo.java")));
+        var lines = new String[] {"Changes in " + pf1 + " and " + pf2, "<<<<<<< SEARCH"};
+        Set<ProjectFile> projectFiles = Set.of(pf1, pf2);
 
         var result = EditBlockUtils.findFilenameNearby(lines, 1, projectFiles, "fallback/File.java");
 
