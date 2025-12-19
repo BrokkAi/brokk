@@ -6,6 +6,8 @@ import ai.brokk.analyzer.*;
 import ai.brokk.context.Context;
 import ai.brokk.util.IndentUtil;
 import com.google.common.base.Splitter;
+
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.*;
@@ -853,8 +855,7 @@ public class EditBlock {
         }
 
         // Strip leading comment prefixes (// or #) that LLMs might include
-        var stripped = filename.strip();
-        stripped = stripped.replaceFirst("^(//|#)\\s*", "");
+        var stripped = filename.strip().replaceFirst("^(//|#)\\s*", "");
 
         ProjectFile file;
         try {
@@ -872,8 +873,7 @@ public class EditBlock {
 
         // 1b. Authoritative path rule: if the provided name contains directories, do not fuzzy-match.
         // Treat as "not found" so the caller can create the file explicitly.
-        final String normalizedStripped = stripped.replace('\\', '/');
-        if (normalizedStripped.contains("/")) {
+        if (stripped.contains(File.separator)) {
             throw new SymbolNotFoundException(
                     "Filename '%s' could not be resolved to an existing file.".formatted(filename));
         }
@@ -889,9 +889,8 @@ public class EditBlock {
         }
         if (editableMatches.size() > 1) {
             // Try to disambiguate using the provided (possibly partial) path substring
-            final String normalizedCandidate = stripped.replace('\\', '/');
             var narrowedEditable = editableMatches.stream()
-                    .filter(f -> f.toString().replace('\\', '/').contains(normalizedCandidate))
+                    .filter(f -> f.toString().contains(stripped))
                     .toList();
             if (narrowedEditable.size() == 1) {
                 logger.debug(
@@ -907,7 +906,7 @@ public class EditBlock {
         // 3. Check tracked files in git repo (substring match)
         var repo = cm.getRepo();
         var trackedMatches = repo.getTrackedFiles().stream()
-                .filter(f -> f.toString().replace('\\', '/').contains(normalizedStripped))
+                .filter(f -> f.toString().contains(stripped))
                 .toList();
         if (trackedMatches.size() == 1) {
             logger.debug("Resolved partial filename [{}] to tracked file [{}]", filename, trackedMatches.getFirst());
