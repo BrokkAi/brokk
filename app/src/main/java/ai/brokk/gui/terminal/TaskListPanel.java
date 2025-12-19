@@ -55,7 +55,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     private final MaterialButton goStopButton;
     private final MaterialButton clearCompletedBtn = new MaterialButton();
     private final Chrome chrome;
-    private volatile Context displayContext;
+    private volatile Context currentContext;
 
     // Read-only state: when viewing a historical context, editing is disabled
     private boolean taskListEditable = true;
@@ -90,13 +90,13 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         this.chrome = chrome;
 
         this.model = new TaskListModel(() -> {
-            Context ctx = displayContext;
+            Context ctx = currentContext;
             if (ctx != null) {
                 return ctx.getTaskListDataOrEmpty().tasks();
             }
             return chrome.getContextManager().getTaskList().tasks();
         });
-        this.displayContext = chrome.getContextManager().liveContext();
+        this.currentContext = chrome.getContextManager().liveContext();
         this.list = new JList<>(model);
 
         // Center: list with custom renderer
@@ -915,8 +915,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     public void runArchitectOnAll() {
-        // ensure model is up-to-date before running
-        model.fireRefresh();
         if (!taskListEditable) {
             Toolkit.getDefaultToolkit().beep();
             return;
@@ -2191,12 +2189,11 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         Context selected = cm.selectedContext();
         boolean onLatest = (selected == null) || selected.equals(cm.liveContext());
 
-        Context ctxToDisplay = onLatest ? cm.liveContext() : selected;
-        this.displayContext = ctxToDisplay;
+        this.currentContext = onLatest ? cm.liveContext() : selected;
 
         SwingUtilities.invokeLater(() -> setTaskListEditable(onLatest));
 
-        String currentFragmentId = (selected != null ? selected : newCtx)
+        String currentFragmentId = this.currentContext
                 .getTaskListFragment()
                 .map(ContextFragment::id)
                 .orElse(null);
@@ -2208,7 +2205,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             SwingUtilities.invokeLater(() -> {
                 resetEphemeralRunState();
                 sessionIdAtLoad = current;
-                this.displayContext = cm.liveContext();
                 lastTaskListFragmentId = currentFragmentId;
                 refreshUi(true);
             });

@@ -41,6 +41,7 @@ import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
+
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.dnd.DnDConstants;
@@ -73,6 +74,7 @@ import javax.swing.undo.AbstractUndoableEdit;
 import javax.swing.undo.CannotRedoException;
 import javax.swing.undo.CannotUndoException;
 import javax.swing.undo.UndoManager;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.autocomplete.AutoCompletion;
@@ -96,30 +98,30 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     private static final String PLACEHOLDER_TEXT_ADVANCED =
             """
-            Switching modes:
-            - Click the arrow on the big blue button to choose between Lutz, Code, and Ask, then click on the button to run the selected mode.
-
-            Brokk action modes:
-            - Lutz: Lutz is one of the best context engineers around. After a all-day meetup in Amsterdam, we baked his workflow into Brokk.
-              Lutz Mode performs an "agentic" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding.
-              It is a great way to kick off work with strong context and a clear plan.
-            - Code: Applies changes directly to the files currently in your Workspace context based on your instructions.
-            - Ask: Gives general-purpose answers or guidance grounded in the files that are in your Workspace.
-
-            Type your prompt here. (Shift+Enter for a new line)
-            """
+                    Switching modes:
+                    - Click the arrow on the big blue button to choose between Lutz, Code, and Ask, then click on the button to run the selected mode.
+                    
+                    Brokk action modes:
+                    - Lutz: Lutz is one of the best context engineers around. After a all-day meetup in Amsterdam, we baked his workflow into Brokk.
+                      Lutz Mode performs an "agentic" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding.
+                      It is a great way to kick off work with strong context and a clear plan.
+                    - Code: Applies changes directly to the files currently in your Workspace context based on your instructions.
+                    - Ask: Gives general-purpose answers or guidance grounded in the files that are in your Workspace.
+                    
+                    Type your prompt here. (Shift+Enter for a new line)
+                    """
                     .stripIndent();
 
     private static final String PLACEHOLDER_TEXT_EZ =
             """
-            Brokk action modes:
-            - Lutz: Performs an "agentic" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding.
-              It is a great way to kick off work with strong context and a clear plan.
-            - Code: Applies changes directly to the files currently in your Workspace context based on your instructions.
-            - Ask: Gives general-purpose answers or guidance grounded in the files that are in your Workspace.
-
-            Type your prompt here. (Shift+Enter for a new line)
-            """
+                    Brokk action modes:
+                    - Lutz: Performs an "agentic" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding.
+                      It is a great way to kick off work with strong context and a clear plan.
+                    - Code: Applies changes directly to the files currently in your Workspace context based on your instructions.
+                    - Ask: Gives general-purpose answers or guidance grounded in the files that are in your Workspace.
+                    
+                    Type your prompt here. (Shift+Enter for a new line)
+                    """
                     .stripIndent();
 
     private static final ImageIcon BROKK_ICON_16 = loadBrokkIcon();
@@ -248,7 +250,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     g2.setColor(accent);
                     g2.setComposite(AlphaComposite.SrcOver);
                     g2.setStroke(
-                            new BasicStroke(3, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10, new float[] {9}, 0));
+                            new BasicStroke(3, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10, new float[]{9}, 0));
                     g2.drawRoundRect(4, 4, getWidth() - 9, getHeight() - 9, 12, 12);
 
                     // Text
@@ -278,7 +280,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
     }
 
-    /** Pick a readable text color (white or dark) against the given background color. */
+    /**
+     * Pick a readable text color (white or dark) against the given background color.
+     */
     private static Color readableTextForBackground(Color background) {
         double r = background.getRed() / 255.0;
         double g = background.getGreen() / 255.0;
@@ -564,8 +568,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * If a region is selected, operates on all lines that overlap the selection.
      * If nothing is selected, operates on the current line.
      *
-     * @param area    The JTextArea to modify.
-     * @param indent  true to indent, false to unindent.
+     * @param area   The JTextArea to modify.
+     * @param indent true to indent, false to unindent.
      */
     private static void applyIndentation(JTextArea area, boolean indent) {
         Document doc = area.getDocument();
@@ -746,7 +750,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 for (var flavor : contents.getTransferDataFlavors()) {
                     try {
                         if (flavor.equals(DataFlavor.imageFlavor)
-                                || flavor.getMimeType().startsWith("image/")) {
+                            || flavor.getMimeType().startsWith("image/")) {
                             // Re-use existing WorkspacePanel logic
                             chrome.getContextPanel()
                                     .performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of());
@@ -1267,8 +1271,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             TokenUsageBar.WarningLevel warningLevel,
             Service.ModelConfig config,
             int successRate,
-            boolean isTested) {}
-    /** Calculate cost estimate mirroring WorkspacePanel for only the model currently selected in InstructionsPanel. */
+            boolean isTested) {
+    }
+
+    /**
+     * Calculate cost estimate mirroring WorkspacePanel for only the model currently selected in InstructionsPanel.
+     */
     private String calculateCostEstimate(Service.ModelConfig config, int inputTokens, AbstractService service) {
         var pricing = service.getModelPricing(config.name());
         if (pricing.bands().isEmpty()) {
@@ -1537,10 +1545,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private void showVisionSupportErrorDialog(String requiredModelsInfo) {
         String message =
                 """
-                         <html>The current operation involves images, but the following selected model(s) do not support vision:<br>
-                         <b>%s</b><br><br>
-                         Please select vision-capable models in the settings to proceed with image-based tasks.</html>
-                         """
+                        <html>The current operation involves images, but the following selected model(s) do not support vision:<br>
+                        <b>%s</b><br><br>
+                        Please select vision-capable models in the settings to proceed with image-based tasks.</html>
+                        """
                         .formatted(requiredModelsInfo);
         Object[] options = {"Open Model Settings", "Cancel"};
         int choice = JOptionPane.showOptionDialog(
@@ -1552,7 +1560,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 null, // icon
                 options,
                 options[0] // Default button (open settings)
-                );
+        );
 
         if (choice == JOptionPane.YES_OPTION) { // Open Settings
             SwingUtilities.invokeLater(
@@ -1615,7 +1623,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var selectedModel = models.getModel(config);
         if (selectedModel == null) {
             chrome.toolError("Selected model '" + config.name() + "' is not available with reasoning level "
-                    + config.reasoning());
+                             + config.reasoning());
             var fallbackModel = models.getModel(ModelProperties.GPT_5_MINI);
             if (fallbackModel != null) {
                 selectedModel = fallbackModel;
@@ -1941,14 +1949,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
 
             return result.withContext(context);
+        }).thenAccept(result -> {
+            // Auto-run only in Lutz EZ if successful and there are incomplete tasks available
+            // we can use live context, because Lutz Mode already pushed
+            boolean isLutzEz = ACTION_LUTZ.equals(action) && !GlobalUiSettings.isAdvancedMode();
+            if (isLutzEz && hasIncomplete(contextManager.getTaskList())) {
+                SwingUtilities.invokeLater(() -> chrome.getTaskListPanel().runArchitectOnAll());
+            }
         });
 
-        // Auto-run only in Lutz EZ if successful and there are incomplete tasks available
-        // we can use live context, because Lutz Mode already pushed
-        boolean isLutzEz = ACTION_LUTZ.equals(action) && !GlobalUiSettings.isAdvancedMode();
-        if (isLutzEz && hasIncomplete(contextManager.getTaskList())) {
-            SwingUtilities.invokeLater(() -> chrome.getTaskListPanel().runArchitectOnAll());
-        }
 
     }
 
@@ -1993,7 +2002,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
     }
 
-    /** Overload that provides a TaskScope to the task body so callers can pass it to agents. */
+    /**
+     * Overload that provides a TaskScope to the task body so callers can pass it to agents.
+     */
     public CompletableFuture<Void> submitAction(
             String action, String input, Function<ContextManager.TaskScope, TaskResult> task) {
         var cm = chrome.getContextManager();
@@ -2164,9 +2175,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     private boolean isValidMode(String mode) {
         return ACTION_CODE.equals(mode)
-                || ACTION_ASK.equals(mode)
-                || ACTION_LUTZ.equals(mode)
-                || ACTION_PLAN.equals(mode);
+               || ACTION_ASK.equals(mode)
+               || ACTION_LUTZ.equals(mode)
+               || ACTION_PLAN.equals(mode);
     }
 
     private void notifyActionComplete(String actionName) {
@@ -2232,7 +2243,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Sets text in the instructions area while preserving undo capability.
      * The entire text replacement is captured as a single undoable edit,
      * and previous undo history (e.g., user typing) is preserved.
-     *
+     * <p>
      * For wand streaming, the caller (WandButton) disables the undo listener
      * before streaming starts, so no intermediate edits are captured.
      *
@@ -2414,7 +2425,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     /**
      * Accepts an externally provided status strip and places it immediately next to the ModelSelector
      * in the bottom toolbar. Safe to call from any thread.
-     *
+     * <p>
      * If a strip was previously installed, it is removed first. The provided component is detached
      * from any prior parent before insertion (Swing components can only have one parent).
      */
@@ -2743,10 +2754,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
 
             return "<html><body style='width: 350px;'>" + modeTooltip
-                    + "<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>"
-                    + submitLine
-                    + toggleLine
-                    + "</body></html>";
+                   + "<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>"
+                   + submitLine
+                   + toggleLine
+                   + "</body></html>";
         }
 
         @Override
@@ -3149,7 +3160,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                             toggleStr = "(unbound)";
                         }
                         toggleLine = "<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/><div>Toggle mode: "
-                                + htmlEscape(toggleStr) + "</div>";
+                                     + htmlEscape(toggleStr) + "</div>";
                     } catch (Exception ignore) {
                         // Defensive: leave toggleLine empty if anything goes wrong
                     }
