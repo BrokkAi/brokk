@@ -9,6 +9,7 @@ import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.*;
+import java.util.SequencedSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -282,7 +283,7 @@ public class EditBlock {
         }
     }
 
-    public record ParseResult(List<SearchReplaceBlock> blocks, @Nullable String parseError) {}
+    public record ParseResult(SequencedSet<SearchReplaceBlock> blocks, @Nullable String parseError) {}
 
     public record ExtendedParseResult(List<OutputBlock> blocks, @Nullable String parseError) {}
 
