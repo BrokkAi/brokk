@@ -344,10 +344,8 @@ public class Context {
         // 1. Try Git-based distance first
         if (contextManager.getProject().hasGit() && repoObj instanceof GitRepo gr) {
             try {
-                GitDistance.getRelatedFiles(gr, weightedSeeds, topK, false).stream()
-                        .map(IAnalyzer.FileRelevance::file)
-                        .filter(file -> !ineligibleSources.contains(file))
-                        .forEach(resultFiles::add);
+                var gitResults = GitDistance.getRelatedFiles(gr, weightedSeeds, topK, false);
+                resultFiles.addAll(filterResults(gitResults, ineligibleSources));
             } catch (Exception e) {
                 logger.warn("Failed to compute Git-based related files; falling back to imports.", e);
             }
@@ -357,15 +355,22 @@ public class Context {
         if (resultFiles.size() < topK) {
             int remaining = topK - resultFiles.size();
             IAnalyzer analyzer = contextManager.getAnalyzer();
-            ImportPageRanker.getRelatedFilesByImports(analyzer, weightedSeeds, topK, false).stream()
-                    .map(IAnalyzer.FileRelevance::file)
-                    .filter(file -> !ineligibleSources.contains(file))
+            var importResults = ImportPageRanker.getRelatedFilesByImports(analyzer, weightedSeeds, topK, false);
+            filterResults(importResults, ineligibleSources).stream()
                     .filter(file -> !resultFiles.contains(file))
                     .limit(remaining)
                     .forEach(resultFiles::add);
         }
 
         return List.copyOf(resultFiles);
+    }
+
+    private List<ProjectFile> filterResults(
+            List<IAnalyzer.FileRelevance> results, Set<ProjectFile> ineligibleSources) {
+        return results.stream()
+                .map(IAnalyzer.FileRelevance::file)
+                .filter(file -> !ineligibleSources.contains(file))
+                .toList();
     }
 
     /**
