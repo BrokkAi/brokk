@@ -48,7 +48,7 @@ public final class DiffService {
         }
     }
 
-    private static final Cache<ContextPair, CompletableFuture<List<Context.DiffEntry>>> cache =
+    private final Cache<ContextPair, CompletableFuture<List<Context.DiffEntry>>> cache =
             Caffeine.newBuilder().maximumSize(MAX_CACHE_SIZE).build();
 
     private final ContextHistory history;
@@ -120,6 +120,7 @@ public final class DiffService {
      */
     public void clear() {
         cache.invalidateAll();
+        cache.cleanUp();
     }
 
     /**
