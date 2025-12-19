@@ -767,7 +767,9 @@ public class SearchTools {
 
         StringBuilder result = new StringBuilder();
         for (var file : matchingFiles) {
-            result.append("<file path=\"").append(file.toString().replace('\\', '/')).append("\">\n");
+            result.append("<file path=\"")
+                    .append(file.toString().replace('\\', '/'))
+                    .append("\">\n");
             String identifiers = Context.buildRelatedIdentifiers(analyzer, file);
             if (!identifiers.isEmpty()) {
                 result.append(identifiers).append("\n");
