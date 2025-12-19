@@ -809,4 +809,38 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
                 "IncompatibleMethodReference should be ignored: "
                         + res.step().es().javaLintDiagnostics());
     }
+
+    // PJ-43: Switch expressions with arrow syntax (issue #2025)
+    // Regression test: JDT 3.43.0 incorrectly reported false positives, fixed in 3.44.0
+    @Test
+    void testParseJavaPhase_switchExpressionArrowSyntax_noFalsePositives() throws IOException {
+        var src =
+                """
+                class SwitchArrow {
+                    enum ObligationType { RESERVATION, CALENDAR_BLOCK, ALLOTMENT_BLOCK, SPLIT_INVENTORY }
+                    record Room(String name) {}
+
+                    void process(ObligationType type, Object obligation, Room room, Object context) {
+                        switch (type) {
+                            case RESERVATION -> saveReservation(obligation, room, context);
+                            case CALENDAR_BLOCK -> saveCalendarBlock(obligation, context);
+                            case ALLOTMENT_BLOCK -> saveAllotmentBlock(obligation, context);
+                            case SPLIT_INVENTORY -> saveSplitInventoryBlock(obligation, context);
+                        }
+                    }
+
+                    void saveReservation(Object o, Room r, Object c) {}
+                    void saveCalendarBlock(Object o, Object c) {}
+                    void saveAllotmentBlock(Object o, Object c) {}
+                    void saveSplitInventoryBlock(Object o, Object c) {}
+                }
+                """;
+        var res = runParseJava("SwitchArrow.java", src);
+
+        // Valid Java switch expression with arrow syntax should not produce any diagnostics
+        assertTrue(
+                res.step().es().javaLintDiagnostics().isEmpty(),
+                "Valid switch arrow syntax should not produce diagnostics: "
+                        + res.step().es().javaLintDiagnostics());
+    }
 }
