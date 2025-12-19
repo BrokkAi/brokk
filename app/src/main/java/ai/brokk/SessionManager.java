@@ -126,10 +126,14 @@ public class SessionManager implements AutoCloseable {
         return sessions;
     }
 
+    public @Nullable SessionInfo getSessionInfo(UUID sessionId) {
+        return sessionsCache.get(sessionId);
+    }
+
     public SessionInfo newSession(String name) {
         var sessionId = newSessionId();
         var currentTime = System.currentTimeMillis();
-        var newSessionInfo = new SessionInfo(sessionId, name, currentTime, currentTime, true, false, false);
+        var newSessionInfo = new SessionInfo(sessionId, name, currentTime, currentTime, true, true, false);
         sessionsCache.put(sessionId, newSessionInfo);
 
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
@@ -179,6 +183,35 @@ public class SessionManager implements AutoCloseable {
             });
         } else {
             logger.warn("Session ID {} not found in cache, cannot rename.", sessionId);
+        }
+    }
+
+    public void setManagedContext(UUID sessionId, boolean isManagedContext) {
+        SessionInfo oldInfo = sessionsCache.get(sessionId);
+        if (oldInfo != null) {
+            var updatedInfo = new SessionInfo(
+                    oldInfo.id(),
+                    oldInfo.name(),
+                    oldInfo.created(),
+                    System.currentTimeMillis(),
+                    oldInfo.isReadOnly(),
+                    isManagedContext,
+                    oldInfo.isPlanMode());
+            sessionsCache.put(sessionId, updatedInfo);
+            sessionExecutorByKey.submit(sessionId.toString(), () -> {
+                try {
+                    Path sessionHistoryPath = getSessionHistoryPath(sessionId);
+                    writeSessionInfoToZip(sessionHistoryPath, updatedInfo);
+                    logger.debug("Updated isManagedContext to {} for session {}", isManagedContext, sessionId);
+                } catch (IOException e) {
+                    logger.error(
+                            "Error writing updated manifest for managed context change {}: {}",
+                            sessionId,
+                            e.getMessage());
+                }
+            });
+        } else {
+            logger.warn("Session ID {} not found in cache, cannot update managed context.", sessionId);
         }
     }
 
@@ -303,7 +336,8 @@ public class SessionManager implements AutoCloseable {
     public SessionInfo copySession(UUID originalSessionId, String newSessionName) throws Exception {
         var newSessionId = newSessionId();
         var currentTime = System.currentTimeMillis();
-        var newSessionInfo = new SessionInfo(newSessionId, newSessionName, currentTime, currentTime, true, false, false);
+        var newSessionInfo =
+                new SessionInfo(newSessionId, newSessionName, currentTime, currentTime, true, false, false);
 
         var copyFuture = sessionExecutorByKey.submit(originalSessionId.toString(), () -> {
             try {

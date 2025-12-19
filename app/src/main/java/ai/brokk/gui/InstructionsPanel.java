@@ -18,10 +18,12 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.components.MaterialToggleButton;
 import ai.brokk.gui.components.ModelBenchmarkData;
 import ai.brokk.gui.components.ModelSelector;
 import ai.brokk.gui.components.OverlayPanel;
 import ai.brokk.gui.components.SplitButton;
+import ai.brokk.gui.components.SwitchIcon;
 import ai.brokk.gui.components.TokenUsageBar;
 import ai.brokk.gui.dialogs.SettingsAdvancedPanel;
 import ai.brokk.gui.dialogs.SettingsDialog;
@@ -156,6 +158,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable JComponent statusStripComponent;
     private @Nullable JPanel bottomToolbarPanel;
     private @Nullable JPanel selectorStripPanel;
+    private @Nullable MaterialToggleButton managedModeToggle;
+    private @Nullable JLabel managedModeLabel;
 
     public static class ContextAreaContainer extends JPanel {
         private boolean isDragOver = false;
@@ -1064,6 +1068,42 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var titledBorder = BorderFactory.createTitledBorder(lineBorder, "Context");
         var marginBorder = BorderFactory.createEmptyBorder(4, 4, 4, 4);
         titledContainer.setBorder(BorderFactory.createCompoundBorder(marginBorder, titledBorder));
+
+        // Create managed mode toggle header
+        managedModeToggle = new MaterialToggleButton();
+        managedModeToggle.setIcon(new SwitchIcon());
+        managedModeToggle.setSelectedIcon(new SwitchIcon());
+        managedModeToggle.setFocusable(false);
+        managedModeToggle.setOpaque(false);
+        managedModeToggle.setSelected(true); // Default to managed mode
+        managedModeToggle.setToolTipText(
+                "<html>Managed Mode: Brokk automatically modifies context when executing requests<br/>Manual Mode: You have full control over context modifications</html>");
+
+        managedModeLabel = new JLabel("Managed Mode");
+        managedModeLabel.setFont(managedModeLabel.getFont().deriveFont(Font.PLAIN, 11f));
+
+        // Capture non-null instances in local final variables for action listener
+        final MaterialToggleButton toggleButton = managedModeToggle;
+        final JLabel label = managedModeLabel;
+
+        // Update label text based on toggle state
+        toggleButton.addActionListener(e -> {
+            boolean isManaged = toggleButton.isSelected();
+            label.setText(isManaged ? "Managed Mode" : "Manual Mode");
+
+            // Update SessionInfo when toggle is changed
+            var sessionManager = chrome.getProject().getSessionManager();
+            var currentSessionId = chrome.getContextManager().liveContext().id();
+            sessionManager.setManagedContext(currentSessionId, isManaged);
+        });
+
+        var headerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        headerPanel.setOpaque(false);
+        headerPanel.add(managedModeToggle);
+        headerPanel.add(managedModeLabel);
+
+        titledContainer.add(headerPanel, BorderLayout.NORTH);
+
         var transferHandler = FileDropHandlerFactory.createFileDropHandler(this.chrome);
         titledContainer.setTransferHandler(transferHandler);
         var dropTargetListener = new DropTargetAdapter() {
@@ -2117,6 +2157,63 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         contextAreaContainer.setReadOnly(readOnly);
         // Update compact token/cost indicator on context change
         updateTokenCostIndicator();
+
+        // Load and apply managed mode state from SessionInfo
+        loadManagedModeState();
+
+        // Disable managed mode if user manually modified context (not via LLM action)
+        checkAndDisableManagedModeOnManualChange();
+    }
+
+    private void loadManagedModeState() {
+        var sessionManager = chrome.getProject().getSessionManager();
+        var currentSessionId = chrome.getContextManager().liveContext().id();
+        var sessionInfo = sessionManager.getSessionInfo(currentSessionId);
+
+        if (sessionInfo != null && managedModeToggle != null && managedModeLabel != null) {
+            boolean isManagedContext = sessionInfo.isManagedContext();
+            // Capture non-null instances for lambda
+            final MaterialToggleButton toggleButton = managedModeToggle;
+            final JLabel label = managedModeLabel;
+            SwingUtilities.invokeLater(() -> {
+                toggleButton.setSelected(isManagedContext);
+                label.setText(isManagedContext ? "Managed Mode" : "Manual Mode");
+            });
+        }
+    }
+
+    /**
+     * Checks if the context was manually modified (not via LLM action) and disables managed mode if so.
+     * This is called whenever the context changes to automatically switch to Manual Mode when the user
+     * manually adds or removes context items.
+     */
+    private void checkAndDisableManagedModeOnManualChange() {
+        // Only proceed if managed mode is currently enabled
+        var sessionManager = chrome.getProject().getSessionManager();
+        var currentSessionId = chrome.getContextManager().liveContext().id();
+        var sessionInfo = sessionManager.getSessionInfo(currentSessionId);
+
+        if (sessionInfo == null || !sessionInfo.isManagedContext()) {
+            return;
+        }
+
+        // Check if we're currently in an LLM action - if so, don't disable managed mode
+        if (chrome.getContextManager().isLlmTaskInProgress()) {
+            return;
+        }
+
+        // At this point, context was modified manually (not by LLM), so disable managed mode
+        sessionManager.setManagedContext(currentSessionId, false);
+
+        // Update UI to reflect the change
+        if (managedModeToggle != null && managedModeLabel != null) {
+            final MaterialToggleButton toggleButton = managedModeToggle;
+            final JLabel label = managedModeLabel;
+            SwingUtilities.invokeLater(() -> {
+                toggleButton.setSelected(false);
+                label.setText("Manual Mode");
+            });
+        }
     }
 
     /**
