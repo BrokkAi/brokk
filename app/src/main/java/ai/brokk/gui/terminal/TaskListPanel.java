@@ -915,6 +915,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     public void runArchitectOnAll() {
+        // ensure model is up-to-date before running
+        model.fireRefresh();
         if (!taskListEditable) {
             Toolkit.getDefaultToolkit().beep();
             return;

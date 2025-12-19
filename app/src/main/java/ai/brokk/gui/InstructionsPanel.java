@@ -1903,8 +1903,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
 
             var result = agent.execute();
-            boolean success = result.stopDetails().reason() == TaskResult.StopReason.SUCCESS;
-
             // Apply results to context
             context = result.context();
             var agentTasks = context.getTaskListDataOrEmpty();
@@ -1942,13 +1940,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
             }
 
-            // Auto-run only in Lutz EZ if successful and there are incomplete tasks available
-            boolean isLutzEz = ACTION_LUTZ.equals(action) && !GlobalUiSettings.isAdvancedMode();
-            if (isLutzEz && success && hasIncomplete(context.getTaskListDataOrEmpty())) {
-                SwingUtilities.invokeLater(() -> chrome.getTaskListPanel().runArchitectOnAll());
-            }
             return result.withContext(context);
         });
+
+        // Auto-run only in Lutz EZ if successful and there are incomplete tasks available
+        // we can use live context, because Lutz Mode already pushed
+        boolean isLutzEz = ACTION_LUTZ.equals(action) && !GlobalUiSettings.isAdvancedMode();
+        if (isLutzEz && hasIncomplete(contextManager.getTaskList())) {
+            SwingUtilities.invokeLater(() -> chrome.getTaskListPanel().runArchitectOnAll());
+        }
+
     }
 
     /**
