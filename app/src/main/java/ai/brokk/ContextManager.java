@@ -925,7 +925,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // Push an updated context with the modified history and a "Delete message" action
         pushContext(currentLiveCtx ->
-                currentLiveCtx.withCompressedHistory(newHistory).withParsedOutput(null, "Delete task from history"));
+                currentLiveCtx.withHistory(newHistory).withParsedOutput(null, "Delete task from history"));
 
         io.showNotification(IConsoleIO.NotificationRole.INFO, "Remove history entry " + seqToDrop);
     }
@@ -2875,7 +2875,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // pushContext will update liveContext with the compressed history
                 // and add a frozen version to contextHistory.
                 // Entries now have both log and summary, so AI uses summary while UI can show either
-                pushContext(currentLiveCtx -> currentLiveCtx.withCompressedHistory(List.copyOf(compressedTaskEntries)));
+                pushContext(currentLiveCtx -> currentLiveCtx.withHistory(compressedTaskEntries));
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Task history compressed successfully.");
             }
         } finally {
