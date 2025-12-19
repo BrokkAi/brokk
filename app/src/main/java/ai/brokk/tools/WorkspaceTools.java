@@ -405,7 +405,7 @@ public class WorkspaceTools {
     }
 
     /**
-     * Shared guidance text for task-list tools (createOrReplaceTaskList and appendTaskList).
+     * Shared guidance text for task-list tools (createOrReplaceTaskList).
      * Used in @Tool parameter descriptions to keep guidance synchronized.
      */
     public static final String TASK_LIST_GUIDANCE =
@@ -460,42 +460,6 @@ public class WorkspaceTools {
         String suffix = (count == 1) ? "" : "s";
         String message =
                 "**Task list created** with %d item%s. Review it in the **Tasks** tab or open the **Task List** fragment in the Workspace below."
-                        .formatted(count, suffix);
-        io.llmOutput(message, ChatMessageType.AI, true, false);
-
-        return formattedTaskList;
-    }
-
-    /**
-     * Append new tasks to the existing task list without modifying or removing existing tasks.
-     * Deprecated: hidden for now (not exposed to Search/Plan flows); reserved for future Architect-only usage.
-     * Prefer {@link #createOrReplaceTaskList(String, java.util.List)} in current flows where replacement is intended.
-     */
-    @Deprecated
-    public String appendTaskList(
-            @P("Explanation of why these tasks are being added, formatted in Markdown.") String explanation,
-            @P(TASK_LIST_GUIDANCE) List<String> tasks) {
-        logger.debug("appendTaskList selected with {} tasks", tasks.size());
-        if (tasks.isEmpty()) {
-            return "No tasks provided.";
-        }
-
-        var cm = context.getContextManager();
-        // Delegate to ContextManager to ensure title summarization + centralized refresh via setTaskList
-        context = cm.appendTasksToTaskList(context, tasks);
-
-        var lines = IntStream.range(0, tasks.size())
-                .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
-                .collect(java.util.stream.Collectors.joining("\n"));
-        var formattedTaskList = "# Task List\n" + lines + "\n";
-
-        var io = cm.getIo();
-        io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, true, false);
-
-        int count = tasks.size();
-        String suffix = (count == 1) ? "" : "s";
-        String message =
-                "**Added** %d task%s to the list. Review them in the **Tasks** tab or open the **Task List** fragment in the Workspace below."
                         .formatted(count, suffix);
         io.llmOutput(message, ChatMessageType.AI, true, false);
 

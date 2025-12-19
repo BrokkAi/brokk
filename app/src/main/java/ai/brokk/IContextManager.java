@@ -139,10 +139,6 @@ public interface IContextManager {
                 .collect(Collectors.toSet());
     }
 
-    default Context appendTasksToTaskList(Context context, List<String> tasks) {
-        throw new UnsupportedOperationException();
-    }
-
     @Blocking
     default Context createOrReplaceTaskList(Context context, List<String> tasks) {
         throw new UnsupportedOperationException();

@@ -190,19 +190,6 @@ public final class TestContextManager implements IContextManager {
         return context.withTaskList(new TaskList.TaskListData(items), "Task list replaced");
     }
 
-    @Override
-    public Context appendTasksToTaskList(Context context, List<String> tasks) {
-        var cleaned =
-                tasks.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
-        if (cleaned.isEmpty()) {
-            return context; // no-op
-        }
-        var existing = new ArrayList<>(context.getTaskListDataOrEmpty().tasks());
-        existing.addAll(
-                cleaned.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList());
-        return context.withTaskList(new TaskList.TaskListData(List.copyOf(existing)), "Task list updated");
-    }
-
     private final ExecutorService backgroundTasks = Executors.newCachedThreadPool();
 
     @Override

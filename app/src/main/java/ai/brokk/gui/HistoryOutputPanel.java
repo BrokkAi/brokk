@@ -2454,7 +2454,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     var system = new SystemMessage(
                             """
     You are generating an actionable, incremental task list based on the provided capture. Do not speculate beyond it.
-    You MUST produce tasks via exactly one tool call: createOrReplaceTaskList(explanation: String, tasks: List<String>) or appendTaskList(explanation: String, tasks: List<String>).
+    You MUST produce tasks via exactly one tool call: createOrReplaceTaskList(explanation: String, tasks: List<String>).
                                     Do not output free-form text.
     """);
                     var user = new UserMessage(
@@ -2472,7 +2472,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                     - Avoid external/non-code tasks.
                                     - Include all the relevant details that you see in the capture for each task, but do not embellish or speculate.
 
-                                    Call createOrReplaceTaskList(explanation: String, tasks: List<String>) or appendTaskList(explanation: String, tasks:List<String>) with your final list. Do not include any explanation outside the tool call.
+                                    Call createOrReplaceTaskList(explanation: String, tasks: List<String>) with your final list. Do not include any explanation outside the tool call.
 
         Guidance:
     %s
@@ -2489,10 +2489,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             .build();
 
                     var toolSpecs = new ArrayList<ToolSpecification>();
-                    toolSpecs.addAll(tr.getTools(List.of("createOrReplaceTaskList", "appendTaskList")));
+                    toolSpecs.addAll(tr.getTools(List.of("createOrReplaceTaskList")));
                     if (toolSpecs.isEmpty()) {
                         chrome.toolError(
-                                "Required tools 'createOrReplaceTaskList' or 'appendTaskList' are not registered.",
+                                "Required tool 'createOrReplaceTaskList' is not registered.",
                                 "Task List");
                         return;
                     }
@@ -2508,7 +2508,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
                         assert ai.hasToolExecutionRequests(); // LLM enforces
                         for (var req : ai.toolExecutionRequests()) {
-                            if (!"createOrReplaceTaskList".equals(req.name()) && !"appendTaskList".equals(req.name())) {
+                            if (!"createOrReplaceTaskList".equals(req.name())) {
                                 continue;
                             }
                             var ter = tr.executeTool(req);

@@ -1512,26 +1512,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Deprecated: Not used by SearchAgent; retained for potential Architect integration.
-     * Prefer {@link #createOrReplaceTaskList(Context, java.util.List)} for task list updates in current flows.
-     */
-    @Deprecated
-    @Blocking
-    @Override
-    public Context appendTasksToTaskList(Context context, List<String> tasks) {
-        var newItems = summarizeTaskList(tasks);
-        if (newItems.isEmpty()) {
-            return context; // No-op if no valid tasks
-        }
-
-        // Merge with existing tasks
-        var existing = new ArrayList<>(context.getTaskListDataOrEmpty().tasks());
-        existing.addAll(newItems);
-        var newData = new TaskList.TaskListData(List.copyOf(existing));
-        return setTaskList(context, newData, "Task list updated");
-    }
-
-    /**
      * Replace the current session's task list and persist it via SessionManager. This is the single entry-point UI code
      * should call after modifying the task list.
      */
