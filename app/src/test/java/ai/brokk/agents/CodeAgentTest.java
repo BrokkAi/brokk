@@ -114,7 +114,7 @@ class CodeAgentTest {
     private CodeAgent.EditState createEditState(
             List<EditBlock.SearchReplaceBlock> pendingBlocks, int blocksAppliedWithoutBuild) {
         return new CodeAgent.EditState(
-                new ArrayList<>(pendingBlocks), // Modifiable copy
+                new LinkedHashSet<>(pendingBlocks), // Convert to SequencedSet
                 0, // consecutiveParseFailures
                 0, // consecutiveApplyFailures
                 0, // consecutiveBuildFailures
@@ -391,7 +391,7 @@ class CodeAgentTest {
         // otherwise verifyPhase will short-circuit because blocksAppliedWithoutBuild is 0 from the Retry step.
         var cs2 = retryStep.cs();
         var es2 = new CodeAgent.EditState(
-                List.of(), // pending blocks are empty
+                new LinkedHashSet<>(), // pending blocks are empty
                 retryStep.es().consecutiveParseFailures(),
                 retryStep.es().consecutiveApplyFailures(),
                 retryStep.es().consecutiveBuildFailures(),
@@ -604,7 +604,7 @@ class CodeAgentTest {
         // Turn 1: apply "hello world" -> "goodbye world"
         var block1 = new EditBlock.SearchReplaceBlock(file.toString(), "hello world", "goodbye world");
         var es1 = new CodeAgent.EditState(
-                new ArrayList<>(List.of(block1)),
+                new LinkedHashSet<>(List.of(block1)),
                 0,
                 0,
                 0,
@@ -627,7 +627,7 @@ class CodeAgentTest {
         // Prepare next turn state with empty per-turn baseline and a new change: "goodbye world" -> "ciao world"
         var block2 = new EditBlock.SearchReplaceBlock(file.toString(), "goodbye world", "ciao world");
         var es2 = new CodeAgent.EditState(
-                new ArrayList<>(List.of(block2)),
+                new LinkedHashSet<>(List.of(block2)),
                 0,
                 0,
                 0,
@@ -665,7 +665,7 @@ class CodeAgentTest {
         file.write(revised);
 
         var es = new CodeAgent.EditState(
-                List.of(), // pending blocks
+                new LinkedHashSet<>(), // pending blocks
                 0,
                 0,
                 0,
@@ -704,7 +704,8 @@ class CodeAgentTest {
         var revised = String.join("\n", List.of("alpha", "beta", "ALPHA", "gamma")) + "\n";
         file.write(revised);
 
-        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", changedFiles, originalMap, Collections.emptyMap());
+        var es = new CodeAgent.EditState(
+                new LinkedHashSet<>(), 0, 0, 0, 1, "", changedFiles, originalMap, Collections.emptyMap());
 
         var blocks = es.toSearchReplaceBlocks();
         assertEquals(1, blocks.size(), "Should produce a single unique block");
@@ -731,7 +732,8 @@ class CodeAgentTest {
         var revised = String.join("\n", List.of("line1", "TARGET", "middle", "TARGET", "line5")) + "\n";
         file.write(revised);
 
-        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", changedFiles, originalMap, Collections.emptyMap());
+        var es = new CodeAgent.EditState(
+                new LinkedHashSet<>(), 0, 0, 0, 1, "", changedFiles, originalMap, Collections.emptyMap());
 
         var blocks = es.toSearchReplaceBlocks();
 

@@ -155,7 +155,7 @@ public class CodeAgent {
         int blocksAppliedWithoutBuild = 0;
 
         String buildError = "";
-        var blocks = new ArrayList<EditBlock.SearchReplaceBlock>(); // This will be part of WorkspaceState
+        var blocks = new LinkedHashSet<EditBlock.SearchReplaceBlock>(); // This will be part of WorkspaceState
         Map<ProjectFile, String> originalFileContents = new HashMap<>();
 
         TaskResult.StopDetails stopDetails;
@@ -461,17 +461,17 @@ public class CodeAgent {
             }
 
             var nextCs = new ConversationState(cs.taskMessages(), messageForRetry, cs.turnStartIndex());
-            // Add any newly parsed blocks before the error to the pending list for the next apply phase
-            var nextPending = new ArrayList<>(es.pendingBlocks());
+            // Add any newly parsed blocks before the error to the pending set for the next apply phase
+            var nextPending = new LinkedHashSet<>(es.pendingBlocks());
             nextPending.addAll(newlyParsedBlocks);
             var nextEs = es.withPendingBlocks(nextPending, updatedConsecutiveParseFailures);
             report(consoleLogForRetry);
             return new Step.Retry(nextCs, nextEs);
         }
 
-        // No explicit parse error. Reset counter. Add newly parsed blocks to the pending list.
+        // No explicit parse error. Reset counter. Add newly parsed blocks to the pending set.
         int updatedConsecutiveParseFailures = 0;
-        var mutablePendingBlocks = new ArrayList<>(es.pendingBlocks());
+        var mutablePendingBlocks = new LinkedHashSet<>(es.pendingBlocks());
         mutablePendingBlocks.addAll(newlyParsedBlocks);
 
         // Handle case where LLM response was cut short, even if syntactically valid so far.
@@ -645,7 +645,7 @@ public class CodeAgent {
     }
 
     private EditBlock.EditResult applyBlocksAndHandleErrors(
-            Context ctx, List<EditBlock.SearchReplaceBlock> blocksToApply)
+            Context ctx, Collection<EditBlock.SearchReplaceBlock> blocksToApply)
             throws EditStopException, InterruptedException {
 
         EditBlock.EditResult editResult;
@@ -784,7 +784,7 @@ public class CodeAgent {
                     : "blocksAppliedWithoutBuild cannot be negative: prior=%d, delta=%d"
                             .formatted(es.blocksAppliedWithoutBuild(), succeededCount);
 
-            List<EditBlock.SearchReplaceBlock> nextPendingBlocks = List.of();
+            SequencedSet<EditBlock.SearchReplaceBlock> nextPendingBlocks = new LinkedHashSet<>();
 
             if (!failedBlocks.isEmpty()) { // Some blocks failed the direct apply
                 if (succeededCount == 0) { // Total failure for this batch of pendingBlocks
@@ -1228,7 +1228,7 @@ public class CodeAgent {
 
     record EditState(
             // parsed but not yet applied
-            List<EditBlock.SearchReplaceBlock> pendingBlocks,
+            SequencedSet<EditBlock.SearchReplaceBlock> pendingBlocks,
             int consecutiveParseFailures,
             int consecutiveApplyFailures,
             int consecutiveBuildFailures,
@@ -1239,7 +1239,7 @@ public class CodeAgent {
             Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics) {
 
         /** Returns a new WorkspaceState with updated pending blocks and parse failures. */
-        EditState withPendingBlocks(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures) {
+        EditState withPendingBlocks(SequencedSet<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures) {
             return new EditState(
                     newPendingBlocks,
                     newParseFailures,
@@ -1271,7 +1271,7 @@ public class CodeAgent {
 
         /** Returns a new WorkspaceState after applying blocks, updating relevant fields. */
         EditState afterApply(
-                List<EditBlock.SearchReplaceBlock> newPendingBlocks,
+                SequencedSet<EditBlock.SearchReplaceBlock> newPendingBlocks,
                 int newApplyFailures,
                 int newBlocksApplied,
                 Map<ProjectFile, String> newOriginalContents) {
@@ -1319,8 +1319,8 @@ public class CodeAgent {
          * history compaction without depending on the diff library package structure at compile time.
          */
         @VisibleForTesting
-        List<EditBlock.SearchReplaceBlock> toSearchReplaceBlocks() {
-            var results = new ArrayList<EditBlock.SearchReplaceBlock>();
+        SequencedSet<EditBlock.SearchReplaceBlock> toSearchReplaceBlocks() {
+            var results = new LinkedHashSet<EditBlock.SearchReplaceBlock>();
             var originals = originalFileContents();
 
             // Include both files we have originals for and new files created in this turn
