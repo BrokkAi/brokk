@@ -6,7 +6,6 @@ import ai.brokk.analyzer.*;
 import ai.brokk.context.Context;
 import ai.brokk.util.IndentUtil;
 import com.google.common.base.Splitter;
-
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
