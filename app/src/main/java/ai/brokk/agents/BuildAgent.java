@@ -284,28 +284,26 @@ public class BuildAgent {
             // Check maximum iteration limit
             if (iterationCount >= MAX_ITERATIONS) {
                 logger.warn(
-                        "BuildAgent reached maximum iteration limit ({}) without finding build details. " +
-                        "This suggests the project structure is unclear or unsupported. " +
-                        "Tool calls history: {}",
+                        "BuildAgent reached maximum iteration limit ({}) without finding build details. "
+                                + "This suggests the project structure is unclear or unsupported. "
+                                + "Tool calls history: {}",
                         MAX_ITERATIONS,
-                        recentToolCalls.stream()
-                                .collect(Collectors.groupingBy(s -> s, Collectors.counting())));
+                        recentToolCalls.stream().collect(Collectors.groupingBy(s -> s, Collectors.counting())));
                 return BuildDetails.EMPTY;
             }
 
             // Check for repetitive tool calls
             if (recentToolCalls.size() >= MAX_REPEATED_TOOL_CALLS) {
                 List<String> lastNCalls = recentToolCalls.subList(
-                        recentToolCalls.size() - MAX_REPEATED_TOOL_CALLS,
-                        recentToolCalls.size());
+                        recentToolCalls.size() - MAX_REPEATED_TOOL_CALLS, recentToolCalls.size());
 
                 String firstCall = lastNCalls.get(0);
                 boolean allSame = lastNCalls.stream().allMatch(firstCall::equals);
 
                 if (allSame) {
                     logger.warn(
-                            "BuildAgent detected repetitive behavior: tool '{}' called {} times " +
-                            "consecutively without progress. Aborting build details gathering.",
+                            "BuildAgent detected repetitive behavior: tool '{}' called {} times "
+                                    + "consecutively without progress. Aborting build details gathering.",
                             firstCall,
                             MAX_REPEATED_TOOL_CALLS);
                     return BuildDetails.EMPTY;

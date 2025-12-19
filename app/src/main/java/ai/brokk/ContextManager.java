@@ -1970,7 +1970,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             project.saveBuildDetails(inferredDetails);
 
             // Show appropriate notification based on whether build details were found
-            if (inferredDetails == BuildDetails.EMPTY) {
+            if (BuildDetails.EMPTY.equals(inferredDetails)) {
                 io.showNotification(
                         IConsoleIO.NotificationRole.INFO,
                         "Could not determine build configuration - project structure may be unsupported or incomplete");
