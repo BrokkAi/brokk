@@ -40,6 +40,7 @@ public class EditBlockSyntaxTest {
 
     @BeforeEach
     void setupEach() throws IOException {
+        SyntaxAwareConfig.setSyntaxAwareExtensions(Set.of("java"));
         final var testResourcesPath =
                 Path.of("src/test/resources/testcode-java").toAbsolutePath().normalize();
         assertTrue(Files.exists(testResourcesPath), "Test resource directory 'testcode-java' not found.");
@@ -53,9 +54,8 @@ public class EditBlockSyntaxTest {
 
     @AfterEach
     void teardownEach() {
-        if (testProject != null) {
-            testProject.close();
-        }
+        SyntaxAwareConfig.resetSyntaxAwareExtensions();
+        testProject.close();
     }
 
     // ==================== BRK_FUNCTION Tests ====================
