@@ -348,14 +348,6 @@ class EditBlockTest {
         assertNull(result.blocks().getFirst().rawFileName());
     }
 
-    /** Test detection of a possible "mangled" or fuzzy filename match. */
-    @Test
-    void testResolveFilenameIgnoreCase(@TempDir Path tempDir) throws EditBlock.SymbolResolutionException {
-        TestContextManager cm = new TestContextManager(tempDir, Set.of("foo.txt"));
-        var f = EditBlock.resolveProjectFile(cm.liveContext(), "fOo.TXt");
-        assertEquals("foo.txt", f.getFileName());
-    }
-
     @Test
     void testNoMatchFailure(@TempDir Path tempDir)
             throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
@@ -681,7 +673,7 @@ class EditBlockTest {
 
         TestContextManager cm = new TestContextManager(tempDir, Set.of("src%sfoo.txt".formatted(sep)));
 
-        ProjectFile pf = EditBlock.resolveProjectFile(cm.liveContext(), "%ssrc%sfoo.txt".formatted(sep, sep));
+        ProjectFile pf = EditBlock.resolveProjectFile(cm.liveContext(), "%ssrc%sfoo.txt".formatted(sep, sep), false);
         assertEquals("foo.txt", pf.getFileName());
         assertEquals(filePath, pf.absPath());
     }
@@ -692,7 +684,7 @@ class EditBlockTest {
         TestContextManager cm = new TestContextManager(tempDir, Set.of());
         assertThrows(
                 EditBlock.SymbolInvalidException.class,
-                () -> EditBlock.resolveProjectFile(cm.liveContext(), "%ssrc%sfoo.txt".formatted(sep, sep)));
+                () -> EditBlock.resolveProjectFile(cm.liveContext(), "%ssrc%sfoo.txt".formatted(sep, sep), false));
     }
 
     @Test
@@ -723,8 +715,8 @@ class EditBlockTest {
                         "app/src/main/java/ai/brokk/util/IndentUtil.java",
                         "app/src/test/java/ai/brokk/util/IndentUtil.java"));
 
-        var resolved =
-                EditBlock.resolveProjectFile(ctx.liveContext(), "app/src/test/java/ai/brokk/util/IndentUtil.java");
+        var resolved = EditBlock.resolveProjectFile(
+                ctx.liveContext(), "app/src/test/java/ai/brokk/util/IndentUtil.java", false);
         assertEquals(testUtilDir.resolve("IndentUtil.java"), resolved.absPath());
     }
 
