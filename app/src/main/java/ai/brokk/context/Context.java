@@ -16,6 +16,7 @@ import ai.brokk.ranking.ImportPageRanker;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.*;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.google.common.collect.Streams;
@@ -342,10 +343,14 @@ public class Context {
 
         // 1. Try Git-based distance first
         if (contextManager.getProject().hasGit() && repoObj instanceof GitRepo gr) {
-            GitDistance.getRelatedFiles(gr, weightedSeeds, topK, false).stream()
-                    .map(IAnalyzer.FileRelevance::file)
-                    .filter(file -> !ineligibleSources.contains(file))
-                    .forEach(resultFiles::add);
+            try {
+                GitDistance.getRelatedFiles(gr, weightedSeeds, topK, false).stream()
+                        .map(IAnalyzer.FileRelevance::file)
+                        .filter(file -> !ineligibleSources.contains(file))
+                        .forEach(resultFiles::add);
+            } catch (Exception e) {
+                logger.warn("Failed to compute Git-based related files; falling back to imports.", e);
+            }
         }
 
         // 2. Supplement with Import-based PageRank if we need more results
