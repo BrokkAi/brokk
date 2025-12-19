@@ -12,8 +12,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for createOrReplaceTaskList and appendTaskList operations.
- * Tests verify task list replacement, appending, summarization, and state persistence.
+ * Unit tests for createOrReplaceTaskList operations.
+ * Tests verify task list replacement, summarization, and state persistence.
  */
 public class TaskListTest {
 
