@@ -3,7 +3,6 @@ package ai.brokk;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
-import ai.brokk.context.DiffService;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.project.AbstractProject;
