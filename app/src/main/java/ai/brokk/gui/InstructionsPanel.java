@@ -863,12 +863,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         leftCluster.add(micButton);
         leftCluster.add(Box.createHorizontalStrut(H_GAP));
         leftCluster.add(wandButton);
+        wandButton.setVisible(GlobalUiSettings.isSimplifiedInstructionsPanel());
         leftCluster.add(Box.createHorizontalStrut(H_GAP));
         leftCluster.add(historyDropdown);
         leftCluster.add(Box.createHorizontalStrut(H_GAP * 2)); // Extra spacing before plan mode toggle
         leftCluster.add(planModeToggle);
+        planModeToggle.setVisible(GlobalUiSettings.isSimplifiedInstructionsPanel());
         leftCluster.add(Box.createHorizontalStrut(4)); // Small gap between toggle and label
         leftCluster.add(planModeLabel);
+        planModeLabel.setVisible(GlobalUiSettings.isSimplifiedInstructionsPanel());
 
         // Add left cluster
         topBarPanel.add(leftCluster);
@@ -1142,7 +1145,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var footerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
         footerPanel.setOpaque(false);
         footerPanel.add(managedModeToggle);
+        managedModeToggle.setVisible(GlobalUiSettings.isSimplifiedInstructionsPanel());
         footerPanel.add(managedModeLabel);
+        managedModeLabel.setVisible(GlobalUiSettings.isSimplifiedInstructionsPanel());
 
         titledContainer.add(footerPanel, BorderLayout.SOUTH);
 
@@ -1559,6 +1564,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         roToggleButton.setAlignmentY(Component.CENTER_ALIGNMENT);
         bottomPanel.add(roToggleButton);
+        readOnlyToggle.setVisible(GlobalUiSettings.isSimplifiedInstructionsPanel());
 
         // Lock bottom toolbar height so BorderLayout keeps it visible
         Dimension bottomPref = bottomPanel.getPreferredSize();
