@@ -1064,7 +1064,7 @@ public class WorkspacePanel extends JPanel {
                         case EDIT -> {
                             // Only allow editing tracked files; others are silently ignored by editFiles
                             contextManager.submitContextTask(() -> {
-                                contextManager.addFiles(projectFiles);
+                                contextManager.addFiles(projectFiles, true);
                             });
                         }
                         case SUMMARIZE -> {
@@ -1072,7 +1072,7 @@ public class WorkspacePanel extends JPanel {
                                 return false;
                             }
                             contextManager.submitContextTask(() -> {
-                                contextManager.addSummaries(new HashSet<>(projectFiles), Collections.emptySet());
+                                contextManager.addSummaries(new HashSet<>(projectFiles), Collections.emptySet(), true);
                             });
                         }
                         default -> {
@@ -1843,7 +1843,7 @@ public class WorkspacePanel extends JPanel {
                     IConsoleIO.NotificationRole.INFO, "No files associated with the selection to edit.");
             return;
         }
-        contextManager.addFiles(files);
+        contextManager.addFiles(files, true);
     }
 
     @Blocking
@@ -2045,7 +2045,7 @@ public class WorkspacePanel extends JPanel {
     }
 
     private void doDropAction(List<? extends ContextFragment> selectedFragments) {
-        contextManager.dropWithHistorySemantics(selectedFragments);
+        contextManager.dropWithHistorySemantics(selectedFragments, true);
     }
 
     @Blocking
@@ -2106,9 +2106,9 @@ public class WorkspacePanel extends JPanel {
 
             for (var fragment : fragments) {
                 if (fragment instanceof ContextFragments.PathFragment pathFrag) {
-                    contextManager.addFragmentAsync(pathFrag);
+                    contextManager.addFragmentAsync(pathFrag, true);
                 } else {
-                    contextManager.addFragments(fragment);
+                    contextManager.addFragments(fragment, true);
                 }
             }
         });
@@ -2133,7 +2133,7 @@ public class WorkspacePanel extends JPanel {
         }
 
         // Call the updated addSummaries method, which outputs a message on success
-        boolean success = contextManager.addSummaries(selectedFiles, selectedClasses);
+        boolean success = contextManager.addSummaries(selectedFiles, selectedClasses, true);
         if (!success) {
             chrome.toolError("No summarizable content found in the selected files or symbols.");
             return;
@@ -2142,7 +2142,7 @@ public class WorkspacePanel extends JPanel {
         // Easy fix: if user summarized a single chip, drop that exact fragment instance (same as clicking the chip
         // "X").
         if (selectedFragments.size() == 1) {
-            contextManager.drop(List.of(selectedFragments.get(0)));
+            contextManager.drop(List.of(selectedFragments.get(0)), true);
             return;
         }
 
@@ -2151,7 +2151,7 @@ public class WorkspacePanel extends JPanel {
                 selectedFragments.stream().filter(f -> f.getType().isEditable()).toList();
 
         if (!editFragmentsToRemove.isEmpty()) {
-            contextManager.dropWithHistorySemantics(editFragmentsToRemove);
+            contextManager.dropWithHistorySemantics(editFragmentsToRemove, true);
         }
     }
 

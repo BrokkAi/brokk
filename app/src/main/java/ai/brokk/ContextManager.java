@@ -833,28 +833,44 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** Add the given files to editable. */
     @Override
     public void addFiles(Collection<ProjectFile> files) {
-        addPathFragments(toPathFragments(files));
+        addFiles(files, false);
+    }
+
+    public void addFiles(Collection<ProjectFile> files, boolean userInitiated) {
+        addPathFragments(toPathFragments(files), userInitiated);
     }
 
     /** Add the given files to editable. */
     public void addPathFragments(List<? extends PathFragment> fragments) {
+        addPathFragments(fragments, false);
+    }
+
+    public void addPathFragments(List<? extends PathFragment> fragments, boolean userInitiated) {
         if (fragments.isEmpty()) {
             return;
         }
         // addFragments already handles semantic deduplication via hasSameSource
-        pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragments));
+        pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragments), userInitiated);
         String message = "Edit " + contextDescription(fragments);
         io.showNotification(IConsoleIO.NotificationRole.INFO, message);
     }
 
     /** Drop all context. */
     public void dropAll() {
-        pushContext(Context::removeAll);
+        dropAll(false);
+    }
+
+    public void dropAll(boolean userInitiated) {
+        pushContext(Context::removeAll, userInitiated);
     }
 
     /** Drop fragments by their IDs. */
     public void drop(Collection<? extends ContextFragment> fragments) {
-        pushContext(currentLiveCtx -> currentLiveCtx.removeFragments(fragments));
+        drop(fragments, false);
+    }
+
+    public void drop(Collection<? extends ContextFragment> fragments, boolean userInitiated) {
+        pushContext(currentLiveCtx -> currentLiveCtx.removeFragments(fragments), userInitiated);
         String message = "Remove " + contextDescription(fragments);
         io.showNotification(IConsoleIO.NotificationRole.INFO, message);
     }
@@ -870,11 +886,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Else: drop the selected fragments as-is.
      */
     public void dropWithHistorySemantics(Collection<? extends ContextFragment> selectedFragments) {
+        dropWithHistorySemantics(selectedFragments, false);
+    }
+
+    public void dropWithHistorySemantics(
+            Collection<? extends ContextFragment> selectedFragments, boolean userInitiated) {
         if (selectedFragments.isEmpty()) {
             if (liveContext().isEmpty()) {
                 return;
             }
-            dropAll();
+            dropAll(userInitiated);
             setSelectedContext(liveContext());
             return;
         }
@@ -888,10 +909,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
                     .toList();
             if (!nonHistory.isEmpty()) {
-                drop(nonHistory);
+                drop(nonHistory, userInitiated);
             }
         } else {
-            drop(selectedFragments);
+            drop(selectedFragments, userInitiated);
         }
     }
 
@@ -1184,8 +1205,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param fragment The PathFragment to add.
      */
     public void addFragmentAsync(ContextFragment fragment) {
+        addFragmentAsync(fragment, false);
+    }
+
+    public void addFragmentAsync(ContextFragment fragment, boolean userInitiated) {
         submitContextTask(() -> {
-            pushContext(currentLiveCtx -> currentLiveCtx.addFragments(List.of(fragment)));
+            pushContext(currentLiveCtx -> currentLiveCtx.addFragments(List.of(fragment)), userInitiated);
         });
     }
 
@@ -1318,6 +1343,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return true if any summaries were successfully added, false otherwise.
      */
     public boolean addSummaries(Set<ProjectFile> files, Set<CodeUnit> classes) {
+        return addSummaries(files, classes, false);
+    }
+
+    public boolean addSummaries(Set<ProjectFile> files, Set<CodeUnit> classes, boolean userInitiated) {
         IAnalyzer analyzer = getAnalyzerUninterrupted();
         if (analyzer.isEmpty()) {
             io.toolError("Code Intelligence is empty; nothing to add");
@@ -1331,7 +1360,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             for (var pf : files) {
                 var fragment = new ContextFragments.SummaryFragment(
                         this, pf.toString(), ContextFragment.SummaryType.FILE_SKELETONS);
-                addFragments(fragment);
+                addFragments(fragment, userInitiated);
             }
             String message = "Summarize " + joinFilesForOutput(files);
             io.showNotification(IConsoleIO.NotificationRole.INFO, message);
@@ -1344,7 +1373,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             for (var fqn : classFqns) {
                 var fragment =
                         new ContextFragments.SummaryFragment(this, fqn, ContextFragment.SummaryType.CODEUNIT_SKELETON);
-                addFragments(fragment);
+                addFragments(fragment, userInitiated);
             }
             String message = "Summarize " + joinClassesForOutput(classFqns);
             io.showNotification(IConsoleIO.NotificationRole.INFO, message);
@@ -1706,11 +1735,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @SuppressWarnings("RedundantNullCheck") // called during Chrome init while instructionsPanel is null
     @Override
     public Context pushContext(Function<Context, Context> contextGenerator) {
+        return pushContext(contextGenerator, false);
+    }
+
+    public Context pushContext(Function<Context, Context> contextGenerator, boolean userInitiated) {
         var oldLiveContext = liveContext();
         var newLiveContext = contextHistory.push(contextGenerator);
         if (oldLiveContext.equals(newLiveContext)) {
             // No change occurred
             return newLiveContext;
+        }
+
+        // Check if user manually changed fragments - if so, disable managed context mode
+        if (userInitiated && fragmentsChanged(oldLiveContext, newLiveContext)) {
+            disableManagedContext();
         }
 
         contextPushed(contextHistory.liveContext());
@@ -1734,6 +1772,22 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
         }
         return newLiveContext;
+    }
+
+    private boolean fragmentsChanged(Context oldContext, Context newContext) {
+        return !oldContext.getAllFragmentsInDisplayOrder().equals(newContext.getAllFragmentsInDisplayOrder());
+    }
+
+    private void disableManagedContext() {
+        var sessionId = getCurrentSessionId();
+        var sessionManager = project.getSessionManager();
+        var sessionInfo = sessionManager.getSessionInfo(sessionId);
+
+        // Only disable if currently in managed mode
+        if (sessionInfo != null && sessionInfo.isManagedContext()) {
+            sessionManager.setManagedContext(sessionId, false);
+            // The context listener notification will trigger UI updates automatically
+        }
     }
 
     private void contextPushed(Context context) {

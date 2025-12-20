@@ -294,7 +294,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             editItem.addActionListener(ev -> {
                 ContextSizeGuard.checkAndConfirm(targetFiles, chrome, decision -> {
                     if (decision == ContextSizeGuard.Decision.ALLOW) {
-                        contextManager.submitContextTask(() -> contextManager.addFiles(targetFiles));
+                        contextManager.submitContextTask(() -> contextManager.addFiles(targetFiles, true));
                     } else if (decision == ContextSizeGuard.Decision.CANCELLED) {
                         chrome.showNotification(IConsoleIO.NotificationRole.INFO, "File addition cancelled");
                     }
@@ -318,7 +318,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                         return;
                     }
                     contextManager.submitContextTask(() -> {
-                        contextManager.addSummaries(new HashSet<>(targetFiles), Collections.emptySet());
+                        contextManager.addSummaries(new HashSet<>(targetFiles), Collections.emptySet(), true);
                     });
                 });
                 contextMenu.add(summarizeItem);

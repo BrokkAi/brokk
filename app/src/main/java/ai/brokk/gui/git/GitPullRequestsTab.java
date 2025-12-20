@@ -1656,7 +1656,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                         .collect(Collectors.toSet());
 
                 if (!modifiedTextFiles.isEmpty()) {
-                    contextManager.addFiles(modifiedTextFiles);
+                    contextManager.addFiles(modifiedTextFiles, true);
                     logger.info(
                             "Added {} modified file(s) from PR #{} to editable context",
                             modifiedTextFiles.size(),
@@ -1724,7 +1724,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                                 descriptionText,
                                 PrTitleFormatter.formatDescriptionTitle(prNumber),
                                 "markdown");
-                        contextManager.addFragments(descriptionFragment);
+                        contextManager.addFragments(descriptionFragment, true);
                         logger.info("Added PR description fragment for PR #{}", prNumber);
                     } catch (Exception e) {
                         logger.warn("Failed to add PR description fragment for PR #{}: {}", prNumber, e.getMessage());

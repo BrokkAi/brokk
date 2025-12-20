@@ -705,7 +705,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                     try {
                         final String content = getRepo().getFileContent(commitId, pf);
                         var fragment = new ContextFragments.GitFileFragment(pf, shortId, content);
-                        contextManager.addFragmentAsync(fragment);
+                        contextManager.addFragmentAsync(fragment, true);
                         success++;
                     } catch (GitAPIException ex) {
                         logger.warn("Error capturing {} at {}: {}", pf, commitId, ex.getMessage());

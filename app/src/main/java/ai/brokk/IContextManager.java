@@ -146,6 +146,10 @@ public interface IContextManager {
     }
 
     default Context pushContext(Function<Context, Context> contextGenerator) {
+        return pushContext(contextGenerator, false);
+    }
+
+    default Context pushContext(Function<Context, Context> contextGenerator, boolean userInitiated) {
         throw new UnsupportedOperationException();
     }
 
@@ -221,15 +225,23 @@ public interface IContextManager {
 
     /** Adds any virtual fragment directly to the live context. */
     default void addFragments(Collection<? extends ContextFragment> fragments) {
+        addFragments(fragments, false);
+    }
+
+    default void addFragments(Collection<? extends ContextFragment> fragments, boolean userInitiated) {
         if (fragments.isEmpty()) {
             return;
         }
-        pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragments));
+        pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragments), userInitiated);
     }
 
     /** Adds any virtual fragment directly to the live context. */
     default void addFragments(ContextFragment fragment) {
-        addFragments(List.of(fragment));
+        addFragments(List.of(fragment), false);
+    }
+
+    default void addFragments(ContextFragment fragment, boolean userInitiated) {
+        addFragments(List.of(fragment), userInitiated);
     }
 
     /** Create a new LLM instance for the given model and description */
