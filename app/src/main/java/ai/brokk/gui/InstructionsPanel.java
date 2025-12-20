@@ -1139,12 +1139,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             sessionManager.setManagedContext(currentSessionId, isManaged);
         });
 
-        var headerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-        headerPanel.setOpaque(false);
-        headerPanel.add(managedModeToggle);
-        headerPanel.add(managedModeLabel);
+        var footerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        footerPanel.setOpaque(false);
+        footerPanel.add(managedModeToggle);
+        footerPanel.add(managedModeLabel);
 
-        titledContainer.add(headerPanel, BorderLayout.NORTH);
+        titledContainer.add(footerPanel, BorderLayout.SOUTH);
 
         var transferHandler = FileDropHandlerFactory.createFileDropHandler(this.chrome);
         titledContainer.setTransferHandler(transferHandler);
