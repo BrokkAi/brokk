@@ -1052,9 +1052,10 @@ public class TokenUsageBar extends JComponent implements ThemeAware, IContextMan
 
     /**
      * Update the cached empty-context message based on current UI settings and session state.
-     * Called on initialization and when context changes to avoid EDT-blocking lookups during paint.
+     * Called on initialization, when context changes, and when session properties change
+     * to avoid EDT-blocking lookups during paint.
      */
-    private void updateEmptyContextMessage() {
+    public void updateEmptyContextMessage() {
         try {
             if (!GlobalUiSettings.isSimplifiedInstructionsPanel()) {
                 // Original message for non-simplified mode

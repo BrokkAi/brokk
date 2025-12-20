@@ -1216,6 +1216,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var currentSessionId = chrome.getContextManager().getCurrentSessionId();
             sessionManager.setManagedContext(currentSessionId, true);
             updatePlaceholderIfActive();
+            tokenUsageBar.updateEmptyContextMessage();
             tokenUsageBar.repaint();
         });
 
@@ -1224,6 +1225,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var currentSessionId = chrome.getContextManager().getCurrentSessionId();
             sessionManager.setManagedContext(currentSessionId, false);
             updatePlaceholderIfActive();
+            tokenUsageBar.updateEmptyContextMessage();
             tokenUsageBar.repaint();
         });
 
@@ -2477,6 +2479,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Load and apply plan mode state from SessionInfo
         loadPlanModeState();
+
+        // Update token usage bar's empty context message when session changes
+        tokenUsageBar.updateEmptyContextMessage();
 
         // Update placeholder text when context changes (e.g., session switch)
         updatePlaceholderIfActive();
