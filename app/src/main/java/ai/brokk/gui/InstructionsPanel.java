@@ -12,6 +12,7 @@ import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
+import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.ProjectFile;
@@ -2623,9 +2624,88 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             // Stop action
             chrome.getContextManager().interruptLlmAction();
         } else {
-            // Go action
-            switch (storedAction) {
-                case ACTION_CODE -> {
+            // Check if simplified mode is active
+            if (GlobalUiSettings.isSimplifiedInstructionsPanel()) {
+                executeSimplifiedSubmitAction();
+            } else {
+                // Go action - regular mode
+                switch (storedAction) {
+                    case ACTION_CODE -> {
+                        var model = selectDropdownModelOrShowError("Code");
+                        if (model != null) {
+                            prepareAndRunCodeCommand(model);
+                        } else {
+                            updateButtonStates();
+                        }
+                    }
+                    case ACTION_LUTZ -> runSearchCommand();
+                    case ACTION_ASK -> runAskCommand(getInstructions());
+                    case ACTION_PLAN -> runPlanCommand();
+                    default -> throw new IllegalArgumentException("Unknown action: " + storedAction);
+                }
+            }
+        }
+        // Always return focus to the instructions area to avoid re-triggering with Enter on the button
+        requestCommandInputFocus();
+    }
+
+    /**
+     * Executes the appropriate action for the simplified submit button based on session settings.
+     * The behavior is determined by three session properties: readOnly, managedContext, and planMode.
+     */
+    private void executeSimplifiedSubmitAction() {
+        var sessionManager = chrome.getProject().getSessionManager();
+        var currentSessionId = chrome.getContextManager().getCurrentSessionId();
+        var sessionInfo = sessionManager.getSessionInfo(currentSessionId);
+
+        if (sessionInfo == null) {
+            logger.warn("No session info available for simplified submit action");
+            // Fallback to default behavior
+            runAskCommand(getInstructions());
+            return;
+        }
+
+        boolean readOnly = sessionInfo.isReadOnly();
+        boolean managedContext = sessionInfo.isManagedContext();
+        boolean planMode = sessionInfo.isPlanMode();
+
+        logger.debug(
+                "Simplified submit: readOnly={}, managedContext={}, planMode={}", readOnly, managedContext, planMode);
+
+        // 8 scenarios based on the 3 boolean flags
+        if (planMode) {
+            if (readOnly) {
+                if (managedContext) {
+                    // Scenario 1: PLAN mode with agentic search (no auto-execute)
+                    runPlanCommand();
+                } else {
+                    // Scenario 3: PLAN mode without agentic search (no auto-execute)
+                    runPlanModeWithoutSearch();
+                }
+            } else {
+                if (managedContext) {
+                    // Scenario 2: LUTZ mode - agentic search with auto-execute
+                    runSearchCommand();
+                } else {
+                    // Scenario 4: LUTZ mode without agentic search
+                    runLutzModeWithoutSearch();
+                }
+            }
+        } else {
+            if (readOnly) {
+                if (managedContext) {
+                    // Scenario 5: SEARCH+ASK - agentic search then answer
+                    runSearchThenAsk();
+                } else {
+                    // Scenario 7: ASK mode - answer with existing context
+                    runAskCommand(getInstructions());
+                }
+            } else {
+                if (managedContext) {
+                    // Scenario 6: SEARCH+CODE - agentic search then code
+                    runSearchThenCode();
+                } else {
+                    // Scenario 8: CODE mode - code with existing context
                     var model = selectDropdownModelOrShowError("Code");
                     if (model != null) {
                         prepareAndRunCodeCommand(model);
@@ -2633,14 +2713,209 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         updateButtonStates();
                     }
                 }
-                case ACTION_LUTZ -> runSearchCommand();
-                case ACTION_ASK -> runAskCommand(getInstructions());
-                case ACTION_PLAN -> runPlanCommand();
-                default -> throw new IllegalArgumentException("Unknown action: " + storedAction);
             }
         }
-        // Always return focus to the instructions area to avoid re-triggering with Enter on the button
-        requestCommandInputFocus();
+    }
+
+    /**
+     * Scenario 3: Generate tasks without agentic search (plan mode, manual context)
+     */
+    private void runPlanModeWithoutSearch() {
+        var input = getInstructions();
+        if (input.isBlank()) {
+            chrome.toolError("Please provide a prompt for planning");
+            return;
+        }
+
+        final var modelToUse = selectDropdownModelOrShowError("Plan");
+        if (modelToUse == null) {
+            updateButtonStates();
+            return;
+        }
+
+        chrome.getProject().addToInstructionsHistory(input, 20);
+        clearCommandInput();
+        autoClearCompletedTasks();
+
+        // Generate tasks without auto-execution, without agentic search
+        final var preExistingIncompleteTasks = contextManager.liveContext().getTaskListDataOrEmpty().tasks().stream()
+                .filter(t -> !t.done())
+                .map(TaskList.TaskItem::text)
+                .collect(java.util.stream.Collectors.toSet());
+
+        submitAction(ACTION_PLAN, input, scope -> {
+                    assert !input.isBlank();
+                    var cm = chrome.getContextManager();
+                    var context = cm.liveContext();
+
+                    // Use ArchitectAgent for task generation without search
+                    var codeModel = cm.getCodeModel();
+                    var agent = new ArchitectAgent(cm, modelToUse, codeModel, input, scope);
+                    return agent.execute();
+                })
+                .thenRun(() -> {
+                    // After planning completes, check if new tasks were added
+                    SwingUtilities.invokeLater(() -> {
+                        var newTasks = contextManager.liveContext().getTaskListDataOrEmpty().tasks().stream()
+                                .filter(t -> !t.done())
+                                .map(TaskList.TaskItem::text)
+                                .filter(taskText -> !preExistingIncompleteTasks.contains(taskText))
+                                .collect(java.util.stream.Collectors.toSet());
+
+                        if (!newTasks.isEmpty()) {
+                            logger.debug("Plan mode without search completed with {} new task(s)", newTasks.size());
+                        }
+                    });
+                });
+    }
+
+    /**
+     * Scenario 4: Generate tasks and auto-execute without agentic search
+     */
+    private void runLutzModeWithoutSearch() {
+        var input = getInstructions();
+        if (input.isBlank()) {
+            chrome.toolError("Please provide a prompt");
+            return;
+        }
+
+        final var modelToUse = selectDropdownModelOrShowError("Lutz");
+        if (modelToUse == null) {
+            updateButtonStates();
+            return;
+        }
+
+        chrome.getProject().addToInstructionsHistory(input, 20);
+        clearCommandInput();
+        autoClearCompletedTasks();
+
+        // Generate tasks and auto-execute without agentic search
+        final var preExistingIncompleteTasks = contextManager.liveContext().getTaskListDataOrEmpty().tasks().stream()
+                .filter(t -> !t.done())
+                .map(TaskList.TaskItem::text)
+                .collect(java.util.stream.Collectors.toSet());
+
+        submitAction(ACTION_LUTZ, input, scope -> {
+                    assert !input.isBlank();
+                    var cm = chrome.getContextManager();
+                    var context = cm.liveContext();
+
+                    // Use ArchitectAgent for task generation without search
+                    var codeModel = cm.getCodeModel();
+                    var agent = new ArchitectAgent(cm, modelToUse, codeModel, input, scope);
+                    return agent.execute();
+                })
+                .thenRun(() -> {
+                    // After planning completes, auto-start executing tasks
+                    SwingUtilities.invokeLater(() -> {
+                        var newTasks = contextManager.liveContext().getTaskListDataOrEmpty().tasks().stream()
+                                .filter(t -> !t.done())
+                                .map(TaskList.TaskItem::text)
+                                .filter(taskText -> !preExistingIncompleteTasks.contains(taskText))
+                                .collect(java.util.stream.Collectors.toSet());
+
+                        if (!newTasks.isEmpty()) {
+                            logger.debug(
+                                    "Lutz mode without search completed with {} new task(s), auto-starting execution",
+                                    newTasks.size());
+                            chrome.getTaskListPanel().showAutoPlayGateDialogAndAct(preExistingIncompleteTasks);
+                        }
+                    });
+                });
+    }
+
+    /**
+     * Scenario 5: Perform agentic search, then answer the question
+     */
+    private void runSearchThenAsk() {
+        var input = getInstructions();
+        if (input.isBlank()) {
+            chrome.toolError("Please provide a question");
+            return;
+        }
+
+        final var modelToUse = selectDropdownModelOrShowError("Search+Ask");
+        if (modelToUse == null) {
+            updateButtonStates();
+            return;
+        }
+
+        chrome.getProject().addToInstructionsHistory(input, 20);
+        clearCommandInput();
+
+        // Use SearchAgent with ANSWER_ONLY objective
+        submitAction("Search+Ask", input, scope -> {
+            assert !input.isBlank();
+            var cm = chrome.getContextManager();
+            var context = cm.liveContext();
+
+            SearchAgent agent = new SearchAgent(context, input, modelToUse, SearchAgent.Objective.ANSWER_ONLY, scope);
+            try {
+                agent.scanInitialContext();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return new TaskResult(
+                        cm,
+                        "Search+Ask: " + input,
+                        cm.getIo().getLlmRawMessages(),
+                        cm.liveContext(),
+                        new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
+                        new TaskResult.TaskMeta(
+                                TaskResult.Type.SEARCH, Service.ModelConfig.from(modelToUse, cm.getService())));
+            }
+            return agent.execute();
+        });
+    }
+
+    /**
+     * Scenario 6: Perform agentic search to fill context, then run code agent
+     */
+    private void runSearchThenCode() {
+        var input = getInstructions();
+        if (input.isBlank()) {
+            chrome.toolError("Please provide a coding task");
+            return;
+        }
+
+        final var searchModel = selectDropdownModelOrShowError("Search");
+        if (searchModel == null) {
+            updateButtonStates();
+            return;
+        }
+
+        chrome.getProject().addToInstructionsHistory(input, 20);
+        clearCommandInput();
+
+        // First run SearchAgent with WORKSPACE_ONLY to fill context
+        submitAction("Search+Code", input, scope -> {
+            assert !input.isBlank();
+            var cm = chrome.getContextManager();
+            var context = cm.liveContext();
+
+            // Step 1: Search to fill workspace
+            SearchAgent searchAgent =
+                    new SearchAgent(context, input, searchModel, SearchAgent.Objective.WORKSPACE_ONLY, scope);
+            try {
+                searchAgent.scanInitialContext();
+                TaskResult searchResult = searchAgent.execute();
+                context = scope.append(searchResult);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return new TaskResult(
+                        cm,
+                        "Search+Code: " + input,
+                        cm.getIo().getLlmRawMessages(),
+                        cm.liveContext(),
+                        new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
+                        new TaskResult.TaskMeta(
+                                TaskResult.Type.SEARCH, Service.ModelConfig.from(searchModel, cm.getService())));
+            }
+
+            // Step 2: Run CodeAgent on the filled workspace
+            var codeModel = cm.getCodeModel();
+            CodeAgent codeAgent = new CodeAgent(cm, codeModel);
+            return codeAgent.runTask(input, Set.of());
+        });
     }
 
     private void refreshModeIndicator() {
