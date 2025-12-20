@@ -1,5 +1,6 @@
 package ai.brokk.gui.components;
 
+import ai.brokk.IContextManager;
 import ai.brokk.Service;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
@@ -11,6 +12,7 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
@@ -29,7 +31,7 @@ import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
-public class TokenUsageBar extends JComponent implements ThemeAware {
+public class TokenUsageBar extends JComponent implements ThemeAware, IContextManager.ContextListener {
     private static final Logger logger = LogManager.getLogger(TokenUsageBar.class);
 
     public enum WarningLevel {
@@ -86,13 +88,20 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     private volatile int lastSuccessRate = -1;
     private volatile boolean rateIsTested = false;
 
+    // Reference to Chrome for accessing session information
+    private final Chrome chrome;
+
     public TokenUsageBar(Chrome chrome) {
+        this.chrome = chrome;
         setOpaque(false);
         setMinimumSize(new Dimension(50, 24));
         setPreferredSize(new Dimension(75, 24));
         setMaximumSize(new Dimension(125, 24));
         // Seed to enable tooltips; actual content comes from getToolTipText(MouseEvent)
         setToolTipText("Shows Workspace token usage.");
+
+        // Register as context listener to update display when managed context mode changes
+        chrome.getContextManager().addContextListener(this);
 
         // Track hover per segment and support left-click to trigger action if provided
         MouseAdapter mouseAdapter = new MouseAdapter() {
@@ -611,8 +620,25 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         int padding = 6;
 
         if (!hasContext) {
-            String msg =
-                    "No context yet - use Lutz Mode to discover and add relevant files automatically, or click the paperclip icon or drag-and-drop files from the Project Files panel.";
+            String msg;
+            // Check if simplified instructions panel is enabled
+            if (GlobalUiSettings.isSimplifiedInstructionsPanel()) {
+                // Get session info to check context mode
+                var sessionManager = chrome.getProject().getSessionManager();
+                var currentSessionId = chrome.getContextManager().getCurrentSessionId();
+                var sessionInfo = sessionManager.getSessionInfo(currentSessionId);
+
+                if (sessionInfo != null && sessionInfo.isManagedContext()) {
+                    msg = "No context yet - AI will populate context as necessary";
+                } else {
+                    msg = "No context yet - please add content to the workspace";
+                }
+            } else {
+                // Original message for non-simplified mode
+                msg =
+                        "No context yet - use Lutz Mode to discover and add relevant files automatically, or click the paperclip icon or drag-and-drop files from the Project Files panel.";
+            }
+
             int maxTextWidth = Math.max(0, width - 2 * padding);
             String shown = elide(msg, fm, maxTextWidth);
 
@@ -1032,5 +1058,16 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         applyTheme(guiTheme, false);
+    }
+
+    /**
+     * Listener method called when the context changes. This triggers a repaint
+     * to update the message displayed in the empty context area based on the
+     * current managed context mode setting.
+     */
+    @Override
+    public void contextChanged(Context context) {
+        // Repaint to update the message when context or session state changes
+        SwingUtilities.invokeLater(this::repaint);
     }
 }

@@ -1214,6 +1214,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var currentSessionId = chrome.getContextManager().getCurrentSessionId();
             sessionManager.setManagedContext(currentSessionId, true);
             updatePlaceholderIfActive();
+            tokenUsageBar.repaint();
         });
 
         manualRadio.addActionListener(e -> {
@@ -1221,6 +1222,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var currentSessionId = chrome.getContextManager().getCurrentSessionId();
             sessionManager.setManagedContext(currentSessionId, false);
             updatePlaceholderIfActive();
+            tokenUsageBar.repaint();
         });
 
         var footerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
