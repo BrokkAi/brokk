@@ -1087,6 +1087,50 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         autoFillButton.setFocusable(false);
         autoFillButton.setOpaque(false);
         autoFillButton.setToolTipText("Auto-fill context using AI analysis of instructions and session history");
+        autoFillButton.addActionListener(e -> {
+            var cm = chrome.getContextManager();
+
+            // Block if LLM is running
+            if (cm.isLlmTaskInProgress()) {
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "An action is running; cannot modify Workspace now.");
+                return;
+            }
+
+            // Get instructions from the instructions panel
+            String instructions = instructionsArea.getText().trim();
+            if (instructions.isEmpty()) {
+                chrome.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "Please enter instructions first to guide the context search.");
+                return;
+            }
+
+            // Switch to Manual Mode since user explicitly modified context
+            var sessionManager = chrome.getProject().getSessionManager();
+            var currentSessionId = cm.getCurrentSessionId();
+            sessionManager.setManagedContext(currentSessionId, false);
+
+            // Submit the agentic search action
+            cm.submitLlmAction(() -> {
+                try (var scope = cm.beginTask("Auto-fill context: " + instructions, false)) {
+                    var context = cm.liveContext();
+                    var scanModel = cm.getService().getScanModel();
+
+                    var agent = new SearchAgent(
+                            context, instructions, scanModel, SearchAgent.Objective.WORKSPACE_ONLY, scope);
+
+                    // Perform initial context scan
+                    agent.scanInitialContext();
+
+                    // Execute the search to populate workspace
+                    var result = agent.execute();
+                    scope.append(result);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+        });
 
         var contextRightPanel = new JPanel();
         contextRightPanel.setLayout(new BoxLayout(contextRightPanel, BoxLayout.X_AXIS));
