@@ -30,30 +30,12 @@ public abstract class ArchitectPrompts extends CodePrompts {
     @Override
     @Blocking
     public SystemMessage systemMessage(IContextManager cm, String reminder) {
-        var workspaceSummary = formatWorkspaceToc(cm.liveContext());
-        var styleGuide = resolveAggregatedStyleGuide(cm, cm.liveContext());
-
-        var text =
-                """
-          <instructions>
-          %s
-          </instructions>
-          <workspace-toc>
-          %s
-          </workspace-toc>
-          <style_guide>
-          %s
-          </style_guide>
-          """
-                        .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
-                        .trim();
-        return new SystemMessage(text);
+        return systemMessage(cm, cm.liveContext(), reminder);
     }
 
     @Override
     @Blocking
     public SystemMessage systemMessage(IContextManager cm, Context ctx, String reminder) {
-        var workspaceSummary = formatWorkspaceToc(ctx);
         var styleGuide = resolveAggregatedStyleGuide(cm, ctx);
 
         var text =
@@ -61,14 +43,11 @@ public abstract class ArchitectPrompts extends CodePrompts {
           <instructions>
           %s
           </instructions>
-          <workspace-toc>
-          %s
-          </workspace-toc>
           <style_guide>
           %s
           </style_guide>
           """
-                        .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
+                        .formatted(systemIntro(reminder), styleGuide)
                         .trim();
         return new SystemMessage(text);
     }
