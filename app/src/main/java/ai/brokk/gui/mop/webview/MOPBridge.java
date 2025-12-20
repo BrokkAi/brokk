@@ -616,7 +616,7 @@ public final class MOPBridge {
     public void captureText(String text) {
         var cm = contextManager;
         if (cm != null) {
-            cm.addPastedTextFragment(text);
+            cm.addPastedTextFragment(text, true);
         }
     }
 

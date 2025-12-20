@@ -1037,7 +1037,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         }
 
         if (!externalFiles.isEmpty()) {
-            contextManager.addFiles(externalFiles);
+            contextManager.addFiles(externalFiles, true);
         }
 
         // Step 1: Collect changes (on EDT) before writing to disk

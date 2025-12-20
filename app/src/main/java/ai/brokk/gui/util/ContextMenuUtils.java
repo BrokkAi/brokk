@@ -250,7 +250,7 @@ public final class ContextMenuUtils {
                     chrome.toolError("Cannot summarize: " + targetRef.getFullPath()
                             + " - ProjectFile information not available");
                 } else {
-                    boolean success = cm.addSummaries(Set.of(targetRef.getRepoFile()), Set.of());
+                    boolean success = cm.addSummaries(Set.of(targetRef.getRepoFile()), Set.of(), true);
                     if (!success) {
                         chrome.toolError("No summarizable code found");
                     }
@@ -321,7 +321,7 @@ public final class ContextMenuUtils {
                     return;
                 }
                 withTemporaryListenerDetachment(chrome, () -> {
-                    boolean success = cm.addSummaries(Set.of(projectFile), Set.of());
+                    boolean success = cm.addSummaries(Set.of(projectFile), Set.of(), true);
                     if (!success) {
                         chrome.toolError("No summarizable code found");
                     }

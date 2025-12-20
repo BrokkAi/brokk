@@ -191,7 +191,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
 
         editFileItem.addActionListener(e -> {
             var selectedProjectFiles = getSelectedFilesFromTable();
-            contextManager.addFiles(selectedProjectFiles);
+            contextManager.addFiles(selectedProjectFiles, true);
             rightClickedFile = null; // Clear after use
         });
 

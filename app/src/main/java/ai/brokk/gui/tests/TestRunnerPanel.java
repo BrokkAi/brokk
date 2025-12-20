@@ -940,7 +940,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                         }
 
                         // Add the failed test output to the workspace
-                        cm.addPastedTextFragment(output);
+                        cm.addPastedTextFragment(output, true);
 
                         // Set the instruction and run Lutz Mode when text is ready
                         InstructionsPanel instructionsPanel = chrome.getInstructionsPanel();

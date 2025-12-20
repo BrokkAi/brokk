@@ -1065,7 +1065,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param fragmentsToKeep A list of fragments from {@code sourceContext} to append. These are matched by ID.
      * @return A Future representing the completion of the task.
      */
-    public Future<?> addFilteredToContextAsync(Context sourceContext, List<ContextFragment> fragmentsToKeep) {
+    public Future<?> addFilteredToContextAsync(
+            Context sourceContext, List<ContextFragment> fragmentsToKeep, boolean userInitiated) {
         return submitExclusiveAction(() -> {
             String actionMessage = "Copy context from historical state: " + contextDescription(fragmentsToKeep);
 
@@ -1111,23 +1112,27 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
             }
 
-            pushContext(currentLiveCtx -> {
-                Context modifiedCtx = currentLiveCtx;
-                if (!fragmentsToAdd.isEmpty()) {
-                    modifiedCtx = modifiedCtx.addFragments(fragmentsToAdd);
-                }
-                return Context.createWithId(
-                                Context.newContextId(),
-                                this,
-                                modifiedCtx.allFragments().toList(),
-                                newHistory,
-                                null,
-                                CompletableFuture.completedFuture(actionMessage),
-                                currentLiveCtx.getGroupId(),
-                                currentLiveCtx.getGroupLabel(),
-                                currentLiveCtx.getMarkedReadonlyFragments().collect(Collectors.toSet()))
-                        .copyAndRefresh("Copy from History");
-            });
+            pushContext(
+                    currentLiveCtx -> {
+                        Context modifiedCtx = currentLiveCtx;
+                        if (!fragmentsToAdd.isEmpty()) {
+                            modifiedCtx = modifiedCtx.addFragments(fragmentsToAdd);
+                        }
+                        return Context.createWithId(
+                                        Context.newContextId(),
+                                        this,
+                                        modifiedCtx.allFragments().toList(),
+                                        newHistory,
+                                        null,
+                                        CompletableFuture.completedFuture(actionMessage),
+                                        currentLiveCtx.getGroupId(),
+                                        currentLiveCtx.getGroupLabel(),
+                                        currentLiveCtx
+                                                .getMarkedReadonlyFragments()
+                                                .collect(Collectors.toSet()))
+                                .copyAndRefresh("Copy from History");
+                    },
+                    userInitiated);
 
             io.showNotification(IConsoleIO.NotificationRole.INFO, actionMessage);
         });
@@ -1170,7 +1175,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      *
      * @param text The text to capture.
      */
-    public void addPastedTextFragment(String text) {
+    public void addPastedTextFragment(String text, boolean userInitiated) {
         var pasteInfoFuture = new DescribePasteWorker(this, text);
         pasteInfoFuture.execute();
 
@@ -1196,7 +1201,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 contextActionExecutor);
 
         var fragment = new ContextFragments.PasteTextFragment(this, text, descriptionFuture, syntaxStyleFuture);
-        addFragments(fragment);
+        addFragments(fragment, userInitiated);
     }
 
     /**

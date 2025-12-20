@@ -946,7 +946,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         IConsoleIO.NotificationRole.INFO, "An action is running; cannot modify Workspace now.");
                 return;
             }
-            cm.drop(List.of(fragment));
+            cm.drop(List.of(fragment), true);
             requestCommandInputFocus();
         });
 

@@ -841,7 +841,7 @@ public final class DependenciesPanel extends JPanel {
 
         var cm = chrome.getContextManager();
         cm.submitContextTask(() -> {
-            cm.addSummaries(dep.files(), Set.of());
+            cm.addSummaries(dep.files(), Set.of(), true);
         });
     }
 

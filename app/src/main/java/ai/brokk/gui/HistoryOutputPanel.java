@@ -837,7 +837,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         popup.add(resetToHereItem);
 
         JMenuItem resetToHereIncludingHistoryItem = new JMenuItem("Copy Context + History");
-        resetToHereIncludingHistoryItem.addActionListener(event -> resetContextToIncludingHistory(context));
+        resetToHereIncludingHistoryItem.addActionListener(event -> resetContextToIncludingHistory(context, true));
         popup.add(resetToHereIncludingHistoryItem);
 
         // Show diff (uses BrokkDiffPanel)
@@ -886,7 +886,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     /**
      * Creates a new context based on the files, fragments, and history from a historical context
      */
-    private void resetContextToIncludingHistory(Context targetContext) {
+    private void resetContextToIncludingHistory(Context targetContext, boolean userInitiated) {
         contextManager.resetContextToIncludingHistoryAsync(targetContext);
     }
 

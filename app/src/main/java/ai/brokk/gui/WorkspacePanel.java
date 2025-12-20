@@ -924,7 +924,7 @@ public class WorkspacePanel extends JPanel {
                         JMenuItem copyItem = new JMenuItem("Copy to Active Workspace");
                         copyItem.addActionListener(ev -> {
                             var fragsToCopy = getSelectedFragments();
-                            contextManager.addFilteredToContextAsync(requireNonNull(currentContext), fragsToCopy);
+                            contextManager.addFilteredToContextAsync(requireNonNull(currentContext), fragsToCopy, true);
                         });
                         contextMenu.removeAll();
                         contextMenu.add(copyItem);
@@ -2031,7 +2031,7 @@ public class WorkspacePanel extends JPanel {
             }
 
             // Add as string fragment (possibly converted from HTML)
-            contextManager.addPastedTextFragment(content);
+            contextManager.addPastedTextFragment(content, true);
 
             // Inform the user about what happened
             if (stacktrace == null) {

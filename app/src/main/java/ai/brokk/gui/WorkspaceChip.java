@@ -299,7 +299,7 @@ public class WorkspaceChip extends JPanel {
         if (!ensureMutatingAllowed()) {
             return;
         }
-        dropSingleFragment(getPrimaryFragment());
+        dropSingleFragment(getPrimaryFragment(), true);
     }
 
     protected void installHoverListeners() {
@@ -508,14 +508,14 @@ public class WorkspaceChip extends JPanel {
         return true;
     }
 
-    protected void dropSingleFragment(ContextFragment fragment) {
+    protected void dropSingleFragment(ContextFragment fragment, boolean userInitiated) {
         contextManager.submitContextTask(() -> {
             try {
                 // Clear any cached metrics for this fragment as it is being dropped.
                 metricsCache.remove(fragment);
 
                 if (fragment.getType() == ContextFragment.FragmentType.HISTORY || onRemoveFragment == null) {
-                    contextManager.dropWithHistorySemantics(List.of(fragment));
+                    contextManager.dropWithHistorySemantics(List.of(fragment), userInitiated);
                 } else {
                     onRemoveFragment.accept(fragment);
                 }
@@ -1332,7 +1332,7 @@ public class WorkspaceChip extends JPanel {
             for (var fragment : summaryFragments) {
                 String labelText = buildIndividualDropLabel(fragment);
                 JMenuItem item = new JMenuItem(labelText);
-                item.addActionListener(e -> dropSingleFragment(fragment));
+                item.addActionListener(e -> dropSingleFragment(fragment, true));
                 menu.add(item);
             }
 

@@ -172,7 +172,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             var finalCaptureButton = captureButton; // Final reference for lambda
             captureButton.addActionListener(e -> {
                 // Add the GitHistoryFragment to the read-only context
-                cm.addFragmentAsync(ghf);
+                cm.addFragmentAsync(ghf, true);
                 finalCaptureButton.setEnabled(false); // Disable after capture
                 finalCaptureButton.setToolTipText("Revision captured");
             });
@@ -197,7 +197,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                         finalEditButton.setToolTipText("File is in Edit context");
                     } else {
                         finalEditButton.addActionListener(e -> {
-                            cm.addFiles(List.of(this.file));
+                            cm.addFiles(List.of(this.file), true);
                             finalEditButton.setEnabled(false);
                             finalEditButton.setToolTipText("File is in Edit context");
                         });

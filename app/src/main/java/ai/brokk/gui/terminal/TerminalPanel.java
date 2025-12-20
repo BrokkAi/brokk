@@ -275,7 +275,7 @@ public class TerminalPanel extends JPanel implements ThemeAware {
                 if (console instanceof Chrome c) {
                     c.getContextManager().submitContextTask(() -> {
                         try {
-                            c.getContextManager().addPastedTextFragment(content);
+                            c.getContextManager().addPastedTextFragment(content, true);
                             SwingUtilities.invokeLater(() -> {
                                 console.showNotification(
                                         IConsoleIO.NotificationRole.INFO, "Terminal content captured to workspace");

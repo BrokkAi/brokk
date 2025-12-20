@@ -460,7 +460,7 @@ public class ContextMenuBuilder {
 
     private void editFiles(FileMenuContext context) {
         context.contextManager().submitContextTask(() -> {
-            context.contextManager().addFiles(context.files());
+            context.contextManager().addFiles(context.files(), true);
         });
     }
 
@@ -474,7 +474,7 @@ public class ContextMenuBuilder {
             return;
         }
         context.contextManager().submitContextTask(() -> {
-            context.contextManager().addSummaries(new HashSet<>(context.files()), Collections.emptySet());
+            context.contextManager().addSummaries(new HashSet<>(context.files()), Collections.emptySet(), true);
         });
     }
 
@@ -560,7 +560,7 @@ public class ContextMenuBuilder {
                     return;
                 }
 
-                context.contextManager().addFiles(List.of(file));
+                context.contextManager().addFiles(List.of(file), true);
             }
         });
     }
@@ -578,7 +578,7 @@ public class ContextMenuBuilder {
             var definition = findSymbolDefinition(context);
             if (definition.isPresent()) {
                 var file = definition.get().source();
-                context.contextManager().addSummaries(Set.of(file), Collections.emptySet());
+                context.contextManager().addSummaries(Set.of(file), Collections.emptySet(), true);
             }
         });
     }

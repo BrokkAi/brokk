@@ -908,7 +908,7 @@ public final class HeadlessExecutorMain {
                     var contextTextFragmentIds = new ArrayList<String>();
                     if (!validJobContextTexts.isEmpty()) {
                         for (var txt : validJobContextTexts) {
-                            contextManager.addPastedTextFragment(txt);
+                            contextManager.addPastedTextFragment(txt, true);
                             var live = contextManager.liveContext();
                             var fragments = live.getAllFragmentsInDisplayOrder();
                             for (int i = fragments.size() - 1; i >= 0; i--) {
@@ -1533,7 +1533,7 @@ public final class HeadlessExecutorMain {
                 return;
             }
 
-            contextManager.addPastedTextFragment(text);
+            contextManager.addPastedTextFragment(text, true);
 
             var live = contextManager.liveContext();
             var fragments = live.getAllFragmentsInDisplayOrder();
