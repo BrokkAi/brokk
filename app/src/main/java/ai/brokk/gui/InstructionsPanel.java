@@ -143,6 +143,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final MaterialToggleButton planModeToggle;
     private final JLabel planModeLabel;
     private final ActionSplitButton actionButton;
+    private final MaterialButton simplifiedSubmitButton;
     private final WandButton wandButton;
     private final ModelSelector modelSelector;
     private final TokenUsageBar tokenUsageBar;
@@ -473,6 +474,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             chrome.getProject().saveActionMode(mode);
             refreshModeIndicator();
         });
+
+        // Create simplified submit button (no dropdown)
+        simplifiedSubmitButton = new MaterialButton("Submit");
+        simplifiedSubmitButton.setOpaque(false);
+        simplifiedSubmitButton.setContentAreaFilled(true);
+        simplifiedSubmitButton.setFocusPainted(true);
+        simplifiedSubmitButton.setFocusable(true);
+        simplifiedSubmitButton.setRolloverEnabled(true);
+        simplifiedSubmitButton.addActionListener(e -> onActionButtonPressed());
+        simplifiedSubmitButton.setBackground(this.defaultActionButtonBg);
+        simplifiedSubmitButton.setForeground(Color.WHITE);
 
         modelSelector = new ModelSelector(chrome);
         modelSelector.selectConfig(chrome.getProject().getModelConfig(ModelProperties.ModelType.ARCHITECT));
@@ -1532,6 +1544,34 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         bottomPanel.add(actionButton);
+
+        // Simplified submit button (without dropdown) - same dimensions as actionButton
+        simplifiedSubmitButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        simplifiedSubmitButton.setPreferredSize(prefSize);
+        simplifiedSubmitButton.setMinimumSize(prefSize);
+        simplifiedSubmitButton.setMaximumSize(prefSize);
+        simplifiedSubmitButton.setMargin(new Insets(4, 4, 4, 10));
+        simplifiedSubmitButton.setIconTextGap(0);
+        simplifiedSubmitButton.setHorizontalTextPosition(SwingConstants.RIGHT);
+
+        // Repaint when focus changes so focus border is visible
+        simplifiedSubmitButton.addFocusListener(new FocusAdapter() {
+            @Override
+            public void focusGained(FocusEvent e) {
+                simplifiedSubmitButton.repaint();
+            }
+
+            @Override
+            public void focusLost(FocusEvent e) {
+                simplifiedSubmitButton.repaint();
+            }
+        });
+
+        bottomPanel.add(simplifiedSubmitButton);
+
+        // Set conditional visibility based on GlobalUiSettings.isSimplifiedInstructionsPanel()
+        actionButton.setVisible(!GlobalUiSettings.isSimplifiedInstructionsPanel());
+        simplifiedSubmitButton.setVisible(GlobalUiSettings.isSimplifiedInstructionsPanel());
 
         // Add spacing before read-only toggle
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
