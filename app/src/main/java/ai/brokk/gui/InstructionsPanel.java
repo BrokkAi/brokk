@@ -164,6 +164,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable MaterialToggleButton managedModeToggle;
     private @Nullable JLabel managedModeLabel;
     private @Nullable MaterialToggleButton readOnlyToggle;
+    private @Nullable HighContrastAwareButton autoFillButton;
 
     public static class ContextAreaContainer extends JPanel {
         private boolean isDragOver = false;
@@ -1082,7 +1083,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomLinePanel.add(tokenUsageBar, BorderLayout.CENTER);
 
         // Create auto-fill context button
-        var autoFillButton = new HighContrastAwareButton();
+        autoFillButton = new HighContrastAwareButton();
         SwingUtilities.invokeLater(() -> autoFillButton.setIcon(Icons.WAND));
         autoFillButton.setFocusable(false);
         autoFillButton.setOpaque(false);
@@ -2314,6 +2315,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     actionButton.setForeground(Color.WHITE);
                 }
                 actionButton.setBackground(bg);
+
+                // Simplified submit button: show stop mode
+                simplifiedSubmitButton.setIcon(Icons.STOP);
+                simplifiedSubmitButton.setText(null);
+                simplifiedSubmitButton.setEnabled(true);
+                simplifiedSubmitButton.setToolTipText("Cancel the current operation");
+                simplifiedSubmitButton.setBackground(bg);
+                if (isHighContrast) {
+                    simplifiedSubmitButton.setForeground(Color.WHITE);
+                }
             } else {
                 // If there is no running action, keep the action button enabled so the user can start an action.
                 actionButton.setEnabled(true);
@@ -2324,10 +2335,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 actionButton.setBackground(bg);
                 // Ensure combined tooltip (mode-specific + base) is shown initially
                 actionButton.updateTooltip();
+
+                // Simplified submit button: show normal mode
+                simplifiedSubmitButton.setIcon(Icons.ARROW_WARM_UP);
+                simplifiedSubmitButton.setText("Submit");
+                simplifiedSubmitButton.setEnabled(true);
+                simplifiedSubmitButton.setBackground(bg);
             }
 
             // Wand is disabled while any action is running
             wandButton.setEnabled(!isActionRunning());
+
+            // Disable autoFillButton while any action is running
+            if (autoFillButton != null) {
+                autoFillButton.setEnabled(!isActionRunning());
+            }
         });
     }
 
@@ -2358,6 +2380,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
                 actionButton.setBackground(bg);
                 actionButton.setEnabled(true);
+
+                // Simplified submit button: show stop mode
+                simplifiedSubmitButton.setIcon(Icons.STOP);
+                simplifiedSubmitButton.setText(null);
+                simplifiedSubmitButton.setEnabled(true);
+                simplifiedSubmitButton.setToolTipText("Cancel the current operation");
+                simplifiedSubmitButton.setBackground(bg);
+                if (isHighContrast) {
+                    simplifiedSubmitButton.setForeground(Color.WHITE);
+                }
             } else {
                 // Service is online and no action running: show normal mode
                 boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
@@ -2373,10 +2405,24 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
                 actionButton.setBackground(bg);
                 actionButton.setEnabled(true);
+
+                // Simplified submit button: show normal mode
+                simplifiedSubmitButton.setIcon(Icons.ARROW_WARM_UP);
+                simplifiedSubmitButton.setText("Submit");
+                simplifiedSubmitButton.setEnabled(true);
+                simplifiedSubmitButton.setBackground(bg);
+                if (isHighContrast) {
+                    simplifiedSubmitButton.setForeground(Color.WHITE);
+                }
             }
 
             // Enable/disable wand depending on running state and service availability
             wandButton.setEnabled(serviceIsOnline && !isActionRunning());
+
+            // Enable/disable autoFillButton while any action is running
+            if (autoFillButton != null) {
+                autoFillButton.setEnabled(serviceIsOnline && !isActionRunning());
+            }
 
             // Ensure storedAction is consistent with split button's selected mode
             if (serviceIsOnline) {
