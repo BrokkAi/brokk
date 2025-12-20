@@ -140,6 +140,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final Chrome chrome;
     private final JTextArea instructionsArea;
     private final VoiceInputButton micButton;
+    private final MaterialToggleButton planModeToggle;
+    private final JLabel planModeLabel;
     private final ActionSplitButton actionButton;
     private final WandButton wandButton;
     private final ModelSelector modelSelector;
@@ -401,6 +403,27 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 micButton.setBorder(original);
                 micButton.repaint();
             }
+        });
+
+        // Initialize plan mode toggle with slider and label
+        planModeToggle = new MaterialToggleButton();
+        planModeToggle.setIcon(new SwitchIcon());
+        planModeToggle.setSelectedIcon(new SwitchIcon());
+        planModeToggle.setFocusable(false);
+        planModeToggle.setOpaque(false);
+        planModeToggle.setSelected(false); // Default to plan mode disabled (normal mode)
+        planModeToggle.setToolTipText(
+                "<html>Plan Mode: AI generates a task list without auto-executing tasks<br/>Normal Mode: AI executes actions directly</html>");
+
+        planModeLabel = new JLabel("Plan mode");
+        planModeLabel.setFont(planModeLabel.getFont().deriveFont(Font.PLAIN, 11f));
+
+        // Update SessionInfo when toggle is changed
+        planModeToggle.addActionListener(e -> {
+            boolean isPlanMode = planModeToggle.isSelected();
+            var sessionManager = chrome.getProject().getSessionManager();
+            var currentSessionId = chrome.getContextManager().liveContext().id();
+            sessionManager.setPlanMode(currentSessionId, isPlanMode);
         });
 
         // Load stored action with cascading fallback: project → global → default
@@ -821,10 +844,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         topBarPanel.setLayout(new BoxLayout(topBarPanel, BoxLayout.X_AXIS));
         topBarPanel.setBorder(BorderFactory.createEmptyBorder(0, H_PAD, 2, H_PAD));
 
-        // Left-side icon group: microphone, wand (enhance), history
+        // Left-side icon group: microphone, wand (enhance), history, plan mode toggle with label
         micButton.setAlignmentY(Component.CENTER_ALIGNMENT);
         wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
         historyDropdown.setAlignmentY(Component.CENTER_ALIGNMENT);
+        planModeToggle.setAlignmentY(Component.CENTER_ALIGNMENT);
+        planModeLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
 
         // Ensure focusable for keyboard accessibility
         micButton.setFocusable(true);
@@ -840,6 +865,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         leftCluster.add(wandButton);
         leftCluster.add(Box.createHorizontalStrut(H_GAP));
         leftCluster.add(historyDropdown);
+        leftCluster.add(Box.createHorizontalStrut(H_GAP * 2)); // Extra spacing before plan mode toggle
+        leftCluster.add(planModeToggle);
+        leftCluster.add(Box.createHorizontalStrut(4)); // Small gap between toggle and label
+        leftCluster.add(planModeLabel);
 
         // Add left cluster
         topBarPanel.add(leftCluster);
@@ -1504,10 +1533,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Create read-only toggle button
         readOnlyToggle = new MaterialToggleButton();
+        // Capture non-null instance for lambdas
+        final MaterialToggleButton roToggleButton = readOnlyToggle;
         SwingUtilities.invokeLater(() -> {
             ;
-            readOnlyToggle.setIcon(Icons.EDIT_DOCUMENT);
-            readOnlyToggle.setSelectedIcon(Icons.EDIT_OFF);
+            roToggleButton.setIcon(Icons.EDIT_DOCUMENT);
+            roToggleButton.setSelectedIcon(Icons.EDIT_OFF);
         });
         readOnlyToggle.setFocusable(false);
         readOnlyToggle.setOpaque(false);
@@ -1515,9 +1546,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         readOnlyToggle.setToolTipText(
                 "<html><b>Read-Only Mode:</b> AI cannot modify files - use for questions and planning<br/>"
                         + "<b>Allow Writes Mode:</b> AI can modify and create files - use for code changes</html>");
-
-        // Capture non-null instance for action listener
-        final MaterialToggleButton roToggleButton = readOnlyToggle;
 
         // Update SessionInfo when toggle is changed
         roToggleButton.addActionListener(e -> {
