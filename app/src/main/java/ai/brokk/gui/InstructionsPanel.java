@@ -1085,7 +1085,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Create auto-fill context button
         autoFillButton = new HighContrastAwareButton();
-        SwingUtilities.invokeLater(() -> autoFillButton.setIcon(Icons.WAND));
+        var autoFillBtn = autoFillButton; // Capture for lambda to satisfy NullAway
+        SwingUtilities.invokeLater(() -> autoFillBtn.setIcon(Icons.WAND));
         autoFillButton.setFocusable(false);
         autoFillButton.setOpaque(false);
         autoFillButton.setToolTipText("Auto-fill context using AI analysis of instructions and session history");
@@ -2718,7 +2719,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Scenario 3: Generate tasks without agentic search (plan mode, manual context)
+     * Scenario 3: Generate tasks without agentic search (plan mode, manual context, read-only)
+     * Uses SearchAgent with TASKS_ONLY to ensure no file modifications (respects readOnly=true).
      */
     private void runPlanModeWithoutSearch() {
         var input = getInstructions();
@@ -2737,20 +2739,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         clearCommandInput();
         autoClearCompletedTasks();
 
-        // Generate tasks without auto-execution, without agentic search
+        // Generate tasks without auto-execution
         final var preExistingIncompleteTasks = contextManager.liveContext().getTaskListDataOrEmpty().tasks().stream()
                 .filter(t -> !t.done())
                 .map(TaskList.TaskItem::text)
                 .collect(java.util.stream.Collectors.toSet());
 
         submitAction(ACTION_PLAN, input, scope -> {
-                    assert !input.isBlank();
                     var cm = chrome.getContextManager();
                     var context = cm.liveContext();
 
-                    // Use ArchitectAgent for task generation without search
-                    var codeModel = cm.getCodeModel();
-                    var agent = new ArchitectAgent(cm, modelToUse, codeModel, input, scope);
+                    // Use SearchAgent with TASKS_ONLY to generate tasks from existing context
+                    // Skip scanInitialContext() to avoid agentic search (respects managedContext=false)
+                    SearchAgent agent = new SearchAgent(context, input, modelToUse, SearchAgent.Objective.TASKS_ONLY, scope);
                     return agent.execute();
                 })
                 .thenRun(() -> {
@@ -2796,9 +2797,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 .collect(java.util.stream.Collectors.toSet());
 
         submitAction(ACTION_LUTZ, input, scope -> {
-                    assert !input.isBlank();
                     var cm = chrome.getContextManager();
-                    var context = cm.liveContext();
 
                     // Use ArchitectAgent for task generation without search
                     var codeModel = cm.getCodeModel();
@@ -2845,7 +2844,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Use SearchAgent with ANSWER_ONLY objective
         submitAction("Search+Ask", input, scope -> {
-            assert !input.isBlank();
             var cm = chrome.getContextManager();
             var context = cm.liveContext();
 
@@ -2888,7 +2886,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // First run SearchAgent with WORKSPACE_ONLY to fill context
         submitAction("Search+Code", input, scope -> {
-            assert !input.isBlank();
             var cm = chrome.getContextManager();
             var context = cm.liveContext();
 
