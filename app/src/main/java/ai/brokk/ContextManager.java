@@ -763,7 +763,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Return the currently selected FROZEN context from history in the UI. For operations, use topContext() to get the
      * live context.
      */
-    public @Nullable Context selectedContext() {
+    public Context selectedContext() {
         return contextHistory.getSelectedContext();
     }
 

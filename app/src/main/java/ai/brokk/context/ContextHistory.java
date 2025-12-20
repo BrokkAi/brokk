@@ -117,11 +117,14 @@ public class ContextHistory {
         return !redo.isEmpty();
     }
 
-    public synchronized @Nullable Context getSelectedContext() {
+    /**
+     * Returns the UI-selected context, always non-null once the history is initialized.
+     */
+    public synchronized Context getSelectedContext() {
         if (selected == null || !getContextIds().contains(selected.id())) {
             selected = liveContext();
         }
-        return selected;
+        return castNonNull(selected);
     }
 
     /**
