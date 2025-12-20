@@ -89,13 +89,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         this.chrome = chrome;
 
-        this.model = new TaskListModel(() -> {
-            Context ctx = currentContext;
-            if (ctx != null) {
-                return ctx.getTaskListDataOrEmpty().tasks();
-            }
-            return chrome.getContextManager().getTaskList().tasks();
-        });
+        this.model = new TaskListModel(() -> currentContext.getTaskListDataOrEmpty().tasks());
         this.currentContext = chrome.getContextManager().liveContext();
         this.list = new JList<>(model);
 
@@ -2186,10 +2180,10 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         UUID loaded = this.sessionIdAtLoad;
 
         var cm = chrome.getContextManager();
-        Context selected = cm.selectedContext();
-        boolean onLatest = (selected == null) || selected.equals(cm.liveContext());
+        Context selected = requireNonNull(cm.selectedContext());
+        boolean onLatest = selected.equals(cm.liveContext());
 
-        this.currentContext = onLatest ? cm.liveContext() : requireNonNull(selected);
+        this.currentContext = onLatest ? cm.liveContext() : selected;
 
         SwingUtilities.invokeLater(() -> setTaskListEditable(onLatest));
 

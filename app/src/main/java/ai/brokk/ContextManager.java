@@ -1504,11 +1504,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (items.isEmpty()) {
             // If no valid tasks provided, clear the task list
             var newData = new TaskList.TaskListData(List.of());
-            return setTaskList(context, newData, "Task list cleared");
+            return deriveContextWithTaskList(context, newData, "Task list cleared");
         }
 
         var newData = new TaskList.TaskListData(List.copyOf(items));
-        return setTaskList(context, newData, "Task list replaced");
+        return deriveContextWithTaskList(context, newData, "Task list replaced");
     }
 
     /**
@@ -1519,7 +1519,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data, action));
     }
 
-    public Context setTaskList(Context context, TaskList.TaskListData data, String action) {
+    public Context deriveContextWithTaskList(Context context, TaskList.TaskListData data, String action) {
         return context.withTaskList(data, action);
     }
 
@@ -1638,7 +1638,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         var updated = new ArrayList<>(tasks);
         updated.set(idx, new TaskList.TaskItem(task.title(), task.text(), true));
-        return setTaskList(context, new TaskList.TaskListData(List.copyOf(updated)), "Task list marked task done");
+        return deriveContextWithTaskList(
+                context, new TaskList.TaskListData(List.copyOf(updated)), "Task list marked task done");
     }
 
     private void captureGitState(Context frozenContext) {
