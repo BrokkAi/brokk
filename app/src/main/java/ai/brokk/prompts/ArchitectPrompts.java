@@ -222,6 +222,10 @@ public abstract class ArchitectPrompts extends CodePrompts {
                 .formatted(goal, formatWorkspaceToc(ctx), workspaceWarning);
     }
 
+    public static String instructionsMarker() {
+        return "Please decide the next tool action(s) to make progress towards resolving the goal.";
+    }
+
     /**
      * Formats related files and their identifiers for prompts.
      * Each entry is rendered as:

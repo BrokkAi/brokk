@@ -920,6 +920,20 @@ public class ArchitectAgent {
         // Final user message with the goal and specific instructions for this turn, including workspace warnings
         messages.add(new UserMessage(
                 ArchitectPrompts.instance.getFinalInstructions(context, goal, workspaceTokenSize, maxInputTokens)));
-        return messages;
+
+        // Simplify prior UserMessages containing instructionsMarker to just the marker;
+        // this avoids sending redundant instruction text on subsequent turns
+        var marker = ArchitectPrompts.instructionsMarker();
+        return messages.stream()
+                .map(msg -> {
+                    if (msg instanceof UserMessage um) {
+                        var text = um.singleText();
+                        if (text.contains(marker)) {
+                            return new UserMessage(marker);
+                        }
+                    }
+                    return msg;
+                })
+                .toList();
     }
 }
