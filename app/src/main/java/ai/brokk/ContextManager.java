@@ -16,7 +16,8 @@ import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.cli.HeadlessConsole;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.context.ContextFragment.PathFragment;
+import ai.brokk.context.ContextFragments;
+import ai.brokk.context.ContextFragments.PathFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ContextHistory.UndoResult;
 import ai.brokk.exception.GlobalExceptionHandler;
@@ -610,9 +611,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
     Set<ProjectFile> getContextFiles() {
         return liveContext()
                 .allFragments()
-                .filter(f -> f instanceof ContextFragment.PathFragment)
-                .map(f -> (ContextFragment.PathFragment) f)
-                .map(ContextFragment.PathFragment::file)
+                .filter(f -> f instanceof PathFragment)
+                .map(f -> (PathFragment) f)
+                .map(ContextFragments.PathFragment::file)
                 .filter(bf -> bf instanceof ProjectFile)
                 .map(bf -> (ProjectFile) bf)
                 .collect(Collectors.toSet());
@@ -1036,7 +1037,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /**
      * Appends selected fragments from a historical context to the current live context. If a
-     * {@link ContextFragment.HistoryFragment} is among {@code fragmentsToKeep}, its task entries are also appended to
+     * {@link ContextFragments.HistoryFragment} is among {@code fragmentsToKeep}, its task entries are also appended to
      * the current live context's history. A new state representing this action is pushed to the context history.
      *
      * @param sourceContext The historical context to source fragments and history from.
@@ -1051,9 +1052,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             List<TaskEntry> finalHistory = new ArrayList<>(liveContext().getTaskHistory());
             Set<TaskEntry> existingEntries = new HashSet<>(finalHistory);
 
-            Optional<ContextFragment.HistoryFragment> selectedHistoryFragmentOpt = fragmentsToKeep.stream()
-                    .filter(ContextFragment.HistoryFragment.class::isInstance)
-                    .map(ContextFragment.HistoryFragment.class::cast)
+            Optional<ContextFragments.HistoryFragment> selectedHistoryFragmentOpt = fragmentsToKeep.stream()
+                    .filter(ContextFragments.HistoryFragment.class::isInstance)
+                    .map(ContextFragments.HistoryFragment.class::cast)
                     .findFirst();
 
             if (selectedHistoryFragmentOpt.isPresent()) {
@@ -1075,11 +1076,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
             for (ContextFragment fragment : fragmentsToKeep) {
                 // Use semantic comparison (hasSameSource) to identify which category this fragment belongs to
                 boolean isMatch = sourceFragments.stream()
-                        .anyMatch(f -> !(f instanceof ContextFragment.HistoryFragment) && fragment.hasSameSource(f));
+                        .anyMatch(f -> !(f instanceof ContextFragments.HistoryFragment) && fragment.hasSameSource(f));
 
                 if (isMatch) {
                     fragmentsToAdd.add(fragment);
-                } else if (!(fragment instanceof ContextFragment.HistoryFragment)) {
+                } else if (!(fragment instanceof ContextFragments.HistoryFragment)) {
                     // HistoryFragment is handled by selectedHistoryFragmentOpt
                     logger.warn(
                             "Fragment '{}' (ID: {}) from fragmentsToKeep does not match any source fragments. Type: {}",
@@ -1117,7 +1118,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      *
      * @param image The java.awt.Image pasted from the clipboard.
      */
-    public ContextFragment.AnonymousImageFragment addPastedImageFragment(
+    public ContextFragments.AnonymousImageFragment addPastedImageFragment(
             Image image, @Nullable String descriptionOverride) {
         Future<String> descriptionFuture;
         if (descriptionOverride != null && !descriptionOverride.isBlank()) {
@@ -1127,7 +1128,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         // Must be final for lambda capture in pushContext
-        final var fragment = new ContextFragment.AnonymousImageFragment(this, image, descriptionFuture);
+        final var fragment = new ContextFragments.AnonymousImageFragment(this, image, descriptionFuture);
         pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
         return fragment;
     }
@@ -1173,7 +1174,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 },
                 contextActionExecutor);
 
-        var fragment = new ContextFragment.PasteTextFragment(this, text, descriptionFuture, syntaxStyleFuture);
+        var fragment = new ContextFragments.PasteTextFragment(this, text, descriptionFuture, syntaxStyleFuture);
         addFragments(fragment);
     }
 
@@ -1212,7 +1213,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** usage for identifier with control over including test files */
     public void usageForIdentifier(String identifier, boolean includeTestFiles) {
-        var fragment = new ContextFragment.UsageFragment(this, identifier, includeTestFiles);
+        var fragment = new ContextFragments.UsageFragment(this, identifier, includeTestFiles);
         pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
         String message = "Added uses of " + identifier + (includeTestFiles ? " (including tests)" : "");
         io.showNotification(IConsoleIO.NotificationRole.INFO, message);
@@ -1224,7 +1225,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .orElse(null);
 
         if (sourceCode != null) {
-            var fragment = new ContextFragment.StringFragment(
+            var fragment = new ContextFragments.StringFragment(
                     this,
                     sourceCode,
                     "Source code for " + codeUnit.fqName(),
@@ -1250,7 +1251,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     IConsoleIO.NotificationRole.INFO, "No callers found for " + methodName + " (pre-check).");
             return;
         }
-        var fragment = new ContextFragment.CallGraphFragment(this, methodName, depth, false);
+        var fragment = new ContextFragments.CallGraphFragment(this, methodName, depth, false);
         pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
         io.showNotification(
                 IConsoleIO.NotificationRole.INFO,
@@ -1264,7 +1265,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     IConsoleIO.NotificationRole.INFO, "No callees found for " + methodName + " (pre-check).");
             return;
         }
-        var fragment = new ContextFragment.CallGraphFragment(this, methodName, depth, true);
+        var fragment = new ContextFragments.CallGraphFragment(this, methodName, depth, true);
         pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
         io.showNotification(
                 IConsoleIO.NotificationRole.INFO,
@@ -1303,7 +1304,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             logger.debug("No relevant methods found in stacktrace -- adding as text");
             return false;
         }
-        var fragment = new ContextFragment.StacktraceFragment(
+        var fragment = new ContextFragments.StacktraceFragment(
                 this, sources, stacktrace.getOriginalText(), exception, content.toString());
         pushContext(currentLiveCtx -> currentLiveCtx.addFragments(fragment));
         return true;
@@ -1328,7 +1329,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Produce one SummaryFragment per file
         if (!files.isEmpty()) {
             for (var pf : files) {
-                var fragment = new ContextFragment.SummaryFragment(
+                var fragment = new ContextFragments.SummaryFragment(
                         this, pf.toString(), ContextFragment.SummaryType.FILE_SKELETONS);
                 addFragments(fragment);
             }
@@ -1342,7 +1343,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             var classFqns = classes.stream().map(CodeUnit::fqName).collect(Collectors.toList());
             for (var fqn : classFqns) {
                 var fragment =
-                        new ContextFragment.SummaryFragment(this, fqn, ContextFragment.SummaryType.CODEUNIT_SKELETON);
+                        new ContextFragments.SummaryFragment(this, fqn, ContextFragment.SummaryType.CODEUNIT_SKELETON);
                 addFragments(fragment);
             }
             String message = "Summarize " + joinClassesForOutput(classFqns);
@@ -1721,7 +1722,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 && io.getInstructionsPanel() != null
                 && MainProject.getHistoryAutoCompress()
                 && !newLiveContext.getTaskHistory().isEmpty()) {
-            var cf = new ContextFragment.HistoryFragment(this, newLiveContext.getTaskHistory());
+            var cf = new ContextFragments.HistoryFragment(this, newLiveContext.getTaskHistory());
             int tokenCount = Messages.getApproximateTokens(cf.format().renderNowOr("(Unknown)"));
 
             var svc = getService();
@@ -2225,7 +2226,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // prepare MOP
         var history = liveContext().getTaskHistory();
         var messages = List.<ChatMessage>of(new UserMessage(input));
-        var taskFragment = new ContextFragment.TaskFragment(this, messages, input);
+        var taskFragment = new ContextFragments.TaskFragment(this, messages, input);
         io.setLlmAndHistoryOutput(history, new TaskEntry(-1, taskFragment, null));
 
         // rename the session if needed
@@ -2489,7 +2490,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private Context newContextFrom(Context sourceContext) {
         var newActionDescription = "New session (from: " + sourceContext.getAction() + ")";
         var newActionFuture = CompletableFuture.completedFuture(newActionDescription);
-        var newParsedOutputFragment = new ContextFragment.TaskFragment(
+        var newParsedOutputFragment = new ContextFragments.TaskFragment(
                 this, List.of(SystemMessage.from(newActionDescription)), newActionDescription);
         return sourceContext.withParsedOutput(newParsedOutputFragment, newActionFuture);
     }

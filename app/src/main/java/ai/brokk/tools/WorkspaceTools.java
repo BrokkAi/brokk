@@ -7,6 +7,7 @@ import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.util.ComputedValue;
@@ -294,7 +295,7 @@ public class WorkspaceTools {
             return "Cannot add usages: symbol cannot be empty";
         }
 
-        var fragment = new ContextFragment.UsageFragment(context.getContextManager(), symbol); // Pass contextManager
+        var fragment = new ContextFragments.UsageFragment(context.getContextManager(), symbol); // Pass contextManager
         context = context.addFragments(List.of(fragment));
 
         return "Added dynamic usage analysis for symbol '%s'.".formatted(symbol);
@@ -503,7 +504,7 @@ public class WorkspaceTools {
 
     // Helper: determine if a fragment can be dropped per SpecialTextType policy.
     private static boolean isDroppableFragment(ContextFragment fragment) {
-        if (fragment instanceof ContextFragment.StringFragment sf) {
+        if (fragment instanceof ContextFragments.StringFragment sf) {
             return sf.droppable();
         }
         return true;

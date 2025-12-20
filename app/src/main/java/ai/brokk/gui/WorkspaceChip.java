@@ -5,6 +5,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.gui.ChipColorUtils.ChipKind;
 import ai.brokk.gui.components.MaterialButton;
@@ -154,7 +155,7 @@ public class WorkspaceChip extends JPanel {
 
         // Initial label text (may be updated once computed values are ready).
         // Truncate to keep the chip compact so the close button remains visible.
-        if (fragment instanceof ContextFragment.AbstractComputedFragment) {
+        if (fragment instanceof ContextFragments.AbstractComputedFragment) {
             label.setText("Loading...");
         } else if (kind == ChipKind.OTHER) {
             label.setText(truncateForDisplay(capitalizeFirst(safeShortDescription)));
@@ -425,7 +426,7 @@ public class WorkspaceChip extends JPanel {
 
         // Special styling for Task List: dedicated color scheme
         ContextFragment fragment = getPrimaryFragment();
-        if (fragment instanceof ContextFragment.StringFragment sf) {
+        if (fragment instanceof ContextFragments.StringFragment sf) {
             if (SpecialTextType.TASK_LIST.description().equals(sf.description().renderNowOrNull())) {
                 bg = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_BACKGROUND);
                 fg = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_FOREGROUND);
@@ -1366,7 +1367,7 @@ public class WorkspaceChip extends JPanel {
                     .map(Map.Entry::getKey)
                     .orElse(SyntaxConstants.SYNTAX_STYLE_NONE);
 
-            var syntheticFragment = new ContextFragment.StringFragment(
+            var syntheticFragment = new ContextFragments.StringFragment(
                     chrome.getContextManager(), combinedText.toString(), title, syntaxStyle);
             chrome.openFragmentPreview(syntheticFragment);
         }
@@ -1494,7 +1495,7 @@ public class WorkspaceChip extends JPanel {
                 candidateFiles = List.of();
             } else {
                 candidateFiles = selected.getAllFragmentsInDisplayOrder().stream()
-                        .filter(f -> !(f instanceof ContextFragment.SummaryFragment))
+                        .filter(f -> !(f instanceof ContextFragments.SummaryFragment))
                         .filter(f -> f.getType() != ContextFragment.FragmentType.SKELETON)
                         .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
                         .distinct()
@@ -1511,7 +1512,7 @@ public class WorkspaceChip extends JPanel {
                         }
                     })
                     .thenAccept(content -> SwingUtilities.invokeLater(() -> {
-                        var syntheticFragment = new ContextFragment.StringFragment(
+                        var syntheticFragment = new ContextFragments.StringFragment(
                                 chrome.getContextManager(), content, LABEL_TEXT, SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
                         chrome.openFragmentPreview(syntheticFragment);
                     }));

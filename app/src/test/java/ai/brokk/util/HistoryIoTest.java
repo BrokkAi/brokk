@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
@@ -33,7 +33,7 @@ public class HistoryIoTest {
     @BeforeEach
     void setup() throws IOException {
         contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
-        ContextFragment.setMinimumId(1);
+        ContextFragments.setMinimumId(1);
     }
 
     @Test
@@ -45,7 +45,7 @@ public class HistoryIoTest {
         // Add 3 contexts with AI responses (have parsedOutput)
         for (int i = 0; i < 3; i++) {
             var msgs = List.<ChatMessage>of(UserMessage.from("Query " + i), AiMessage.from("Response " + i));
-            var taskFragment = new ContextFragment.TaskFragment(contextManager, msgs, "Task " + i);
+            var taskFragment = new ContextFragments.TaskFragment(contextManager, msgs, "Task " + i);
             var ctx = new Context(contextManager)
                     .addHistoryEntry(
                             new TaskEntry(i + 1, taskFragment, null),
@@ -55,11 +55,11 @@ public class HistoryIoTest {
         }
 
         // Add 2 contexts without AI responses (no parsedOutput - just fragments)
-        var sf1 = new ContextFragment.StringFragment(contextManager, "content1", "desc1", null);
+        var sf1 = new ContextFragments.StringFragment(contextManager, "content1", "desc1", null);
         var ctx1 = new Context(contextManager).addFragments(sf1);
         history.pushContext(ctx1);
 
-        var sf2 = new ContextFragment.StringFragment(contextManager, "content2", "desc2", null);
+        var sf2 = new ContextFragments.StringFragment(contextManager, "content2", "desc2", null);
         var ctx2 = new Context(contextManager).addFragments(sf2);
         history.pushContext(ctx2);
 

@@ -7,7 +7,7 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.git.TestRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.tasks.TaskList;
@@ -105,7 +105,7 @@ public final class TestContextManager implements IContextManager {
     }
 
     public void addEditableFile(ProjectFile file) {
-        liveContext = liveContext.addFragments(new ContextFragment.ProjectPathFragment(file, this));
+        liveContext = liveContext.addFragments(new ContextFragments.ProjectPathFragment(file, this));
     }
 
     @Override

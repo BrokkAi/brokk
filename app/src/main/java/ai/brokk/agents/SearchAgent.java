@@ -13,6 +13,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.git.GitWorkflow;
@@ -938,7 +939,7 @@ public class SearchAgent {
         int finalBudget = cm.getService().getMaxInputTokens(this.model) / 2 - Messages.getApproximateTokens(context);
         if (totalTokens > finalBudget) {
             var summaries = ContextFragment.describe(recommendation.fragments());
-            context = context.addFragments(List.of(new ContextFragment.StringFragment(
+            context = context.addFragments(List.of(new ContextFragments.StringFragment(
                     cm,
                     "ContextAgent analyzed the repository and marked these fragments as highly relevant. Since including all would exceed the model’s context capacity, their summarized descriptions are provided below:\n\n"
                             + summaries,
@@ -1000,7 +1001,7 @@ public class SearchAgent {
 
         // Process ProjectPathFragments
         var pathFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.PROJECT_PATH, List.of()).stream()
-                .map(ContextFragment.ProjectPathFragment.class::cast)
+                .map(ContextFragments.ProjectPathFragment.class::cast)
                 .toList();
         if (!pathFragments.isEmpty()) {
             logger.debug(
@@ -1011,7 +1012,7 @@ public class SearchAgent {
 
         // Process SkeletonFragments
         var skeletonFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.SKELETON, List.of()).stream()
-                .map(ContextFragment.SummaryFragment.class::cast)
+                .map(ContextFragments.SummaryFragment.class::cast)
                 .toList();
         if (!skeletonFragments.isEmpty()) {
             context = context.addFragments(skeletonFragments);
@@ -1022,8 +1023,8 @@ public class SearchAgent {
     }
 
     private void emitContextAddedExplanation(
-            List<ContextFragment.ProjectPathFragment> pathFragments,
-            List<ContextFragment.SummaryFragment> skeletonFragments) {
+            List<ContextFragments.ProjectPathFragment> pathFragments,
+            List<ContextFragments.SummaryFragment> skeletonFragments) {
         var details = new LinkedHashMap<String, Object>();
         details.put("fragmentCount", pathFragments.size() + skeletonFragments.size());
 
@@ -1213,7 +1214,7 @@ public class SearchAgent {
         }
 
         var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
-        var fragment = new ContextFragment.TaskFragment(cm, finalMessages, goal);
+        var fragment = new ContextFragments.TaskFragment(cm, finalMessages, goal);
 
         // Record final metrics
         recordFinalWorkspaceState();
@@ -1234,7 +1235,7 @@ public class SearchAgent {
         }
 
         String action = "Search: " + goal + " [" + details.reason().name() + "]";
-        var fragment = new ContextFragment.TaskFragment(cm, finalMessages, goal);
+        var fragment = new ContextFragments.TaskFragment(cm, finalMessages, goal);
 
         // Record final metrics
         recordFinalWorkspaceState();
@@ -1317,8 +1318,8 @@ public class SearchAgent {
      */
     private String buildNonDroppableSection() {
         var items = context.allFragments()
-                .filter(f -> f instanceof ContextFragment.StringFragment)
-                .map(f -> (ContextFragment.StringFragment) f)
+                .filter(f -> f instanceof ContextFragments.StringFragment)
+                .map(f -> (ContextFragments.StringFragment) f)
                 .filter(sf ->
                         sf.specialType().isPresent() && !sf.specialType().get().droppable())
                 .map(sf -> "- " + sf.description().join() + " (fragmentid=" + sf.id() + "): non-droppable by policy.")
@@ -1344,7 +1345,7 @@ public class SearchAgent {
      */
     private boolean hasDroppableFragments() {
         return context.allFragments().anyMatch(f -> {
-            if (f instanceof ContextFragment.StringFragment sf) {
+            if (f instanceof ContextFragments.StringFragment sf) {
                 var st = sf.specialType();
                 if (st.isPresent()) {
                     return st.get().droppable();

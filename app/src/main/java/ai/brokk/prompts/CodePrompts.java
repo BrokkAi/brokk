@@ -11,6 +11,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.util.ImageUtil;
 import ai.brokk.util.StyleGuideResolver;
@@ -636,13 +637,13 @@ public abstract class CodePrompts {
         var readOnlyFragments = ctx.getReadonlyFragments().toList();
         var summaryFragments = combineSummaries
                 ? readOnlyFragments.stream()
-                        .filter(ContextFragment.SummaryFragment.class::isInstance)
-                        .map(ContextFragment.SummaryFragment.class::cast)
+                        .filter(ContextFragments.SummaryFragment.class::isInstance)
+                        .map(ContextFragments.SummaryFragment.class::cast)
                         .toList()
-                : List.<ContextFragment.SummaryFragment>of();
+                : List.<ContextFragments.SummaryFragment>of();
         var otherFragments = combineSummaries
                 ? readOnlyFragments.stream()
-                        .filter(f -> !(f instanceof ContextFragment.SummaryFragment))
+                        .filter(f -> !(f instanceof ContextFragments.SummaryFragment))
                         .toList()
                 : readOnlyFragments;
 
@@ -652,7 +653,7 @@ public abstract class CodePrompts {
 
         // --- Append summary fragments if present ---
         if (!summaryFragments.isEmpty()) {
-            var summaryText = ContextFragment.SummaryFragment.combinedText(summaryFragments);
+            var summaryText = ContextFragments.SummaryFragment.combinedText(summaryFragments);
             var combinedBlock =
                     """
                             <api_summaries fragmentid="api_summaries">
@@ -784,7 +785,7 @@ public abstract class CodePrompts {
         for (var fragment : fragments) {
             if (fragment.isText()) {
                 String formatted;
-                if (vp != null && fragment instanceof ContextFragment.StringFragment sf) {
+                if (vp != null && fragment instanceof ContextFragments.StringFragment sf) {
                     var visibleText = sf.textForAgent(vp);
                     formatted =
                             """

@@ -13,6 +13,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties.ModelType;
@@ -954,7 +955,7 @@ class CodeAgentTest {
         var roFile = cm.toFile("ro.txt");
         roFile.write("hello");
         // Build a context with a ProjectPathFragment for the file, mark it read-only
-        var roFrag = new ContextFragment.ProjectPathFragment(roFile, cm);
+        var roFrag = new ContextFragments.ProjectPathFragment(roFile, cm);
         var ctx = newContext().addFragments(List.of(roFrag));
         ctx = ctx.setReadonly(roFrag, true);
 
@@ -1006,7 +1007,7 @@ class CodeAgentTest {
         // and a read-only virtual fragment (simulating a Code or Usage reference)
         var file = cm.toFile("file.txt");
         file.write("hello");
-        var editFrag = new ContextFragment.ProjectPathFragment(file, cm);
+        var editFrag = new ContextFragments.ProjectPathFragment(file, cm);
         var ctx = newContext().addFragments(List.of(editFrag));
 
         // Simulate a read-only virtual fragment by wrapping in a mock (this is a simplified test)
@@ -1055,7 +1056,7 @@ class CodeAgentTest {
         cm.addEditableFile(file);
 
         // Create initial context with the file
-        var initialFragment = new ContextFragment.ProjectPathFragment(file, cm);
+        var initialFragment = new ContextFragments.ProjectPathFragment(file, cm);
         var initialContext = newContext().addFragments(List.of(initialFragment));
 
         // LLM provides an edit
@@ -1096,11 +1097,12 @@ class CodeAgentTest {
         // Assert: TaskResult.context does NOT have the conversation baked in
         // The context should contain file fragments but not the conversation/task messages
         var contextFragments = result.context().getAllFragmentsInDisplayOrder();
-        boolean hasTaskFragment = contextFragments.stream().anyMatch(f -> f instanceof ContextFragment.TaskFragment);
+        boolean hasTaskFragment = contextFragments.stream().anyMatch(f -> f instanceof ContextFragments.TaskFragment);
         assertFalse(hasTaskFragment, "TaskResult.context should NOT contain a TaskFragment with the conversation");
 
         // Additional verification: the context should still have the file fragment
-        var hasFileFragment = contextFragments.stream().anyMatch(f -> f instanceof ContextFragment.ProjectPathFragment);
+        var hasFileFragment =
+                contextFragments.stream().anyMatch(f -> f instanceof ContextFragments.ProjectPathFragment);
         assertTrue(hasFileFragment, "TaskResult.context should still contain file fragments");
     }
 
@@ -1185,38 +1187,38 @@ class CodeAgentTest {
         assertFalse(analyzer.getAllDeclarations().isEmpty());
 
         // Build fragments
-        var ppfAndSummaryEditablePpf = new ContextFragment.ProjectPathFragment(ppfAndSummaryEditableFile, cm);
-        var ppfReadonlyPpf = new ContextFragment.ProjectPathFragment(ppfReadonlyFile, cm);
+        var ppfAndSummaryEditablePpf = new ContextFragments.ProjectPathFragment(ppfAndSummaryEditableFile, cm);
+        var ppfReadonlyPpf = new ContextFragments.ProjectPathFragment(ppfReadonlyFile, cm);
 
-        var summarySummaryOnly = new ContextFragment.SummaryFragment(
+        var summarySummaryOnly = new ContextFragments.SummaryFragment(
                 cm, "com.example.SummaryOnly", ContextFragment.SummaryType.CODEUNIT_SKELETON);
         assertFalse(summarySummaryOnly.files().join().isEmpty());
-        var summaryPpfAndSummaryEditable = new ContextFragment.SummaryFragment(
+        var summaryPpfAndSummaryEditable = new ContextFragments.SummaryFragment(
                 cm, "com.example.PpfAndSummaryEditable", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-        var summaryPpfReadonly = new ContextFragment.SummaryFragment(
+        var summaryPpfReadonly = new ContextFragments.SummaryFragment(
                 cm, "com.example.PpfReadonly", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-        var summaryCodeAndSummaryEditable = new ContextFragment.SummaryFragment(
+        var summaryCodeAndSummaryEditable = new ContextFragments.SummaryFragment(
                 cm, "com.example.CodeAndSummaryEditable", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-        var summaryCodeReadonlyOnly = new ContextFragment.SummaryFragment(
+        var summaryCodeReadonlyOnly = new ContextFragments.SummaryFragment(
                 cm, "com.example.CodeReadonlyOnly", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-        var summaryCodeReadonlyWithPpf = new ContextFragment.SummaryFragment(
+        var summaryCodeReadonlyWithPpf = new ContextFragments.SummaryFragment(
                 cm, "com.example.CodeReadonlyWithPpf", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-        var summaryCodeOnly = new ContextFragment.SummaryFragment(
+        var summaryCodeOnly = new ContextFragments.SummaryFragment(
                 cm, "com.example.CodeOnly", ContextFragment.SummaryType.CODEUNIT_SKELETON);
 
-        var codeCodeAndSummaryEditable = new ContextFragment.CodeFragment(
+        var codeCodeAndSummaryEditable = new ContextFragments.CodeFragment(
                 cm,
                 analyzer.getTopLevelDeclarations(codeAndSummaryEditableFile).stream()
                         .filter(CodeUnit::isClass)
                         .findFirst()
                         .orElseThrow());
-        var codeCodeReadonlyOnly = new ContextFragment.CodeFragment(
+        var codeCodeReadonlyOnly = new ContextFragments.CodeFragment(
                 cm,
                 analyzer.getTopLevelDeclarations(codeReadonlyOnlyFile).stream()
                         .filter(CodeUnit::isClass)
                         .findFirst()
                         .orElseThrow());
-        var codeCodeOnly = new ContextFragment.CodeFragment(
+        var codeCodeOnly = new ContextFragments.CodeFragment(
                 cm,
                 analyzer.getTopLevelDeclarations(codeOnlyFile).stream()
                         .filter(CodeUnit::isClass)
@@ -1277,7 +1279,7 @@ class CodeAgentTest {
 
         // re-check editable/summary conflict with a FILE_SKELETON summary
         ctx = ctx.removeFragments(Set.of(summaryPpfAndSummaryEditable));
-        var summaryFilePpfAndSummaryEditable = new ContextFragment.SummaryFragment(
+        var summaryFilePpfAndSummaryEditable = new ContextFragments.SummaryFragment(
                 cm, ppfAndSummaryEditablePpf.toString(), ContextFragment.SummaryType.FILE_SKELETONS);
         ctx = ctx.addFragments(summaryFilePpfAndSummaryEditable);
         readOnlyPaths = CodeAgent.computeReadOnlyPaths(ctx);

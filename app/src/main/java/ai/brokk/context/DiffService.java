@@ -96,7 +96,7 @@ public final class DiffService {
 
     @Blocking
     private static boolean isNewFileInGit(ContextFragment fragment, IGitRepo repo) {
-        if (!(fragment instanceof ContextFragment.PathFragment)) {
+        if (!(fragment instanceof ContextFragments.PathFragment)) {
             return false;
         }
         Set<ProjectFile> files = fragment.files().join();
@@ -156,7 +156,7 @@ public final class DiffService {
                 return CompletableFuture.completedFuture(null);
             }
 
-            if (thisFragment instanceof ContextFragment.PathFragment) {
+            if (thisFragment instanceof ContextFragments.PathFragment) {
                 var repo = curr.getContextManager().getRepo();
                 if (!isNewFileInGit(thisFragment, repo)) {
                     // Path fragment exists only in 'curr' but is tracked in Git; suppress diff here.
@@ -354,7 +354,7 @@ public final class DiffService {
                     leftContent = file.read().orElse("");
                 } else {
                     try {
-                        var leftFrag = ContextFragment.GitFileFragment.fromCommit(file, leftRef, gitRepo);
+                        var leftFrag = ContextFragments.GitFileFragment.fromCommit(file, leftRef, gitRepo);
                         leftContent = leftFrag.text().join();
                     } catch (RuntimeException e) {
                         // File doesn't exist at leftRef (new file) - treat as empty baseline
@@ -371,7 +371,7 @@ public final class DiffService {
                     rightContent = file.read().orElse("");
                 } else {
                     try {
-                        var rightFragTmp = ContextFragment.GitFileFragment.fromCommit(file, rightRef, gitRepo);
+                        var rightFragTmp = ContextFragments.GitFileFragment.fromCommit(file, rightRef, gitRepo);
                         rightContent = rightFragTmp.text().join();
                     } catch (RuntimeException e) {
                         // File doesn't exist at rightRef (deleted file) - treat as empty right side
@@ -395,15 +395,15 @@ public final class DiffService {
             totalDeleted += deleted;
 
             // Build DiffEntry using the right-side fragment as representative
-            ContextFragment.GitFileFragment rightFragForEntry;
+            ContextFragments.GitFileFragment rightFragForEntry;
             if ("WORKING".equals(rightRef)) {
-                rightFragForEntry = new ContextFragment.GitFileFragment(file, "WORKING", rightContent);
+                rightFragForEntry = new ContextFragments.GitFileFragment(file, "WORKING", rightContent);
             } else {
                 try {
-                    rightFragForEntry = ContextFragment.GitFileFragment.fromCommit(file, rightRef, gitRepo);
+                    rightFragForEntry = ContextFragments.GitFileFragment.fromCommit(file, rightRef, gitRepo);
                 } catch (RuntimeException e) {
                     // File doesn't exist at rightRef (e.g., deleted) - synthesize with current computed rightContent
-                    rightFragForEntry = new ContextFragment.GitFileFragment(file, rightRef, rightContent);
+                    rightFragForEntry = new ContextFragments.GitFileFragment(file, rightRef, rightContent);
                 }
             }
 

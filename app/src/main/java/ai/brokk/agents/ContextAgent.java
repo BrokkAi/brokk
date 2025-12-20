@@ -14,6 +14,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.git.GitDistance;
 import ai.brokk.project.ModelProperties;
@@ -524,7 +525,7 @@ public class ContextAgent {
 
         var summaryFragments = summaryPerCodeUnit(cm, recommendedSummaries);
         var pathFragments = filteredFiles.stream()
-                .map(f -> (ContextFragment) new ContextFragment.ProjectPathFragment(f, cm))
+                .map(f -> (ContextFragment) new ContextFragments.ProjectPathFragment(f, cm))
                 .toList();
         return Stream.concat(summaryFragments.stream(), pathFragments.stream()).toList();
     }
@@ -533,7 +534,7 @@ public class ContextAgent {
     private static List<ContextFragment> summaryPerCodeUnit(
             IContextManager contextManager, Map<CodeUnit, String> relevantSummaries) {
         return relevantSummaries.keySet().stream()
-                .map(cu -> (ContextFragment) new ContextFragment.SummaryFragment(
+                .map(cu -> (ContextFragment) new ContextFragments.SummaryFragment(
                         contextManager, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON))
                 .toList();
     }

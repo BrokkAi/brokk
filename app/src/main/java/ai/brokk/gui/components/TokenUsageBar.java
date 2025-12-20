@@ -5,6 +5,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.ChipColorUtils;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.mop.ThemeColors;
@@ -125,7 +126,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                                 }
                             }
 
-                            var syntheticFragment = new ContextFragment.StringFragment(
+                            var syntheticFragment = new ContextFragments.StringFragment(
                                     chrome.getContextManager(),
                                     combinedText.toString(),
                                     title,

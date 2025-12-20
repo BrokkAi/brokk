@@ -33,13 +33,13 @@ class DiffServiceTest {
         Files.createDirectories(pf.absPath().getParent());
         Files.writeString(pf.absPath(), "a\n");
 
-        var oldFrag = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var oldFrag = new ContextFragments.ProjectPathFragment(pf, contextManager);
         oldFrag.text().await(Duration.ofSeconds(2));
         var oldCtx = new Context(
                 contextManager, List.of(oldFrag), List.of(), null, CompletableFuture.completedFuture("old"));
 
         Files.writeString(pf.absPath(), "a\nb\n");
-        var newFrag = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var newFrag = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var newCtx = new Context(
                 contextManager, List.of(newFrag), List.of(), null, CompletableFuture.completedFuture("new"));
 
@@ -63,7 +63,7 @@ class DiffServiceTest {
     @BeforeEach
     void setup() {
         contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
-        ContextFragment.setMinimumId(1);
+        ContextFragments.setMinimumId(1);
     }
 
     @Test
@@ -73,7 +73,7 @@ class DiffServiceTest {
         Files.createDirectories(pf.absPath().getParent());
         Files.writeString(pf.absPath(), "line1\n");
 
-        var oldFrag = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var oldFrag = new ContextFragments.ProjectPathFragment(pf, contextManager);
         // Pre-compute and cache old content
         oldFrag.text().await(Duration.ofSeconds(2));
 
@@ -83,7 +83,7 @@ class DiffServiceTest {
         // Mutate file for new context
         Files.writeString(pf.absPath(), "line1\nline2\n");
 
-        var newFrag = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var newFrag = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var newCtx = new Context(
                 contextManager, List.of(newFrag), List.of(), null, CompletableFuture.completedFuture("new"));
 
@@ -99,12 +99,12 @@ class DiffServiceTest {
 
     @Test
     void virtual_fragments_are_excluded_from_diff() {
-        var sfOld = new ContextFragment.StringFragment(
+        var sfOld = new ContextFragments.StringFragment(
                 contextManager, "old text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
         var oldCtx =
                 new Context(contextManager, List.of(sfOld), List.of(), null, CompletableFuture.completedFuture("old"));
 
-        var sfNew = new ContextFragment.StringFragment(
+        var sfNew = new ContextFragments.StringFragment(
                 contextManager, "new text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
         var newCtx =
                 new Context(contextManager, List.of(sfNew), List.of(), null, CompletableFuture.completedFuture("new"));
@@ -119,12 +119,12 @@ class DiffServiceTest {
         Files.writeString(extPath, "v1");
         var extFile = new ExternalFile(extPath);
 
-        var oldFrag = new ContextFragment.ExternalPathFragment(extFile, contextManager);
+        var oldFrag = new ContextFragments.ExternalPathFragment(extFile, contextManager);
         var oldCtx = new Context(
                 contextManager, List.of(oldFrag), List.of(), null, CompletableFuture.completedFuture("old"));
 
         Files.writeString(extPath, "v2");
-        var newFrag = new ContextFragment.ExternalPathFragment(extFile, contextManager);
+        var newFrag = new ContextFragments.ExternalPathFragment(extFile, contextManager);
         var newCtx = new Context(
                 contextManager, List.of(newFrag), List.of(), null, CompletableFuture.completedFuture("new"));
 
@@ -140,7 +140,7 @@ class DiffServiceTest {
         Files.createDirectories(pf.absPath().getParent());
         Files.writeString(pf.absPath(), "class A {}\n");
 
-        var oldFrag = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var oldFrag = new ContextFragments.ProjectPathFragment(pf, contextManager);
         // Seed cache for old content
         oldFrag.text().await(Duration.ofSeconds(2));
 
@@ -150,7 +150,7 @@ class DiffServiceTest {
         // Mutate file for new context
         Files.writeString(pf.absPath(), "class A {}\nclass B {}\n");
 
-        var newFrag = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var newFrag = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var newCtx = new Context(
                 contextManager, List.of(newFrag), List.of(), null, CompletableFuture.completedFuture("new"));
 
@@ -167,12 +167,12 @@ class DiffServiceTest {
         Files.createDirectories(imgFile.absPath().getParent());
         writeImage(imgFile, Color.RED);
 
-        var oldImgFrag = new ContextFragment.ImageFileFragment(imgFile, contextManager);
+        var oldImgFrag = new ContextFragments.ImageFileFragment(imgFile, contextManager);
         var oldCtx = new Context(
                 contextManager, List.of(oldImgFrag), List.of(), null, CompletableFuture.completedFuture("old"));
 
         // No change to image
-        var newImgFrag = new ContextFragment.ImageFileFragment(imgFile, contextManager);
+        var newImgFrag = new ContextFragments.ImageFileFragment(imgFile, contextManager);
         var newCtx = new Context(
                 contextManager, List.of(newImgFrag), List.of(), null, CompletableFuture.completedFuture("new"));
 
@@ -186,7 +186,7 @@ class DiffServiceTest {
         Files.createDirectories(imgFile.absPath().getParent());
         writeImage(imgFile, Color.RED);
 
-        var oldImgFrag = new ContextFragment.ImageFileFragment(imgFile, contextManager);
+        var oldImgFrag = new ContextFragments.ImageFileFragment(imgFile, contextManager);
         // Ensure old fragment's async computation completes before mutating the file
         oldImgFrag.await(Duration.ofSeconds(2));
         var oldCtx = new Context(
@@ -195,7 +195,7 @@ class DiffServiceTest {
         // Change image bytes
         writeImage(imgFile, Color.GREEN);
 
-        var newImgFrag = new ContextFragment.ImageFileFragment(imgFile, contextManager);
+        var newImgFrag = new ContextFragments.ImageFileFragment(imgFile, contextManager);
         var newCtx = new Context(
                 contextManager, List.of(newImgFrag), List.of(), null, CompletableFuture.completedFuture("new"));
 
@@ -209,14 +209,15 @@ class DiffServiceTest {
 
     @Test
     void text_diff_falls_back_when_new_text_not_computed() {
-        class SlowFragment extends ContextFragment.AbstractComputedFragment implements ContextFragment.DynamicIdentity {
+        class SlowFragment extends ContextFragments.AbstractComputedFragment
+                implements ContextFragment.DynamicIdentity {
             private final ContextFragment.FragmentType type;
 
             SlowFragment(
                     String id,
                     IContextManager cm,
-                    @Nullable ContextFragment.FragmentSnapshot snapshot,
-                    @Nullable Callable<ContextFragment.FragmentSnapshot> task,
+                    @Nullable ContextFragments.FragmentSnapshot snapshot,
+                    @Nullable Callable<ContextFragments.FragmentSnapshot> task,
                     ContextFragment.FragmentType type) {
                 super(id, cm, snapshot, task);
                 this.type = type;
@@ -278,9 +279,9 @@ class DiffServiceTest {
                 "New content should fall back to error message on timeout");
     }
 
-    private static ContextFragment.FragmentSnapshot snapshot(
+    private static ContextFragments.FragmentSnapshot snapshot(
             String description, String shortDescription, String text, boolean isValid) {
-        return new ContextFragment.FragmentSnapshot(
+        return new ContextFragments.FragmentSnapshot(
                 description,
                 shortDescription,
                 text,
@@ -291,7 +292,8 @@ class DiffServiceTest {
                 isValid);
     }
 
-    private static ContextFragment.FragmentSnapshot snapshot(String description, String shortDescription, String text) {
+    private static ContextFragments.FragmentSnapshot snapshot(
+            String description, String shortDescription, String text) {
         return snapshot(description, shortDescription, text, true);
     }
 
@@ -328,12 +330,12 @@ class DiffServiceTest {
         Files.createDirectories(pf.absPath().getParent());
         Files.writeString(pf.absPath(), "v1\n");
 
-        var frag1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var frag1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         frag1.text().await(Duration.ofSeconds(2));
         var ctx1 = new Context(contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("1"));
 
         Files.writeString(pf.absPath(), "v2\n");
-        var frag2 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var frag2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var ctx2 = new Context(contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("2"));
 
         var history = new ContextHistory(ctx1);
@@ -357,7 +359,7 @@ class DiffServiceTest {
         Files.writeString(pf.absPath(), "v1\n");
         var ctx1 = new Context(
                 contextManager,
-                List.of(new ContextFragment.ProjectPathFragment(pf, contextManager)),
+                List.of(new ContextFragments.ProjectPathFragment(pf, contextManager)),
                 List.of(),
                 null,
                 CompletableFuture.completedFuture("1"));
@@ -366,7 +368,7 @@ class DiffServiceTest {
         Files.writeString(pf.absPath(), "v2\n");
         var ctx2 = new Context(
                 contextManager,
-                List.of(new ContextFragment.ProjectPathFragment(pf, contextManager)),
+                List.of(new ContextFragments.ProjectPathFragment(pf, contextManager)),
                 List.of(),
                 null,
                 CompletableFuture.completedFuture("2"));
@@ -375,7 +377,7 @@ class DiffServiceTest {
         Files.writeString(pf.absPath(), "v3\n");
         var ctx3 = new Context(
                 contextManager,
-                List.of(new ContextFragment.ProjectPathFragment(pf, contextManager)),
+                List.of(new ContextFragments.ProjectPathFragment(pf, contextManager)),
                 List.of(),
                 null,
                 CompletableFuture.completedFuture("3"));
@@ -398,13 +400,13 @@ class DiffServiceTest {
 
         var ctx1 = new Context(
                 contextManager,
-                List.of(new ContextFragment.ProjectPathFragment(pf, contextManager)),
+                List.of(new ContextFragments.ProjectPathFragment(pf, contextManager)),
                 List.of(),
                 null,
                 CompletableFuture.completedFuture("1"));
         var ctx2 = new Context(
                 contextManager,
-                List.of(new ContextFragment.ProjectPathFragment(pf, contextManager)),
+                List.of(new ContextFragments.ProjectPathFragment(pf, contextManager)),
                 List.of(),
                 null,
                 CompletableFuture.completedFuture("2"));
@@ -448,12 +450,12 @@ class DiffServiceTest {
         Files.createDirectories(pf.absPath().getParent());
         Files.writeString(pf.absPath(), "v1");
 
-        var frag1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var frag1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         frag1.text().await(Duration.ofSeconds(1));
         var ctx1 = new Context(contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("1"));
 
         Files.writeString(pf.absPath(), "v2");
-        var frag2 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var frag2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         frag2.text().await(Duration.ofSeconds(1));
         var ctx2 = new Context(contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("2"));
 

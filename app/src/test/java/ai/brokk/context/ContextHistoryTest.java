@@ -33,7 +33,7 @@ public class ContextHistoryTest {
     public void setUp() {
         TestConsoleIO consoleIO = new TestConsoleIO();
         contextManager = new TestContextManager(tempDir, consoleIO);
-        ContextFragment.setMinimumId(1);
+        ContextFragments.setMinimumId(1);
     }
 
     /**
@@ -47,7 +47,7 @@ public class ContextHistoryTest {
         Files.createDirectories(pf.absPath().getParent());
         Files.writeString(pf.absPath(), "Initial content\n");
 
-        var initialFragment = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var initialFragment = new ContextFragments.ProjectPathFragment(pf, contextManager);
         // Seed computed text to simulate live context readiness
         initialFragment.text().await(Duration.ofSeconds(2));
 
@@ -62,7 +62,7 @@ public class ContextHistoryTest {
 
         // Modify file for new context
         Files.writeString(pf.absPath(), "Initial content\nModified content with more text\n");
-        var modifiedFragment = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var modifiedFragment = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var modifiedContext = new Context(
                 contextManager,
                 List.of(modifiedFragment),
@@ -100,7 +100,7 @@ public class ContextHistoryTest {
         Files.createDirectories(pf.absPath().getParent());
         Files.writeString(pf.absPath(), "New file content\nline2\n");
 
-        var projectFrag = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var projectFrag = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var extendedContext = new Context(
                 contextManager, List.of(projectFrag), List.of(), null, CompletableFuture.completedFuture("Extended"));
 
@@ -126,13 +126,13 @@ public class ContextHistoryTest {
         Files.createDirectories(pf.absPath().getParent());
         Files.writeString(pf.absPath(), "Static content\n");
 
-        var frag1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var frag1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var ctx1 = new Context(
                 contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("Action"));
         var history = new ContextHistory(ctx1);
 
         // Create a second context with the same file content
-        var frag2 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var frag2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var ctx2 = new Context(
                 contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("Action"));
         history.pushContext(ctx2);
@@ -153,7 +153,7 @@ public class ContextHistoryTest {
         Files.createDirectories(pf.absPath().getParent());
         Files.writeString(pf.absPath(), "Original content\n");
 
-        var frag1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var frag1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         // Seed computed text to snapshot original content for diff
         frag1.text().await(Duration.ofSeconds(2));
         var ctx1 = new Context(
@@ -161,7 +161,7 @@ public class ContextHistoryTest {
         var history = new ContextHistory(ctx1);
 
         Files.writeString(pf.absPath(), "Original content\nModified content with more text\n");
-        var frag2 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var frag2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var ctx2 = new Context(
                 contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("Modified"));
         history.pushContext(ctx2);
@@ -184,7 +184,7 @@ public class ContextHistoryTest {
         Files.createDirectories(pf.absPath().getParent());
         Files.writeString(pf.absPath(), "Content\n");
 
-        var frag1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var frag1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         // Seed computed text to snapshot original content for diff
         frag1.text().await(Duration.ofSeconds(2));
         var ctx1 = new Context(
@@ -192,7 +192,7 @@ public class ContextHistoryTest {
         var history = new ContextHistory(ctx1);
 
         Files.writeString(pf.absPath(), "Modified content\n");
-        var frag2 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var frag2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var ctx2 = new Context(
                 contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("Action 2"));
         history.pushContext(ctx2);
@@ -220,15 +220,15 @@ public class ContextHistoryTest {
         Files.createDirectories(pf.absPath().getParent());
         Files.writeString(pf.absPath(), "Content\n");
 
-        var frag = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var frag = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var initialContext = new Context(
                 contextManager, List.of(frag), List.of(), null, CompletableFuture.completedFuture("Initial"));
 
         var history = new ContextHistory(initialContext);
 
         // Add task history only; no file changes
-        var taskFragment =
-                new ContextFragment.TaskFragment(contextManager, List.of(new UserMessage("Test task")), "Test Session");
+        var taskFragment = new ContextFragments.TaskFragment(
+                contextManager, List.of(new UserMessage("Test task")), "Test Session");
         var taskEntry = new TaskEntry(1, taskFragment, null);
         var contextWithHistory =
                 initialContext.addHistoryEntry(taskEntry, null, CompletableFuture.completedFuture("Action"));
@@ -251,14 +251,14 @@ public class ContextHistoryTest {
         Files.createDirectories(pf.absPath().getParent());
         Files.writeString(pf.absPath(), "version 1");
 
-        var frag1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var frag1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var ctx1 = new Context(
                 contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("Action 1"));
         var history = new ContextHistory(ctx1);
 
         // 2. Second state: file with "version 2"
         Files.writeString(pf.absPath(), "version 2");
-        var frag2 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var frag2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var ctx2 = new Context(
                 contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("Action 2"));
         history.pushContext(ctx2); // This should trigger snapshot of ctx1
@@ -284,7 +284,7 @@ public class ContextHistoryTest {
         Files.createDirectories(pf.absPath().getParent());
         Files.writeString(pf.absPath(), "v1");
 
-        var frag = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var frag = new ContextFragments.ProjectPathFragment(pf, contextManager);
         frag.text().await(Duration.ofSeconds(2));
 
         var initialContext = new Context(
@@ -313,7 +313,7 @@ public class ContextHistoryTest {
         Files.createDirectories(pf.absPath().getParent());
         Files.writeString(pf.absPath(), "v1\n");
 
-        var frag = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var frag = new ContextFragments.ProjectPathFragment(pf, contextManager);
         frag.text().await(Duration.ofSeconds(2));
 
         var initialContext = new Context(
@@ -346,7 +346,7 @@ public class ContextHistoryTest {
         Files.createDirectories(pf.absPath().getParent());
         Files.writeString(pf.absPath(), "one\n");
 
-        var frag = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var frag = new ContextFragments.ProjectPathFragment(pf, contextManager);
         frag.text().await(Duration.ofSeconds(2));
 
         var initialContext = new Context(
@@ -387,13 +387,13 @@ public class ContextHistoryTest {
      * We use a mock usage fragment as it will satisfy control flow such as `ContextFragment.isEditable` while
      * avoiding dependencies and computation from analyzers/usage finders.
      */
-    private static final class MockUsageFragment extends ContextFragment.AbstractStaticFragment
+    private static final class MockUsageFragment extends ContextFragments.AbstractStaticFragment
             implements ContextFragment.DynamicIdentity {
         public MockUsageFragment(IContextManager cm, String id, String text) {
             super(
                     id,
                     cm,
-                    new ContextFragment.FragmentSnapshot(
+                    new ContextFragments.FragmentSnapshot(
                             "Mock Usage", "Usage", text, "text", Set.of(), Set.of(), (List<Byte>) null, true));
         }
 
@@ -411,7 +411,7 @@ public class ContextHistoryTest {
         Files.createDirectories(pf.absPath().getParent());
         Files.writeString(pf.absPath(), "base\n");
 
-        var projectFrag1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var projectFrag1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         projectFrag1.text().await(Duration.ofSeconds(2)); // seed snapshot
         var usageFrag1 = new MockUsageFragment(contextManager, "U1", "U1");
 
@@ -439,8 +439,8 @@ public class ContextHistoryTest {
 
         // Identify the refreshed project fragment in the updated context
         var projectFrag2 = updated.allFragments()
-                .filter(f -> f instanceof ContextFragment.PathFragment)
-                .map(f -> (ContextFragment.PathFragment) f)
+                .filter(f -> f instanceof ContextFragments.PathFragment)
+                .map(f -> (ContextFragments.PathFragment) f)
                 .filter(f -> f.file().equals(pf))
                 .findFirst()
                 .orElseThrow();
@@ -462,7 +462,7 @@ public class ContextHistoryTest {
         Files.createDirectories(pf.absPath().getParent());
         Files.writeString(pf.absPath(), "v1");
 
-        var projectFrag = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var projectFrag = new ContextFragments.ProjectPathFragment(pf, contextManager);
         projectFrag.text().await(Duration.ofSeconds(2)); // seed snapshot
         var usageFrag = new MockUsageFragment(contextManager, "U2", "something");
 

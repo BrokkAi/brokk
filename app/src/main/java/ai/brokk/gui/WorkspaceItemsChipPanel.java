@@ -4,6 +4,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.search.ScrollingUtils;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -329,7 +330,7 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
         if (styleGuideChip == null) {
             // Minimal, static fragment used only to anchor the chip in menus/preview.
             // Not tied to workspace hover/selection or computed updates.
-            ContextFragment fragment = new ContextFragment.StringFragment(
+            ContextFragment fragment = new ContextFragments.StringFragment(
                     contextManager, "", "AGENTS.md", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
             styleGuideChip = new WorkspaceChip.StyleGuideChip(
                     chrome, contextManager, () -> readOnly, null, onRemoveFragment, fragment);

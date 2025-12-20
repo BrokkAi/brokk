@@ -8,7 +8,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.gui.util.GitRepoIdUtil;
 import ai.brokk.prompts.CodePrompts;
@@ -864,7 +864,7 @@ public final class JobRunner {
             String fullDiff = diff.toString();
             String description = pr.getBody();
 
-            var fragment = new ContextFragment.StringFragment(
+            var fragment = new ContextFragments.StringFragment(
                     cm, fullDiff, description, "text/x-diff", Set.copyOf(changedFiles));
             cm.addFragments(fragment);
 

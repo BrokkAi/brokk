@@ -7,6 +7,7 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
@@ -173,15 +174,15 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
-    default List<? extends ContextFragment.PathFragment> toPathFragments(Collection<ProjectFile> files) {
+    default List<? extends ContextFragments.PathFragment> toPathFragments(Collection<ProjectFile> files) {
         var filesByType = files.stream().collect(Collectors.partitioningBy(BrokkFile::isText));
 
         var textFiles = castNonNull(filesByType.get(true));
         var binaryFiles = castNonNull(filesByType.get(false));
 
         return Streams.concat(
-                        textFiles.stream().map(pf -> new ContextFragment.ProjectPathFragment(pf, this)),
-                        binaryFiles.stream().map(pf -> new ContextFragment.ImageFileFragment(pf, this)))
+                        textFiles.stream().map(pf -> new ContextFragments.ProjectPathFragment(pf, this)),
+                        binaryFiles.stream().map(pf -> new ContextFragments.ImageFileFragment(pf, this)))
                 .toList();
     }
 

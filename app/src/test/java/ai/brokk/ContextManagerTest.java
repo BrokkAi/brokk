@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.project.MainProject;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -98,8 +98,8 @@ class ContextManagerTest {
         List<ChatMessage> msgs1 = List.of(UserMessage.from("first"));
         List<ChatMessage> msgs2 = List.of(UserMessage.from("second"));
 
-        var tf1 = new ContextFragment.TaskFragment(cm, msgs1, "First Task");
-        var tf2 = new ContextFragment.TaskFragment(cm, msgs2, "Second Task");
+        var tf1 = new ContextFragments.TaskFragment(cm, msgs1, "First Task");
+        var tf2 = new ContextFragments.TaskFragment(cm, msgs2, "Second Task");
 
         var entry1 = new TaskEntry(101, tf1, null);
         var entry2 = new TaskEntry(202, tf2, null);
