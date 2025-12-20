@@ -137,7 +137,6 @@ public class Chrome
             leftTabbedPanel.setMinimumSize(new Dimension(0, 0));
 
             leftTabbedPanel.setSelectedIndex(0); // Always show Project Files when collapsed
-            bottomSplitPane.setDividerSize(0);
             sidebarCollapsed = true;
             bottomSplitPane.setDividerLocation(40);
             // Persist user's intent to have the sidebar closed
@@ -146,7 +145,6 @@ public class Chrome
             leftTabbedPanel.setSelectedIndex(tabIndex);
             // Restore panel if it was minimized
             if (sidebarCollapsed) {
-                bottomSplitPane.setDividerSize(originalBottomDividerSize);
                 int target = (lastExpandedSidebarLocation > 0)
                         ? lastExpandedSidebarLocation
                         : computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
@@ -1779,7 +1777,6 @@ public class Chrome
             leftVerticalSplitPane.setMinimumSize(new Dimension(0, 0));
             leftTabbedPanel.setMinimumSize(new Dimension(0, 0));
             leftTabbedPanel.setSelectedIndex(0); // Always show Project Files when collapsed
-            bottomSplitPane.setDividerSize(0);
             sidebarCollapsed = true;
             bottomSplitPane.setDividerLocation(40);
             // Persist collapsed state for future runs (project + global)
@@ -1787,7 +1784,6 @@ public class Chrome
         } else {
             // Open sidebar using the saved or computed divider location
             bottomSplitPane.setDividerLocation(properDividerLocation);
-            bottomSplitPane.setDividerSize(originalBottomDividerSize);
             sidebarCollapsed = false;
             lastExpandedSidebarLocation = properDividerLocation;
             // Restore minimum sizes so min-width clamp is enforced
@@ -1983,8 +1979,8 @@ public class Chrome
                 return;
             }
 
-            // Treat the UI as "collapsed" when the divider is hidden or very close to the left edge.
-            boolean isCollapsedUi = bottomSplitPane.getDividerSize() == 0 || newPos < SIDEBAR_COLLAPSED_THRESHOLD;
+            // Treat the UI as "collapsed" when very close to the left edge.
+            boolean isCollapsedUi = newPos < SIDEBAR_COLLAPSED_THRESHOLD;
             if (isCollapsedUi) {
                 // Persist collapsed intent
                 saveSidebarOpenSetting(false);
