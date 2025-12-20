@@ -89,7 +89,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         this.chrome = chrome;
 
-        this.model = new TaskListModel(() -> currentContext.getTaskListDataOrEmpty().tasks());
+        this.model =
+                new TaskListModel(() -> currentContext.getTaskListDataOrEmpty().tasks());
         this.currentContext = chrome.getContextManager().liveContext();
         this.list = new JList<>(model);
 
