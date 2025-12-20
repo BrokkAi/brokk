@@ -55,6 +55,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             new JCheckBox("Tab inserts indentation in Instructions (Code-style)");
     private final JCheckBox advancedModeCheckbox = new JCheckBox("Enable Advanced Mode (show all UI)");
     private final JCheckBox skipCommitGateEzCheckbox = new JCheckBox("Skip commit gate in EZ mode");
+    private final JCheckBox simplifiedInstructionsPanelCheckbox =
+            new JCheckBox("Simplified Instructions Panel (Experimental)");
     private final JComboBox<String> watchServiceImplCombo =
             new JComboBox<>(new String[] {"Default (auto)", "Legacy", "Native"});
 
@@ -93,6 +95,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             boolean instructionsTabInsertIndentation,
             boolean advancedMode,
             boolean skipCommitGateEzMode,
+            boolean simplifiedInstructionsPanel,
             List<Service.FavoriteModel> favoriteModels,
             @Nullable Service.FavoriteModel selectedCodeFavorite,
             @Nullable Service.FavoriteModel selectedPrimaryFavorite,
@@ -147,6 +150,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         boolean instructionsIndent = instructionsTabInsertIndentationCheckbox.isSelected();
         boolean advancedMode = advancedModeCheckbox.isSelected();
         boolean skipEzGate = skipCommitGateEzCheckbox.isSelected();
+        boolean simplifiedInstructions = simplifiedInstructionsPanelCheckbox.isSelected();
 
         // Watch service implementation preference (no persistence here)
         String watchPrefSelected;
@@ -191,6 +195,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 instructionsIndent,
                 advancedMode,
                 skipEzGate,
+                simplifiedInstructions,
                 favoriteModels,
                 selectedCodeFavorite,
                 selectedPrimaryFavorite,
@@ -229,6 +234,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         GlobalUiSettings.saveInstructionsTabInsertIndentation(values.instructionsTabInsertIndentation());
         GlobalUiSettings.saveAdvancedMode(values.advancedMode());
         GlobalUiSettings.saveSkipCommitGateInEzMode(values.skipCommitGateEzMode());
+        GlobalUiSettings.saveSimplifiedInstructionsPanel(values.simplifiedInstructionsPanel());
 
         if (values.advancedMode() != previousAdvancedMode) {
             chrome.applyAdvancedModeVisibility();
@@ -337,6 +343,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         skipCommitGateEzCheckbox.setSelected(GlobalUiSettings.isSkipCommitGateInEzMode());
         skipCommitGateEzCheckbox.setVisible(!GlobalUiSettings.isAdvancedMode());
         instructionsTabInsertIndentationCheckbox.setSelected(GlobalUiSettings.isInstructionsTabInsertIndentation());
+        simplifiedInstructionsPanelCheckbox.setSelected(GlobalUiSettings.isSimplifiedInstructionsPanel());
 
         String pref = MainProject.getWatchServiceImplPreference();
         String selection;
@@ -572,6 +579,14 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         panel.add(skipCommitGateEzCheckbox, gbc);
+
+        simplifiedInstructionsPanelCheckbox.setToolTipText(
+                "Show a simplified version of the instructions panel with toggle buttons for session settings.");
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(simplifiedInstructionsPanelCheckbox, gbc);
 
         advancedModeCheckbox.addActionListener(e -> {
             boolean advanced = advancedModeCheckbox.isSelected();

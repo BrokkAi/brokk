@@ -59,6 +59,7 @@ public final class GlobalUiSettings {
     private static final String KEY_VERTICAL_LAYOUT_HORIZONTAL_SPLIT = "verticalLayout.horizontalSplit";
     private static final String KEY_CLONE_DIRECTORY = "clone.lastDirectory";
     private static final String KEY_SKIP_COMMIT_GATE_EZ_MODE = "ui.skipCommitGateEzMode";
+    private static final String KEY_SIMPLIFIED_INSTRUCTIONS_PANEL = "ui.simplifiedInstructionsPanel";
 
     private static volatile @Nullable Properties cachedProps;
 
@@ -435,6 +436,14 @@ public final class GlobalUiSettings {
 
     public static void saveSkipCommitGateInEzMode(boolean skip) {
         setBoolean(KEY_SKIP_COMMIT_GATE_EZ_MODE, skip);
+    }
+
+    public static boolean isSimplifiedInstructionsPanel() {
+        return getBoolean(KEY_SIMPLIFIED_INSTRUCTIONS_PANEL, false);
+    }
+
+    public static void saveSimplifiedInstructionsPanel(boolean simplified) {
+        setBoolean(KEY_SIMPLIFIED_INSTRUCTIONS_PANEL, simplified);
     }
 
     // Vertical layout split positions (pixels)
