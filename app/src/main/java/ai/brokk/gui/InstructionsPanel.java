@@ -2534,38 +2534,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Checks if the context was manually modified (not via LLM action) and disables managed mode if so.
-     * This is called whenever the context changes to automatically switch to Manual Mode when the user
-     * manually adds or removes context items.
-     */
-    private void checkAndDisableManagedModeOnManualChange() {
-        // Only proceed if managed mode is currently enabled
-        var sessionManager = chrome.getProject().getSessionManager();
-        var currentSessionId = chrome.getContextManager().getCurrentSessionId();
-        var sessionInfo = sessionManager.getSessionInfo(currentSessionId);
-
-        if (sessionInfo == null || !sessionInfo.isManagedContext()) {
-            return;
-        }
-
-        // Check if we're currently in an LLM action - if so, don't disable managed mode
-        if (chrome.getContextManager().isLlmTaskInProgress()) {
-            return;
-        }
-
-        // At this point, context was modified manually (not by LLM), so disable managed mode
-        sessionManager.setManagedContext(currentSessionId, false);
-
-        // Update UI to reflect the change
-        if (manualModeRadio != null) {
-            final JRadioButton manualRadio = manualModeRadio;
-            SwingUtilities.invokeLater(() -> {
-                manualRadio.setSelected(true);
-            });
-        }
-    }
-
-    /**
      * Sets read-only UI state for the context widgets (chips + token bar). Safe to call from any thread.
      */
     public void setContextReadOnly(boolean readOnly) {
