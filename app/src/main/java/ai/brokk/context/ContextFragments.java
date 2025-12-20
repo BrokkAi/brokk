@@ -1542,13 +1542,13 @@ public class ContextFragments {
         }
 
         private static FragmentSnapshot computeSnapshotFor(
-                String fullyQualifiedName, IContextManager contextManager, @Nullable CodeUnit preResolvedUnit) {
+                String fqName, IContextManager contextManager, @Nullable CodeUnit preResolvedUnit) {
             CodeUnit unit = preResolvedUnit;
             if (unit == null) {
-                unit = contextManager.getAnalyzerUninterrupted().getDefinitions(fullyQualifiedName).stream()
+                unit = contextManager.getAnalyzerUninterrupted().getDefinitions(fqName).stream()
                         .findFirst()
-                        .orElseThrow(() -> new IllegalArgumentException(
-                                "Unable to resolve CodeUnit for fqName: " + fullyQualifiedName));
+                        .orElseThrow(
+                                () -> new IllegalArgumentException("Unable to resolve CodeUnit for fqName: " + fqName));
             }
 
             String text;
@@ -1556,7 +1556,7 @@ public class ContextFragments {
             var scpOpt = analyzer.as(SourceCodeProvider.class);
             boolean hasSourceCode = false;
             if (scpOpt.isEmpty()) {
-                text = "Code Intelligence cannot extract source for: " + fullyQualifiedName;
+                text = "Code Intelligence cannot extract source for: " + fqName;
             } else {
                 var scp = scpOpt.get();
                 if (unit.isFunction()) {
@@ -1565,7 +1565,7 @@ public class ContextFragments {
                         text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
                         hasSourceCode = true;
                     } else {
-                        text = "No source found for method: " + fullyQualifiedName;
+                        text = "No source found for method: " + fqName;
                     }
                 } else {
                     var codeOpt = scp.getClassSource(unit, true);
@@ -1573,14 +1573,14 @@ public class ContextFragments {
                         text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
                         hasSourceCode = true;
                     } else {
-                        text = "No source found for class: " + fullyQualifiedName;
+                        text = "No source found for class: " + fqName;
                     }
                 }
             }
 
             return new FragmentSnapshot(
                     "Source for " + unit.fqName(),
-                    unit.fqName(),
+                    unit.shortName(),
                     text,
                     unit.source().getSyntaxStyle(),
                     Set.of(unit),
