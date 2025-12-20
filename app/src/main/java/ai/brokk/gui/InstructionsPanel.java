@@ -2821,7 +2821,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                     newTasks.size());
                             // Switch to Tasks tab when Lutz mode creates new tasks
                             chrome.switchToTasksTab();
-                            chrome.getTaskListPanel().showAutoPlayGateDialogAndAct(preExistingIncompleteTasks);
+                            chrome.getTaskListPanel().runArchitectOnAll();
                         }
                     });
                 });
