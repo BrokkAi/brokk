@@ -2478,9 +2478,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Load and apply plan mode state from SessionInfo
         loadPlanModeState();
 
-        // Disable managed mode if user manually modified context (not via LLM action)
-        checkAndDisableManagedModeOnManualChange();
-
         // Update placeholder text when context changes (e.g., session switch)
         updatePlaceholderIfActive();
     }
