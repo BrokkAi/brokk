@@ -292,6 +292,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     "X",
                     System.currentTimeMillis(),
                     System.currentTimeMillis(),
+                    1, // version - doesn't matter for prototype
                     true,
                     false,
                     false));

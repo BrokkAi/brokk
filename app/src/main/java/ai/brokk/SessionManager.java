@@ -42,6 +42,9 @@ import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public class SessionManager implements AutoCloseable {
+    /** Current version of the SessionInfo schema. Used for migration of old session manifests. */
+    private static final int CURRENT_SESSION_INFO_VERSION = 1;
+
     /** Record representing session metadata for the sessions management system. */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record SessionInfo(
@@ -49,9 +52,10 @@ public class SessionManager implements AutoCloseable {
             String name,
             long created,
             long modified,
-            @com.fasterxml.jackson.annotation.JsonProperty(defaultValue = "true") boolean isReadOnly,
-            @com.fasterxml.jackson.annotation.JsonProperty(defaultValue = "false") boolean isManagedContext,
-            @com.fasterxml.jackson.annotation.JsonProperty(defaultValue = "false") boolean isPlanMode) {
+            int version,
+            boolean isReadOnly,
+            boolean isManagedContext,
+            boolean isPlanMode) {
 
         @JsonIgnore
         public boolean isSessionModified() {
@@ -133,7 +137,8 @@ public class SessionManager implements AutoCloseable {
     public SessionInfo newSession(String name) {
         var sessionId = newSessionId();
         var currentTime = System.currentTimeMillis();
-        var newSessionInfo = new SessionInfo(sessionId, name, currentTime, currentTime, true, true, false);
+        var newSessionInfo = new SessionInfo(
+                sessionId, name, currentTime, currentTime, CURRENT_SESSION_INFO_VERSION, true, true, false);
         sessionsCache.put(sessionId, newSessionInfo);
 
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
@@ -167,6 +172,7 @@ public class SessionManager implements AutoCloseable {
                     newName,
                     oldInfo.created(),
                     System.currentTimeMillis(),
+                    oldInfo.version(),
                     oldInfo.isReadOnly(),
                     oldInfo.isManagedContext(),
                     oldInfo.isPlanMode());
@@ -194,6 +200,7 @@ public class SessionManager implements AutoCloseable {
                     oldInfo.name(),
                     oldInfo.created(),
                     System.currentTimeMillis(),
+                    oldInfo.version(),
                     oldInfo.isReadOnly(),
                     isManagedContext,
                     oldInfo.isPlanMode());
@@ -223,6 +230,7 @@ public class SessionManager implements AutoCloseable {
                     oldInfo.name(),
                     oldInfo.created(),
                     System.currentTimeMillis(),
+                    oldInfo.version(),
                     isReadOnly,
                     oldInfo.isManagedContext(),
                     oldInfo.isPlanMode());
@@ -250,6 +258,7 @@ public class SessionManager implements AutoCloseable {
                     oldInfo.name(),
                     oldInfo.created(),
                     System.currentTimeMillis(),
+                    oldInfo.version(),
                     oldInfo.isReadOnly(),
                     oldInfo.isManagedContext(),
                     isPlanMode);
@@ -390,8 +399,15 @@ public class SessionManager implements AutoCloseable {
     public SessionInfo copySession(UUID originalSessionId, String newSessionName) throws Exception {
         var newSessionId = newSessionId();
         var currentTime = System.currentTimeMillis();
-        var newSessionInfo =
-                new SessionInfo(newSessionId, newSessionName, currentTime, currentTime, true, false, false);
+        var newSessionInfo = new SessionInfo(
+                newSessionId,
+                newSessionName,
+                currentTime,
+                currentTime,
+                CURRENT_SESSION_INFO_VERSION,
+                true,
+                false,
+                false);
 
         var copyFuture = sessionExecutorByKey.submit(originalSessionId.toString(), () -> {
             try {
@@ -452,7 +468,27 @@ public class SessionManager implements AutoCloseable {
             Path manifestPath = fs.getPath("manifest.json");
             if (Files.exists(manifestPath)) {
                 String json = Files.readString(manifestPath);
-                return Optional.of(AbstractProject.objectMapper.readValue(json, SessionInfo.class));
+                SessionInfo loaded = AbstractProject.objectMapper.readValue(json, SessionInfo.class);
+
+                // Migrate old manifests (version 0) to current version with lutz mode defaults
+                if (loaded.version() == 0) {
+                    loaded = new SessionInfo(
+                            loaded.id(),
+                            loaded.name(),
+                            loaded.created(),
+                            loaded.modified(),
+                            CURRENT_SESSION_INFO_VERSION,
+                            false, // isReadOnly - lutz default
+                            true, // isManagedContext - lutz default
+                            true // isPlanMode - lutz default
+                            );
+                    logger.debug(
+                            "Migrated session {} from version 0 to version {}",
+                            loaded.id(),
+                            CURRENT_SESSION_INFO_VERSION);
+                }
+
+                return Optional.of(loaded);
             }
         } catch (IOException e) {
             logger.warn("Error reading manifest.json from {}: {}", zipPath.getFileName(), e.getMessage());
@@ -514,6 +550,7 @@ public class SessionManager implements AutoCloseable {
                         currentInfo.name(),
                         currentInfo.created(),
                         System.currentTimeMillis(),
+                        currentInfo.version(),
                         currentInfo.isReadOnly(),
                         currentInfo.isManagedContext(),
                         currentInfo.isPlanMode());
