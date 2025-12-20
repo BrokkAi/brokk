@@ -1500,6 +1500,7 @@ public class ContextFragments {
         private static FragmentSnapshot decodeFrozen(String fullyQualifiedName, byte[] bytes, IAnalyzer analyzer) {
             String text = new String(bytes, StandardCharsets.UTF_8);
             String desc = "Source for " + fullyQualifiedName;
+            String shortDesc = fullyQualifiedName;
             String syntax = SyntaxConstants.SYNTAX_STYLE_NONE;
             Set<CodeUnit> units = Set.of();
             Set<ProjectFile> files = Set.of();
@@ -1511,11 +1512,12 @@ public class ContextFragments {
                 var file = unit.source();
                 files = Set.of(file);
                 syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
+                shortDesc = unit.shortName();
             } catch (IllegalArgumentException e) {
                 logger.warn("Unable to resolve CodeUnit for fqName: {}", fullyQualifiedName);
             }
 
-            return FragmentSnapshot.textSnapshot(desc, fullyQualifiedName, text, syntax, units, files);
+            return FragmentSnapshot.textSnapshot(desc, shortDesc, text, syntax, units, files);
         }
 
         public CodeFragment(IContextManager contextManager, CodeUnit unit) {

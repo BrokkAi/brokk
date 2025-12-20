@@ -111,8 +111,8 @@ class SearchModeSearchAgentTest {
 
         var jobId = createJobWithSpec(jobSpec, "search-test-read-only");
 
-        // Wait for job to complete
-        awaitJobCompletion(baseUrl, jobId, authToken, Duration.ofSeconds(30));
+        // Wait for job to complete (longer timeout due to retry logic in test LLM service)
+        awaitJobCompletion(baseUrl, jobId, authToken, Duration.ofSeconds(90));
 
         // Poll for events to ensure job has processed
         var eventsUrl = URI.create(baseUrl + "/v1/jobs/" + jobId + "/events?after=-1&limit=1000")
@@ -303,6 +303,16 @@ class SearchModeSearchAgentTest {
     private byte[] createEmptyZip() throws IOException {
         var out = new java.io.ByteArrayOutputStream();
         try (var zos = new ZipOutputStream(out)) {
+            // Add manifest.json with SessionInfo
+            var manifestEntry = new ZipEntry("manifest.json");
+            zos.putNextEntry(manifestEntry);
+            String manifest = String.format(
+                    "{\"id\":\"%s\",\"name\":\"Test Session\",\"created\":%d,\"modified\":%d,"
+                            + "\"isReadOnly\":false,\"isManagedContext\":false,\"isPlanMode\":false}",
+                    UUID.randomUUID(), System.currentTimeMillis(), System.currentTimeMillis());
+            zos.write(manifest.getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+
             var fragmentsEntry = new ZipEntry("fragments-v4.json");
             zos.putNextEntry(fragmentsEntry);
             zos.write("{\"version\": 1, \"referenced\": {}, \"virtual\": {}, \"task\": {}}"
@@ -311,6 +321,12 @@ class SearchModeSearchAgentTest {
 
             var contextsEntry = new ZipEntry("contexts.jsonl");
             zos.putNextEntry(contextsEntry);
+            // Add a minimal context to satisfy "No contexts found" validation
+            // Must match CompactContextDto structure
+            String minimalContext = "{\"id\":\"00000000-0000-0000-0000-000000000001\","
+                    + "\"editable\":[],\"readonly\":[],\"virtuals\":[],\"tasks\":[],"
+                    + "\"action\":\"user_input\",\"parsedOutputId\":null,\"groupId\":null,\"groupLabel\":null}\n";
+            zos.write(minimalContext.getBytes(StandardCharsets.UTF_8));
             zos.closeEntry();
         }
         return out.toByteArray();
