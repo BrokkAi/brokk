@@ -137,7 +137,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private JPanel changesTabPlaceholder;
 
     @Nullable
-    private BrokkDiffPanel aggregatedChangesPanel;
+    private SessionChangesPanel sessionChangesPanel;
 
     @Nullable
     private JTextArea captureDescriptionArea;
@@ -229,7 +229,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private String lastBaselineLabel;
 
     @Nullable
-    private BaselineMode lastBaselineMode;
+    private SessionChangesPanel.BaselineMode lastBaselineMode;
 
     /**
      * Constructs a new HistoryOutputPane.
@@ -2156,10 +2156,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             historyModel.setRowCount(0);
 
             // Dispose and clear any existing aggregated Changes panel
-            if (aggregatedChangesPanel != null) {
-                aggregatedChangesPanel.dispose();
+            if (sessionChangesPanel != null) {
+                sessionChangesPanel.dispose();
             }
-            aggregatedChangesPanel = null;
+            sessionChangesPanel = null;
 
             // Update the Changes tab to a loading state and show a spinner placeholder
             if (outputTabs != null) {
@@ -2270,10 +2270,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private void performRefreshBranchDiffPanel() {
         SwingUtil.runOnEdt(() -> {
             // Dispose and clear any existing aggregated diff panel
-            if (aggregatedChangesPanel != null) {
-                aggregatedChangesPanel.dispose();
+            if (sessionChangesPanel != null) {
+                sessionChangesPanel.dispose();
             }
-            aggregatedChangesPanel = null;
+            sessionChangesPanel = null;
 
             // Put the Changes tab into a loading state with spinner
             if (outputTabs != null && changesTabPlaceholder != null) {
@@ -2907,8 +2907,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Propagate theme to child output area
         llmStreamArea.applyTheme(guiTheme);
         // Propagate to aggregated Changes panel (BrokkDiffPanel implements ThemeAware)
-        if (aggregatedChangesPanel != null) {
-            aggregatedChangesPanel.applyTheme(guiTheme);
+        if (sessionChangesPanel != null) {
+            sessionChangesPanel.applyTheme(guiTheme);
         }
 
         // Recompute the Changes tab title colors to match the new theme if we have a computed summary
@@ -3023,10 +3023,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     public void dispose() {
         assert SwingUtilities.isEventDispatchThread() : "dispose must be called on EDT";
         // Dispose aggregated changes panel if present
-        if (aggregatedChangesPanel != null) {
-            aggregatedChangesPanel.dispose();
+        if (sessionChangesPanel != null) {
+            sessionChangesPanel.dispose();
         }
-        aggregatedChangesPanel = null;
+        sessionChangesPanel = null;
         // Dispose the web-based markdown output panel
         try {
             llmStreamArea.dispose();
@@ -3122,7 +3122,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     lastBaselineMode = baseline.mode();
 
                     // Handle cases with no baseline
-                    if (baseline.mode() == BaselineMode.DETACHED || baseline.mode() == BaselineMode.NO_BASELINE) {
+                    if (baseline.mode() == SessionChangesPanel.BaselineMode.DETACHED || baseline.mode() == SessionChangesPanel.BaselineMode.NO_BASELINE) {
                         return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
                     }
 
@@ -3253,18 +3253,18 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
 
         // Dispose any previous diff panel to free resources
-        if (aggregatedChangesPanel != null) {
-            aggregatedChangesPanel.dispose();
+        if (sessionChangesPanel != null) {
+            sessionChangesPanel.dispose();
         }
-        aggregatedChangesPanel = null;
+        sessionChangesPanel = null;
 
         container.removeAll();
 
         if (res.filesChanged() == 0) {
             String message;
-            if ("detached HEAD".equals(lastBaselineLabel)) {
+            if (lastBaselineMode == SessionChangesPanel.BaselineMode.DETACHED) {
                 message = "Detached HEAD \u2014 no changes to review";
-            } else if ("No repository".equals(lastBaselineLabel)) {
+            } else if (lastBaselineMode == SessionChangesPanel.BaselineMode.NO_BASELINE) {
                 message = "No baseline to compare";
             } else if ("HEAD".equals(lastBaselineLabel)) {
                 message = "Working tree is clean (no uncommitted changes).";
@@ -3282,172 +3282,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        var aggregatedPanel = buildAggregatedChangesPanel(res, prepared);
+        sessionChangesPanel = new SessionChangesPanel(chrome, contextManager);
+        sessionChangesPanel.updateContent(res, prepared, lastBaselineLabel, lastBaselineMode);
+        
         container.setLayout(new BorderLayout());
-        container.add(aggregatedPanel, BorderLayout.CENTER);
+        container.add(sessionChangesPanel, BorderLayout.CENTER);
         container.revalidate();
         container.repaint();
-    }
-
-    private JPanel buildAggregatedChangesPanel(
-            DiffService.CumulativeChanges res, List<Map.Entry<String, Context.DiffEntry>> prepared) {
-        var wrapper = new JPanel(new BorderLayout());
-
-        // Build header with baseline label and buttons
-        var headerPanel = new JPanel(new BorderLayout(8, 0));
-        headerPanel.setOpaque(false);
-
-        // Baseline label on the left
-        String baselineLabelText = (lastBaselineLabel != null && !lastBaselineLabel.isEmpty())
-                ? "Comparing vs " + lastBaselineLabel
-                : "Branch-based changes";
-        var baselineLabel = new JLabel(baselineLabelText);
-        baselineLabel.setFont(baselineLabel.getFont().deriveFont(Font.BOLD));
-        headerPanel.add(baselineLabel, BorderLayout.WEST);
-
-        // Create right-aligned button panel for all action buttons
-        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
-        buttonPanel.setOpaque(false);
-
-        // Determine if there are uncommitted working tree changes
-        boolean hasUncommittedChanges = false;
-        try {
-            var repoOpt = repo();
-            if (repoOpt.isPresent()) {
-                hasUncommittedChanges = !repoOpt.get().getModifiedFiles().isEmpty();
-            }
-        } catch (Exception e) {
-            logger.debug("Unable to determine uncommitted changes state", e);
-            hasUncommittedChanges = false; // default safe behavior
-        }
-
-        // Add "Changes to Commit" primary button when uncommitted changes exist
-        if (hasUncommittedChanges) {
-            var changesToCommitButton = new MaterialButton("Changes to Commit");
-            SwingUtil.applyPrimaryButtonStyle(changesToCommitButton);
-            changesToCommitButton.setToolTipText("Review and commit pending changes");
-            changesToCommitButton.addActionListener(e -> {
-                SwingUtilities.invokeLater(() -> {
-                    var content = new GitCommitTab(chrome, contextManager);
-                    content.requestUpdate();
-
-                    var dialog = new BaseThemedDialog(chrome.getFrame(), "Changes");
-                    dialog.setDefaultCloseOperation(BaseThemedDialog.DISPOSE_ON_CLOSE);
-                    dialog.getContentRoot().add(content);
-
-                    Dimension prefSize = content.getPreferredSize();
-                    int width = Math.max(prefSize.width, 800);
-                    int height = Math.max(prefSize.height, 600);
-                    dialog.setSize(width, height);
-
-                    dialog.setLocationRelativeTo(chrome.getFrame());
-                    Chrome.applyIcon(dialog);
-
-                    content.applyTheme(chrome.getTheme());
-
-                    // Add window listener to refresh UI after commit dialog closes
-                    dialog.addWindowListener(new WindowAdapter() {
-                        @Override
-                        public void windowClosed(WindowEvent e) {
-                            requestDiffUpdate();
-                            var commitTab = chrome.getGitCommitTab();
-                            if (commitTab != null) {
-                                commitTab.requestUpdate();
-                            }
-                        }
-                    });
-
-                    dialog.setVisible(true);
-                });
-            });
-            buttonPanel.add(changesToCommitButton);
-        }
-
-        // Add Pull button (left of Create PR button)
-        var pushPullState = res.pushPullState();
-        if (pushPullState != null && pushPullState.canPull()) {
-            var pullButton = new MaterialButton("Pull");
-            pullButton.setToolTipText("Pull changes from upstream");
-            pullButton.setEnabled(!hasUncommittedChanges);
-            pullButton.addActionListener(e -> performPull());
-            buttonPanel.add(pullButton);
-        }
-
-        // Add Push button (left of Create PR button)
-        if (pushPullState != null && pushPullState.canPush()) {
-            var pushButton = new MaterialButton("Push");
-            pushButton.setToolTipText("Push commits to remote");
-            pushButton.setEnabled(!hasUncommittedChanges && pushPullState.canPush());
-            pushButton.addActionListener(e -> performPush());
-            buttonPanel.add(pushButton);
-        }
-
-        // Create PR button on the right (conditionally visible)
-        boolean showCreatePR = false;
-        if (lastBaselineMode != null) {
-            showCreatePR = (lastBaselineMode == BaselineMode.NON_DEFAULT_BRANCH)
-                    || (lastBaselineMode == BaselineMode.DEFAULT_WITH_UPSTREAM && res.filesChanged() > 0);
-        }
-        if (showCreatePR) {
-            var createPRButton = new MaterialButton("Create PR");
-            createPRButton.setToolTipText("Create a Pull Request for these changes");
-            createPRButton.setEnabled(!hasUncommittedChanges);
-            createPRButton.addActionListener(e -> {
-                SwingUtilities.invokeLater(() -> {
-                    CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager);
-                });
-            });
-            buttonPanel.add(createPRButton);
-        }
-
-        // Always add button panel to header for consistent UI
-        headerPanel.add(buttonPanel, BorderLayout.EAST);
-
-        var topContainer = new JPanel(new BorderLayout(0, 6));
-        topContainer.setOpaque(false);
-        topContainer.add(headerPanel, BorderLayout.NORTH);
-
-        // Use a compound border: line border for separation + padding
-        wrapper.setBorder(new CompoundBorder(
-                new LineBorder(UIManager.getColor("Separator.foreground"), 1), new EmptyBorder(6, 6, 6, 6)));
-
-        // Build BrokkDiffPanel with string sources
-        String projectName = "Project";
-        try {
-            var proj = contextManager.getProject();
-            var root = proj.getRoot();
-            if (root.getFileName() != null) {
-                projectName = root.getFileName().toString();
-            }
-        } catch (Exception e) {
-            logger.debug("Unable to resolve project name for aggregated Changes panel; using default", e);
-        }
-
-        var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
-                .setMultipleCommitsContext(false)
-                .setRootTitle(projectName)
-                .setInitialFileIndex(0)
-                .setForceFileTree(true);
-
-        // Use precomputed list in stable order; do not call Context.DiffEntry::title here
-        for (var entry : prepared) {
-            String path = entry.getKey();
-            Context.DiffEntry de = entry.getValue();
-            BufferSource left = new BufferSource.StringSource(de.oldContent(), "", path, null);
-            BufferSource right = new BufferSource.StringSource(de.newContent(), "", path, null);
-            builder.addComparison(left, right);
-        }
-
-        // Callers must not enforce unified/side-by-side globally; BrokkDiffPanel reads and persists the user's choice
-        // when they toggle view (Fixes #1679)
-        var diffPanel = builder.build();
-        aggregatedChangesPanel = diffPanel;
-        // Ensure the embedded diff reflects the current theme immediately
-        diffPanel.applyTheme(chrome.getTheme());
-
-        topContainer.add(diffPanel, BorderLayout.CENTER);
-        wrapper.add(topContainer, BorderLayout.CENTER);
-        return wrapper;
     }
 
     @Blocking
@@ -3835,20 +3676,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Modes for determining the baseline reference for showing changes.
-     */
-    private enum BaselineMode {
-        NON_DEFAULT_BRANCH,
-        DEFAULT_WITH_UPSTREAM,
-        DEFAULT_LOCAL_ONLY,
-        DETACHED,
-        NO_BASELINE
-    }
-
-    /**
      * Information about the computed baseline for showing changes.
      */
-    private record BaselineInfo(BaselineMode mode, String baselineRef, String displayLabel) {}
+    private record BaselineInfo(SessionChangesPanel.BaselineMode mode, String baselineRef, String displayLabel) {}
 
     /**
      * Computes the appropriate baseline reference for displaying changes in the Changes tab.
@@ -3859,7 +3689,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private BaselineInfo computeBaselineForChanges() {
         var repoOpt = repo();
         if (repoOpt.isEmpty()) {
-            return new BaselineInfo(BaselineMode.NO_BASELINE, "", "No repository");
+            return new BaselineInfo(SessionChangesPanel.BaselineMode.NO_BASELINE, "", "No repository");
         }
 
         var repo = repoOpt.get();
@@ -3876,12 +3706,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             }
 
             if (isDetached) {
-                return new BaselineInfo(BaselineMode.DETACHED, "HEAD", "detached HEAD");
+                return new BaselineInfo(SessionChangesPanel.BaselineMode.DETACHED, "HEAD", "detached HEAD");
             }
 
             // If not on default branch, diff against default
             if (!currentBranch.equals(defaultBranch)) {
-                return new BaselineInfo(BaselineMode.NON_DEFAULT_BRANCH, defaultBranch, defaultBranch);
+                return new BaselineInfo(SessionChangesPanel.BaselineMode.NON_DEFAULT_BRANCH, defaultBranch, defaultBranch);
             }
 
             // On default branch - check for upstream remote
@@ -3889,16 +3719,16 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 var remoteBranches = gitRepo.listRemoteBranches();
                 String upstreamRef = "origin/" + defaultBranch;
                 if (remoteBranches.contains(upstreamRef)) {
-                    return new BaselineInfo(BaselineMode.DEFAULT_WITH_UPSTREAM, upstreamRef, upstreamRef);
+                    return new BaselineInfo(SessionChangesPanel.BaselineMode.DEFAULT_WITH_UPSTREAM, upstreamRef, upstreamRef);
                 }
             }
 
             // On default branch but no upstream remote
-            return new BaselineInfo(BaselineMode.DEFAULT_LOCAL_ONLY, "HEAD", "HEAD");
+            return new BaselineInfo(SessionChangesPanel.BaselineMode.DEFAULT_LOCAL_ONLY, "HEAD", "HEAD");
 
         } catch (Exception e) {
             logger.warn("Failed to compute baseline for changes", e);
-            return new BaselineInfo(BaselineMode.NO_BASELINE, "", "Error: " + e.getMessage());
+            return new BaselineInfo(SessionChangesPanel.BaselineMode.NO_BASELINE, "", "Error: " + e.getMessage());
         }
     }
 
