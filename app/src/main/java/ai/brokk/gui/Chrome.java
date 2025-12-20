@@ -680,10 +680,7 @@ public class Chrome
         rightSideContainer.add(sessionHeader, BorderLayout.NORTH);
         rightSideContainer.add(buildReviewTabs, BorderLayout.CENTER);
 
-        // Legacy reference tracking
-        // topSplitPane previously held Workspace|Instructions. Now we point it to buildSplitPane.
         buildSplitPane.setDividerLocation((int) (800 * DEFAULT_OUTPUT_MAIN_SPLIT));
-        this.topSplitPane = buildSplitPane;
 
         // 3) Final horizontal split: left tabs | right stack
         bottomSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
@@ -2591,10 +2588,6 @@ public class Chrome
                     var sessionHeader = historyOutputPanel.getSessionHeaderPanel();
                     detachFromParent(sessionHeader);
 
-                    if (topSplitPane.getBottomComponent() == rightTabbedContainer) {
-                        topSplitPane.setBottomComponent(null);
-                    }
-
                     // Create top-left composite: Session header above Activity tabs
                     var leftTopPanel = new JPanel(new BorderLayout());
                     leftTopPanel.add(sessionHeader, BorderLayout.NORTH);
@@ -2702,9 +2695,6 @@ public class Chrome
                     if (outputTabs != null && outputTabs.getParent() != outputTabsContainer) {
                         outputTabsContainer.add(outputTabs, BorderLayout.CENTER);
                     }
-                    if (topSplitPane.getBottomComponent() != rightTabbedContainer) {
-                        topSplitPane.setBottomComponent(rightTabbedContainer);
-                    }
                     // Restore session header back to HistoryOutputPanel's top
                     var sessionHeader = historyOutputPanel.getSessionHeaderPanel();
                     detachFromParent(sessionHeader);
@@ -2712,17 +2702,12 @@ public class Chrome
 
                     verticalActivityCombinedPanel = null;
                 }
-                bottomSplitPane.setRightComponent(mainVerticalSplitPane);
             }
 
             activityTabsContainer.revalidate();
             activityTabsContainer.repaint();
             outputTabsContainer.revalidate();
             outputTabsContainer.repaint();
-            topSplitPane.revalidate();
-            topSplitPane.repaint();
-            mainVerticalSplitPane.revalidate();
-            mainVerticalSplitPane.repaint();
             bottomSplitPane.revalidate();
             bottomSplitPane.repaint();
             frame.revalidate();
@@ -3614,14 +3599,6 @@ public class Chrome
         // Workspace functionality is retired in this layout, but we keep the field state for persistence compatibility.
         this.workspaceCollapsed = collapsed;
     }
-
-        if (SwingUtilities.isEventDispatchThread()) {
-            r.run();
-        } else {
-            SwingUtilities.invokeLater(r);
-        }
-    }
-
 
     /**
      * Get the list of uncommitted modified files from GCT's cache.
