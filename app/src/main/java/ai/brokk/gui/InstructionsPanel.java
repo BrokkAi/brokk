@@ -2539,11 +2539,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Let the badge compute its own theme-aware colors based on the active mode
         modeBadge.setActiveMode(mode);
 
-        // Apply accent stripe only in Advanced Mode
+        // Apply accent stripe only in Advanced Mode and when simplified instructions panel is disabled
         if (inputLayeredPane != null) {
             var inner = new EmptyBorder(0, H_PAD, 0, H_PAD);
             Border outerBorder;
-            if (GlobalUiSettings.isAdvancedMode()) {
+            if (GlobalUiSettings.isAdvancedMode() && !GlobalUiSettings.isSimplifiedInstructionsPanel()) {
                 Color accent = modeBadge.getAccent();
                 outerBorder = new MatteBorder(0, 4, 0, 0, accent);
             } else {
@@ -2909,7 +2909,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     public void applyAdvancedModeForInstructions(boolean advanced) {
         SwingUtilities.invokeLater(() -> {
-            modeBadge.setVisible(advanced);
+            // Hide mode badge when simplified instructions panel is enabled OR when not in advanced mode
+            modeBadge.setVisible(advanced && !GlobalUiSettings.isSimplifiedInstructionsPanel());
             actionButton.setDropdownEnabled(advanced);
 
             // When switching TO EZ mode, reset to Lutz mode (the default for simplified UX)

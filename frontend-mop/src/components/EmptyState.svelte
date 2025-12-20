@@ -8,7 +8,7 @@
     desc: string;
   };
 
-  const suggestions: Suggestion[] = [
+  const allSuggestions: Suggestion[] = [
     {
       icon: "mdi:playlist-check",
       title: 'Use Lutz Mode',
@@ -20,6 +20,11 @@
       desc: "Adding context in the workspace yields better, faster answers.",
     },
   ];
+
+  // Filter out Lutz Mode suggestion when simplified instructions panel is enabled
+  $: suggestions = $envStore.isSimplifiedInstructionsPanel
+    ? allSuggestions.filter(s => s.title !== 'Use Lutz Mode')
+    : allSuggestions;
 
   function pluralize(n: number, singular: string, plural?: string): string {
     return n === 1 ? singular : (plural ?? `${singular}s`);

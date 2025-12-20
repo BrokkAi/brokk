@@ -12,6 +12,7 @@ export type EnvInfo = {
   totalFileCount?: number;
   analyzerReady?: boolean;
   analyzerLanguages?: LanguageInfo[];
+  isSimplifiedInstructionsPanel?: boolean;
 };
 
 const initial: EnvInfo = {

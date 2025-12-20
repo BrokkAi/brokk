@@ -10,6 +10,7 @@ import ai.brokk.gui.mop.FilePathLookupService;
 import ai.brokk.gui.mop.SymbolLookupService;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
+import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -759,6 +760,7 @@ public final class MOPBridge {
             payload.put("projectName", projectName);
             payload.put("totalFileCount", totalFileCount);
             payload.put("analyzerReady", analyzerReady);
+            payload.put("isSimplifiedInstructionsPanel", GlobalUiSettings.isSimplifiedInstructionsPanel());
             if (!analyzerLanguagesInfo.isEmpty()) {
                 payload.put("analyzerLanguages", analyzerLanguagesInfo);
             }
