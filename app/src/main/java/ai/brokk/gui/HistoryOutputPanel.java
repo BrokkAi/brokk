@@ -478,56 +478,27 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Build capture output panel (copyButton is passed in)
         var capturePanel = buildCaptureOutputPanel(copyButton);
 
-        // Build the content for the Output tab (existing UI)
+        // Build the content for the Output area
         var outputPanel = new JPanel(new BorderLayout());
         outputPanel.setBorder(BorderFactory.createEtchedBorder());
 
         outputPanel.add(llmScrollPane, BorderLayout.CENTER);
         outputPanel.add(capturePanel, BorderLayout.SOUTH); // Add capture panel below LLM output
 
-        // Placeholder for the Changes tab
+        // Placeholder for the top-level Review content
         var placeholder = new JPanel(new BorderLayout());
         var placeholderLabel = new JLabel("Review will appear here", SwingConstants.CENTER);
         placeholderLabel.setBorder(new EmptyBorder(20, 0, 20, 0));
         placeholder.add(placeholderLabel, BorderLayout.CENTER);
         this.changesTabPlaceholder = placeholder;
 
-        // Create the tabbed pane and add both tabs
-        var tabs = new JTabbedPane();
-        tabs.addTab("Output", outputPanel);
-        tabs.addTab("Review", placeholder);
-        this.outputTabs = tabs;
+        // outputTabs is now null as we are moving Review to the top-level Chrome tabs
+        this.outputTabs = null;
 
-        // Toggle Output/Changes with Space from Output area or tabs
-        Runnable toggleTabs = () -> {
-            var tp = outputTabs;
-            if (tp == null) return;
-            if (tp.getTabCount() < 2) return;
-            int idx = tp.getSelectedIndex();
-            tp.setSelectedIndex((idx + 1) % 2);
-        };
-        tabs.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)
-                .put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), "toggleTabsSpace");
-        tabs.getActionMap().put("toggleTabsSpace", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                toggleTabs.run();
-            }
-        });
-        llmStreamArea
-                .getInputMap(JComponent.WHEN_FOCUSED)
-                .put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), "toggleTabsSpace");
-        llmStreamArea.getActionMap().put("toggleTabsSpace", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                toggleTabs.run();
-            }
-        });
-
-        // Container for the combined section
+        // Container for the output area
         var centerContainer = new JPanel(new BorderLayout());
-        centerContainer.add(tabs, BorderLayout.CENTER);
-        centerContainer.setMinimumSize(new Dimension(480, 0)); // Minimum width for combined area
+        centerContainer.add(outputPanel, BorderLayout.CENTER);
+        centerContainer.setMinimumSize(new Dimension(480, 0)); // Minimum width for output area
         outputTabsContainer = centerContainer;
 
         return centerContainer;
@@ -1027,15 +998,17 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             updateUndoRedoButtonStates();
 
             // Put the Changes tab into a loading state before aggregation
-            var tabs = outputTabs;
-            if (tabs != null) {
+            var tabs = chrome.getBuildReviewTabs();
+            if (tabs != null && changesTabPlaceholder != null) {
                 int idx = -1;
-                if (changesTabPlaceholder != null) {
-                    idx = tabs.indexOfComponent(changesTabPlaceholder);
+                for (int i = 0; i < tabs.getTabCount(); i++) {
+                    Component c = tabs.getComponentAt(i);
+                    if (c == changesTabPlaceholder || (c instanceof Container cont && cont.isAncestorOf(changesTabPlaceholder))) {
+                        idx = i;
+                        break;
+                    }
                 }
-                if (idx < 0 && tabs.getTabCount() >= 2) {
-                    idx = 1; // Fallback: assume second tab is "Changes"
-                }
+
                 if (idx >= 0) {
                     try {
                         tabs.setTitleAt(idx, "Review (...)");
@@ -1046,23 +1019,21 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 }
 
                 // Replace content with a spinner while loading
-                if (changesTabPlaceholder != null) {
-                    var container = changesTabPlaceholder;
-                    container.removeAll();
-                    container.setLayout(new BorderLayout());
+                var container = changesTabPlaceholder;
+                container.removeAll();
+                container.setLayout(new BorderLayout());
 
-                    var spinnerLabel = new JLabel("Computing branch-based changes...", SwingConstants.CENTER);
-                    var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, true);
-                    if (spinnerIcon != null) {
-                        spinnerLabel.setIcon(spinnerIcon);
-                        spinnerLabel.setHorizontalTextPosition(SwingConstants.CENTER);
-                        spinnerLabel.setVerticalTextPosition(SwingConstants.BOTTOM);
-                    }
-
-                    container.add(spinnerLabel, BorderLayout.CENTER);
-                    container.revalidate();
-                    container.repaint();
+                var spinnerLabel = new JLabel("Computing branch-based changes...", SwingConstants.CENTER);
+                var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, true);
+                if (spinnerIcon != null) {
+                    spinnerLabel.setIcon(spinnerIcon);
+                    spinnerLabel.setHorizontalTextPosition(SwingConstants.CENTER);
+                    spinnerLabel.setVerticalTextPosition(SwingConstants.BOTTOM);
                 }
+
+                container.add(spinnerLabel, BorderLayout.CENTER);
+                container.revalidate();
+                container.repaint();
             }
 
             // Recompute cumulative changes summary for the Changes tab in the background
@@ -1132,6 +1103,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     public JPanel getOutputTabsContainer() {
         return outputTabsContainer;
+    }
+
+    @Nullable
+    public JPanel getChangesTabPlaceholder() {
+        return changesTabPlaceholder;
     }
 
     public JPanel getSessionHeaderPanel() {
@@ -1930,23 +1906,21 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     /**
      * Sets the Changes tab title and tooltip based on the provided cumulative changes result,
-     * using theme-appropriate + / - colors. Safe if the tab lineup changes while updating.
+     * using theme-appropriate + / - colors.
      */
     private void setChangesTabTitleAndTooltip(DiffService.CumulativeChanges res) {
-        var tabs = outputTabs;
+        var tabs = chrome.getBuildReviewTabs();
         if (tabs == null) return;
 
         int idx = -1;
         if (changesTabPlaceholder != null) {
-            idx = tabs.indexOfComponent(changesTabPlaceholder);
-        }
-        if (idx < 0) {
-            try {
-                if (tabs.getTabCount() >= 2) {
-                    idx = 1; // Fallback: assume second tab is "Review"
+            // Find the index of the Review tab which contains our placeholder
+            for (int i = 0; i < tabs.getTabCount(); i++) {
+                Component c = tabs.getComponentAt(i);
+                if (c == changesTabPlaceholder || (c instanceof Container cont && cont.isAncestorOf(changesTabPlaceholder))) {
+                    idx = i;
+                    break;
                 }
-            } catch (IndexOutOfBoundsException ignore) {
-                return;
             }
         }
         if (idx < 0) return;
@@ -2162,25 +2136,25 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             sessionChangesPanel = null;
 
             // Update the Changes tab to a loading state and show a spinner placeholder
-            if (outputTabs != null) {
+            var tabs = chrome.getBuildReviewTabs();
+            if (tabs != null && changesTabPlaceholder != null) {
                 int idx = -1;
-                if (changesTabPlaceholder != null) {
-                    idx = outputTabs.indexOfComponent(changesTabPlaceholder);
-                }
-                if (idx < 0 && outputTabs.getTabCount() >= 2) {
-                    idx = 1; // Fallback: assume second tab is "Changes"
+                for (int i = 0; i < tabs.getTabCount(); i++) {
+                    Component c = tabs.getComponentAt(i);
+                    if (c == changesTabPlaceholder || (c instanceof Container cont && cont.isAncestorOf(changesTabPlaceholder))) {
+                        idx = i;
+                        break;
+                    }
                 }
                 if (idx >= 0) {
                     try {
-                        outputTabs.setTitleAt(idx, "(...)");
-                        outputTabs.setToolTipTextAt(idx, "Computing branch-based changes...");
+                        tabs.setTitleAt(idx, "Review (...)");
+                        tabs.setToolTipTextAt(idx, "Computing branch-based changes...");
                     } catch (IndexOutOfBoundsException ignore) {
                         // Safe-guard: tab lineup may have changed
                     }
                 }
-            }
 
-            if (changesTabPlaceholder != null) {
                 var container = changesTabPlaceholder;
                 container.removeAll();
                 container.setLayout(new BorderLayout());
@@ -2222,15 +2196,20 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             }
 
             // Show loading state in Changes tab before triggering refresh
-            if (outputTabs != null && changesTabPlaceholder != null) {
-                int idx = outputTabs.indexOfComponent(changesTabPlaceholder);
-                if (idx < 0 && outputTabs.getTabCount() >= 2) {
-                    idx = 1;
+            var tabs = chrome.getBuildReviewTabs();
+            if (tabs != null && changesTabPlaceholder != null) {
+                int idx = -1;
+                for (int i = 0; i < tabs.getTabCount(); i++) {
+                    Component c = tabs.getComponentAt(i);
+                    if (c == changesTabPlaceholder || (c instanceof Container cont && cont.isAncestorOf(changesTabPlaceholder))) {
+                        idx = i;
+                        break;
+                    }
                 }
                 if (idx >= 0) {
                     try {
-                        outputTabs.setTitleAt(idx, "Review (...)");
-                        outputTabs.setToolTipTextAt(idx, "Computing branch-based changes...");
+                        tabs.setTitleAt(idx, "Review (...)");
+                        tabs.setToolTipTextAt(idx, "Computing branch-based changes...");
                     } catch (IndexOutOfBoundsException ignore) {
                         // Safe-guard
                     }
@@ -2276,15 +2255,20 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             sessionChangesPanel = null;
 
             // Put the Changes tab into a loading state with spinner
-            if (outputTabs != null && changesTabPlaceholder != null) {
-                int idx = outputTabs.indexOfComponent(changesTabPlaceholder);
-                if (idx < 0 && outputTabs.getTabCount() >= 2) {
-                    idx = 1; // Fallback: assume second tab is "Changes"
+            var tabs = chrome.getBuildReviewTabs();
+            if (tabs != null && changesTabPlaceholder != null) {
+                int idx = -1;
+                for (int i = 0; i < tabs.getTabCount(); i++) {
+                    Component c = tabs.getComponentAt(i);
+                    if (c == changesTabPlaceholder || (c instanceof Container cont && cont.isAncestorOf(changesTabPlaceholder))) {
+                        idx = i;
+                        break;
+                    }
                 }
                 if (idx >= 0) {
                     try {
-                        outputTabs.setTitleAt(idx, "Review (...)");
-                        outputTabs.setToolTipTextAt(idx, "Computing branch-based changes...");
+                        tabs.setTitleAt(idx, "Review (...)");
+                        tabs.setToolTipTextAt(idx, "Computing branch-based changes...");
                     } catch (IndexOutOfBoundsException ignore) {
                         // Tab lineup might have changed; ignore safely
                     }

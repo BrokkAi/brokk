@@ -669,10 +669,16 @@ public class Chrome
         buildReviewTabs = new JTabbedPane(JTabbedPane.TOP);
         buildReviewTabs.addTab("Build", Icons.SCIENCE, buildSplitPane);
 
-        // Review tab uses a container that will host the HistoryOutputPanel's SessionChangesPanel
-        JPanel reviewTabContainer = new JPanel(new BorderLayout());
-        reviewTabContainer.add(new JLabel("No changes to review", SwingConstants.CENTER), BorderLayout.CENTER);
-        buildReviewTabs.addTab("Review", Icons.FLOWSHEET, reviewTabContainer);
+        // Review tab uses the placeholder managed by HistoryOutputPanel
+        var reviewTabContainer = historyOutputPanel.getChangesTabPlaceholder();
+        if (reviewTabContainer != null) {
+            buildReviewTabs.addTab("Review", Icons.FLOWSHEET, reviewTabContainer);
+        } else {
+            // Fallback placeholder if HOP hasn't initialized it yet (unlikely)
+            JPanel fallback = new JPanel(new BorderLayout());
+            fallback.add(new JLabel("No changes to review", SwingConstants.CENTER), BorderLayout.CENTER);
+            buildReviewTabs.addTab("Review", Icons.FLOWSHEET, fallback);
+        }
 
         // 3) Right Side Container (Header + Tabs)
         rightSideContainer = new JPanel(new BorderLayout());
@@ -2316,6 +2322,10 @@ public class Chrome
 
     public @Nullable TerminalDrawerPanel getTerminalDrawer() {
         return terminalDrawer;
+    }
+
+    public JTabbedPane getBuildReviewTabs() {
+        return buildReviewTabs;
     }
 
     public JTabbedPane getRightTabbedPanel() {
