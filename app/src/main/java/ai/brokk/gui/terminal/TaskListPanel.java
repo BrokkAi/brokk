@@ -583,17 +583,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 return;
             }
 
-            String plural = deletableCount == 1 ? "task" : "tasks";
-            String message = "This will remove " + deletableCount + " selected " + plural + " from this session.\n"
-                    + "Tasks that are running or queued will not be removed.";
-            int result = chrome.showConfirmDialog(
-                    message, "Remove Selected Tasks?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-
-            if (result != JOptionPane.YES_OPTION) {
-                updateButtonStates();
-                return;
-            }
-
             boolean removedAny = false;
             var items = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
             Arrays.sort(indices);
@@ -1933,16 +1922,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         if (completedCount == 0) {
-            updateButtonStates();
-            return;
-        }
-
-        String plural = completedCount == 1 ? "task" : "tasks";
-        String message = "This will remove " + completedCount + " completed " + plural + " from this session.";
-        int result = chrome.showConfirmDialog(
-                message, "Clear Completed Tasks?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-
-        if (result != JOptionPane.YES_OPTION) {
             updateButtonStates();
             return;
         }
