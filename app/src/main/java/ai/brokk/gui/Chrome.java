@@ -2346,6 +2346,19 @@ public class Chrome
     }
 
     /**
+     * Switches to the Tasks tab in the right tabbed panel if it exists.
+     * Safe to call from any thread - will be executed on EDT if needed.
+     */
+    public void switchToTasksTab() {
+        SwingUtilities.invokeLater(() -> {
+            int idx = rightTabbedPanel.indexOfTab("Tasks");
+            if (idx != -1) {
+                rightTabbedPanel.setSelectedIndex(idx);
+            }
+        });
+    }
+
+    /**
      * Updates the visibility of the Tasks tab in the right tabbed panel based on plan mode.
      * When simplified instructions panel is enabled, the Tasks tab is only visible if plan mode is enabled.
      *

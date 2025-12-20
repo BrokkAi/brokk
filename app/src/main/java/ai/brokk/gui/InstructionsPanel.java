@@ -1550,7 +1550,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
         // Also check if it's one of the dynamic placeholders
         if (GlobalUiSettings.isSimplifiedInstructionsPanel()) {
-            return text != null && text.startsWith("Ask Brokk");
+            return text.startsWith("Ask Brokk");
         }
         return false;
     }
@@ -2751,7 +2751,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
                     // Use SearchAgent with TASKS_ONLY to generate tasks from existing context
                     // Skip scanInitialContext() to avoid agentic search (respects managedContext=false)
-                    SearchAgent agent = new SearchAgent(context, input, modelToUse, SearchAgent.Objective.TASKS_ONLY, scope);
+                    SearchAgent agent =
+                            new SearchAgent(context, input, modelToUse, SearchAgent.Objective.TASKS_ONLY, scope);
                     return agent.execute();
                 })
                 .thenRun(() -> {
@@ -2765,6 +2766,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
                         if (!newTasks.isEmpty()) {
                             logger.debug("Plan mode without search completed with {} new task(s)", newTasks.size());
+                            // Switch to Tasks tab when plan mode creates new tasks
+                            chrome.switchToTasksTab();
                         }
                     });
                 });
@@ -2817,6 +2820,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                             logger.debug(
                                     "Lutz mode without search completed with {} new task(s), auto-starting execution",
                                     newTasks.size());
+                            // Switch to Tasks tab when Lutz mode creates new tasks
+                            chrome.switchToTasksTab();
                             chrome.getTaskListPanel().showAutoPlayGateDialogAndAct(preExistingIncompleteTasks);
                         }
                     });

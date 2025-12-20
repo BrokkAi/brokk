@@ -1743,6 +1743,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return pushContext(contextGenerator, false);
     }
 
+    @Override
     public Context pushContext(Function<Context, Context> contextGenerator, boolean userInitiated) {
         var oldLiveContext = liveContext();
         var newLiveContext = contextHistory.push(contextGenerator);
@@ -1760,9 +1761,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // Auto-compress conversation history if enabled and exceeds configured threshold of the context window.
         // This does not run for headless tasks; protects users doing repeated manual Ask/Code.
-        // (null check here against IP is NOT redundant; this is called during Chrome init)
         if (io instanceof Chrome
-                && io.getInstructionsPanel() != null
                 && MainProject.getHistoryAutoCompress()
                 && !newLiveContext.getTaskHistory().isEmpty()) {
             var cf = new ContextFragments.HistoryFragment(this, newLiveContext.getTaskHistory());
