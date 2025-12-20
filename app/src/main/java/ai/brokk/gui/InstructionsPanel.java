@@ -161,8 +161,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable JComponent statusStripComponent;
     private @Nullable JPanel bottomToolbarPanel;
     private @Nullable JPanel selectorStripPanel;
-    private @Nullable MaterialToggleButton managedModeToggle;
-    private @Nullable JLabel managedModeLabel;
+    private @Nullable JRadioButton managedModeRadio;
+    private @Nullable JRadioButton manualModeRadio;
     private @Nullable MaterialToggleButton readOnlyToggle;
     private @Nullable HighContrastAwareButton autoFillButton;
 
@@ -1177,43 +1177,60 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var marginBorder = BorderFactory.createEmptyBorder(4, 4, 4, 4);
         titledContainer.setBorder(BorderFactory.createCompoundBorder(marginBorder, titledBorder));
 
-        // Create managed mode toggle header
-        managedModeToggle = new MaterialToggleButton();
-        managedModeToggle.setIcon(new SwitchIcon());
-        managedModeToggle.setSelectedIcon(new SwitchIcon());
-        managedModeToggle.setFocusable(false);
-        managedModeToggle.setOpaque(false);
-        managedModeToggle.setSelected(true); // Default to managed mode
-        managedModeToggle.setToolTipText(
-                "<html>Managed Mode: Brokk automatically modifies context when executing requests<br/>Manual Mode: You have full control over context modifications</html>");
+        // Create label and radio buttons for Manual/Managed mode
+        JLabel contextModeLabel = new JLabel("Context Mode: ");
+        contextModeLabel.setFont(contextModeLabel.getFont().deriveFont(Font.PLAIN, 11f));
 
-        managedModeLabel = new JLabel("Managed Mode");
-        managedModeLabel.setFont(managedModeLabel.getFont().deriveFont(Font.PLAIN, 11f));
+        managedModeRadio = new JRadioButton("AI-Managed");
+        manualModeRadio = new JRadioButton("Manual");
+
+        // Group the radio buttons
+        ButtonGroup modeGroup = new ButtonGroup();
+        modeGroup.add(managedModeRadio);
+        modeGroup.add(manualModeRadio);
+
+        // Set default to managed mode
+        managedModeRadio.setSelected(true);
+
+        // Style the radio buttons
+        managedModeRadio.setFont(managedModeRadio.getFont().deriveFont(Font.PLAIN, 11f));
+        manualModeRadio.setFont(manualModeRadio.getFont().deriveFont(Font.PLAIN, 11f));
+        managedModeRadio.setFocusable(false);
+        manualModeRadio.setFocusable(false);
+        managedModeRadio.setOpaque(false);
+        manualModeRadio.setOpaque(false);
+
+        // Set tooltips
+        managedModeRadio.setToolTipText("Brokk automatically modifies context when executing requests");
+        manualModeRadio.setToolTipText("You have full control over context modifications");
 
         // Capture non-null instances in local final variables for action listener
-        final MaterialToggleButton toggleButton = managedModeToggle;
-        final JLabel label = managedModeLabel;
+        final JRadioButton managedRadio = managedModeRadio;
+        final JRadioButton manualRadio = manualModeRadio;
 
-        // Update label text based on toggle state
-        toggleButton.addActionListener(e -> {
-            boolean isManaged = toggleButton.isSelected();
-            label.setText(isManaged ? "Managed Mode" : "Manual Mode");
-
-            // Update SessionInfo when toggle is changed
+        // Add action listeners to both radio buttons
+        managedRadio.addActionListener(e -> {
             var sessionManager = chrome.getProject().getSessionManager();
             var currentSessionId = chrome.getContextManager().getCurrentSessionId();
-            sessionManager.setManagedContext(currentSessionId, isManaged);
+            sessionManager.setManagedContext(currentSessionId, true);
+            updatePlaceholderIfActive();
+        });
 
-            // Update placeholder text if it's currently displayed
+        manualRadio.addActionListener(e -> {
+            var sessionManager = chrome.getProject().getSessionManager();
+            var currentSessionId = chrome.getContextManager().getCurrentSessionId();
+            sessionManager.setManagedContext(currentSessionId, false);
             updatePlaceholderIfActive();
         });
 
         var footerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
         footerPanel.setOpaque(false);
-        footerPanel.add(managedModeToggle);
-        managedModeToggle.setVisible(GlobalUiSettings.isSimplifiedInstructionsPanel());
-        footerPanel.add(managedModeLabel);
-        managedModeLabel.setVisible(GlobalUiSettings.isSimplifiedInstructionsPanel());
+        footerPanel.add(contextModeLabel);
+        contextModeLabel.setVisible(GlobalUiSettings.isSimplifiedInstructionsPanel());
+        footerPanel.add(managedModeRadio);
+        managedModeRadio.setVisible(GlobalUiSettings.isSimplifiedInstructionsPanel());
+        footerPanel.add(manualModeRadio);
+        manualModeRadio.setVisible(GlobalUiSettings.isSimplifiedInstructionsPanel());
 
         titledContainer.add(footerPanel, BorderLayout.SOUTH);
 
@@ -2470,14 +2487,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var currentSessionId = chrome.getContextManager().getCurrentSessionId();
         var sessionInfo = sessionManager.getSessionInfo(currentSessionId);
 
-        if (sessionInfo != null && managedModeToggle != null && managedModeLabel != null) {
+        if (sessionInfo != null && managedModeRadio != null && manualModeRadio != null) {
             boolean isManagedContext = sessionInfo.isManagedContext();
             // Capture non-null instances for lambda
-            final MaterialToggleButton toggleButton = managedModeToggle;
-            final JLabel label = managedModeLabel;
+            final JRadioButton managedRadio = managedModeRadio;
+            final JRadioButton manualRadio = manualModeRadio;
             SwingUtilities.invokeLater(() -> {
-                toggleButton.setSelected(isManagedContext);
-                label.setText(isManagedContext ? "Managed Mode" : "Manual Mode");
+                if (isManagedContext) {
+                    managedRadio.setSelected(true);
+                } else {
+                    manualRadio.setSelected(true);
+                }
             });
         }
     }
@@ -2537,12 +2557,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         sessionManager.setManagedContext(currentSessionId, false);
 
         // Update UI to reflect the change
-        if (managedModeToggle != null && managedModeLabel != null) {
-            final MaterialToggleButton toggleButton = managedModeToggle;
-            final JLabel label = managedModeLabel;
+        if (manualModeRadio != null) {
+            final JRadioButton manualRadio = manualModeRadio;
             SwingUtilities.invokeLater(() -> {
-                toggleButton.setSelected(false);
-                label.setText("Manual Mode");
+                manualRadio.setSelected(true);
             });
         }
     }
