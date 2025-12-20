@@ -428,6 +428,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             // Update Tasks tab visibility based on plan mode
             chrome.updateTasksTabVisibility(isPlanMode);
+
+            // Update placeholder text if it's currently displayed
+            updatePlaceholderIfActive();
         });
 
         // Load stored action with cascading fallback: project → global → default
@@ -1155,6 +1158,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var sessionManager = chrome.getProject().getSessionManager();
             var currentSessionId = chrome.getContextManager().getCurrentSessionId();
             sessionManager.setManagedContext(currentSessionId, isManaged);
+
+            // Update placeholder text if it's currently displayed
+            updatePlaceholderIfActive();
         });
 
         var footerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
@@ -1473,12 +1479,81 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     // Returns true if the given text matches any placeholder variant.
     private boolean isPlaceholderText(String text) {
-        return PLACEHOLDER_TEXT_ADVANCED.equals(text) || PLACEHOLDER_TEXT_EZ.equals(text);
+        if (PLACEHOLDER_TEXT_ADVANCED.equals(text) || PLACEHOLDER_TEXT_EZ.equals(text)) {
+            return true;
+        }
+        // Also check if it's one of the dynamic placeholders
+        if (GlobalUiSettings.isSimplifiedInstructionsPanel()) {
+            return text != null && text.startsWith("Ask Brokk");
+        }
+        return false;
+    }
+
+    // Helper method to generate dynamic placeholder text based on session settings.
+    private String getDynamicPlaceholder() {
+        var sessionManager = chrome.getProject().getSessionManager();
+        var currentSessionId = chrome.getContextManager().getCurrentSessionId();
+        var sessionInfo = sessionManager.getSessionInfo(currentSessionId);
+
+        if (sessionInfo == null) {
+            return "Ask Brokk to code changes across the codebase...";
+        }
+
+        boolean planMode = sessionInfo.isPlanMode();
+        boolean readOnly = sessionInfo.isReadOnly();
+        boolean manageContext = sessionInfo.isManagedContext();
+
+        // 8 scenarios based on the 3 boolean flags
+        if (planMode) {
+            if (readOnly) {
+                if (manageContext) {
+                    return "Ask Brokk to create a plan for the codebase...";
+                } else {
+                    return "Ask Brokk to create a plan for the files in context...";
+                }
+            } else {
+                if (manageContext) {
+                    return "Ask Brokk to plan and code changes across the codebase...";
+                } else {
+                    return "Ask Brokk to plan and code changes to the files in context...";
+                }
+            }
+        } else {
+            if (readOnly) {
+                if (manageContext) {
+                    return "Ask Brokk a question about the codebase...";
+                } else {
+                    return "Ask Brokk a question about the files in context...";
+                }
+            } else {
+                if (manageContext) {
+                    return "Ask Brokk to code changes across the codebase...";
+                } else {
+                    return "Ask Brokk to code changes to the files in context...";
+                }
+            }
+        }
     }
 
     // Returns the appropriate placeholder based on current advanced mode setting.
     private String getCurrentPlaceholder() {
+        if (GlobalUiSettings.isSimplifiedInstructionsPanel()) {
+            return getDynamicPlaceholder();
+        }
         return GlobalUiSettings.isAdvancedMode() ? PLACEHOLDER_TEXT_ADVANCED : PLACEHOLDER_TEXT_EZ;
+    }
+
+    /**
+     * Updates the placeholder text if it's currently being displayed.
+     * Safe to call from any thread.
+     */
+    private void updatePlaceholderIfActive() {
+        SwingUtilities.invokeLater(() -> {
+            String currentText = instructionsArea.getText();
+            if (isPlaceholderText(currentText)) {
+                instructionsArea.setText(getCurrentPlaceholder());
+            }
+        });
     }
 
     public void refreshBranchUi(String branchName) {
@@ -1603,6 +1678,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var sessionManager = chrome.getProject().getSessionManager();
             var currentSessionId = chrome.getContextManager().getCurrentSessionId();
             sessionManager.setReadOnly(currentSessionId, isReadOnly);
+
+            // Update placeholder text if it's currently displayed
+            updatePlaceholderIfActive();
         });
 
         roToggleButton.setAlignmentY(Component.CENTER_ALIGNMENT);
@@ -2292,6 +2370,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Disable managed mode if user manually modified context (not via LLM action)
         checkAndDisableManagedModeOnManualChange();
+
+        // Update placeholder text when context changes (e.g., session switch)
+        updatePlaceholderIfActive();
     }
 
     private void loadManagedModeState() {
