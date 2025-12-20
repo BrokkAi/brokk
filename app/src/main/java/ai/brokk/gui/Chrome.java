@@ -125,46 +125,46 @@ public class Chrome
         }
         lastTabToggleTime = currentTime;
 
-        if (!sidebarCollapsed && leftTabbedPanel.getSelectedIndex() == tabIndex) {
+        if (!sidebarCollapsed && toolsPane.getSelectedIndex() == tabIndex) {
             // Tab already selected: capture current expanded width (if not already minimized), then minimize
-            int currentLocation = bottomSplitPane.getDividerLocation();
+            int currentLocation = horizontalSplitPane.getDividerLocation();
             if (currentLocation >= SIDEBAR_COLLAPSED_THRESHOLD) {
                 lastExpandedSidebarLocation = currentLocation;
             }
 
             // Relax minimum sizes to allow full collapse to compact width
             leftVerticalSplitPane.setMinimumSize(new Dimension(0, 0));
-            leftTabbedPanel.setMinimumSize(new Dimension(0, 0));
+            toolsPane.setMinimumSize(new Dimension(0, 0));
 
-            leftTabbedPanel.setSelectedIndex(0); // Always show Project Files when collapsed
-            bottomSplitPane.setDividerSize(0);
+            toolsPane.setSelectedIndex(0); // Always show Project Files when collapsed
+            horizontalSplitPane.setDividerSize(0);
             sidebarCollapsed = true;
-            bottomSplitPane.setDividerLocation(40);
+            horizontalSplitPane.setDividerLocation(40);
             // Persist user's intent to have the sidebar closed
             saveSidebarOpenSetting(false);
         } else {
-            leftTabbedPanel.setSelectedIndex(tabIndex);
+            toolsPane.setSelectedIndex(tabIndex);
             // Restore panel if it was minimized
             if (sidebarCollapsed) {
-                bottomSplitPane.setDividerSize(originalBottomDividerSize);
+                horizontalSplitPane.setDividerSize(originalBottomDividerSize);
                 int target = (lastExpandedSidebarLocation > 0)
                         ? lastExpandedSidebarLocation
-                        : computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
-                bottomSplitPane.setDividerLocation(target);
+                        : computeInitialSidebarWidth() + horizontalSplitPane.getDividerSize();
+                horizontalSplitPane.setDividerLocation(target);
                 sidebarCollapsed = false;
 
                 // Restore minimum sizes for normal operation so min-width clamp is enforced again,
                 // using the current dynamic minimum instead of a hard constant.
                 int minPx = computeMinSidebarWidthPx();
                 leftVerticalSplitPane.setMinimumSize(new Dimension(minPx, 0));
-                leftTabbedPanel.setMinimumSize(new Dimension(minPx, 0));
+                toolsPane.setMinimumSize(new Dimension(minPx, 0));
                 // Persist user's intent to have the sidebar open
                 saveSidebarOpenSetting(true);
             }
 
             // Refresh Project Files tab badge if that tab was selected
-            if (tabIndex >= 0 && tabIndex < leftTabbedPanel.getTabCount()) {
-                var comp = leftTabbedPanel.getComponentAt(tabIndex);
+            if (tabIndex >= 0 && tabIndex < toolsPane.getTabCount()) {
+                var comp = toolsPane.getComponentAt(tabIndex);
                 if (comp == projectFilesPanel) {
                     int liveCount = getProject().getLiveDependencies().size();
                     updateProjectFilesTabBadge(liveCount);
@@ -193,23 +193,23 @@ public class Chrome
     // Swing components:
     final JFrame frame;
     private JLabel backgroundStatusLabel;
-    private final JPanel bottomPanel;
+    private final JPanel mainPanel;
 
     private final JSplitPane buildSplitPane; // Output | (Instructions/Tasks/Terminal)
     private final JTabbedPane buildReviewTabs; // Build | Review tabs
     private final JPanel rightSideContainer; // Header + buildReviewTabs
 
-    private final JTabbedPane leftTabbedPanel; // ProjectFiles, Git tabs
+    private final JTabbedPane toolsPane; // ProjectFiles, Git tabs
     private final JSplitPane leftVerticalSplitPane; // Left: tabs (top) + file history (bottom)
-    private final JTabbedPane historyTabbedPane; // Bottom area for file history
+    private final JTabbedPane fileHistoryPane; // Bottom area for file history
     private int originalLeftVerticalDividerSize;
     private final HistoryOutputPanel historyOutputPanel;
     /**
      * Horizontal split between left tab stack and right output stack
      */
-    private JSplitPane bottomSplitPane;
+    private JSplitPane horizontalSplitPane;
 
-    private final JTabbedPane rightTabbedPanel; // Instructions and other right-side tabs
+    private final JTabbedPane commandPane; // Instructions and other right-side tabs
 
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
     private JPanel workspaceTopContainer;
@@ -271,11 +271,8 @@ public class Chrome
     // Branch selector moved to Chrome so it can be shown above the right tab stack
     private @Nullable BranchSelectorButton branchSelectorButton = null;
     // Container that wraps the right tabbed pane plus the header (branch button + title).
-    // Declared as a field because various methods (collapse/expand etc.) reference it.
-    private @Nullable JPanel rightTabbedContainer = null;
-    // Reference to the small header panel placed above the right tab stack (holds branch selector).
-    // Stored so we can toggle its visibility later (e.g. in applyAdvancedModeVisibility()).
-    private @Nullable JPanel rightTabbedHeader = null;
+    private @Nullable JPanel commanedPanel = null;
+    private @Nullable JPanel branchSelectorPanel = null;
     // Combined panel used when Vertical Activity Layout is enabled (Activity above Instructions | Output on the right)
     private @Nullable JSplitPane verticalActivityCombinedPanel = null;
 
@@ -321,7 +318,7 @@ public class Chrome
         historyOutputPanel = new HistoryOutputPanel(this, this.contextManager);
 
         // Bottom Area: Context/Git + Status
-        bottomPanel = new JPanel(new BorderLayout());
+        this.mainPanel = new JPanel(new BorderLayout());
         // Status labels at the very bottom
         // System message label (left side)
 
@@ -340,12 +337,12 @@ public class Chrome
         statusPanel.add(backgroundStatusLabel, BorderLayout.EAST);
 
         var statusLabels = (JComponent) statusPanel;
-        bottomPanel.add(statusLabels, BorderLayout.SOUTH);
+        this.mainPanel.add(statusLabels, BorderLayout.SOUTH);
         // Center of bottomPanel will be filled in onComplete based on git presence
 
         gbc.weighty = 1.0;
         gbc.gridy = 0;
-        contentPanel.add(bottomPanel, gbc);
+        contentPanel.add(this.mainPanel, gbc);
 
         mainPanel.add(contentPanel, BorderLayout.CENTER);
         frame.add(mainPanel, BorderLayout.CENTER); // instructionsPanel is created here
@@ -392,20 +389,20 @@ public class Chrome
         dependenciesPanel.addDependencyStateChangeListener(this::updateProjectFilesTabBadge);
 
         // Create left vertical-tabbed pane for ProjectFiles and Git with vertical tab placement
-        leftTabbedPanel = new JTabbedPane(JTabbedPane.LEFT);
+        toolsPane = new JTabbedPane(JTabbedPane.LEFT);
         // Enforce a reasonable minimum width so the sidebar cannot be shrunk to an unusable size
-        leftTabbedPanel.setMinimumSize(new Dimension(MIN_SIDEBAR_WIDTH_PX, 0));
+        toolsPane.setMinimumSize(new Dimension(MIN_SIDEBAR_WIDTH_PX, 0));
         // Ensure all tabs are accessible when there are too many to fit (prevents "missing" icons)
-        leftTabbedPanel.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
+        toolsPane.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
 
         projectFilesTabBadgedIcon = new BadgedIcon(Icons.FOLDER_CODE, themeManager);
-        leftTabbedPanel.addTab(null, projectFilesTabBadgedIcon, projectFilesPanel);
-        var projectTabIdx = leftTabbedPanel.indexOfComponent(projectFilesPanel);
+        toolsPane.addTab(null, projectFilesTabBadgedIcon, projectFilesPanel);
+        var projectTabIdx = toolsPane.indexOfComponent(projectFilesPanel);
         var projectShortcut =
                 KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
         projectFilesTabLabel =
                 createSquareTabLabel(projectFilesTabBadgedIcon, "Project Files (" + projectShortcut + ")");
-        leftTabbedPanel.setTabComponentAt(projectTabIdx, projectFilesTabLabel);
+        toolsPane.setTabComponentAt(projectTabIdx, projectFilesTabLabel);
         projectFilesTabLabel.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
@@ -423,12 +420,12 @@ public class Chrome
         // --- New top-level Tests tab moved up (second position) ---
         {
             var testsIcon = Icons.SCIENCE;
-            leftTabbedPanel.addTab(null, testsIcon, testRunnerPanel);
-            var testsTabIdx = leftTabbedPanel.indexOfComponent(testRunnerPanel);
+            toolsPane.addTab(null, testsIcon, testRunnerPanel);
+            var testsTabIdx = toolsPane.indexOfComponent(testRunnerPanel);
             var testsShortcut =
                     KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
             var testsTabLabel = createSquareTabLabel(testsIcon, "Tests (" + testsShortcut + ")");
-            leftTabbedPanel.setTabComponentAt(testsTabIdx, testsTabLabel);
+            toolsPane.setTabComponentAt(testsTabIdx, testsTabLabel);
             testsTabLabel.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mousePressed(MouseEvent e) {
@@ -448,12 +445,12 @@ public class Chrome
                 // Changes tab (with badge)
                 var commitIcon = Icons.COMMIT;
                 gitTabBadgedIcon = new BadgedIcon(commitIcon, themeManager);
-                leftTabbedPanel.addTab(null, gitTabBadgedIcon, gitCommitTab);
-                var commitTabIdx = leftTabbedPanel.indexOfComponent(gitCommitTab);
+                toolsPane.addTab(null, gitTabBadgedIcon, gitCommitTab);
+                var commitTabIdx = toolsPane.indexOfComponent(gitCommitTab);
                 var changesShortcut =
                         KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
                 gitTabLabel = createSquareTabLabel(gitTabBadgedIcon, "Changes (" + changesShortcut + ")");
-                leftTabbedPanel.setTabComponentAt(commitTabIdx, gitTabLabel);
+                toolsPane.setTabComponentAt(commitTabIdx, gitTabLabel);
                 gitTabLabel.addMouseListener(new MouseAdapter() {
                     @Override
                     public void mousePressed(MouseEvent e) {
@@ -463,12 +460,12 @@ public class Chrome
 
                 // Log tab (after Changes)
                 var logIcon = Icons.FLOWSHEET;
-                leftTabbedPanel.addTab(null, logIcon, gitLogTab);
-                var logTabIdx = leftTabbedPanel.indexOfComponent(gitLogTab);
+                toolsPane.addTab(null, logIcon, gitLogTab);
+                var logTabIdx = toolsPane.indexOfComponent(gitLogTab);
                 var logShortcut =
                         KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
                 var logTabLabel = createSquareTabLabel(logIcon, "Log (" + logShortcut + ")");
-                leftTabbedPanel.setTabComponentAt(logTabIdx, logTabLabel);
+                toolsPane.setTabComponentAt(logTabIdx, logTabLabel);
                 logTabLabel.addMouseListener(new MouseAdapter() {
                     @Override
                     public void mousePressed(MouseEvent e) {
@@ -478,12 +475,12 @@ public class Chrome
 
                 // Worktrees tab (after Log)
                 var worktreeIcon = Icons.FLOWCHART;
-                leftTabbedPanel.addTab(null, worktreeIcon, gitWorktreeTab);
-                var worktreeTabIdx = leftTabbedPanel.indexOfComponent(gitWorktreeTab);
+                toolsPane.addTab(null, worktreeIcon, gitWorktreeTab);
+                var worktreeTabIdx = toolsPane.indexOfComponent(gitWorktreeTab);
                 var worktreesShortcut =
                         KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
                 var worktreeTabLabel = createSquareTabLabel(worktreeIcon, "Worktrees (" + worktreesShortcut + ")");
-                leftTabbedPanel.setTabComponentAt(worktreeTabIdx, worktreeTabLabel);
+                toolsPane.setTabComponentAt(worktreeTabIdx, worktreeTabLabel);
                 worktreeTabLabel.addMouseListener(new MouseAdapter() {
                     @Override
                     public void mousePressed(MouseEvent e) {
@@ -509,12 +506,12 @@ public class Chrome
             pullRequestsPanel = new GitPullRequestsTab(this, contextManager, gitLogTab);
             var prIcon = Icons.PULL_REQUEST;
             if (GlobalUiSettings.isAdvancedMode()) {
-                leftTabbedPanel.addTab(null, prIcon, pullRequestsPanel);
-                var prIdx = leftTabbedPanel.indexOfComponent(pullRequestsPanel);
+                toolsPane.addTab(null, prIcon, pullRequestsPanel);
+                var prIdx = toolsPane.indexOfComponent(pullRequestsPanel);
                 var prShortcut =
                         KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
                 var prLabel = createSquareTabLabel(prIcon, "Pull Requests (" + prShortcut + ")");
-                leftTabbedPanel.setTabComponentAt(prIdx, prLabel);
+                toolsPane.setTabComponentAt(prIdx, prLabel);
                 prLabel.addMouseListener(new MouseAdapter() {
                     @Override
                     public void mousePressed(MouseEvent e) {
@@ -529,12 +526,12 @@ public class Chrome
             issuesPanel = new GitIssuesTab(this, contextManager);
             var issIcon = Icons.ADJUST;
             if (GlobalUiSettings.isAdvancedMode()) {
-                leftTabbedPanel.addTab(null, issIcon, issuesPanel);
-                var issIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
+                toolsPane.addTab(null, issIcon, issuesPanel);
+                var issIdx = toolsPane.indexOfComponent(issuesPanel);
                 var issuesShortcut =
                         KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
                 var issLabel = createSquareTabLabel(issIcon, "Issues (" + issuesShortcut + ")");
-                leftTabbedPanel.setTabComponentAt(issIdx, issLabel);
+                toolsPane.setTabComponentAt(issIdx, issLabel);
                 issLabel.addMouseListener(new MouseAdapter() {
                     @Override
                     public void mousePressed(MouseEvent e) {
@@ -554,14 +551,14 @@ public class Chrome
          */
 
         // Create right-side tabbed panel with Instructions as first tab (with icons)
-        rightTabbedPanel = new JTabbedPane(JTabbedPane.TOP);
-        rightTabbedPanel.addTab("Instructions", Icons.CHAT_BUBBLE, instructionsPanel);
-        rightTabbedPanel.setToolTipTextAt(0, "Enter instructions for AI coding tasks");
+        commandPane = new JTabbedPane(JTabbedPane.TOP);
+        commandPane.addTab("Instructions", Icons.CHAT_BUBBLE, instructionsPanel);
+        commandPane.setToolTipTextAt(0, "Enter instructions for AI coding tasks");
 
         // Wrap the tabbed panel in a container that includes a small header above it.
         // The header hosts the branch selector on the left and a centered "Instructions" title.
-        this.rightTabbedContainer = new JPanel(new BorderLayout());
-        this.rightTabbedContainer.setOpaque(false);
+        this.commanedPanel = new JPanel(new BorderLayout());
+        this.commanedPanel.setOpaque(false);
 
         var headerPanel = new JPanel(new BorderLayout(H_GAP, 0));
         headerPanel.setOpaque(true);
@@ -570,7 +567,7 @@ public class Chrome
         var marginBorder = BorderFactory.createEmptyBorder(4, 4, 4, 4);
         headerPanel.setBorder(BorderFactory.createCompoundBorder(marginBorder, titledBorder));
         // Keep a reference to this header so it can be shown/hidden by mode toggles later.
-        this.rightTabbedHeader = headerPanel;
+        this.branchSelectorPanel = headerPanel;
 
         // Branch selector button on the left
         branchSelectorButton = new BranchSelectorButton(this);
@@ -587,23 +584,23 @@ public class Chrome
         leftHeader.add(branchSelectorButton);
         headerPanel.add(leftHeader, BorderLayout.WEST);
 
-        rightTabbedContainer.add(headerPanel, BorderLayout.NORTH);
-        rightTabbedContainer.add(rightTabbedPanel, BorderLayout.CENTER);
+        commanedPanel.add(headerPanel, BorderLayout.NORTH);
+        commanedPanel.add(commandPane, BorderLayout.CENTER);
 
         // Create and add TaskListPanel as second tab (with list icon)
         taskListPanel = new TaskListPanel(this);
-        rightTabbedPanel.addTab("Tasks", Icons.LIST, taskListPanel);
-        rightTabbedPanel.setToolTipTextAt(1, "Manage and run task lists");
+        commandPane.addTab("Tasks", Icons.LIST, taskListPanel);
+        commandPane.setToolTipTextAt(1, "Manage and run task lists");
 
         // Create and add TerminalPanel as third tab (with terminal icon)
         this.terminalPanel =
                 new TerminalPanel(this, () -> {}, true, getProject().getRoot());
-        rightTabbedPanel.addTab("Terminal", Icons.TERMINAL, this.terminalPanel);
-        rightTabbedPanel.setToolTipTextAt(2, "Embedded terminal");
+        commandPane.addTab("Terminal", Icons.TERMINAL, this.terminalPanel);
+        commandPane.setToolTipTextAt(2, "Embedded terminal");
 
         var contextAreaContainer = instructionsPanel.getContextAreaContainer();
-        rightTabbedPanel.addChangeListener(e -> {
-            var selected = rightTabbedPanel.getSelectedComponent();
+        commandPane.addChangeListener(e -> {
+            var selected = commandPane.getSelectedComponent();
             if (selected == instructionsPanel) {
                 // Move shared Context area back to Instructions
                 taskListPanel.restoreControls();
@@ -656,12 +653,12 @@ public class Chrome
         });
 
         // No right-side drawer; the rightTabbedContainer occupies full right side
-        rightTabbedContainer.setMinimumSize(new Dimension(200, 325));
+        commanedPanel.setMinimumSize(new Dimension(200, 325));
 
         // 1) "Build" Split: historyOutputPanel (Top) / Instructions (Bottom)
         buildSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
         buildSplitPane.setTopComponent(historyOutputPanel);
-        buildSplitPane.setBottomComponent(rightTabbedContainer);
+        buildSplitPane.setBottomComponent(commanedPanel);
         buildSplitPane.setResizeWeight(0.4); // ~40 % to Output
         buildSplitPane.setMinimumSize(new Dimension(200, 325));
 
@@ -689,42 +686,42 @@ public class Chrome
         buildSplitPane.setDividerLocation((int) (800 * DEFAULT_OUTPUT_MAIN_SPLIT));
 
         // 3) Final horizontal split: left tabs | right stack
-        bottomSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+        horizontalSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
 
         // Create a vertical split on the left: top = regular tabs, bottom = per-file history tabs
-        historyTabbedPane = new JTabbedPane();
-        historyTabbedPane.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT); // keep single row; scroll horizontally
-        historyTabbedPane.setVisible(false); // hidden until a history tab is added
+        fileHistoryPane = new JTabbedPane();
+        fileHistoryPane.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT); // keep single row; scroll horizontally
+        fileHistoryPane.setVisible(false); // hidden until a history tab is added
 
         leftVerticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        leftVerticalSplitPane.setTopComponent(leftTabbedPanel);
-        leftVerticalSplitPane.setBottomComponent(historyTabbedPane);
+        leftVerticalSplitPane.setTopComponent(toolsPane);
+        leftVerticalSplitPane.setBottomComponent(fileHistoryPane);
         leftVerticalSplitPane.setResizeWeight(0.7); // top gets most space by default
         // Ensure the entire left stack (tabs + per-file history) honors the minimum sidebar width
         leftVerticalSplitPane.setMinimumSize(new Dimension(MIN_SIDEBAR_WIDTH_PX, 0));
         originalLeftVerticalDividerSize = leftVerticalSplitPane.getDividerSize();
         leftVerticalSplitPane.setDividerSize(0); // hide divider when no history is shown
 
-        bottomSplitPane.setLeftComponent(leftVerticalSplitPane);
-        bottomSplitPane.setRightComponent(rightSideContainer);
+        horizontalSplitPane.setLeftComponent(leftVerticalSplitPane);
+        horizontalSplitPane.setRightComponent(rightSideContainer);
         // Let the left side drive the minimum width for the whole sidebar region
         // Ensure the right stack can shrink enough so the sidebar can grow
         rightSideContainer.setMinimumSize(new Dimension(200, 0));
         // Left panel keeps its preferred width; right panel takes the remaining space
-        bottomSplitPane.setResizeWeight(0.0);
+        horizontalSplitPane.setResizeWeight(0.0);
         int tempDividerLocation = 300; // Reasonable default that will be recalculated
-        bottomSplitPane.setDividerLocation(tempDividerLocation);
+        horizontalSplitPane.setDividerLocation(tempDividerLocation);
         // Initialize the remembered expanded location (will be updated later)
         lastExpandedSidebarLocation = tempDividerLocation;
 
         // Store original divider size
-        originalBottomDividerSize = bottomSplitPane.getDividerSize();
+        originalBottomDividerSize = horizontalSplitPane.getDividerSize();
 
-        bottomPanel.add(bottomSplitPane, BorderLayout.CENTER);
+        this.mainPanel.add(horizontalSplitPane, BorderLayout.CENTER);
 
         // Force layout update for the bottom panel
-        bottomPanel.revalidate();
-        bottomPanel.repaint();
+        this.mainPanel.revalidate();
+        this.mainPanel.repaint();
 
         // Set initial enabled state for global actions after all components are ready
         this.globalUndoAction.updateEnabledState();
@@ -1094,24 +1091,24 @@ public class Chrome
     public void recreateIssuesPanel() {
         SwingUtilities.invokeLater(() -> {
             if (issuesPanel != null) {
-                var idx = leftTabbedPanel.indexOfComponent(issuesPanel);
-                if (idx != -1) leftTabbedPanel.remove(idx);
+                var idx = toolsPane.indexOfComponent(issuesPanel);
+                if (idx != -1) toolsPane.remove(idx);
             }
             issuesPanel = new GitIssuesTab(this, contextManager);
             var icon = Icons.ADJUST;
-            leftTabbedPanel.addTab(null, icon, issuesPanel);
-            var tabIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
+            toolsPane.addTab(null, icon, issuesPanel);
+            var tabIdx = toolsPane.indexOfComponent(issuesPanel);
             var recreateShortcut =
                     KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
             var label = createSquareTabLabel(icon, "Issues (" + recreateShortcut + ")");
-            leftTabbedPanel.setTabComponentAt(tabIdx, label);
+            toolsPane.setTabComponentAt(tabIdx, label);
             label.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mousePressed(MouseEvent e) {
-                    leftTabbedPanel.setSelectedIndex(tabIdx);
+                    toolsPane.setSelectedIndex(tabIdx);
                 }
             });
-            leftTabbedPanel.setSelectedIndex(tabIdx);
+            toolsPane.setSelectedIndex(tabIdx);
         });
     }
 
@@ -1245,7 +1242,7 @@ public class Chrome
         rootPane.getActionMap().put("switchToProjectFiles", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                leftTabbedPanel.setSelectedIndex(0); // Project Files is always at index 0
+                toolsPane.setSelectedIndex(0); // Project Files is always at index 0
             }
         });
 
@@ -1256,8 +1253,8 @@ public class Chrome
         rootPane.getActionMap().put("switchToTests", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                var idx = leftTabbedPanel.indexOfComponent(testRunnerPanel);
-                if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                var idx = toolsPane.indexOfComponent(testRunnerPanel);
+                if (idx != -1) toolsPane.setSelectedIndex(idx);
             }
         });
 
@@ -1269,8 +1266,8 @@ public class Chrome
             rootPane.getActionMap().put("switchToChanges", new AbstractAction() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    var idx = leftTabbedPanel.indexOfComponent(gitCommitTab);
-                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                    var idx = toolsPane.indexOfComponent(gitCommitTab);
+                    if (idx != -1) toolsPane.setSelectedIndex(idx);
                 }
             });
         }
@@ -1283,8 +1280,8 @@ public class Chrome
             rootPane.getActionMap().put("switchToLog", new AbstractAction() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    var idx = leftTabbedPanel.indexOfComponent(gitLogTab);
-                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                    var idx = toolsPane.indexOfComponent(gitLogTab);
+                    if (idx != -1) toolsPane.setSelectedIndex(idx);
                 }
             });
         }
@@ -1297,8 +1294,8 @@ public class Chrome
             rootPane.getActionMap().put("switchToWorktrees", new AbstractAction() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    var idx = leftTabbedPanel.indexOfComponent(gitWorktreeTab);
-                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                    var idx = toolsPane.indexOfComponent(gitWorktreeTab);
+                    if (idx != -1) toolsPane.setSelectedIndex(idx);
                 }
             });
         }
@@ -1311,8 +1308,8 @@ public class Chrome
             rootPane.getActionMap().put("switchToPullRequests", new AbstractAction() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    var idx = leftTabbedPanel.indexOfComponent(pullRequestsPanel);
-                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                    var idx = toolsPane.indexOfComponent(pullRequestsPanel);
+                    if (idx != -1) toolsPane.setSelectedIndex(idx);
                 }
             });
         }
@@ -1325,8 +1322,8 @@ public class Chrome
             rootPane.getActionMap().put("switchToIssues", new AbstractAction() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    var idx = leftTabbedPanel.indexOfComponent(issuesPanel);
-                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                    var idx = toolsPane.indexOfComponent(issuesPanel);
+                    if (idx != -1) toolsPane.setSelectedIndex(idx);
                 }
             });
         }
@@ -1344,8 +1341,8 @@ public class Chrome
             public void actionPerformed(ActionEvent e) {
                 // Terminal drawer removed; instead, switch to the Terminal tab if present.
                 SwingUtilities.invokeLater(() -> {
-                    int idx = rightTabbedPanel.indexOfTab("Terminal");
-                    if (idx != -1) rightTabbedPanel.setSelectedIndex(idx);
+                    int idx = commandPane.indexOfTab("Terminal");
+                    if (idx != -1) commandPane.setSelectedIndex(idx);
                 });
             }
         });
@@ -1360,8 +1357,8 @@ public class Chrome
             @Override
             public void actionPerformed(ActionEvent e) {
                 SwingUtilities.invokeLater(() -> {
-                    int idx = rightTabbedPanel.indexOfTab("Terminal");
-                    if (idx != -1) rightTabbedPanel.setSelectedIndex(idx);
+                    int idx = commandPane.indexOfTab("Terminal");
+                    if (idx != -1) commandPane.setSelectedIndex(idx);
                 });
             }
         });
@@ -1376,8 +1373,8 @@ public class Chrome
             @Override
             public void actionPerformed(ActionEvent e) {
                 SwingUtilities.invokeLater(() -> {
-                    int idx = rightTabbedPanel.indexOfTab("Tasks");
-                    if (idx != -1) rightTabbedPanel.setSelectedIndex(idx);
+                    int idx = commandPane.indexOfTab("Tasks");
+                    if (idx != -1) commandPane.setSelectedIndex(idx);
                 });
             }
         });
@@ -1764,7 +1761,7 @@ public class Chrome
                 properDividerLocation = Math.min(globalHorizontalPos, Math.max(50, frame.getWidth() - 200));
             } else {
                 int computedWidth = computeInitialSidebarWidth();
-                properDividerLocation = computedWidth + bottomSplitPane.getDividerSize();
+                properDividerLocation = computedWidth + horizontalSplitPane.getDividerSize();
             }
         }
 
@@ -1777,23 +1774,23 @@ public class Chrome
             lastExpandedSidebarLocation = Math.max(lastExpandedSidebarLocation, properDividerLocation);
             // Relax minimum sizes to allow full collapse to compact width
             leftVerticalSplitPane.setMinimumSize(new Dimension(0, 0));
-            leftTabbedPanel.setMinimumSize(new Dimension(0, 0));
-            leftTabbedPanel.setSelectedIndex(0); // Always show Project Files when collapsed
-            bottomSplitPane.setDividerSize(0);
+            toolsPane.setMinimumSize(new Dimension(0, 0));
+            toolsPane.setSelectedIndex(0); // Always show Project Files when collapsed
+            horizontalSplitPane.setDividerSize(0);
             sidebarCollapsed = true;
-            bottomSplitPane.setDividerLocation(40);
+            horizontalSplitPane.setDividerLocation(40);
             // Persist collapsed state for future runs (project + global)
             saveSidebarOpenSetting(false);
         } else {
             // Open sidebar using the saved or computed divider location
-            bottomSplitPane.setDividerLocation(properDividerLocation);
-            bottomSplitPane.setDividerSize(originalBottomDividerSize);
+            horizontalSplitPane.setDividerLocation(properDividerLocation);
+            horizontalSplitPane.setDividerSize(originalBottomDividerSize);
             sidebarCollapsed = false;
             lastExpandedSidebarLocation = properDividerLocation;
             // Restore minimum sizes so min-width clamp is enforced
             int minPx = computeMinSidebarWidthPx();
             leftVerticalSplitPane.setMinimumSize(new Dimension(minPx, 0));
-            leftTabbedPanel.setMinimumSize(new Dimension(minPx, 0));
+            toolsPane.setMinimumSize(new Dimension(minPx, 0));
             saveSidebarOpenSetting(true);
         }
 
@@ -1973,18 +1970,18 @@ public class Chrome
             }
         });
 
-        bottomSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-            if (!bottomSplitPane.isShowing()) {
+        horizontalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+            if (!horizontalSplitPane.isShowing()) {
                 return;
             }
 
-            int newPos = bottomSplitPane.getDividerLocation();
+            int newPos = horizontalSplitPane.getDividerLocation();
             if (newPos <= 0) {
                 return;
             }
 
             // Treat the UI as "collapsed" when the divider is hidden or very close to the left edge.
-            boolean isCollapsedUi = bottomSplitPane.getDividerSize() == 0 || newPos < SIDEBAR_COLLAPSED_THRESHOLD;
+            boolean isCollapsedUi = horizontalSplitPane.getDividerSize() == 0 || newPos < SIDEBAR_COLLAPSED_THRESHOLD;
             if (isCollapsedUi) {
                 // Persist collapsed intent
                 saveSidebarOpenSetting(false);
@@ -1998,10 +1995,10 @@ public class Chrome
                 if (newPos < minWidth) {
                     // Clamp visually and skip persistence of too-small positions
                     if (SwingUtilities.isEventDispatchThread()) {
-                        bottomSplitPane.setDividerLocation(minWidth);
+                        horizontalSplitPane.setDividerLocation(minWidth);
                     } else {
                         try {
-                            SwingUtilities.invokeAndWait(() -> bottomSplitPane.setDividerLocation(minWidth));
+                            SwingUtilities.invokeAndWait(() -> horizontalSplitPane.setDividerLocation(minWidth));
                         } catch (InterruptedException | InvocationTargetException ex) {
                             // Log or handle as appropriate; here we ignore
                         }
@@ -2131,8 +2128,8 @@ public class Chrome
         return openDialogs;
     }
 
-    public JTabbedPane getLeftTabbedPanel() {
-        return leftTabbedPanel;
+    public JTabbedPane getToolsPane() {
+        return toolsPane;
     }
 
     @Nullable
@@ -2169,9 +2166,9 @@ public class Chrome
 
     public void showCommitInLogTab(String commitId) {
         if (gitLogTab != null) {
-            for (int i = 0; i < leftTabbedPanel.getTabCount(); i++) {
-                if (leftTabbedPanel.getComponentAt(i) == gitLogTab) {
-                    leftTabbedPanel.setSelectedIndex(i);
+            for (int i = 0; i < toolsPane.getTabCount(); i++) {
+                if (toolsPane.getComponentAt(i) == gitLogTab) {
+                    toolsPane.setSelectedIndex(i);
                     break;
                 }
             }
@@ -2186,16 +2183,16 @@ public class Chrome
         }
 
         // Ensure the history pane is visible
-        if (!historyTabbedPane.isVisible()) {
-            historyTabbedPane.setVisible(true);
+        if (!fileHistoryPane.isVisible()) {
+            fileHistoryPane.setVisible(true);
             leftVerticalSplitPane.setDividerSize(originalLeftVerticalDividerSize);
             leftVerticalSplitPane.setDividerLocation(0.7);
         }
 
-        int count = historyTabbedPane.getTabCount();
+        int count = fileHistoryPane.getTabCount();
         for (int i = 0; i < count; i++) {
-            if (historyTabbedPane.getComponentAt(i) == existing) {
-                historyTabbedPane.setSelectedIndex(i);
+            if (fileHistoryPane.getComponentAt(i) == existing) {
+                fileHistoryPane.setSelectedIndex(i);
                 break;
             }
         }
@@ -2246,14 +2243,14 @@ public class Chrome
             }
         });
         closeButton.addActionListener(e -> {
-            int idx = historyTabbedPane.indexOfComponent(historyTab);
+            int idx = fileHistoryPane.indexOfComponent(historyTab);
             if (idx >= 0) {
-                historyTabbedPane.remove(idx);
+                fileHistoryPane.remove(idx);
                 fileHistoryTabs.remove(filePath);
 
                 // Hide history pane if now empty and remove divider
-                if (historyTabbedPane.getTabCount() == 0) {
-                    historyTabbedPane.setVisible(false);
+                if (fileHistoryPane.getTabCount() == 0) {
+                    fileHistoryPane.setVisible(false);
                     leftVerticalSplitPane.setDividerSize(0);
                 }
             }
@@ -2263,16 +2260,16 @@ public class Chrome
         tabHeader.add(closeButton);
 
         // Ensure history pane is visible and divider shown
-        if (!historyTabbedPane.isVisible()) {
-            historyTabbedPane.setVisible(true);
+        if (!fileHistoryPane.isVisible()) {
+            fileHistoryPane.setVisible(true);
             leftVerticalSplitPane.setDividerSize(originalLeftVerticalDividerSize);
             leftVerticalSplitPane.setDividerLocation(0.7);
         }
 
-        historyTabbedPane.addTab(file.getFileName(), historyTab);
-        int newIndex = historyTabbedPane.indexOfComponent(historyTab);
-        historyTabbedPane.setTabComponentAt(newIndex, tabHeader);
-        historyTabbedPane.setSelectedIndex(newIndex);
+        fileHistoryPane.addTab(file.getFileName(), historyTab);
+        int newIndex = fileHistoryPane.indexOfComponent(historyTab);
+        fileHistoryPane.setTabComponentAt(newIndex, tabHeader);
+        fileHistoryPane.setSelectedIndex(newIndex);
 
         fileHistoryTabs.put(filePath, historyTab);
     }
@@ -2328,8 +2325,8 @@ public class Chrome
         return buildReviewTabs;
     }
 
-    public JTabbedPane getRightTabbedPanel() {
-        return rightTabbedPanel;
+    public JTabbedPane getCommandPane() {
+        return commandPane;
     }
 
     public void updateTerminalFontSize() {}
@@ -2352,12 +2349,12 @@ public class Chrome
             // Keep the branch selector header visible whenever the project has Git,
             // regardless of EZ/Advanced mode.
             try {
-                if (rightTabbedHeader != null) {
+                if (branchSelectorPanel != null) {
                     boolean showHeader = getProject().hasGit();
-                    rightTabbedHeader.setVisible(showHeader);
-                    if (rightTabbedContainer != null) {
-                        rightTabbedContainer.revalidate();
-                        rightTabbedContainer.repaint();
+                    branchSelectorPanel.setVisible(showHeader);
+                    if (commanedPanel != null) {
+                        commanedPanel.revalidate();
+                        commanedPanel.repaint();
                     }
                 }
             } catch (Exception ex) {
@@ -2369,47 +2366,47 @@ public class Chrome
             // --- Left (sidebar) tabs: hide/show advanced Git tabs ---
             if (!advanced) {
                 if (gitCommitTab != null) {
-                    int idx = leftTabbedPanel.indexOfComponent(gitCommitTab);
-                    if (idx != -1) leftTabbedPanel.removeTabAt(idx);
+                    int idx = toolsPane.indexOfComponent(gitCommitTab);
+                    if (idx != -1) toolsPane.removeTabAt(idx);
                 }
                 if (gitLogTab != null) {
-                    int idx = leftTabbedPanel.indexOfComponent(gitLogTab);
-                    if (idx != -1) leftTabbedPanel.removeTabAt(idx);
+                    int idx = toolsPane.indexOfComponent(gitLogTab);
+                    if (idx != -1) toolsPane.removeTabAt(idx);
                 }
                 if (gitWorktreeTab != null) {
-                    int idx = leftTabbedPanel.indexOfComponent(gitWorktreeTab);
-                    if (idx != -1) leftTabbedPanel.removeTabAt(idx);
+                    int idx = toolsPane.indexOfComponent(gitWorktreeTab);
+                    if (idx != -1) toolsPane.removeTabAt(idx);
                 }
                 if (pullRequestsPanel != null) {
-                    int idx = leftTabbedPanel.indexOfComponent(pullRequestsPanel);
-                    if (idx != -1) leftTabbedPanel.removeTabAt(idx);
+                    int idx = toolsPane.indexOfComponent(pullRequestsPanel);
+                    if (idx != -1) toolsPane.removeTabAt(idx);
                 }
                 if (issuesPanel != null) {
-                    int idx = leftTabbedPanel.indexOfComponent(issuesPanel);
-                    if (idx != -1) leftTabbedPanel.removeTabAt(idx);
+                    int idx = toolsPane.indexOfComponent(issuesPanel);
+                    if (idx != -1) toolsPane.removeTabAt(idx);
                 }
 
                 // Ensure a valid selection after removals
-                if (leftTabbedPanel.getTabCount() > 0) {
-                    int sel = leftTabbedPanel.getSelectedIndex();
-                    if (sel < 0 || sel >= leftTabbedPanel.getTabCount()) {
-                        leftTabbedPanel.setSelectedIndex(0);
+                if (toolsPane.getTabCount() > 0) {
+                    int sel = toolsPane.getSelectedIndex();
+                    if (sel < 0 || sel >= toolsPane.getTabCount()) {
+                        toolsPane.setSelectedIndex(0);
                     }
                 }
             } else {
                 // Advanced ON: re-add tabs if applicable and not already present
 
                 // Changes tab (GitCommitTab)
-                if (gitCommitTab != null && leftTabbedPanel.indexOfComponent(gitCommitTab) == -1) {
+                if (gitCommitTab != null && toolsPane.indexOfComponent(gitCommitTab) == -1) {
                     var commitIcon = Icons.COMMIT;
                     gitTabBadgedIcon = new BadgedIcon(commitIcon, themeManager);
-                    leftTabbedPanel.addTab(null, gitTabBadgedIcon, gitCommitTab);
-                    var idx = leftTabbedPanel.indexOfComponent(gitCommitTab);
+                    toolsPane.addTab(null, gitTabBadgedIcon, gitCommitTab);
+                    var idx = toolsPane.indexOfComponent(gitCommitTab);
                     var ks = GlobalUiSettings.getKeybinding(
                             "panel.switchToChanges", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
                     gitTabLabel = createSquareTabLabel(
                             gitTabBadgedIcon, "Changes (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
-                    leftTabbedPanel.setTabComponentAt(idx, gitTabLabel);
+                    toolsPane.setTabComponentAt(idx, gitTabLabel);
                     final int tabIdx = idx;
                     gitTabLabel.addMouseListener(new MouseAdapter() {
                         @Override
@@ -2420,15 +2417,15 @@ public class Chrome
                 }
 
                 // Log tab
-                if (gitLogTab != null && leftTabbedPanel.indexOfComponent(gitLogTab) == -1) {
+                if (gitLogTab != null && toolsPane.indexOfComponent(gitLogTab) == -1) {
                     var logIcon = Icons.FLOWSHEET;
-                    leftTabbedPanel.addTab(null, logIcon, gitLogTab);
-                    var idx = leftTabbedPanel.indexOfComponent(gitLogTab);
+                    toolsPane.addTab(null, logIcon, gitLogTab);
+                    var idx = toolsPane.indexOfComponent(gitLogTab);
                     var ks = GlobalUiSettings.getKeybinding(
                             "panel.switchToLog", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
                     var tooltip = "Log (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")";
                     var label = createSquareTabLabel(logIcon, tooltip);
-                    leftTabbedPanel.setTabComponentAt(idx, label);
+                    toolsPane.setTabComponentAt(idx, label);
                     final int tabIdx = idx;
                     label.addMouseListener(new MouseAdapter() {
                         @Override
@@ -2439,15 +2436,15 @@ public class Chrome
                 }
 
                 // Worktrees tab
-                if (gitWorktreeTab != null && leftTabbedPanel.indexOfComponent(gitWorktreeTab) == -1) {
+                if (gitWorktreeTab != null && toolsPane.indexOfComponent(gitWorktreeTab) == -1) {
                     var worktreeIcon = Icons.FLOWCHART;
-                    leftTabbedPanel.addTab(null, worktreeIcon, gitWorktreeTab);
-                    var idx = leftTabbedPanel.indexOfComponent(gitWorktreeTab);
+                    toolsPane.addTab(null, worktreeIcon, gitWorktreeTab);
+                    var idx = toolsPane.indexOfComponent(gitWorktreeTab);
                     var ks = GlobalUiSettings.getKeybinding(
                             "panel.switchToWorktrees", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
                     var tooltip = "Worktrees (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")";
                     var label = createSquareTabLabel(worktreeIcon, tooltip);
-                    leftTabbedPanel.setTabComponentAt(idx, label);
+                    toolsPane.setTabComponentAt(idx, label);
                     final int tabIdx = idx;
                     label.addMouseListener(new MouseAdapter() {
                         @Override
@@ -2461,15 +2458,15 @@ public class Chrome
                 if (pullRequestsPanel != null
                         && getProject().isGitHubRepo()
                         && gitLogTab != null
-                        && leftTabbedPanel.indexOfComponent(pullRequestsPanel) == -1) {
+                        && toolsPane.indexOfComponent(pullRequestsPanel) == -1) {
                     var prIcon = Icons.PULL_REQUEST;
-                    leftTabbedPanel.addTab(null, prIcon, pullRequestsPanel);
-                    var idx = leftTabbedPanel.indexOfComponent(pullRequestsPanel);
+                    toolsPane.addTab(null, prIcon, pullRequestsPanel);
+                    var idx = toolsPane.indexOfComponent(pullRequestsPanel);
                     var ks = GlobalUiSettings.getKeybinding(
                             "panel.switchToPullRequests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
                     var tooltip = "Pull Requests (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")";
                     var label = createSquareTabLabel(prIcon, tooltip);
-                    leftTabbedPanel.setTabComponentAt(idx, label);
+                    toolsPane.setTabComponentAt(idx, label);
                     final int tabIdx = idx;
                     label.addMouseListener(new MouseAdapter() {
                         @Override
@@ -2482,15 +2479,15 @@ public class Chrome
                 // Issues tab (only when provider is not NONE)
                 if (issuesPanel != null
                         && getProject().getIssuesProvider().type() != IssueProviderType.NONE
-                        && leftTabbedPanel.indexOfComponent(issuesPanel) == -1) {
+                        && toolsPane.indexOfComponent(issuesPanel) == -1) {
                     var issIcon = Icons.ADJUST;
-                    leftTabbedPanel.addTab(null, issIcon, issuesPanel);
-                    var idx = leftTabbedPanel.indexOfComponent(issuesPanel);
+                    toolsPane.addTab(null, issIcon, issuesPanel);
+                    var idx = toolsPane.indexOfComponent(issuesPanel);
                     var ks = GlobalUiSettings.getKeybinding(
                             "panel.switchToIssues", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
                     var tooltip = "Issues (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")";
                     var label = createSquareTabLabel(issIcon, tooltip);
-                    leftTabbedPanel.setTabComponentAt(idx, label);
+                    toolsPane.setTabComponentAt(idx, label);
                     final int tabIdx = idx;
                     label.addMouseListener(new MouseAdapter() {
                         @Override
@@ -2508,48 +2505,48 @@ public class Chrome
                 logger.debug("Failed to update Git tab badge after advanced-mode toggle", ex);
             }
 
-            leftTabbedPanel.revalidate();
-            leftTabbedPanel.repaint();
+            toolsPane.revalidate();
+            toolsPane.repaint();
 
             // --- Right (Instructions/Tasks/Terminal) tabs: hide/show Terminal tab dynamically ---
-            int terminalIdx = rightTabbedPanel.indexOfTab("Terminal");
+            int terminalIdx = commandPane.indexOfTab("Terminal");
             boolean terminalTabPresent = terminalIdx != -1;
             boolean terminalWasSelected =
-                    terminalTabPresent && rightTabbedPanel.getSelectedComponent() == terminalPanel;
+                    terminalTabPresent && commandPane.getSelectedComponent() == terminalPanel;
 
             if (!advanced) {
                 // Remove Terminal tab if present
                 if (terminalTabPresent) {
-                    rightTabbedPanel.removeTabAt(terminalIdx);
+                    commandPane.removeTabAt(terminalIdx);
                     // If it was selected, switch to Tasks or Instructions
                     if (terminalWasSelected) {
-                        int tasksIdx = rightTabbedPanel.indexOfTab("Tasks");
+                        int tasksIdx = commandPane.indexOfTab("Tasks");
                         if (tasksIdx != -1) {
-                            rightTabbedPanel.setSelectedIndex(tasksIdx);
-                        } else if (rightTabbedPanel.getTabCount() > 0) {
-                            rightTabbedPanel.setSelectedIndex(0);
+                            commandPane.setSelectedIndex(tasksIdx);
+                        } else if (commandPane.getTabCount() > 0) {
+                            commandPane.setSelectedIndex(0);
                         }
                     }
                 }
             } else {
                 // Add Terminal tab if missing
                 if (!terminalTabPresent) {
-                    rightTabbedPanel.addTab("Terminal", Icons.TERMINAL, this.terminalPanel);
+                    commandPane.addTab("Terminal", Icons.TERMINAL, this.terminalPanel);
                 }
             }
 
-            rightTabbedPanel.revalidate();
-            rightTabbedPanel.repaint();
+            commandPane.revalidate();
+            commandPane.repaint();
 
             // Show/hide the small header above the right tab stack (e.g. branch selector).
             // Keep it visible whenever the project has Git, regardless of EZ/Advanced mode.
             try {
-                if (rightTabbedHeader != null) {
+                if (branchSelectorPanel != null) {
                     boolean showHeader = getProject().hasGit();
-                    rightTabbedHeader.setVisible(showHeader);
-                    if (rightTabbedContainer != null) {
-                        rightTabbedContainer.revalidate();
-                        rightTabbedContainer.repaint();
+                    branchSelectorPanel.setVisible(showHeader);
+                    if (commanedPanel != null) {
+                        commanedPanel.revalidate();
+                        commanedPanel.repaint();
                     }
                 }
             } catch (Exception ex) {
@@ -2574,7 +2571,7 @@ public class Chrome
 
     public void applyVerticalActivityLayout() {
         Runnable task = () -> {
-            if (rightTabbedContainer == null) {
+            if (commanedPanel == null) {
                 return;
             }
 
@@ -2587,14 +2584,14 @@ public class Chrome
 
             if (enabled) {
                 if (verticalActivityCombinedPanel != null
-                        && verticalActivityCombinedPanel.getParent() == bottomSplitPane) {
-                    bottomSplitPane.setRightComponent(verticalActivityCombinedPanel);
+                        && verticalActivityCombinedPanel.getParent() == horizontalSplitPane) {
+                    horizontalSplitPane.setRightComponent(verticalActivityCombinedPanel);
                 } else {
                     detachFromParent(activityTabs);
                     if (outputTabs != null) {
                         detachFromParent(outputTabs);
                     }
-                    detachFromParent(rightTabbedContainer);
+                    detachFromParent(commanedPanel);
                     var sessionHeader = historyOutputPanel.getSessionHeaderPanel();
                     detachFromParent(sessionHeader);
 
@@ -2606,7 +2603,7 @@ public class Chrome
                     // Create left panel: (Session+Activity) (top) | Instructions (bottom) with resizable divider
                     var leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
                     leftSplitPane.setTopComponent(leftTopPanel);
-                    leftSplitPane.setBottomComponent(rightTabbedContainer);
+                    leftSplitPane.setBottomComponent(commanedPanel);
                     leftSplitPane.setResizeWeight(0.4);
 
                     // Restore saved position or use default
@@ -2680,7 +2677,7 @@ public class Chrome
                     });
 
                     verticalActivityCombinedPanel = verticalSplit;
-                    bottomSplitPane.setRightComponent(verticalSplit);
+                    horizontalSplitPane.setRightComponent(verticalSplit);
 
                     // Ensure the capture/notification bar under Output maintains fixed sizing in vertical layout
                     historyOutputPanel.applyFixedCaptureBarSizing(true);
@@ -2694,7 +2691,7 @@ public class Chrome
                     if (outputTabs != null) {
                         detachFromParent(outputTabs);
                     }
-                    detachFromParent(rightTabbedContainer);
+                    detachFromParent(commanedPanel);
 
                     // Return to standard layout; the bar sizing is already correct there.
                     historyOutputPanel.applyFixedCaptureBarSizing(false);
@@ -2718,8 +2715,8 @@ public class Chrome
             activityTabsContainer.repaint();
             outputTabsContainer.revalidate();
             outputTabsContainer.repaint();
-            bottomSplitPane.revalidate();
-            bottomSplitPane.repaint();
+            horizontalSplitPane.revalidate();
+            horizontalSplitPane.repaint();
             frame.revalidate();
             frame.repaint();
         };
@@ -3440,7 +3437,7 @@ public class Chrome
             return; // No git support
         }
 
-        gitTabBadgedIcon.setCount(modifiedCount, leftTabbedPanel);
+        gitTabBadgedIcon.setCount(modifiedCount, toolsPane);
 
         // Update tooltip to show the count and keyboard shortcut
         if (gitTabLabel != null) {
@@ -3473,7 +3470,7 @@ public class Chrome
                 return; // No badge support (should not happen in normal operation)
             }
 
-            projectFilesTabBadgedIcon.setCount(dependencyCount, leftTabbedPanel);
+            projectFilesTabBadgedIcon.setCount(dependencyCount, toolsPane);
 
             // Update tooltip to show the count and keyboard shortcut
             if (projectFilesTabLabel != null) {
