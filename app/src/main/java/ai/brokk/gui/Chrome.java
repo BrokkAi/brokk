@@ -2345,6 +2345,39 @@ public class Chrome
         return rightTabbedPanel;
     }
 
+    /**
+     * Updates the visibility of the Tasks tab in the right tabbed panel based on plan mode.
+     * When simplified instructions panel is enabled, the Tasks tab is only visible if plan mode is enabled.
+     *
+     * @param isPlanMode whether plan mode is enabled for the current session
+     */
+    public void updateTasksTabVisibility(boolean isPlanMode) {
+        SwingUtilities.invokeLater(() -> {
+            boolean isSimplified = GlobalUiSettings.isSimplifiedInstructionsPanel();
+
+            // In simplified mode, Tasks tab is only visible when plan mode is enabled
+            // In advanced mode, Tasks tab is always visible
+            boolean shouldShowTasks = !isSimplified || isPlanMode;
+
+            // Find the Tasks tab index
+            int tasksTabIndex = rightTabbedPanel.indexOfComponent(taskListPanel);
+
+            if (shouldShowTasks && tasksTabIndex < 0) {
+                // Tab should be visible but is not currently - insert it at index 1 (between Instructions and Terminal)
+                rightTabbedPanel.insertTab("Tasks", Icons.LIST, taskListPanel, null, 1);
+            } else if (!shouldShowTasks && tasksTabIndex >= 0) {
+                // Tab should be hidden but is currently visible - remove it
+
+                // If Tasks tab is currently selected, switch to Instructions tab first
+                if (rightTabbedPanel.getSelectedIndex() == tasksTabIndex) {
+                    rightTabbedPanel.setSelectedIndex(0); // Switch to Instructions tab
+                }
+
+                rightTabbedPanel.removeTabAt(tasksTabIndex);
+            }
+        });
+    }
+
     public void updateTerminalFontSize() {}
 
     /**

@@ -425,6 +425,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var sessionManager = chrome.getProject().getSessionManager();
             var currentSessionId = chrome.getContextManager().getCurrentSessionId();
             sessionManager.setPlanMode(currentSessionId, isPlanMode);
+
+            // Update Tasks tab visibility based on plan mode
+            chrome.updateTasksTabVisibility(isPlanMode);
         });
 
         // Load stored action with cascading fallback: project → global → default
@@ -2332,6 +2335,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             boolean isPlanMode = sessionInfo.isPlanMode();
             SwingUtilities.invokeLater(() -> {
                 planModeToggle.setSelected(isPlanMode);
+
+                // Update Tasks tab visibility based on plan mode when session changes
+                chrome.updateTasksTabVisibility(isPlanMode);
             });
         }
     }

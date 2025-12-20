@@ -623,4 +623,48 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
             SwingUtilities.invokeLater(r);
         }
     }
+
+    /**
+     * Updates the visibility of the Tasks tab based on plan mode and simplified instructions panel settings.
+     * When simplified instructions panel is enabled, the Tasks tab is only visible if plan mode is enabled.
+     *
+     * @param isPlanMode whether plan mode is enabled for the current session
+     */
+    public void updateTasksTabVisibility(boolean isPlanMode) {
+        Runnable r = () -> {
+            boolean isSimplified = GlobalUiSettings.isSimplifiedInstructionsPanel();
+
+            // In simplified mode, Tasks tab is only visible when plan mode is enabled
+            // In advanced mode, Tasks tab is always visible
+            boolean shouldShowTasks = !isSimplified || isPlanMode;
+
+            tasksToggle.setVisible(shouldShowTasks);
+
+            // If Tasks tab is being hidden and it's currently selected, switch away
+            if (!shouldShowTasks && tasksToggle.isSelected()) {
+                tasksToggle.setSelected(false);
+                // Remove task list content from the drawer
+                drawerContentPanel.removeAll();
+                drawerContentPanel.revalidate();
+                drawerContentPanel.repaint();
+
+                // Prefer showing the Terminal if available, otherwise collapse
+                if (terminalToggle.isVisible()) {
+                    openTerminalAsync();
+                    persistLastTab("terminal");
+                } else {
+                    collapseIfEmpty();
+                }
+            }
+
+            // Repaint the control bar so layout adjusts
+            buttonBar.revalidate();
+            buttonBar.repaint();
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            r.run();
+        } else {
+            SwingUtilities.invokeLater(r);
+        }
+    }
 }
