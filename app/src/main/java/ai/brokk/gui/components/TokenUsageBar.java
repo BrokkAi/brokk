@@ -88,6 +88,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware, IContextMan
     private volatile int lastSuccessRate = -1;
     private volatile boolean rateIsTested = false;
 
+    // Cached empty-context message to avoid EDT-blocking lookups during paint
+    private volatile String emptyContextMessage = "No context yet";
+
     // Reference to Chrome for accessing session information
     private final Chrome chrome;
 
@@ -99,6 +102,9 @@ public class TokenUsageBar extends JComponent implements ThemeAware, IContextMan
         setMaximumSize(new Dimension(125, 24));
         // Seed to enable tooltips; actual content comes from getToolTipText(MouseEvent)
         setToolTipText("Shows Workspace token usage.");
+
+        // Initialize empty-context message
+        updateEmptyContextMessage();
 
         // Register as context listener to update display when managed context mode changes
         chrome.getContextManager().addContextListener(this);
@@ -620,24 +626,8 @@ public class TokenUsageBar extends JComponent implements ThemeAware, IContextMan
         int padding = 6;
 
         if (!hasContext) {
-            String msg;
-            // Check if simplified instructions panel is enabled
-            if (GlobalUiSettings.isSimplifiedInstructionsPanel()) {
-                // Get session info to check context mode
-                var sessionManager = chrome.getProject().getSessionManager();
-                var currentSessionId = chrome.getContextManager().getCurrentSessionId();
-                var sessionInfo = sessionManager.getSessionInfo(currentSessionId);
-
-                if (sessionInfo != null && sessionInfo.isManagedContext()) {
-                    msg = "No context yet - AI will populate context as necessary";
-                } else {
-                    msg = "No context yet - please add content to the workspace";
-                }
-            } else {
-                // Original message for non-simplified mode
-                msg =
-                        "No context yet - use Lutz Mode to discover and add relevant files automatically, or click the paperclip icon or drag-and-drop files from the Project Files panel.";
-            }
+            // Use cached message to avoid EDT-blocking lookups during paint
+            String msg = emptyContextMessage;
 
             int maxTextWidth = Math.max(0, width - 2 * padding);
             String shown = elide(msg, fm, maxTextWidth);
@@ -1061,12 +1051,44 @@ public class TokenUsageBar extends JComponent implements ThemeAware, IContextMan
     }
 
     /**
+     * Update the cached empty-context message based on current UI settings and session state.
+     * Called on initialization and when context changes to avoid EDT-blocking lookups during paint.
+     */
+    private void updateEmptyContextMessage() {
+        try {
+            if (!GlobalUiSettings.isSimplifiedInstructionsPanel()) {
+                // Original message for non-simplified mode
+                emptyContextMessage =
+                        "No context yet - use Lutz Mode to discover and add relevant files automatically, or click the paperclip icon or drag-and-drop files from the Project Files panel.";
+                return;
+            }
+
+            // Simplified mode: check session context mode
+            var sessionManager = chrome.getProject().getSessionManager();
+            var currentSessionId = chrome.getContextManager().getCurrentSessionId();
+            var sessionInfo = sessionManager.getSessionInfo(currentSessionId);
+
+            if (sessionInfo != null && sessionInfo.isManagedContext()) {
+                emptyContextMessage = "No context yet - AI will populate context as necessary";
+            } else {
+                emptyContextMessage = "No context yet - please add content to the workspace";
+            }
+        } catch (Exception e) {
+            // Fallback to safe default on any error
+            logger.trace("Failed to update empty context message", e);
+            emptyContextMessage = "No context yet";
+        }
+    }
+
+    /**
      * Listener method called when the context changes. This triggers a repaint
      * to update the message displayed in the empty context area based on the
      * current managed context mode setting.
      */
     @Override
     public void contextChanged(Context context) {
+        // Update the cached message before repaint to avoid EDT-blocking lookups during paint
+        updateEmptyContextMessage();
         // Repaint to update the message when context or session state changes
         SwingUtilities.invokeLater(this::repaint);
     }

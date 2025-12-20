@@ -1725,7 +1725,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Capture non-null instance for lambdas
         final MaterialToggleButton roToggleButton = readOnlyToggle;
         SwingUtilities.invokeLater(() -> {
-            ;
             roToggleButton.setIcon(Icons.EDIT_DOCUMENT);
             roToggleButton.setSelectedIcon(Icons.EDIT_OFF);
         });
