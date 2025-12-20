@@ -14,7 +14,6 @@ import ai.brokk.tasks.TaskList;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.File;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -188,19 +187,6 @@ public final class TestContextManager implements IContextManager {
                 .map(t -> new TaskList.TaskItem(t, t, false)) // title=text, done=false
                 .toList();
         return context.withTaskList(new TaskList.TaskListData(items), "Task list replaced");
-    }
-
-    @Override
-    public Context appendTasksToTaskList(Context context, List<String> tasks) {
-        var cleaned =
-                tasks.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
-        if (cleaned.isEmpty()) {
-            return context; // no-op
-        }
-        var existing = new ArrayList<>(context.getTaskListDataOrEmpty().tasks());
-        existing.addAll(
-                cleaned.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList());
-        return context.withTaskList(new TaskList.TaskListData(List.copyOf(existing)), "Task list updated");
     }
 
     private final ExecutorService backgroundTasks = Executors.newCachedThreadPool();

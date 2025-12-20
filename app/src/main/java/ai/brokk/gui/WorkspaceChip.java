@@ -184,8 +184,6 @@ public class WorkspaceChip extends JPanel {
 
         add(readOnlyIcon);
         add(label);
-        add(separator);
-        add(closeButton);
 
         installInteractionHandlers();
         installHoverListeners();

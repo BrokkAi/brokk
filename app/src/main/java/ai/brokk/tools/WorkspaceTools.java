@@ -405,7 +405,7 @@ public class WorkspaceTools {
     }
 
     /**
-     * Shared guidance text for task-list tools (createOrReplaceTaskList and appendTaskList).
+     * Shared guidance text for task-list tools (createOrReplaceTaskList).
      * Used in @Tool parameter descriptions to keep guidance synchronized.
      */
     public static final String TASK_LIST_GUIDANCE =
@@ -421,6 +421,7 @@ public class WorkspaceTools {
             - Independence: runnable/reviewable on its own; at most one explicit dependency on a previous task.
             - Output: starts with a strong verb, names concrete artifact(s) (class/method/file, config, test). Use Markdown formatting for readability, especially `inline code` (for file, directory, function, class names and other symbols).
             - Flexibility: the executing agent may adjust scope and ordering based on more up-to-date context discovered during implementation.
+            - Incremental additions: when adding a task to an existing list, copy all existing incomplete tasks verbatim (preserving their exact wording and order) and insert the new task at the appropriate position based on dependencies.
 
 
             Rubric for slicing:
@@ -460,39 +461,6 @@ public class WorkspaceTools {
         String suffix = (count == 1) ? "" : "s";
         String message =
                 "**Task list created** with %d item%s. Review it in the **Tasks** tab or open the **Task List** fragment in the Workspace below."
-                        .formatted(count, suffix);
-        io.llmOutput(message, ChatMessageType.AI, true, false);
-
-        return formattedTaskList;
-    }
-
-    @Tool(
-            value =
-                    "Append new tasks to the existing task list without modifying or removing existing tasks. Use this when you want to extend the current task list incrementally.")
-    public String appendTaskList(
-            @P("Explanation of why these tasks are being added, formatted in Markdown.") String explanation,
-            @P(TASK_LIST_GUIDANCE) List<String> tasks) {
-        logger.debug("appendTaskList selected with {} tasks", tasks.size());
-        if (tasks.isEmpty()) {
-            return "No tasks provided.";
-        }
-
-        var cm = context.getContextManager();
-        // Delegate to ContextManager to ensure title summarization + centralized refresh via setTaskList
-        context = cm.appendTasksToTaskList(context, tasks);
-
-        var lines = IntStream.range(0, tasks.size())
-                .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
-                .collect(java.util.stream.Collectors.joining("\n"));
-        var formattedTaskList = "# Task List\n" + lines + "\n";
-
-        var io = cm.getIo();
-        io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, true, false);
-
-        int count = tasks.size();
-        String suffix = (count == 1) ? "" : "s";
-        String message =
-                "**Added** %d task%s to the list. Review them in the **Tasks** tab or open the **Task List** fragment in the Workspace below."
                         .formatted(count, suffix);
         io.llmOutput(message, ChatMessageType.AI, true, false);
 

@@ -1504,26 +1504,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (items.isEmpty()) {
             // If no valid tasks provided, clear the task list
             var newData = new TaskList.TaskListData(List.of());
-            return setTaskList(context, newData, "Task list cleared");
+            return deriveContextWithTaskList(context, newData, "Task list cleared");
         }
 
         var newData = new TaskList.TaskListData(List.copyOf(items));
-        return setTaskList(context, newData, "Task list replaced");
-    }
-
-    @Blocking
-    @Override
-    public Context appendTasksToTaskList(Context context, List<String> tasks) {
-        var newItems = summarizeTaskList(tasks);
-        if (newItems.isEmpty()) {
-            return context; // No-op if no valid tasks
-        }
-
-        // Merge with existing tasks
-        var existing = new ArrayList<>(context.getTaskListDataOrEmpty().tasks());
-        existing.addAll(newItems);
-        var newData = new TaskList.TaskListData(List.copyOf(existing));
-        return setTaskList(context, newData, "Task list updated");
+        return deriveContextWithTaskList(context, newData, "Task list replaced");
     }
 
     /**
@@ -1531,24 +1516,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * should call after modifying the task list.
      */
     public Context setTaskList(TaskList.TaskListData data, String action) {
-        // Track the change in history by pushing a new context with the Task List fragment
-        var updated = pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data, action));
-        // Centralized UI refresh after persistence (no execution logic)
-        if (io instanceof Chrome chrome) {
-            SwingUtilities.invokeLater(chrome::refreshTaskListUI);
-        }
-
-        return updated;
+        return pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data, action));
     }
 
-    public Context setTaskList(Context context, TaskList.TaskListData data, String action) {
-        var updated = context.withTaskList(data, action);
-        // Centralized UI refresh after persistence (no execution logic)
-        if (io instanceof Chrome chrome) {
-            SwingUtilities.invokeLater(chrome::refreshTaskListUI);
-        }
-
-        return updated;
+    public Context deriveContextWithTaskList(Context context, TaskList.TaskListData data, String action) {
+        return context.withTaskList(data, action);
     }
 
     private void finalizeSessionActivation(UUID sessionId) {
@@ -1640,16 +1612,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
             new GitWorkflow(this).performAutoCommit(prompt);
             compressHistory(); // synchronous
-            var ctx = markTaskDoneAndPersist(result.context(), task);
+            var ctx = markTaskDone(result.context(), task);
             result = result.withContext(ctx);
         }
 
         return result;
     }
 
-    /** Replace the given task with its 'done=true' variant and persist the task list for the current session. */
-    private Context markTaskDoneAndPersist(Context context, TaskList.TaskItem task) {
-        var tasks = getTaskList().tasks();
+    /** Replace the given task with its 'done=true' variant. */
+    private Context markTaskDone(Context context, TaskList.TaskItem task) {
+        var tasks = context.getTaskListDataOrEmpty().tasks();
 
         // Find index: prefer exact match, fall back to first incomplete task with matching text
         int idx = tasks.indexOf(task);
@@ -1666,7 +1638,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         var updated = new ArrayList<>(tasks);
         updated.set(idx, new TaskList.TaskItem(task.title(), task.text(), true));
-        return setTaskList(context, new TaskList.TaskListData(List.copyOf(updated)), "Task list marked task done");
+        return deriveContextWithTaskList(
+                context, new TaskList.TaskListData(List.copyOf(updated)), "Task list marked task done");
     }
 
     private void captureGitState(Context frozenContext) {
