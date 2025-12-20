@@ -1,6 +1,5 @@
 package ai.brokk.prompts;
 
-import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
@@ -151,7 +150,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
         """;
     }
 
-    public String getFinalInstructions(ContextManager cm, String goal, int workspaceTokenSize, int maxInputTokens) {
+    public String getFinalInstructions(Context ctx, String goal, int workspaceTokenSize, int maxInputTokens) {
         String workspaceWarning = "";
         if (maxInputTokens > 0) {
             double criticalLimit = WORKSPACE_CRITICAL_THRESHOLD * maxInputTokens;
@@ -220,7 +219,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
 
             %s
             """
-                .formatted(goal, formatWorkspaceToc(cm.liveContext()), workspaceWarning);
+                .formatted(goal, formatWorkspaceToc(ctx), workspaceWarning);
     }
 
     /**

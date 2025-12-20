@@ -919,7 +919,7 @@ public class ArchitectAgent {
         messages.addAll(architectMessages);
         // Final user message with the goal and specific instructions for this turn, including workspace warnings
         messages.add(new UserMessage(
-                ArchitectPrompts.instance.getFinalInstructions(cm, goal, workspaceTokenSize, maxInputTokens)));
+                ArchitectPrompts.instance.getFinalInstructions(context, goal, workspaceTokenSize, maxInputTokens)));
         return messages;
     }
 }
