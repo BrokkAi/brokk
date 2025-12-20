@@ -2545,7 +2545,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private void checkAndDisableManagedModeOnManualChange() {
         // Only proceed if managed mode is currently enabled
         var sessionManager = chrome.getProject().getSessionManager();
-        var currentSessionId = chrome.getContextManager().liveContext().id();
+        var currentSessionId = chrome.getContextManager().getCurrentSessionId();
         var sessionInfo = sessionManager.getSessionInfo(currentSessionId);
 
         if (sessionInfo == null || !sessionInfo.isManagedContext()) {

@@ -1070,4 +1070,26 @@ public class TokenUsageBar extends JComponent implements ThemeAware, IContextMan
         // Repaint to update the message when context or session state changes
         SwingUtilities.invokeLater(this::repaint);
     }
+
+    /**
+     * Cleanup method called when the component is removed from its container.
+     * Unregisters the context listener to prevent memory leaks and callbacks
+     * after disposal.
+     */
+    @Override
+    public void removeNotify() {
+        try {
+            // Unregister context listener to prevent leaks
+            chrome.getContextManager().removeContextListener(this);
+        } catch (Exception e) {
+            logger.trace("Failed to remove context listener during cleanup", e);
+        }
+        // Also dispose any fragment subscriptions bound to this component
+        try {
+            ComputedSubscription.disposeAll(this);
+        } catch (Exception e) {
+            logger.trace("Failed to dispose subscriptions during cleanup", e);
+        }
+        super.removeNotify();
+    }
 }
