@@ -422,7 +422,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         planModeToggle.addActionListener(e -> {
             boolean isPlanMode = planModeToggle.isSelected();
             var sessionManager = chrome.getProject().getSessionManager();
-            var currentSessionId = chrome.getContextManager().liveContext().id();
+            var currentSessionId = chrome.getContextManager().getCurrentSessionId();
             sessionManager.setPlanMode(currentSessionId, isPlanMode);
         });
 
@@ -1135,7 +1135,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             // Update SessionInfo when toggle is changed
             var sessionManager = chrome.getProject().getSessionManager();
-            var currentSessionId = chrome.getContextManager().liveContext().id();
+            var currentSessionId = chrome.getContextManager().getCurrentSessionId();
             sessionManager.setManagedContext(currentSessionId, isManaged);
         });
 
@@ -1553,7 +1553,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             // Update SessionInfo when toggle is changed
             var sessionManager = chrome.getProject().getSessionManager();
-            var currentSessionId = chrome.getContextManager().liveContext().id();
+            var currentSessionId = chrome.getContextManager().getCurrentSessionId();
             sessionManager.setReadOnly(currentSessionId, isReadOnly);
         });
 
@@ -2238,13 +2238,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Load and apply read-only state from SessionInfo
         loadReadOnlyState();
 
+        // Load and apply plan mode state from SessionInfo
+        loadPlanModeState();
+
         // Disable managed mode if user manually modified context (not via LLM action)
         checkAndDisableManagedModeOnManualChange();
     }
 
     private void loadManagedModeState() {
         var sessionManager = chrome.getProject().getSessionManager();
-        var currentSessionId = chrome.getContextManager().liveContext().id();
+        var currentSessionId = chrome.getContextManager().getCurrentSessionId();
         var sessionInfo = sessionManager.getSessionInfo(currentSessionId);
 
         if (sessionInfo != null && managedModeToggle != null && managedModeLabel != null) {
@@ -2261,7 +2264,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     private void loadReadOnlyState() {
         var sessionManager = chrome.getProject().getSessionManager();
-        var currentSessionId = chrome.getContextManager().liveContext().id();
+        var currentSessionId = chrome.getContextManager().getCurrentSessionId();
         var sessionInfo = sessionManager.getSessionInfo(currentSessionId);
 
         if (sessionInfo != null && readOnlyToggle != null) {
@@ -2270,6 +2273,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             final MaterialToggleButton toggleButton = readOnlyToggle;
             SwingUtilities.invokeLater(() -> {
                 toggleButton.setSelected(isReadOnly);
+            });
+        }
+    }
+
+    private void loadPlanModeState() {
+        var sessionManager = chrome.getProject().getSessionManager();
+        var currentSessionId = chrome.getContextManager().getCurrentSessionId();
+        var sessionInfo = sessionManager.getSessionInfo(currentSessionId);
+
+        if (sessionInfo != null) {
+            boolean isPlanMode = sessionInfo.isPlanMode();
+            SwingUtilities.invokeLater(() -> {
+                planModeToggle.setSelected(isPlanMode);
             });
         }
     }
