@@ -215,6 +215,33 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
+    public void setReadOnly(UUID sessionId, boolean isReadOnly) {
+        SessionInfo oldInfo = sessionsCache.get(sessionId);
+        if (oldInfo != null) {
+            var updatedInfo = new SessionInfo(
+                    oldInfo.id(),
+                    oldInfo.name(),
+                    oldInfo.created(),
+                    System.currentTimeMillis(),
+                    isReadOnly,
+                    oldInfo.isManagedContext(),
+                    oldInfo.isPlanMode());
+            sessionsCache.put(sessionId, updatedInfo);
+            sessionExecutorByKey.submit(sessionId.toString(), () -> {
+                try {
+                    Path sessionHistoryPath = getSessionHistoryPath(sessionId);
+                    writeSessionInfoToZip(sessionHistoryPath, updatedInfo);
+                    logger.debug("Updated isReadOnly to {} for session {}", isReadOnly, sessionId);
+                } catch (IOException e) {
+                    logger.error(
+                            "Error writing updated manifest for read-only change {}: {}", sessionId, e.getMessage());
+                }
+            });
+        } else {
+            logger.warn("Session ID {} not found in cache, cannot update read-only state.", sessionId);
+        }
+    }
+
     public void deleteSession(UUID sessionId) throws Exception {
         sessionsCache.remove(sessionId);
         var deleteFuture = sessionExecutorByKey.submit(sessionId.toString(), () -> {

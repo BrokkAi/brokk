@@ -160,6 +160,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable JPanel selectorStripPanel;
     private @Nullable MaterialToggleButton managedModeToggle;
     private @Nullable JLabel managedModeLabel;
+    private @Nullable MaterialToggleButton readOnlyToggle;
 
     public static class ContextAreaContainer extends JPanel {
         private boolean isDragOver = false;
@@ -1498,6 +1499,39 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         bottomPanel.add(actionButton);
 
+        // Add spacing before read-only toggle
+        bottomPanel.add(Box.createHorizontalStrut(H_GAP));
+
+        // Create read-only toggle button
+        readOnlyToggle = new MaterialToggleButton();
+        SwingUtilities.invokeLater(() -> {
+            ;
+            readOnlyToggle.setIcon(Icons.EDIT_DOCUMENT);
+            readOnlyToggle.setSelectedIcon(Icons.EDIT_OFF);
+        });
+        readOnlyToggle.setFocusable(false);
+        readOnlyToggle.setOpaque(false);
+        readOnlyToggle.setSelected(true); // Default to read-only mode
+        readOnlyToggle.setToolTipText(
+                "<html><b>Read-Only Mode:</b> AI cannot modify files - use for questions and planning<br/>"
+                        + "<b>Allow Writes Mode:</b> AI can modify and create files - use for code changes</html>");
+
+        // Capture non-null instance for action listener
+        final MaterialToggleButton roToggleButton = readOnlyToggle;
+
+        // Update SessionInfo when toggle is changed
+        roToggleButton.addActionListener(e -> {
+            boolean isReadOnly = roToggleButton.isSelected();
+
+            // Update SessionInfo when toggle is changed
+            var sessionManager = chrome.getProject().getSessionManager();
+            var currentSessionId = chrome.getContextManager().liveContext().id();
+            sessionManager.setReadOnly(currentSessionId, isReadOnly);
+        });
+
+        roToggleButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        bottomPanel.add(roToggleButton);
+
         // Lock bottom toolbar height so BorderLayout keeps it visible
         Dimension bottomPref = bottomPanel.getPreferredSize();
         bottomPanel.setMinimumSize(new Dimension(0, bottomPref.height));
@@ -2173,6 +2207,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Load and apply managed mode state from SessionInfo
         loadManagedModeState();
 
+        // Load and apply read-only state from SessionInfo
+        loadReadOnlyState();
+
         // Disable managed mode if user manually modified context (not via LLM action)
         checkAndDisableManagedModeOnManualChange();
     }
@@ -2190,6 +2227,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             SwingUtilities.invokeLater(() -> {
                 toggleButton.setSelected(isManagedContext);
                 label.setText(isManagedContext ? "Managed Mode" : "Manual Mode");
+            });
+        }
+    }
+
+    private void loadReadOnlyState() {
+        var sessionManager = chrome.getProject().getSessionManager();
+        var currentSessionId = chrome.getContextManager().liveContext().id();
+        var sessionInfo = sessionManager.getSessionInfo(currentSessionId);
+
+        if (sessionInfo != null && readOnlyToggle != null) {
+            boolean isReadOnly = sessionInfo.isReadOnly();
+            // Capture non-null instance for lambda
+            final MaterialToggleButton toggleButton = readOnlyToggle;
+            SwingUtilities.invokeLater(() -> {
+                toggleButton.setSelected(isReadOnly);
             });
         }
     }
