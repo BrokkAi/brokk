@@ -6,6 +6,7 @@ import ai.brokk.Service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -19,17 +20,17 @@ public final class ModelProperties {
 
     // Model name constants
     public static final String GPT_5 = "gpt-5";
-    public static final String GEMINI_3_PRO_PREVIEW = "gemini-3-pro-preview";
-    public static final String FLASH_2_0 = "gemini-2.0-flash";
-    public static final String FLASH_3 = "gemini-3-flash-preview";
-    public static final String GPT_5_NANO = "gpt-5-nano";
-    public static final String GCF_1 = "grok-code-fast-1";
-    public static final String HAIKU_3 = "claude-haiku-3";
-    public static final String FLASH_2_0_LITE = "gemini-2.0-flash-lite";
-    public static final String OPUS_4_5 = "claude-opus-4-5";
-    public static final String HAIKU_4_5 = "claude-haiku-4-5";
-    public static final String GPT_5_MINI = "gpt-5-mini";
-    public static final String GPT_5_2 = "gpt-5.2";
+    private static final String GEMINI_3_PRO_PREVIEW = "gemini-3-pro-preview";
+    private static final String FLASH_2_0 = "gemini-2.0-flash";
+    private static final String FLASH_3 = "gemini-3-flash-preview";
+    private static final String GPT_5_NANO = "gpt-5-nano";
+    private static final String GCF_1 = "grok-code-fast-1";
+    private static final String HAIKU_3 = "claude-haiku-3";
+    private static final String FLASH_2_0_LITE = "gemini-2.0-flash-lite";
+    private static final String OPUS_4_5 = "claude-opus-4-5";
+    private static final String HAIKU_4_5 = "claude-haiku-4-5";
+    private static final String GPT_5_MINI = "gpt-5-mini";
+    private static final String GPT_5_2 = "gpt-5.2";
 
     // Common configurations. Note that we override thinking levels in some cases for speed.
     private static final ModelConfig gpt5Nano = new ModelConfig(GPT_5_NANO);
@@ -37,12 +38,13 @@ public final class ModelProperties {
     private static final ModelConfig gpt5_2 = new ModelConfig(GPT_5_2, ReasoningLevel.MEDIUM);
 
     private static final ModelConfig haiku3 = new ModelConfig(HAIKU_3);
-    private static final ModelConfig haiku45 = new ModelConfig(HAIKU_4_5);
-    private static final ModelConfig opus45 = new ModelConfig(OPUS_4_5, ReasoningLevel.DISABLE);
+    private static final ModelConfig haiku4_5 = new ModelConfig(HAIKU_4_5);
+    private static final ModelConfig opus4_5 = new ModelConfig(OPUS_4_5, ReasoningLevel.DISABLE);
 
-    private static final ModelConfig flash20Lite = new ModelConfig(FLASH_2_0_LITE);
-    private static final ModelConfig flash20 = new ModelConfig(FLASH_2_0);
+    private static final ModelConfig flash2Lite = new ModelConfig(FLASH_2_0_LITE);
+    private static final ModelConfig flash2 = new ModelConfig(FLASH_2_0);
     private static final ModelConfig flash3 = new ModelConfig(FLASH_3, ReasoningLevel.DISABLE);
+    private static final ModelConfig gp3 = new ModelConfig(GEMINI_3_PRO_PREVIEW);
 
     private static final ModelConfig gcf1 = new ModelConfig(GCF_1);
 
@@ -53,7 +55,7 @@ public final class ModelProperties {
     public static final String FAVORITE_MODELS_KEY = "favoriteModelsJson";
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
-    /** Default vendor selection for "Other Models" settings. */
+    // Default vendor selection for "Other Models" settings
     public static final String DEFAULT_VENDOR = "Default";
 
     /**
@@ -67,10 +69,10 @@ public final class ModelProperties {
     private ModelProperties() {}
 
     static final List<Service.FavoriteModel> DEFAULT_FAVORITE_MODELS = List.of(
-            new Service.FavoriteModel("Opus 4.5", opus45),
+            new Service.FavoriteModel("Opus 4.5", opus4_5),
             new Service.FavoriteModel("GPT-5.2", gpt5_2),
             new Service.FavoriteModel("Flash 3", flash3),
-            new Service.FavoriteModel("Haiku 4.5", haiku45));
+            new Service.FavoriteModel("Haiku 4.5", haiku4_5));
 
     /**
      * Enum representing the different model configuration slots persisted in global properties.
@@ -79,14 +81,15 @@ public final class ModelProperties {
     public enum ModelType {
         // directly selected in the UI
         CODE("codeConfig", flash3, gcf1),
-        ARCHITECT("architectConfig", opus45, gcf1),
+        ARCHITECT("architectConfig", opus4_5, gcf1),
 
         // indirectly selectable via vendor preference
         SUMMARIZE("quickConfig", gpt5Mini, gcf1),
         QUICK_EDIT("quickEditConfig", flash3, gcf1),
-        QUICKEST("quickestConfig", flash20Lite),
-        COMMIT_MESSAGE("commitMessageConfig", gpt5Mini, flash20),
+        QUICKEST("quickestConfig", flash2Lite),
+        COMMIT_MESSAGE("commitMessageConfig", gpt5Mini, flash2),
         SCAN("scanConfig", flash3, gcf1),
+        ARCHITECT_FALLBACK("architectFallbackConfig", gp3, gcf1),
         BUILD_PROCESSOR("buildProcessorConfig", gpt5Mini, gpt5Nano);
 
         public final String propertyKey;
@@ -117,15 +120,29 @@ public final class ModelProperties {
 
     private static Map<String, Map<ModelType, ModelConfig>> getVendorModelMap() {
         if (vendorModelMap == null) {
-            Map<String, Map<ModelType, ModelConfig>> map = Map.of(
-                    DEFAULT_VENDOR,
+            // Use LinkedHashMap to maintain a consistent order in the UI
+            var map = new LinkedHashMap<String, Map<ModelType, ModelConfig>>();
+            map.put(
+                    "Anthropic",
                     Map.of(
-                            ModelType.SUMMARIZE, gpt5Mini,
+                            ModelType.SUMMARIZE, haiku3,
+                            ModelType.QUICK_EDIT, haiku4_5,
+                            ModelType.QUICKEST, haiku3,
+                            ModelType.COMMIT_MESSAGE, haiku3,
+                            ModelType.SCAN, haiku4_5,
+                            ModelType.ARCHITECT_FALLBACK, opus4_5,
+                            ModelType.BUILD_PROCESSOR, haiku4_5));
+            map.put(
+                    "Gemini",
+                    Map.of(
+                            ModelType.SUMMARIZE, flash3,
                             ModelType.QUICK_EDIT, flash3,
-                            ModelType.QUICKEST, flash20Lite,
-                            ModelType.COMMIT_MESSAGE, gpt5Mini,
+                            ModelType.QUICKEST, flash2Lite,
+                            ModelType.COMMIT_MESSAGE, flash3,
                             ModelType.SCAN, flash3,
-                            ModelType.BUILD_PROCESSOR, gpt5Mini),
+                            ModelType.ARCHITECT_FALLBACK, gp3,
+                            ModelType.BUILD_PROCESSOR, flash3));
+            map.put(
                     "OpenAI",
                     Map.of(
                             ModelType.SUMMARIZE, gpt5Mini,
@@ -133,23 +150,8 @@ public final class ModelProperties {
                             ModelType.QUICKEST, gpt5Nano,
                             ModelType.COMMIT_MESSAGE, gpt5Mini,
                             ModelType.SCAN, gpt5Mini,
-                            ModelType.BUILD_PROCESSOR, gpt5Mini),
-                    "Anthropic",
-                    Map.of(
-                            ModelType.SUMMARIZE, haiku3,
-                            ModelType.QUICK_EDIT, haiku45,
-                            ModelType.QUICKEST, haiku3,
-                            ModelType.COMMIT_MESSAGE, haiku3,
-                            ModelType.SCAN, haiku45,
-                            ModelType.BUILD_PROCESSOR, haiku45),
-                    "Gemini",
-                    Map.of(
-                            ModelType.SUMMARIZE, flash3,
-                            ModelType.QUICK_EDIT, flash3,
-                            ModelType.QUICKEST, flash20Lite,
-                            ModelType.COMMIT_MESSAGE, flash3,
-                            ModelType.SCAN, flash3,
-                            ModelType.BUILD_PROCESSOR, flash3));
+                            ModelType.ARCHITECT_FALLBACK, gpt5_2,
+                            ModelType.BUILD_PROCESSOR, gpt5Mini));
 
             // Validate that all vendors have configurations for all internal ModelTypes
             for (var entry : map.entrySet()) {
@@ -169,6 +171,10 @@ public final class ModelProperties {
 
     public static @Nullable Map<ModelType, ModelConfig> getVendorModels(String vendor) {
         return getVendorModelMap().get(vendor);
+    }
+
+    public static Set<String> getAvailableVendors() {
+        return getVendorModelMap().keySet();
     }
 
     /**

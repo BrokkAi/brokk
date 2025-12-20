@@ -1,7 +1,5 @@
 package ai.brokk.agents;
 
-import static java.util.Objects.requireNonNull;
-
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
@@ -20,6 +18,7 @@ import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.mcp.McpUtils;
 import ai.brokk.metrics.SearchMetrics;
+import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.McpPrompts;
@@ -159,9 +158,7 @@ public class SearchAgent {
         this.llm = cm.getLlm(llmOptions);
         this.llm.setOutput(this.io);
 
-        var summarizeConfig = new Service.ModelConfig(
-                cm.getService().nameOf(cm.getService().getScanModel()), Service.ReasoningLevel.LOW);
-        var summarizeModel = requireNonNull(cm.getService().getModel(summarizeConfig));
+        var summarizeModel = cm.getService().getModel(ModelType.SCAN);
         this.summarizer = cm.getLlm(summarizeModel, "Summarizer: " + goal);
 
         this.beastMode = false;

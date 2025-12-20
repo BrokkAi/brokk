@@ -17,7 +17,7 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.git.GitDistance;
-import ai.brokk.project.ModelProperties;
+import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.util.AdaptiveExecutor;
 import ai.brokk.util.Messages;
@@ -256,7 +256,7 @@ public class ContextAgent {
 
         // GPT-5 Nano is currently the best combination of smart + low price. (Smarter than Flash 2.0 or Flash 2.5
         // lite.)  We don't care as much about speed here, so 5 Nano gets the nod.
-        var filesModel = Objects.requireNonNull(cm.getService().getModel(ModelProperties.GPT_5_NANO));
+        var filesModel = cm.getService().getModel(ModelType.SUMMARIZE);
 
         // Create Llm instances - only analyzed group streams to UI
         var filesOpts = new Llm.Options(filesModel, "ContextAgent Files (Analyzed): %s".formatted(goal))

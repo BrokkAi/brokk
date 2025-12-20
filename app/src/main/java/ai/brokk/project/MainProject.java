@@ -486,6 +486,14 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
 
+    public void removeModelConfig(ModelType modelType) {
+        var props = loadGlobalProperties();
+        if (props.containsKey(modelType.propertyKey)) {
+            props.remove(modelType.propertyKey);
+            saveGlobalProperties(props);
+        }
+    }
+
     @Override
     public String getCommitMessageFormat() {
         return projectProps.getProperty(COMMIT_MESSAGE_FORMAT_KEY, DEFAULT_COMMIT_MESSAGE_FORMAT);

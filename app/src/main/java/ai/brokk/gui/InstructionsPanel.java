@@ -1621,24 +1621,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (selectedModel == null) {
             chrome.toolError("Selected model '" + config.name() + "' is not available with reasoning level "
                     + config.reasoning());
-            var fallbackModel = models.getModel(ModelProperties.GPT_5_MINI);
-            if (fallbackModel != null) {
-                selectedModel = fallbackModel;
-            }
-        }
-
-        // If fallback also failed, show error and return null
-        if (selectedModel == null) {
-            logger.warn(
-                    "No available model for action '{}': selected config name='{}', reasoning='{}', contextHasImages={}, service online={}",
-                    actionLabel,
-                    config.name(),
-                    config.reasoning(),
-                    contextHasImages(),
-                    models.isOnline());
-            logger.debug("Service diagnostics: {}", getServiceDiagnosticsMessage());
-            chrome.toolError("No available model; service may be offline. Please check your connection and try again.");
-            return null;
+            selectedModel = models.getModel(ModelProperties.ModelType.ARCHITECT);
         }
 
         boolean hasImages = contextHasImages();
