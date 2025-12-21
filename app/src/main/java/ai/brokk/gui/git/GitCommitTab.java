@@ -650,28 +650,6 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 }
 
                 SwingUtilities.invokeLater(() -> {
-                    // Create normalized sources for window raising check (use all files in consistent order)
-                    var normalizedFiles = allFiles.stream()
-                            .sorted((f1, f2) -> f1.getFileName().compareToIgnoreCase(f2.getFileName()))
-                            .toList();
-
-                    var leftSources = new ArrayList<BufferSource>();
-                    var rightSources = new ArrayList<BufferSource>();
-
-                    for (var file : normalizedFiles) {
-                        var rightSource = new BufferSource.FileSource(file);
-                        String headContent = "";
-                        try {
-                            var repo = contextManager.getProject().getRepo();
-                            headContent = repo.getFileContent("HEAD", file);
-                        } catch (Exception ex) {
-                            headContent = "";
-                        }
-                        var leftSource = new BufferSource.StringSource(headContent, "HEAD", file.toString(), "HEAD");
-                        leftSources.add(leftSource);
-                        rightSources.add(rightSource);
-                    }
-
                     // Callers must not enforce unified/side-by-side globally; BrokkDiffPanel reads and persists the
                     // user's choice when they toggle view (Fixes #1679).
                     // Delegation to showInTab handles window raising/deduplication.
