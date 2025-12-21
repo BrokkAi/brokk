@@ -267,7 +267,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
         // Remove from tracking
         if (fileKey != null) {
             fileToTabMap.remove(fileKey);
-            chrome.projectFileToPreviewWindow.remove(fileKey);
+            chrome.getPreviewManager().getProjectFileToPreviewWindow().remove(fileKey);
         }
         tabToFragmentMap.remove(panel);
 
@@ -323,7 +323,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
     private void disposeFrame() {
         // Clear all tracking
         for (ProjectFile file : fileToTabMap.keySet()) {
-            chrome.projectFileToPreviewWindow.remove(file);
+            chrome.getPreviewManager().getProjectFileToPreviewWindow().remove(file);
         }
         fileToTabMap.clear();
         tabToFragmentMap.clear();

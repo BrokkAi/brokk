@@ -91,9 +91,6 @@ public class Chrome
     // Preview management
     private final PreviewManager previewManager;
 
-    // Track preview windows by ProjectFile for refresh on file changes
-    public final Map<ProjectFile, JFrame> projectFileToPreviewWindow;
-
     // Per-Chrome instance dialog tracking to support multiple Chrome windows with independent dialogs
     private final Map<String, JDialog> openDialogs = new ConcurrentHashMap<>();
 
@@ -281,10 +278,10 @@ public class Chrome
         assert SwingUtilities.isEventDispatchThread() : "Chrome constructor must run on EDT";
         this.contextManager = contextManager;
         this.previewManager = new PreviewManager(this);
-        this.projectFileToPreviewWindow = previewManager.getProjectFileToPreviewWindow();
         this.contextManager.addFileChangeListener(changedFiles -> {
             // Refresh preview windows when tracked files change
-            Set<ProjectFile> openPreviewFiles = new HashSet<>(projectFileToPreviewWindow.keySet());
+            Set<ProjectFile> openPreviewFiles =
+                    new HashSet<>(previewManager.getProjectFileToPreviewWindow().keySet());
             openPreviewFiles.retainAll(changedFiles);
             if (!openPreviewFiles.isEmpty()) {
                 refreshPreviewsForFiles(openPreviewFiles);
@@ -1622,6 +1619,10 @@ public class Chrome
      */
     public void refreshPreviewsForFiles(Set<ProjectFile> changedFiles, @Nullable JFrame excludeFrame) {
         previewManager.refreshPreviewsForFiles(changedFiles, excludeFrame);
+    }
+
+    public PreviewManager getPreviewManager() {
+        return previewManager;
     }
 
     /**

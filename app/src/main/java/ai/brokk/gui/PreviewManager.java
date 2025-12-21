@@ -63,6 +63,10 @@ public class PreviewManager {
     // Track preview windows by ProjectFile for refresh on file changes
     private final Map<ProjectFile, JFrame> projectFileToPreviewWindow = new ConcurrentHashMap<>();
 
+    public Map<ProjectFile, JFrame> getProjectFileToPreviewWindow() {
+        return projectFileToPreviewWindow;
+    }
+
     // Shared frame for all PreviewTextPanel tabs
     @Nullable
     private PreviewFrame previewFrame;
@@ -72,10 +76,6 @@ public class PreviewManager {
     public PreviewManager(Chrome chrome) {
         this.chrome = chrome;
         this.cm = chrome.getContextManager();
-    }
-
-    Map<ProjectFile, JFrame> getProjectFileToPreviewWindow() {
-        return projectFileToPreviewWindow;
     }
 
     /**
