@@ -573,8 +573,9 @@ public class ContextAgent {
 
         var summaryFragments = summaryPerCodeUnit(cm, recommendedSummaries);
 
-        var testFragments = recommendedTestContentsMap.keySet().stream()
-                .map(f -> (ContextFragment) new ContextFragments.ProjectPathFragment(f, cm))
+        var testFragments = filteredTests.stream()
+                .map(f -> (ContextFragment) new ContextFragments.SummaryFragment(
+                        cm, f.toString(), ContextFragment.SummaryType.FILE_SKELETONS))
                 .toList();
 
         var pathFragments = filteredFiles.stream()
