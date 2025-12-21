@@ -18,53 +18,6 @@ public final class DiffWindowManager {
 
     private DiffWindowManager() {}
 
-    /**
-     * Find an existing BrokkDiffPanel that matches the given content.
-     *
-     * @param leftSources The left sources to match
-     * @param rightSources The right sources to match
-     * @return The matching panel if found, null otherwise
-     */
-    @Nullable
-    public static BrokkDiffPanel findExistingPanel(List<BufferSource> leftSources, List<BufferSource> rightSources) {
-
-        Frame[] frames = Frame.getFrames();
-
-        for (Frame frame : frames) {
-            if (frame == null || !frame.isDisplayable()) {
-                continue;
-            }
-
-            var brokkPanel = findBrokkDiffPanel(frame);
-            if (brokkPanel != null) {
-                if (brokkPanel.matchesContent(leftSources, rightSources)) {
-                    return brokkPanel;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Try to raise an existing window showing the same content instead of creating a new one.
-     *
-     * @param leftSources The left sources to match
-     * @param rightSources The right sources to match
-     * @return true if existing window was found and raised, false if new panel should be created
-     */
-    public static boolean tryRaiseExistingWindow(List<BufferSource> leftSources, List<BufferSource> rightSources) {
-        var existingPanel = findExistingPanel(leftSources, rightSources);
-        if (existingPanel != null) {
-            var window = SwingUtilities.getWindowAncestor(existingPanel);
-            if (window != null) {
-                raiseWindow(window);
-                return true;
-            }
-        }
-        return false;
-    }
-
     /** Raise the given window to the front and give it focus. */
     public static void raiseWindow(Window window) {
         SwingUtilities.invokeLater(() -> {
@@ -86,35 +39,4 @@ public final class DiffWindowManager {
         });
     }
 
-    /**
-     * Find an existing BrokkDiffPanel within a PreviewTabbedPane.
-     */
-    @Nullable
-    public static BrokkDiffPanel findExistingTab(ai.brokk.gui.components.PreviewTabbedPane tabs, List<BufferSource> leftSources, List<BufferSource> rightSources) {
-        for (int i = 0; i < tabs.getTabCount(); i++) {
-            Component comp = tabs.getComponentAt(i);
-            if (comp instanceof BrokkDiffPanel panel && panel.matchesContent(leftSources, rightSources)) {
-                return panel;
-            }
-        }
-        return null;
-    }
-
-    /** Recursively find the first BrokkDiffPanel in the component hierarchy. */
-    @Nullable
-    private static BrokkDiffPanel findBrokkDiffPanel(Container root) {
-        for (var comp : root.getComponents()) {
-            if (comp == null) continue;
-            if (comp instanceof BrokkDiffPanel panel) {
-                return panel;
-            }
-            if (comp instanceof Container container) {
-                var found = findBrokkDiffPanel(container);
-                if (found != null) {
-                    return found;
-                }
-            }
-        }
-        return null;
-    }
 }

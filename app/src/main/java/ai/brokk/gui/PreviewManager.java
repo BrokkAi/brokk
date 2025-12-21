@@ -305,10 +305,11 @@ public class PreviewManager {
      * Shows a diff panel in the shared tabbed preview interface.
      * Incorporates deduplication logic to raise existing windows or select existing tabs.
      */
-    public void showDiffInTab(String title, BrokkDiffPanel panel, List<BufferSource> leftSources, List<BufferSource> rightSources) {
+    public void showDiffInTab(
+            String title, BrokkDiffPanel panel, List<BufferSource> leftSources, List<BufferSource> rightSources) {
         SwingUtilities.invokeLater(() -> {
             // 1. Check for existing standalone window first
-            if (DiffWindowManager.tryRaiseExistingWindow(leftSources, rightSources)) {
+            if (tryRaiseExistingDiffWindow(leftSources, rightSources)) {
                 return;
             }
 
@@ -331,7 +332,7 @@ public class PreviewManager {
             }
 
             if (tabs != null) {
-                BrokkDiffPanel existing = DiffWindowManager.findExistingTab(tabs, leftSources, rightSources);
+                BrokkDiffPanel existing = findExistingDiffTab(tabs, leftSources, rightSources);
                 if (existing != null) {
                     int index = tabs.indexOfComponent(existing);
                     if (index >= 0) {
@@ -347,6 +348,53 @@ public class PreviewManager {
             // 3. Not found, show it as a new tab
             showPreviewInTabbedFrame(title, panel, null);
         });
+    }
+
+    private boolean tryRaiseExistingDiffWindow(List<BufferSource> leftSources, List<BufferSource> rightSources) {
+        for (java.awt.Frame frame : java.awt.Frame.getFrames()) {
+            if (frame == null || !frame.isDisplayable()) {
+                continue;
+            }
+
+            var brokkPanel = findBrokkDiffPanel(frame);
+            if (brokkPanel != null && brokkPanel.matchesContent(leftSources, rightSources)) {
+                var window = SwingUtilities.getWindowAncestor(brokkPanel);
+                if (window != null) {
+                    DiffWindowManager.raiseWindow(window);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    @Nullable
+    private BrokkDiffPanel findExistingDiffTab(
+            PreviewTabbedPane tabs, List<BufferSource> leftSources, List<BufferSource> rightSources) {
+        for (int i = 0; i < tabs.getTabCount(); i++) {
+            Component comp = tabs.getComponentAt(i);
+            if (comp instanceof BrokkDiffPanel panel && panel.matchesContent(leftSources, rightSources)) {
+                return panel;
+            }
+        }
+        return null;
+    }
+
+    @Nullable
+    private static BrokkDiffPanel findBrokkDiffPanel(Container root) {
+        for (var comp : root.getComponents()) {
+            if (comp == null) continue;
+            if (comp instanceof BrokkDiffPanel panel) {
+                return panel;
+            }
+            if (comp instanceof Container container) {
+                var found = findBrokkDiffPanel(container);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
     }
 
     /**
