@@ -727,16 +727,19 @@ public class ContextAgent {
                 var rec2 = askLlmDeepPruneFilenamesWithChunking(
                         right, workspaceRepresentation, Integer.MAX_VALUE, filesLlm, false);
 
-                var mergedFiles = new ArrayList<>(rec1.recommendedFiles());
-                rec2.recommendedFiles().stream()
-                        .filter(pf -> !mergedFiles.contains(pf))
-                        .forEach(mergedFiles::add);
+                var mergedFiles = new HashSet<>(rec1.recommendedFiles());
+                mergedFiles.addAll(rec2.recommendedFiles());
+
+                var mergedTests = new HashSet<>(rec1.recommendedTests());
+                mergedTests.addAll(rec2.recommendedTests());
+
+                var mergedClasses = new HashSet<>(rec1.recommendedClasses());
+                mergedClasses.addAll(rec2.recommendedClasses());
 
                 var mergedReasoning = (rec1.reasoning() + "\n" + rec2.reasoning()).strip();
                 var mergedUsage = Llm.ResponseMetadata.sum(rec1.tokenUsage(), rec2.tokenUsage());
 
-                return new LlmRecommendation(
-                        new HashSet<>(mergedFiles), Set.of(), Set.of(), mergedReasoning, mergedUsage);
+                return new LlmRecommendation(mergedFiles, mergedTests, mergedClasses, mergedReasoning, mergedUsage);
             }
 
             logger.warn(
@@ -823,6 +826,8 @@ public class ContextAgent {
         }
 
         var combinedFiles = new HashSet<ProjectFile>();
+        var combinedTests = new HashSet<ProjectFile>();
+        var combinedClasses = new HashSet<CodeUnit>();
         var combinedReasoning = new StringBuilder();
         @Nullable Llm.ResponseMetadata combinedUsage = null;
 
@@ -833,9 +838,9 @@ public class ContextAgent {
             } catch (ExecutionException e) {
                 throw new RuntimeException(e);
             }
-            rec.recommendedFiles().stream()
-                    .filter(pf -> !combinedFiles.contains(pf))
-                    .forEach(combinedFiles::add);
+            combinedFiles.addAll(rec.recommendedFiles());
+            combinedTests.addAll(rec.recommendedTests());
+            combinedClasses.addAll(rec.recommendedClasses());
             if (!rec.reasoning().isBlank())
                 combinedReasoning.append(rec.reasoning()).append('\n');
             combinedUsage = Llm.ResponseMetadata.sum(combinedUsage, rec.tokenUsage());
@@ -850,7 +855,7 @@ public class ContextAgent {
         }
 
         return new LlmRecommendation(
-                combinedFiles, Set.of(), Set.of(), combinedReasoning.toString().strip(), combinedUsage);
+                combinedFiles, combinedTests, combinedClasses, combinedReasoning.toString().strip(), combinedUsage);
     }
 
     // --- Evaluate-for-relevance (single-group context window) ---
