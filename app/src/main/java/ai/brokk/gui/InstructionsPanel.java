@@ -2649,64 +2649,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Scenario 3: Generate tasks without agentic search (plan mode, manual context, read-only)
-     * Uses SearchAgent with TASKS_ONLY to ensure no file modifications (respects readOnly=true).
-     */
-    private void runPlanModeWithoutSearch() {
-        var input = getInstructions();
-        if (input.isBlank()) {
-            chrome.toolError("Please provide a prompt for planning");
-            return;
-        }
-
-        final var modelToUse = selectDropdownModelOrShowError("Plan");
-        if (modelToUse == null) {
-            updateButtonStates();
-            return;
-        }
-
-        chrome.getProject().addToInstructionsHistory(input, 20);
-        clearCommandInput();
-        autoClearCompletedTasks();
-
-        // Generate tasks without auto-execution
-        final var preExistingIncompleteTasks = contextManager.liveContext().getTaskListDataOrEmpty().tasks().stream()
-                .filter(t -> !t.done())
-                .map(TaskList.TaskItem::text)
-                .collect(java.util.stream.Collectors.toSet());
-
-        submitAction(ACTION_PLAN, input, scope -> {
-                    var cm = chrome.getContextManager();
-                    var context = cm.liveContext();
-
-                    // Use SearchAgent with TASKS_ONLY to generate tasks from existing context
-                    // Skip scanInitialContext() to avoid agentic search (respects managedContext=false)
-                    SearchAgent agent =
-                            new SearchAgent(context, input, modelToUse, SearchAgent.Objective.TASKS_ONLY, scope);
-                    return agent.execute();
-                })
-                .thenRun(() -> {
-                    // After planning completes, check if new tasks were added
-                    SwingUtilities.invokeLater(() -> {
-                        var newTasks = contextManager.liveContext().getTaskListDataOrEmpty().tasks().stream()
-                                .filter(t -> !t.done())
-                                .map(TaskList.TaskItem::text)
-                                .filter(taskText -> !preExistingIncompleteTasks.contains(taskText))
-                                .collect(java.util.stream.Collectors.toSet());
-
-                        if (!newTasks.isEmpty()) {
-                            logger.debug("Plan mode without search completed with {} new task(s)", newTasks.size());
-                            // Switch to Tasks tab when plan mode creates new tasks
-                            chrome.switchToTasksTab();
-                        }
-                    });
-                });
-    }
-
-    /**
      * Scenario 4: Generate tasks and auto-execute without agentic search
-     * Agentic search is disabled to honor manual context mode (managedContext=false).
-     * The agent can still manually add/remove specific files but cannot perform autonomous context discovery.
      */
     private void runLutzModeWithoutSearch() {
         var input = getInstructions();
@@ -2734,9 +2677,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         submitAction(ACTION_LUTZ, input, scope -> {
                     var cm = chrome.getContextManager();
 
-                    // Use ArchitectAgent with agentic search disabled to respect manual context mode
+                    // Use ArchitectAgent for task generation without search
                     var codeModel = cm.getCodeModel();
-                    var agent = new ArchitectAgent(cm, modelToUse, codeModel, input, scope, false);
+                    var agent = new ArchitectAgent(cm, modelToUse, codeModel, input, scope);
                     return agent.execute();
                 })
                 .thenRun(() -> {
