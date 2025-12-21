@@ -1,18 +1,14 @@
 package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
-import ai.brokk.context.Context;
 import ai.brokk.gui.terminal.TaskListPanel;
 import ai.brokk.gui.terminal.TerminalPanel;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.Icons;
-import ai.brokk.project.AbstractProject;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
-import java.util.Objects;
 import javax.swing.*;
-import javax.swing.border.EmptyBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -47,7 +43,8 @@ public class BuildPane extends JPanel implements ThemeAware {
         historyOutputPanel = new HistoryOutputPanel(chrome, contextManager);
         instructionsPanel = new InstructionsPanel(chrome);
         taskListPanel = new TaskListPanel(chrome);
-        terminalPanel = new TerminalPanel(chrome, () -> {}, true, chrome.getProject().getRoot());
+        terminalPanel =
+                new TerminalPanel(chrome, () -> {}, true, chrome.getProject().getRoot());
 
         // Command tabs: Instructions | Tasks
         commandPane = new JTabbedPane(JTabbedPane.TOP);
@@ -164,7 +161,8 @@ public class BuildPane extends JPanel implements ThemeAware {
                 var leftSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, leftTopPanel, commandPanel);
                 leftSplit.setResizeWeight(0.4);
 
-                verticalActivityCombinedPanel = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplit, historyOutputPanel.getOutputTabsContainer());
+                verticalActivityCombinedPanel = new JSplitPane(
+                        JSplitPane.HORIZONTAL_SPLIT, leftSplit, historyOutputPanel.getOutputTabsContainer());
                 verticalActivityCombinedPanel.setResizeWeight(0.5);
                 historyOutputPanel.applyFixedCaptureBarSizing(true);
             }
@@ -194,11 +192,25 @@ public class BuildPane extends JPanel implements ThemeAware {
         }
     }
 
-    public HistoryOutputPanel getHistoryOutputPanel() { return historyOutputPanel; }
-    public InstructionsPanel getInstructionsPanel() { return instructionsPanel; }
-    public TaskListPanel getTaskListPanel() { return taskListPanel; }
-    public JTabbedPane getBuildReviewTabs() { return buildReviewTabs; }
-    public JTabbedPane getCommandPane() { return commandPane; }
+    public HistoryOutputPanel getHistoryOutputPanel() {
+        return historyOutputPanel;
+    }
+
+    public InstructionsPanel getInstructionsPanel() {
+        return instructionsPanel;
+    }
+
+    public TaskListPanel getTaskListPanel() {
+        return taskListPanel;
+    }
+
+    public JTabbedPane getBuildReviewTabs() {
+        return buildReviewTabs;
+    }
+
+    public JTabbedPane getCommandPane() {
+        return commandPane;
+    }
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {

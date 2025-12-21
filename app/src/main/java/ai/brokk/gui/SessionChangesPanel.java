@@ -5,7 +5,6 @@ import ai.brokk.context.Context;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
-import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.components.MaterialButton;
@@ -14,25 +13,19 @@ import ai.brokk.gui.dialogs.CreatePullRequestDialog;
 import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.project.IProject;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
+import java.awt.*;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import javax.swing.*;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
-import java.awt.*;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-
-import static java.util.Objects.requireNonNull;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * A panel that displays an aggregated diff of changes for the current session/branch.
@@ -42,13 +35,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private final Chrome chrome;
     private final ContextManager contextManager;
-    
+
     @Nullable
     private BrokkDiffPanel diffPanel;
-    
+
     @Nullable
     private String lastBaselineLabel;
-    
+
     @Nullable
     private BaselineMode lastBaselineMode;
 
@@ -59,13 +52,14 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         setOpaque(false);
     }
 
-    public void updateContent(DiffService.CumulativeChanges res, 
-                              List<Map.Entry<String, Context.DiffEntry>> prepared,
-                              @Nullable String baselineLabel,
-                              @Nullable BaselineMode baselineMode) {
+    public void updateContent(
+            DiffService.CumulativeChanges res,
+            List<Map.Entry<String, Context.DiffEntry>> prepared,
+            @Nullable String baselineLabel,
+            @Nullable BaselineMode baselineMode) {
         this.lastBaselineLabel = baselineLabel;
         this.lastBaselineMode = baselineMode;
-        
+
         if (diffPanel != null) {
             diffPanel.dispose();
         }
@@ -117,9 +111,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             buttonPanel.add(pushBtn);
         }
 
-        boolean showPR = lastBaselineMode == BaselineMode.NON_DEFAULT_BRANCH 
+        boolean showPR = lastBaselineMode == BaselineMode.NON_DEFAULT_BRANCH
                 || (lastBaselineMode == BaselineMode.DEFAULT_WITH_UPSTREAM && res.filesChanged() > 0);
-        
+
         if (showPR) {
             var prBtn = new MaterialButton("Create PR");
             prBtn.setEnabled(!hasUncommittedChanges);
@@ -137,7 +131,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         try {
             var root = contextManager.getProject().getRoot();
             if (root.getFileName() != null) projectName = root.getFileName().toString();
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
 
         var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
                 .setMultipleCommitsContext(false)
@@ -147,21 +142,19 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         for (var entry : prepared) {
             builder.addComparison(
-                new BufferSource.StringSource(entry.getValue().oldContent(), "", entry.getKey(), null),
-                new BufferSource.StringSource(entry.getValue().newContent(), "", entry.getKey(), null)
-            );
+                    new BufferSource.StringSource(entry.getValue().oldContent(), "", entry.getKey(), null),
+                    new BufferSource.StringSource(entry.getValue().newContent(), "", entry.getKey(), null));
         }
 
         diffPanel = builder.build();
         diffPanel.applyTheme(chrome.getTheme());
 
         topContainer.add(diffPanel, BorderLayout.CENTER);
-        
+
         setBorder(new CompoundBorder(
-                new LineBorder(UIManager.getColor("Separator.foreground"), 1), 
-                new EmptyBorder(6, 6, 6, 6)));
+                new LineBorder(UIManager.getColor("Separator.foreground"), 1), new EmptyBorder(6, 6, 6, 6)));
         add(topContainer, BorderLayout.CENTER);
-        
+
         revalidate();
         repaint();
     }
@@ -229,8 +222,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private Optional<IGitRepo> repo() {
-        try { return Optional.of(contextManager.getProject().getRepo()); } 
-        catch (Exception e) { return Optional.empty(); }
+        try {
+            return Optional.of(contextManager.getProject().getRepo());
+        } catch (Exception e) {
+            return Optional.empty();
+        }
     }
 
     @Override
@@ -244,6 +240,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     public enum BaselineMode {
-        NON_DEFAULT_BRANCH, DEFAULT_WITH_UPSTREAM, DEFAULT_LOCAL_ONLY, DETACHED, NO_BASELINE
+        NON_DEFAULT_BRANCH,
+        DEFAULT_WITH_UPSTREAM,
+        DEFAULT_LOCAL_ONLY,
+        DETACHED,
+        NO_BASELINE
     }
 }

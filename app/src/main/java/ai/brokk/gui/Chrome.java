@@ -25,13 +25,11 @@ import ai.brokk.gui.git.GitWorktreeTab;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.MarkdownOutputPool;
 import ai.brokk.gui.terminal.TaskListPanel;
-import ai.brokk.gui.terminal.TerminalPanel;
 import ai.brokk.gui.tests.FileBasedTestRunsStore;
 import ai.brokk.gui.tests.TestRunnerPanel;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.theme.ThemeTitleBarManager;
-import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.init.onboarding.BuildSettingsStep;
 import ai.brokk.init.onboarding.GitConfigStep;
@@ -522,7 +520,8 @@ public class Chrome
             try {
                 SwingUtilities.invokeAndWait(() -> {});
                 final CompletableFuture<List<ChatMessage>> future = new CompletableFuture<>();
-                SwingUtilities.invokeAndWait(() -> future.complete(buildPane.getHistoryOutputPanel().getLlmRawMessages()));
+                SwingUtilities.invokeAndWait(
+                        () -> future.complete(buildPane.getHistoryOutputPanel().getLlmRawMessages()));
                 return future.get();
             } catch (InterruptedException e) {
                 // retry
@@ -718,9 +717,7 @@ public class Chrome
                         KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         // Bind directly to instructions area instead of globally to avoid interfering with other components
         var ip = buildPane.getInstructionsPanel();
-        ip.getInstructionsArea()
-                .getInputMap(JComponent.WHEN_FOCUSED)
-                .put(submitKeyStroke, "submitAction");
+        ip.getInstructionsArea().getInputMap(JComponent.WHEN_FOCUSED).put(submitKeyStroke, "submitAction");
         ip.getInstructionsArea().getActionMap().put("submitAction", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -1066,7 +1063,8 @@ public class Chrome
             buildPane.getHistoryOutputPanel().prepareOutputForNextStream(history);
         } else {
             try {
-                SwingUtilities.invokeAndWait(() -> buildPane.getHistoryOutputPanel().prepareOutputForNextStream(history));
+                SwingUtilities.invokeAndWait(
+                        () -> buildPane.getHistoryOutputPanel().prepareOutputForNextStream(history));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             } catch (InvocationTargetException e) {
@@ -1318,7 +1316,8 @@ public class Chrome
 
         if (!shouldOpen) {
             // Collapse sidebar by default or if explicitly saved as closed
-            toolsPane.setLastExpandedSidebarLocation(Math.max(toolsPane.getLastExpandedSidebarLocation(), properDividerLocation));
+            toolsPane.setLastExpandedSidebarLocation(
+                    Math.max(toolsPane.getLastExpandedSidebarLocation(), properDividerLocation));
             // Relax minimum sizes to allow full collapse to compact width
             leftVerticalSplitPane.setMinimumSize(new Dimension(0, 0));
             toolsPane.getToolsPane().setMinimumSize(new Dimension(0, 0));
@@ -1400,7 +1399,6 @@ public class Chrome
             // Non-fatal persistence failure
         }
     }
-
 
     /**
      * Adds property change listeners to split panes for saving positions (global-first).
@@ -1672,18 +1670,53 @@ public class Chrome
         fileHistoryTabs.put(filePath, historyTab);
     }
 
-    @Nullable public GitCommitTab getGitCommitTab() { return toolsPane.getGitCommitTab(); }
-    @Nullable public GitLogTab getGitLogTab() { return toolsPane.getGitLogTab(); }
-    @Nullable public GitWorktreeTab getGitWorktreeTab() { return toolsPane.getGitWorktreeTab(); }
-    public void setBlitzForgeMenuItem(JMenuItem it) { this.blitzForgeMenuItem = it; }
-    public void showFileInProjectTree(ProjectFile pf) { projectFilesPanel.showFileInTree(pf); }
+    @Nullable
+    public GitCommitTab getGitCommitTab() {
+        return toolsPane.getGitCommitTab();
+    }
 
-    @Override public InstructionsPanel getInstructionsPanel() { return buildPane.getInstructionsPanel(); }
-    public TaskListPanel getTaskListPanel() { return buildPane.getTaskListPanel(); }
-    public WorkspacePanel getContextPanel() { return workspacePanel; }
-    public HistoryOutputPanel getHistoryOutputPanel() { return buildPane.getHistoryOutputPanel(); }
-    public JTabbedPane getBuildReviewTabs() { return buildPane.getBuildReviewTabs(); }
-    public JTabbedPane getCommandPane() { return buildPane.getCommandPane(); }
+    @Nullable
+    public GitLogTab getGitLogTab() {
+        return toolsPane.getGitLogTab();
+    }
+
+    @Nullable
+    public GitWorktreeTab getGitWorktreeTab() {
+        return toolsPane.getGitWorktreeTab();
+    }
+
+    public void setBlitzForgeMenuItem(JMenuItem it) {
+        this.blitzForgeMenuItem = it;
+    }
+
+    public void showFileInProjectTree(ProjectFile pf) {
+        projectFilesPanel.showFileInTree(pf);
+    }
+
+    @Override
+    public InstructionsPanel getInstructionsPanel() {
+        return buildPane.getInstructionsPanel();
+    }
+
+    public TaskListPanel getTaskListPanel() {
+        return buildPane.getTaskListPanel();
+    }
+
+    public WorkspacePanel getContextPanel() {
+        return workspacePanel;
+    }
+
+    public HistoryOutputPanel getHistoryOutputPanel() {
+        return buildPane.getHistoryOutputPanel();
+    }
+
+    public JTabbedPane getBuildReviewTabs() {
+        return buildPane.getBuildReviewTabs();
+    }
+
+    public JTabbedPane getCommandPane() {
+        return buildPane.getCommandPane();
+    }
 
     public void updateTerminalFontSize() {}
 
@@ -1936,8 +1969,8 @@ public class Chrome
         // Check if focus is within ContextPanel or HistoryOutputPanel's historyTable
         boolean inContextPanel = SwingUtilities.isDescendingFrom(focusOwner, workspacePanel);
         var hop = buildPane.getHistoryOutputPanel();
-        boolean inHistoryTable = hop.getHistoryTable() != null
-                && SwingUtilities.isDescendingFrom(focusOwner, hop.getHistoryTable());
+        boolean inHistoryTable =
+                hop.getHistoryTable() != null && SwingUtilities.isDescendingFrom(focusOwner, hop.getHistoryTable());
         return inContextPanel || inHistoryTable;
     }
 

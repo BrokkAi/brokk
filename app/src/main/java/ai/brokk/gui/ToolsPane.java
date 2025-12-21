@@ -14,7 +14,6 @@ import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.util.GlobalUiSettings;
-
 import java.awt.*;
 import java.awt.event.HierarchyEvent;
 import java.awt.event.KeyEvent;
@@ -47,22 +46,42 @@ public class ToolsPane extends JPanel implements ThemeAware {
     private final ProjectFilesPanel projectFilesPanel;
     private final TestRunnerPanel testRunnerPanel;
 
-    @Nullable private GitCommitTab gitCommitTab;
-    @Nullable private GitLogTab gitLogTab;
-    @Nullable private GitWorktreeTab gitWorktreeTab;
-    @Nullable private GitPullRequestsTab pullRequestsPanel;
-    @Nullable private GitIssuesTab issuesPanel;
+    @Nullable
+    private GitCommitTab gitCommitTab;
 
-    @Nullable private BadgedIcon gitTabBadgedIcon;
-    @Nullable private JLabel gitTabLabel;
-    @Nullable private BadgedIcon projectFilesTabBadgedIcon;
-    @Nullable private JLabel projectFilesTabLabel;
+    @Nullable
+    private GitLogTab gitLogTab;
+
+    @Nullable
+    private GitWorktreeTab gitWorktreeTab;
+
+    @Nullable
+    private GitPullRequestsTab pullRequestsPanel;
+
+    @Nullable
+    private GitIssuesTab issuesPanel;
+
+    @Nullable
+    private BadgedIcon gitTabBadgedIcon;
+
+    @Nullable
+    private JLabel gitTabLabel;
+
+    @Nullable
+    private BadgedIcon projectFilesTabBadgedIcon;
+
+    @Nullable
+    private JLabel projectFilesTabLabel;
 
     private boolean sidebarCollapsed = false;
     private int lastExpandedSidebarLocation = -1;
     private long lastTabToggleTime = 0;
 
-    public ToolsPane(Chrome chrome, ContextManager contextManager, ProjectFilesPanel projectFilesPanel, TestRunnerPanel testRunnerPanel) {
+    public ToolsPane(
+            Chrome chrome,
+            ContextManager contextManager,
+            ProjectFilesPanel projectFilesPanel,
+            TestRunnerPanel testRunnerPanel) {
         super(new BorderLayout());
         this.chrome = chrome;
         this.projectFilesPanel = projectFilesPanel;
@@ -81,21 +100,30 @@ public class ToolsPane extends JPanel implements ThemeAware {
         projectFilesTabBadgedIcon = new BadgedIcon(Icons.FOLDER_CODE, chrome.getTheme());
         toolsPane.addTab(null, projectFilesTabBadgedIcon, projectFilesPanel);
         int projectTabIdx = toolsPane.indexOfComponent(projectFilesPanel);
-        String projectShortcut = KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
-        projectFilesTabLabel = createSquareTabLabel(projectFilesTabBadgedIcon, "Project Files (" + projectShortcut + ")");
+        String projectShortcut =
+                KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
+        projectFilesTabLabel =
+                createSquareTabLabel(projectFilesTabBadgedIcon, "Project Files (" + projectShortcut + ")");
         toolsPane.setTabComponentAt(projectTabIdx, projectFilesTabLabel);
         projectFilesTabLabel.addMouseListener(new MouseAdapter() {
-            @Override public void mousePressed(MouseEvent e) { handleTabToggle(projectTabIdx); }
+            @Override
+            public void mousePressed(MouseEvent e) {
+                handleTabToggle(projectTabIdx);
+            }
         });
 
         // Tests
         toolsPane.addTab(null, Icons.SCIENCE, testRunnerPanel);
         int testsTabIdx = toolsPane.indexOfComponent(testRunnerPanel);
-        String testsShortcut = KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
+        String testsShortcut =
+                KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
         JLabel testsTabLabel = createSquareTabLabel(Icons.SCIENCE, "Tests (" + testsShortcut + ")");
         toolsPane.setTabComponentAt(testsTabIdx, testsTabLabel);
         testsTabLabel.addMouseListener(new MouseAdapter() {
-            @Override public void mousePressed(MouseEvent e) { handleTabToggle(testsTabIdx); }
+            @Override
+            public void mousePressed(MouseEvent e) {
+                handleTabToggle(testsTabIdx);
+            }
         });
 
         if (chrome.getProject().hasGit()) {
@@ -137,7 +165,9 @@ public class ToolsPane extends JPanel implements ThemeAware {
             toolsPane.setSelectedIndex(tabIndex);
             if (sidebarCollapsed) {
                 horizontalSplit.setDividerSize(chrome.getOriginalBottomDividerSize());
-                int target = (lastExpandedSidebarLocation > 0) ? lastExpandedSidebarLocation : chrome.computeInitialSidebarWidth() + horizontalSplit.getDividerSize();
+                int target = (lastExpandedSidebarLocation > 0)
+                        ? lastExpandedSidebarLocation
+                        : chrome.computeInitialSidebarWidth() + horizontalSplit.getDividerSize();
                 horizontalSplit.setDividerLocation(target);
                 sidebarCollapsed = false;
                 int minPx = chrome.computeMinSidebarWidthPx();
@@ -146,7 +176,8 @@ public class ToolsPane extends JPanel implements ThemeAware {
                 saveSidebarOpenSetting(true);
             }
             if (toolsPane.getComponentAt(tabIndex) == projectFilesPanel) {
-                updateProjectFilesTabBadge(chrome.getProject().getLiveDependencies().size());
+                updateProjectFilesTabBadge(
+                        chrome.getProject().getLiveDependencies().size());
             }
         }
     }
@@ -184,42 +215,82 @@ public class ToolsPane extends JPanel implements ThemeAware {
             gitTabBadgedIcon = new BadgedIcon(Icons.COMMIT, chrome.getTheme());
             toolsPane.addTab(null, gitTabBadgedIcon, gitCommitTab);
             int idx = toolsPane.indexOfComponent(gitCommitTab);
-            KeyStroke ks = GlobalUiSettings.getKeybinding("panel.switchToChanges", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
-            gitTabLabel = createSquareTabLabel(gitTabBadgedIcon, "Changes (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
+            KeyStroke ks = GlobalUiSettings.getKeybinding(
+                    "panel.switchToChanges", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
+            gitTabLabel = createSquareTabLabel(
+                    gitTabBadgedIcon, "Changes (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
             toolsPane.setTabComponentAt(idx, gitTabLabel);
-            gitTabLabel.addMouseListener(new MouseAdapter() { @Override public void mousePressed(MouseEvent e) { handleTabToggle(idx); } });
+            gitTabLabel.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    handleTabToggle(idx);
+                }
+            });
         }
         if (gitLogTab != null && toolsPane.indexOfComponent(gitLogTab) == -1) {
             toolsPane.addTab(null, Icons.FLOWSHEET, gitLogTab);
             int idx = toolsPane.indexOfComponent(gitLogTab);
-            KeyStroke ks = GlobalUiSettings.getKeybinding("panel.switchToLog", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
-            JLabel label = createSquareTabLabel(Icons.FLOWSHEET, "Log (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
+            KeyStroke ks = GlobalUiSettings.getKeybinding(
+                    "panel.switchToLog", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
+            JLabel label =
+                    createSquareTabLabel(Icons.FLOWSHEET, "Log (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
             toolsPane.setTabComponentAt(idx, label);
-            label.addMouseListener(new MouseAdapter() { @Override public void mousePressed(MouseEvent e) { handleTabToggle(idx); } });
+            label.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    handleTabToggle(idx);
+                }
+            });
         }
         if (gitWorktreeTab != null && toolsPane.indexOfComponent(gitWorktreeTab) == -1) {
             toolsPane.addTab(null, Icons.FLOWCHART, gitWorktreeTab);
             int idx = toolsPane.indexOfComponent(gitWorktreeTab);
-            KeyStroke ks = GlobalUiSettings.getKeybinding("panel.switchToWorktrees", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
-            JLabel label = createSquareTabLabel(Icons.FLOWCHART, "Worktrees (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
+            KeyStroke ks = GlobalUiSettings.getKeybinding(
+                    "panel.switchToWorktrees", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
+            JLabel label = createSquareTabLabel(
+                    Icons.FLOWCHART, "Worktrees (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
             toolsPane.setTabComponentAt(idx, label);
-            label.addMouseListener(new MouseAdapter() { @Override public void mousePressed(MouseEvent e) { handleTabToggle(idx); } });
+            label.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    handleTabToggle(idx);
+                }
+            });
         }
-        if (pullRequestsPanel != null && chrome.getProject().isGitHubRepo() && gitLogTab != null && toolsPane.indexOfComponent(pullRequestsPanel) == -1) {
+        if (pullRequestsPanel != null
+                && chrome.getProject().isGitHubRepo()
+                && gitLogTab != null
+                && toolsPane.indexOfComponent(pullRequestsPanel) == -1) {
             toolsPane.addTab(null, Icons.PULL_REQUEST, pullRequestsPanel);
             int idx = toolsPane.indexOfComponent(pullRequestsPanel);
-            KeyStroke ks = GlobalUiSettings.getKeybinding("panel.switchToPullRequests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
-            JLabel label = createSquareTabLabel(Icons.PULL_REQUEST, "Pull Requests (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
+            KeyStroke ks = GlobalUiSettings.getKeybinding(
+                    "panel.switchToPullRequests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
+            JLabel label = createSquareTabLabel(
+                    Icons.PULL_REQUEST, "Pull Requests (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
             toolsPane.setTabComponentAt(idx, label);
-            label.addMouseListener(new MouseAdapter() { @Override public void mousePressed(MouseEvent e) { handleTabToggle(idx); } });
+            label.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    handleTabToggle(idx);
+                }
+            });
         }
-        if (issuesPanel != null && chrome.getProject().getIssuesProvider().type() != IssueProviderType.NONE && toolsPane.indexOfComponent(issuesPanel) == -1) {
+        if (issuesPanel != null
+                && chrome.getProject().getIssuesProvider().type() != IssueProviderType.NONE
+                && toolsPane.indexOfComponent(issuesPanel) == -1) {
             toolsPane.addTab(null, Icons.ADJUST, issuesPanel);
             int idx = toolsPane.indexOfComponent(issuesPanel);
-            KeyStroke ks = GlobalUiSettings.getKeybinding("panel.switchToIssues", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
-            JLabel label = createSquareTabLabel(Icons.ADJUST, "Issues (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
+            KeyStroke ks = GlobalUiSettings.getKeybinding(
+                    "panel.switchToIssues", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
+            JLabel label =
+                    createSquareTabLabel(Icons.ADJUST, "Issues (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
             toolsPane.setTabComponentAt(idx, label);
-            label.addMouseListener(new MouseAdapter() { @Override public void mousePressed(MouseEvent e) { handleTabToggle(idx); } });
+            label.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    handleTabToggle(idx);
+                }
+            });
         }
     }
 
@@ -227,9 +298,14 @@ public class ToolsPane extends JPanel implements ThemeAware {
         if (gitTabBadgedIcon != null) {
             gitTabBadgedIcon.setCount(count, toolsPane);
             if (gitTabLabel != null) {
-                KeyStroke ks = GlobalUiSettings.getKeybinding("panel.switchToChanges", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
+                KeyStroke ks = GlobalUiSettings.getKeybinding(
+                        "panel.switchToChanges", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
                 String shortcut = KeyboardShortcutUtil.formatKeyStroke(ks);
-                gitTabLabel.setToolTipText(count > 0 ? String.format("Changes (%d modified file%s) (%s)", count, count == 1 ? "" : "s", shortcut) : "Changes (" + shortcut + ")");
+                gitTabLabel.setToolTipText(
+                        count > 0
+                                ? String.format(
+                                        "Changes (%d modified file%s) (%s)", count, count == 1 ? "" : "s", shortcut)
+                                : "Changes (" + shortcut + ")");
                 gitTabLabel.repaint();
             }
         }
@@ -239,9 +315,15 @@ public class ToolsPane extends JPanel implements ThemeAware {
         if (projectFilesTabBadgedIcon != null) {
             projectFilesTabBadgedIcon.setCount(count, toolsPane);
             if (projectFilesTabLabel != null) {
-                KeyStroke ks = GlobalUiSettings.getKeybinding("panel.switchToProjectFiles", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
+                KeyStroke ks = GlobalUiSettings.getKeybinding(
+                        "panel.switchToProjectFiles", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
                 String shortcut = KeyboardShortcutUtil.formatKeyStroke(ks);
-                projectFilesTabLabel.setToolTipText(count > 0 ? String.format("Project Files (%d dependenc%s) (%s)", count, count == 1 ? "y" : "ies", shortcut) : "Project Files (" + shortcut + ")");
+                projectFilesTabLabel.setToolTipText(
+                        count > 0
+                                ? String.format(
+                                        "Project Files (%d dependenc%s) (%s)",
+                                        count, count == 1 ? "y" : "ies", shortcut)
+                                : "Project Files (" + shortcut + ")");
                 projectFilesTabLabel.repaint();
             }
             projectFilesPanel.updateBorderTitle();
@@ -256,11 +338,18 @@ public class ToolsPane extends JPanel implements ThemeAware {
         label.setHorizontalAlignment(SwingConstants.CENTER);
         label.setToolTipText(tooltip);
         if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
-            try { themedIcon.ensureResolved(); } catch (Exception ex) { logger.debug("Failed to resolve themed icon", ex); }
+            try {
+                themedIcon.ensureResolved();
+            } catch (Exception ex) {
+                logger.debug("Failed to resolve themed icon", ex);
+            }
         }
         label.addHierarchyListener(e -> {
             if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && label.isShowing()) {
-                SwingUtilities.invokeLater(() -> { label.revalidate(); label.repaint(); });
+                SwingUtilities.invokeLater(() -> {
+                    label.revalidate();
+                    label.repaint();
+                });
             }
         });
         return label;
@@ -279,43 +368,89 @@ public class ToolsPane extends JPanel implements ThemeAware {
             Preferences p = projectPrefsNode();
             p.putBoolean(PREF_KEY_SIDEBAR_OPEN, open);
             p.flush();
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
         try {
             Preferences g = prefsRoot();
             g.putBoolean(PREF_KEY_SIDEBAR_OPEN_GLOBAL, open);
             g.flush();
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
     }
 
     public @Nullable Boolean getSavedSidebarOpenPreference() {
         try {
             Preferences p = projectPrefsNode();
             if (p.get(PREF_KEY_SIDEBAR_OPEN, null) != null) return p.getBoolean(PREF_KEY_SIDEBAR_OPEN, true);
-        } catch (Exception e) { logger.error("Failed to read project sidebar open preference", e); }
+        } catch (Exception e) {
+            logger.error("Failed to read project sidebar open preference", e);
+        }
         try {
             Preferences g = prefsRoot();
-            if (g.get(PREF_KEY_SIDEBAR_OPEN_GLOBAL, null) != null) return g.getBoolean(PREF_KEY_SIDEBAR_OPEN_GLOBAL, true);
-        } catch (Exception e) { logger.error("Failed to read global sidebar open preference", e); }
+            if (g.get(PREF_KEY_SIDEBAR_OPEN_GLOBAL, null) != null)
+                return g.getBoolean(PREF_KEY_SIDEBAR_OPEN_GLOBAL, true);
+        } catch (Exception e) {
+            logger.error("Failed to read global sidebar open preference", e);
+        }
         return null;
     }
 
-    public Preferences prefsRoot() { return Preferences.userRoot().node(PREFS_ROOT); }
+    public Preferences prefsRoot() {
+        return Preferences.userRoot().node(PREFS_ROOT);
+    }
+
     public Preferences projectPrefsNode() {
-        String projKey = chrome.getProject().getRoot().toString().replace('/', '_').replace('\\', '_').replace(':', '_');
+        String projKey = chrome.getProject()
+                .getRoot()
+                .toString()
+                .replace('/', '_')
+                .replace('\\', '_')
+                .replace(':', '_');
         return prefsRoot().node(PREFS_PROJECTS).node(projKey);
     }
 
-    public void setSidebarCollapsed(boolean collapsed) { this.sidebarCollapsed = collapsed; }
-    public boolean isSidebarCollapsed() { return sidebarCollapsed; }
-    public void setLastExpandedSidebarLocation(int loc) { this.lastExpandedSidebarLocation = loc; }
-    public int getLastExpandedSidebarLocation() { return lastExpandedSidebarLocation; }
+    public void setSidebarCollapsed(boolean collapsed) {
+        this.sidebarCollapsed = collapsed;
+    }
 
-    public JTabbedPane getToolsPane() { return toolsPane; }
-    public @Nullable GitCommitTab getGitCommitTab() { return gitCommitTab; }
-    public @Nullable GitLogTab getGitLogTab() { return gitLogTab; }
-    public @Nullable GitWorktreeTab getGitWorktreeTab() { return gitWorktreeTab; }
-    public @Nullable GitPullRequestsTab getPullRequestsPanel() { return pullRequestsPanel; }
-    public @Nullable GitIssuesTab getIssuesPanel() { return issuesPanel; }
+    public boolean isSidebarCollapsed() {
+        return sidebarCollapsed;
+    }
 
-    @Override public void applyTheme(GuiTheme guiTheme) { SwingUtilities.updateComponentTreeUI(this); }
+    public void setLastExpandedSidebarLocation(int loc) {
+        this.lastExpandedSidebarLocation = loc;
+    }
+
+    public int getLastExpandedSidebarLocation() {
+        return lastExpandedSidebarLocation;
+    }
+
+    public JTabbedPane getToolsPane() {
+        return toolsPane;
+    }
+
+    public @Nullable GitCommitTab getGitCommitTab() {
+        return gitCommitTab;
+    }
+
+    public @Nullable GitLogTab getGitLogTab() {
+        return gitLogTab;
+    }
+
+    public @Nullable GitWorktreeTab getGitWorktreeTab() {
+        return gitWorktreeTab;
+    }
+
+    public @Nullable GitPullRequestsTab getPullRequestsPanel() {
+        return pullRequestsPanel;
+    }
+
+    public @Nullable GitIssuesTab getIssuesPanel() {
+        return issuesPanel;
+    }
+
+    @Override
+    public void applyTheme(GuiTheme guiTheme) {
+        SwingUtilities.updateComponentTreeUI(this);
+    }
 }

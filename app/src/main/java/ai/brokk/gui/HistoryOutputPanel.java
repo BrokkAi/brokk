@@ -21,8 +21,6 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
-import ai.brokk.gui.dialogs.CreatePullRequestDialog;
-import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
@@ -77,9 +75,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import javax.swing.*;
-import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
-import javax.swing.border.LineBorder;
 import javax.swing.plaf.LayerUI;
 import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
@@ -1003,7 +999,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 int idx = -1;
                 for (int i = 0; i < tabs.getTabCount(); i++) {
                     Component c = tabs.getComponentAt(i);
-                    if (c == changesTabPlaceholder || (c instanceof Container cont && cont.isAncestorOf(changesTabPlaceholder))) {
+                    if (c == changesTabPlaceholder
+                            || (c instanceof Container cont && cont.isAncestorOf(changesTabPlaceholder))) {
                         idx = i;
                         break;
                     }
@@ -1917,7 +1914,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             // Find the index of the Review tab which contains our placeholder
             for (int i = 0; i < tabs.getTabCount(); i++) {
                 Component c = tabs.getComponentAt(i);
-                if (c == changesTabPlaceholder || (c instanceof Container cont && cont.isAncestorOf(changesTabPlaceholder))) {
+                if (c == changesTabPlaceholder
+                        || (c instanceof Container cont && cont.isAncestorOf(changesTabPlaceholder))) {
                     idx = i;
                     break;
                 }
@@ -2141,7 +2139,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 int idx = -1;
                 for (int i = 0; i < tabs.getTabCount(); i++) {
                     Component c = tabs.getComponentAt(i);
-                    if (c == changesTabPlaceholder || (c instanceof Container cont && cont.isAncestorOf(changesTabPlaceholder))) {
+                    if (c == changesTabPlaceholder
+                            || (c instanceof Container cont && cont.isAncestorOf(changesTabPlaceholder))) {
                         idx = i;
                         break;
                     }
@@ -2201,7 +2200,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 int idx = -1;
                 for (int i = 0; i < tabs.getTabCount(); i++) {
                     Component c = tabs.getComponentAt(i);
-                    if (c == changesTabPlaceholder || (c instanceof Container cont && cont.isAncestorOf(changesTabPlaceholder))) {
+                    if (c == changesTabPlaceholder
+                            || (c instanceof Container cont && cont.isAncestorOf(changesTabPlaceholder))) {
                         idx = i;
                         break;
                     }
@@ -2260,7 +2260,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 int idx = -1;
                 for (int i = 0; i < tabs.getTabCount(); i++) {
                     Component c = tabs.getComponentAt(i);
-                    if (c == changesTabPlaceholder || (c instanceof Container cont && cont.isAncestorOf(changesTabPlaceholder))) {
+                    if (c == changesTabPlaceholder
+                            || (c instanceof Container cont && cont.isAncestorOf(changesTabPlaceholder))) {
                         idx = i;
                         break;
                     }
@@ -3106,7 +3107,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     lastBaselineMode = baseline.mode();
 
                     // Handle cases with no baseline
-                    if (baseline.mode() == SessionChangesPanel.BaselineMode.DETACHED || baseline.mode() == SessionChangesPanel.BaselineMode.NO_BASELINE) {
+                    if (baseline.mode() == SessionChangesPanel.BaselineMode.DETACHED
+                            || baseline.mode() == SessionChangesPanel.BaselineMode.NO_BASELINE) {
                         return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
                     }
 
@@ -3268,7 +3270,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         sessionChangesPanel = new SessionChangesPanel(chrome, contextManager);
         sessionChangesPanel.updateContent(res, prepared, lastBaselineLabel, lastBaselineMode);
-        
+
         container.setLayout(new BorderLayout());
         container.add(sessionChangesPanel, BorderLayout.CENTER);
         container.revalidate();
@@ -3695,7 +3697,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
             // If not on default branch, diff against default
             if (!currentBranch.equals(defaultBranch)) {
-                return new BaselineInfo(SessionChangesPanel.BaselineMode.NON_DEFAULT_BRANCH, defaultBranch, defaultBranch);
+                return new BaselineInfo(
+                        SessionChangesPanel.BaselineMode.NON_DEFAULT_BRANCH, defaultBranch, defaultBranch);
             }
 
             // On default branch - check for upstream remote
@@ -3703,7 +3706,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 var remoteBranches = gitRepo.listRemoteBranches();
                 String upstreamRef = "origin/" + defaultBranch;
                 if (remoteBranches.contains(upstreamRef)) {
-                    return new BaselineInfo(SessionChangesPanel.BaselineMode.DEFAULT_WITH_UPSTREAM, upstreamRef, upstreamRef);
+                    return new BaselineInfo(
+                            SessionChangesPanel.BaselineMode.DEFAULT_WITH_UPSTREAM, upstreamRef, upstreamRef);
                 }
             }
 
