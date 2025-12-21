@@ -191,7 +191,25 @@ public class PreviewManager {
      */
     public void showPreviewInTabbedFrame(String title, JComponent panel, @Nullable ContextFragment fragment) {
         SwingUtilities.invokeLater(() -> {
-            // Create frame if it doesn't exist or was disposed
+            // Try BuildPane first
+            var tabs = chrome.getBuildReviewTabs();
+            if (tabs != null) {
+                Container parent = tabs.getParent();
+                if (parent instanceof BuildPane buildPane) {
+                    var previewTabs = buildPane.getPreviewTabbedPane();
+                    ProjectFile file = extractFileKey(panel, fragment);
+
+                    previewTabs.addOrSelectTab(title, panel, file, fragment);
+                    if (file != null) {
+                        projectFileToPreviewWindow.put(file, chrome.getFrame());
+                    }
+
+                    tabs.setSelectedComponent(previewTabs);
+                    return;
+                }
+            }
+
+            // Fallback to standalone frame
             if (previewFrame == null || !previewFrame.isDisplayable()) {
                 previewFrame = new PreviewFrame(chrome, chrome.getTheme());
 
@@ -304,10 +322,18 @@ public class PreviewManager {
         SwingUtilities.invokeLater(() -> {
             for (ProjectFile file : changedFiles) {
                 JFrame previewFrame = projectFileToPreviewWindow.get(file);
+
+                // If it's in the main frame, refresh the BuildPane's preview tabs
+                if (previewFrame == chrome.getFrame()) {
+                    var tabs = chrome.getBuildReviewTabs();
+                    if (tabs != null && tabs.getParent() instanceof BuildPane bp) {
+                        bp.getPreviewTabbedPane().refreshTabsForFile(file);
+                    }
+                    continue;
+                }
+
                 if (previewFrame != null && previewFrame.isDisplayable() && previewFrame != excludeFrame) {
-                    // Check if it's the shared PreviewTextFrame
                     if (previewFrame == this.previewFrame) {
-                        // Refresh all tabs for this file in the tabbed frame
                         this.previewFrame.refreshTabsForFile(file);
                     } else {
                         // Legacy standalone windows; keep best-effort refresh
@@ -603,6 +629,12 @@ public class PreviewManager {
      */
     private void replaceTabContent(JComponent oldComponent, JComponent newComponent, String title) {
         SwingUtilities.invokeLater(() -> {
+            // Check BuildPane first
+            var tabs = chrome.getBuildReviewTabs();
+            if (tabs != null && tabs.getParent() instanceof BuildPane bp) {
+                bp.getPreviewTabbedPane().replaceTabComponent(oldComponent, newComponent, title);
+                return;
+            }
             if (previewFrame != null && previewFrame.isDisplayable()) {
                 previewFrame.replaceTabComponent(oldComponent, newComponent, title);
             }
@@ -615,6 +647,12 @@ public class PreviewManager {
     private void updatePreviewWindowTitle(JComponent contentComponent, String newTitle) {
         SwingUtilities.invokeLater(() -> {
             try {
+                // Check BuildPane first
+                var tabs = chrome.getBuildReviewTabs();
+                if (tabs != null && tabs.getParent() instanceof BuildPane bp) {
+                    bp.getPreviewTabbedPane().updateTabTitle(contentComponent, newTitle);
+                    return;
+                }
                 if (previewFrame != null && previewFrame.isDisplayable()) {
                     previewFrame.updateTabTitle(contentComponent, newTitle);
                 }

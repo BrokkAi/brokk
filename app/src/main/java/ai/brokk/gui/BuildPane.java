@@ -1,6 +1,7 @@
 package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
+import ai.brokk.gui.components.PreviewTabbedPane;
 import ai.brokk.gui.terminal.TaskListPanel;
 import ai.brokk.gui.terminal.TerminalPanel;
 import ai.brokk.gui.theme.GuiTheme;
@@ -29,6 +30,7 @@ public class BuildPane extends JPanel implements ThemeAware {
 
     private final JSplitPane buildSplitPane;
     private final JTabbedPane buildReviewTabs;
+    private final PreviewTabbedPane previewTabbedPane;
     private final JTabbedPane commandPane;
     private final JPanel commandPanel;
     private final JPanel branchSelectorPanel;
@@ -68,13 +70,22 @@ public class BuildPane extends JPanel implements ThemeAware {
         buildSplitPane.setMinimumSize(new Dimension(200, 325));
         setupSplitPanePersistence();
 
-        // Build | Review | Terminal Tabs
+        // Preview Pane (lazy content but tab is always present)
+        previewTabbedPane = new PreviewTabbedPane(chrome, chrome.getTheme(),
+                title -> {}, // No window title to update here
+                () -> {} // Don't close main UI tab when empty
+        );
+
+        // Build | Review | Preview | Terminal Tabs
         buildReviewTabs = new JTabbedPane(JTabbedPane.TOP);
         buildReviewTabs.addTab("Build", Icons.SCIENCE, buildSplitPane);
+
         var reviewPlaceholder = historyOutputPanel.getChangesTabPlaceholder();
         if (reviewPlaceholder != null) {
             buildReviewTabs.addTab("Review", Icons.FLOWSHEET, reviewPlaceholder);
         }
+
+        buildReviewTabs.addTab("Preview", Icons.VISIBILITY, previewTabbedPane);
         buildReviewTabs.addTab("Terminal", Icons.TERMINAL, terminalPanel);
 
         // Set up tab change listeners (must be after buildReviewTabs is created)
@@ -208,6 +219,10 @@ public class BuildPane extends JPanel implements ThemeAware {
 
     public JTabbedPane getBuildReviewTabs() {
         return buildReviewTabs;
+    }
+
+    public PreviewTabbedPane getPreviewTabbedPane() {
+        return previewTabbedPane;
     }
 
     public JTabbedPane getCommandPane() {
