@@ -33,8 +33,8 @@ public class ContextAgentTest {
         var agent = new ContextAgent(cm, model, "test");
 
         var testFile = cm.toFile("src/test/java/pkg/FooTest.java");
-        List<ContextFragment> fragments =
-                agent.assembleFragmentsForTesting(Set.of(), Set.of(testFile), Set.of(), Set.of());
+        List<ContextFragment> fragments = agent.createResult(
+                new ContextAgent.LlmRecommendation(Set.of(), Set.of(testFile), Set.of(), null), Set.of());
 
         var summaryFragments = fragments.stream()
                 .filter(f -> f instanceof ContextFragments.SummaryFragment)
@@ -59,8 +59,8 @@ public class ContextAgentTest {
         var agent = new ContextAgent(cm, model, "test");
 
         var samePath = cm.toFile("src/shared/Dupe.java");
-        List<ContextFragment> fragments =
-                agent.assembleFragmentsForTesting(Set.of(samePath), Set.of(samePath), Set.of(), Set.of());
+        List<ContextFragment> fragments = agent.createResult(
+                new ContextAgent.LlmRecommendation(Set.of(samePath), Set.of(samePath), Set.of(), null), Set.of());
 
         var summaryFileSkeletonCount = fragments.stream()
                 .filter(f -> f instanceof ContextFragments.SummaryFragment sf
@@ -89,8 +89,9 @@ public class ContextAgentTest {
         var agent = new ContextAgent(cm, model, "test");
 
         var existing = cm.toFile("src/already/InWorkspace.java");
-        List<ContextFragment> fragments =
-                agent.assembleFragmentsForTesting(Set.of(existing), Set.of(existing), Set.of(), Set.of(existing));
+        List<ContextFragment> fragments = agent.createResult(
+                new ContextAgent.LlmRecommendation(Set.of(existing), Set.of(existing), Set.of(), null),
+                Set.of(existing));
 
         assertTrue(fragments.isEmpty());
     }

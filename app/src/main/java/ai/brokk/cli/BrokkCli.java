@@ -568,7 +568,7 @@ public final class BrokkCli implements Callable<Integer> {
                     }
                 }
             } else {
-                io.toolError("Deep Scan did not complete successfully: " + recommendations.reasoning());
+                io.toolError("Deep Scan did not complete successfully");
             }
 
             // If deepscan is standalone, exit here with success
@@ -1058,7 +1058,6 @@ public final class BrokkCli implements Callable<Integer> {
                                 true,
                                 Streams.concat(fileFragments.stream(), classFragments.stream())
                                         .toList(),
-                                "",
                                 null));
                     }
                 } catch (IOException e) {
