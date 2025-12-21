@@ -45,7 +45,8 @@ public class ContextAgentTest {
         assertEquals(
                 ContextFragment.SummaryType.FILE_SKELETONS,
                 summaryFragments.getFirst().getSummaryType());
-        assertEquals(testFile.getRelPath().toString(), summaryFragments.getFirst().getTargetIdentifier());
+        assertEquals(
+                testFile.getRelPath().toString(), summaryFragments.getFirst().getTargetIdentifier());
     }
 
     @Test

@@ -855,7 +855,11 @@ public class ContextAgent {
         }
 
         return new LlmRecommendation(
-                combinedFiles, combinedTests, combinedClasses, combinedReasoning.toString().strip(), combinedUsage);
+                combinedFiles,
+                combinedTests,
+                combinedClasses,
+                combinedReasoning.toString().strip(),
+                combinedUsage);
     }
 
     // --- Evaluate-for-relevance (single-group context window) ---
