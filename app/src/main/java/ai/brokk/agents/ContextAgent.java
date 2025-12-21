@@ -101,7 +101,8 @@ public class ContextAgent {
         this.analyzer = contextManager.getAnalyzer();
 
         // Token budgets
-        int outputTokens = model.defaultRequestParameters().maxCompletionTokens();
+        Integer maxCompletionTokens = model.defaultRequestParameters().maxCompletionTokens();
+        int outputTokens = maxCompletionTokens != null ? maxCompletionTokens : 4096;
         int actualInputTokens = contextManager.getService().getMaxInputTokens(model) - outputTokens;
         // god, our estimation is so bad (yes we do observe the ratio being this far off)
         this.evaluationBudget = (int) (actualInputTokens * 0.65);
@@ -583,6 +584,15 @@ public class ContextAgent {
                 .toList();
         return Stream.concat(Stream.concat(summaryFragments.stream(), testFragments.stream()), pathFragments.stream())
                 .toList();
+    }
+
+    List<ContextFragment> assembleFragmentsForTesting(
+            Set<ProjectFile> recommendedFiles,
+            Set<ProjectFile> recommendedTests,
+            Set<CodeUnit> recommendedClasses,
+            Set<ProjectFile> existingFiles) {
+        return createResult(
+                new LlmRecommendation(recommendedFiles, recommendedTests, recommendedClasses, "", null), existingFiles);
     }
 
     /** one SummaryFragment per code unit so ArchitectAgent can easily ask user which ones to include */
