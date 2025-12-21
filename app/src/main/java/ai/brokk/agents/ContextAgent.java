@@ -100,7 +100,9 @@ public class ContextAgent {
         this.io = io;
         this.analyzer = contextManager.getAnalyzer();
 
-        // Token budgets
+        // Token budgeting: estimate the usable input-context budget by reserving an output (completion) budget.
+        // Some model implementations don't provide a default maxCompletionTokens (it may be null), so fall back
+        // to a conservative default to avoid NPEs and to keep prompt budgeting deterministic.
         Integer maxCompletionTokens = model.defaultRequestParameters().maxCompletionTokens();
         int outputTokens = maxCompletionTokens != null ? maxCompletionTokens : 4096;
         int actualInputTokens = contextManager.getService().getMaxInputTokens(model) - outputTokens;
@@ -142,16 +144,16 @@ public class ContextAgent {
         private final List<String> recommendedTests = new ArrayList<>();
 
         @Tool(
-                "Recommend relevant files, tests, and classes needed to achieve the user's goal. All file paths must exactly match entries in <available_files>.")
+                "Recommend relevant files, tests, and classes needed to achieve the user's goal. All file paths must exactly match a file path provided in the request; do not invent paths.")
         public void recommendContext(
                 @P(
-                                "List of full paths of files to edit or whose full text is necessary. Must exactly match paths from <available_files>.")
+                                "List of full paths of files to edit or whose full text is necessary. Must exactly match one of the file paths provided in the request.")
                         List<String> filesToAdd,
                 @P(
                                 "List of fully-qualified class names for classes whose APIs are relevant to the goal but which do not need to be edited.")
                         List<String> classesToSummarize,
                 @P(
-                                "List of related test/spec/e2e/integration file paths that help understand or verify the goal. These will be included as summaries/skeletons only. Must exactly match paths from <available_files>.")
+                                "List of related test/spec/e2e/integration file paths that help understand or verify the goal. These will be included as summaries/skeletons only. Must exactly match one of the file paths provided in the request.")
                         List<String> testsToAdd) {
             this.recommendedFiles.addAll(filesToAdd);
             this.recommendedClasses.addAll(classesToSummarize);
@@ -901,11 +903,11 @@ public class ContextAgent {
 
                 Then call the `recommendContext` tool with the appropriate entries:
 
-                - Populate `filesToAdd` with full (relative) paths of files that will need to be edited, or whose implementation details are necessary. Must exactly match paths from <available_files>.
+                - Populate `filesToAdd` with full (relative) paths of files that will need to be edited, or whose implementation details are necessary. Must exactly match one of the file paths provided in this message.
                 - Populate `classesToSummarize` with fully-qualified names of classes whose APIs will be used.
-                - Populate `testsToAdd` with full (relative) paths of related test/spec/e2e/integration files that help understand or verify the goal. These will be included as summaries/skeletons only (not full file contents). Must exactly match paths from <available_files>.
+                - Populate `testsToAdd` with full (relative) paths of related test/spec/e2e/integration files that help understand or verify the goal. These will be included as summaries/skeletons only (not full file contents). Must exactly match one of the file paths provided in this message.
 
-                Either or all arguments may be empty. Do NOT invent or guess file paths—only use paths that exactly match entries in <available_files>.
+                Either or all arguments may be empty. Do NOT invent or guess file paths. Only use file paths that are present in the file list provided in this message. If no file list is provided, call `recommendContext` with empty lists.
                 """;
         userMessageText.append(userPrompt);
 
