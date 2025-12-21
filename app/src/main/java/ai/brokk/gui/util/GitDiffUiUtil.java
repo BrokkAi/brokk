@@ -368,42 +368,41 @@ public interface GitDiffUiUtil {
         var file = new ProjectFile(cm.getRoot(), filePath);
 
         cm.submitBackgroundTask("Loading compare-with-local for " + file.getFileName(), () -> {
-            try {
-                // Figure out the base commit ID and title components
-                String baseCommitId = commitId;
-                String baseCommitTitle = commitId;
-                String baseCommitShort = ((GitRepo) repo).shortHash(commitId);
-
-                if (useParent) {
-                    baseCommitId = commitId + "^";
-                    baseCommitTitle = commitId + "^";
-                    baseCommitShort = ((GitRepo) repo).shortHash(commitId) + "^";
-                }
-
-                // Read old content from the base commit
-                var oldContent = repo.getFileContent(baseCommitId, file);
-
-                // Create panel on Swing thread
-                String finalOldContent = oldContent;
-                String finalBaseCommitTitle = baseCommitTitle;
-                String finalBaseCommitId = baseCommitId;
-                String finalDialogTitle = "Diff: %s [Local vs %s]".formatted(file.getFileName(), baseCommitShort);
-
-                SwingUtilities.invokeLater(() -> {
-                    var leftSource = new BufferSource.StringSource(
-                            finalOldContent, finalBaseCommitTitle, file.toString(), finalBaseCommitId);
-                    var rightSource = new BufferSource.FileSource(file);
-
-                    new BrokkDiffPanel.Builder(chrome.getTheme(), cm)
-                            .leftSource(leftSource)
-                            .rightSource(rightSource)
-                            .build()
-                            .showInTab(chrome.getPreviewManager(), finalDialogTitle);
-                });
-            } catch (Exception ex) {
-                cm.getIo().toolError("Error loading compare-with-local diff: " + ex.getMessage());
+            // Figure out the base commit ID and title components
+            String baseCommitId;
+            String baseCommitTitle;
+            if (useParent) {
+                baseCommitId = commitId + "^";
+                baseCommitTitle = commitId + "^";
+            } else {
+                baseCommitId = commitId;
+                baseCommitTitle = commitId;
             }
-            return null;
+
+            // Read old content from the base commit
+
+            // Create panel on Swing thread
+            String oldContent = null;
+            try {
+                oldContent = repo.getFileContent(baseCommitId, file);
+            } catch (GitAPIException e) {
+                logger.warn(e);
+                oldContent = "Unable to read file: " + e.getMessage();
+            }
+            String finalOldContent = oldContent;
+            String finalDialogTitle = "Diff: %s".formatted(file.getFileName());
+
+            SwingUtilities.invokeLater(() -> {
+                var leftSource = new BufferSource.StringSource(
+                        finalOldContent, baseCommitTitle, file.toString(), baseCommitId);
+                var rightSource = new BufferSource.FileSource(file);
+
+                new BrokkDiffPanel.Builder(chrome.getTheme(), cm)
+                        .leftSource(leftSource)
+                        .rightSource(rightSource)
+                        .build()
+                        .showInTab(chrome.getPreviewManager(), finalDialogTitle);
+            });
         });
     }
 
