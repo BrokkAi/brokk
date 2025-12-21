@@ -308,7 +308,7 @@ class SearchModeSearchAgentTest {
             zos.putNextEntry(manifestEntry);
             String manifest = String.format(
                     "{\"id\":\"%s\",\"name\":\"Test Session\",\"created\":%d,\"modified\":%d,"
-                            + "\"isReadOnly\":false,\"isManagedContext\":false,\"isPlanMode\":false}",
+                            + "\"isReadOnly\":false,\"isManagedContext\":false}",
                     UUID.randomUUID(), System.currentTimeMillis(), System.currentTimeMillis());
             zos.write(manifest.getBytes(StandardCharsets.UTF_8));
             zos.closeEntry();

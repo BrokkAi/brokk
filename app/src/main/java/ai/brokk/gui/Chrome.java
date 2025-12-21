@@ -2359,18 +2359,15 @@ public class Chrome
     }
 
     /**
-     * Updates the visibility of the Tasks tab in the right tabbed panel based on plan mode.
-     * When simplified instructions panel is enabled, the Tasks tab is only visible if plan mode is enabled.
+     * Updates the visibility of the Tasks tab in the right tabbed panel.
+     * The Tasks tab is always visible (plan mode is always enabled).
      *
-     * @param isPlanMode whether plan mode is enabled for the current session
+     * @param isPlanMode ignored (kept for compatibility, plan mode is always true)
      */
     public void updateTasksTabVisibility(boolean isPlanMode) {
         SwingUtilities.invokeLater(() -> {
-            boolean isSimplified = GlobalUiSettings.isSimplifiedInstructionsPanel();
-
-            // In simplified mode, Tasks tab is only visible when plan mode is enabled
-            // In advanced mode, Tasks tab is always visible
-            boolean shouldShowTasks = !isSimplified || isPlanMode;
+            // Tasks tab is always visible (plan mode always enabled)
+            boolean shouldShowTasks = true;
 
             // Find the Tasks tab index
             int tasksTabIndex = rightTabbedPanel.indexOfComponent(taskListPanel);

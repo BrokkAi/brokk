@@ -141,8 +141,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final Chrome chrome;
     private final JTextArea instructionsArea;
     private final VoiceInputButton micButton;
-    private final MaterialToggleButton planModeToggle;
-    private final JLabel planModeLabel;
     private final ActionSplitButton actionButton;
     private final MaterialButton simplifiedSubmitButton;
     private final WandButton wandButton;
@@ -406,33 +404,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 micButton.setBorder(original);
                 micButton.repaint();
             }
-        });
-
-        // Initialize plan mode toggle with slider and label
-        planModeToggle = new MaterialToggleButton();
-        planModeToggle.setIcon(new SwitchIcon());
-        planModeToggle.setSelectedIcon(new SwitchIcon());
-        planModeToggle.setFocusable(false);
-        planModeToggle.setOpaque(false);
-        planModeToggle.setSelected(false); // Default to plan mode disabled (normal mode)
-        planModeToggle.setToolTipText(
-                "<html>Plan Mode: AI generates a task list without auto-executing tasks<br/>Normal Mode: AI executes actions directly</html>");
-
-        planModeLabel = new JLabel("Plan mode");
-        planModeLabel.setFont(planModeLabel.getFont().deriveFont(Font.PLAIN, 11f));
-
-        // Update SessionInfo when toggle is changed
-        planModeToggle.addActionListener(e -> {
-            boolean isPlanMode = planModeToggle.isSelected();
-            var sessionManager = chrome.getProject().getSessionManager();
-            var currentSessionId = chrome.getContextManager().getCurrentSessionId();
-            sessionManager.setPlanMode(currentSessionId, isPlanMode);
-
-            // Update Tasks tab visibility based on plan mode
-            chrome.updateTasksTabVisibility(isPlanMode);
-
-            // Update placeholder text if it's currently displayed
-            updatePlaceholderIfActive();
         });
 
         // Load stored action with cascading fallback: project → global → default
@@ -868,8 +839,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         micButton.setAlignmentY(Component.CENTER_ALIGNMENT);
         wandButton.setAlignmentY(Component.CENTER_ALIGNMENT);
         historyDropdown.setAlignmentY(Component.CENTER_ALIGNMENT);
-        planModeToggle.setAlignmentY(Component.CENTER_ALIGNMENT);
-        planModeLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
 
         // Ensure focusable for keyboard accessibility
         micButton.setFocusable(true);
@@ -886,12 +855,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         wandButton.setVisible(GlobalUiSettings.isSimplifiedInstructionsPanel());
         leftCluster.add(Box.createHorizontalStrut(H_GAP));
         leftCluster.add(historyDropdown);
-        leftCluster.add(Box.createHorizontalStrut(H_GAP * 2)); // Extra spacing before plan mode toggle
-        leftCluster.add(planModeToggle);
-        planModeToggle.setVisible(GlobalUiSettings.isSimplifiedInstructionsPanel());
-        leftCluster.add(Box.createHorizontalStrut(4)); // Small gap between toggle and label
-        leftCluster.add(planModeLabel);
-        planModeLabel.setVisible(GlobalUiSettings.isSimplifiedInstructionsPanel());
 
         // Add left cluster
         topBarPanel.add(leftCluster);
@@ -1567,38 +1530,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             return "Ask Brokk to code changes across the codebase...";
         }
 
-        boolean planMode = sessionInfo.isPlanMode();
         boolean readOnly = sessionInfo.isReadOnly();
         boolean manageContext = sessionInfo.isManagedContext();
 
-        // 8 scenarios based on the 3 boolean flags
-        if (planMode) {
-            if (readOnly) {
-                if (manageContext) {
-                    return "Ask Brokk to create a plan for the codebase...";
-                } else {
-                    return "Ask Brokk to create a plan for the files in context...";
-                }
+        // 4 scenarios based on readOnly and manageContext (plan mode always enabled)
+        if (readOnly) {
+            if (manageContext) {
+                return "Ask Brokk to create a plan for the codebase...";
             } else {
-                if (manageContext) {
-                    return "Ask Brokk to plan and code changes across the codebase...";
-                } else {
-                    return "Ask Brokk to plan and code changes to the files in context...";
-                }
+                return "Ask Brokk to create a plan for the files in context...";
             }
         } else {
-            if (readOnly) {
-                if (manageContext) {
-                    return "Ask Brokk a question about the codebase...";
-                } else {
-                    return "Ask Brokk a question about the files in context...";
-                }
+            if (manageContext) {
+                return "Ask Brokk to plan and code changes across the codebase...";
             } else {
-                if (manageContext) {
-                    return "Ask Brokk to code changes across the codebase...";
-                } else {
-                    return "Ask Brokk to code changes to the files in context...";
-                }
+                return "Ask Brokk to plan and code changes to the files in context...";
             }
         }
     }
@@ -2528,12 +2474,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var sessionInfo = sessionManager.getSessionInfo(currentSessionId);
 
         if (sessionInfo != null) {
-            boolean isPlanMode = sessionInfo.isPlanMode();
             SwingUtilities.invokeLater(() -> {
-                planModeToggle.setSelected(isPlanMode);
-
-                // Update Tasks tab visibility based on plan mode when session changes
-                chrome.updateTasksTabVisibility(isPlanMode);
+                // Update Tasks tab visibility (always show in plan mode)
+                chrome.updateTasksTabVisibility(true);
             });
         }
     }
@@ -2621,7 +2564,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     /**
      * Executes the appropriate action for the simplified submit button based on session settings.
-     * The behavior is determined by three session properties: readOnly, managedContext, and planMode.
+     * The behavior is determined by two session properties: readOnly and managedContext.
+     * Plan mode is always enabled.
      */
     private void executeSimplifiedSubmitAction() {
         var sessionManager = chrome.getProject().getSessionManager();
@@ -2637,52 +2581,26 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         boolean readOnly = sessionInfo.isReadOnly();
         boolean managedContext = sessionInfo.isManagedContext();
-        boolean planMode = sessionInfo.isPlanMode();
 
         logger.debug(
-                "Simplified submit: readOnly={}, managedContext={}, planMode={}", readOnly, managedContext, planMode);
+                "Simplified submit: readOnly={}, managedContext={}", readOnly, managedContext);
 
-        // 8 scenarios based on the 3 boolean flags
-        if (planMode) {
-            if (readOnly) {
-                if (managedContext) {
-                    // Scenario 1: PLAN mode with agentic search (no auto-execute)
-                    runPlanCommand();
-                } else {
-                    // Scenario 3: PLAN mode without agentic search (no auto-execute)
-                    runPlanModeWithoutSearch();
-                }
+        // 4 scenarios based on readOnly and managedContext (plan mode always enabled)
+        if (readOnly) {
+            if (managedContext) {
+                // Scenario 1: PLAN mode with agentic search (no auto-execute)
+                runPlanCommand();
             } else {
-                if (managedContext) {
-                    // Scenario 2: LUTZ mode - agentic search with auto-execute
-                    runSearchCommand();
-                } else {
-                    // Scenario 4: LUTZ mode without agentic search
-                    runLutzModeWithoutSearch();
-                }
+                // Scenario 3: PLAN mode without agentic search (no auto-execute)
+                runPlanModeWithoutSearch();
             }
         } else {
-            if (readOnly) {
-                if (managedContext) {
-                    // Scenario 5: SEARCH+ASK - agentic search then answer
-                    runSearchThenAsk();
-                } else {
-                    // Scenario 7: ASK mode - answer with existing context
-                    runAskCommand(getInstructions());
-                }
+            if (managedContext) {
+                // Scenario 2: LUTZ mode - agentic search with auto-execute
+                runSearchCommand();
             } else {
-                if (managedContext) {
-                    // Scenario 6: SEARCH+CODE - agentic search then code
-                    runSearchThenCode();
-                } else {
-                    // Scenario 8: CODE mode - code with existing context
-                    var model = selectDropdownModelOrShowError("Code");
-                    if (model != null) {
-                        prepareAndRunCodeCommand(model);
-                    } else {
-                        updateButtonStates();
-                    }
-                }
+                // Scenario 4: LUTZ mode without agentic search
+                runLutzModeWithoutSearch();
             }
         }
     }

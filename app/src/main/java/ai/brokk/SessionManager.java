@@ -54,8 +54,7 @@ public class SessionManager implements AutoCloseable {
             long modified,
             int version,
             boolean isReadOnly,
-            boolean isManagedContext,
-            boolean isPlanMode) {
+            boolean isManagedContext) {
 
         @JsonIgnore
         public boolean isSessionModified() {
@@ -138,7 +137,7 @@ public class SessionManager implements AutoCloseable {
         var sessionId = newSessionId();
         var currentTime = System.currentTimeMillis();
         var newSessionInfo = new SessionInfo(
-                sessionId, name, currentTime, currentTime, CURRENT_SESSION_INFO_VERSION, true, true, false);
+                sessionId, name, currentTime, currentTime, CURRENT_SESSION_INFO_VERSION, true, true);
         sessionsCache.put(sessionId, newSessionInfo);
 
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
@@ -174,8 +173,7 @@ public class SessionManager implements AutoCloseable {
                     System.currentTimeMillis(),
                     oldInfo.version(),
                     oldInfo.isReadOnly(),
-                    oldInfo.isManagedContext(),
-                    oldInfo.isPlanMode());
+                    oldInfo.isManagedContext());
             sessionsCache.put(sessionId, updatedInfo);
             sessionExecutorByKey.submit(sessionId.toString(), () -> {
                 try {
@@ -202,8 +200,7 @@ public class SessionManager implements AutoCloseable {
                     System.currentTimeMillis(),
                     oldInfo.version(),
                     oldInfo.isReadOnly(),
-                    isManagedContext,
-                    oldInfo.isPlanMode());
+                    isManagedContext);
             sessionsCache.put(sessionId, updatedInfo);
             sessionExecutorByKey.submit(sessionId.toString(), () -> {
                 try {
@@ -232,8 +229,7 @@ public class SessionManager implements AutoCloseable {
                     System.currentTimeMillis(),
                     oldInfo.version(),
                     isReadOnly,
-                    oldInfo.isManagedContext(),
-                    oldInfo.isPlanMode());
+                    oldInfo.isManagedContext());
             sessionsCache.put(sessionId, updatedInfo);
             sessionExecutorByKey.submit(sessionId.toString(), () -> {
                 try {
@@ -247,34 +243,6 @@ public class SessionManager implements AutoCloseable {
             });
         } else {
             logger.warn("Session ID {} not found in cache, cannot update read-only state.", sessionId);
-        }
-    }
-
-    public void setPlanMode(UUID sessionId, boolean isPlanMode) {
-        SessionInfo oldInfo = sessionsCache.get(sessionId);
-        if (oldInfo != null) {
-            var updatedInfo = new SessionInfo(
-                    oldInfo.id(),
-                    oldInfo.name(),
-                    oldInfo.created(),
-                    System.currentTimeMillis(),
-                    oldInfo.version(),
-                    oldInfo.isReadOnly(),
-                    oldInfo.isManagedContext(),
-                    isPlanMode);
-            sessionsCache.put(sessionId, updatedInfo);
-            sessionExecutorByKey.submit(sessionId.toString(), () -> {
-                try {
-                    Path sessionHistoryPath = getSessionHistoryPath(sessionId);
-                    writeSessionInfoToZip(sessionHistoryPath, updatedInfo);
-                    logger.debug("Updated isPlanMode to {} for session {}", isPlanMode, sessionId);
-                } catch (IOException e) {
-                    logger.error(
-                            "Error writing updated manifest for plan mode change {}: {}", sessionId, e.getMessage());
-                }
-            });
-        } else {
-            logger.warn("Session ID {} not found in cache, cannot update plan mode state.", sessionId);
         }
     }
 
@@ -406,7 +374,6 @@ public class SessionManager implements AutoCloseable {
                 currentTime,
                 CURRENT_SESSION_INFO_VERSION,
                 true,
-                false,
                 false);
 
         var copyFuture = sessionExecutorByKey.submit(originalSessionId.toString(), () -> {
@@ -479,8 +446,7 @@ public class SessionManager implements AutoCloseable {
                             loaded.modified(),
                             CURRENT_SESSION_INFO_VERSION,
                             false, // isReadOnly - lutz default
-                            true, // isManagedContext - lutz default
-                            true // isPlanMode - lutz default
+                            true // isManagedContext - lutz default
                             );
                     logger.debug(
                             "Migrated session {} from version 0 to version {}",
@@ -552,8 +518,7 @@ public class SessionManager implements AutoCloseable {
                         System.currentTimeMillis(),
                         currentInfo.version(),
                         currentInfo.isReadOnly(),
-                        currentInfo.isManagedContext(),
-                        currentInfo.isPlanMode());
+                        currentInfo.isManagedContext());
                 sessionsCache.put(sessionId, infoToSave); // Update cache before async task
             } // else, session info is not modified, we are just adding an empty initial context (e.g. welcome message)
             // to the session

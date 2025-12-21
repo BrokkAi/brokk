@@ -625,18 +625,15 @@ public class TerminalDrawerPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Updates the visibility of the Tasks tab based on plan mode and simplified instructions panel settings.
-     * When simplified instructions panel is enabled, the Tasks tab is only visible if plan mode is enabled.
+     * Updates the visibility of the Tasks tab.
+     * The Tasks tab is always visible (plan mode is always enabled).
      *
-     * @param isPlanMode whether plan mode is enabled for the current session
+     * @param isPlanMode ignored (kept for compatibility, plan mode is always true)
      */
     public void updateTasksTabVisibility(boolean isPlanMode) {
         Runnable r = () -> {
-            boolean isSimplified = GlobalUiSettings.isSimplifiedInstructionsPanel();
-
-            // In simplified mode, Tasks tab is only visible when plan mode is enabled
-            // In advanced mode, Tasks tab is always visible
-            boolean shouldShowTasks = !isSimplified || isPlanMode;
+            // Tasks tab is always visible (plan mode always enabled)
+            boolean shouldShowTasks = true;
 
             tasksToggle.setVisible(shouldShowTasks);
 

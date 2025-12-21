@@ -294,7 +294,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     System.currentTimeMillis(),
                     1, // version - doesn't matter for prototype
                     true,
-                    false,
                     false));
 
             // Select current session in the list
