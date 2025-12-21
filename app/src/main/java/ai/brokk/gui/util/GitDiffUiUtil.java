@@ -534,9 +534,7 @@ public interface GitDiffUiUtil {
                     builder.setInitialFileIndex(targetFileIndex);
                 }
 
-                String shortId = ((GitRepo) repo).shortHash(commitInfo.id());
-                var title = "Commit Diff: %s (%s)"
-                        .formatted(commitInfo.message().lines().findFirst().orElse(""), shortId);
+                String title = "Diff of " + targetFileName.substring(targetFileName.lastIndexOf('/') + 1);
 
                 SwingUtilities.invokeLater(() -> {
                     builder.build().showInTab(chrome.getPreviewManager(), title);
@@ -872,8 +870,10 @@ public interface GitDiffUiUtil {
                     builder.setInitialFileIndex(targetFileIndex);
                 }
 
+                String title = "Diff of " + targetFilePath.substring(targetFilePath.lastIndexOf('/') + 1);
+
                 SwingUtilities.invokeLater(() -> {
-                    builder.build().showInTab(chrome.getPreviewManager(), PrTitleFormatter.formatDiffTitle(pr));
+                    builder.build().showInTab(chrome.getPreviewManager(), title);
                 });
 
             } catch (Exception ex) {

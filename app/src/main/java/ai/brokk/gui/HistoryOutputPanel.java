@@ -3047,6 +3047,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     .setRootTitle("Diff: " + ctx.getAction())
                     .setInitialFileIndex(0);
 
+            String tabTitle = "Diff: " + ctx.getAction();
+            if (diffs.size() == 1) {
+                var files = diffs.getFirst().fragment().files().join();
+                if (!files.isEmpty()) {
+                    tabTitle = "Diff of " + files.iterator().next().getFileName();
+                }
+            }
+
             var diffPairFutures = new ArrayList<CompletableFuture<BufferedSourcePair>>();
             for (var de : diffs) {
                 var task = contextManager.submitBackgroundTask("Compute diff window entry for:" + de, () -> {
@@ -3077,11 +3085,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 builder.addComparison(pair.left(), pair.right());
             });
 
+            final String finalTabTitle = tabTitle;
             SwingUtilities.invokeLater(() -> {
                 // Contract: callers must not enforce unified/side-by-side globally; BrokkDiffPanel reads and persists
                 // the user's choice when they toggle view (Fixes #1679)
                 var panel = builder.build();
-                panel.showInTab(chrome.getPreviewManager(), "Diff: " + ctx.getAction());
+                panel.showInTab(chrome.getPreviewManager(), finalTabTitle);
             });
         });
     }
