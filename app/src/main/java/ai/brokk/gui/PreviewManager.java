@@ -195,10 +195,14 @@ public class PreviewManager {
     public void showPreviewInTabbedFrame(String title, JComponent panel, @Nullable ContextFragment fragment) {
         SwingUtilities.invokeLater(() -> {
             // Try BuildPane first
-            var tabs = chrome.getBuildReviewTabs();
-            if (tabs != null) {
-                Container parent = tabs.getParent();
-                if (parent instanceof BuildPane buildPane) {
+            var buildTabs = chrome.getBuildReviewTabs();
+            if (buildTabs != null) {
+                Container p = buildTabs.getParent();
+                while (p != null && !(p instanceof BuildPane)) {
+                    p = p.getParent();
+                }
+
+                if (p instanceof BuildPane buildPane) {
                     var previewTabs = buildPane.getPreviewTabbedPane();
                     ProjectFile file = extractFileKey(panel, fragment);
 
@@ -207,7 +211,7 @@ public class PreviewManager {
                         projectFileToPreviewWindow.put(file, chrome.getFrame());
                     }
 
-                    tabs.setSelectedComponent(previewTabs);
+                    buildTabs.setSelectedComponent(previewTabs);
                     return;
                 }
             }
@@ -311,24 +315,30 @@ public class PreviewManager {
             // 2. Check for existing tab in the BuildPane or PreviewFrame
             PreviewTabbedPane tabs = null;
             var buildTabs = chrome.getBuildReviewTabs();
-            if (buildTabs != null && buildTabs.getParent() instanceof BuildPane bp) {
-                tabs = bp.getPreviewTabbedPane();
-            } else if (previewFrame != null && previewFrame.isDisplayable()) {
-                // Fallback to searching the frame if BuildPane isn't hosting it
-                try {
-                    java.lang.reflect.Field field = PreviewFrame.class.getDeclaredField("tabbedPane");
-                    field.setAccessible(true);
-                    tabs = (PreviewTabbedPane) field.get(previewFrame);
-                } catch (Exception ignored) {}
+            if (buildTabs != null) {
+                // Find the BuildPane in the hierarchy if possible
+                Container p = buildTabs.getParent();
+                while (p != null && !(p instanceof BuildPane)) {
+                    p = p.getParent();
+                }
+                if (p instanceof BuildPane bp) {
+                    tabs = bp.getPreviewTabbedPane();
+                }
+            }
+
+            if (tabs == null && previewFrame != null && previewFrame.isDisplayable()) {
+                tabs = previewFrame.getTabbedPane();
             }
 
             if (tabs != null) {
-                for (int i = 0; i < tabs.getTabCount(); i++) {
-                    Component comp = tabs.getComponentAt(i);
-                    if (comp instanceof BrokkDiffPanel existing && existing.matchesContent(leftSources, rightSources)) {
-                        tabs.setSelectedIndex(i);
-                        // If it's in the BuildPane, ensure the Preview tab itself is selected
-                        if (buildTabs != null) buildTabs.setSelectedComponent(tabs);
+                BrokkDiffPanel existing = DiffWindowManager.findExistingTab(tabs, leftSources, rightSources);
+                if (existing != null) {
+                    int index = tabs.indexOfComponent(existing);
+                    if (index >= 0) {
+                        tabs.setSelectedIndex(index);
+                        if (buildTabs != null && SwingUtilities.isDescendingFrom(tabs, buildTabs)) {
+                            buildTabs.setSelectedComponent(tabs);
+                        }
                         return;
                     }
                 }

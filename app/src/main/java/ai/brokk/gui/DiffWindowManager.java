@@ -93,10 +93,8 @@ public final class DiffWindowManager {
     public static BrokkDiffPanel findExistingTab(ai.brokk.gui.components.PreviewTabbedPane tabs, List<BufferSource> leftSources, List<BufferSource> rightSources) {
         for (int i = 0; i < tabs.getTabCount(); i++) {
             Component comp = tabs.getComponentAt(i);
-            if (comp instanceof BrokkDiffPanel panel) {
-                if (panel.matchesContent(leftSources, rightSources)) {
-                    return panel;
-                }
+            if (comp instanceof BrokkDiffPanel panel && panel.matchesContent(leftSources, rightSources)) {
+                return panel;
             }
         }
         return null;

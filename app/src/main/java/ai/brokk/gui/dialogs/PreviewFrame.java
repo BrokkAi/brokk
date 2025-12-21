@@ -28,6 +28,10 @@ public class PreviewFrame extends JFrame implements ThemeAware {
     private final Chrome chrome;
     private GuiTheme guiTheme;
 
+    public PreviewTabbedPane getTabbedPane() {
+        return tabbedPane;
+    }
+
     public PreviewFrame(Chrome chrome, GuiTheme guiTheme) {
         super("Preview");
         this.chrome = chrome;
