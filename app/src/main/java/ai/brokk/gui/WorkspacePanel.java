@@ -224,7 +224,7 @@ public class WorkspacePanel extends JPanel {
                     }
 
                     // Summarize the exact fragment instance that was clicked, so we can drop that same instance after.
-                    actions.add(new AbstractAction("Summarize " + fileData.getFileName()) {
+                    actions.add(new AbstractAction("Summarize " + projectFile.getFileName()) {
                         @Override
                         public void actionPerformed(ActionEvent e) {
                             panel.performContextActionAsync(ContextAction.SUMMARIZE, List.of(fragment));
