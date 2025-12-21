@@ -334,7 +334,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final UndoManager commandInputUndoManager;
     private AutoCompletion instructionAutoCompletion;
     private InstructionsCompletionProvider instructionCompletionProvider;
-    private JPopupMenu tokenUsageBarPopupMenu;
 
     private static final int INDENT_WIDTH = 4;
     private static final String INDENT_STRING = "    "; // 4 spaces
@@ -473,29 +472,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         tokenUsageBar.setVisible(false);
         tokenUsageBar.setAlignmentY(Component.CENTER_ALIGNMENT);
         tokenUsageBar.setToolTipText("Shows Workspace token usage and estimated cost.");
-
-        // Initialize TokenUsageBar popup menu (General workspace actions)
-        tokenUsageBarPopupMenu = new JPopupMenu();
-
-        JMenuItem dropAllMenuItem = new JMenuItem("Drop All");
-        dropAllMenuItem.addActionListener(
-                e -> chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.DROP, List.of()));
-        tokenUsageBarPopupMenu.add(dropAllMenuItem);
-
-        JMenuItem copyAllMenuItem = new JMenuItem("Copy All");
-        copyAllMenuItem.addActionListener(
-                e -> chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.COPY, List.of()));
-        tokenUsageBarPopupMenu.add(copyAllMenuItem);
-
-        JMenuItem pasteMenuItem = new JMenuItem("Paste text, images, urls");
-        pasteMenuItem.addActionListener(
-                e -> chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of()));
-        tokenUsageBarPopupMenu.add(pasteMenuItem);
-
-        SwingUtilities.invokeLater(() -> {
-            // invokeLater postpones this until chrome finishes initializing themeManager
-            chrome.getThemeManager().registerPopupMenu(tokenUsageBarPopupMenu);
-        });
 
         this.contextAreaContainer = createContextAreaContainer();
         // Top Bar (History, Configure Models, Stop) (North)
@@ -1005,59 +981,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Ensure the token bar expands to fill available width
         tokenUsageBar.setAlignmentY(Component.CENTER_ALIGNMENT);
 
-        // Add right-click handler to TokenUsageBar
-        tokenUsageBar.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent e) {
-                if (e.isPopupTrigger() && tokenUsageBar.isEnabled()) {
-                    showTokenUsageBarPopup(e);
-                }
-            }
-
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                if (e.isPopupTrigger() && tokenUsageBar.isEnabled()) {
-                    showTokenUsageBarPopup(e);
-                }
-            }
-
-            private void showTokenUsageBarPopup(MouseEvent e) {
-                var seg = tokenUsageBar.getHoveredSegment();
-                if (seg != null && !seg.getFragments().isEmpty()) {
-                    // Specific segment: show only Drop/Drop Others
-                    JPopupMenu segmentMenu = new JPopupMenu();
-                    var hovered = List.copyOf(seg.getFragments());
-
-                    JMenuItem dropSelected =
-                            new JMenuItem(hovered.size() == 1 ? "Drop" : "Drop (" + hovered.size() + ")");
-                    dropSelected.addActionListener(ev -> chrome.getContextManager()
-                            .submitContextTask(() -> chrome.getContextManager().dropWithHistorySemantics(hovered)));
-                    segmentMenu.add(dropSelected);
-
-                    JMenuItem dropOthers = new JMenuItem("Drop Others");
-                    dropOthers.addActionListener(ev -> {
-                        var currentCtx = chrome.getContextManager().selectedContext();
-                        if (currentCtx == null) return;
-                        var toDrop = currentCtx.getAllFragmentsInDisplayOrder().stream()
-                                .filter(f -> !hovered.contains(f))
-                                .filter(f -> f.getType() != ai.brokk.context.ContextFragment.FragmentType.HISTORY)
-                                .toList();
-                        if (!toDrop.isEmpty()) {
-                            chrome.getContextManager().submitContextTask(() -> chrome.getContextManager()
-                                    .dropWithHistorySemantics(toDrop));
-                        }
-                    });
-                    segmentMenu.add(dropOthers);
-
-                    chrome.getThemeManager().registerPopupMenu(segmentMenu);
-                    segmentMenu.show(tokenUsageBar, e.getX(), e.getY());
-                } else {
-                    // Empty area: show general workspace actions
-                    tokenUsageBarPopupMenu.show(tokenUsageBar, e.getX(), e.getY());
-                }
-            }
-        });
-
         bottomLinePanel.add(tokenUsageBar, BorderLayout.CENTER);
 
         var contextRightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
@@ -1168,7 +1091,26 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 if (SwingUtilities.isDescendingFrom(clickedComponent, workspaceItemsChipPanel)) {
                     return;
                 }
-                tokenUsageBarPopupMenu.show(titledContainer, e.getX(), e.getY());
+                // The actual menu for the titledContainer empty space
+                JPopupMenu emptySpaceMenu = new JPopupMenu();
+
+                JMenuItem dropAll = new JMenuItem("Drop All");
+                dropAll.addActionListener(ev -> chrome.getContextPanel()
+                        .performContextActionAsync(ai.brokk.gui.WorkspacePanel.ContextAction.DROP, List.of()));
+                emptySpaceMenu.add(dropAll);
+
+                JMenuItem copyAll = new JMenuItem("Copy All");
+                copyAll.addActionListener(ev -> chrome.getContextPanel()
+                        .performContextActionAsync(ai.brokk.gui.WorkspacePanel.ContextAction.COPY, List.of()));
+                emptySpaceMenu.add(copyAll);
+
+                JMenuItem paste = new JMenuItem("Paste text, images, urls");
+                paste.addActionListener(ev -> chrome.getContextPanel()
+                        .performContextActionAsync(ai.brokk.gui.WorkspacePanel.ContextAction.PASTE, List.of()));
+                emptySpaceMenu.add(paste);
+
+                chrome.getThemeManager().registerPopupMenu(emptySpaceMenu);
+                emptySpaceMenu.show(titledContainer, e.getX(), e.getY());
             }
         });
 
