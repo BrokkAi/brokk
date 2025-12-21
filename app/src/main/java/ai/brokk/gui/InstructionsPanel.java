@@ -2802,56 +2802,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
     }
 
-    /**
-     * Scenario 6: Perform agentic search to fill context, then run code agent
-     */
-    private void runSearchThenCode() {
-        var input = getInstructions();
-        if (input.isBlank()) {
-            chrome.toolError("Please provide a coding task");
-            return;
-        }
-
-        final var searchModel = selectDropdownModelOrShowError("Search");
-        if (searchModel == null) {
-            updateButtonStates();
-            return;
-        }
-
-        chrome.getProject().addToInstructionsHistory(input, 20);
-        clearCommandInput();
-
-        // First run SearchAgent with WORKSPACE_ONLY to fill context
-        submitAction("Search+Code", input, scope -> {
-            var cm = chrome.getContextManager();
-            var context = cm.liveContext();
-
-            // Step 1: Search to fill workspace
-            SearchAgent searchAgent =
-                    new SearchAgent(context, input, searchModel, SearchAgent.Objective.WORKSPACE_ONLY, scope);
-            try {
-                searchAgent.scanInitialContext();
-                TaskResult searchResult = searchAgent.execute();
-                context = scope.append(searchResult);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return new TaskResult(
-                        cm,
-                        "Search+Code: " + input,
-                        cm.getIo().getLlmRawMessages(),
-                        cm.liveContext(),
-                        new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
-                        new TaskResult.TaskMeta(
-                                TaskResult.Type.SEARCH, Service.ModelConfig.from(searchModel, cm.getService())));
-            }
-
-            // Step 2: Run CodeAgent on the filled workspace
-            var codeModel = cm.getCodeModel();
-            CodeAgent codeAgent = new CodeAgent(cm, codeModel);
-            return codeAgent.runTask(input, Set.of());
-        });
-    }
-
     private void refreshModeIndicator() {
         String mode = actionButton.getSelectedMode();
 
