@@ -372,7 +372,8 @@ public class ContextAgent {
                 .collect(Collectors.joining("\n\n"));
         var combinedUsage = Llm.ResponseMetadata.sum(analyzedRec.tokenUsage(), unAnalyzedRec.tokenUsage());
 
-        var unifiedRec = new LlmRecommendation(mergedFiles, mergedTests, mergedClasses, combinedReasoning, combinedUsage);
+        var unifiedRec =
+                new LlmRecommendation(mergedFiles, mergedTests, mergedClasses, combinedReasoning, combinedUsage);
         var result = createResult(unifiedRec, existingFiles);
 
         return new RecommendationResult(success, result, combinedReasoning, combinedUsage);
@@ -444,7 +445,11 @@ public class ContextAgent {
             if (workingFiles.isEmpty()) {
                 logger.debug("{} group: filename pruning produced an empty set.", type);
                 return new LlmRecommendation(
-                        Set.of(), Set.of(), Set.of(), (reasoning + "\nNo files selected after pruning.").strip(), usage);
+                        Set.of(),
+                        Set.of(),
+                        Set.of(),
+                        (reasoning + "\nNo files selected after pruning.").strip(),
+                        usage);
             }
         }
 
@@ -730,7 +735,8 @@ public class ContextAgent {
                 var mergedReasoning = (rec1.reasoning() + "\n" + rec2.reasoning()).strip();
                 var mergedUsage = Llm.ResponseMetadata.sum(rec1.tokenUsage(), rec2.tokenUsage());
 
-                return new LlmRecommendation(new HashSet<>(mergedFiles), Set.of(), Set.of(), mergedReasoning, mergedUsage);
+                return new LlmRecommendation(
+                        new HashSet<>(mergedFiles), Set.of(), Set.of(), mergedReasoning, mergedUsage);
             }
 
             logger.warn(

@@ -42,7 +42,9 @@ public class ContextAgentTest {
                 .toList();
 
         assertEquals(1, summaryFragments.size());
-        assertEquals(ContextFragment.SummaryType.FILE_SKELETONS, summaryFragments.getFirst().getSummaryType());
+        assertEquals(
+                ContextFragment.SummaryType.FILE_SKELETONS,
+                summaryFragments.getFirst().getSummaryType());
         assertEquals(testFile.toString(), summaryFragments.getFirst().getTargetIdentifier());
     }
 
@@ -106,7 +108,9 @@ public class ContextAgentTest {
         var out = input.entrySet().stream()
                 .filter(e -> !e.getKey().isAnonymous())
                 .collect(Collectors.toMap(
-                        java.util.Map.Entry::getKey, java.util.Map.Entry::getValue, (v1, v2) -> v1,
+                        java.util.Map.Entry::getKey,
+                        java.util.Map.Entry::getValue,
+                        (v1, v2) -> v1,
                         java.util.LinkedHashMap::new));
 
         assertTrue(out.containsKey(regular));
