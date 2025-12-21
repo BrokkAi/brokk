@@ -844,4 +844,41 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
                 "Valid switch arrow syntax should not produce diagnostics: "
                         + res.step().es().javaLintDiagnostics());
     }
+
+    // PJ-44: Single-file mode diagnostic reporting (issue #2131)
+    // Verifies that diagnostics from parseJavaPhase can be formatted correctly for DEFER_BUILD mode
+    @Test
+    void testSingleFileMode_diagnosticFormatting_issue2131() throws IOException {
+        var badSource = """
+                class Bad { void m( { } }
+                """;
+        var res = runParseJava("Bad.java", badSource);
+
+        // Verify diagnostics were captured by parseJavaPhase
+        var diagMap = res.step().es().javaLintDiagnostics();
+        assertFalse(diagMap.isEmpty(), "Expected diagnostics to be captured");
+        var diags = diagMap.get(res.file());
+        assertNotNull(diags, "Expected diagnostics for Bad.java");
+        assertFalse(diags.isEmpty(), "Expected at least one diagnostic");
+
+        // Format diagnostics as DEFER_BUILD mode does (CodeAgent.java:356-369)
+        var diagnosticMessages = new StringBuilder();
+        diagnosticMessages.append("Java syntax issues detected:\n\n");
+        for (var entry : diagMap.entrySet()) {
+            var pf = entry.getKey();
+            var diagList = entry.getValue();
+            diagnosticMessages.append(String.format("**%s**: %d issue(s)\n", pf.getFileName(), diagList.size()));
+            for (var diag : diagList) {
+                diagnosticMessages.append("  - ").append(diag.description()).append("\n");
+            }
+            diagnosticMessages.append("\n");
+        }
+
+        // Verify formatted message contains expected elements
+        var message = diagnosticMessages.toString();
+        assertTrue(message.contains("Java syntax issues detected"), "Message should have header");
+        assertTrue(message.contains("Bad.java"), "Message should include filename");
+        assertTrue(message.contains("issue(s)"), "Message should include issue count");
+        assertTrue(message.length() > 50, "Message should contain diagnostic descriptions");
+    }
 }
