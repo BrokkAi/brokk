@@ -391,12 +391,10 @@ public interface GitDiffUiUtil {
                 String finalDialogTitle = "Diff: %s [Local vs %s]".formatted(file.getFileName(), baseCommitShort);
 
                 SwingUtilities.invokeLater(() -> {
-                    // Check if we already have a window showing this diff
                     var leftSource = new BufferSource.StringSource(
                             finalOldContent, finalBaseCommitTitle, file.toString(), finalBaseCommitId);
                     var rightSource = new BufferSource.FileSource(file);
 
-                    // Delegation to showInTab handles window raising/deduplication
                     new BrokkDiffPanel.Builder(chrome.getTheme(), cm)
                             .leftSource(leftSource)
                             .rightSource(rightSource)
@@ -540,15 +538,6 @@ public interface GitDiffUiUtil {
                 String shortId = ((GitRepo) repo).shortHash(commitInfo.id());
                 var title = "Commit Diff: %s (%s)"
                         .formatted(commitInfo.message().lines().findFirst().orElse(""), shortId);
-
-                var leftSources = new ArrayList<BufferSource>();
-                var rightSources = new ArrayList<BufferSource>();
-                for (var file : files) {
-                    var oldContent = getFileContentOrEmpty(repo, parentId, file);
-                    var newContent = getFileContentOrEmpty(repo, commitInfo.id(), file);
-                    leftSources.add(new BufferSource.StringSource(oldContent, parentId, file.toString(), parentId));
-                    rightSources.add(new BufferSource.StringSource(newContent, commitInfo.id(), file.toString(), commitInfo.id()));
-                }
 
                 SwingUtilities.invokeLater(() -> {
                     builder.build().showInTab(chrome.getPreviewManager(), title);
