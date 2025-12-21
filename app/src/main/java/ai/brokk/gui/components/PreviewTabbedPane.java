@@ -36,7 +36,7 @@ public class PreviewTabbedPane extends JTabbedPane implements ThemeAware {
     private final Map<Component, ContextFragment> tabToFragmentMap = new HashMap<>();
 
     public PreviewTabbedPane(Chrome chrome, GuiTheme guiTheme, Consumer<String> titleChangedCallback, Runnable emptyCallback) {
-        super(JTabbedPane.TOP, JTabbedPane.SCROLL_TAB_LAYOUT);
+        super(JTabbedPane.RIGHT, JTabbedPane.SCROLL_TAB_LAYOUT);
         this.chrome = chrome;
         this.guiTheme = guiTheme;
         this.titleChangedCallback = titleChangedCallback;
@@ -129,7 +129,7 @@ public class PreviewTabbedPane extends JTabbedPane implements ThemeAware {
     }
 
     private JPanel createTabComponent(String title, JComponent panel, @Nullable ProjectFile fileKey) {
-        JPanel tabPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        JPanel tabPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
         tabPanel.setOpaque(false);
         tabPanel.add(new JLabel(title));
 
