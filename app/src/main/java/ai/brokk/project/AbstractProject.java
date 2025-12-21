@@ -10,6 +10,7 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.git.LocalFileRepo;
 import ai.brokk.util.AtomicWrites;
 import ai.brokk.util.EnvironmentJava;
+import ai.brokk.util.ShellConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.awt.Rectangle;
@@ -480,33 +481,31 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         saveWorkspaceProperties();
     }
 
-    @Override
-    public @Nullable String getCommandExecutor() {
-        return workspaceProps.getProperty(PROP_COMMAND_EXECUTOR);
-    }
+    public ShellConfig getShellConfig() {
+        String executor = workspaceProps.getProperty(PROP_COMMAND_EXECUTOR);
+        String argsStr = workspaceProps.getProperty(PROP_EXECUTOR_ARGS);
 
-    @Override
-    public void setCommandExecutor(@Nullable String executor) {
         if (executor == null || executor.isBlank()) {
-            workspaceProps.remove(PROP_COMMAND_EXECUTOR);
-        } else {
-            workspaceProps.setProperty(PROP_COMMAND_EXECUTOR, executor);
+            return ShellConfig.basic();
         }
-        saveWorkspaceProperties();
+
+        List<String> args;
+        if (argsStr == null || argsStr.isBlank()) {
+            args = ShellConfig.getDefaultArgsForExecutor(executor);
+        } else {
+            args = Arrays.asList(argsStr.split("\\s+"));
+        }
+
+        return new ShellConfig(executor, args);
     }
 
-    @Override
-    public @Nullable String getExecutorArgs() {
-        String args = workspaceProps.getProperty(PROP_EXECUTOR_ARGS);
-        return (args == null || args.isBlank()) ? null : args;
-    }
-
-    @Override
-    public void setExecutorArgs(@Nullable String args) {
-        if (args == null || args.isBlank()) {
+    public void setShellConfig(@Nullable ShellConfig config) {
+        if (config == null) {
+            workspaceProps.remove(PROP_COMMAND_EXECUTOR);
             workspaceProps.remove(PROP_EXECUTOR_ARGS);
         } else {
-            workspaceProps.setProperty(PROP_EXECUTOR_ARGS, args);
+            workspaceProps.setProperty(PROP_COMMAND_EXECUTOR, config.executable());
+            workspaceProps.setProperty(PROP_EXECUTOR_ARGS, String.join(" ", config.args()));
         }
         saveWorkspaceProperties();
     }

@@ -318,17 +318,17 @@ public interface IProject extends AutoCloseable {
     }
 
     // Command executor configuration: custom shell/interpreter for command execution
-    default @Nullable String getCommandExecutor() {
+    default @Nullable String getCommandShell() {
         return null;
     }
 
-    default void setCommandExecutor(@Nullable String executor) {}
+    default void setCommandShell(@Nullable String executor) {}
 
-    default @Nullable String getExecutorArgs() {
+    default @Nullable String getShellArgs() {
         return null;
     }
 
-    default void setExecutorArgs(@Nullable String args) {}
+    default void setShellArgs(@Nullable String args) {}
 
     /** Gets a UI filter property for persistence across sessions (e.g., "issues.status"). */
     default @Nullable String getUiFilterProperty(String key) {

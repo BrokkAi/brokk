@@ -10,9 +10,8 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
-import ai.brokk.util.ExecutorConfig;
-import ai.brokk.util.ExecutorValidator;
 import ai.brokk.util.PathNormalizer;
+import ai.brokk.util.ShellConfig;
 import com.google.common.io.Files;
 import java.awt.*;
 import java.util.*;
@@ -65,7 +64,7 @@ public class SettingsProjectBuildPanel extends JPanel {
     private JTextField executorArgsField = new JTextField(20);
     private MaterialButton testExecutorButton = new MaterialButton("Test");
     private MaterialButton resetExecutorButton = new MaterialButton("Reset");
-    private JComboBox<String> commonExecutorsComboBox = new JComboBox<>();
+    private JComboBox<Object> commonExecutorsComboBox = new JComboBox<>();
 
     // System-default executor
     private static final boolean IS_WINDOWS = Environment.isWindows();
@@ -472,7 +471,7 @@ public class SettingsProjectBuildPanel extends JPanel {
                     publish("--- Verifying Build/Lint Command ---\n");
                     publish("$ " + buildCmd + "\n");
                     try {
-                        var execCfg = ExecutorConfig.fromProject(project);
+                        var execCfg = ShellConfig.fromProject(project);
                         var envVars = computeEnvFromUi();
                         Environment.instance.runShellCommand(
                                 buildCmd,
@@ -498,7 +497,7 @@ public class SettingsProjectBuildPanel extends JPanel {
                     publish("--- Verifying Test All Command ---\n");
                     publish("$ " + testAllCmd + "\n");
                     try {
-                        var execCfg = ExecutorConfig.fromProject(project);
+                        var execCfg = ShellConfig.fromProject(project);
                         var envVars = computeEnvFromUi();
                         Environment.instance.runShellCommand(
                                 testAllCmd,
@@ -551,7 +550,7 @@ public class SettingsProjectBuildPanel extends JPanel {
 
                     publish("$ " + interpolatedCmd + "\n");
                     try {
-                        var execCfg = ExecutorConfig.fromProject(project);
+                        var execCfg = ShellConfig.fromProject(project);
                         var envVars = computeEnvFromUi();
                         Environment.instance.runShellCommand(
                                 interpolatedCmd,
@@ -761,16 +760,42 @@ public class SettingsProjectBuildPanel extends JPanel {
         }
 
         // Load executor configuration
-        String executorPath = project.getCommandExecutor();
-        String executorArgs = project.getExecutorArgs();
+        ShellConfig shellConfig;
+        if (project instanceof ai.brokk.project.AbstractProject ap) {
+            shellConfig = ap.getShellConfig();
+        } else {
+            shellConfig = ShellConfig.basic();
+        }
+        String executorPath = shellConfig.executable();
+        String executorArgs = String.join(" ", shellConfig.args());
 
-        commonExecutorsComboBox.setSelectedItem(executorPath != null ? executorPath : DEFAULT_EXECUTOR_PATH);
-        executorArgsField.setText(executorArgs != null ? executorArgs : DEFAULT_EXECUTOR_ARGS);
+        // Try to find the executor in the common list or set it as a string
+        boolean found = false;
+        for (int i = 0; i < commonExecutorsComboBox.getItemCount(); i++) {
+            Object item = commonExecutorsComboBox.getItemAt(i);
+            String path = item instanceof ShellConfig sc ? sc.executable() : item.toString();
+            if (executorPath.equalsIgnoreCase(path)) {
+                commonExecutorsComboBox.setSelectedIndex(i);
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            commonExecutorsComboBox.setSelectedItem(executorPath);
+        }
+        executorArgsField.setText(executorArgs);
 
         logger.trace("Build panel settings loaded/reloaded with details: {}", details);
     }
 
     public boolean applySettings() {
+        var selectedExecutorObj = commonExecutorsComboBox.getSelectedItem();
+        String newExecutorPath = "";
+        if (selectedExecutorObj instanceof ShellConfig sc) {
+            newExecutorPath = sc.executable();
+        } else if (selectedExecutorObj != null) {
+            newExecutorPath = selectedExecutorObj.toString().trim();
+        }
         // Persist build-related settings to project.
         var currentDetails = project.loadBuildDetails();
         var newBuildLint = buildCleanCommandField.getText();
@@ -823,23 +848,16 @@ public class SettingsProjectBuildPanel extends JPanel {
         }
 
         // Apply executor configuration
-        String currentExecutorPath = project.getCommandExecutor();
-        String currentExecutorArgs = project.getExecutorArgs();
-        var selectedExecutor = (String) commonExecutorsComboBox.getSelectedItem();
-        String newExecutorPath = selectedExecutor != null ? selectedExecutor.trim() : "";
-        String newExecutorArgs = executorArgsField.getText().trim();
+        if (project instanceof ai.brokk.project.AbstractProject ap) {
+            var currentShellConfig = ap.getShellConfig();
+            String newExecutorArgs = executorArgsField.getText().trim();
+            List<String> argsList = Arrays.asList(newExecutorArgs.split("\\s+"));
+            var newShellConfig = new ShellConfig(newExecutorPath, argsList);
 
-        String pathToSet = newExecutorPath.isEmpty() ? null : newExecutorPath;
-        String argsToSet = newExecutorArgs.isEmpty() ? null : newExecutorArgs;
-
-        if (!Objects.equals(currentExecutorPath, pathToSet)) {
-            project.setCommandExecutor(pathToSet);
-            logger.debug("Applied Custom Executor Path: {}", pathToSet);
-        }
-
-        if (!Objects.equals(currentExecutorArgs, argsToSet)) {
-            project.setExecutorArgs(argsToSet);
-            logger.debug("Applied Custom Executor Args: {}", argsToSet);
+            if (!Objects.equals(currentShellConfig, newShellConfig)) {
+                ap.setShellConfig(newShellConfig);
+                logger.debug("Applied Shell Configuration: {}", newShellConfig);
+            }
         }
 
         return true;
@@ -918,13 +936,32 @@ public class SettingsProjectBuildPanel extends JPanel {
         executorArgsField.setText(DEFAULT_EXECUTOR_ARGS); // Set default value
 
         // Populate common executors dropdown
-        var commonExecutors = ExecutorValidator.getCommonExecutors();
+        var commonExecutors = ShellConfig.getCommonExecutors();
         commonExecutorsComboBox.setModel(new DefaultComboBoxModel<>(commonExecutors));
+        commonExecutorsComboBox.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(
+                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                if (value instanceof ShellConfig sc) {
+                    value = sc.executable();
+                }
+                return super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            }
+        });
+
+        commonExecutorsComboBox.addActionListener(e -> {
+            var selected = commonExecutorsComboBox.getSelectedItem();
+            if (selected instanceof ShellConfig sc) {
+                executorArgsField.setText(String.join(" ", sc.args()));
+            }
+        });
+
         commonExecutorsComboBox.setEditable(true);
         commonExecutorsComboBox.setToolTipText("Path to custom command executor (shell, interpreter, etc.)");
+
         // pre-select the system default if present
         for (int i = 0; i < commonExecutors.length; i++) {
-            if (commonExecutors[i].equalsIgnoreCase(DEFAULT_EXECUTOR_PATH)) {
+            if (commonExecutors[i].executable().equalsIgnoreCase(DEFAULT_EXECUTOR_PATH)) {
                 commonExecutorsComboBox.setSelectedIndex(i);
                 break;
             }
@@ -938,13 +975,16 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     private void resetExecutor() {
-        executorArgsField.setText(DEFAULT_EXECUTOR_ARGS);
-
-        project.setCommandExecutor(null);
-        project.setExecutorArgs(null);
+        var defaultConfig = ShellConfig.basic();
+        executorArgsField.setText(String.join(" ", defaultConfig.args()));
+        if (project instanceof ai.brokk.project.AbstractProject ap) {
+            ap.setShellConfig(null);
+        }
 
         for (int i = 0; i < commonExecutorsComboBox.getItemCount(); i++) {
-            if (DEFAULT_EXECUTOR_PATH.equalsIgnoreCase(commonExecutorsComboBox.getItemAt(i))) {
+            Object item = commonExecutorsComboBox.getItemAt(i);
+            String path = item instanceof ShellConfig sc ? sc.executable() : item.toString();
+            if (defaultConfig.executable().equalsIgnoreCase(path)) {
                 commonExecutorsComboBox.setSelectedIndex(i);
                 break;
             }
@@ -952,7 +992,9 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     private void testExecutor() {
-        var executorPath = (String) commonExecutorsComboBox.getSelectedItem();
+        var selectedItem = commonExecutorsComboBox.getSelectedItem();
+        String executorPath =
+                selectedItem instanceof ShellConfig sc ? sc.executable() : Objects.toString(selectedItem, "");
         String executorArgs = executorArgsField.getText().trim();
 
         if (executorPath == null || executorPath.isEmpty()) {
@@ -974,12 +1016,12 @@ public class SettingsProjectBuildPanel extends JPanel {
         final String finalExecutorPath = executorPath;
         final String finalExecutorArgs = executorArgs;
 
-        SwingWorker<ExecutorValidator.ValidationResult, Void> worker = new SwingWorker<>() {
+        SwingWorker<ShellConfig.ValidationResult, Void> worker = new SwingWorker<>() {
             @Override
-            protected ExecutorValidator.ValidationResult doInBackground() {
+            protected ShellConfig.ValidationResult doInBackground() {
                 String[] argsArray = finalExecutorArgs.split("\\s+");
-                var config = new ExecutorConfig(finalExecutorPath, Arrays.asList(argsArray));
-                return ExecutorValidator.validateExecutor(config);
+                var config = new ShellConfig(finalExecutorPath, Arrays.asList(argsArray));
+                return config.validate();
             }
 
             @Override
@@ -990,13 +1032,9 @@ public class SettingsProjectBuildPanel extends JPanel {
                 try {
                     var result = get();
                     if (result.success()) {
-                        String[] argsArray = finalExecutorArgs.split("\\s+");
-                        var config = new ExecutorConfig(finalExecutorPath, Arrays.asList(argsArray));
-                        String sandboxInfo = ExecutorValidator.getSandboxLimitation(config);
-
                         JOptionPane.showMessageDialog(
                                 SettingsProjectBuildPanel.this,
-                                result.message() + "\n\n" + sandboxInfo,
+                                result.message(),
                                 "Executor Test Successful",
                                 JOptionPane.INFORMATION_MESSAGE);
                     } else {
@@ -1006,13 +1044,8 @@ public class SettingsProjectBuildPanel extends JPanel {
                                 "Test Failed",
                                 JOptionPane.ERROR_MESSAGE);
                     }
-                } catch (Exception ex) {
-                    logger.error("Error during executor test", ex);
-                    JOptionPane.showMessageDialog(
-                            SettingsProjectBuildPanel.this,
-                            "Test failed with error: " + ex.getMessage(),
-                            "Executor Test Error",
-                            JOptionPane.ERROR_MESSAGE);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
                 }
             }
         };

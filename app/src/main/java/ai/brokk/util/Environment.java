@@ -102,10 +102,10 @@ public class Environment {
             Path root,
             Consumer<String> outputConsumer,
             Duration timeout,
-            @Nullable ExecutorConfig executorConfig,
+            @Nullable ShellConfig shellConfig,
             Map<String, String> environment)
             throws SubprocessException, InterruptedException {
-        return runShellCommand(command, root, outputConsumer, timeout, executorConfig, environment, null);
+        return runShellCommand(command, root, outputConsumer, timeout, shellConfig, environment, null);
     }
 
     public String runShellCommand(
@@ -113,7 +113,7 @@ public class Environment {
             Path root,
             Consumer<String> outputConsumer,
             Duration timeout,
-            @Nullable ExecutorConfig executorConfig,
+            @Nullable ShellConfig shellConfig,
             Map<String, String> environment,
             @Nullable Consumer<Process> processConsumer)
             throws SubprocessException, InterruptedException {
@@ -127,7 +127,7 @@ public class Environment {
 
         // Production path: use the new overload with full support
         return runShellCommandInternal(
-                command, root, false, timeout, outputConsumer, executorConfig, environment, processConsumer);
+                command, root, false, timeout, outputConsumer, shellConfig, environment, processConsumer);
     }
 
     /** Internal helper that supports running the command in a sandbox when requested. */
@@ -137,7 +137,7 @@ public class Environment {
             boolean sandbox,
             Duration timeout,
             Consumer<String> outputConsumer,
-            @Nullable ExecutorConfig executorConfig,
+            @Nullable ShellConfig shellConfig,
             Map<String, String> environment,
             @Nullable Consumer<Process> processConsumer)
             throws SubprocessException, InterruptedException {
@@ -147,6 +147,17 @@ public class Environment {
                 root,
                 sandbox,
                 processConsumer != null);
+
+        // Resolve active shell configuration
+        ShellConfig activeConfig;
+        if (shellConfig != null && shellConfig.isValid()) {
+            activeConfig = shellConfig;
+        } else {
+            if (shellConfig != null) {
+                logger.warn("invalid custom executor '{}', using system default", shellConfig);
+            }
+            activeConfig = ShellConfig.basic();
+        }
 
         String[] shellCommand;
         if (sandbox) {
@@ -183,50 +194,25 @@ public class Environment {
                 }
                 policyFile.toFile().deleteOnExit();
 
-                // Phase 2: Support approved custom executors in sandbox mode
-                if (executorConfig != null && ExecutorValidator.isApprovedForSandbox(executorConfig)) {
-                    // Use custom executor with sandbox
-                    String[] executorCommand = executorConfig.buildCommand(command);
-                    String[] sandboxedCommand = new String[executorCommand.length + 4];
-                    sandboxedCommand[0] = "sandbox-exec";
-                    sandboxedCommand[1] = "-f";
-                    sandboxedCommand[2] = policyFile.toString();
-                    sandboxedCommand[3] = "--";
-                    System.arraycopy(executorCommand, 0, sandboxedCommand, 4, executorCommand.length);
-                    shellCommand = sandboxedCommand;
+                // Support custom executors in sandbox mode
+                String[] executorCommand = activeConfig.buildCommand(command);
+                String[] sandboxedCommand = new String[executorCommand.length + 4];
+                sandboxedCommand[0] = "sandbox-exec";
+                sandboxedCommand[1] = "-f";
+                sandboxedCommand[2] = policyFile.toString();
+                sandboxedCommand[3] = "--";
+                System.arraycopy(executorCommand, 0, sandboxedCommand, 4, executorCommand.length);
+                shellCommand = sandboxedCommand;
 
-                    logger.info("using custom executor '{}' with sandbox", executorConfig.getDisplayName());
-                } else {
-                    // Fallback to system default with sandbox
-                    shellCommand =
-                            new String[] {"sandbox-exec", "-f", policyFile.toString(), "--", "/bin/sh", "-c", command};
-
-                    if (executorConfig != null) {
-                        logger.info(
-                                "custom executor '{}' not approved for sandbox, using /bin/sh",
-                                executorConfig.getDisplayName());
-                    }
-                }
-                // TODO
+                logger.info("using custom executor '{}' with sandbox", activeConfig.getDisplayName());
             } else if (isLinux()) {
                 throw new UnsupportedOperationException("sandboxing is not supported yet on Linux");
             } else {
                 throw new UnsupportedOperationException("sandboxing is not supported on this OS");
             }
         } else {
-            // Phase 1: Support custom executors for non-sandboxed execution
-            if (executorConfig != null && executorConfig.isValid()) {
-                shellCommand = executorConfig.buildCommand(command);
-                logger.info("using custom executor '{}'", executorConfig.getDisplayName());
-            } else {
-                if (executorConfig != null && !executorConfig.isValid()) {
-                    logger.warn("invalid custom executor '{}', using system default", executorConfig);
-                }
-                // Fall back to system default
-                shellCommand = isWindows()
-                        ? new String[] {"powershell.exe", "-Command", command}
-                        : new String[] {"/bin/sh", "-c", command};
-            }
+            shellCommand = activeConfig.buildCommand(command);
+            logger.info("using custom executor '{}'", activeConfig.getDisplayName());
         }
 
         logger.trace("command: {}", String.join(" ", shellCommand));
