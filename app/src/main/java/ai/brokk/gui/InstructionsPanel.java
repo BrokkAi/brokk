@@ -24,7 +24,6 @@ import ai.brokk.gui.components.ModelBenchmarkData;
 import ai.brokk.gui.components.ModelSelector;
 import ai.brokk.gui.components.OverlayPanel;
 import ai.brokk.gui.components.SplitButton;
-import ai.brokk.gui.components.SwitchIcon;
 import ai.brokk.gui.components.TokenUsageBar;
 import ai.brokk.gui.dialogs.SettingsAdvancedPanel;
 import ai.brokk.gui.dialogs.SettingsDialog;
@@ -2105,6 +2104,52 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         executeSearchInternal(input, ACTION_PLAN);
     }
 
+    /**
+     * Ask with agentic search: performs intelligent context discovery then asks a question.
+     * Used in Scenario 1 (readOnly=true + managedContext=true).
+     */
+    public void runAskWithSearchCommand() {
+        var input = getInstructions();
+        if (input.isBlank()) {
+            chrome.toolError("Please enter a question");
+            return;
+        }
+
+        final var modelToUse = selectDropdownModelOrShowError("Ask");
+        if (modelToUse == null) {
+            updateButtonStates();
+            return;
+        }
+
+        chrome.getProject().addToInstructionsHistory(input, 20);
+        clearCommandInput();
+
+        // Perform agentic search, then ask with the discovered context
+        submitAction(ACTION_ASK, input, scope -> {
+            var cm = chrome.getContextManager();
+            var context = cm.liveContext();
+
+            // Use SearchAgent to discover relevant context
+            SearchAgent agent = new SearchAgent(context, input, modelToUse, SearchAgent.Objective.TASKS_ONLY, scope);
+            try {
+                context = agent.scanInitialContext();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return new TaskResult(
+                        cm,
+                        "Ask: " + input,
+                        cm.getIo().getLlmRawMessages(),
+                        cm.liveContext(),
+                        new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
+                        new TaskResult.TaskMeta(
+                                TaskResult.Type.ASK, Service.ModelConfig.from(modelToUse, cm.getService())));
+            }
+
+            // Now run Ask with the discovered context
+            return executeAskCommand(cm, modelToUse, input);
+        });
+    }
+
     private void executeSearchInternal(String query, String action) {
         final var modelToUse = selectDropdownModelOrShowError("Search");
         if (modelToUse == null) {
@@ -2565,7 +2610,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     /**
      * Executes the appropriate action for the simplified submit button based on session settings.
      * The behavior is determined by two session properties: readOnly and managedContext.
-     * Plan mode is always enabled.
      */
     private void executeSimplifiedSubmitAction() {
         var sessionManager = chrome.getProject().getSessionManager();
@@ -2582,17 +2626,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         boolean readOnly = sessionInfo.isReadOnly();
         boolean managedContext = sessionInfo.isManagedContext();
 
-        logger.debug(
-                "Simplified submit: readOnly={}, managedContext={}", readOnly, managedContext);
+        logger.debug("Simplified submit: readOnly={}, managedContext={}", readOnly, managedContext);
 
-        // 4 scenarios based on readOnly and managedContext (plan mode always enabled)
+        // 4 scenarios based on readOnly and managedContext
         if (readOnly) {
             if (managedContext) {
-                // Scenario 1: PLAN mode with agentic search (no auto-execute)
-                runPlanCommand();
+                // Scenario 1: ASK mode with agentic search
+                runAskWithSearchCommand();
             } else {
-                // Scenario 3: PLAN mode without agentic search (no auto-execute)
-                runPlanModeWithoutSearch();
+                // Scenario 3: ASK mode without agentic search
+                runAskCommand(getInstructions());
             }
         } else {
             if (managedContext) {

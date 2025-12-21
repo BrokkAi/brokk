@@ -136,8 +136,8 @@ public class SessionManager implements AutoCloseable {
     public SessionInfo newSession(String name) {
         var sessionId = newSessionId();
         var currentTime = System.currentTimeMillis();
-        var newSessionInfo = new SessionInfo(
-                sessionId, name, currentTime, currentTime, CURRENT_SESSION_INFO_VERSION, false, true);
+        var newSessionInfo =
+                new SessionInfo(sessionId, name, currentTime, currentTime, CURRENT_SESSION_INFO_VERSION, false, true);
         sessionsCache.put(sessionId, newSessionInfo);
 
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
@@ -368,13 +368,7 @@ public class SessionManager implements AutoCloseable {
         var newSessionId = newSessionId();
         var currentTime = System.currentTimeMillis();
         var newSessionInfo = new SessionInfo(
-                newSessionId,
-                newSessionName,
-                currentTime,
-                currentTime,
-                CURRENT_SESSION_INFO_VERSION,
-                false,
-                false);
+                newSessionId, newSessionName, currentTime, currentTime, CURRENT_SESSION_INFO_VERSION, false, false);
 
         var copyFuture = sessionExecutorByKey.submit(originalSessionId.toString(), () -> {
             try {
