@@ -1,5 +1,6 @@
 package ai.brokk.gui.mop;
 
+import ai.brokk.annotation.EdtSafe;
 import java.awt.Color;
 import java.util.HashMap;
 import java.util.Map;
@@ -180,6 +181,7 @@ public class ThemeColors {
      * @param key the color key (without "Brokk." prefix)
      * @return the Color for the specified key
      */
+    @EdtSafe
     public static Color getColor(String key) {
         // Read from UIManager using Brokk namespace
         String uiKey = "Brokk." + key;

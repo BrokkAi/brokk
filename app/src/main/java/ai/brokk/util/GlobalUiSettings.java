@@ -1,5 +1,6 @@
 package ai.brokk.util;
 
+import ai.brokk.annotation.EdtSafe;
 import com.google.common.base.Splitter;
 import java.awt.Frame;
 import java.awt.Rectangle;
@@ -68,6 +69,7 @@ public final class GlobalUiSettings {
         return BrokkConfigPaths.getGlobalConfigDir().resolve("ui.properties");
     }
 
+    @EdtSafe
     private static synchronized Properties loadProps() {
         if (cachedProps != null) {
             return cachedProps;

@@ -1,6 +1,7 @@
 package ai.brokk.gui.theme;
 
 import ai.brokk.Brokk;
+import ai.brokk.annotation.EdtSafe;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.mop.ThemeColors;
@@ -412,6 +413,7 @@ public class GuiTheme {
      *
      * @return true if dark theme, dark+ theme, or high contrast theme is active
      */
+    @EdtSafe
     public boolean isDarkTheme() {
         String theme = MainProject.getTheme();
         return THEME_DARK.equalsIgnoreCase(theme)

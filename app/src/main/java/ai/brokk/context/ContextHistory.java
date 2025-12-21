@@ -4,6 +4,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.annotation.EdtSafe;
 import ai.brokk.project.IProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -105,6 +106,7 @@ public class ContextHistory {
     /**
      * Latest context or {@code null} when uninitialised.
      */
+    @EdtSafe
     public synchronized Context liveContext() {
         return castNonNull(history.peekLast());
     }

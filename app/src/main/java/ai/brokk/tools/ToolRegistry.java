@@ -1,5 +1,6 @@
 package ai.brokk.tools;
 
+import ai.brokk.annotation.EdtSafe;
 import ai.brokk.exception.GlobalExceptionHandler;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -122,6 +123,7 @@ public class ToolRegistry {
     public static final class Builder {
         private final Map<String, ToolInvocationTarget> entries;
 
+        @EdtSafe
         private Builder(ToolRegistry base) {
             synchronized (base.toolMap) {
                 this.entries = new LinkedHashMap<>(base.toolMap);

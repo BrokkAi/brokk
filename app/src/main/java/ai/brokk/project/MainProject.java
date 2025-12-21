@@ -12,6 +12,7 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.annotation.EdtSafe;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.Chrome;
@@ -244,6 +245,7 @@ public final class MainProject extends AbstractProject {
         }
     }
 
+    @EdtSafe
     public static synchronized Properties loadGlobalProperties() {
         if (globalPropertiesCache != null) {
             return (Properties) globalPropertiesCache.clone();

@@ -122,6 +122,7 @@ tasks.register<JavaExec>("generateEdtReport") {
     group = "verification"
     description = "Generate report of EDT methods that call synchronized methods"
 
+    dependsOn("compileJava")
     dependsOn("analyzeSynchronizedCalls")
     classpath = sourceSets.main.get().runtimeClasspath
     mainClass.set("ai.brokk.errorprone.EdtSynchronizedReportGenerator")

@@ -3,6 +3,7 @@ package ai.brokk.difftool.ui;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.annotation.EdtSafe;
 import ai.brokk.difftool.doc.AbstractBufferDocument;
 import ai.brokk.difftool.doc.BufferDocumentIF;
 import ai.brokk.difftool.doc.JMDocumentEvent;
@@ -1270,6 +1271,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         return guiTheme;
     }
 
+    @EdtSafe("Returns cached theme state")
     public boolean isDarkTheme() {
         return guiTheme.isDarkTheme();
     }

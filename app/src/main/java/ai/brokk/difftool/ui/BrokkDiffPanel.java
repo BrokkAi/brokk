@@ -798,7 +798,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
         btnSaveAll.setIcon(Icons.SAVE);
         btnSaveAll.setToolTipText("Save");
-        btnSaveAll.addActionListener(e -> saveAll());
+        btnSaveAll.addActionListener(e -> {
+            // Run save operation on background thread to avoid blocking EDT
+            CompletableFuture.runAsync(this::saveAll);
+        });
 
         // File navigation handlers
         btnPreviousFile.setIcon(Icons.CHEVRON_LEFT);
@@ -992,64 +995,109 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
     /** Saves every dirty document across all BufferDiffPanels, producing a single undoable history entry. */
     public void saveAll() {
-        // Disable save button temporarily
-        btnSaveAll.setEnabled(false);
+        // This method now runs on background thread (called via CompletableFuture.runAsync from button handler)
+        // EDT-required operations use invokeAndWait, blocking operations run directly on background
 
-        // Collect unique BufferDiffPanels to process (current + cached)
-        var visited = new LinkedHashSet<BufferDiffPanel>();
-        var currentBufferPanel = getBufferDiffPanel();
-        if (currentBufferPanel != null) {
-            visited.add(currentBufferPanel);
-        }
-        for (var p : panelCache.nonNullValues()) {
-            if (p instanceof BufferDiffPanel bufferPanel) {
-                visited.add(bufferPanel);
-            }
-        }
+        // Step 1: Capture EDT state (panels to save, external files list)
+        List<BufferDiffPanel> panelsToSave;
+        List<ProjectFile> externalFiles;
 
-        // Filter to only panels with unsaved changes and at least one editable side
-        var panelsToSave = visited.stream()
-                .filter(p -> p.hasUnsavedChanges() && p.atLeastOneSideEditable())
-                .toList();
+        try {
+            var stateCapture = new Object() {
+                List<BufferDiffPanel> panels;
+                List<ProjectFile> files;
+            };
 
-        if (panelsToSave.isEmpty()) {
-            // Nothing to do
+            SwingUtilities.invokeAndWait(() -> {
+                // Disable save button
+                btnSaveAll.setEnabled(false);
+
+                // Collect unique BufferDiffPanels to process (current + cached)
+                var visited = new LinkedHashSet<BufferDiffPanel>();
+                var currentBufferPanel = getBufferDiffPanel();
+                if (currentBufferPanel != null) {
+                    visited.add(currentBufferPanel);
+                }
+                for (var p : panelCache.nonNullValues()) {
+                    if (p instanceof BufferDiffPanel bufferPanel) {
+                        visited.add(bufferPanel);
+                    }
+                }
+
+                // Filter to only panels with unsaved changes and at least one editable side
+                stateCapture.panels = visited.stream()
+                        .filter(p -> p.hasUnsavedChanges() && p.atLeastOneSideEditable())
+                        .toList();
+
+                if (stateCapture.panels.isEmpty()) {
+                    stateCapture.files = List.of();
+                    return;
+                }
+
+                // Collect external files to workspace
+                var currentContext = contextManager.liveContext();
+                var extFiles = new ArrayList<ProjectFile>();
+
+                for (var p : stateCapture.panels) {
+                    var panelFiles = p.getFilesBeingSaved();
+                    for (var file : panelFiles) {
+                        // Check if this file is already in the current workspace context
+                        var editableFilesList = currentContext.fileFragments().toList();
+                        boolean inWorkspace = editableFilesList.stream()
+                                .anyMatch(f -> f instanceof ContextFragments.ProjectPathFragment ppf
+                                        && ppf.file().equals(file));
+                        if (!inWorkspace) {
+                            extFiles.add(file);
+                        }
+                    }
+                }
+                stateCapture.files = extFiles;
+            });
+
+            panelsToSave = stateCapture.panels;
+            externalFiles = stateCapture.files;
+        } catch (Exception e) {
+            logger.error("Failed to capture save state on EDT", e);
             SwingUtilities.invokeLater(this::updateNavigationButtons);
             return;
         }
 
-        // Step 0: Add external files to workspace first (to capture original content for undo)
-        var currentContext = contextManager.liveContext();
-        var externalFiles = new ArrayList<ProjectFile>();
-
-        for (var p : panelsToSave) {
-            var panelFiles = p.getFilesBeingSaved();
-            for (var file : panelFiles) {
-                // Check if this file is already in the current workspace context
-                var editableFilesList = currentContext.fileFragments().toList();
-                boolean inWorkspace = editableFilesList.stream()
-                        .anyMatch(f -> f instanceof ContextFragments.ProjectPathFragment ppf
-                                && ppf.file().equals(file));
-                if (!inWorkspace) {
-                    externalFiles.add(file);
-                }
-            }
+        if (panelsToSave.isEmpty()) {
+            SwingUtilities.invokeLater(this::updateNavigationButtons);
+            return;
         }
 
+        // Step 2: Add external files on background thread (BLOCKS but OK, we're not on EDT)
         if (!externalFiles.isEmpty()) {
             contextManager.addFiles(externalFiles);
         }
 
-        // Step 1: Collect changes (on EDT) before writing to disk
-        var allChanges = new ArrayList<BufferDiffPanel.AggregatedChange>();
-        for (var p : panelsToSave) {
-            allChanges.addAll(p.collectChangesForAggregation());
-        }
+        // Step 3: Collect changes on EDT (required by collectChangesForAggregation assertion)
+        LinkedHashMap<String, BufferDiffPanel.AggregatedChange> mergedByFilename;
 
-        // Deduplicate by filename while preserving order
-        var mergedByFilename = new LinkedHashMap<String, BufferDiffPanel.AggregatedChange>();
-        for (var ch : allChanges) {
-            mergedByFilename.putIfAbsent(ch.filename(), ch);
+        try {
+            var changesCapture = new Object() {
+                LinkedHashMap<String, BufferDiffPanel.AggregatedChange> merged;
+            };
+
+            SwingUtilities.invokeAndWait(() -> {
+                var allChanges = new ArrayList<BufferDiffPanel.AggregatedChange>();
+                for (var p : panelsToSave) {
+                    allChanges.addAll(p.collectChangesForAggregation());
+                }
+
+                // Deduplicate by filename while preserving order
+                changesCapture.merged = new LinkedHashMap<>();
+                for (var ch : allChanges) {
+                    changesCapture.merged.putIfAbsent(ch.filename(), ch);
+                }
+            });
+
+            mergedByFilename = changesCapture.merged;
+        } catch (Exception e) {
+            logger.error("Failed to collect changes on EDT", e);
+            SwingUtilities.invokeLater(this::updateNavigationButtons);
+            return;
         }
 
         if (mergedByFilename.isEmpty()) {
@@ -1057,7 +1105,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             return;
         }
 
-        // Step 2: Write all changed documents while file change notifications are paused, collecting results
+        // Step 4: Write files and build history (blocking operations, OK on background)
+        // Write all changed documents while file change notifications are paused, collecting results
         var perPanelResults = new LinkedHashMap<BufferDiffPanel, BufferDiffPanel.SaveResult>();
         contextManager.withFileChangeNotificationsPaused(() -> {
             for (var p : panelsToSave) {

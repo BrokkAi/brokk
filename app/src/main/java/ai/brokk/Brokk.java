@@ -444,9 +444,11 @@ public class Brokk {
                                 .toList();
 
                         if (!pathsToOpen.isEmpty()) {
-                            // Open projects asynchronously to avoid blocking the handler
-                            SwingUtilities.invokeLater(() -> {
-                                hideSplashScreen();
+                            // Hide splash screen on EDT (UI operation)
+                            SwingUtilities.invokeLater(Brokk::hideSplashScreen);
+
+                            // Open projects on background thread to avoid EDT blocking
+                            CompletableFuture.runAsync(() -> {
                                 for (Path path : pathsToOpen) {
                                     new OpenProjectBuilder(path).open().exceptionally(ex -> {
                                         logger.error("Failed to open project from file handler: {}", path, ex);

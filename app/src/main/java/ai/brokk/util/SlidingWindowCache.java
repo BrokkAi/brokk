@@ -1,5 +1,6 @@
 package ai.brokk.util;
 
+import ai.brokk.annotation.EdtSafe;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -88,6 +89,7 @@ public class SlidingWindowCache<K, V extends SlidingWindowCache.Disposable> {
     }
 
     @Nullable
+    @EdtSafe("Fast cache operations with minimal synchronized sections")
     public V put(K key, V value) {
         // Check if key is within current window
         if (!isInWindow(key)) {
@@ -158,6 +160,7 @@ public class SlidingWindowCache<K, V extends SlidingWindowCache.Disposable> {
     }
 
     /** Replaces a reserved entry with the actual value. Should only be called after successful tryReserve(). */
+    @EdtSafe
     @Nullable
     public V putReserved(K key, V value) {
         // Ensure we're replacing a reserved entry
@@ -210,6 +213,7 @@ public class SlidingWindowCache<K, V extends SlidingWindowCache.Disposable> {
      * @param centerIndex The center position of the window
      * @param totalItemCount Total number of items in the collection
      */
+    @EdtSafe("Window updates are fast, eviction happens outside sync block")
     public void updateWindowCenter(int centerIndex, int totalItemCount) {
         if (centerIndex == currentWindowCenter && totalItemCount == totalItems) {
             return; // No change needed
