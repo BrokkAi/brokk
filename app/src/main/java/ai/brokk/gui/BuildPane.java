@@ -49,11 +49,10 @@ public class BuildPane extends JPanel implements ThemeAware {
         taskListPanel = new TaskListPanel(chrome);
         terminalPanel = new TerminalPanel(chrome, () -> {}, true, chrome.getProject().getRoot());
 
-        // Command tabs: Instructions | Tasks | Terminal
+        // Command tabs: Instructions | Tasks
         commandPane = new JTabbedPane(JTabbedPane.TOP);
         commandPane.addTab("Instructions", Icons.CHAT_BUBBLE, instructionsPanel);
         commandPane.addTab("Tasks", Icons.LIST, taskListPanel);
-        commandPane.addTab("Terminal", Icons.TERMINAL, terminalPanel);
         setupCommandPaneLogic();
 
         // Branch header
@@ -73,13 +72,14 @@ public class BuildPane extends JPanel implements ThemeAware {
         buildSplitPane.setMinimumSize(new Dimension(200, 325));
         setupSplitPanePersistence();
 
-        // Build | Review Tabs
+        // Build | Review | Terminal Tabs
         buildReviewTabs = new JTabbedPane(JTabbedPane.TOP);
         buildReviewTabs.addTab("Build", Icons.SCIENCE, buildSplitPane);
         var reviewPlaceholder = historyOutputPanel.getChangesTabPlaceholder();
         if (reviewPlaceholder != null) {
             buildReviewTabs.addTab("Review", Icons.FLOWSHEET, reviewPlaceholder);
         }
+        buildReviewTabs.addTab("Terminal", Icons.TERMINAL, terminalPanel);
 
         add(historyOutputPanel.getSessionHeaderPanel(), BorderLayout.NORTH);
         add(buildReviewTabs, BorderLayout.CENTER);
@@ -114,7 +114,11 @@ public class BuildPane extends JPanel implements ThemeAware {
             } else if (selected == taskListPanel) {
                 taskListPanel.setSharedContextArea(contextArea);
                 taskListPanel.setSharedModelSelector(instructionsPanel.getModelSelectorComponent());
-            } else if (selected == terminalPanel) {
+            }
+        });
+
+        buildReviewTabs.addChangeListener(e -> {
+            if (buildReviewTabs.getSelectedComponent() == terminalPanel) {
                 terminalPanel.requestFocusInTerminal();
             }
         });
@@ -136,11 +140,11 @@ public class BuildPane extends JPanel implements ThemeAware {
         branchSelectorPanel.setVisible(chrome.getProject().hasGit());
         historyOutputPanel.setAdvancedMode(advanced);
 
-        int terminalIdx = commandPane.indexOfTab("Terminal");
+        int terminalIdx = buildReviewTabs.indexOfTab("Terminal");
         if (!advanced && terminalIdx != -1) {
-            commandPane.removeTabAt(terminalIdx);
+            buildReviewTabs.removeTabAt(terminalIdx);
         } else if (advanced && terminalIdx == -1) {
-            commandPane.addTab("Terminal", Icons.TERMINAL, terminalPanel);
+            buildReviewTabs.addTab("Terminal", Icons.TERMINAL, terminalPanel);
         }
     }
 
