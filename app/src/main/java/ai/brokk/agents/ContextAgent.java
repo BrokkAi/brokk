@@ -155,9 +155,9 @@ public class ContextAgent {
                 @P(
                                 "List of related test/spec/e2e/integration file paths that help understand or verify the goal. These will be included as summaries/skeletons only. Must exactly match one of the file paths provided in the request.")
                         List<String> testsToAdd) {
-            this.recommendedFiles.addAll(filesToAdd);
-            this.recommendedClasses.addAll(classesToSummarize);
-            this.recommendedTests.addAll(testsToAdd);
+            recommendedFiles.addAll(Objects.requireNonNullElse(filesToAdd, List.of()));
+            recommendedClasses.addAll(Objects.requireNonNullElse(classesToSummarize, List.of()));
+            recommendedTests.addAll(Objects.requireNonNullElse(testsToAdd, List.of()));
             logger.debug(
                     "ContextTool called recommendContext: files={}, classes={}, tests={}",
                     filesToAdd,
