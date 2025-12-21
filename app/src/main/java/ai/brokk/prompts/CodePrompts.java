@@ -1064,7 +1064,10 @@ public abstract class CodePrompts {
                 7. The end of the replace block: >>>>>>> REPLACE
                 8. The closing fence: ```
 
-                Remember to ALWAYS use the *FULL* file path, as shown to you by the user. No other text should appear on the marker lines.
+                ALWAYS use the *FULL* file path, as shown to you by the user. No other text should appear on the marker lines.
+
+                ALWAYS base SEARCH/REPLACE blocks on the editable code in the Workspace. Excerpts of code or pseudocode
+                may be given in your goal, but this is NOT a source of truth of the current files' contents.
 
                 ## Examples (format only; illustrative, not real code)
                 Follow these patterns exactly when you emit edits.
