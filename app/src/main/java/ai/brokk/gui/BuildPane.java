@@ -50,7 +50,6 @@ public class BuildPane extends JPanel implements ThemeAware {
         commandPane = new JTabbedPane(JTabbedPane.TOP);
         commandPane.addTab("Instructions", Icons.CHAT_BUBBLE, instructionsPanel);
         commandPane.addTab("Tasks", Icons.LIST, taskListPanel);
-        setupCommandPaneLogic();
 
         // Branch header
         branchSelectorButton = new BranchSelectorButton(chrome);
@@ -77,6 +76,9 @@ public class BuildPane extends JPanel implements ThemeAware {
             buildReviewTabs.addTab("Review", Icons.FLOWSHEET, reviewPlaceholder);
         }
         buildReviewTabs.addTab("Terminal", Icons.TERMINAL, terminalPanel);
+
+        // Set up tab change listeners (must be after buildReviewTabs is created)
+        setupCommandPaneLogic();
 
         add(historyOutputPanel.getSessionHeaderPanel(), BorderLayout.NORTH);
         add(buildReviewTabs, BorderLayout.CENTER);

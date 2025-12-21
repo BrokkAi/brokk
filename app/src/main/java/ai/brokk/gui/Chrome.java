@@ -158,15 +158,6 @@ public class Chrome
         assert SwingUtilities.isEventDispatchThread() : "Chrome constructor must run on EDT";
         this.contextManager = contextManager;
         this.previewManager = new PreviewManager(this);
-        this.contextManager.addFileChangeListener(changedFiles -> {
-            // Refresh preview windows when tracked files change
-            Set<ProjectFile> openPreviewFiles =
-                    new HashSet<>(previewManager.getProjectFileToPreviewWindow().keySet());
-            openPreviewFiles.retainAll(changedFiles);
-            if (!openPreviewFiles.isEmpty()) {
-                refreshPreviewsForFiles(openPreviewFiles);
-            }
-        });
         this.activeContext = Context.EMPTY; // Initialize activeContext
 
         // 2) Build main window
@@ -187,8 +178,13 @@ public class Chrome
         gbc.gridx = 0;
         gbc.insets = new Insets(2, 2, 2, 2);
 
+        // Initialize theme manager before creating UI components that may need it
+        initializeThemeManager();
+
         // Create encapsulated build stack
         buildPane = new BuildPane(this, contextManager);
+        // Wire up the scroll pane now that buildPane exists
+        themeManager.setMainScrollPane(buildPane.getHistoryOutputPanel().getLlmScrollPane());
 
         // Bottom Area: Context/Git + Status
         this.mainPanel = new JPanel(new BorderLayout());
@@ -218,7 +214,7 @@ public class Chrome
         contentPanel.add(this.mainPanel, gbc);
 
         mainPanel.add(contentPanel, BorderLayout.CENTER);
-        frame.add(mainPanel, BorderLayout.CENTER); // instructionsPanel is created here
+        frame.add(mainPanel, BorderLayout.CENTER);
 
         // Initialize global undo/redo actions now that instructionsPanel is available
         // contextManager is also available (passed in constructor)
@@ -229,7 +225,6 @@ public class Chrome
         this.globalPasteAction = new GlobalPasteAction("Paste");
         this.globalToggleMicAction = new ToggleMicAction("Toggle Microphone");
 
-        initializeThemeManager();
         // Defer restoring window size and divider positions until after
         // all split panes are fully constructed.
         var rootPath = getProject().getRoot();
@@ -250,18 +245,10 @@ public class Chrome
         dependenciesPanel = new DependenciesPanel(this);
         projectFilesPanel = new ProjectFilesPanel(this, contextManager, dependenciesPanel);
 
-        // Register analyzer callback to notify MainProject's dependency scheduler when ready
-        contextManager.addAnalyzerCallback(new IContextManager.AnalyzerCallback() {
-            @Override
-            public void onAnalyzerReady() {
-                getProject().getMainProject().getDependencyUpdateScheduler().onAnalyzerReady();
-            }
-        });
-
-        // Register for dependency state changes to update badge and border title
-        dependenciesPanel.addDependencyStateChangeListener(this::updateProjectFilesTabBadge);
-
         toolsPane = new ToolsPane(this, contextManager, projectFilesPanel, testRunnerPanel);
+
+        // Register all listeners after all components are initialized
+        registerAllListeners();
 
         if (getProject().hasGit()) {
             // Initial refreshes are now done in the background
@@ -316,39 +303,6 @@ public class Chrome
         this.globalCopyAction.updateEnabledState();
         this.globalPasteAction.updateEnabledState();
 
-        // Listen for focus changes to update action states and track relevant focus
-        KeyboardFocusManager.getCurrentKeyboardFocusManager().addPropertyChangeListener("focusOwner", evt -> {
-            Component oldFocusOwner = (Component) evt.getOldValue();
-            Component newFocusOwner = (Component) evt.getNewValue();
-
-            // Apply global focus highlighting
-            applyFocusHighlighting(oldFocusOwner, newFocusOwner);
-
-            // Update lastRelevantFocusOwner only if the new focus owner is one of our primary targets
-            if (newFocusOwner != null) {
-                var hop = buildPane.getHistoryOutputPanel();
-                if (hop.getHistoryTable() != null) {
-                    if (newFocusOwner == buildPane.getInstructionsPanel().getInstructionsArea()
-                            || SwingUtilities.isDescendingFrom(newFocusOwner, workspacePanel)
-                            || SwingUtilities.isDescendingFrom(newFocusOwner, hop.getHistoryTable())
-                            || SwingUtilities.isDescendingFrom(
-                                    newFocusOwner, hop.getLlmStreamArea())) // Check for LLM area
-                    {
-                        this.lastRelevantFocusOwner = newFocusOwner;
-                    }
-                }
-            }
-
-            globalUndoAction.updateEnabledState();
-            globalRedoAction.updateEnabledState();
-            globalCopyAction.updateEnabledState();
-            globalPasteAction.updateEnabledState();
-            globalToggleMicAction.updateEnabledState();
-        });
-
-        // Listen for context changes and analyzer events
-        contextManager.addContextListener(this);
-
         // Build menu (now that everything else is ready)
         frame.setJMenuBar(MenuBar.buildMenuBar(this));
 
@@ -393,6 +347,9 @@ public class Chrome
             logger.debug("applyAdvancedModeVisibility at startup failed (non-fatal)", ex);
         }
 
+        updateWorkspace();
+        updateContextHistoryTable();
+
         // Now show the window with complete layout
         frame.setVisible(true);
 
@@ -431,12 +388,9 @@ public class Chrome
     }
 
     private void initializeThemeManager() {
-
         logger.trace("Initializing theme manager");
-        // JMHighlightPainter.initializePainters(); // Removed: Painters are now created dynamically with theme colors
-        // Initialize theme manager now that all components are created
-        // and contextManager should be properly set
-        themeManager = new GuiTheme(frame, buildPane.getHistoryOutputPanel().getLlmScrollPane(), this);
+        // Initialize theme manager with null scroll pane initially to break circular dependency with buildPane
+        themeManager = new GuiTheme(frame, null, this);
 
         // Apply current theme and wrap mode based on global settings
         String currentTheme = MainProject.getTheme();
@@ -1105,6 +1059,60 @@ public class Chrome
         frame.dispose();
         // Unregister this instance
         openInstances.remove(this);
+    }
+
+    private void registerAllListeners() {
+        // 1. Context and File Listeners
+        contextManager.addContextListener(this);
+        contextManager.addFileChangeListener(changedFiles -> {
+            // Refresh preview windows when tracked files change
+            Set<ProjectFile> openPreviewFiles =
+                    new HashSet<>(previewManager.getProjectFileToPreviewWindow().keySet());
+            openPreviewFiles.retainAll(changedFiles);
+            if (!openPreviewFiles.isEmpty()) {
+                refreshPreviewsForFiles(openPreviewFiles);
+            }
+        });
+
+        // 2. Analyzer Callbacks
+        contextManager.addAnalyzerCallback(new IContextManager.AnalyzerCallback() {
+            @Override
+            public void onAnalyzerReady() {
+                getProject().getMainProject().getDependencyUpdateScheduler().onAnalyzerReady();
+            }
+        });
+
+        // 3. UI Component Listeners
+        dependenciesPanel.addDependencyStateChangeListener(this::updateProjectFilesTabBadge);
+
+        // 4. Focus and Action State Management
+        KeyboardFocusManager.getCurrentKeyboardFocusManager().addPropertyChangeListener("focusOwner", evt -> {
+            Component oldFocusOwner = (Component) evt.getOldValue();
+            Component newFocusOwner = (Component) evt.getNewValue();
+
+            // Apply global focus highlighting
+            applyFocusHighlighting(oldFocusOwner, newFocusOwner);
+
+            // Update lastRelevantFocusOwner only if the new focus owner is one of our primary targets
+            if (newFocusOwner != null) {
+                var hop = buildPane.getHistoryOutputPanel();
+                if (hop.getHistoryTable() != null) {
+                    if (newFocusOwner == buildPane.getInstructionsPanel().getInstructionsArea()
+                            || SwingUtilities.isDescendingFrom(newFocusOwner, workspacePanel)
+                            || SwingUtilities.isDescendingFrom(newFocusOwner, hop.getHistoryTable())
+                            || SwingUtilities.isDescendingFrom(
+                                    newFocusOwner, hop.getLlmStreamArea())) {
+                        this.lastRelevantFocusOwner = newFocusOwner;
+                    }
+                }
+            }
+
+            globalUndoAction.updateEnabledState();
+            globalRedoAction.updateEnabledState();
+            globalCopyAction.updateEnabledState();
+            globalPasteAction.updateEnabledState();
+            globalToggleMicAction.updateEnabledState();
+        });
     }
 
     @Override
@@ -2468,7 +2476,12 @@ public class Chrome
      * the dependency count changes or on startup to initialize the badge. EDT-safe.
      */
     public void updateProjectFilesTabBadge(int dependencyCount) {
-        SwingUtil.runOnEdt(() -> toolsPane.updateProjectFilesTabBadge(dependencyCount));
+        SwingUtil.runOnEdt(() -> {
+            // null check is important for circular initialization calls
+            if (toolsPane != null) {
+                toolsPane.updateProjectFilesTabBadge(dependencyCount);
+            }
+        });
     }
 
     public void refreshBranchUi(@Nullable String branchName) {
