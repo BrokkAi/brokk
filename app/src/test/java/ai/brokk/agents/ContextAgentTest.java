@@ -45,7 +45,7 @@ public class ContextAgentTest {
         assertEquals(
                 ContextFragment.SummaryType.FILE_SKELETONS,
                 summaryFragments.getFirst().getSummaryType());
-        assertEquals(testFile.toString(), summaryFragments.getFirst().getTargetIdentifier());
+        assertEquals(testFile.getRelPath().toString(), summaryFragments.getFirst().getTargetIdentifier());
     }
 
     @Test
@@ -64,7 +64,7 @@ public class ContextAgentTest {
         var summaryFileSkeletonCount = fragments.stream()
                 .filter(f -> f instanceof ContextFragments.SummaryFragment sf
                         && sf.getSummaryType() == ContextFragment.SummaryType.FILE_SKELETONS
-                        && sf.getTargetIdentifier().equals(samePath.toString()))
+                        && sf.getTargetIdentifier().equals(samePath.getRelPath().toString()))
                 .count();
         assertEquals(0, summaryFileSkeletonCount);
 
