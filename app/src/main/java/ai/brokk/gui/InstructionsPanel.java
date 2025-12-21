@@ -2703,48 +2703,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 });
     }
 
-    /**
-     * Scenario 5: Perform agentic search, then answer the question
-     */
-    private void runSearchThenAsk() {
-        var input = getInstructions();
-        if (input.isBlank()) {
-            chrome.toolError("Please provide a question");
-            return;
-        }
-
-        final var modelToUse = selectDropdownModelOrShowError("Search+Ask");
-        if (modelToUse == null) {
-            updateButtonStates();
-            return;
-        }
-
-        chrome.getProject().addToInstructionsHistory(input, 20);
-        clearCommandInput();
-
-        // Use SearchAgent with ANSWER_ONLY objective
-        submitAction("Search+Ask", input, scope -> {
-            var cm = chrome.getContextManager();
-            var context = cm.liveContext();
-
-            SearchAgent agent = new SearchAgent(context, input, modelToUse, SearchAgent.Objective.ANSWER_ONLY, scope);
-            try {
-                agent.scanInitialContext();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return new TaskResult(
-                        cm,
-                        "Search+Ask: " + input,
-                        cm.getIo().getLlmRawMessages(),
-                        cm.liveContext(),
-                        new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
-                        new TaskResult.TaskMeta(
-                                TaskResult.Type.SEARCH, Service.ModelConfig.from(modelToUse, cm.getService())));
-            }
-            return agent.execute();
-        });
-    }
-
     private void refreshModeIndicator() {
         String mode = actionButton.getSelectedMode();
 
