@@ -135,6 +135,15 @@ public class ContextAgent {
                 List<ProjectFile> files, List<ProjectFile> tests, List<CodeUnit> classes, String reasoning) {
             this(new HashSet<>(files), new HashSet<>(tests), new HashSet<>(classes), reasoning, null);
         }
+
+        LlmRecommendation withPrependedReasoning(String prefix, @Nullable Llm.ResponseMetadata newUsage) {
+            var combined = (prefix + "\n" + reasoning).strip();
+            return new LlmRecommendation(recommendedFiles, recommendedTests, recommendedClasses, combined, newUsage);
+        }
+
+        LlmRecommendation withUsage(@Nullable Llm.ResponseMetadata newUsage) {
+            return new LlmRecommendation(recommendedFiles, recommendedTests, recommendedClasses, reasoning, newUsage);
+        }
     }
 
     /** Inner class representing the tool that the LLM can call to recommend context. */
@@ -458,19 +467,9 @@ public class ContextAgent {
         LlmRecommendation evalRec = evaluateWithHalving(type, workingFiles, workspaceRepresentation, llm);
         usage = Llm.ResponseMetadata.sum(usage, evalRec.tokenUsage());
         if (!reasoning.isEmpty()) {
-            evalRec = new LlmRecommendation(
-                    evalRec.recommendedFiles(),
-                    evalRec.recommendedTests(),
-                    evalRec.recommendedClasses(),
-                    (reasoning + "\n" + evalRec.reasoning()).strip(),
-                    usage);
+            evalRec = evalRec.withPrependedReasoning(reasoning.toString(), usage);
         } else if (usage != null && !usage.equals(evalRec.tokenUsage())) {
-            evalRec = new LlmRecommendation(
-                    evalRec.recommendedFiles(),
-                    evalRec.recommendedTests(),
-                    evalRec.recommendedClasses(),
-                    evalRec.reasoning(),
-                    usage);
+            evalRec = evalRec.withUsage(usage);
         }
 
         return evalRec;
