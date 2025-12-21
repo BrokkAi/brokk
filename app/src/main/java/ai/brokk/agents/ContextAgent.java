@@ -386,7 +386,6 @@ public class ContextAgent {
             throws InterruptedException {
 
         if (groupFiles.isEmpty()) {
-            String msg = "No " + type.name().toLowerCase(Locale.ROOT) + " items to process.";
             return new LlmRecommendation(Set.of(), Set.of(), Set.of(), null);
         }
 
