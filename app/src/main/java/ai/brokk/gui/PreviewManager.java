@@ -493,7 +493,7 @@ public class PreviewManager {
     }
 
     private String computeInitialTitle(ContextFragment fragment) {
-        String descNow = fragment.description().renderNowOrNull();
+        String descNow = fragment.shortDescription().renderNowOrNull();
         return (descNow != null && !descNow.isBlank()) ? "Preview: " + descNow : "Preview: Loading...";
     }
 
@@ -531,7 +531,7 @@ public class PreviewManager {
                     () -> SwingUtilities.invokeLater(() -> {
                         updateImagePanel(pif, imagePanel);
                         updateTitleIfNeeded(
-                                initialTitle, imagePanel, pif.description().renderNowOrNull());
+                                initialTitle, imagePanel, pif.shortDescription().renderNowOrNull());
                     }));
         } else if (fragment instanceof ContextFragments.ImageFileFragment iff) {
             var imagePanel = new PreviewImagePanel(iff.file());
@@ -614,7 +614,7 @@ public class PreviewManager {
                 () -> SwingUtilities.invokeLater(() -> {
                     String text = fragment.text().renderNowOrNull();
                     String style = fragment.syntaxStyle().renderNowOrNull();
-                    String desc = fragment.description().renderNowOrNull();
+                    String desc = fragment.shortDescription().renderNowOrNull();
 
                     if (text != null) {
                         String effectiveStyle = (style != null) ? style : fallbackStyle;
@@ -660,7 +660,7 @@ public class PreviewManager {
     private void bindTitleUpdate(ContextFragment fragment, JComponent panel, String initialTitle) {
         if (initialTitle.endsWith("Loading...")) {
             ComputedSubscription.bind(fragment, panel, () -> {
-                String desc = fragment.description().renderNowOrNull();
+                String desc = fragment.shortDescription().renderNowOrNull();
                 if (desc != null && !desc.isBlank()) {
                     SwingUtilities.invokeLater(() -> updateTitleIfNeeded(initialTitle, panel, desc));
                 }
