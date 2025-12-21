@@ -2650,6 +2650,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     /**
      * Scenario 4: Generate tasks and auto-execute without agentic search
+     * If context is empty in manual mode, falls back to Ask
      */
     private void runLutzModeWithoutSearch() {
         var input = getInstructions();
@@ -2661,6 +2662,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         final var modelToUse = selectDropdownModelOrShowError("Lutz");
         if (modelToUse == null) {
             updateButtonStates();
+            return;
+        }
+
+        // If workspace is empty in manual mode, fall back to Ask
+        if (chrome.getContextManager().liveContext().isEmpty()) {
+            prepareAndRunAskCommand(modelToUse, input);
             return;
         }
 
