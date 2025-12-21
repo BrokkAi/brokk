@@ -25,7 +25,6 @@ import ai.brokk.gui.git.GitWorktreeTab;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.MarkdownOutputPool;
 import ai.brokk.gui.terminal.TaskListPanel;
-import ai.brokk.gui.terminal.TerminalDrawerPanel;
 import ai.brokk.gui.terminal.TerminalPanel;
 import ai.brokk.gui.tests.FileBasedTestRunsStore;
 import ai.brokk.gui.tests.TestRunnerPanel;
@@ -266,8 +265,6 @@ public class Chrome
     private final TaskListPanel taskListPanel;
     private final TerminalPanel terminalPanel;
 
-    // Right-hand drawer (tools) - removed drawer split; rightTabbedPanel occupies full right side
-    private @Nullable TerminalDrawerPanel terminalDrawer = null;
     // Branch selector moved to Chrome so it can be shown above the right tab stack
     private @Nullable BranchSelectorButton branchSelectorButton = null;
     // Container that wraps the right tabbed pane plus the header (branch button + title).
@@ -2315,10 +2312,6 @@ public class Chrome
 
     public HistoryOutputPanel getHistoryOutputPanel() {
         return historyOutputPanel;
-    }
-
-    public @Nullable TerminalDrawerPanel getTerminalDrawer() {
-        return terminalDrawer;
     }
 
     public JTabbedPane getBuildReviewTabs() {
