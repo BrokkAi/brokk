@@ -3,11 +3,14 @@ package ai.brokk.gui;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.ContextManager;
+import ai.brokk.difftool.ui.BrokkDiffPanel;
+import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.gui.components.PreviewTabbedPane;
 import ai.brokk.gui.dialogs.PreviewFrame;
 import ai.brokk.gui.dialogs.PreviewImagePanel;
 import ai.brokk.gui.dialogs.PreviewTextPanel;
@@ -292,6 +295,48 @@ public class PreviewManager {
             }
         }
         return null;
+    }
+
+    /**
+     * Shows a diff panel in the shared tabbed preview interface.
+     * Incorporates deduplication logic to raise existing windows or select existing tabs.
+     */
+    public void showDiffInTab(String title, BrokkDiffPanel panel, List<BufferSource> leftSources, List<BufferSource> rightSources) {
+        SwingUtilities.invokeLater(() -> {
+            // 1. Check for existing standalone window first
+            if (DiffWindowManager.tryRaiseExistingWindow(leftSources, rightSources)) {
+                return;
+            }
+
+            // 2. Check for existing tab in the BuildPane or PreviewFrame
+            PreviewTabbedPane tabs = null;
+            var buildTabs = chrome.getBuildReviewTabs();
+            if (buildTabs != null && buildTabs.getParent() instanceof BuildPane bp) {
+                tabs = bp.getPreviewTabbedPane();
+            } else if (previewFrame != null && previewFrame.isDisplayable()) {
+                // Fallback to searching the frame if BuildPane isn't hosting it
+                try {
+                    java.lang.reflect.Field field = PreviewFrame.class.getDeclaredField("tabbedPane");
+                    field.setAccessible(true);
+                    tabs = (PreviewTabbedPane) field.get(previewFrame);
+                } catch (Exception ignored) {}
+            }
+
+            if (tabs != null) {
+                for (int i = 0; i < tabs.getTabCount(); i++) {
+                    Component comp = tabs.getComponentAt(i);
+                    if (comp instanceof BrokkDiffPanel existing && existing.matchesContent(leftSources, rightSources)) {
+                        tabs.setSelectedIndex(i);
+                        // If it's in the BuildPane, ensure the Preview tab itself is selected
+                        if (buildTabs != null) buildTabs.setSelectedComponent(tabs);
+                        return;
+                    }
+                }
+            }
+
+            // 3. Not found, show it as a new tab
+            showPreviewInTabbedFrame(title, panel, null);
+        });
     }
 
     /**

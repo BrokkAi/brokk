@@ -2,6 +2,7 @@ package ai.brokk.gui;
 
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
+import java.awt.Component;
 import java.awt.Container;
 import java.awt.Frame;
 import java.awt.Window;
@@ -83,6 +84,22 @@ public final class DiffWindowManager {
                 frame.setState(Frame.NORMAL);
             }
         });
+    }
+
+    /**
+     * Find an existing BrokkDiffPanel within a PreviewTabbedPane.
+     */
+    @Nullable
+    public static BrokkDiffPanel findExistingTab(ai.brokk.gui.components.PreviewTabbedPane tabs, List<BufferSource> leftSources, List<BufferSource> rightSources) {
+        for (int i = 0; i < tabs.getTabCount(); i++) {
+            Component comp = tabs.getComponentAt(i);
+            if (comp instanceof BrokkDiffPanel panel) {
+                if (panel.matchesContent(leftSources, rightSources)) {
+                    return panel;
+                }
+            }
+        }
+        return null;
     }
 
     /** Recursively find the first BrokkDiffPanel in the component hierarchy. */

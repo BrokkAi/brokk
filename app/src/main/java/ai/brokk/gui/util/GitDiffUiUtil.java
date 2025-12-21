@@ -405,7 +405,7 @@ public interface GitDiffUiUtil {
                             .leftSource(leftSource)
                             .rightSource(rightSource)
                             .build();
-                    brokkDiffPanel.showInFrame(finalDialogTitle);
+                    chrome.getPreviewManager().showDiffInTab(finalDialogTitle, brokkDiffPanel, List.of(leftSource), List.of(rightSource));
                 });
             } catch (Exception ex) {
                 cm.getIo().toolError("Error loading compare-with-local diff: " + ex.getMessage());
@@ -499,7 +499,8 @@ public interface GitDiffUiUtil {
                     for (int i = 0; i < leftSources.size(); i++) {
                         builder.addComparison(leftSources.get(i), rightSources.get(i));
                     }
-                    builder.build().showInFrame(title);
+                    var panel = builder.build();
+                    chrome.getPreviewManager().showDiffInTab(title, panel, leftSources, rightSources);
                 });
             } catch (Exception ex) {
                 chrome.toolError("Error opening commit diff: " + ex.getMessage());
@@ -550,7 +551,20 @@ public interface GitDiffUiUtil {
                 String shortId = ((GitRepo) repo).shortHash(commitInfo.id());
                 var title = "Commit Diff: %s (%s)"
                         .formatted(commitInfo.message().lines().findFirst().orElse(""), shortId);
-                SwingUtilities.invokeLater(() -> builder.build().showInFrame(title));
+
+                var leftSources = new ArrayList<BufferSource>();
+                var rightSources = new ArrayList<BufferSource>();
+                for (var file : files) {
+                    var oldContent = getFileContentOrEmpty(repo, parentId, file);
+                    var newContent = getFileContentOrEmpty(repo, commitInfo.id(), file);
+                    leftSources.add(new BufferSource.StringSource(oldContent, parentId, file.toString(), parentId));
+                    rightSources.add(new BufferSource.StringSource(newContent, commitInfo.id(), file.toString(), commitInfo.id()));
+                }
+
+                SwingUtilities.invokeLater(() -> {
+                    var panel = builder.build();
+                    chrome.getPreviewManager().showDiffInTab(title, panel, leftSources, rightSources);
+                });
             } catch (Exception ex) {
                 chrome.toolError("Error opening commit diff: " + ex.getMessage());
             }
@@ -598,7 +612,7 @@ public interface GitDiffUiUtil {
                         builder.addComparison(leftSources.get(i), rightSources.get(i));
                     }
                     var panel = builder.build();
-                    panel.showInFrame("Compare " + shortId + " to Local");
+                    chrome.getPreviewManager().showDiffInTab("Compare " + shortId + " to Local", panel, leftSources, rightSources);
                 });
             } catch (Exception ex) {
                 chrome.toolError("Error opening multi-file diff: " + ex.getMessage());
