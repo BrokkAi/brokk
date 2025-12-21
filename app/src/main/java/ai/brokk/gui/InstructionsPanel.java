@@ -474,7 +474,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         tokenUsageBar.setAlignmentY(Component.CENTER_ALIGNMENT);
         tokenUsageBar.setToolTipText("Shows Workspace token usage and estimated cost.");
 
-        // Initialize TokenUsageBar popup menu
+        // Initialize TokenUsageBar popup menu (General workspace actions)
         tokenUsageBarPopupMenu = new JPopupMenu();
 
         JMenuItem dropAllMenuItem = new JMenuItem("Drop All");
@@ -1009,16 +1009,50 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         tokenUsageBar.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-                // Block popup when read-only (tokenUsageBar is disabled)
                 if (e.isPopupTrigger() && tokenUsageBar.isEnabled()) {
-                    tokenUsageBarPopupMenu.show(tokenUsageBar, e.getX(), e.getY());
+                    showTokenUsageBarPopup(e);
                 }
             }
 
             @Override
             public void mouseReleased(MouseEvent e) {
-                // Block popup when read-only (tokenUsageBar is disabled)
                 if (e.isPopupTrigger() && tokenUsageBar.isEnabled()) {
+                    showTokenUsageBarPopup(e);
+                }
+            }
+
+            private void showTokenUsageBarPopup(MouseEvent e) {
+                var seg = tokenUsageBar.getHoveredSegment();
+                if (seg != null && !seg.getFragments().isEmpty()) {
+                    // Specific segment: show only Drop/Drop Others
+                    JPopupMenu segmentMenu = new JPopupMenu();
+                    var hovered = List.copyOf(seg.getFragments());
+
+                    JMenuItem dropSelected =
+                            new JMenuItem(hovered.size() == 1 ? "Drop" : "Drop (" + hovered.size() + ")");
+                    dropSelected.addActionListener(ev -> chrome.getContextManager()
+                            .submitContextTask(() -> chrome.getContextManager().dropWithHistorySemantics(hovered)));
+                    segmentMenu.add(dropSelected);
+
+                    JMenuItem dropOthers = new JMenuItem("Drop Others");
+                    dropOthers.addActionListener(ev -> {
+                        var currentCtx = chrome.getContextManager().selectedContext();
+                        if (currentCtx == null) return;
+                        var toDrop = currentCtx.getAllFragmentsInDisplayOrder().stream()
+                                .filter(f -> !hovered.contains(f))
+                                .filter(f -> f.getType() != ai.brokk.context.ContextFragment.FragmentType.HISTORY)
+                                .toList();
+                        if (!toDrop.isEmpty()) {
+                            chrome.getContextManager().submitContextTask(() -> chrome.getContextManager()
+                                    .dropWithHistorySemantics(toDrop));
+                        }
+                    });
+                    segmentMenu.add(dropOthers);
+
+                    chrome.getThemeManager().registerPopupMenu(segmentMenu);
+                    segmentMenu.show(tokenUsageBar, e.getX(), e.getY());
+                } else {
+                    // Empty area: show general workspace actions
                     tokenUsageBarPopupMenu.show(tokenUsageBar, e.getX(), e.getY());
                 }
             }

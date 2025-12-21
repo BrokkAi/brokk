@@ -1,7 +1,6 @@
 package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
-import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.ContextFragment;
@@ -713,34 +712,19 @@ public class WorkspaceChip extends JPanel {
         dropOther.getAccessibleContext().setAccessibleName("Drop Others");
 
         var selected = contextManager.selectedContext();
-        if (selected == null) {
-            dropOther.setEnabled(false);
-        } else {
-            var possible = selected.getAllFragmentsInDisplayOrder().stream()
-                    .filter(f -> !Objects.equals(f, fragment))
-                    .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
-                    .toList();
-            dropOther.setEnabled(!possible.isEmpty());
-            dropOther.addActionListener(e -> {
-                if (!ensureMutatingAllowed()) {
-                    return;
-                }
-
-                var toDrop = selected.getAllFragmentsInDisplayOrder().stream()
-                        .filter(f -> !Objects.equals(f, fragment))
+        List<ContextFragment> toDrop = (selected == null)
+                ? List.of()
+                : selected.getAllFragmentsInDisplayOrder().stream()
+                        .filter(f -> !fragments.contains(f))
                         .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
                         .toList();
 
-                if (toDrop.isEmpty()) {
-                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No other non-history fragments to drop");
-                    return;
-                }
-
-                contextManager.submitContextTask(() -> {
-                    contextManager.dropWithHistorySemantics(toDrop);
-                });
-            });
-        }
+        dropOther.setEnabled(!toDrop.isEmpty());
+        dropOther.addActionListener(e -> {
+            if (ensureMutatingAllowed()) {
+                contextManager.submitContextTask(() -> contextManager.dropWithHistorySemantics(toDrop));
+            }
+        });
 
         if (addedAnyAction) {
             menu.addSeparator();
@@ -1315,26 +1299,21 @@ public class WorkspaceChip extends JPanel {
                         : "Drop Invalid Summaries (" + invalidSummaryCount + ")";
                 JMenuItem dropInvalidItem = new JMenuItem(dropInvalidLabel);
                 dropInvalidItem.addActionListener(e -> {
-                    if (!ensureMutatingAllowed()) {
-                        return;
+                    if (ensureMutatingAllowed()) {
+                        invalidSummaries.forEach(metricsCache::remove);
+                        contextManager.submitContextTask(
+                                () -> contextManager.dropWithHistorySemantics(invalidSummaries));
                     }
-                    contextManager.submitContextTask(() -> {
-                        for (var f : invalidSummaries) {
-                            metricsCache.remove(f);
-                        }
-                        contextManager.dropWithHistorySemantics(invalidSummaries);
-                    });
                 });
                 menu.add(dropInvalidItem);
                 menu.addSeparator();
             }
 
-            for (var fragment : summaryFragments) {
-                String labelText = buildIndividualDropLabel(fragment);
-                JMenuItem item = new JMenuItem(labelText);
-                item.addActionListener(e -> dropSingleFragment(fragment));
+            summaryFragments.forEach(f -> {
+                JMenuItem item = new JMenuItem(buildIndividualDropLabel(f));
+                item.addActionListener(e -> dropSingleFragment(f));
                 menu.add(item);
-            }
+            });
 
             chrome.getThemeManager().registerPopupMenu(menu);
             return menu;

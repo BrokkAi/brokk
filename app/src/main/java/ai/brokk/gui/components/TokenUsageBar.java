@@ -503,6 +503,14 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     }
 
     /**
+     * Returns the currently hovered segment, or null if none.
+     */
+    @Nullable
+    public Segment getHoveredSegment() {
+        return hoveredSegment;
+    }
+
+    /**
      * Returns the fragments corresponding to the currently hovered segment, or an empty collection
      * if no segment is hovered. Safe to call from any thread; the returned collection is immutable.
      */
@@ -967,7 +975,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         }
     }
 
-    private static class Segment {
+    public static class Segment {
         final int startX;
         final int widthPx;
         final Color bg;
@@ -982,7 +990,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             this.isSummaryGroup = isSummaryGroup;
         }
 
-        Set<ContextFragment> getFragments() {
+        public Set<ContextFragment> getFragments() {
             return fragments;
         }
     }
