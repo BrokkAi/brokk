@@ -183,13 +183,13 @@ public interface GitDiffUiUtil {
                 var commitContent = repo.getFileContent(commitId, file);
 
                 SwingUtilities.invokeLater(() -> {
-                    var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.getTheme(), cm)
+                    new BrokkDiffPanel.Builder(chrome.getTheme(), cm)
                             .leftSource(new BufferSource.StringSource(
                                     parentContent, parentCommitId, file.toString(), parentCommitId))
                             .rightSource(
                                     new BufferSource.StringSource(commitContent, commitId, file.toString(), commitId))
-                            .build();
-                    brokkDiffPanel.showInFrame(dialogTitle);
+                            .build()
+                            .showInTab(chrome.getPreviewManager(), dialogTitle);
                 });
             } catch (Exception ex) {
                 cm.getIo().toolError("Error loading history diff: " + ex.getMessage());
@@ -396,16 +396,12 @@ public interface GitDiffUiUtil {
                             finalOldContent, finalBaseCommitTitle, file.toString(), finalBaseCommitId);
                     var rightSource = new BufferSource.FileSource(file);
 
-                    if (DiffWindowManager.tryRaiseExistingWindow(List.of(leftSource), List.of(rightSource))) {
-                        return; // Existing window raised, don't create new one
-                    }
-
-                    // No existing window found, create new one
-                    var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.getTheme(), cm)
+                    // Delegation to showInTab handles window raising/deduplication
+                    new BrokkDiffPanel.Builder(chrome.getTheme(), cm)
                             .leftSource(leftSource)
                             .rightSource(rightSource)
-                            .build();
-                    chrome.getPreviewManager().showDiffInTab(finalDialogTitle, brokkDiffPanel, List.of(leftSource), List.of(rightSource));
+                            .build()
+                            .showInTab(chrome.getPreviewManager(), finalDialogTitle);
                 });
             } catch (Exception ex) {
                 cm.getIo().toolError("Error loading compare-with-local diff: " + ex.getMessage());
@@ -489,18 +485,11 @@ public interface GitDiffUiUtil {
                         .formatted(commitInfo.message().lines().findFirst().orElse(""), shortId);
 
                 SwingUtilities.invokeLater(() -> {
-                    // Check if we already have a window showing this diff
-                    if (DiffWindowManager.tryRaiseExistingWindow(leftSources, rightSources)) {
-                        return;
-                    }
-
-                    // No existing window found, create new one
                     var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), cm);
                     for (int i = 0; i < leftSources.size(); i++) {
                         builder.addComparison(leftSources.get(i), rightSources.get(i));
                     }
-                    var panel = builder.build();
-                    chrome.getPreviewManager().showDiffInTab(title, panel, leftSources, rightSources);
+                    builder.build().showInTab(chrome.getPreviewManager(), title);
                 });
             } catch (Exception ex) {
                 chrome.toolError("Error opening commit diff: " + ex.getMessage());
@@ -562,8 +551,7 @@ public interface GitDiffUiUtil {
                 }
 
                 SwingUtilities.invokeLater(() -> {
-                    var panel = builder.build();
-                    chrome.getPreviewManager().showDiffInTab(title, panel, leftSources, rightSources);
+                    builder.build().showInTab(chrome.getPreviewManager(), title);
                 });
             } catch (Exception ex) {
                 chrome.toolError("Error opening commit diff: " + ex.getMessage());
@@ -601,18 +589,11 @@ public interface GitDiffUiUtil {
                 }
 
                 SwingUtilities.invokeLater(() -> {
-                    // Check if we already have a window showing this diff
-                    if (DiffWindowManager.tryRaiseExistingWindow(leftSources, rightSources)) {
-                        return;
-                    }
-
-                    // No existing window found, create new one
                     var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
                     for (int i = 0; i < leftSources.size(); i++) {
                         builder.addComparison(leftSources.get(i), rightSources.get(i));
                     }
-                    var panel = builder.build();
-                    chrome.getPreviewManager().showDiffInTab("Compare " + shortId + " to Local", panel, leftSources, rightSources);
+                    builder.build().showInTab(chrome.getPreviewManager(), "Compare " + shortId + " to Local");
                 });
             } catch (Exception ex) {
                 chrome.toolError("Error opening multi-file diff: " + ex.getMessage());
@@ -904,8 +885,7 @@ public interface GitDiffUiUtil {
                 }
 
                 SwingUtilities.invokeLater(() -> {
-                    var diffPanel = builder.build();
-                    diffPanel.showInFrame(PrTitleFormatter.formatDiffTitle(pr));
+                    builder.build().showInTab(chrome.getPreviewManager(), PrTitleFormatter.formatDiffTitle(pr));
                 });
 
             } catch (Exception ex) {

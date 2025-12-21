@@ -3082,7 +3082,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 // the
                 // user's choice when they toggle view (Fixes #1679)
                 var panel = builder.build();
-                panel.showInFrame("Diff: " + ctx.getAction());
+                panel.showInTab(chrome.getPreviewManager(), "Diff: " + ctx.getAction());
             });
         });
     }

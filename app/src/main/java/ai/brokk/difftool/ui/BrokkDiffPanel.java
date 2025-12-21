@@ -1448,10 +1448,24 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     }
 
     /**
+     * Shows this diff panel in the shared preview tab system.
+     *
+     * @param manager The PreviewManager to delegate to
+     * @param title   The title for the tab
+     */
+    public void showInTab(ai.brokk.gui.PreviewManager manager, String title) {
+        var leftSources = fileComparisons.stream().map(fc -> fc.leftSource).toList();
+        var rightSources = fileComparisons.stream().map(fc -> fc.rightSource).toList();
+        manager.showDiffInTab(title, this, leftSources, rightSources);
+    }
+
+    /**
      * Shows the diff panel in a frame. Window bounds are managed via the ContextManager provided during construction.
      *
      * @param title The frame title
+     * @deprecated Use {@link #showInTab(ai.brokk.gui.PreviewManager, String)} to favor the unified tabbed interface.
      */
+    @Deprecated
     public void showInFrame(String title) {
         var frame = Chrome.newFrame(title);
 

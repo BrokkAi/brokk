@@ -672,15 +672,10 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                         rightSources.add(rightSource);
                     }
 
-                    // Check if we already have a window showing this diff
-                    if (DiffWindowManager.tryRaiseExistingWindow(leftSources, rightSources)) {
-                        return; // Existing window raised, don't create new one
-                    }
-
                     // Callers must not enforce unified/side-by-side globally; BrokkDiffPanel reads and persists the
-                    // user's choice when they toggle view (Fixes #1679)
-                    var panel = builder.build();
-                    chrome.getPreviewManager().showDiffInTab("Uncommitted Changes Diff", panel, leftSources, rightSources);
+                    // user's choice when they toggle view (Fixes #1679).
+                    // Delegation to showInTab handles window raising/deduplication.
+                    builder.build().showInTab(chrome.getPreviewManager(), "Uncommitted Changes Diff");
                 });
             } catch (Exception ex) {
                 chrome.toolError("Error opening diff for all uncommitted files: " + ex.getMessage());
