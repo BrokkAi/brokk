@@ -83,6 +83,9 @@ public class ArchitectAgent {
     // When CodeAgent succeeds, we immediately declare victory without another LLM round.
     private boolean codeAgentJustSucceeded = false;
 
+    // When false, disables agentic search for automatic context discovery
+    private final boolean allowAgenticSearch;
+
     private static final ThreadLocal<TaskResult> threadlocalSearchResult = new ThreadLocal<>();
 
     /**
@@ -97,6 +100,23 @@ public class ArchitectAgent {
             StreamingChatModel codeModel,
             String goal,
             ContextManager.TaskScope scope) {
+        this(contextManager, planningModel, codeModel, goal, scope, true);
+    }
+
+    /**
+     * Constructs a BrokkAgent that can handle multi-step tasks and sub-tasks.
+     *
+     * @param codeModel
+     * @param goal      The initial user instruction or goal for the agent.
+     * @param allowAgenticSearch If false, disables callSearchAgent (automatic context discovery)
+     */
+    public ArchitectAgent(
+            ContextManager contextManager,
+            StreamingChatModel planningModel,
+            StreamingChatModel codeModel,
+            String goal,
+            ContextManager.TaskScope scope,
+            boolean allowAgenticSearch) {
         this.cm = contextManager;
         this.planningModel = planningModel;
         this.codeModel = codeModel;
@@ -104,6 +124,7 @@ public class ArchitectAgent {
         this.io = contextManager.getIo();
         this.scope = scope;
         this.context = contextManager.liveContext();
+        this.allowAgenticSearch = allowAgenticSearch;
     }
 
     /**
@@ -473,11 +494,13 @@ public class ArchitectAgent {
             } else {
                 // Default tool population logic
                 var allowed = new ArrayList<String>();
+
+                // Workspace management tools (always allowed for targeted file management)
                 allowed.add("addFilesToWorkspace");
                 allowed.add("addFileSummariesToWorkspace");
                 allowed.add("addUrlContentsToWorkspace");
-                allowed.add("appendNote");
                 allowed.add("dropWorkspaceFragments");
+                allowed.add("appendNote");
                 allowed.add("explainCommit");
 
                 // Agent tools
@@ -485,7 +508,10 @@ public class ArchitectAgent {
 
                 if (this.offerUndoToolNext) {
                     allowed.add("undoLastChanges");
-                    allowed.add("callSearchAgent");
+                    // callSearchAgent only if agentic search is allowed
+                    if (allowAgenticSearch) {
+                        allowed.add("callSearchAgent");
+                    }
                 }
 
                 // Terminals

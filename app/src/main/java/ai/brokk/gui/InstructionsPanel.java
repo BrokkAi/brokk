@@ -2705,6 +2705,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     /**
      * Scenario 4: Generate tasks and auto-execute without agentic search
+     * Agentic search is disabled to honor manual context mode (managedContext=false).
+     * The agent can still manually add/remove specific files but cannot perform autonomous context discovery.
      */
     private void runLutzModeWithoutSearch() {
         var input = getInstructions();
@@ -2732,9 +2734,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         submitAction(ACTION_LUTZ, input, scope -> {
                     var cm = chrome.getContextManager();
 
-                    // Use ArchitectAgent for task generation without search
+                    // Use ArchitectAgent with agentic search disabled to respect manual context mode
                     var codeModel = cm.getCodeModel();
-                    var agent = new ArchitectAgent(cm, modelToUse, codeModel, input, scope);
+                    var agent = new ArchitectAgent(cm, modelToUse, codeModel, input, scope, false);
                     return agent.execute();
                 })
                 .thenRun(() -> {
