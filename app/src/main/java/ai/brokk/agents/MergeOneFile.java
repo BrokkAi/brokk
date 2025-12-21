@@ -412,7 +412,7 @@ public final class MergeOneFile {
         }
 
         var agent = new CodeAgent(cm, codeModel, io);
-        var result = agent.runSingleFileEdit(file, instructions, requireNonNull(currentSessionMessages));
+        var result = agent.execute(file, instructions, requireNonNull(currentSessionMessages));
         this.lastCodeAgentResult = result;
         return String.valueOf(result.stopDetails());
     }

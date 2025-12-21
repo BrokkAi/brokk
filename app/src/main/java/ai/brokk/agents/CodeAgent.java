@@ -92,7 +92,7 @@ public class CodeAgent {
     }
 
     /** Implicitly includes the DEFER_BUILD option. */
-    public TaskResult runSingleFileEdit(ProjectFile file, String instructions, List<ChatMessage> readOnlyMessages) {
+    public TaskResult execute(ProjectFile file, String instructions, List<ChatMessage> readOnlyMessages) {
         var ctx = new Context(contextManager)
                 .addFragments(List.of(new ContextFragments.ProjectPathFragment(file, contextManager)));
 
@@ -109,7 +109,7 @@ public class CodeAgent {
      * @param userInput The user's goal/instructions.
      * @return A TaskResult containing the conversation history and original file contents
      */
-    public TaskResult runTask(String userInput, Set<Option> options) {
+    public TaskResult execute(String userInput, Set<Option> options) {
         // pause watching for external changes (so they don't get added to activity history while we're still making
         // changes);
         // this means that we're responsible for refreshing the analyzer when we make changes

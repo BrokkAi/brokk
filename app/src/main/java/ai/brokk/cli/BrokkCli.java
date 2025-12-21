@@ -626,7 +626,7 @@ public final class BrokkCli implements Callable<Integer> {
                         return 1;
                     }
                     var agent = new CodeAgent(cm, codeModel);
-                    result = agent.runTask(codePrompt, Set.of());
+                    result = agent.execute(codePrompt, Set.of());
                     context = scope.append(result);
                 } else if (askPrompt != null) {
                     if (codeModel == null) {

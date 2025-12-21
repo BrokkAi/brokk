@@ -324,7 +324,7 @@ public final class JobRunner {
                                                 Objects.requireNonNull(
                                                         codeModeModel, "code model unavailable for CODE jobs"));
                                         try (var scope = cm.beginTask(spec.taskInput(), false)) {
-                                            var result = agent.runTask(spec.taskInput(), Set.of());
+                                            var result = agent.execute(spec.taskInput(), Set.of());
                                             scope.append(result);
                                         }
                                     }
@@ -551,7 +551,7 @@ public final class JobRunner {
 
                                         TaskResult result;
                                         try (var scope = cm.beginTask("Review", false)) {
-                                            result = agent.runTask(reviewPrompt, Set.of());
+                                            result = agent.execute(reviewPrompt, Set.of());
                                             scope.append(result);
                                         }
                                         String jsonString = result.stopDetails().explanation();

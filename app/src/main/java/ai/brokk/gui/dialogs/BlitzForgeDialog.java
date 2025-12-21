@@ -1678,7 +1678,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                 tr = InstructionsPanel.executeAskCommand(llm, messages, cm, instructions, meta);
             } else {
                 var agent = new CodeAgent(cm, model, dialogIo);
-                tr = agent.runSingleFileEdit(file, instructions, readOnlyMessages);
+                tr = agent.execute(file, instructions, readOnlyMessages);
             }
 
             if (tr.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {

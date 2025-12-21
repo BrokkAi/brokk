@@ -1796,7 +1796,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var contextManager1 = chrome.getContextManager();
 
             CodeAgent agent = new CodeAgent(contextManager1, modelToUse);
-            return agent.runTask(input, Set.of());
+            return agent.execute(input, Set.of());
         });
     }
 

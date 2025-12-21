@@ -430,7 +430,7 @@ class CodeAgentTest {
 
     // L-1: Loop termination - "no edits, no error"
     @Test
-    void testRunTask_exitsSuccessOnNoEdits() {
+    void testExecute_exitsSuccessOnNoEdits() {
         var stubModel = new TestScriptedLanguageModel("Okay, I see no changes are needed.");
         codeAgent = new CodeAgent(cm, stubModel, consoleIO);
         project.setBuildDetails(BuildAgent.BuildDetails.EMPTY); // No build command
@@ -443,7 +443,7 @@ class CodeAgentTest {
 
     // L-2: Loop termination - "no edits, but has build error"
     @Test
-    void testRunTask_exitsBuildErrorOnNoEditsWithPreviousError() throws IOException {
+    void testExecute_exitsBuildErrorOnNoEditsWithPreviousError() throws IOException {
         // Script:
         // 1. LLM provides a valid edit.
         // 2. Build fails. Loop retries with build error in prompt.
@@ -482,7 +482,7 @@ class CodeAgentTest {
         project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
         codeAgent = new CodeAgent(cm, stubModel, consoleIO);
-        var result = codeAgent.runTask("change hello to goodbye", Set.of());
+        var result = codeAgent.execute("change hello to goodbye", Set.of());
 
         assertEquals(TaskResult.StopReason.BUILD_ERROR, result.stopDetails().reason());
         assertTrue(result.stopDetails().explanation().contains("Compiler error on line 5"));
@@ -933,7 +933,7 @@ class CodeAgentTest {
         project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
         // Act
-        codeAgent.runTask("change hello to goodbye", Set.of());
+        codeAgent.execute("change hello to goodbye", Set.of());
 
         // Assert: verify the edit was applied to disk
         assertEquals("goodbye", file.read().orElseThrow().strip(), "Edit should have been applied to disk");
@@ -950,7 +950,7 @@ class CodeAgentTest {
 
     // RO-1: Guardrail - edits to read-only files are blocked with clear error
     @Test
-    void testRunTask_blocksEditsToReadOnlyFile() throws IOException, InterruptedException {
+    void testExecute_blocksEditsToReadOnlyFile() throws IOException, InterruptedException {
         // Arrange: create a file and mark it as read-only in the workspace context
         var roFile = cm.toFile("ro.txt");
         roFile.write("hello");
@@ -1002,7 +1002,7 @@ class CodeAgentTest {
 
     // RO-3: Guardrail precedence - editable ProjectPathFragment takes precedence over read-only virtual fragment
     @Test
-    void testRunTask_editablePrecedesReadOnlyVirtualFragment() throws IOException, InterruptedException {
+    void testExecute_editablePrecedesReadOnlyVirtualFragment() throws IOException, InterruptedException {
         // Arrange: create a file and add it as both an editable ProjectPathFragment
         // and a read-only virtual fragment (simulating a Code or Usage reference)
         var file = cm.toFile("file.txt");
@@ -1049,7 +1049,7 @@ class CodeAgentTest {
 
     // CONV-1: CodeAgent conversation is included in TaskResult.output but NOT baked into TaskResult.context
     @Test
-    void testRunTask_conversationInOutputNotInContext() throws IOException {
+    void testExecute_conversationInOutputNotInContext() throws IOException {
         // Arrange: file with initial content
         var file = cm.toFile("conv.txt");
         file.write("hello");
