@@ -681,6 +681,7 @@ public class ContextAgent {
                  - Think about how you would solve the <goal>, and identify additional files potentially relevant to your plan.
                    For example, if the plan involves instantiating class Foo, or calling a method of class Bar,
                    then Foo.java and Bar.java are relevant files.
+                 - Identify test, spec, e2e, or integration files that may verify behavior related to the goal.
                  - Compare this combined list against the filenames available.
                  - It's possible that files that were previously discarded are newly relevant, but when in doubt,
                    do not recommend files that are listed in the <discarded_context> section.
