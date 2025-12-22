@@ -549,6 +549,15 @@ public class Context {
         return fragments.isEmpty() && taskHistory.isEmpty();
     }
 
+    /**
+     * Returns true if the workspace contains no file content.
+     * Fragments may exist (STRING, TASK, HISTORY, etc.) but no actual file-based fragments
+     * (PROJECT_PATH, GIT_FILE, EXTERNAL_PATH, IMAGE_FILE, etc.).
+     */
+    public boolean isFileContentEmpty() {
+        return fragments.stream().allMatch(f -> f.files().renderNowOr(Set.of()).isEmpty());
+    }
+
     public TaskEntry createTaskEntry(TaskResult result) {
         int nextSequence = taskHistory.isEmpty() ? 1 : taskHistory.getLast().sequence() + 1;
         return TaskEntry.fromSession(nextSequence, result);

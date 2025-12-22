@@ -106,6 +106,31 @@ public class SearchAgent {
         public abstract Set<Terminal> terminals();
     }
 
+    /**
+     * Configuration for automatic context scanning behavior.
+     */
+    public record ScanConfig(
+            boolean autoScan, // Whether to auto-scan when workspace is empty or on first search tool
+            @Nullable StreamingChatModel scanModel, // Model to use for ContextAgent (null = use project default)
+            boolean appendToScope // Whether to append scan results to scope history
+            ) {
+        public static ScanConfig defaults() {
+            return new ScanConfig(true, null, true);
+        }
+
+        public static ScanConfig disabled() {
+            return new ScanConfig(false, null, true);
+        }
+
+        public static ScanConfig withModel(StreamingChatModel model) {
+            return new ScanConfig(true, model, true);
+        }
+
+        public static ScanConfig noAppend() {
+            return new ScanConfig(true, null, false);
+        }
+    }
+
     // Keep thresholds consistent with other agents
     private static final int SUMMARIZE_THRESHOLD = 1_000; // ~120 LOC equivalent
     private static final double WORKSPACE_CRITICAL = 0.80; // 90% of input limit
@@ -120,6 +145,8 @@ public class SearchAgent {
     private final Objective objective;
     private final List<McpPrompts.McpTool> mcpTools;
     private final SearchMetrics metrics;
+    private final ScanConfig scanConfig;
+    private boolean scanAlreadyPerformed = false;
 
     // Local working context snapshot for this agent
     private Context context;
@@ -132,7 +159,7 @@ public class SearchAgent {
     private boolean codeAgentJustSucceeded;
 
     /**
-     * Creates a SearchAgent with explicit IO (streaming is enabled unless IO is MutedConsoleIO).
+     * Primary constructor with explicit IO and ScanConfig.
      *
      * @param initialContext the initial context
      * @param goal the search goal
@@ -140,6 +167,7 @@ public class SearchAgent {
      * @param objective the search objective
      * @param scope the task scope for history recording
      * @param io the IConsoleIO instance for output (null defaults to cm.getIo())
+     * @param scanConfig configuration for automatic context scanning
      */
     public SearchAgent(
             Context initialContext,
@@ -147,7 +175,8 @@ public class SearchAgent {
             StreamingChatModel model,
             Objective objective,
             ContextManager.TaskScope scope,
-            IConsoleIO io) {
+            IConsoleIO io,
+            ScanConfig scanConfig) {
         this.goal = goal;
         this.cm = initialContext.getContextManager();
         this.model = model;
@@ -179,6 +208,27 @@ public class SearchAgent {
         }
         this.mcpTools = List.copyOf(tools);
         this.context = initialContext;
+        this.scanConfig = scanConfig;
+    }
+
+    /**
+     * Creates a SearchAgent with explicit IO (streaming is enabled unless IO is MutedConsoleIO).
+     *
+     * @param initialContext the initial context
+     * @param goal the search goal
+     * @param model the LLM model to use
+     * @param objective the search objective
+     * @param scope the task scope for history recording
+     * @param io the IConsoleIO instance for output (null defaults to cm.getIo())
+     */
+    public SearchAgent(
+            Context initialContext,
+            String goal,
+            StreamingChatModel model,
+            Objective objective,
+            ContextManager.TaskScope scope,
+            IConsoleIO io) {
+        this(initialContext, goal, model, objective, scope, io, ScanConfig.defaults());
     }
 
     /**
@@ -196,7 +246,8 @@ public class SearchAgent {
                 model,
                 objective,
                 scope,
-                initialContext.getContextManager().getIo());
+                initialContext.getContextManager().getIo(),
+                ScanConfig.defaults());
     }
 
     /** Entry point. Runs until answer/abort or interruption. */
@@ -225,6 +276,12 @@ public class SearchAgent {
     }
 
     private TaskResult executeInternal() throws InterruptedException {
+        // Auto-scan upfront if workspace has no file content
+        if (scanConfig.autoScan() && !scanAlreadyPerformed && context.isFileContentEmpty()) {
+            logger.info("Auto-scanning: workspace has no file content");
+            performAutoScan();
+        }
+
         // Create a per-turn WorkspaceTools instance bound to the agent-local Context
         var wst = new WorkspaceTools(context);
         var tr = cm.getToolRegistry().builder().register(wst).register(this).build();
@@ -332,6 +389,13 @@ public class SearchAgent {
                         .toList();
 
                 for (var req : sortedNonterminalCalls) {
+                    // Lazy scan: trigger on first search tool if not already scanned
+                    if (!scanAlreadyPerformed && isSearchTool(req.name())) {
+                        logger.info("Lazy scan triggered by first search tool: {}", req.name());
+                        performAutoScan();
+                        // Continue to execute the tool with potentially updated workspace
+                    }
+
                     ToolExecutionResult toolResult = executeTool(req, tr, wst);
                     if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
                         var details =
@@ -987,6 +1051,39 @@ public class SearchAgent {
     @Blocking
     public Context scanInitialContext(StreamingChatModel model) throws InterruptedException {
         return scanInitialContext(model, true);
+    }
+
+    /**
+     * Performs auto-scan using configured scan model and append behavior.
+     * Sets scanAlreadyPerformed to true on success or failure to prevent retries.
+     */
+    private void performAutoScan() {
+        try {
+            StreamingChatModel modelToUse = (scanConfig.scanModel() != null)
+                    ? scanConfig.scanModel()
+                    : cm.getService().getScanModel();
+            context = scanInitialContext(modelToUse, scanConfig.appendToScope());
+            scanAlreadyPerformed = true;
+        } catch (InterruptedException e) {
+            scanAlreadyPerformed = true; // Don't retry
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e); // Will be caught by execute()
+        } catch (Exception e) {
+            logger.warn("Auto-scan failed, continuing without scan: {}", e.getMessage());
+            scanAlreadyPerformed = true; // Don't retry
+            // Continue with execute() - non-fatal
+        }
+    }
+
+    /**
+     * Returns true if the tool is a search/exploration tool that benefits from ContextAgent scanning.
+     * Tool names must match those in calculateAllowedToolNames().
+     */
+    private boolean isSearchTool(String toolName) {
+        return toolName.startsWith("search")
+                || // searchSymbols, searchSubstrings, searchFilenames, searchGitCommitMessages
+                toolName.equals("getUsages")
+                || toolName.equals("getSymbolLocations");
     }
 
     @Blocking

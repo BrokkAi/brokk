@@ -344,4 +344,65 @@ class ContextTest {
         assertEquals(gid, labeled.getGroupId());
         assertEquals("group-label", labeled.getGroupLabel());
     }
+
+    @Test
+    void testIsFileContentEmpty_withEmptyContext() {
+        var ctx = new Context(contextManager);
+        assertTrue(ctx.isFileContentEmpty(), "Empty context should have no file content");
+    }
+
+    @Test
+    void testIsFileContentEmpty_withOnlyStringFragments() {
+        var ctx = new Context(contextManager);
+        var stringFrag = new ContextFragments.StringFragment(
+                contextManager, "some text", "description", SyntaxConstants.SYNTAX_STYLE_NONE);
+        ctx = ctx.addFragments(stringFrag);
+        assertTrue(ctx.isFileContentEmpty(), "Context with only STRING fragments should report no file content");
+    }
+
+    @Test
+    void testIsFileContentEmpty_withProjectPathFragment() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Test.java");
+        Files.createDirectories(pf.absPath().getParent());
+        pf.write("class Test {}");
+        var ppf = new ContextFragments.ProjectPathFragment(pf, contextManager);
+
+        var ctx = new Context(contextManager).addFragments(List.of(ppf));
+        assertFalse(ctx.isFileContentEmpty(), "Context with PROJECT_PATH fragment should have file content");
+    }
+
+    @Test
+    void testIsFileContentEmpty_withCodeFragment() {
+        var cu = analyzer.getDefinitions("com.example.CodeFragmentTarget").stream()
+                .findFirst()
+                .orElseThrow();
+        var codeFrag = new ContextFragments.CodeFragment(contextManager, cu);
+
+        var ctx = new Context(contextManager).addFragments(codeFrag);
+        assertFalse(ctx.isFileContentEmpty(), "Context with CODE fragment should have file content");
+    }
+
+    @Test
+    void testIsFileContentEmpty_withTaskFragment() {
+        var ctx = new Context(contextManager);
+        List<ChatMessage> msgs = List.of(UserMessage.from("User"), AiMessage.from("AI"));
+        var taskFrag = new ContextFragments.TaskFragment(contextManager, msgs, "task");
+        ctx = ctx.addFragments(taskFrag);
+        assertTrue(ctx.isFileContentEmpty(), "Context with only TASK fragments should report no file content");
+    }
+
+    @Test
+    void testIsFileContentEmpty_withMixedFragments() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Mixed.java");
+        Files.createDirectories(pf.absPath().getParent());
+        pf.write("class Mixed {}");
+        var ppf = new ContextFragments.ProjectPathFragment(pf, contextManager);
+
+        var stringFrag =
+                new ContextFragments.StringFragment(contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        var ctx = new Context(contextManager).addFragments(stringFrag).addFragments(List.of(ppf));
+        assertFalse(
+                ctx.isFileContentEmpty(), "Context with mixed fragments including file content should return false");
+    }
 }

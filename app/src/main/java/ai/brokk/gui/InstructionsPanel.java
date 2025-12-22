@@ -1851,20 +1851,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     var beforeTasks = context.getTaskListDataOrEmpty();
                     boolean hadIncomplete = hasIncomplete(beforeTasks);
 
+                    // SearchAgent now handles scanning internally via execute()
                     SearchAgent agent = new SearchAgent(context, query, modelToUse, objective, scope);
-                    try {
-                        context = agent.scanInitialContext();
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        return new TaskResult(
-                                cm,
-                                "Search: " + query,
-                                cm.getIo().getLlmRawMessages(),
-                                cm.liveContext(),
-                                new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
-                                new TaskResult.TaskMeta(
-                                        TaskResult.Type.SEARCH, Service.ModelConfig.from(modelToUse, cm.getService())));
-                    }
 
                     var result = agent.execute();
                     // Apply results to context

@@ -523,13 +523,17 @@ public final class JobRunner {
                                                             ? resolveModelOrThrow(trimmedScanModel)
                                                             : cm.getService().getScanModel();
 
+                                            // SearchAgent now handles scanning internally via execute()
+                                            var scanConfig = SearchAgent.ScanConfig.withModel(scanModelToUse);
                                             var searchAgent = new SearchAgent(
                                                     context,
                                                     spec.taskInput(),
                                                     Objects.requireNonNull(
                                                             scanModelToUse, "scan model unavailable for SEARCH jobs"),
                                                     SearchAgent.Objective.ANSWER_ONLY,
-                                                    scope);
+                                                    scope,
+                                                    cm.getIo(),
+                                                    scanConfig);
                                             var result = searchAgent.execute();
                                             scope.append(result);
                                         }
