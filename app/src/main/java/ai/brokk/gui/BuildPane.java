@@ -123,6 +123,8 @@ public class BuildPane extends JPanel implements ThemeAware {
         buildReviewTabs = new JTabbedPane(JTabbedPane.TOP);
         buildReviewTabs.addTab("Build", Icons.SCIENCE, buildSplitPane);
         buildReviewTabs.addTab("Review", Icons.FLOWSHEET, reviewTabContainer);
+        // Set minimum size to preferred size to ensure the tab labels and icons are respected
+        reviewTabContainer.setMinimumSize(reviewTabContainer.getPreferredSize());
 
         buildReviewTabs.addTab("Preview", Icons.VISIBILITY, previewTabbedPane);
         buildReviewTabs.addTab("Terminal", Icons.TERMINAL, terminalPanel);
@@ -523,7 +525,7 @@ public class BuildPane extends JPanel implements ThemeAware {
                 : "";
 
         if (res.filesChanged() == 0) {
-            setReviewTabTitle("Review (0)" + baselineSuffix);
+            setReviewTabTitle("Review (0)");
             String tooltipMsg = isSpecialState
                     ? "No baseline to compare"
                     : ("HEAD".equals(lastBaselineLabel)
@@ -531,19 +533,18 @@ public class BuildPane extends JPanel implements ThemeAware {
                             : (lastBaselineLabel != null && !lastBaselineLabel.isBlank()
                                     ? "No changes vs " + lastBaselineLabel
                                     : "No changes to review"));
-            setReviewTabTooltip(tooltipMsg + ".");
+            setReviewTabTooltip(tooltipMsg + baselineSuffix + ".");
         } else {
             boolean isDark = chrome.getTheme().isDarkTheme();
             Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
             Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
             String htmlTitle = String.format(
-                    "<html>Review (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)%s</html>",
+                    "<html>Review (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)</html>",
                     res.filesChanged(),
                     ColorUtil.toHex(plusColor),
                     res.totalAdded(),
                     ColorUtil.toHex(minusColor),
-                    res.totalDeleted(),
-                    escapeHtml(baselineSuffix));
+                    res.totalDeleted());
             setReviewTabTitle(htmlTitle);
             setReviewTabTooltip("Cumulative changes: " + res.filesChanged() + " files, +" + res.totalAdded() + "/-"
                     + res.totalDeleted() + baselineSuffix);
