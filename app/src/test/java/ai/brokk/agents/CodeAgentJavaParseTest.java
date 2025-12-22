@@ -881,4 +881,37 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
         assertTrue(message.contains("issue(s)"), "Message should include issue count");
         assertTrue(message.length() > 50, "Message should contain diagnostic descriptions");
     }
+
+    // Quick Edit mode diagnostic reporting (issue #2131)
+    // Verifies that parseJavaForDiagnostics correctly detects syntax errors in edited code
+    @Test
+    void testQuickEdit_jdtDiagnostics_issue2131() throws Exception {
+        var goodSource =
+                """
+                class Good {
+                    void method() {
+                        System.out.println("Hello");
+                    }
+                }
+                """;
+        var javaFile = cm.toFile("Good.java");
+        javaFile.write(goodSource);
+
+        var oldText =
+                """
+                    void method() {
+                        System.out.println("Hello");
+                    }
+                """;
+
+        // Simulate replacing good code with syntactically invalid code
+        var brokenSnippet = "void badMethod( { }"; // Missing parameter name
+        var updatedContent = goodSource.replace(oldText, brokenSnippet);
+
+        var diags = CodeAgent.parseJavaForDiagnostics(javaFile, updatedContent);
+
+        // Verify diagnostics were detected
+        assertFalse(diags.isEmpty(), "Expected diagnostics for syntactically invalid code");
+        assertTrue(diags.getFirst().description().contains("Good.java"), "Diagnostic should reference the file");
+    }
 }

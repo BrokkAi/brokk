@@ -373,9 +373,13 @@ public class CodeAgent {
                     for (var entry : es.javaLintDiagnostics().entrySet()) {
                         var pf = entry.getKey();
                         var diags = entry.getValue();
-                        diagnosticMessages.append(String.format("**%s**: %d issue(s)\n", pf.getFileName(), diags.size()));
+                        diagnosticMessages.append(
+                                String.format("**%s**: %d issue(s)\n", pf.getFileName(), diags.size()));
                         for (var diag : diags) {
-                            diagnosticMessages.append("  - ").append(diag.description()).append("\n");
+                            diagnosticMessages
+                                    .append("  - ")
+                                    .append(diag.description())
+                                    .append("\n");
                         }
                         diagnosticMessages.append("\n");
                     }
@@ -600,6 +604,29 @@ public class CodeAgent {
             // Success from LLM perspective
             pendingHistory.add(result.aiMessage());
             stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
+
+            // Parse Java for lint diagnostics (issue #2131)
+            if (Languages.JAVA.getExtensions().contains(file.extension())) {
+                var responseText = Messages.getText(result.aiMessage());
+                var snippet =
+                        EditBlock.extractCodeFromTripleBackticks(responseText).trim();
+                if (!snippet.isEmpty()) {
+                    // Construct the full file content with the replacement
+                    var updatedContent = fileContents.replace(oldText, snippet);
+                    var diags = parseJavaForDiagnostics(file, updatedContent);
+                    if (!diags.isEmpty()) {
+                        var diagnosticMessages = new StringBuilder();
+                        diagnosticMessages.append("\nJava syntax issues detected:\n\n");
+                        for (var diag : diags) {
+                            diagnosticMessages
+                                    .append("  - ")
+                                    .append(diag.description())
+                                    .append("\n");
+                        }
+                        io.llmOutput(diagnosticMessages.toString(), ChatMessageType.AI);
+                    }
+                }
+            }
         }
 
         // Return TaskResult containing conversation and resulting context (populate TaskMeta since an LLM was used)
@@ -1048,8 +1075,6 @@ public class CodeAgent {
             return new Step.Continue(cs, es);
         }
 
-        // Use Eclipse JDT ASTParser without classpath/bindings
-
         // Map from ProjectFile -> diagnostic list for that file
         var perFileProblems = new ConcurrentHashMap<ProjectFile, List<JavaDiagnostic>>();
 
@@ -1059,49 +1084,7 @@ public class CodeAgent {
             if (src.isBlank()) { // PJ-3: blank files should produce no diagnostics
                 continue;
             }
-            char[] sourceChars = src.toCharArray();
-
-            ASTParser parser = ASTParser.newParser(AST.JLS24);
-            parser.setKind(ASTParser.K_COMPILATION_UNIT);
-            parser.setSource(sourceChars);
-            // Enable binding resolution with recovery and use the running JVM's boot classpath.
-            parser.setResolveBindings(true);
-            parser.setStatementsRecovery(true);
-            parser.setBindingsRecovery(true);
-            parser.setUnitName(file.getFileName());
-            parser.setEnvironment(new String[0], new String[0], null, true);
-            var options = JavaCore.getOptions();
-            JavaCore.setComplianceOptions(JavaCore.VERSION_25, options);
-            // Disable annotation-based null analysis to avoid emitting JDT nullability diagnostics during parse-only
-            // lint
-            options.put(JavaCore.COMPILER_ANNOTATION_NULL_ANALYSIS, JavaCore.DISABLED);
-            // Enable preview features for maximum compatibility
-            options.put(JavaCore.COMPILER_PB_ENABLE_PREVIEW_FEATURES, JavaCore.ENABLED);
-            parser.setCompilerOptions(options);
-
-            CompilationUnit cu = (CompilationUnit) parser.createAST(null);
-
-            IProblem[] problems = cu.getProblems();
-
-            // Determine if this CU has evidence of shaky type info (missing types/imports/inference).
-            boolean hasShakyTypeInfo = Arrays.stream(problems).anyMatch(p -> {
-                int pid = p.getID();
-                return RESOLUTION_NOISE_IDS.contains(pid) || CROSS_FILE_INFERENCE_IDS.contains(pid);
-            });
-
-            var diags = new ArrayList<JavaDiagnostic>();
-            for (IProblem prob : problems) {
-                int id = prob.getID();
-                @Nullable Integer catId = (prob instanceof CategorizedProblem cp) ? cp.getCategoryID() : null;
-
-                if (!shouldKeepJavaProblem(id, prob.isError(), catId, hasShakyTypeInfo)) {
-                    continue;
-                }
-
-                var description = formatJdtProblem(file.absPath(), cu, prob, src);
-                diags.add(new JavaDiagnostic(id, catId, description));
-            }
-
+            var diags = parseJavaForDiagnostics(file, src);
             if (!diags.isEmpty()) {
                 perFileProblems.put(file, diags);
             }
@@ -1110,6 +1093,57 @@ public class CodeAgent {
         // Save diagnostics per-file and continue (non-blocking pre-lint)
         var nextEs = es.withJavaLintDiagnostics(perFileProblems);
         return new Step.Continue(cs, nextEs);
+    }
+
+    /**
+     * Parse a Java source file using Eclipse JDT and return diagnostics.
+     * Used by both parseJavaPhase and Quick Edit.
+     */
+    static List<JavaDiagnostic> parseJavaForDiagnostics(ProjectFile file, String src) {
+        char[] sourceChars = src.toCharArray();
+
+        ASTParser parser = ASTParser.newParser(AST.JLS24);
+        parser.setKind(ASTParser.K_COMPILATION_UNIT);
+        parser.setSource(sourceChars);
+        // Enable binding resolution with recovery and use the running JVM's boot classpath.
+        parser.setResolveBindings(true);
+        parser.setStatementsRecovery(true);
+        parser.setBindingsRecovery(true);
+        parser.setUnitName(file.getFileName());
+        parser.setEnvironment(new String[0], new String[0], null, true);
+        var options = JavaCore.getOptions();
+        JavaCore.setComplianceOptions(JavaCore.VERSION_25, options);
+        // Disable annotation-based null analysis to avoid emitting JDT nullability diagnostics during parse-only
+        // lint
+        options.put(JavaCore.COMPILER_ANNOTATION_NULL_ANALYSIS, JavaCore.DISABLED);
+        // Enable preview features for maximum compatibility
+        options.put(JavaCore.COMPILER_PB_ENABLE_PREVIEW_FEATURES, JavaCore.ENABLED);
+        parser.setCompilerOptions(options);
+
+        CompilationUnit cu = (CompilationUnit) parser.createAST(null);
+
+        IProblem[] problems = cu.getProblems();
+
+        // Determine if this CU has evidence of shaky type info (missing types/imports/inference).
+        boolean hasShakyTypeInfo = Arrays.stream(problems).anyMatch(p -> {
+            int pid = p.getID();
+            return RESOLUTION_NOISE_IDS.contains(pid) || CROSS_FILE_INFERENCE_IDS.contains(pid);
+        });
+
+        var diags = new ArrayList<JavaDiagnostic>();
+        for (IProblem prob : problems) {
+            int id = prob.getID();
+            @Nullable Integer catId = (prob instanceof CategorizedProblem cp) ? cp.getCategoryID() : null;
+
+            if (!shouldKeepJavaProblem(id, prob.isError(), catId, hasShakyTypeInfo)) {
+                continue;
+            }
+
+            var description = formatJdtProblem(file.absPath(), cu, prob, src);
+            diags.add(new JavaDiagnostic(id, catId, description));
+        }
+
+        return diags;
     }
 
     private static String formatJdtProblem(Path absPath, CompilationUnit cu, IProblem prob, String src) {
