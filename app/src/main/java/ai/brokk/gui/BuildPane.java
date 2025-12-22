@@ -48,7 +48,7 @@ public class BuildPane extends JPanel implements ThemeAware {
 
     private final JSplitPane buildSplitPane;
     private final JTabbedPane buildReviewTabs;
-    private final PreviewTabbedPane previewTabbedPane;
+    private PreviewTabbedPane previewTabbedPane;
     private final JTabbedPane commandPane;
     private final JPanel commandPanel;
     private final JPanel branchSelectorPanel;
@@ -224,23 +224,14 @@ public class BuildPane extends JPanel implements ThemeAware {
         chrome.getPreviewManager().setPreviewDocked(false);
         GlobalUiSettings.savePreviewDocked(false);
 
-        // Move all current tabs to the PreviewManager's frame
-        var manager = chrome.getPreviewManager();
-        var files = new java.util.HashSet<>(previewTabbedPane.getFileToTabMap().keySet());
-        for (var file : files) {
-            var comp = previewTabbedPane.getFileToTabMap().get(file);
-            if (comp instanceof JComponent jc) {
-                int idx = previewTabbedPane.indexOfComponent(jc);
-                String title = previewTabbedPane.getTitleAt(idx);
-                previewTabbedPane.closeTab(jc, file);
-                manager.showPreviewInTabbedFrame(title, jc, null);
-            }
-        }
-
         int idx = buildReviewTabs.indexOfTab("Preview");
         if (idx != -1) {
             buildReviewTabs.removeTabAt(idx);
         }
+
+        chrome.getPreviewManager().showPreviewInTabbedFrame("Preview", previewTabbedPane, null);
+        // Replace with a fresh pane for internal tracking while undocked
+        this.previewTabbedPane = new PreviewTabbedPane(chrome, chrome.getTheme(), title -> {}, () -> {});
     }
 
     public void redockPreview(PreviewTabbedPane sourcePane) {
@@ -249,6 +240,8 @@ public class BuildPane extends JPanel implements ThemeAware {
         chrome.getPreviewManager().setPreviewDocked(true);
         GlobalUiSettings.savePreviewDocked(true);
 
+        this.previewTabbedPane = sourcePane;
+
         // Re-add the Preview tab to BuildPane
         int terminalIdx = buildReviewTabs.indexOfTab("Terminal");
         if (terminalIdx != -1) {
@@ -256,9 +249,6 @@ public class BuildPane extends JPanel implements ThemeAware {
         } else {
             buildReviewTabs.addTab("Preview", Icons.VISIBILITY, previewTabbedPane);
         }
-
-        // Transfer tabs from the floating frame to the docked pane
-        previewTabbedPane.transferTabsFrom(sourcePane);
 
         selectPreviewTab();
     }

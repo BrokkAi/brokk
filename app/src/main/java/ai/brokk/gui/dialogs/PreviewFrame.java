@@ -26,7 +26,7 @@ import org.jetbrains.annotations.Nullable;
 public class PreviewFrame extends JFrame implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(PreviewFrame.class);
 
-    private final PreviewTabbedPane tabbedPane;
+    private PreviewTabbedPane tabbedPane;
     private final Chrome chrome;
     private GuiTheme guiTheme;
 
@@ -34,21 +34,28 @@ public class PreviewFrame extends JFrame implements ThemeAware {
         return tabbedPane;
     }
 
-    public PreviewFrame(Chrome chrome, GuiTheme guiTheme) {
+    public void setTabbedPane(PreviewTabbedPane newPane) {
+        if (this.tabbedPane != null) {
+            mainContent.remove(this.tabbedPane);
+        }
+        this.tabbedPane = newPane;
+        mainContent.add(tabbedPane, BorderLayout.CENTER);
+        mainContent.revalidate();
+        mainContent.repaint();
+    }
+
+    private final JPanel mainContent;
+
+    public PreviewFrame(Chrome chrome, GuiTheme guiTheme, PreviewTabbedPane initialPane) {
         super("Preview");
         this.chrome = chrome;
         this.guiTheme = guiTheme;
+        this.tabbedPane = initialPane;
 
         // Apply icon, macOS full-window-content, and title bar
         Chrome.applyIcon(this);
         Chrome.maybeApplyMacFullWindowContent(this);
         ThemeTitleBarManager.maybeApplyMacTitleBar(this, "Preview");
-
-        // Create tabbed pane
-        tabbedPane = new PreviewTabbedPane(chrome, guiTheme,
-                title -> updateWindowTitle(title),
-                this::disposeFrame
-        );
 
         // Create toolbar with dock button
         JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 2));
@@ -58,7 +65,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
         dockButton.addActionListener(e -> handleRedock());
         toolbar.add(dockButton);
 
-        JPanel mainContent = new JPanel(new BorderLayout());
+        mainContent = new JPanel(new BorderLayout());
         mainContent.add(toolbar, BorderLayout.NORTH);
         mainContent.add(tabbedPane, BorderLayout.CENTER);
 
@@ -123,22 +130,16 @@ public class PreviewFrame extends JFrame implements ThemeAware {
     }
 
     private void handleRedock() {
-        // Check all tabs for unsaved changes before redocking
-        for (int i = 0; i < tabbedPane.getTabCount(); i++) {
-            Component comp = tabbedPane.getComponentAt(i);
-            if (comp instanceof PreviewTextPanel textPanel) {
-                if (!textPanel.confirmClose()) {
-                    return;
-                }
-            }
-        }
-
         chrome.getBuildPane().redockPreview(tabbedPane);
+        // We set tabbedPane to null or a dummy so disposeFrame doesn't clear it
+        this.tabbedPane = new PreviewTabbedPane(chrome, guiTheme, title -> {}, () -> {});
         disposeFrame();
     }
 
     private void disposeFrame() {
-        tabbedPane.clearTracking();
+        if (tabbedPane != null) {
+            tabbedPane.clearTracking();
+        }
         chrome.clearPreviewTextFrame();
         dispose();
     }

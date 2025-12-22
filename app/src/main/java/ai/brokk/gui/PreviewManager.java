@@ -239,10 +239,16 @@ public class PreviewManager {
             }
 
             // Standalone frame
-            ensurePreviewFrame();
+            if (panel instanceof PreviewTabbedPane ptp) {
+                ensurePreviewFrame(ptp);
+            } else {
+                ensurePreviewFrame();
+            }
             var frame = castNonNull(previewFrame);
 
-            frame.addOrSelectTab(title, panel, file, fragment);
+            if (!(panel instanceof PreviewTabbedPane)) {
+                frame.addOrSelectTab(title, panel, file, fragment);
+            }
             if (file != null) {
                 projectFileToPreviewWindow.put(file, frame);
             }
@@ -259,11 +265,21 @@ public class PreviewManager {
     }
 
     private void ensurePreviewFrame() {
+        ensurePreviewFrame(null);
+    }
+
+    private void ensurePreviewFrame(@Nullable PreviewTabbedPane existingPane) {
         if (previewFrame != null && previewFrame.isDisplayable()) {
+            if (existingPane != null) {
+                previewFrame.setTabbedPane(existingPane);
+            }
             return;
         }
 
-        previewFrame = new PreviewFrame(chrome, chrome.getTheme());
+        PreviewTabbedPane pane = existingPane != null ? existingPane :
+                new PreviewTabbedPane(chrome, chrome.getTheme(), title -> {}, () -> {});
+
+        previewFrame = new PreviewFrame(chrome, chrome.getTheme(), pane);
         var frame = previewFrame;
 
         var project = cm.getProject();
