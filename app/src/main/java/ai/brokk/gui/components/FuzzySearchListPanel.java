@@ -24,11 +24,14 @@ import org.jetbrains.annotations.Nullable;
  * @param <T> The type of items in the list
  */
 public class FuzzySearchListPanel<T> {
+    private static final int SEARCH_DEBOUNCE_MS = 200;
+
     private final List<T> allItems;
     private final Function<T, String> displayMapper;
     private final JTextField searchField;
     private final JList<T> list;
     private final DefaultListModel<T> model;
+    private final Timer searchDebounceTimer;
     private @Nullable FuzzyMatcher currentMatcher;
     private @Nullable Consumer<T> selectionListener;
 
@@ -41,6 +44,10 @@ public class FuzzySearchListPanel<T> {
     public FuzzySearchListPanel(List<T> items, Function<T, String> displayMapper) {
         this.allItems = new ArrayList<>(items);
         this.displayMapper = displayMapper;
+
+        // Debounce timer for search filtering
+        searchDebounceTimer = new Timer(SEARCH_DEBOUNCE_MS, e -> filterItems());
+        searchDebounceTimer.setRepeats(false);
 
         searchField = new JTextField();
         searchField.putClientProperty("JTextField.placeholderText", "Search...");
@@ -96,17 +103,17 @@ public class FuzzySearchListPanel<T> {
         searchField.getDocument().addDocumentListener(new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) {
-                filterItems();
+                scheduleFilter();
             }
 
             @Override
             public void removeUpdate(DocumentEvent e) {
-                filterItems();
+                scheduleFilter();
             }
 
             @Override
             public void changedUpdate(DocumentEvent e) {
-                filterItems();
+                scheduleFilter();
             }
         });
 
@@ -165,6 +172,10 @@ public class FuzzySearchListPanel<T> {
                 }
             }
         });
+    }
+
+    private void scheduleFilter() {
+        searchDebounceTimer.restart();
     }
 
     private void filterItems() {
