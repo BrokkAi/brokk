@@ -612,22 +612,38 @@ public class CodeAgent {
                 var responseText = Messages.getText(result.aiMessage());
                 var snippet =
                         EditBlock.extractCodeFromTripleBackticks(responseText).trim();
-                if (!snippet.isEmpty()) {
-                    // Construct the full file content with the replacement (only first occurrence)
+
+                // Validation 1: Verify extraction succeeded
+                if (snippet.isEmpty()) {
+                    io.toolError(
+                            "Could not extract code block from LLM response. Ensure the response includes code fenced with triple backticks.",
+                            "Quick Edit Diagnostics");
+                    // Continue with successful Quick Edit, just skip diagnostics
+                } else if (snippet.equals(oldText)) {
+                    // Validation 2: Skip diagnostics if no change
+                    logger.debug("Quick Edit: LLM returned unchanged code, skipping diagnostics");
+                } else {
+                    // Validation 3: Verify replacement occurs
                     var updatedContent = fileContents.replaceFirst(
                             Pattern.quote(oldText),
                             Matcher.quoteReplacement(snippet));
-                    var diags = parseJavaForDiagnostics(file, updatedContent);
-                    if (!diags.isEmpty()) {
-                        var diagnosticMessages = new StringBuilder();
-                        diagnosticMessages.append("\nJava syntax issues detected:\n\n");
-                        for (var diag : diags) {
-                            diagnosticMessages
-                                    .append("  - ")
-                                    .append(diag.description())
-                                    .append("\n");
+
+                    if (updatedContent.equals(fileContents)) {
+                        logger.warn("Quick Edit diagnostics: could not find target text in file (may have changed)");
+                    } else {
+                        // Now safe to compute diagnostics
+                        var diags = parseJavaForDiagnostics(file, updatedContent);
+                        if (!diags.isEmpty()) {
+                            var diagnosticMessages = new StringBuilder();
+                            diagnosticMessages.append("\nJava syntax issues detected:\n\n");
+                            for (var diag : diags) {
+                                diagnosticMessages
+                                        .append("  - ")
+                                        .append(diag.description())
+                                        .append("\n");
+                            }
+                            io.llmOutput(diagnosticMessages.toString(), ChatMessageType.AI);
                         }
-                        io.llmOutput(diagnosticMessages.toString(), ChatMessageType.AI);
                     }
                 }
             }
