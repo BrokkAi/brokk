@@ -354,6 +354,7 @@ public class BuildPane extends JPanel implements ThemeAware {
     }
 
     public void requestReviewUpdate() {
+        sessionChangesPanel.refreshTitleOnly();
         sessionChangesPanel.requestUpdate();
     }
 

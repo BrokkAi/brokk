@@ -5,7 +5,6 @@ import ai.brokk.context.Context;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
-import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
@@ -60,15 +59,44 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::performRefresh);
     }
 
+    /**
+     * Requests a full refresh of the diff content. This is deferred if the panel is not showing.
+     */
     public void requestUpdate() {
         deferredUpdateHelper.requestUpdate();
     }
 
-    private void performRefresh() {
+    /**
+     * Refreshes just the tab title and tooltip based on current Git state.
+     * This happens immediately on the EDT and triggers a background task for counts.
+     */
+    public void refreshTitleOnly() {
+        SwingUtil.runOnEdt(() -> {
+            var state = resolveBaselineState();
+            if (state == null) return;
+
+            // Set loading state while background task runs
+            tabTitleUpdater.updateTitleAndTooltip("Review (...)", "Computing branch-based changes...");
+
+            refreshCumulativeChangesAsync(state.baselineLabel(), state.baselineMode())
+                    .thenAccept(result -> {
+                        SwingUtilities.invokeLater(() -> updateTitleAndTooltipFromResult(result, state.baselineLabel()));
+                    })
+                    .exceptionally(ex -> {
+                        logger.warn("Failed to compute cumulative changes for title", ex);
+                        SwingUtilities.invokeLater(() -> tabTitleUpdater.updateTitleAndTooltip("Review", "Failed to compute changes"));
+                        return null;
+                    });
+        });
+    }
+
+    private record BaselineState(BaselineMode baselineMode, String baselineLabel) {}
+
+    private @Nullable BaselineState resolveBaselineState() {
         var repoOpt = repo();
         if (repoOpt.isEmpty()) {
             tabTitleUpdater.updateTitleAndTooltip("Review", "No Git repository");
-            return;
+            return null;
         }
 
         var repo = repoOpt.get();
@@ -78,10 +106,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         } catch (Exception e) {
             logger.warn("Failed to get current branch", e);
             tabTitleUpdater.updateTitleAndTooltip("Review", "Failed to get branch");
-            return;
+            return null;
         }
 
-        // Determine baseline mode and label
         BaselineMode baselineMode;
         String baselineLabel;
         String defaultBranch;
@@ -98,7 +125,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             baselineMode = BaselineMode.NON_DEFAULT_BRANCH;
             baselineLabel = defaultBranch;
         } else {
-            // On default branch
             var remoteUrl = repo.getRemoteUrl();
             if (remoteUrl != null && !remoteUrl.isEmpty()) {
                 baselineMode = BaselineMode.DEFAULT_WITH_UPSTREAM;
@@ -108,21 +134,23 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 baselineLabel = "";
             }
         }
+        return new BaselineState(baselineMode, baselineLabel);
+    }
+
+    private void performRefresh() {
+        var state = resolveBaselineState();
+        if (state == null) return;
 
         // Set loading state
         tabTitleUpdater.updateTitleAndTooltip("Review (...)", "Computing branch-based changes...");
 
-        // Start background computation
-        final String finalBaselineLabel = baselineLabel;
-        final BaselineMode finalBaselineMode = baselineMode;
-
-        refreshCumulativeChangesAsync(currentBranch, baselineLabel, baselineMode)
+        refreshCumulativeChangesAsync(state.baselineLabel(), state.baselineMode())
                 .thenAccept(result -> {
                     lastCumulativeChanges = result;
                     var prepared = DiffService.preparePerFileSummaries(result);
                     SwingUtilities.invokeLater(() -> {
-                        updateTitleAndTooltipFromResult(result, finalBaselineLabel);
-                        updateContent(result, prepared, finalBaselineLabel, finalBaselineMode);
+                        updateTitleAndTooltipFromResult(result, state.baselineLabel());
+                        updateContent(result, prepared, state.baselineLabel(), state.baselineMode());
                     });
                 })
                 .exceptionally(ex -> {
@@ -143,7 +171,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private CompletableFuture<DiffService.CumulativeChanges> refreshCumulativeChangesAsync(
-            String currentBranch, String baselineLabel, BaselineMode baselineMode) {
+            String baselineLabel, BaselineMode baselineMode) {
 
         return contextManager.submitBackgroundTask("Computing review changes", () -> {
             var repo = contextManager.getProject().getRepo();
@@ -179,14 +207,14 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         String tooltip;
 
         if (result.filesChanged() == 0) {
-            title = "Review (0)";
+            title = "Review (No Changes)";
             tooltip = "No changes" + (baselineLabel.isEmpty() ? "" : " vs " + baselineLabel);
         } else {
             var addColor = ThemeColors.DIFF_ADDED;
             var delColor = ThemeColors.DIFF_DELETED;
             title = String.format(
-                    "<html>Review (%d) <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span></html>",
-                    result.filesChanged(), addColor, result.totalAdded(), delColor, result.totalDeleted());
+                    "<html>Review <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span></html>",
+                    addColor, result.totalAdded(), delColor, result.totalDeleted());
             tooltip = String.format("%d files changed, %d insertions, %d deletions%s",
                     result.filesChanged(), result.totalAdded(), result.totalDeleted(),
                     baselineLabel.isEmpty() ? "" : " vs " + baselineLabel);
