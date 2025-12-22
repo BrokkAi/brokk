@@ -239,9 +239,6 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         sourceBranchComboBox.setEnabled(false);
         targetBranchComboBox.setEnabled(false);
 
-        // Set up listeners immediately (safe - won't fire on placeholder)
-        setupBranchListeners();
-
         var row = 0;
         row = addBranchSelectorToPanel(branchPanel, "Target branch:", targetBranchComboBox, row);
         row = addBranchSelectorToPanel(branchPanel, "Source branch:", sourceBranchComboBox, row);
@@ -588,7 +585,8 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                         sourceBranchComboBox.setSelectedItem(preselectedSourceBranch);
                     }
 
-                    // Listeners are already set up in createBranchSelectorPanel()
+                    // Set up listeners AFTER default items are selected to avoid premature firing during setItems()
+                    setupBranchListeners();
 
                     this.flowUpdater.run(); // Update label based on defaults
                     refreshCommitList(); // Load commits based on defaults, which will also call flowUpdater and update button state
