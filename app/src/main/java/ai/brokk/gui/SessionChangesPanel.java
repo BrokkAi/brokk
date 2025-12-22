@@ -5,11 +5,13 @@ import ai.brokk.context.Context;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
+import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.dialogs.CreatePullRequestDialog;
 import ai.brokk.gui.git.GitCommitTab;
+import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import java.awt.*;
@@ -17,10 +19,13 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import javax.swing.*;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
@@ -28,17 +33,166 @@ import org.jetbrains.annotations.Nullable;
  * A panel that displays an aggregated diff of changes for the current session/branch.
  */
 public class SessionChangesPanel extends JPanel implements ThemeAware {
+    private static final Logger logger = LogManager.getLogger(SessionChangesPanel.class);
     private final Chrome chrome;
     private final ContextManager contextManager;
+    private final DeferredUpdateHelper deferredUpdateHelper;
+    private final TabTitleUpdater tabTitleUpdater;
+
+    @Nullable
+    private DiffService.CumulativeChanges lastCumulativeChanges = null;
 
     @Nullable
     private BrokkDiffPanel diffPanel;
 
-    public SessionChangesPanel(Chrome chrome, ContextManager contextManager) {
+    @FunctionalInterface
+    public interface TabTitleUpdater {
+        void updateTitleAndTooltip(String title, String tooltip);
+    }
+
+    public SessionChangesPanel(Chrome chrome, ContextManager contextManager, TabTitleUpdater tabTitleUpdater) {
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
+        this.tabTitleUpdater = tabTitleUpdater;
         setOpaque(false);
+
+        this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::performRefresh);
+    }
+
+    public void requestUpdate() {
+        deferredUpdateHelper.requestUpdate();
+    }
+
+    private void performRefresh() {
+        var repoOpt = repo();
+        if (repoOpt.isEmpty()) {
+            tabTitleUpdater.updateTitleAndTooltip("Review", "No Git repository");
+            return;
+        }
+
+        var repo = repoOpt.get();
+        String currentBranch;
+        try {
+            currentBranch = repo.getCurrentBranch();
+        } catch (Exception e) {
+            logger.warn("Failed to get current branch", e);
+            tabTitleUpdater.updateTitleAndTooltip("Review", "Failed to get branch");
+            return;
+        }
+
+        // Determine baseline mode and label
+        BaselineMode baselineMode;
+        String baselineLabel;
+        String defaultBranch;
+        try {
+            defaultBranch = repo.getDefaultBranch();
+        } catch (Exception e) {
+            defaultBranch = "main";
+        }
+
+        if (BuildPane.isLikelyCommitHash(currentBranch)) {
+            baselineMode = BaselineMode.DETACHED;
+            baselineLabel = "detached HEAD";
+        } else if (!currentBranch.equals(defaultBranch)) {
+            baselineMode = BaselineMode.NON_DEFAULT_BRANCH;
+            baselineLabel = defaultBranch;
+        } else {
+            // On default branch
+            var remoteUrl = repo.getRemoteUrl();
+            if (remoteUrl != null && !remoteUrl.isEmpty()) {
+                baselineMode = BaselineMode.DEFAULT_WITH_UPSTREAM;
+                baselineLabel = "origin/" + defaultBranch;
+            } else {
+                baselineMode = BaselineMode.DEFAULT_LOCAL_ONLY;
+                baselineLabel = "";
+            }
+        }
+
+        // Set loading state
+        tabTitleUpdater.updateTitleAndTooltip("Review (...)", "Computing branch-based changes...");
+
+        // Start background computation
+        final String finalBaselineLabel = baselineLabel;
+        final BaselineMode finalBaselineMode = baselineMode;
+
+        refreshCumulativeChangesAsync(currentBranch, baselineLabel, baselineMode)
+                .thenAccept(result -> {
+                    lastCumulativeChanges = result;
+                    var prepared = DiffService.preparePerFileSummaries(result);
+                    SwingUtilities.invokeLater(() -> {
+                        updateTitleAndTooltipFromResult(result, finalBaselineLabel);
+                        updateContent(result, prepared, finalBaselineLabel, finalBaselineMode);
+                    });
+                })
+                .exceptionally(ex -> {
+                    logger.warn("Failed to compute cumulative changes", ex);
+                    SwingUtilities.invokeLater(() -> {
+                        tabTitleUpdater.updateTitleAndTooltip("Review", "Failed to compute changes");
+                    });
+                    return null;
+                });
+    }
+
+    private java.util.Optional<ai.brokk.git.IGitRepo> repo() {
+        try {
+            return java.util.Optional.of(contextManager.getProject().getRepo());
+        } catch (Exception e) {
+            return java.util.Optional.empty();
+        }
+    }
+
+    private CompletableFuture<DiffService.CumulativeChanges> refreshCumulativeChangesAsync(
+            String currentBranch, String baselineLabel, BaselineMode baselineMode) {
+
+        return contextManager.submitBackgroundTask("Computing review changes", () -> {
+            var repo = contextManager.getProject().getRepo();
+
+            String leftRef;
+            String rightRef = "HEAD";
+
+            if (baselineMode == BaselineMode.DETACHED) {
+                // For detached HEAD, compare against empty (show all changes in current commit)
+                leftRef = rightRef + "^";
+            } else if (baselineMode == BaselineMode.NON_DEFAULT_BRANCH) {
+                // Compare current branch against default branch
+                leftRef = baselineLabel;
+            } else if (baselineMode == BaselineMode.DEFAULT_WITH_UPSTREAM) {
+                // Compare local default against remote
+                leftRef = baselineLabel;
+            } else {
+                // DEFAULT_LOCAL_ONLY - no meaningful comparison
+                return new DiffService.CumulativeChanges(0, 0, 0, java.util.List.of());
+            }
+
+            var modifiedFiles = repo.listFilesChangedBetweenCommits(rightRef, leftRef);
+            var modifiedSet = new java.util.HashSet<>(modifiedFiles.stream()
+                    .map(mf -> new ai.brokk.git.IGitRepo.ModifiedFile(mf.file(), mf.status()))
+                    .toList());
+
+            return DiffService.summarizeDiff(repo, leftRef, rightRef, modifiedSet);
+        });
+    }
+
+    private void updateTitleAndTooltipFromResult(DiffService.CumulativeChanges result, String baselineLabel) {
+        String title;
+        String tooltip;
+
+        if (result.filesChanged() == 0) {
+            title = "Review (0)";
+            tooltip = "No changes" + (baselineLabel.isEmpty() ? "" : " vs " + baselineLabel);
+        } else {
+            var addColor = ThemeColors.DIFF_ADDED;
+            var delColor = ThemeColors.DIFF_DELETED;
+            title = String.format(
+                    "<html>Review (%d) <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span></html>",
+                    result.filesChanged(), addColor, result.totalAdded(), delColor, result.totalDeleted());
+            tooltip = String.format("%d files changed, %d insertions, %d deletions%s",
+                    result.filesChanged(), result.totalAdded(), result.totalDeleted(),
+                    baselineLabel.isEmpty() ? "" : " vs " + baselineLabel);
+        }
+
+        tabTitleUpdater.updateTitleAndTooltip(title, tooltip);
     }
 
     public void updateContent(
