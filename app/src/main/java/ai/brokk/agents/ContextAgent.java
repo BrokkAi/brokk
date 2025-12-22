@@ -472,14 +472,15 @@ public class ContextAgent {
 
     /**
      * Returns a map of ProjectFile -> identifiers text (summaries of classes in the file).
+     * Files with empty identifiers are omitted from the result.
      */
     private Map<ProjectFile, String> getCachedIdentifiers(Collection<ProjectFile> candidates) {
         return candidates.parallelStream()
                 .distinct()
-                .collect(Collectors.toMap(
-                        f -> f,
-                        f -> identifiersByFile.computeIfAbsent(f, pf -> Context.buildRelatedIdentifiers(analyzer, pf)),
-                        (v1, v2) -> v1));
+                .map(f -> Map.entry(
+                        f, identifiersByFile.computeIfAbsent(f, pf -> Context.buildRelatedIdentifiers(analyzer, pf))))
+                .filter(entry -> !entry.getValue().isEmpty())
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
     }
 
     // --- Result assembly ---
