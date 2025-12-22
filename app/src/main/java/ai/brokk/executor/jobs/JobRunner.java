@@ -8,7 +8,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.gui.util.GitRepoIdUtil;
 import ai.brokk.prompts.CodePrompts;
@@ -324,7 +324,7 @@ public final class JobRunner {
                                                 Objects.requireNonNull(
                                                         codeModeModel, "code model unavailable for CODE jobs"));
                                         try (var scope = cm.beginTask(spec.taskInput(), false)) {
-                                            var result = agent.runTask(spec.taskInput(), Set.of());
+                                            var result = agent.execute(spec.taskInput(), Set.of());
                                             scope.append(result);
                                         }
                                     }
@@ -551,7 +551,7 @@ public final class JobRunner {
 
                                         TaskResult result;
                                         try (var scope = cm.beginTask("Review", false)) {
-                                            result = agent.runTask(reviewPrompt, Set.of());
+                                            result = agent.execute(reviewPrompt, Set.of());
                                             scope.append(result);
                                         }
                                         String jsonString = result.stopDetails().explanation();
@@ -864,7 +864,7 @@ public final class JobRunner {
             String fullDiff = diff.toString();
             String description = pr.getBody();
 
-            var fragment = new ContextFragment.StringFragment(
+            var fragment = new ContextFragments.StringFragment(
                     cm, fullDiff, description, "text/x-diff", Set.copyOf(changedFiles));
             cm.addFragments(fragment);
 

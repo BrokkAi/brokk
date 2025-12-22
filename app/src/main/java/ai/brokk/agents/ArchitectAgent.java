@@ -12,7 +12,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
 import ai.brokk.context.Context;
 import ai.brokk.context.ViewingPolicy;
-import ai.brokk.project.ModelProperties;
+import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.tools.ToolExecutionResult;
@@ -159,7 +159,7 @@ public class ArchitectAgent {
         if (deferBuild) {
             opts.add(CodeAgent.Option.DEFER_BUILD);
         }
-        var result = agent.runTask(context, List.of(), instructions, opts);
+        var result = agent.executeWithoutHistory(context, instructions, opts);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
         // Update local context with the CodeAgent's resulting context
@@ -411,7 +411,7 @@ public class ArchitectAgent {
      * Strategy:
      * 1) Try CodeAgent first with the goal.
      * 2) Enter planning loop. If the workspace is critical, restrict tools to workspace-trimming set.
-     * 3) If the planning LLM returns ContextTooLarge, switch to GEMINI_2_5_PRO and run a single
+     * 3) If the planning LLM returns ContextTooLarge, switch to ARCHITECT_FALLBACK and run a single
      * critical-turn (restricted tools) to shrink the workspace, then proceed with the result.
      */
     private TaskResult executeInternal() throws InterruptedException {
@@ -515,14 +515,14 @@ public class ArchitectAgent {
                 // we know workspace is too large; we don't know by how much so we'll guess 0.8 as the threshold
                 messages = buildPrompt(workspaceTokenSize, (int) (workspaceTokenSize * 0.8), workspaceContentMessages);
                 var currentModelTokens = modelsService.getMaxInputTokens(this.planningModel);
-                var fallbackModel = requireNonNull(modelsService.getModel(ModelProperties.GEMINI_3_PRO_PREVIEW));
+                var fallbackModel = modelsService.getModel(ModelType.ARCHITECT_FALLBACK);
                 var fallbackModelTokens = modelsService.getMaxInputTokens(fallbackModel);
                 if (fallbackModelTokens < currentModelTokens * 1.2) {
                     return resultWithMessages(StopReason.LLM_ERROR);
                 }
                 logger.warn(
                         "Context too large for current model; attempting emergency retry with {} (tokens: {} vs {})",
-                        ModelProperties.GEMINI_3_PRO_PREVIEW,
+                        modelsService.nameOf(fallbackModel),
                         fallbackModelTokens,
                         currentModelTokens);
 
@@ -890,7 +890,7 @@ public class ArchitectAgent {
         var messages = new ArrayList<ChatMessage>();
         // System message defines the agent's role and general instructions
         var reminder = CodePrompts.instance.architectReminder();
-        messages.add(ArchitectPrompts.instance.systemMessage(cm, reminder));
+        messages.add(ArchitectPrompts.instance.systemMessage(cm, context, reminder));
 
         // Workspace contents are added directly
         messages.addAll(precomputedWorkspaceMessages);
@@ -919,7 +919,21 @@ public class ArchitectAgent {
         messages.addAll(architectMessages);
         // Final user message with the goal and specific instructions for this turn, including workspace warnings
         messages.add(new UserMessage(
-                ArchitectPrompts.instance.getFinalInstructions(cm, goal, workspaceTokenSize, maxInputTokens)));
-        return messages;
+                ArchitectPrompts.instance.getFinalInstructions(context, goal, workspaceTokenSize, maxInputTokens)));
+
+        // Simplify prior UserMessages containing instructionsMarker to just the marker;
+        // this avoids sending redundant instruction text on subsequent turns
+        var marker = ArchitectPrompts.instructionsMarker();
+        return messages.stream()
+                .map(msg -> {
+                    if (msg instanceof UserMessage um) {
+                        var text = um.singleText();
+                        if (text.contains(marker)) {
+                            return new UserMessage(marker);
+                        }
+                    }
+                    return msg;
+                })
+                .toList();
     }
 }

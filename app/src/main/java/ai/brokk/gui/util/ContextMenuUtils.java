@@ -3,6 +3,7 @@ package ai.brokk.gui.util;
 import ai.brokk.AnalyzerWrapper;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.TableUtils;
 import ai.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
@@ -209,7 +210,7 @@ public final class ContextMenuUtils {
         JMenuItem showContentsItem = new JMenuItem("Show Contents");
         showContentsItem.addActionListener(e1 -> {
             if (targetRef.getRepoFile() != null) {
-                chrome.openFragmentPreview(new ContextFragment.ProjectPathFragment(targetRef.getRepoFile(), cm));
+                chrome.openFragmentPreview(new ContextFragments.ProjectPathFragment(targetRef.getRepoFile(), cm));
             }
         });
         menu.add(showContentsItem);
@@ -287,7 +288,7 @@ public final class ContextMenuUtils {
         menu.addSeparator();
 
         // File-specific actions
-        if (fragment instanceof ContextFragment.PathFragment pathFragment
+        if (fragment instanceof ContextFragments.PathFragment pathFragment
                 && pathFragment.file() instanceof ProjectFile projectFile) {
             var showInTreeItem = new JMenuItem("Show in Project Tree");
             showInTreeItem.addActionListener(e -> chrome.getProjectFilesPanel().showFileInTree(projectFile));

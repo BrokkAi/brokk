@@ -63,7 +63,7 @@ public final class ComputedSubscription {
         // Helper to run UI update, coalesced onto EDT
         Runnable scheduleUpdate = () -> SwingUtilities.invokeLater(uiUpdate);
 
-        if (!(fragment instanceof ContextFragment.AbstractComputedFragment acf)) {
+        if (!(fragment instanceof ContextFragments.AbstractComputedFragment acf)) {
             scheduleUpdate.run();
             return;
         }

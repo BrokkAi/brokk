@@ -23,7 +23,6 @@ import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.AtomicWrites;
 import ai.brokk.util.BrokkConfigPaths;
 import ai.brokk.util.DependencyUpdateScheduler;
-import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.PathNormalizer;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -110,7 +109,6 @@ public final class MainProject extends AbstractProject {
     private static final String JIRA_PROJECT_KEY_KEY = "jiraProjectKey";
 
     private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
-    private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
     private static final String COMMIT_MESSAGE_FORMAT_KEY = "commitMessageFormat";
     private static final String EXCEPTION_REPORTING_ENABLED_KEY = "exceptionReportingEnabled";
@@ -346,12 +344,17 @@ public final class MainProject extends AbstractProject {
             try {
                 var details = objectMapper.readValue(json, BuildAgent.BuildDetails.class);
 
-                // Canonicalize excluded directories relative to the master root for config, preserving insertion order
-                var canonicalExcludes = new LinkedHashSet<String>();
-                for (String r : details.excludedDirectories()) {
-                    String c = PathNormalizer.canonicalizeForProject(r, getMasterRootPathForConfig());
-                    if (!c.isBlank()) {
-                        canonicalExcludes.add(c);
+                // Canonicalize exclusion patterns that look like paths
+                var canonicalExclusions = new LinkedHashSet<String>();
+                for (String pattern : details.exclusionPatterns()) {
+                    // Only canonicalize patterns that look like directory paths (contain / or \)
+                    if (pattern.contains("/") || pattern.contains("\\")) {
+                        String c = PathNormalizer.canonicalizeForProject(pattern, getMasterRootPathForConfig());
+                        if (!c.isBlank()) {
+                            canonicalExclusions.add(c);
+                        }
+                    } else {
+                        canonicalExclusions.add(pattern);
                     }
                 }
 
@@ -377,7 +380,7 @@ public final class MainProject extends AbstractProject {
                         details.buildLintCommand(),
                         details.testAllCommand(),
                         details.testSomeCommand(),
-                        canonicalExcludes,
+                        canonicalExclusions,
                         canonicalEnv);
             } catch (JsonProcessingException e) {
                 logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
@@ -394,12 +397,17 @@ public final class MainProject extends AbstractProject {
     @Override
     public void saveBuildDetails(BuildAgent.BuildDetails details) {
         // Build canonical details for stable on-disk representation
-        // 1) Canonicalize excluded directories relative to masterRootPathForConfig, preserving insertion order
-        var canonicalExcludes = new LinkedHashSet<String>();
-        for (String r : details.excludedDirectories()) {
-            String c = PathNormalizer.canonicalizeForProject(r, getMasterRootPathForConfig());
-            if (!c.isBlank()) {
-                canonicalExcludes.add(c);
+        // 1) Canonicalize exclusion patterns that look like paths
+        var canonicalExclusions = new LinkedHashSet<String>();
+        for (String pattern : details.exclusionPatterns()) {
+            // Only canonicalize patterns that look like directory paths (contain / or \)
+            if (pattern.contains("/") || pattern.contains("\\")) {
+                String c = PathNormalizer.canonicalizeForProject(pattern, getMasterRootPathForConfig());
+                if (!c.isBlank()) {
+                    canonicalExclusions.add(c);
+                }
+            } else {
+                canonicalExclusions.add(pattern);
             }
         }
 
@@ -423,7 +431,7 @@ public final class MainProject extends AbstractProject {
                 details.buildLintCommand(),
                 details.testAllCommand(),
                 details.testSomeCommand(),
-                canonicalExcludes,
+                canonicalExclusions,
                 canonicalEnv);
 
         if (!canonicalDetails.equals(BuildAgent.BuildDetails.EMPTY)) {
@@ -488,6 +496,14 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
 
+    public void removeModelConfig(ModelType modelType) {
+        var props = loadGlobalProperties();
+        if (props.containsKey(modelType.propertyKey)) {
+            props.remove(modelType.propertyKey);
+            saveGlobalProperties(props);
+        }
+    }
+
     @Override
     public String getCommitMessageFormat() {
         return projectProps.getProperty(COMMIT_MESSAGE_FORMAT_KEY, DEFAULT_COMMIT_MESSAGE_FORMAT);
@@ -542,6 +558,7 @@ public final class MainProject extends AbstractProject {
         notifyAutoUpdateGitDependenciesChanged();
     }
 
+    @Override
     public long getRunCommandTimeoutSeconds() {
         String valueStr = projectProps.getProperty(RUN_COMMAND_TIMEOUT_SECONDS_KEY);
         if (valueStr == null) {

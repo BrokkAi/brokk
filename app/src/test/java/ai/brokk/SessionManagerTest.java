@@ -7,6 +7,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
@@ -40,7 +41,7 @@ public class SessionManagerTest {
     void setup() throws IOException {
         mockContextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
         // Reset fragment ID counter for test isolation
-        ContextFragment.setMinimumId(1);
+        ContextFragments.setMinimumId(1);
 
         // Clean .brokk/sessions directory for session tests
         Path sessionsDir = tempDir.resolve(".brokk").resolve("sessions");
@@ -108,9 +109,10 @@ public class SessionManagerTest {
 
         // Populate originalHistory
 
-        ContextFragment.StringFragment sf = new ContextFragment.StringFragment(
+        ContextFragments.StringFragment sf = new ContextFragments.StringFragment(
                 mockContextManager, "Test string fragment content", "TestSF", SyntaxConstants.SYNTAX_STYLE_NONE);
-        ContextFragment.ProjectPathFragment pf = new ContextFragment.ProjectPathFragment(dummyFile, mockContextManager);
+        ContextFragments.ProjectPathFragment pf =
+                new ContextFragments.ProjectPathFragment(dummyFile, mockContextManager);
         Context context2 = new Context(mockContextManager).addFragments(List.of(sf, pf));
         originalHistory.pushContext(context2);
 
@@ -446,7 +448,7 @@ public class SessionManagerTest {
             var msgs = List.<ChatMessage>of(
                     dev.langchain4j.data.message.UserMessage.from("Query " + i),
                     dev.langchain4j.data.message.AiMessage.from("Response " + i));
-            var tf = new ContextFragment.TaskFragment(mockContextManager, msgs, "Task " + i);
+            var tf = new ContextFragments.TaskFragment(mockContextManager, msgs, "Task " + i);
             var ctx = new Context(mockContextManager)
                     .addHistoryEntry(
                             new TaskEntry(i + 1, tf, null),

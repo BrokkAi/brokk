@@ -57,13 +57,15 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     @Nullable
     private JTextArea reviewGuideArea;
 
-    // CI Exclusions (moved to build panel; kept list model only for short-term compatibility removal)
-    // Analyzer-related UI
-    private final DefaultListModel<String> excludedDirectoriesListModel = new DefaultListModel<>();
-    private final JList<String> excludedDirectoriesList = new JList<>(excludedDirectoriesListModel);
-    private final JScrollPane excludedScrollPane = new JScrollPane(excludedDirectoriesList);
-    private final MaterialButton addExcludedDirButton = new MaterialButton();
-    private final MaterialButton removeExcludedDirButton = new MaterialButton();
+    // Unified exclusion patterns (directories and file patterns combined)
+    private final DefaultListModel<String> exclusionPatternsListModel = new DefaultListModel<>();
+    private final JList<String> exclusionPatternsList = new JList<>(exclusionPatternsListModel);
+    private final JScrollPane exclusionPatternsScrollPane = new JScrollPane(exclusionPatternsList);
+    private final MaterialButton addExclusionButton = new MaterialButton();
+    private final MaterialButton removeExclusionButton = new MaterialButton();
+    private final Set<String> newlyAddedPatterns = new HashSet<>(); // Track patterns added by BuildAgent or manually
+    private final Set<String> baselinePatterns =
+            new TreeSet<>(String.CASE_INSENSITIVE_ORDER); // Patterns loaded from storage
 
     // Dependency auto-update (Code Intelligence tab)
     private final JCheckBox autoUpdateLocalDependenciesCheckBox =
@@ -203,9 +205,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private void populateBuildTab(SettingsDialog.SettingsData data) {
         // Build details - use pre-loaded data
         if (data.buildDetails() != null) {
-            updateExcludedDirectories(data.buildDetails().excludedDirectories());
+            updateExclusionPatterns(data.buildDetails().exclusionPatterns());
         } else {
-            updateExcludedDirectories(List.of());
+            updateExclusionPatterns(Set.of());
         }
     }
 
@@ -244,21 +246,44 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         return projectSubTabbedPane;
     }
 
-    // Update CI exclusions list model safely and consistently (EDT, sorted, deduped case-insensitively)
-    public void updateExcludedDirectories(@Nullable Collection<String> dirs) {
+    // Update exclusion patterns list model safely and consistently (EDT, sorted, deduped case-insensitively)
+    public void updateExclusionPatterns(@Nullable Collection<String> patterns) {
+        updateExclusionPatternsInternal(patterns, null);
+    }
+
+    // Update exclusion patterns from BuildAgent, marking LLM additions for highlighting
+    public void updateExclusionPatternsFromAgent(
+            @Nullable Collection<String> patterns, @Nullable Set<String> llmAddedPatterns) {
+        updateExclusionPatternsInternal(patterns, llmAddedPatterns);
+    }
+
+    private void updateExclusionPatternsInternal(
+            @Nullable Collection<String> patterns, @Nullable Set<String> llmPatternsToHighlight) {
         Runnable r = () -> {
             try {
                 var unique = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
-                if (dirs != null) {
-                    unique.addAll(dirs);
+                if (patterns != null) {
+                    unique.addAll(patterns);
                 }
-                excludedDirectoriesListModel.clear();
-                for (String d : unique) {
-                    excludedDirectoriesListModel.addElement(d);
+
+                if (llmPatternsToHighlight != null) {
+                    // From agent: highlight only the LLM-added patterns
+                    newlyAddedPatterns.clear();
+                    newlyAddedPatterns.addAll(llmPatternsToHighlight);
+                } else {
+                    // Loading from storage: update baseline and clear tracking
+                    baselinePatterns.clear();
+                    baselinePatterns.addAll(unique);
+                    newlyAddedPatterns.clear();
+                }
+
+                exclusionPatternsListModel.clear();
+                for (String p : unique) {
+                    exclusionPatternsListModel.addElement(p);
                 }
             } catch (Exception ex) {
-                logger.warn("Failed to update CI exclusions list model: {}", ex.getMessage(), ex);
-                excludedDirectoriesListModel.clear();
+                logger.warn("Failed to update exclusion patterns list model: {}", ex.getMessage(), ex);
+                exclusionPatternsListModel.clear();
             }
         };
         if (SwingUtilities.isEventDispatchThread()) {
@@ -855,111 +880,92 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         toolbar.add(refreshBtn);
 
         // User-configured CI Exclusions are stored in BuildDetails and can be edited here.
-        var ciPanel = new JPanel(new GridBagLayout());
-        var gbcCi = new GridBagConstraints();
-        gbcCi.insets = new Insets(2, 2, 2, 2);
-        gbcCi.fill = GridBagConstraints.HORIZONTAL;
-        int ciRow = 0;
+        // Unified exclusion patterns panel (directories and file patterns combined)
+        var exclusionsPanel = new JPanel(new GridBagLayout());
+        var gbcExcl = new GridBagConstraints();
+        gbcExcl.insets = new Insets(2, 2, 2, 2);
+        gbcExcl.fill = GridBagConstraints.HORIZONTAL;
+        int exclRow = 0;
 
-        gbcCi.gridx = 0;
-        gbcCi.gridy = ciRow;
-        gbcCi.weightx = 0.0;
-        gbcCi.anchor = GridBagConstraints.NORTHWEST;
-        var ciExclusionsLabel = new JLabel("CI Exclusions:");
-        ciExclusionsLabel.setToolTipText(
-                "<html>User-configured directories to exclude from Code Intelligence.<br>Additional exclusions from .gitignore and for unmanaged dependencies are applied automatically.</html>");
-        ciPanel.add(ciExclusionsLabel, gbcCi);
-        excludedDirectoriesList.setVisibleRowCount(3);
-        gbcCi.gridx = 1;
-        gbcCi.gridy = ciRow++;
-        gbcCi.weightx = 1.0;
-        gbcCi.weighty = 0.5;
-        gbcCi.fill = GridBagConstraints.BOTH;
-        ciPanel.add(this.excludedScrollPane, gbcCi);
+        gbcExcl.gridx = 0;
+        gbcExcl.gridy = exclRow;
+        gbcExcl.weightx = 0.0;
+        gbcExcl.anchor = GridBagConstraints.NORTHWEST;
+        var exclusionsLabel = new JLabel("Exclusion Patterns:");
+        exclusionsLabel.setToolTipText("<html>Patterns to exclude from Code Intelligence.<br>"
+                + "Directory names (e.g., 'build', 'node_modules') match at any depth.<br>"
+                + "File patterns (e.g., '*.svg', 'package-lock.json') match files.<br>"
+                + "Additional exclusions from .gitignore are applied automatically.</html>");
+        exclusionsPanel.add(exclusionsLabel, gbcExcl);
+        exclusionPatternsList.setVisibleRowCount(5);
+        gbcExcl.gridx = 1;
+        gbcExcl.gridy = exclRow++;
+        gbcExcl.weightx = 1.0;
+        gbcExcl.weighty = 0.5;
+        gbcExcl.fill = GridBagConstraints.BOTH;
+        exclusionsPanel.add(this.exclusionPatternsScrollPane, gbcExcl);
 
-        var excludedButtonsPanel2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        this.addExcludedDirButton.setIcon(Icons.ADD);
-        this.addExcludedDirButton.setToolTipText("Add");
-        this.removeExcludedDirButton.setIcon(Icons.REMOVE);
-        this.removeExcludedDirButton.setToolTipText("Remove");
+        var exclusionButtonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        this.addExclusionButton.setIcon(Icons.ADD);
+        this.addExclusionButton.setToolTipText("Add");
+        this.removeExclusionButton.setIcon(Icons.REMOVE);
+        this.removeExclusionButton.setToolTipText("Remove");
 
-        excludedButtonsPanel2.add(this.addExcludedDirButton);
-        excludedButtonsPanel2.add(Box.createHorizontalStrut(5));
-        excludedButtonsPanel2.add(this.removeExcludedDirButton);
-        gbcCi.gridy = ciRow++;
-        gbcCi.weighty = 0.0;
-        gbcCi.fill = GridBagConstraints.HORIZONTAL;
-        gbcCi.anchor = GridBagConstraints.WEST;
-        ciPanel.add(excludedButtonsPanel2, gbcCi);
+        exclusionButtonsPanel.add(this.addExclusionButton);
+        exclusionButtonsPanel.add(Box.createHorizontalStrut(5));
+        exclusionButtonsPanel.add(this.removeExclusionButton);
+        gbcExcl.gridy = exclRow++;
+        gbcExcl.weighty = 0.0;
+        gbcExcl.fill = GridBagConstraints.HORIZONTAL;
+        gbcExcl.anchor = GridBagConstraints.WEST;
+        exclusionsPanel.add(exclusionButtonsPanel, gbcExcl);
 
-        // Auto-update dependency checkboxes (apply only to Dependencies panel imports)
-        gbcCi.gridx = 0;
-        gbcCi.gridy = ciRow++;
-        gbcCi.gridwidth = 2;
-        gbcCi.weightx = 1.0;
-        gbcCi.weighty = 0.0;
-        gbcCi.anchor = GridBagConstraints.WEST;
-        gbcCi.fill = GridBagConstraints.HORIZONTAL;
-        gbcCi.insets = new Insets(8, 2, 0, 2);
-        ciPanel.add(autoUpdateLocalDependenciesCheckBox, gbcCi);
-
-        gbcCi.gridx = 0;
-        gbcCi.gridy = ciRow++;
-        gbcCi.gridwidth = 2;
-        gbcCi.weightx = 1.0;
-        gbcCi.weighty = 0.0;
-        gbcCi.anchor = GridBagConstraints.WEST;
-        gbcCi.fill = GridBagConstraints.HORIZONTAL;
-        gbcCi.insets = new Insets(2, 2, 0, 2);
-        ciPanel.add(autoUpdateGitDependenciesCheckBox, gbcCi);
-
-        autoUpdateLocalDependenciesCheckBox.setToolTipText(
-                "Automatically refresh dependencies imported from local directories via the Dependencies panel.");
-        autoUpdateGitDependenciesCheckBox.setToolTipText(
-                "Automatically refresh dependencies imported from GitHub repositories via the Dependencies panel.");
-
-        var autoUpdateInfoLabel =
-                new JLabel("<html>Auto-update applies only to dependencies imported via the Dependencies panel "
-                        + "(local directories and GitHub repositories).</html>");
-        autoUpdateInfoLabel.setFont(autoUpdateInfoLabel
-                .getFont()
-                .deriveFont(autoUpdateInfoLabel.getFont().getSize() * 0.9f));
-        gbcCi.gridx = 0;
-        gbcCi.gridy = ciRow++;
-        gbcCi.gridwidth = 2;
-        gbcCi.weightx = 1.0;
-        gbcCi.weighty = 0.0;
-        gbcCi.anchor = GridBagConstraints.WEST;
-        gbcCi.fill = GridBagConstraints.HORIZONTAL;
-        gbcCi.insets = new Insets(4, 2, 2, 2);
-        ciPanel.add(autoUpdateInfoLabel, gbcCi);
-
-        // Restore default insets for any subsequent components
-        gbcCi.insets = new Insets(2, 2, 2, 2);
-
-        // Wire add/remove actions for the exclusions buttons.
-        this.addExcludedDirButton.addActionListener(e -> {
-            String newDir = JOptionPane.showInputDialog(
-                    parentDialog,
-                    "Enter directory to exclude (e.g., target/, build/):",
-                    "Add Excluded Directory",
-                    JOptionPane.PLAIN_MESSAGE);
-            if (newDir != null && !newDir.trim().isEmpty()) {
-                String trimmedNewDir = newDir.trim();
-                List<String> currentElements = Collections.list(excludedDirectoriesListModel.elements());
-                if (!currentElements.contains(trimmedNewDir)) { // Avoid duplicates
-                    currentElements.add(trimmedNewDir);
+        // Custom cell renderer to highlight newly added patterns with italics and muted color
+        exclusionPatternsList.setCellRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(
+                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                var c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof String s && newlyAddedPatterns.contains(s)) {
+                    c.setFont(c.getFont().deriveFont(Font.ITALIC));
+                    if (!isSelected) {
+                        c.setForeground(UIManager.getColor("Label.disabledForeground"));
+                    }
                 }
-                currentElements.sort(String::compareToIgnoreCase);
-
-                excludedDirectoriesListModel.clear();
-                currentElements.forEach(excludedDirectoriesListModel::addElement);
+                return c;
             }
         });
-        this.removeExcludedDirButton.addActionListener(e -> {
-            int[] selectedIndices = excludedDirectoriesList.getSelectedIndices();
-            for (int i = selectedIndices.length - 1; i >= 0; i--)
-                excludedDirectoriesListModel.removeElementAt(selectedIndices[i]);
+
+        // Wire add/remove actions for the exclusion patterns buttons.
+        this.addExclusionButton.addActionListener(e -> {
+            String newPattern = JOptionPane.showInputDialog(
+                    parentDialog,
+                    "Enter exclusion pattern (e.g., 'build', 'node_modules', '*.svg', 'package-lock.json'):",
+                    "Add Exclusion Pattern",
+                    JOptionPane.PLAIN_MESSAGE);
+            if (newPattern != null && !newPattern.trim().isEmpty()) {
+                String trimmedPattern = newPattern.trim();
+                // Use case-insensitive set for proper deduplication
+                var unique = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
+                unique.addAll(Collections.list(exclusionPatternsListModel.elements()));
+
+                // Track as newly added if it's actually new
+                if (!unique.contains(trimmedPattern)) {
+                    newlyAddedPatterns.add(trimmedPattern);
+                }
+                unique.add(trimmedPattern);
+
+                exclusionPatternsListModel.clear();
+                unique.forEach(exclusionPatternsListModel::addElement);
+            }
+        });
+        this.removeExclusionButton.addActionListener(e -> {
+            int[] selectedIndices = exclusionPatternsList.getSelectedIndices();
+            for (int i = selectedIndices.length - 1; i >= 0; i--) {
+                String removed = exclusionPatternsListModel.getElementAt(selectedIndices[i]);
+                newlyAddedPatterns.remove(removed);
+                exclusionPatternsListModel.removeElementAt(selectedIndices[i]);
+            }
         });
 
         // Compose a north container that holds toolbar only
@@ -1045,8 +1051,51 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             }
         }
 
-        // Add excluded directories panel below the languages configuration
-        ciPanel.setBorder(BorderFactory.createTitledBorder("Excluded directories"));
+        // Set border on the unified exclusions panel
+        exclusionsPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+
+        // Auto-update dependency checkboxes (apply only to Dependencies panel imports)
+        var autoUpdatePanel = new JPanel(new GridBagLayout());
+        var gbcAuto = new GridBagConstraints();
+        gbcAuto.insets = new Insets(2, 2, 2, 2);
+        gbcAuto.fill = GridBagConstraints.HORIZONTAL;
+        gbcAuto.gridx = 0;
+        gbcAuto.gridy = 0;
+        gbcAuto.gridwidth = 2;
+        gbcAuto.weightx = 1.0;
+        gbcAuto.weighty = 0.0;
+        gbcAuto.anchor = GridBagConstraints.WEST;
+
+        gbcAuto.insets = new Insets(8, 2, 0, 2);
+        autoUpdatePanel.add(autoUpdateLocalDependenciesCheckBox, gbcAuto);
+
+        gbcAuto.gridy++;
+        gbcAuto.insets = new Insets(2, 2, 0, 2);
+        autoUpdatePanel.add(autoUpdateGitDependenciesCheckBox, gbcAuto);
+
+        autoUpdateLocalDependenciesCheckBox.setToolTipText(
+                "Automatically refresh dependencies imported from local directories via the Dependencies panel.");
+        autoUpdateGitDependenciesCheckBox.setToolTipText(
+                "Automatically refresh dependencies imported from GitHub repositories via the Dependencies panel.");
+
+        var autoUpdateInfoLabel =
+                new JLabel("<html>Auto-update applies only to dependencies imported via the Dependencies panel "
+                        + "(local directories and GitHub repositories).</html>");
+        autoUpdateInfoLabel.setFont(autoUpdateInfoLabel
+                .getFont()
+                .deriveFont(autoUpdateInfoLabel.getFont().getSize() * 0.9f));
+
+        gbcAuto.gridy++;
+        gbcAuto.insets = new Insets(4, 2, 2, 2);
+        autoUpdatePanel.add(autoUpdateInfoLabel, gbcAuto);
+
+        // Container for exclusions and auto-update settings
+        var ciPanel = new JPanel(new BorderLayout());
+        ciPanel.setBorder(BorderFactory.createTitledBorder("Code Intelligence Exclusions"));
+        ciPanel.add(exclusionsPanel, BorderLayout.CENTER);
+        ciPanel.add(autoUpdatePanel, BorderLayout.SOUTH);
+
+        // Add exclusions container below the languages configuration
         panel.add(ciPanel, BorderLayout.SOUTH);
 
         return panel;
@@ -1289,27 +1338,39 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         try {
             var currentDetails = project.loadBuildDetails();
 
-            var rawExclusions = Collections.list(excludedDirectoriesListModel.elements());
-            var canonicalized =
-                    PathNormalizer.canonicalizeAllForProject(rawExclusions, project.getMasterRootPathForConfig());
-            // Preserve case-insensitive de-duplication for stability in UI and persistence
-            Set<String> excludesSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-            excludesSet.addAll(canonicalized);
+            // Get all patterns from the unified list
+            var rawPatterns = Collections.list(exclusionPatternsListModel.elements());
+
+            // Canonicalize directory patterns (non-wildcards), leave glob patterns as-is
+            Set<String> exclusionPatterns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+            for (String pattern : rawPatterns) {
+                if (pattern.contains("*") || pattern.contains("?")) {
+                    exclusionPatterns.add(pattern);
+                } else {
+                    String canonicalized =
+                            PathNormalizer.canonicalizeForProject(pattern, project.getMasterRootPathForConfig());
+                    if (!canonicalized.isBlank()) {
+                        exclusionPatterns.add(canonicalized);
+                    }
+                }
+            }
 
             var newDetails = new BuildDetails(
                     currentDetails.buildLintCommand(),
                     currentDetails.testAllCommand(),
                     currentDetails.testSomeCommand(),
-                    excludesSet,
+                    exclusionPatterns,
                     currentDetails.environmentVariables());
 
             if (!newDetails.equals(currentDetails)) {
                 project.saveBuildDetails(newDetails);
-                logger.debug("Saved CI exclusions from Code Intelligence panel into BuildDetails: {}", excludesSet);
+                logger.debug(
+                        "Saved CI exclusions from Code Intelligence panel into BuildDetails: patterns={}",
+                        exclusionPatterns);
             }
 
             // Refresh the UI to reflect canonicalized values
-            updateExcludedDirectories(excludesSet);
+            updateExclusionPatterns(exclusionPatterns);
         } catch (Exception e) {
             logger.warn("Failed to persist CI exclusions before applying build settings: {}", e.toString(), e);
         }

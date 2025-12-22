@@ -55,7 +55,7 @@ class ContextTest {
         contextManager = new TestContextManager(tempDir, new NoOpConsoleIO(), analyzer);
 
         // Reset fragment ID counter for test isolation
-        ContextFragment.setMinimumId(1);
+        ContextFragments.setMinimumId(1);
     }
 
     @Test
@@ -64,8 +64,8 @@ class ContextTest {
         Files.createDirectories(pf.absPath().getParent());
         pf.write("public class Foo {}");
 
-        var p1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
-        var p2 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var p1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
+        var p2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
 
         var ctx = new Context(contextManager);
         ctx = ctx.addFragments(List.of(p1, p2));
@@ -77,10 +77,10 @@ class ContextTest {
 
     @Test
     void testAddVirtualFragmentsDedupBySource() {
-        var v1 = new ContextFragment.StringFragment(
+        var v1 = new ContextFragments.StringFragment(
                 contextManager, "same text", "desc-1", SyntaxConstants.SYNTAX_STYLE_NONE);
         // Identical content and description -> should be deduped
-        var v2 = new ContextFragment.StringFragment(
+        var v2 = new ContextFragments.StringFragment(
                 contextManager, "same text", "desc-1", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var ctx = new Context(contextManager);
@@ -102,19 +102,19 @@ class ContextTest {
         Files.createDirectories(pfB.absPath().getParent());
         pfB.write("class B {}");
 
-        var projectFragA = new ContextFragment.ProjectPathFragment(pfA, contextManager);
-        var projectFragB = new ContextFragment.ProjectPathFragment(pfB, contextManager);
+        var projectFragA = new ContextFragments.ProjectPathFragment(pfA, contextManager);
+        var projectFragB = new ContextFragments.ProjectPathFragment(pfB, contextManager);
 
         // External path fragment
         var extPath = tempDir.resolve("external.txt");
         Files.writeString(extPath, "external");
-        var extFrag = new ContextFragment.ExternalPathFragment(new ExternalFile(extPath), contextManager);
+        var extFrag = new ContextFragments.ExternalPathFragment(new ExternalFile(extPath), contextManager);
 
         // Editable virtual: CodeFragment
         var cu = analyzer.getDefinitions("com.example.CodeFragmentTarget").stream()
                 .findFirst()
                 .orElseThrow();
-        var codeFrag = new ContextFragment.CodeFragment(contextManager, cu);
+        var codeFrag = new ContextFragments.CodeFragment(contextManager, cu);
 
         var ctx = new Context(contextManager)
                 .addFragments(List.of(projectFragA, projectFragB))
@@ -125,7 +125,7 @@ class ContextTest {
         // then project path fragments ordered by mtime (older A then newer B).
         var editable = ctx.getEditableFragments().toList();
         assertEquals(3, editable.size(), "All editable fragments should be present before read-only filtering");
-        assertInstanceOf(ContextFragment.CodeFragment.class, editable.get(0), "Editable virtuals should come first");
+        assertInstanceOf(ContextFragments.CodeFragment.class, editable.get(0), "Editable virtuals should come first");
         assertEquals(projectFragA, editable.get(1), "Older project file should come before newer");
         assertEquals(projectFragB, editable.get(2), "Newer project file should be last");
 
@@ -133,7 +133,7 @@ class ContextTest {
         var ctx2 = ctx.setReadonly(codeFrag, true);
         var editable2 = ctx2.getEditableFragments().toList();
         assertEquals(2, editable2.size(), "Read-only fragments should be filtered out");
-        assertFalse(editable2.stream().anyMatch(f -> f instanceof ContextFragment.CodeFragment));
+        assertFalse(editable2.stream().anyMatch(f -> f instanceof ContextFragments.CodeFragment));
         assertTrue(ctx2.isMarkedReadonly(codeFrag), "Read-only state should be tracked");
     }
 
@@ -142,7 +142,7 @@ class ContextTest {
         var pf = new ProjectFile(tempDir, "src/Rm.java");
         Files.createDirectories(pf.absPath().getParent());
         pf.write("class Rm {}");
-        var ppf = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var ppf = new ContextFragments.ProjectPathFragment(pf, contextManager);
 
         var ctx = new Context(contextManager).addFragments(List.of(ppf));
         ctx = ctx.setReadonly(ppf, true);
@@ -192,12 +192,12 @@ class ContextTest {
     @Test
     void testIsAiResultDetection() {
         List<ChatMessage> msgs = List.of(UserMessage.from("U"), AiMessage.from("A"));
-        var tf = new ContextFragment.TaskFragment(contextManager, msgs, "task");
+        var tf = new ContextFragments.TaskFragment(contextManager, msgs, "task");
         var ctx = new Context(contextManager).withParsedOutput(tf, "action");
         assertTrue(ctx.isAiResult(), "AI result should be true when AI message is present");
 
         List<ChatMessage> msgs2 = List.of(UserMessage.from("Only user"));
-        var tf2 = new ContextFragment.TaskFragment(contextManager, msgs2, "task");
+        var tf2 = new ContextFragments.TaskFragment(contextManager, msgs2, "task");
         var ctx2 = new Context(contextManager).withParsedOutput(tf2, "action");
         assertFalse(ctx2.isAiResult(), "AI result should be false with no AI messages");
     }
@@ -206,9 +206,9 @@ class ContextTest {
     void testCopyAndRefreshReplacesComputedFragmentsOnChange() throws Exception {
         var pf = new ProjectFile(tempDir, "src/Refresh.java");
         pf.write("class Refresh {}");
-        var ppf = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var ppf = new ContextFragments.ProjectPathFragment(pf, contextManager);
 
-        var sf = new ContextFragment.StringFragment(contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
+        var sf = new ContextFragments.StringFragment(contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var ctx = new Context(contextManager).addFragments(List.of(ppf)).addFragments(sf);
 
@@ -223,7 +223,7 @@ class ContextTest {
                 sf,
                 refreshed
                         .virtualFragments()
-                        .filter(f -> f instanceof ContextFragment.StringFragment)
+                        .filter(f -> f instanceof ContextFragments.StringFragment)
                         .findFirst()
                         .orElseThrow(),
                 "Unrelated virtual fragments should be reused");
@@ -234,7 +234,7 @@ class ContextTest {
     void testCopyAndRefreshPreservesReadOnly() throws Exception {
         var pf = new ProjectFile(tempDir, "src/RefreshRO.java");
         pf.write("class RefreshRO {}");
-        var ppf = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var ppf = new ContextFragments.ProjectPathFragment(pf, contextManager);
 
         var ctx = new Context(contextManager).addFragments(List.of(ppf));
         // Mark the fragment read-only
@@ -257,10 +257,10 @@ class ContextTest {
         var pf = new ProjectFile(tempDir, "src/U.java");
         Files.createDirectories(pf.absPath().getParent());
         Files.writeString(pf.absPath(), "class U {}");
-        var ppf1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
+        var ppf1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
 
-        var s1 = new ContextFragment.StringFragment(contextManager, "Text-1", "D1", SyntaxConstants.SYNTAX_STYLE_NONE);
-        var s2 = new ContextFragment.StringFragment(contextManager, "Text-2", "D2", SyntaxConstants.SYNTAX_STYLE_NONE);
+        var s1 = new ContextFragments.StringFragment(contextManager, "Text-1", "D1", SyntaxConstants.SYNTAX_STYLE_NONE);
+        var s2 = new ContextFragments.StringFragment(contextManager, "Text-2", "D2", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var ctx1 = new Context(contextManager).addFragments(List.of(ppf1)).addFragments(s1);
         var ctx2 = new Context(contextManager).addFragments(List.of(ppf1)).addFragments(s2);
@@ -274,22 +274,22 @@ class ContextTest {
 
     @Test
     void testGetAllFragmentsInDisplayOrderIncludesHistoryFirst() {
-        var s1 = new ContextFragment.StringFragment(contextManager, "T", "D", SyntaxConstants.SYNTAX_STYLE_NONE);
+        var s1 = new ContextFragments.StringFragment(contextManager, "T", "D", SyntaxConstants.SYNTAX_STYLE_NONE);
         var ctx = new Context(contextManager).addFragments(s1);
 
         // Add a history entry
         var msgs = List.<ChatMessage>of(UserMessage.from("User"), AiMessage.from("AI"));
-        var log = new ContextFragment.TaskFragment(contextManager, msgs, "Log");
+        var log = new ContextFragments.TaskFragment(contextManager, msgs, "Log");
         var entry = new TaskEntry(1, log, null);
         ctx = ctx.addHistoryEntry(entry, log, CompletableFuture.completedFuture("act"));
 
         var all = ctx.getAllFragmentsInDisplayOrder();
         assertFalse(all.isEmpty());
-        assertTrue(all.getFirst() instanceof ContextFragment.HistoryFragment, "History should be first when present");
+        assertTrue(all.getFirst() instanceof ContextFragments.HistoryFragment, "History should be first when present");
 
         // Then path and virtuals follow; exact order beyond first isn't asserted here
         long historyCount = all.stream()
-                .filter(f -> f instanceof ContextFragment.HistoryFragment)
+                .filter(f -> f instanceof ContextFragments.HistoryFragment)
                 .count();
         assertEquals(1L, historyCount, "Exactly one history fragment should be present");
     }
@@ -306,8 +306,8 @@ class ContextTest {
         Files.createDirectories(pf.absPath().getParent());
         pf.write("class Eq {}");
 
-        var f1 = new ContextFragment.ProjectPathFragment(pf, contextManager);
-        var f2 = new ContextFragment.ProjectPathFragment(pf, contextManager); // different instance, same source
+        var f1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
+        var f2 = new ContextFragments.ProjectPathFragment(pf, contextManager); // different instance, same source
 
         var c1 = new Context(contextManager).addFragments(List.of(f1));
         var c2 = new Context(contextManager).addFragments(List.of(f2));
@@ -321,7 +321,7 @@ class ContextTest {
         var pfWorkspace = new ProjectFile(tempDir, "src/CodeFragmentTarget.java");
         Files.createDirectories(pfWorkspace.absPath().getParent());
         pfWorkspace.write("public class CodeFragmentTarget {}");
-        var ppf = new ContextFragment.ProjectPathFragment(pfWorkspace, contextManager);
+        var ppf = new ContextFragments.ProjectPathFragment(pfWorkspace, contextManager);
 
         // Another class not in workspace should be added as CodeFragment
         var ctx = new Context(contextManager).addFragments(List.of(ppf));
@@ -330,8 +330,8 @@ class ContextTest {
 
         var virtuals = ctx.virtualFragments().toList();
         assertEquals(1, virtuals.size(), "Only non-workspace class should be added");
-        assertTrue(virtuals.get(0) instanceof ContextFragment.CodeFragment);
-        var codeFrag = (ContextFragment.CodeFragment) virtuals.get(0);
+        assertTrue(virtuals.get(0) instanceof ContextFragments.CodeFragment);
+        var codeFrag = (ContextFragments.CodeFragment) virtuals.get(0);
         // Assert that the fragment is for the expected fully qualified name
         assertEquals("com.example.AnotherClass", codeFrag.getFullyQualifiedName());
     }
