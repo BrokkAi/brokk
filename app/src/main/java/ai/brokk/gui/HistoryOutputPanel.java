@@ -2614,92 +2614,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         repaint();
     }
 
-    /** Performs a pull operation on the current branch with user feedback. */
-    private void performPull() {
-        try {
-            var repoOpt = repo();
-            if (repoOpt.isEmpty()) {
-                chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No repository available.");
-                return;
-            }
-
-            var gitRepo = repoOpt.get();
-            String currentBranch = gitRepo.getCurrentBranch();
-
-            contextManager.submitExclusiveAction(() -> {
-                try {
-                    showSpinner("Pulling " + currentBranch + "...");
-                    var workflow = new GitWorkflow(contextManager);
-                    var pullResult = workflow.pull(currentBranch);
-
-                    SwingUtilities.invokeLater(() -> {
-                        hideSpinner();
-                        if (pullResult.isEmpty()) {
-                            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Pull completed successfully.");
-                        } else {
-                            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Pull: " + pullResult);
-                        }
-                        var bp = chrome.getBuildPane();
-                        if (bp != null) bp.requestReviewUpdate();
-                        chrome.updateGitRepo();
-                    });
-                } catch (Exception e) {
-                    logger.error("Error pulling branch {}", currentBranch, e);
-                    SwingUtilities.invokeLater(() -> {
-                        hideSpinner();
-                        chrome.toolError("Pull failed: " + e.getMessage(), "Pull Error");
-                    });
-                }
-                return null;
-            });
-        } catch (Exception e) {
-            logger.error("Error initiating pull", e);
-            chrome.toolError("Pull failed: " + e.getMessage(), "Pull Error");
-        }
-    }
-
-    /** Performs a push operation on the current branch with user feedback. */
-    private void performPush() {
-        try {
-            var repoOpt = repo();
-            if (repoOpt.isEmpty()) {
-                chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No repository available.");
-                return;
-            }
-
-            var gitRepo = repoOpt.get();
-            String currentBranch = gitRepo.getCurrentBranch();
-
-            contextManager.submitExclusiveAction(() -> {
-                try {
-                    showSpinner("Pushing " + currentBranch + "...");
-                    var workflow = new GitWorkflow(contextManager);
-                    var pushResult = workflow.push(currentBranch);
-
-                    SwingUtilities.invokeLater(() -> {
-                        hideSpinner();
-                        if (pushResult.isEmpty()) {
-                            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Push completed successfully.");
-                        } else {
-                            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Push: " + pushResult);
-                        }
-                        var bp = chrome.getBuildPane();
-                        if (bp != null) bp.requestReviewUpdate();
-                        chrome.updateGitRepo();
-                    });
-                } catch (Exception e) {
-                    logger.error("Error pushing branch {}", currentBranch, e);
-                    SwingUtilities.invokeLater(() -> {
-                        hideSpinner();
-                        chrome.toolError("Push failed: " + e.getMessage(), "Push Error");
-                    });
-                }
-                return null;
-            });
-        } catch (Exception e) {
-            logger.error("Error initiating push", e);
-            chrome.toolError("Push failed: " + e.getMessage(), "Push Error");
-        }
+    /**
+     * Public entry-point to refresh the branch-based Review tab on demand.
+     * Delegates to BuildPane.
+     */
+    public void requestDiffUpdate() {
+        chrome.getBuildPane().requestReviewUpdate();
     }
 
     /**
@@ -3126,17 +3046,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private String formatModified(long modifiedMillis) {
         var instant = Instant.ofEpochMilli(modifiedMillis);
         return GitDiffUiUtil.formatRelativeDate(instant, LocalDate.now(ZoneId.systemDefault()));
-    }
-
-    /**
-     * Public entry-point to refresh the branch-based Review tab on demand.
-     * Delegates to BuildPane.
-     */
-    public void requestDiffUpdate() {
-        var bp = chrome.getBuildPane();
-        if (bp != null) {
-            bp.requestReviewUpdate();
-        }
     }
 
     /**
