@@ -100,6 +100,11 @@ public class Llm {
 
     private @Nullable RetryCallback retryCallback;
 
+    private RetryCallback createDefaultRetryCallback() {
+        return (attempt, maxAttempts, error, backoffSeconds) ->
+                io.showOutputSpinner("Retrying... (%d/%d)".formatted(attempt, maxAttempts));
+    }
+
     // Monotonically increasing sequence for emulated tool request IDs
     private final AtomicInteger toolRequestIdSeq = new AtomicInteger();
     private int requestSequence = 1;
@@ -115,6 +120,7 @@ public class Llm {
         this.io = contextManager.getIo();
         this.allowPartialResponses = allowPartialResponses;
         this.tagRetain = tagRetain;
+        this.retryCallback = createDefaultRetryCallback();
         var historyBaseDir = getHistoryBaseDir(contextManager.getProject().getRoot());
 
         // Create task directory name for this specific LLM interaction
@@ -550,7 +556,6 @@ public class Llm {
                             .formatted(attempt, maxAttempts, retryAttempt);
             io.systemOutput(retryLogLine);
 
-            io.showOutputSpinner("Retrying... (%d/%d)".formatted(retryAttempt, maxAttempts));
             try {
                 Thread.sleep(backoffSeconds * 1000);
             } finally {
