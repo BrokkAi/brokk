@@ -1,6 +1,5 @@
 package ai.brokk.prompts;
 
-import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.util.StyleGuideResolver;
@@ -14,17 +13,6 @@ public abstract class ArchitectPrompts extends CodePrompts {
     public static final ArchitectPrompts instance = new ArchitectPrompts() {};
     public static final double WORKSPACE_WARNING_THRESHOLD = 0.5;
     public static final double WORKSPACE_CRITICAL_THRESHOLD = 0.9;
-
-    @Blocking
-    private static String resolveAggregatedStyleGuide(IContextManager cm, Context ctx) {
-        // Collect project-backed files from current context (nearest-first resolution uses parent dirs).
-        var projectFiles =
-                ctx.fileFragments().flatMap(cf -> cf.files().join().stream()).toList();
-
-        // Resolve composite style guide from AGENTS.md files nearest to current context files;
-        // falls back to project root guide internally.
-        return StyleGuideResolver.resolve(projectFiles, cm.getProject());
-    }
 
     @Override
     @Blocking

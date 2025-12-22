@@ -180,7 +180,6 @@ public class CodeAgent {
         int applyFailures = 0;
         int blocksAppliedWithoutBuild = 0;
 
-        String buildError = "";
         SequencedSet<EditBlock.SearchReplaceBlock> blocks = new LinkedHashSet<>();
         Map<ProjectFile, String> originalFileContents = new HashMap<>();
 
