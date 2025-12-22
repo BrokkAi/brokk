@@ -1,5 +1,7 @@
 package ai.brokk.tools;
 
+import static ai.brokk.project.FileFilteringService.toUnixPath;
+
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.Completions;
 import ai.brokk.IContextManager;
@@ -19,6 +21,7 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -94,7 +97,7 @@ public class SearchTools {
                 }
             } catch (PatternSyntaxException ex) {
                 // Fallback: simple substring match, but normalize to forward slashes
-                predicates.add(s -> s.contains(pat.replace('\\', '/')));
+                predicates.add(s -> s.contains(toUnixPath(pat)));
             }
         }
         return predicates;
@@ -206,7 +209,7 @@ public class SearchTools {
         // Group by file, then by kind within each file
         var fileGroups = allDefinitions.stream()
                 .collect(Collectors.groupingBy(
-                        cu -> cu.source().toString().replace('\\', '/'),
+                        cu -> toUnixPath(cu.source().toString()),
                         Collectors.groupingBy(cu -> cu.kind().name())));
 
         // Build output: sorted files, sorted kinds per file, sorted symbols per kind
@@ -619,7 +622,7 @@ public class SearchTools {
                 .filter(filePath -> {
                     // Normalise to forward slashes so regex like "frontend-mop/.*\\.svelte"
                     // work on Windows paths containing back-slashes.
-                    String unixPath = filePath.replace('\\', '/');
+                    String unixPath = toUnixPath(filePath);
                     for (Predicate<String> predicate : predicates) {
                         if (predicate.test(unixPath)) {
                             return true;
@@ -690,6 +693,26 @@ public class SearchTools {
         return result.toString();
     }
 
+    /**
+     * Formats files in a directory as a comma-separated string.
+     * Public static to allow reuse by BuildAgent.
+     */
+    public static String formatFilesInDirectory(
+            Collection<ProjectFile> allFiles, Path normalizedDirectoryPath, String originalDirectoryPath) {
+        var files = allFiles.stream()
+                .parallel()
+                .filter(file -> file.getParent().equals(normalizedDirectoryPath))
+                .sorted()
+                .map(ProjectFile::toString)
+                .collect(Collectors.joining(", "));
+
+        if (files.isEmpty()) {
+            return "No files found in directory: " + originalDirectoryPath;
+        }
+
+        return "Files in " + originalDirectoryPath + ": " + files;
+    }
+
     // Only includes project files. Is this what we want?
     @Tool(
             """
@@ -707,17 +730,6 @@ public class SearchTools {
 
         logger.debug("Listing files for directory path: '{}' (normalized to `{}`)", directoryPath, normalizedPath);
 
-        var files = contextManager.getProject().getAllFiles().stream()
-                .parallel()
-                .filter(file -> file.getParent().equals(normalizedPath))
-                .sorted()
-                .map(ProjectFile::toString)
-                .collect(Collectors.joining(", "));
-
-        if (files.isEmpty()) {
-            return "No files found in directory: " + directoryPath;
-        }
-
-        return "Files in " + directoryPath + ": " + files;
+        return formatFilesInDirectory(contextManager.getProject().getAllFiles(), normalizedPath, directoryPath);
     }
 }
