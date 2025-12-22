@@ -1,7 +1,5 @@
 package ai.brokk.gui.dialogs;
 
-import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
-
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.Chrome;
@@ -15,9 +13,7 @@ import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
 import java.awt.event.*;
-import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -112,7 +108,8 @@ public class PreviewFrame extends JFrame implements ThemeAware {
         if (selectedIndex >= 0) {
             Component comp = tabbedPane.getComponentAt(selectedIndex);
             ProjectFile fileKey = null;
-            for (Map.Entry<ProjectFile, Component> entry : tabbedPane.getFileToTabMap().entrySet()) {
+            for (Map.Entry<ProjectFile, Component> entry :
+                    tabbedPane.getFileToTabMap().entrySet()) {
                 if (entry.getValue() == comp) {
                     fileKey = entry.getKey();
                     break;

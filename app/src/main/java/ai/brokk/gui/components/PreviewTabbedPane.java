@@ -1,7 +1,5 @@
 package ai.brokk.gui.components;
 
-import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
-
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
@@ -35,7 +33,8 @@ public class PreviewTabbedPane extends JTabbedPane implements ThemeAware {
     private final Map<ProjectFile, Component> fileToTabMap = new HashMap<>();
     private final Map<Component, ContextFragment> tabToFragmentMap = new HashMap<>();
 
-    public PreviewTabbedPane(Chrome chrome, GuiTheme guiTheme, Consumer<String> titleChangedCallback, Runnable emptyCallback) {
+    public PreviewTabbedPane(
+            Chrome chrome, GuiTheme guiTheme, Consumer<String> titleChangedCallback, Runnable emptyCallback) {
         super(JTabbedPane.RIGHT, JTabbedPane.SCROLL_TAB_LAYOUT);
         this.chrome = chrome;
         this.guiTheme = guiTheme;
@@ -61,7 +60,8 @@ public class PreviewTabbedPane extends JTabbedPane implements ThemeAware {
         titleChangedCallback.accept("");
     }
 
-    public void addOrSelectTab(String title, JComponent panel, @Nullable ProjectFile fileKey, @Nullable ContextFragment fragmentKey) {
+    public void addOrSelectTab(
+            String title, JComponent panel, @Nullable ProjectFile fileKey, @Nullable ContextFragment fragmentKey) {
         String tabTitle = title.startsWith("Preview: ") ? title.substring(9) : title;
 
         if (fileKey != null) {
@@ -79,7 +79,8 @@ public class PreviewTabbedPane extends JTabbedPane implements ThemeAware {
                 if (fragmentsMatch(entry.getValue(), fragmentKey)) {
                     Component existingTab = entry.getKey();
                     int index = indexOfComponent(existingTab);
-                    if (index >= 0 && tryReplaceOrSelectTab(index, existingTab, panel, tabTitle, fileKey, fragmentKey)) {
+                    if (index >= 0
+                            && tryReplaceOrSelectTab(index, existingTab, panel, tabTitle, fileKey, fragmentKey)) {
                         return;
                     }
                 }
@@ -101,13 +102,21 @@ public class PreviewTabbedPane extends JTabbedPane implements ThemeAware {
     }
 
     private boolean fragmentsMatch(ContextFragment existing, ContextFragment candidate) {
-        if (existing instanceof ContextFragments.StringFragment sfExisting && candidate instanceof ContextFragments.StringFragment sfCandidate) {
-            return Objects.equals(sfExisting.text().renderNowOrNull(), sfCandidate.text().renderNowOrNull());
+        if (existing instanceof ContextFragments.StringFragment sfExisting
+                && candidate instanceof ContextFragments.StringFragment sfCandidate) {
+            return Objects.equals(
+                    sfExisting.text().renderNowOrNull(), sfCandidate.text().renderNowOrNull());
         }
         return existing.hasSameSource(candidate);
     }
 
-    private boolean tryReplaceOrSelectTab(int index, Component existingTab, JComponent panel, String tabTitle, @Nullable ProjectFile fileKey, @Nullable ContextFragment fragmentKey) {
+    private boolean tryReplaceOrSelectTab(
+            int index,
+            Component existingTab,
+            JComponent panel,
+            String tabTitle,
+            @Nullable ProjectFile fileKey,
+            @Nullable ContextFragment fragmentKey) {
         if (existingTab instanceof PreviewTextPanel existingPanel && !existingPanel.confirmClose()) {
             setSelectedIndex(index);
             return true;
@@ -121,7 +130,10 @@ public class PreviewTabbedPane extends JTabbedPane implements ThemeAware {
         if (fragmentKey != null) tabToFragmentMap.put(panel, fragmentKey);
 
         if (panel instanceof ThemeAware themeAware) {
-            try { themeAware.applyTheme(guiTheme); } catch (Exception ignore) {}
+            try {
+                themeAware.applyTheme(guiTheme);
+            } catch (Exception ignore) {
+            }
         }
 
         setSelectedIndex(index);
@@ -197,7 +209,10 @@ public class PreviewTabbedPane extends JTabbedPane implements ThemeAware {
             if (fragmentKey != null) tabToFragmentMap.put(newComponent, fragmentKey);
 
             if (newComponent instanceof ThemeAware themeAware) {
-                try { themeAware.applyTheme(guiTheme); } catch (Exception ignore) {}
+                try {
+                    themeAware.applyTheme(guiTheme);
+                } catch (Exception ignore) {
+                }
             }
             setSelectedIndex(index);
         }
@@ -293,5 +308,7 @@ public class PreviewTabbedPane extends JTabbedPane implements ThemeAware {
         SwingUtilities.updateComponentTreeUI(this);
     }
 
-    public Map<ProjectFile, Component> getFileToTabMap() { return fileToTabMap; }
+    public Map<ProjectFile, Component> getFileToTabMap() {
+        return fileToTabMap;
+    }
 }

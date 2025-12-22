@@ -12,8 +12,8 @@ import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.components.PreviewTabbedPane;
 import ai.brokk.gui.components.SpinnerIconUtil;
-import ai.brokk.gui.terminal.TaskListPanel;
 import ai.brokk.gui.mop.ThemeColors;
+import ai.brokk.gui.terminal.TaskListPanel;
 import ai.brokk.gui.terminal.TerminalPanel;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -59,12 +59,16 @@ public class BuildPane extends JPanel implements ThemeAware {
     // Review tab infrastructure
     private final JPanel reviewTabContainer;
     private final DeferredUpdateHelper reviewUpdateHelper;
+
     @Nullable
     private SessionChangesPanel sessionChangesPanel;
+
     @Nullable
     private DiffService.CumulativeChanges lastCumulativeChanges;
+
     @Nullable
     private String lastBaselineLabel;
+
     @Nullable
     private SessionChangesPanel.BaselineMode lastBaselineMode;
 
@@ -104,10 +108,12 @@ public class BuildPane extends JPanel implements ThemeAware {
         setupSplitPanePersistence();
 
         // Preview Pane (lazy content but tab is always present)
-        previewTabbedPane = new PreviewTabbedPane(chrome, chrome.getTheme(),
+        previewTabbedPane = new PreviewTabbedPane(
+                chrome,
+                chrome.getTheme(),
                 title -> {}, // No window title to update here
                 () -> {} // Don't close main UI tab when empty
-        );
+                );
 
         // Review Tab Setup
         reviewTabContainer = new JPanel(new BorderLayout());
@@ -415,110 +421,120 @@ public class BuildPane extends JPanel implements ThemeAware {
     }
 
     private void refreshCumulativeChangesAsync() {
-        contextManager.submitBackgroundTask("Compute branch-based changes", () -> {
-            var repoOpt = repo();
-            if (repoOpt.isEmpty()) {
-                return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
-            }
+        contextManager
+                .submitBackgroundTask("Compute branch-based changes", () -> {
+                    var repoOpt = repo();
+                    if (repoOpt.isEmpty()) {
+                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
+                    }
 
-            var repo = repoOpt.get();
-            if (!(repo instanceof ai.brokk.git.GitRepo gitRepo)) {
-                return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
-            }
+                    var repo = repoOpt.get();
+                    if (!(repo instanceof ai.brokk.git.GitRepo gitRepo)) {
+                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
+                    }
 
-            var baseline = computeBaselineForChanges(gitRepo);
-            lastBaselineLabel = baseline.displayLabel();
-            lastBaselineMode = baseline.mode();
+                    var baseline = computeBaselineForChanges(gitRepo);
+                    lastBaselineLabel = baseline.displayLabel();
+                    lastBaselineMode = baseline.mode();
 
-            if (baseline.mode() == SessionChangesPanel.BaselineMode.DETACHED
-                    || baseline.mode() == SessionChangesPanel.BaselineMode.NO_BASELINE) {
-                return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
-            }
+                    if (baseline.mode() == SessionChangesPanel.BaselineMode.DETACHED
+                            || baseline.mode() == SessionChangesPanel.BaselineMode.NO_BASELINE) {
+                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
+                    }
 
-            try {
-                Map<ProjectFile, IGitRepo.ModifiedFile> fileMap = new HashMap<>();
-                String leftCommitSha = null;
-                String currentBranch = gitRepo.getCurrentBranch();
+                    try {
+                        Map<ProjectFile, IGitRepo.ModifiedFile> fileMap = new HashMap<>();
+                        String leftCommitSha = null;
+                        String currentBranch = gitRepo.getCurrentBranch();
 
-                switch (baseline.mode()) {
-                    case NON_DEFAULT_BRANCH -> {
-                        String defaultBranch = baseline.baselineRef();
-                        String defaultBranchRef = "refs/heads/" + defaultBranch;
-                        leftCommitSha = gitRepo.getMergeBase(currentBranch, defaultBranchRef);
-                        if (leftCommitSha != null) {
-                            var myChanges = gitRepo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
-                            for (var mf : myChanges) fileMap.putIfAbsent(mf.file(), mf);
-                        } else {
-                            leftCommitSha = "HEAD";
+                        switch (baseline.mode()) {
+                            case NON_DEFAULT_BRANCH -> {
+                                String defaultBranch = baseline.baselineRef();
+                                String defaultBranchRef = "refs/heads/" + defaultBranch;
+                                leftCommitSha = gitRepo.getMergeBase(currentBranch, defaultBranchRef);
+                                if (leftCommitSha != null) {
+                                    var myChanges = gitRepo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
+                                    for (var mf : myChanges) fileMap.putIfAbsent(mf.file(), mf);
+                                } else {
+                                    leftCommitSha = "HEAD";
+                                }
+                                for (var mf : gitRepo.getModifiedFiles()) fileMap.put(mf.file(), mf);
+                            }
+                            case DEFAULT_WITH_UPSTREAM -> {
+                                String upstreamRef = baseline.baselineRef();
+                                leftCommitSha = gitRepo.getMergeBase("HEAD", upstreamRef);
+                                if (leftCommitSha != null) {
+                                    var myChanges = gitRepo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
+                                    for (var mf : myChanges) fileMap.putIfAbsent(mf.file(), mf);
+                                } else {
+                                    leftCommitSha = "HEAD";
+                                }
+                                for (var mf : gitRepo.getModifiedFiles()) fileMap.put(mf.file(), mf);
+                            }
+                            case DEFAULT_LOCAL_ONLY -> {
+                                for (var mf : gitRepo.getModifiedFiles()) fileMap.put(mf.file(), mf);
+                                leftCommitSha = "HEAD";
+                            }
+                            default -> {}
                         }
-                        for (var mf : gitRepo.getModifiedFiles()) fileMap.put(mf.file(), mf);
-                    }
-                    case DEFAULT_WITH_UPSTREAM -> {
-                        String upstreamRef = baseline.baselineRef();
-                        leftCommitSha = gitRepo.getMergeBase("HEAD", upstreamRef);
-                        if (leftCommitSha != null) {
-                            var myChanges = gitRepo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
-                            for (var mf : myChanges) fileMap.putIfAbsent(mf.file(), mf);
-                        } else {
-                            leftCommitSha = "HEAD";
+
+                        var fileSet = new HashSet<>(fileMap.values());
+                        var summarizedChanges =
+                                DiffService.summarizeDiff(repo, requireNonNull(leftCommitSha), "WORKING", fileSet);
+
+                        GitWorkflow.PushPullState pushPullState = null;
+                        try {
+                            boolean hasUpstream = gitRepo.hasUpstreamBranch(currentBranch);
+                            boolean canPush;
+                            Set<String> unpushedCommitIds = new HashSet<>();
+                            if (hasUpstream) {
+                                unpushedCommitIds.addAll(gitRepo.remote().getUnpushedCommitIds(currentBranch));
+                                canPush = !unpushedCommitIds.isEmpty();
+                            } else {
+                                canPush = true;
+                            }
+                            pushPullState =
+                                    new GitWorkflow.PushPullState(hasUpstream, hasUpstream, canPush, unpushedCommitIds);
+                        } catch (Exception ignored) {
                         }
-                        for (var mf : gitRepo.getModifiedFiles()) fileMap.put(mf.file(), mf);
+
+                        return new DiffService.CumulativeChanges(
+                                summarizedChanges.perFileChanges().size(),
+                                summarizedChanges.totalAdded(),
+                                summarizedChanges.totalDeleted(),
+                                summarizedChanges.perFileChanges(),
+                                pushPullState);
+
+                    } catch (Exception e) {
+                        logger.warn("Failed to compute branch-based changes", e);
+                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
                     }
-                    case DEFAULT_LOCAL_ONLY -> {
-                        for (var mf : gitRepo.getModifiedFiles()) fileMap.put(mf.file(), mf);
-                        leftCommitSha = "HEAD";
-                    }
-                    default -> {}
-                }
-
-                var fileSet = new HashSet<>(fileMap.values());
-                var summarizedChanges = DiffService.summarizeDiff(repo, requireNonNull(leftCommitSha), "WORKING", fileSet);
-
-                GitWorkflow.PushPullState pushPullState = null;
-                try {
-                    boolean hasUpstream = gitRepo.hasUpstreamBranch(currentBranch);
-                    boolean canPush;
-                    Set<String> unpushedCommitIds = new HashSet<>();
-                    if (hasUpstream) {
-                        unpushedCommitIds.addAll(gitRepo.remote().getUnpushedCommitIds(currentBranch));
-                        canPush = !unpushedCommitIds.isEmpty();
-                    } else {
-                        canPush = true;
-                    }
-                    pushPullState = new GitWorkflow.PushPullState(hasUpstream, hasUpstream, canPush, unpushedCommitIds);
-                } catch (Exception ignored) {}
-
-                return new DiffService.CumulativeChanges(
-                        summarizedChanges.perFileChanges().size(),
-                        summarizedChanges.totalAdded(),
-                        summarizedChanges.totalDeleted(),
-                        summarizedChanges.perFileChanges(),
-                        pushPullState);
-
-            } catch (Exception e) {
-                logger.warn("Failed to compute branch-based changes", e);
-                return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
-            }
-        }).thenAccept(result -> {
-            var preparedSummaries = DiffService.preparePerFileSummaries(result);
-            SwingUtilities.invokeLater(() -> {
-                lastCumulativeChanges = result;
-                setReviewTabTitleAndTooltip(result);
-                updateReviewTabContentUi(result, preparedSummaries);
-            });
-        });
+                })
+                .thenAccept(result -> {
+                    var preparedSummaries = DiffService.preparePerFileSummaries(result);
+                    SwingUtilities.invokeLater(() -> {
+                        lastCumulativeChanges = result;
+                        setReviewTabTitleAndTooltip(result);
+                        updateReviewTabContentUi(result, preparedSummaries);
+                    });
+                });
     }
 
     private void setReviewTabTitleAndTooltip(DiffService.CumulativeChanges res) {
         boolean isSpecialState = "detached HEAD".equals(lastBaselineLabel) || "No repository".equals(lastBaselineLabel);
         String baselineSuffix = (!isSpecialState && lastBaselineLabel != null && !lastBaselineLabel.isEmpty())
-                ? " vs " + lastBaselineLabel : "";
+                ? " vs " + lastBaselineLabel
+                : "";
 
         if (res.filesChanged() == 0) {
             setReviewTabTitle("Review (0)" + baselineSuffix);
-            String tooltipMsg = isSpecialState ? "No baseline to compare"
-                    : ("HEAD".equals(lastBaselineLabel) ? "Working tree is clean"
-                    : (lastBaselineLabel != null && !lastBaselineLabel.isBlank() ? "No changes vs " + lastBaselineLabel : "No changes to review"));
+            String tooltipMsg = isSpecialState
+                    ? "No baseline to compare"
+                    : ("HEAD".equals(lastBaselineLabel)
+                            ? "Working tree is clean"
+                            : (lastBaselineLabel != null && !lastBaselineLabel.isBlank()
+                                    ? "No changes vs " + lastBaselineLabel
+                                    : "No changes to review"));
             setReviewTabTooltip(tooltipMsg + ".");
         } else {
             boolean isDark = chrome.getTheme().isDarkTheme();
@@ -526,13 +542,20 @@ public class BuildPane extends JPanel implements ThemeAware {
             Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
             String htmlTitle = String.format(
                     "<html>Review (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)%s</html>",
-                    res.filesChanged(), ColorUtil.toHex(plusColor), res.totalAdded(), ColorUtil.toHex(minusColor), res.totalDeleted(), escapeHtml(baselineSuffix));
+                    res.filesChanged(),
+                    ColorUtil.toHex(plusColor),
+                    res.totalAdded(),
+                    ColorUtil.toHex(minusColor),
+                    res.totalDeleted(),
+                    escapeHtml(baselineSuffix));
             setReviewTabTitle(htmlTitle);
-            setReviewTabTooltip("Cumulative changes: " + res.filesChanged() + " files, +" + res.totalAdded() + "/-" + res.totalDeleted() + baselineSuffix);
+            setReviewTabTooltip("Cumulative changes: " + res.filesChanged() + " files, +" + res.totalAdded() + "/-"
+                    + res.totalDeleted() + baselineSuffix);
         }
     }
 
-    private void updateReviewTabContentUi(DiffService.CumulativeChanges res, List<Map.Entry<String, Context.DiffEntry>> prepared) {
+    private void updateReviewTabContentUi(
+            DiffService.CumulativeChanges res, List<Map.Entry<String, Context.DiffEntry>> prepared) {
         if (sessionChangesPanel != null) {
             sessionChangesPanel.dispose();
             sessionChangesPanel = null;
@@ -540,10 +563,15 @@ public class BuildPane extends JPanel implements ThemeAware {
         reviewTabContainer.removeAll();
 
         if (res.filesChanged() == 0) {
-            String message = (lastBaselineMode == SessionChangesPanel.BaselineMode.DETACHED) ? "Detached HEAD \u2014 no changes to review"
-                    : ((lastBaselineMode == SessionChangesPanel.BaselineMode.NO_BASELINE) ? "No baseline to compare"
-                    : (("HEAD".equals(lastBaselineLabel)) ? "Working tree is clean (no uncommitted changes)."
-                    : ((lastBaselineLabel != null && !lastBaselineLabel.isBlank()) ? "No changes vs " + lastBaselineLabel + "." : "No changes to review.")));
+            String message = (lastBaselineMode == SessionChangesPanel.BaselineMode.DETACHED)
+                    ? "Detached HEAD \u2014 no changes to review"
+                    : ((lastBaselineMode == SessionChangesPanel.BaselineMode.NO_BASELINE)
+                            ? "No baseline to compare"
+                            : (("HEAD".equals(lastBaselineLabel))
+                                    ? "Working tree is clean (no uncommitted changes)."
+                                    : ((lastBaselineLabel != null && !lastBaselineLabel.isBlank())
+                                            ? "No changes vs " + lastBaselineLabel + "."
+                                            : "No changes to review.")));
             var none = new JLabel(message, SwingConstants.CENTER);
             none.setBorder(new EmptyBorder(20, 0, 20, 0));
             reviewTabContainer.add(none, BorderLayout.CENTER);
@@ -563,13 +591,19 @@ public class BuildPane extends JPanel implements ThemeAware {
             String defaultBranch = gitRepo.getDefaultBranch();
             String currentBranch = gitRepo.getCurrentBranch();
 
-            boolean isDetached = isLikelyCommitHash(currentBranch) || !gitRepo.listLocalBranches().contains(currentBranch);
+            boolean isDetached = isLikelyCommitHash(currentBranch)
+                    || !gitRepo.listLocalBranches().contains(currentBranch);
             if (isDetached) return new BaselineInfo(SessionChangesPanel.BaselineMode.DETACHED, "HEAD", "detached HEAD");
 
-            if (!currentBranch.equals(defaultBranch)) return new BaselineInfo(SessionChangesPanel.BaselineMode.NON_DEFAULT_BRANCH, defaultBranch, defaultBranch);
+            if (!currentBranch.equals(defaultBranch))
+                return new BaselineInfo(
+                        SessionChangesPanel.BaselineMode.NON_DEFAULT_BRANCH, defaultBranch, defaultBranch);
 
             if (gitRepo.listRemoteBranches().contains("origin/" + defaultBranch)) {
-                return new BaselineInfo(SessionChangesPanel.BaselineMode.DEFAULT_WITH_UPSTREAM, "origin/" + defaultBranch, "origin/" + defaultBranch);
+                return new BaselineInfo(
+                        SessionChangesPanel.BaselineMode.DEFAULT_WITH_UPSTREAM,
+                        "origin/" + defaultBranch,
+                        "origin/" + defaultBranch);
             }
             return new BaselineInfo(SessionChangesPanel.BaselineMode.DEFAULT_LOCAL_ONLY, "HEAD", "HEAD");
         } catch (Exception e) {
@@ -582,8 +616,11 @@ public class BuildPane extends JPanel implements ThemeAware {
     }
 
     private Optional<IGitRepo> repo() {
-        try { return Optional.of(contextManager.getProject().getRepo()); }
-        catch (Exception e) { return Optional.empty(); }
+        try {
+            return Optional.of(contextManager.getProject().getRepo());
+        } catch (Exception e) {
+            return Optional.empty();
+        }
     }
 
     public void selectPreviewTab() {

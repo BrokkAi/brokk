@@ -393,8 +393,8 @@ public interface GitDiffUiUtil {
             String finalDialogTitle = "Diff: %s".formatted(file.getFileName());
 
             SwingUtilities.invokeLater(() -> {
-                var leftSource = new BufferSource.StringSource(
-                        finalOldContent, baseCommitTitle, file.toString(), baseCommitId);
+                var leftSource =
+                        new BufferSource.StringSource(finalOldContent, baseCommitTitle, file.toString(), baseCommitId);
                 var rightSource = new BufferSource.FileSource(file);
 
                 new BrokkDiffPanel.Builder(chrome.getTheme(), cm)

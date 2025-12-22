@@ -1091,8 +1091,7 @@ public class Chrome
                     if (newFocusOwner == buildPane.getInstructionsPanel().getInstructionsArea()
                             || SwingUtilities.isDescendingFrom(newFocusOwner, workspacePanel)
                             || SwingUtilities.isDescendingFrom(newFocusOwner, hop.getHistoryTable())
-                            || SwingUtilities.isDescendingFrom(
-                                    newFocusOwner, hop.getLlmStreamArea())) {
+                            || SwingUtilities.isDescendingFrom(newFocusOwner, hop.getLlmStreamArea())) {
                         this.lastRelevantFocusOwner = newFocusOwner;
                     }
                 }

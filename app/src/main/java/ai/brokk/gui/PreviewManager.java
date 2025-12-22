@@ -3,13 +3,13 @@ package ai.brokk.gui;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.ContextManager;
-import ai.brokk.difftool.ui.BrokkDiffPanel;
-import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.difftool.ui.BrokkDiffPanel;
+import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.gui.components.PreviewTabbedPane;
 import ai.brokk.gui.dialogs.PreviewFrame;
 import ai.brokk.gui.dialogs.PreviewImagePanel;
@@ -28,7 +28,6 @@ import ai.brokk.util.ImageUtil;
 import ai.brokk.util.Messages;
 import com.formdev.flatlaf.util.SystemInfo;
 import dev.langchain4j.data.message.ChatMessage;
-
 import java.awt.*;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
@@ -276,8 +275,9 @@ public class PreviewManager {
             return;
         }
 
-        PreviewTabbedPane pane = existingPane != null ? existingPane :
-                new PreviewTabbedPane(chrome, chrome.getTheme(), title -> {}, () -> {});
+        PreviewTabbedPane pane = existingPane != null
+                ? existingPane
+                : new PreviewTabbedPane(chrome, chrome.getTheme(), title -> {}, () -> {});
 
         previewFrame = new PreviewFrame(chrome, chrome.getTheme(), pane);
         var frame = previewFrame;

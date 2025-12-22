@@ -8,16 +8,14 @@ import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.testutil.TestProject;
-import ai.brokk.gui.SwingUtil;
-import org.jetbrains.annotations.Nullable;
-import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import javax.swing.SwingUtilities;
+import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import java.nio.file.Path;
 
 class ChromeTest {
 
@@ -38,7 +36,8 @@ class ChromeTest {
         // Set a default analyzer wrapper to avoid NPE during closeAsync/shutdown
         contextManager.setAnalyzerWrapper(new IAnalyzerWrapper() {
             @Override
-            public java.util.concurrent.CompletableFuture<IAnalyzer> updateFiles(java.util.Set<ai.brokk.analyzer.ProjectFile> relevantFiles) {
+            public java.util.concurrent.CompletableFuture<IAnalyzer> updateFiles(
+                    java.util.Set<ai.brokk.analyzer.ProjectFile> relevantFiles) {
                 return java.util.concurrent.CompletableFuture.completedFuture(null);
             }
 

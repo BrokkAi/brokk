@@ -412,7 +412,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         // Respect current Advanced Mode on construction
         setAdvancedMode(GlobalUiSettings.isAdvancedMode());
-
     }
 
     private void buildSessionSwitchPanel() {
@@ -963,7 +962,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             var resetEdges = contextManager.getContextHistory().getResetEdges();
             arrowLayerUI.setResetEdges(resetEdges);
             updateUndoRedoButtonStates();
-
         });
     }
 
@@ -1563,8 +1561,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 notifications.add(new NotificationEntry(role, message, ts));
             }
 
-            SwingUtilities.invokeLater(() -> {
-            });
+            SwingUtilities.invokeLater(() -> {});
         } catch (Exception e) {
             logger.warn("Failed to load persisted notifications from {}", notificationsFile, e);
         }
@@ -1815,7 +1812,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private static String escapeHtml(String s) {
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
-
 
     private void removeNotificationCard() {
         Runnable r = () -> {
@@ -3061,8 +3057,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             return Optional.empty();
         }
     }
-
-
 
     private class SessionInfoRenderer extends JPanel implements ListCellRenderer<SessionInfo> {
         private final JLabel nameLabel = new JLabel();
