@@ -1462,50 +1462,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         manager.showDiffInTab(title, this, leftSources, rightSources);
     }
 
-    /**
-     * Shows the diff panel in a frame. Window bounds are managed via the ContextManager provided during construction.
-     *
-     * @param title The frame title
-     * @deprecated Use {@link #showInTab(ai.brokk.gui.PreviewManager, String)} to favor the unified tabbed interface.
-     */
-    @Deprecated
-    public void showInFrame(String title) {
-        var frame = Chrome.newFrame(title);
-
-        // Always intercept close and decide explicitly in windowClosing.
-        // This ensures quit actions (eg. Cmd+Q) are intercepted and the user can be prompted.
-        frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-        frame.getContentPane().add(this);
-
-        // Get saved bounds from Project via the stored ContextManager
-        var bounds = contextManager.getProject().getDiffWindowBounds();
-        frame.setBounds(bounds);
-
-        // Save window position and size when closing. We handle the actual disposal here so a
-        // global quit (Cmd+Q) still triggers our prompt and can be cancelled by the user.
-        frame.addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosing(WindowEvent e) {
-                // Ask user to save if there are unsaved changes. If they cancel, do nothing and keep window open.
-                if (confirmClose(frame)) {
-                    // User chose to proceed (and possibly saved). Persist window bounds and dispose.
-                    try {
-                        contextManager.getProject().saveDiffWindowBounds(frame);
-                    } catch (Exception ex) {
-                        // Be robust: log and continue with dispose even if saving bounds fails.
-                        logger.warn("Failed to save diff window bounds on close: {}", ex.getMessage(), ex);
-                    }
-                    // Explicitly dispose the frame to close the window.
-                    frame.dispose();
-                } else {
-                    // User cancelled - do nothing to prevent closing.
-                }
-            }
-        });
-
-        frame.setVisible(true);
-    }
-
     private void navigateToNextChange() {
         var panel = getCurrentContentPanel();
         if (panel == null) return;

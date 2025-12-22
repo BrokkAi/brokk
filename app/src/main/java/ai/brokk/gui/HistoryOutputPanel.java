@@ -1216,7 +1216,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             var entry = new NotificationEntry(role, message, System.currentTimeMillis());
             notifications.add(entry);
             notificationQueue.offer(entry);
-            updateNotificationsButton();
             persistNotificationsAsync();
             refreshLatestNotificationCard();
             refreshNotificationsDialog();
@@ -1491,11 +1490,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
     }
 
-    // Update the notifications button (removed count display)
-    private void updateNotificationsButton() {
-        // No-op: button just shows icon without count
-    }
-
     // Notification persistence
 
     private Path computeNotificationsFile() {
@@ -1570,7 +1564,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             }
 
             SwingUtilities.invokeLater(() -> {
-                updateNotificationsButton();
             });
         } catch (Exception e) {
             logger.warn("Failed to load persisted notifications from {}", notificationsFile, e);
@@ -1639,7 +1632,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         clearAllBtn.addActionListener(e -> {
             notifications.clear();
             notificationQueue.clear();
-            updateNotificationsButton();
             persistNotificationsAsync();
             if (notificationsDialog != null && notificationsListPanel != null) {
                 rebuildNotificationsList(notificationsDialog, notificationsListPanel);
@@ -1727,7 +1719,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 closeBtn.addActionListener(e -> {
                     notifications.remove(n);
                     notificationQueue.removeIf(entry -> entry == n);
-                    updateNotificationsButton();
                     persistNotificationsAsync();
                     rebuildNotificationsList(dialog, listPanel);
                 });
@@ -1829,7 +1820,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private void removeNotificationCard() {
         Runnable r = () -> {
             refreshLatestNotificationCard();
-            updateNotificationsButton();
             persistNotificationsAsync();
             refreshNotificationsDialog();
         };
