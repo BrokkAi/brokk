@@ -23,6 +23,7 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.FileUtil;
+import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.ImageUtil;
 import ai.brokk.util.Messages;
 import com.formdev.flatlaf.util.SystemInfo;
@@ -98,6 +99,7 @@ public class PreviewManager {
     public PreviewManager(Chrome chrome) {
         this.chrome = chrome;
         this.cm = chrome.getContextManager();
+        this.isPreviewDocked = GlobalUiSettings.isPreviewDocked();
     }
 
     /**

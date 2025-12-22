@@ -31,6 +31,7 @@ public class BuildPane extends JPanel implements ThemeAware {
     private final JSplitPane buildSplitPane;
     private final JTabbedPane buildReviewTabs;
     private final PreviewTabbedPane previewTabbedPane;
+    private boolean isPreviewDocked;
     private final JTabbedPane commandPane;
     private final JPanel commandPanel;
     private final JPanel branchSelectorPanel;
@@ -85,8 +86,16 @@ public class BuildPane extends JPanel implements ThemeAware {
             buildReviewTabs.addTab("Review", Icons.FLOWSHEET, reviewPlaceholder);
         }
 
+        isPreviewDocked = GlobalUiSettings.isPreviewDocked();
         buildReviewTabs.addTab("Preview", Icons.VISIBILITY, previewTabbedPane);
         buildReviewTabs.addTab("Terminal", Icons.TERMINAL, terminalPanel);
+
+        if (!isPreviewDocked) {
+            int idx = buildReviewTabs.indexOfTab("Preview");
+            if (idx != -1) {
+                buildReviewTabs.removeTabAt(idx);
+            }
+        }
 
         // Set up tab change listeners (must be after buildReviewTabs is created)
         setupCommandPaneLogic();
@@ -132,6 +141,81 @@ public class BuildPane extends JPanel implements ThemeAware {
                 terminalPanel.requestFocusInTerminal();
             }
         });
+
+        buildReviewTabs.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                handleTabPopup(e);
+            }
+
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent e) {
+                handleTabPopup(e);
+            }
+
+            private void handleTabPopup(java.awt.event.MouseEvent e) {
+                if (!e.isPopupTrigger()) return;
+                int tabIndex = buildReviewTabs.indexAtLocation(e.getX(), e.getY());
+                if (tabIndex == -1) return;
+
+                String title = buildReviewTabs.getTitleAt(tabIndex);
+                if ("Preview".equals(title)) {
+                    JPopupMenu popup = new JPopupMenu();
+                    JMenuItem undockItem = new JMenuItem("Undock Preview", Icons.VISIBILITY);
+                    undockItem.addActionListener(ae -> undockPreview());
+                    popup.add(undockItem);
+                    popup.show(buildReviewTabs, e.getX(), e.getY());
+                }
+            }
+        });
+    }
+
+    private void undockPreview() {
+        if (!isPreviewDocked) return;
+
+        isPreviewDocked = false;
+        GlobalUiSettings.savePreviewDocked(false);
+
+        // Move all current tabs to the PreviewManager's frame
+        var manager = chrome.getPreviewManager();
+        var dockedTabs = previewTabbedPane.getFileToTabMap();
+        
+        // Use a copy to avoid concurrent modification while closing tabs
+        var files = new java.util.HashSet<>(dockedTabs.keySet());
+        for (var file : files) {
+            var comp = dockedTabs.get(file);
+            if (comp instanceof JComponent jc) {
+                previewTabbedPane.closeTab(jc, file);
+                manager.showPreviewInTabbedFrame("Preview: " + file.toString(), jc, null);
+            }
+        }
+
+        int idx = buildReviewTabs.indexOfTab("Preview");
+        if (idx != -1) {
+            buildReviewTabs.removeTabAt(idx);
+        }
+    }
+
+    public void setPreviewDocked(boolean docked) {
+        if (this.isPreviewDocked == docked) return;
+        this.isPreviewDocked = docked;
+        if (docked) {
+            int idx = buildReviewTabs.indexOfTab("Preview");
+            if (idx == -1) {
+                // Insert before Terminal if possible
+                int terminalIdx = buildReviewTabs.indexOfTab("Terminal");
+                if (terminalIdx != -1) {
+                    buildReviewTabs.insertTab("Preview", Icons.VISIBILITY, previewTabbedPane, null, terminalIdx);
+                } else {
+                    buildReviewTabs.addTab("Preview", Icons.VISIBILITY, previewTabbedPane);
+                }
+            }
+        } else {
+            int idx = buildReviewTabs.indexOfTab("Preview");
+            if (idx != -1) {
+                buildReviewTabs.removeTabAt(idx);
+            }
+        }
     }
 
     private void setupSplitPanePersistence() {
