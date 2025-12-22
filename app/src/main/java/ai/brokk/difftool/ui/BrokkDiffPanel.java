@@ -1294,7 +1294,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         loadingPanel.add(loadingLabel, BorderLayout.NORTH);
         add(loadingPanel, BorderLayout.CENTER);
 
-        updateFileIndicatorLabel("Loading: " + compInfo.getDisplayName());
+        compInfo.getDisplayName();
+        // No-op: filename label removed from toolbar
 
         revalidate();
         repaint();
@@ -1388,7 +1389,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         }
 
         // Update file indicator
-        updateFileIndicatorLabel(compInfo.getDisplayName());
+        compInfo.getDisplayName();
+        // No-op: filename label removed from toolbar
 
         // Re-enable control buttons after loading is complete
         updateNavigationButtons();
@@ -1427,7 +1429,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         tabbedPane.addTab(compInfo.getDisplayName() + " (Too Big)", errorPanel);
 
         // Update file indicator
-        updateFileIndicatorLabel(compInfo.getDisplayName() + " - Too Big");
+        compInfo.getDisplayName();
+        // No-op: filename label removed from toolbar
 
         // Re-enable navigation buttons but keep current panel null
         updateNavigationButtons();
@@ -1732,11 +1735,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                                 IConsoleIO.NotificationRole.INFO, "Added captured diffs to context: " + description);
             });
         });
-    }
-
-    @SuppressWarnings("UnusedVariable")
-    private void updateFileIndicatorLabel(String text) {
-        // No-op: filename label removed from toolbar
     }
 
     private void performUndoRedo(Consumer<AbstractContentPanel> action) {

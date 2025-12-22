@@ -334,15 +334,13 @@ public class PreviewManager {
             // 2. Check for existing tab in the BuildPane or PreviewFrame
             PreviewTabbedPane tabs = null;
             var buildTabs = chrome.getBuildReviewTabs();
-            if (buildTabs != null) {
-                // Find the BuildPane in the hierarchy if possible
-                Container p = buildTabs.getParent();
-                while (p != null && !(p instanceof BuildPane)) {
-                    p = p.getParent();
-                }
-                if (p instanceof BuildPane bp) {
-                    tabs = bp.getPreviewTabbedPane();
-                }
+            // Find the BuildPane in the hierarchy if possible
+            Container p = buildTabs.getParent();
+            while (p != null && !(p instanceof BuildPane)) {
+                p = p.getParent();
+            }
+            if (p instanceof BuildPane bp) {
+                tabs = bp.getPreviewTabbedPane();
             }
 
             if (tabs == null && previewFrame != null && previewFrame.isDisplayable()) {
@@ -355,7 +353,7 @@ public class PreviewManager {
                     int index = tabs.indexOfComponent(existing);
                     if (index >= 0) {
                         tabs.setSelectedIndex(index);
-                        if (buildTabs != null && SwingUtilities.isDescendingFrom(tabs, buildTabs)) {
+                        if (SwingUtilities.isDescendingFrom(tabs, buildTabs)) {
                             buildTabs.setSelectedComponent(tabs);
                         }
                         return;
