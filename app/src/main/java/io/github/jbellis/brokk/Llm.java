@@ -541,19 +541,20 @@ public class Llm {
                 callback.onRetry(retryAttempt, maxAttempts, errorForCallback, backoffSeconds);
             }
 
-            // Busywait with countdown
-            if (backoffSeconds > 1) {
-                io.systemOutput(String.format(
-                        "LLM issue on attempt %d/%d (retrying in %d seconds).", attempt, maxAttempts, backoffSeconds));
-            } else {
-                io.systemOutput(String.format("LLM issue on attempt %d/%d (retrying).", attempt, maxAttempts));
-            }
-            long endTime = System.currentTimeMillis() + backoffSeconds * 1000;
-            while (System.currentTimeMillis() < endTime) {
-                long remain = endTime - System.currentTimeMillis();
-                if (remain <= 0) break;
-                io.systemOutput("Retrying in %.1f seconds...".formatted(remain / 1000.0));
-                Thread.sleep(Math.min(remain, 100));
+            int retryAttempt = attempt + 1;
+
+            var retryLogLine = backoffSeconds > 1
+                    ? "LLM issue on attempt %d/%d (retrying attempt %d in %d seconds)."
+                            .formatted(attempt, maxAttempts, retryAttempt, backoffSeconds)
+                    : "LLM issue on attempt %d/%d (retrying attempt %d)."
+                            .formatted(attempt, maxAttempts, retryAttempt);
+            io.systemOutput(retryLogLine);
+
+            io.showOutputSpinner("Retrying... (%d/%d)".formatted(retryAttempt, maxAttempts));
+            try {
+                Thread.sleep(backoffSeconds * 1000);
+            } finally {
+                io.hideOutputSpinner();
             }
         }
 
