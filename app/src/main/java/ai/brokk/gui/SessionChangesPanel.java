@@ -5,6 +5,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
+import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
@@ -210,14 +211,21 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             title = "Review (No Changes)";
             tooltip = "No changes" + (baselineLabel.isEmpty() ? "" : " vs " + baselineLabel);
         } else {
-            var addColor = ThemeColors.DIFF_ADDED;
-            var delColor = ThemeColors.DIFF_DELETED;
+            boolean isDark = chrome.getTheme().isDarkTheme();
+            Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
+            Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
+            String baselineSuffix = baselineLabel.isEmpty() ? "" : " vs " + baselineLabel;
+
             title = String.format(
-                    "<html>Review <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span></html>",
-                    addColor, result.totalAdded(), delColor, result.totalDeleted());
+                    "<html>Review (<span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)</html>",
+                    ColorUtil.toHex(plusColor),
+                    result.totalAdded(),
+                    ColorUtil.toHex(minusColor),
+                    result.totalDeleted());
+
             tooltip = String.format("%d files changed, %d insertions, %d deletions%s",
                     result.filesChanged(), result.totalAdded(), result.totalDeleted(),
-                    baselineLabel.isEmpty() ? "" : " vs " + baselineLabel);
+                    baselineSuffix);
         }
 
         tabTitleUpdater.updateTitleAndTooltip(title, tooltip);
