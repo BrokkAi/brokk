@@ -344,12 +344,17 @@ public final class MainProject extends AbstractProject {
             try {
                 var details = objectMapper.readValue(json, BuildAgent.BuildDetails.class);
 
-                // Canonicalize excluded directories relative to the master root for config, preserving insertion order
-                var canonicalExcludes = new LinkedHashSet<String>();
-                for (String r : details.excludedDirectories()) {
-                    String c = PathNormalizer.canonicalizeForProject(r, getMasterRootPathForConfig());
-                    if (!c.isBlank()) {
-                        canonicalExcludes.add(c);
+                // Canonicalize exclusion patterns that look like paths
+                var canonicalExclusions = new LinkedHashSet<String>();
+                for (String pattern : details.exclusionPatterns()) {
+                    // Only canonicalize patterns that look like directory paths (contain / or \)
+                    if (pattern.contains("/") || pattern.contains("\\")) {
+                        String c = PathNormalizer.canonicalizeForProject(pattern, getMasterRootPathForConfig());
+                        if (!c.isBlank()) {
+                            canonicalExclusions.add(c);
+                        }
+                    } else {
+                        canonicalExclusions.add(pattern);
                     }
                 }
 
@@ -375,7 +380,7 @@ public final class MainProject extends AbstractProject {
                         details.buildLintCommand(),
                         details.testAllCommand(),
                         details.testSomeCommand(),
-                        canonicalExcludes,
+                        canonicalExclusions,
                         canonicalEnv);
             } catch (JsonProcessingException e) {
                 logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
@@ -392,12 +397,17 @@ public final class MainProject extends AbstractProject {
     @Override
     public void saveBuildDetails(BuildAgent.BuildDetails details) {
         // Build canonical details for stable on-disk representation
-        // 1) Canonicalize excluded directories relative to masterRootPathForConfig, preserving insertion order
-        var canonicalExcludes = new LinkedHashSet<String>();
-        for (String r : details.excludedDirectories()) {
-            String c = PathNormalizer.canonicalizeForProject(r, getMasterRootPathForConfig());
-            if (!c.isBlank()) {
-                canonicalExcludes.add(c);
+        // 1) Canonicalize exclusion patterns that look like paths
+        var canonicalExclusions = new LinkedHashSet<String>();
+        for (String pattern : details.exclusionPatterns()) {
+            // Only canonicalize patterns that look like directory paths (contain / or \)
+            if (pattern.contains("/") || pattern.contains("\\")) {
+                String c = PathNormalizer.canonicalizeForProject(pattern, getMasterRootPathForConfig());
+                if (!c.isBlank()) {
+                    canonicalExclusions.add(c);
+                }
+            } else {
+                canonicalExclusions.add(pattern);
             }
         }
 
@@ -421,7 +431,7 @@ public final class MainProject extends AbstractProject {
                 details.buildLintCommand(),
                 details.testAllCommand(),
                 details.testSomeCommand(),
-                canonicalExcludes,
+                canonicalExclusions,
                 canonicalEnv);
 
         if (!canonicalDetails.equals(BuildAgent.BuildDetails.EMPTY)) {

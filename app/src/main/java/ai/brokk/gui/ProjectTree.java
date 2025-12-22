@@ -30,6 +30,7 @@ import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
@@ -359,19 +360,25 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             Path rel = rootAbs.relativize(dirAbs).normalize();
             if (rel.getNameCount() > 0) { // avoid toggling the project root
                 String relStr = rel.toString();
-                boolean effectiveExcluded = isUnderExcludedDirectory(relStr);
+                boolean patternExcluded = project.isPathExcluded(relStr, true);
+                boolean gitignored = project.isGitignored(rel);
+                boolean effectiveExcluded = patternExcluded || gitignored;
                 // Canonicalize relStr to align with settings' persistence format
                 String canonicalRel =
                         PathNormalizer.canonicalizeForProject(relStr, project.getMasterRootPathForConfig());
-                boolean directlyExcluded = isDirectoryExcluded(canonicalRel);
+                boolean directlyExcluded = isPatternExactMatch(canonicalRel);
                 String toggleLabel =
                         effectiveExcluded ? "Include in Code Intelligence" : "Exclude from Code Intelligence";
 
                 JMenuItem toggleCiItem = new JMenuItem(toggleLabel);
-                if (effectiveExcluded && !directlyExcluded) {
-                    String ancestor = Objects.requireNonNullElse(findExcludingAncestor(relStr), "(parent)");
+                if (gitignored) {
+                    // Gitignore exclusions are read-only
                     toggleCiItem.setEnabled(false);
-                    toggleCiItem.setToolTipText("Excluded via parent folder '" + ancestor + "'");
+                    toggleCiItem.setToolTipText("Excluded via .gitignore");
+                } else if (patternExcluded && !directlyExcluded) {
+                    String ancestor = Objects.requireNonNullElse(findExcludingPattern(relStr), "(parent)");
+                    toggleCiItem.setEnabled(false);
+                    toggleCiItem.setToolTipText("Excluded via pattern '" + ancestor + "'");
                 } else {
                     toggleCiItem.addActionListener(ev -> {
                         final String finalCanonicalRel = canonicalRel;
@@ -379,22 +386,22 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                         contextManager.submitContextTask(() -> {
                             try {
                                 var currentDetails = project.loadBuildDetails();
-                                Set<String> excludesSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+                                Set<String> patternsSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
                                 // Canonicalize existing entries to ensure remove/add works across separators
-                                excludesSet.addAll(PathNormalizer.canonicalizeAllForProject(
-                                        currentDetails.excludedDirectories(), project.getMasterRootPathForConfig()));
+                                patternsSet.addAll(PathNormalizer.canonicalizeAllForProject(
+                                        currentDetails.exclusionPatterns(), project.getMasterRootPathForConfig()));
 
                                 if (isExcludedNow) {
-                                    excludesSet.remove(finalCanonicalRel);
+                                    patternsSet.remove(finalCanonicalRel);
                                 } else {
-                                    excludesSet.add(finalCanonicalRel);
+                                    patternsSet.add(finalCanonicalRel);
                                 }
 
                                 var newDetails = new BuildAgent.BuildDetails(
                                         currentDetails.buildLintCommand(),
                                         currentDetails.testAllCommand(),
                                         currentDetails.testSomeCommand(),
-                                        excludesSet,
+                                        patternsSet,
                                         currentDetails.environmentVariables());
 
                                 project.saveBuildDetails(newDetails);
@@ -927,39 +934,44 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         return files.stream().anyMatch(pf -> exts.contains(pf.extension()));
     }
 
-    private boolean isDirectoryExcluded(String relativePath) {
-        String candidate = PathNormalizer.canonicalizeForProject(relativePath, project.getMasterRootPathForConfig());
-        Set<String> excludedDirs = project.getExcludedDirectories();
-        for (String excluded : excludedDirs) {
-            String ex = PathNormalizer.canonicalizeForProject(excluded, project.getMasterRootPathForConfig());
-            if (candidate.equals(ex)) {
+    /**
+     * Check if a pattern in exclusionPatterns exactly matches this path (for toggle menu).
+     * Simple names match directly; paths match if equal.
+     */
+    private boolean isPatternExactMatch(String canonicalPath) {
+        Set<String> patterns = project.getExclusionPatterns();
+        for (String pattern : patterns) {
+            String cp = PathNormalizer.canonicalizeForProject(pattern, project.getMasterRootPathForConfig());
+            if (canonicalPath.equals(cp)) {
                 return true;
             }
         }
         return false;
     }
 
-    private boolean isUnderExcludedDirectory(String relativePath) {
+    /**
+     * Find which exclusion pattern causes this path to be excluded.
+     * Returns the matching pattern, or null if not excluded.
+     */
+    private @Nullable String findExcludingPattern(String relativePath) {
         String rp = PathNormalizer.canonicalizeForProject(relativePath, project.getMasterRootPathForConfig());
-        Set<String> excludedDirs = project.getExcludedDirectories();
-        for (String excluded : excludedDirs) {
-            String ex = PathNormalizer.canonicalizeForProject(excluded, project.getMasterRootPathForConfig());
-            if (rp.equals(ex) || rp.startsWith(ex + "/")) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private @Nullable String findExcludingAncestor(String relativePath) {
-        String rp = PathNormalizer.canonicalizeForProject(relativePath, project.getMasterRootPathForConfig());
-        Set<String> excludedDirs = project.getExcludedDirectories();
+        String lowerRp = rp.toLowerCase(Locale.ROOT);
+        Set<String> patterns = project.getExclusionPatterns();
         String best = null;
-        for (String excluded : excludedDirs) {
-            String ex = PathNormalizer.canonicalizeForProject(excluded, project.getMasterRootPathForConfig());
-            if (rp.equals(ex) || rp.startsWith(ex + "/")) {
-                if (best == null || ex.length() > best.length()) {
-                    best = ex;
+
+        for (String pattern : patterns) {
+            String cp = PathNormalizer.canonicalizeForProject(pattern, project.getMasterRootPathForConfig());
+            String lowerCp = cp.toLowerCase(Locale.ROOT);
+
+            // Check if this pattern matches the path (simple name prefix matching)
+            boolean matches = lowerRp.equals(lowerCp)
+                    || lowerRp.startsWith(lowerCp + "/")
+                    || lowerRp.contains("/" + lowerCp + "/")
+                    || lowerRp.endsWith("/" + lowerCp);
+
+            if (matches) {
+                if (best == null || cp.length() > best.length()) {
+                    best = cp;
                 }
             }
         }
@@ -1150,15 +1162,17 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                     Path relativePath = project.getRoot().relativize(file.toPath());
                     String relativePathStr = relativePath.toString();
 
-                    // Color CI-excluded directories and files (recursively)
-                    if (ProjectTree.this.isUnderExcludedDirectory(relativePathStr)) {
+                    // Color CI-excluded paths grey: check LLM patterns AND gitignore
+                    boolean patternExcluded = project.isPathExcluded(relativePathStr, file.isDirectory());
+                    boolean gitignored = project.isGitignored(relativePath);
+                    // For files, check if tracked - gitignore doesn't apply to tracked files
+                    boolean isTracked = file.isFile() && project.getRepo().isTracked(relativePath);
+
+                    if (patternExcluded || (gitignored && !isTracked)) {
                         setForeground(ThemeColors.getColor(ThemeColors.CI_EXCLUDED_FOREGROUND));
-                    } else if (file.isFile()) {
-                        // Color untracked files red (only for files not under excluded dirs)
-                        ProjectFile projectFile = new ProjectFile(project.getRoot(), relativePath);
-                        if (!project.getRepo().getTrackedFiles().contains(projectFile)) {
-                            setForeground(Color.RED);
-                        }
+                    } else if (file.isFile() && !isTracked) {
+                        // Color untracked files red
+                        setForeground(Color.RED);
                     }
                 } else if (LOADING_PLACEHOLDER.equals(node.getUserObject())) {
                     setText(LOADING_PLACEHOLDER);
