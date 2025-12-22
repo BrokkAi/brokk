@@ -26,7 +26,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import org.apache.logging.log4j.LogManager;
@@ -136,6 +135,23 @@ public class BuildPane extends JPanel implements ThemeAware {
 
         add(historyOutputPanel.getSessionHeaderPanel(), BorderLayout.NORTH);
         add(buildReviewTabs, BorderLayout.CENTER);
+    }
+
+    /**
+     * Returns true if the given string looks like a Git commit hash (hex string of 7-40 chars).
+     * Used to detect detached HEAD states.
+     */
+    public static boolean isLikelyCommitHash(String s) {
+        if (s.length() < 7 || s.length() > 40) {
+            return false;
+        }
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private JPanel createBranchSelectorHeader() {
@@ -563,7 +579,7 @@ public class BuildPane extends JPanel implements ThemeAware {
             String defaultBranch = gitRepo.getDefaultBranch();
             String currentBranch = gitRepo.getCurrentBranch();
 
-            boolean isDetached = HistoryOutputPanel.isLikelyCommitHash(currentBranch) || !gitRepo.listLocalBranches().contains(currentBranch);
+            boolean isDetached = isLikelyCommitHash(currentBranch) || !gitRepo.listLocalBranches().contains(currentBranch);
             if (isDetached) return new BaselineInfo(SessionChangesPanel.BaselineMode.DETACHED, "HEAD", "detached HEAD");
 
             if (!currentBranch.equals(defaultBranch)) return new BaselineInfo(SessionChangesPanel.BaselineMode.NON_DEFAULT_BRANCH, defaultBranch, defaultBranch);
