@@ -389,27 +389,25 @@ public class BuildPane extends JPanel implements ThemeAware {
 
     private void performRefreshReviewPanel() {
         SwingUtil.runOnEdt(() -> {
+            if (sessionChangesPanel != null) {
+                sessionChangesPanel.dispose();
+                sessionChangesPanel = null;
+            }
+
             setReviewTabTitle("Review (...)");
             setReviewTabTooltip("Computing branch-based changes...");
 
-            // If it's already visible, show the spinner in the container
-            if (reviewTabContainer.isShowing()) {
-                if (sessionChangesPanel != null) {
-                    sessionChangesPanel.dispose();
-                    sessionChangesPanel = null;
-                }
-                reviewTabContainer.removeAll();
-                var spinnerLabel = new JLabel("Computing branch-based changes...", SwingConstants.CENTER);
-                var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, true);
-                if (spinnerIcon != null) {
-                    spinnerLabel.setIcon(spinnerIcon);
-                    spinnerLabel.setHorizontalTextPosition(SwingConstants.CENTER);
-                    spinnerLabel.setVerticalTextPosition(SwingConstants.BOTTOM);
-                }
-                reviewTabContainer.add(spinnerLabel, BorderLayout.CENTER);
-                reviewTabContainer.revalidate();
-                reviewTabContainer.repaint();
+            reviewTabContainer.removeAll();
+            var spinnerLabel = new JLabel("Computing branch-based changes...", SwingConstants.CENTER);
+            var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, true);
+            if (spinnerIcon != null) {
+                spinnerLabel.setIcon(spinnerIcon);
+                spinnerLabel.setHorizontalTextPosition(SwingConstants.CENTER);
+                spinnerLabel.setVerticalTextPosition(SwingConstants.BOTTOM);
             }
+            reviewTabContainer.add(spinnerLabel, BorderLayout.CENTER);
+            reviewTabContainer.revalidate();
+            reviewTabContainer.repaint();
 
             refreshCumulativeChangesAsync();
         });
