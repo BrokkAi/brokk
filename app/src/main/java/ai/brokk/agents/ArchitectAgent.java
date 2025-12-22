@@ -895,6 +895,24 @@ public class ArchitectAgent {
         // Workspace contents are added directly
         messages.addAll(precomputedWorkspaceMessages);
 
+        // History from previous tasks/sessions
+        messages.addAll(cm.getHistoryMessages());
+
+        // This agent's own conversational history for the current goal, with the instructionsMarker
+        // simplified away to avoid sending confusing instruction text (would contain obsolete workspace-toc)
+        var marker = ArchitectPrompts.instructionsMarker();
+        messages.addAll(architectMessages.stream()
+                .map(msg -> {
+                    if (msg instanceof UserMessage um) {
+                        var text = um.singleText();
+                        if (text.contains(marker)) {
+                            return new UserMessage(marker);
+                        }
+                    }
+                    return msg;
+                })
+                .toList());
+
         // Add related identifiers as a separate message/ack pair
         var related = context.buildRelatedIdentifiers(10);
         if (!related.isEmpty()) {
@@ -913,27 +931,10 @@ public class ArchitectAgent {
             messages.add(new AiMessage("Okay, I will consider these related files."));
         }
 
-        // History from previous tasks/sessions
-        messages.addAll(cm.getHistoryMessages());
-        // This agent's own conversational history for the current goal
-        messages.addAll(architectMessages);
         // Final user message with the goal and specific instructions for this turn, including workspace warnings
         messages.add(new UserMessage(
                 ArchitectPrompts.instance.getFinalInstructions(context, goal, workspaceTokenSize, maxInputTokens)));
 
-        // Simplify prior UserMessages containing instructionsMarker to just the marker;
-        // this avoids sending redundant instruction text on subsequent turns
-        var marker = ArchitectPrompts.instructionsMarker();
-        return messages.stream()
-                .map(msg -> {
-                    if (msg instanceof UserMessage um) {
-                        var text = um.singleText();
-                        if (text.contains(marker)) {
-                            return new UserMessage(marker);
-                        }
-                    }
-                    return msg;
-                })
-                .toList();
+        return messages;
     }
 }
