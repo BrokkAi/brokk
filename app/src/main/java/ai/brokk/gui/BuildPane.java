@@ -1,15 +1,34 @@
 package ai.brokk.gui;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.ContextManager;
+import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.Context;
+import ai.brokk.context.DiffService;
+import ai.brokk.difftool.utils.ColorUtil;
+import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitWorkflow;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.components.PreviewTabbedPane;
+import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.terminal.TaskListPanel;
+import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.terminal.TerminalPanel;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import javax.swing.*;
+import javax.swing.border.EmptyBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -39,9 +58,24 @@ public class BuildPane extends JPanel implements ThemeAware {
 
     private @Nullable JSplitPane verticalActivityCombinedPanel = null;
 
+    // Review tab infrastructure
+    private final JPanel reviewTabContainer;
+    private final DeferredUpdateHelper reviewUpdateHelper;
+    @Nullable
+    private SessionChangesPanel sessionChangesPanel;
+    @Nullable
+    private DiffService.CumulativeChanges lastCumulativeChanges;
+    @Nullable
+    private String lastBaselineLabel;
+    @Nullable
+    private SessionChangesPanel.BaselineMode lastBaselineMode;
+
+    private final ContextManager contextManager;
+
     public BuildPane(Chrome chrome, ContextManager contextManager) {
         super(new BorderLayout());
         this.chrome = chrome;
+        this.contextManager = contextManager;
 
         historyOutputPanel = new HistoryOutputPanel(chrome, contextManager);
         instructionsPanel = new InstructionsPanel(chrome);
@@ -77,14 +111,14 @@ public class BuildPane extends JPanel implements ThemeAware {
                 () -> {} // Don't close main UI tab when empty
         );
 
+        // Review Tab Setup
+        reviewTabContainer = new JPanel(new BorderLayout());
+        reviewUpdateHelper = new DeferredUpdateHelper(reviewTabContainer, this::performRefreshReviewPanel);
+
         // Build | Review | Preview | Terminal Tabs
         buildReviewTabs = new JTabbedPane(JTabbedPane.TOP);
         buildReviewTabs.addTab("Build", Icons.SCIENCE, buildSplitPane);
-
-        var reviewPlaceholder = historyOutputPanel.getChangesTabPlaceholder();
-        if (reviewPlaceholder != null) {
-            buildReviewTabs.addTab("Review", Icons.FLOWSHEET, reviewPlaceholder);
-        }
+        buildReviewTabs.addTab("Review", Icons.FLOWSHEET, reviewTabContainer);
 
         isPreviewDocked = GlobalUiSettings.isPreviewDocked();
         buildReviewTabs.addTab("Preview", Icons.VISIBILITY, previewTabbedPane);
@@ -350,6 +384,217 @@ public class BuildPane extends JPanel implements ThemeAware {
         }
     }
 
+    public void requestReviewUpdate() {
+        reviewUpdateHelper.requestUpdate();
+    }
+
+    private void performRefreshReviewPanel() {
+        SwingUtil.runOnEdt(() -> {
+            if (sessionChangesPanel != null) {
+                sessionChangesPanel.dispose();
+                sessionChangesPanel = null;
+            }
+
+            setReviewTabTitle("Review (...)");
+            setReviewTabTooltip("Computing branch-based changes...");
+
+            reviewTabContainer.removeAll();
+            var spinnerLabel = new JLabel("Computing branch-based changes...", SwingConstants.CENTER);
+            var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, true);
+            if (spinnerIcon != null) {
+                spinnerLabel.setIcon(spinnerIcon);
+                spinnerLabel.setHorizontalTextPosition(SwingConstants.CENTER);
+                spinnerLabel.setVerticalTextPosition(SwingConstants.BOTTOM);
+            }
+            reviewTabContainer.add(spinnerLabel, BorderLayout.CENTER);
+            reviewTabContainer.revalidate();
+            reviewTabContainer.repaint();
+
+            refreshCumulativeChangesAsync();
+        });
+    }
+
+    private void refreshCumulativeChangesAsync() {
+        contextManager.submitBackgroundTask("Compute branch-based changes", () -> {
+            var repoOpt = repo();
+            if (repoOpt.isEmpty()) {
+                return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
+            }
+
+            var repo = repoOpt.get();
+            if (!(repo instanceof ai.brokk.git.GitRepo gitRepo)) {
+                return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
+            }
+
+            var baseline = computeBaselineForChanges(gitRepo);
+            lastBaselineLabel = baseline.displayLabel();
+            lastBaselineMode = baseline.mode();
+
+            if (baseline.mode() == SessionChangesPanel.BaselineMode.DETACHED
+                    || baseline.mode() == SessionChangesPanel.BaselineMode.NO_BASELINE) {
+                return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
+            }
+
+            try {
+                Map<ProjectFile, IGitRepo.ModifiedFile> fileMap = new HashMap<>();
+                String leftCommitSha = null;
+                String currentBranch = gitRepo.getCurrentBranch();
+
+                switch (baseline.mode()) {
+                    case NON_DEFAULT_BRANCH -> {
+                        String defaultBranch = baseline.baselineRef();
+                        String defaultBranchRef = "refs/heads/" + defaultBranch;
+                        leftCommitSha = gitRepo.getMergeBase(currentBranch, defaultBranchRef);
+                        if (leftCommitSha != null) {
+                            var myChanges = gitRepo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
+                            for (var mf : myChanges) fileMap.putIfAbsent(mf.file(), mf);
+                        } else {
+                            leftCommitSha = "HEAD";
+                        }
+                        for (var mf : gitRepo.getModifiedFiles()) fileMap.put(mf.file(), mf);
+                    }
+                    case DEFAULT_WITH_UPSTREAM -> {
+                        String upstreamRef = baseline.baselineRef();
+                        leftCommitSha = gitRepo.getMergeBase("HEAD", upstreamRef);
+                        if (leftCommitSha != null) {
+                            var myChanges = gitRepo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
+                            for (var mf : myChanges) fileMap.putIfAbsent(mf.file(), mf);
+                        } else {
+                            leftCommitSha = "HEAD";
+                        }
+                        for (var mf : gitRepo.getModifiedFiles()) fileMap.put(mf.file(), mf);
+                    }
+                    case DEFAULT_LOCAL_ONLY -> {
+                        for (var mf : gitRepo.getModifiedFiles()) fileMap.put(mf.file(), mf);
+                        leftCommitSha = "HEAD";
+                    }
+                    default -> {}
+                }
+
+                var fileSet = new HashSet<>(fileMap.values());
+                var summarizedChanges = DiffService.summarizeDiff(repo, requireNonNull(leftCommitSha), "WORKING", fileSet);
+
+                GitWorkflow.PushPullState pushPullState = null;
+                try {
+                    boolean hasUpstream = gitRepo.hasUpstreamBranch(currentBranch);
+                    boolean canPush;
+                    Set<String> unpushedCommitIds = new HashSet<>();
+                    if (hasUpstream) {
+                        unpushedCommitIds.addAll(gitRepo.remote().getUnpushedCommitIds(currentBranch));
+                        canPush = !unpushedCommitIds.isEmpty();
+                    } else {
+                        canPush = true;
+                    }
+                    pushPullState = new GitWorkflow.PushPullState(hasUpstream, hasUpstream, canPush, unpushedCommitIds);
+                } catch (Exception ignored) {}
+
+                return new DiffService.CumulativeChanges(
+                        summarizedChanges.perFileChanges().size(),
+                        summarizedChanges.totalAdded(),
+                        summarizedChanges.totalDeleted(),
+                        summarizedChanges.perFileChanges(),
+                        pushPullState);
+
+            } catch (Exception e) {
+                logger.warn("Failed to compute branch-based changes", e);
+                return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
+            }
+        }).thenAccept(result -> {
+            var preparedSummaries = DiffService.preparePerFileSummaries(result);
+            SwingUtilities.invokeLater(() -> {
+                lastCumulativeChanges = result;
+                setReviewTabTitleAndTooltip(result);
+                updateReviewTabContentUi(result, preparedSummaries);
+            });
+        });
+    }
+
+    private void setReviewTabTitleAndTooltip(DiffService.CumulativeChanges res) {
+        boolean isSpecialState = "detached HEAD".equals(lastBaselineLabel) || "No repository".equals(lastBaselineLabel);
+        String baselineSuffix = (!isSpecialState && lastBaselineLabel != null && !lastBaselineLabel.isEmpty())
+                ? " vs " + lastBaselineLabel : "";
+
+        if (res.filesChanged() == 0) {
+            setReviewTabTitle("Review (0)" + baselineSuffix);
+            String tooltipMsg = isSpecialState ? "No baseline to compare"
+                    : ("HEAD".equals(lastBaselineLabel) ? "Working tree is clean"
+                    : (lastBaselineLabel != null && !lastBaselineLabel.isBlank() ? "No changes vs " + lastBaselineLabel : "No changes to review"));
+            setReviewTabTooltip(tooltipMsg + ".");
+        } else {
+            boolean isDark = chrome.getTheme().isDarkTheme();
+            Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
+            Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
+            String htmlTitle = String.format(
+                    "<html>Review (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)%s</html>",
+                    res.filesChanged(), ColorUtil.toHex(plusColor), res.totalAdded(), ColorUtil.toHex(minusColor), res.totalDeleted(), escapeHtml(baselineSuffix));
+            setReviewTabTitle(htmlTitle);
+            setReviewTabTooltip("Cumulative changes: " + res.filesChanged() + " files, +" + res.totalAdded() + "/-" + res.totalDeleted() + baselineSuffix);
+        }
+    }
+
+    private void updateReviewTabContentUi(DiffService.CumulativeChanges res, List<Map.Entry<String, Context.DiffEntry>> prepared) {
+        if (sessionChangesPanel != null) {
+            sessionChangesPanel.dispose();
+            sessionChangesPanel = null;
+        }
+        reviewTabContainer.removeAll();
+
+        if (res.filesChanged() == 0) {
+            String message = (lastBaselineMode == SessionChangesPanel.BaselineMode.DETACHED) ? "Detached HEAD \u2014 no changes to review"
+                    : ((lastBaselineMode == SessionChangesPanel.BaselineMode.NO_BASELINE) ? "No baseline to compare"
+                    : (("HEAD".equals(lastBaselineLabel)) ? "Working tree is clean (no uncommitted changes)."
+                    : ((lastBaselineLabel != null && !lastBaselineLabel.isBlank()) ? "No changes vs " + lastBaselineLabel + "." : "No changes to review.")));
+            var none = new JLabel(message, SwingConstants.CENTER);
+            none.setBorder(new EmptyBorder(20, 0, 20, 0));
+            reviewTabContainer.add(none, BorderLayout.CENTER);
+        } else {
+            sessionChangesPanel = new SessionChangesPanel(chrome, contextManager);
+            sessionChangesPanel.updateContent(res, prepared, lastBaselineLabel, lastBaselineMode);
+            reviewTabContainer.add(sessionChangesPanel, BorderLayout.CENTER);
+        }
+        reviewTabContainer.revalidate();
+        reviewTabContainer.repaint();
+    }
+
+    private record BaselineInfo(SessionChangesPanel.BaselineMode mode, String baselineRef, String displayLabel) {}
+
+    private BaselineInfo computeBaselineForChanges(GitRepo gitRepo) {
+        try {
+            String defaultBranch = gitRepo.getDefaultBranch();
+            String currentBranch = gitRepo.getCurrentBranch();
+
+            boolean isDetached = isLikelyCommitHash(currentBranch) || !gitRepo.listLocalBranches().contains(currentBranch);
+            if (isDetached) return new BaselineInfo(SessionChangesPanel.BaselineMode.DETACHED, "HEAD", "detached HEAD");
+
+            if (!currentBranch.equals(defaultBranch)) return new BaselineInfo(SessionChangesPanel.BaselineMode.NON_DEFAULT_BRANCH, defaultBranch, defaultBranch);
+
+            if (gitRepo.listRemoteBranches().contains("origin/" + defaultBranch)) {
+                return new BaselineInfo(SessionChangesPanel.BaselineMode.DEFAULT_WITH_UPSTREAM, "origin/" + defaultBranch, "origin/" + defaultBranch);
+            }
+            return new BaselineInfo(SessionChangesPanel.BaselineMode.DEFAULT_LOCAL_ONLY, "HEAD", "HEAD");
+        } catch (Exception e) {
+            return new BaselineInfo(SessionChangesPanel.BaselineMode.NO_BASELINE, "", "Error: " + e.getMessage());
+        }
+    }
+
+    private static boolean isLikelyCommitHash(String s) {
+        if (s.length() < 7 || s.length() > 40) return false;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+        }
+        return true;
+    }
+
+    private static String escapeHtml(String s) {
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    private Optional<IGitRepo> repo() {
+        try { return Optional.of(contextManager.getProject().getRepo()); }
+        catch (Exception e) { return Optional.empty(); }
+    }
+
     public void selectPreviewTab() {
         int idx = buildReviewTabs.indexOfTab("Preview");
         if (idx != -1) {
@@ -386,6 +631,8 @@ public class BuildPane extends JPanel implements ThemeAware {
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         historyOutputPanel.applyTheme(guiTheme);
+        if (sessionChangesPanel != null) sessionChangesPanel.applyTheme(guiTheme);
+        if (lastCumulativeChanges != null) setReviewTabTitleAndTooltip(lastCumulativeChanges);
         SwingUtilities.updateComponentTreeUI(this);
     }
 }
