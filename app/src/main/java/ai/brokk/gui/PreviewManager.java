@@ -62,6 +62,7 @@ public class PreviewManager {
 
     // Track preview windows by ProjectFile for refresh on file changes
     private final Map<ProjectFile, JFrame> projectFileToPreviewWindow = new ConcurrentHashMap<>();
+    private boolean isPreviewDocked = true;
 
     /** Raise the given window to the front and give it focus. */
     public static void raiseWindow(Window window) {
@@ -214,7 +215,7 @@ public class PreviewManager {
         SwingUtilities.invokeLater(() -> {
             // Try BuildPane first
             BuildPane buildPane = chrome.getBuildPane();
-            if (buildPane != null) {
+            if (isPreviewDocked) {
                 var previewTabs = buildPane.getPreviewTabbedPane();
                 ProjectFile file = extractFileKey(panel, fragment);
 
