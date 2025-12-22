@@ -859,9 +859,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         io.showNotification(IConsoleIO.NotificationRole.INFO, message);
     }
 
-    /** Clear conversation history. */
+    /** Clear conversation history and task list. */
     public void clearHistory() {
-        pushContext(Context::clearHistory);
+        pushContext(currentLiveCtx -> currentLiveCtx
+                .clearHistory()
+                .withTaskList(new TaskList.TaskListData(List.of()), "Clear task history and tasks"));
     }
 
     /**
