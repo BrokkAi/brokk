@@ -34,6 +34,7 @@ public class FuzzySearchListPanel<T> {
     private final Timer searchDebounceTimer;
     private @Nullable FuzzyMatcher currentMatcher;
     private @Nullable Consumer<T> selectionListener;
+    private boolean isTyping = false;
 
     /**
      * Creates a new FuzzySearchListPanel with the given items.
@@ -71,7 +72,8 @@ public class FuzzySearchListPanel<T> {
                     JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
                 super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                 String text = displayMapper.apply((T) value);
-                if (currentMatcher != null) {
+                // Skip expensive HTML rendering while actively typing
+                if (currentMatcher != null && !isTyping) {
                     var fragments = currentMatcher.getMatchingFragments(text);
                     if (fragments != null && !fragments.isEmpty()) {
                         var bg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT);
@@ -175,10 +177,12 @@ public class FuzzySearchListPanel<T> {
     }
 
     private void scheduleFilter() {
+        isTyping = true;
         searchDebounceTimer.restart();
     }
 
     private void filterItems() {
+        isTyping = false;
         String query = searchField.getText().trim();
         model.clear();
 
