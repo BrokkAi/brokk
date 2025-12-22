@@ -771,7 +771,7 @@ public class SearchTools {
 
         for (File item : fsItems) {
             String name = item.getName();
-            if (project.isDirectoryIgnored(targetDir.resolve(name))) {
+            if (project.isGitignored(targetDir.resolve(name))) {
                 continue;
             }
             if (item.isDirectory()) {
@@ -796,7 +796,7 @@ public class SearchTools {
         children.sort(ProjectFile::compareTo);
         for (var file : children) {
             String identifiers = Context.buildRelatedIdentifiers(analyzer, file);
-            String content = identifiers.isEmpty() ? "- (no symbols found)" : identifiers;
+            String content = identifiers.isBlank() ? "- (no symbols found)" : identifiers;
             String fileBlock = "<file path=\"" + file.toString().replace('\\', '/') + "\">\n" + content + "\n</file>\n";
 
             totalTokens += Messages.getApproximateTokens(fileBlock);
