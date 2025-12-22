@@ -20,8 +20,8 @@ import ai.brokk.util.BuildToolConventions;
 import ai.brokk.util.BuildToolConventions.BuildSystem;
 import ai.brokk.util.Environment;
 import ai.brokk.util.EnvironmentPython;
-import ai.brokk.util.ExecutorConfig;
 import ai.brokk.util.Messages;
+import ai.brokk.util.ShellConfig;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -938,12 +938,12 @@ public class BuildAgent {
         io.llmOutput(
                 "\nRunning verification command: \n\n```bash\n" + verificationCommand + "\n```\n",
                 ChatMessageType.CUSTOM);
-        String shellLang = ExecutorConfig.getShellLanguageFromProject(cm.getProject());
+        String shellLang = ShellConfig.getShellLanguageFromProject(cm.getProject());
         io.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM);
         try {
             var details = cm.getProject().awaitBuildDetails();
             var envVars = details.environmentVariables();
-            var execCfg = ExecutorConfig.fromProject(cm.getProject());
+            var execCfg = ShellConfig.fromProject(cm.getProject());
 
             long timeoutSeconds = cm.getProject().getRunCommandTimeoutSeconds();
             Duration timeout = timeoutSeconds > 0L ? Duration.ofSeconds(timeoutSeconds) : Environment.DEFAULT_TIMEOUT;
