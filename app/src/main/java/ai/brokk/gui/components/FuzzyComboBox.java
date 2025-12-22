@@ -16,7 +16,7 @@ import org.jetbrains.annotations.Nullable;
  * @param <T> The type of items in the combo box
  */
 public class FuzzyComboBox<T> extends JPanel {
-    private final List<T> allItems;
+    private List<T> allItems;
     private final Function<T, String> displayMapper;
     private final MaterialButton button;
     private @Nullable T selectedItem;
@@ -119,6 +119,32 @@ public class FuzzyComboBox<T> extends JPanel {
      */
     public void setSelectionChangeListener(@Nullable Consumer<T> listener) {
         this.selectionChangeListener = listener;
+    }
+
+    /**
+     * Updates the items in this combo box.
+     * <p>
+     * If the currently selected item exists in the new items list, the selection
+     * is preserved. Otherwise, the selection is cleared. If the new items list is
+     * non-empty and no item is selected, the first item is automatically selected.
+     * <p>
+     * This method must be called on the EDT.
+     *
+     * @param items The new items to display
+     */
+    public void setItems(List<T> items) {
+        assert SwingUtilities.isEventDispatchThread() : "setItems must be called on EDT";
+
+        this.allItems = new ArrayList<>(items);
+
+        // Preserve selection if valid, otherwise clear and potentially auto-select
+        if (selectedItem != null && !allItems.contains(selectedItem)) {
+            setSelectedItem(null);
+        }
+
+        if (selectedItem == null && !allItems.isEmpty()) {
+            setSelectedItem(allItems.getFirst());
+        }
     }
 
     @Override

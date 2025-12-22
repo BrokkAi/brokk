@@ -49,13 +49,8 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     private final ContextManager contextManager;
     private final GitWorkflow workflowService;
 
-    @Nullable
     private JPanel branchSelectorPanel;
-
-    @Nullable
     private FuzzyComboBox<String> sourceBranchComboBox;
-
-    @Nullable
     private FuzzyComboBox<String> targetBranchComboBox;
 
     private JTextField titleField;
@@ -238,12 +233,18 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         var branchPanel = new JPanel(new GridBagLayout());
         this.branchSelectorPanel = branchPanel;
 
-        // FuzzyComboBox instances will be created in populateBranchDropdowns() after branch data is loaded
-        // For now, just set up the flow label and warning label
+        // Create combo boxes immediately with loading placeholder
+        sourceBranchComboBox = FuzzyComboBox.forStrings(List.of("Loading..."));
+        targetBranchComboBox = FuzzyComboBox.forStrings(List.of("Loading..."));
+        sourceBranchComboBox.setEnabled(false);
+        targetBranchComboBox.setEnabled(false);
+
+        // Set up listeners immediately (safe - won't fire on placeholder)
+        setupBranchListeners();
 
         var row = 0;
-        // Reserve rows 0 and 1 for branch selectors (will be added by populateBranchDropdowns)
-        row = 2;
+        row = addBranchSelectorToPanel(branchPanel, "Target branch:", targetBranchComboBox, row);
+        row = addBranchSelectorToPanel(branchPanel, "Source branch:", sourceBranchComboBox, row);
 
         this.branchFlowLabel = createBranchFlowIndicator(branchPanel, row); // Assign to field
         row++;
@@ -575,28 +576,38 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
             var targetBranches = getTargetBranches(remoteBranches);
             var sourceBranches = getSourceBranches(localBranches, remoteBranches);
 
-            populateBranchDropdowns(targetBranches, sourceBranches);
-            setDefaultBranchSelections(gitRepo, targetBranches, sourceBranches, localBranches);
+            SwingUtilities.invokeLater(() -> {
+                populateBranchDropdowns(targetBranches, sourceBranches);
+                try {
+                    setDefaultBranchSelections(gitRepo, targetBranches, sourceBranches, localBranches);
 
-            // If caller asked for a specific source branch, honour it *after*
-            // defaults have been applied (so this wins).
-            assert sourceBranchComboBox != null;
-            if (preselectedSourceBranch != null && sourceBranches.contains(preselectedSourceBranch)) {
-                sourceBranchComboBox.setSelectedItem(preselectedSourceBranch);
-            }
+                    // If caller asked for a specific source branch, honour it *after*
+                    // defaults have been applied (so this wins).
+                    assert sourceBranchComboBox != null;
+                    if (preselectedSourceBranch != null && sourceBranches.contains(preselectedSourceBranch)) {
+                        sourceBranchComboBox.setSelectedItem(preselectedSourceBranch);
+                    }
 
-            // Listeners must be set up AFTER default items are selected to avoid premature firing.
-            setupBranchListeners();
+                    // Listeners are already set up in createBranchSelectorPanel()
 
-            this.flowUpdater.run(); // Update label based on defaults
-            refreshCommitList(); // Load commits based on defaults, which will also call flowUpdater and update button
-            // state
-            // updateCreatePrButtonState(); // No longer needed here, refreshCommitList handles it
+                    this.flowUpdater.run(); // Update label based on defaults
+                    refreshCommitList(); // Load commits based on defaults, which will also call flowUpdater and update button state
+                } catch (GitAPIException e) {
+                    logger.error("Error setting default branch selections", e);
+                    updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), "Error setting default branches");
+                }
+            });
         } catch (GitAPIException e) {
             logger.error("Error loading branches for PR dialog", e);
-            // Ensure UI is updated consistently on error, using the new helper method
-            SwingUtilities.invokeLater(() ->
-                    updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), "Error loading branches"));
+            SwingUtilities.invokeLater(() -> {
+                if (targetBranchComboBox != null && sourceBranchComboBox != null) {
+                    targetBranchComboBox.setItems(List.of("(Error loading branches)"));
+                    sourceBranchComboBox.setItems(List.of("(Error loading branches)"));
+                    targetBranchComboBox.setEnabled(false);
+                    sourceBranchComboBox.setEnabled(false);
+                }
+                updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), "Error loading branches");
+            });
         }
     }
 
@@ -615,19 +626,16 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     }
 
     private void populateBranchDropdowns(List<String> targetBranches, List<String> sourceBranches) {
-        // Create FuzzyComboBox instances with branch data
-        targetBranchComboBox = FuzzyComboBox.forStrings(targetBranches);
-        sourceBranchComboBox = FuzzyComboBox.forStrings(sourceBranches);
+        assert SwingUtilities.isEventDispatchThread() : "populateBranchDropdowns must run on EDT";
+        assert targetBranchComboBox != null && sourceBranchComboBox != null : "Combo boxes must be initialized";
 
-        // Add to panel
-        assert branchSelectorPanel != null;
-        int row = 0;
-        row = addBranchSelectorToPanel(branchSelectorPanel, "Target branch:", targetBranchComboBox, row);
-        row = addBranchSelectorToPanel(branchSelectorPanel, "Source branch:", sourceBranchComboBox, row);
+        // Update items using new setItems() method
+        targetBranchComboBox.setItems(targetBranches);
+        sourceBranchComboBox.setItems(sourceBranches);
 
-        // Refresh UI
-        branchSelectorPanel.revalidate();
-        branchSelectorPanel.repaint();
+        // Re-enable combo boxes after loading
+        targetBranchComboBox.setEnabled(true);
+        sourceBranchComboBox.setEnabled(true);
     }
 
     private void setDefaultBranchSelections(
