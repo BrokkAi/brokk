@@ -6,7 +6,6 @@ import ai.brokk.project.MainProject;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -71,43 +70,6 @@ public class Service extends AbstractService implements ExceptionReporter.Report
 
         this.modelLocations = Map.copyOf(tempModelLocations);
         this.modelInfoMap = Map.copyOf(tempModelInfoMap);
-
-        // Initialize default chat models based on MainProject configurations.
-        var mainProject = project.getMainProject();
-
-        // Quick model: use QUICK config, fall back to UnavailableStreamingModel if not resolvable.
-        try {
-            var quickCfg = mainProject.getQuickModelConfig();
-            var qm = getModel(quickCfg);
-            quickModel = (qm == null) ? new UnavailableStreamingModel() : qm;
-        } catch (Exception e) {
-            LogManager.getLogger(Service.class)
-                    .warn("Failed to initialize quick model from config: {}", e.getMessage());
-            quickModel = new UnavailableStreamingModel();
-        }
-
-        // Quick-edit model: prefer QUICK_EDIT config; if unavailable, fall back to quickModel.
-        try {
-            var quickEditCfg = mainProject.getQuickEditModelConfig();
-            var qem = getModel(quickEditCfg);
-            quickEditModel = (qem == null) ? quickModel : qem;
-        } catch (Exception e) {
-            LogManager.getLogger(Service.class)
-                    .warn("Failed to initialize quick-edit model from config: {}", e.getMessage());
-            quickEditModel = quickModel;
-        }
-
-        // Quickest model: use QUICKEST config with temperature forced to 0.0; fall back to UnavailableStreamingModel.
-        try {
-            var quickestCfg = mainProject.getQuickestModelConfig();
-            var qqm =
-                    getModel(quickestCfg, OpenAiChatRequestParameters.builder().temperature(0.0));
-            quickestModel = (qqm == null) ? new UnavailableStreamingModel() : qqm;
-        } catch (Exception e) {
-            LogManager.getLogger(Service.class)
-                    .warn("Failed to initialize quickest model from config: {}", e.getMessage());
-            quickestModel = new UnavailableStreamingModel();
-        }
 
         // STT model initialization
         var sttLocation = modelInfoMap.entrySet().stream()

@@ -5,7 +5,7 @@ import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.GitWorkflow;
@@ -704,7 +704,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 for (var pf : selectedFiles) {
                     try {
                         final String content = getRepo().getFileContent(commitId, pf);
-                        var fragment = new ContextFragment.GitFileFragment(pf, shortId, content);
+                        var fragment = new ContextFragments.GitFileFragment(pf, shortId, content);
                         contextManager.addFragmentAsync(fragment);
                         success++;
                     } catch (GitAPIException ex) {

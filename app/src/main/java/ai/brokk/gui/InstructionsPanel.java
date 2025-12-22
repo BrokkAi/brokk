@@ -23,8 +23,8 @@ import ai.brokk.gui.components.ModelSelector;
 import ai.brokk.gui.components.OverlayPanel;
 import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.components.TokenUsageBar;
+import ai.brokk.gui.dialogs.SettingsAdvancedPanel;
 import ai.brokk.gui.dialogs.SettingsDialog;
-import ai.brokk.gui.dialogs.SettingsGlobalPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -32,7 +32,9 @@ import ai.brokk.gui.util.FileDropHandlerFactory;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.gui.wand.WandAction;
+import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.GlobalUiSettings;
@@ -55,16 +57,12 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
-import java.util.ArrayList;
+import java.util.*;
 import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.Border;
 import javax.swing.border.EmptyBorder;
@@ -98,30 +96,30 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     private static final String PLACEHOLDER_TEXT_ADVANCED =
             """
-            Switching modes:
-            - Click the arrow on the big blue button to choose between Lutz, Code, and Ask, then click on the button to run the selected mode.
+                    Switching modes:
+                    - Click the arrow on the big blue button to choose between Lutz, Code, and Ask, then click on the button to run the selected mode.
 
-            Brokk action modes:
-            - Lutz: Lutz is one of the best context engineers around. After a all-day meetup in Amsterdam, we baked his workflow into Brokk.
-              Lutz Mode performs an "agentic" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding.
-              It is a great way to kick off work with strong context and a clear plan.
-            - Code: Applies changes directly to the files currently in your Workspace context based on your instructions.
-            - Ask: Gives general-purpose answers or guidance grounded in the files that are in your Workspace.
+                    Brokk action modes:
+                    - Lutz: Lutz is one of the best context engineers around. After a all-day meetup in Amsterdam, we baked his workflow into Brokk.
+                      Lutz Mode performs an "agentic" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding.
+                      It is a great way to kick off work with strong context and a clear plan.
+                    - Code: Applies changes directly to the files currently in your Workspace context based on your instructions.
+                    - Ask: Gives general-purpose answers or guidance grounded in the files that are in your Workspace.
 
-            Type your prompt here. (Shift+Enter for a new line)
-            """
+                    Type your prompt here. (Shift+Enter for a new line)
+                    """
                     .stripIndent();
 
     private static final String PLACEHOLDER_TEXT_EZ =
             """
-            Brokk action modes:
-            - Lutz: Performs an "agentic" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding.
-              It is a great way to kick off work with strong context and a clear plan.
-            - Code: Applies changes directly to the files currently in your Workspace context based on your instructions.
-            - Ask: Gives general-purpose answers or guidance grounded in the files that are in your Workspace.
+                    Brokk action modes:
+                    - Lutz: Performs an "agentic" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding.
+                      It is a great way to kick off work with strong context and a clear plan.
+                    - Code: Applies changes directly to the files currently in your Workspace context based on your instructions.
+                    - Ask: Gives general-purpose answers or guidance grounded in the files that are in your Workspace.
 
-            Type your prompt here. (Shift+Enter for a new line)
-            """
+                    Type your prompt here. (Shift+Enter for a new line)
+                    """
                     .stripIndent();
 
     private static final ImageIcon BROKK_ICON_16 = loadBrokkIcon();
@@ -280,7 +278,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
     }
 
-    /** Pick a readable text color (white or dark) against the given background color. */
+    /**
+     * Pick a readable text color (white or dark) against the given background color.
+     */
     private static Color readableTextForBackground(Color background) {
         double r = background.getRed() / 255.0;
         double g = background.getGreen() / 255.0;
@@ -334,7 +334,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final UndoManager commandInputUndoManager;
     private AutoCompletion instructionAutoCompletion;
     private InstructionsCompletionProvider instructionCompletionProvider;
-    private JPopupMenu tokenUsageBarPopupMenu;
 
     private static final int INDENT_WIDTH = 4;
     private static final String INDENT_STRING = "    "; // 4 spaces
@@ -371,7 +370,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 },
                 null,
                 this::isPlaceholderText,
-                this::populateInstructionsArea,
+                this::appendToInstructionsArea,
                 msg -> chrome.toolError(msg, "Error"));
         micButton.setFocusable(true);
         // Add explicit focus border to make focus visible on the mic button
@@ -447,8 +446,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         modelSelector = new ModelSelector(chrome);
-        modelSelector.selectConfig(chrome.getProject().getArchitectModelConfig());
-        modelSelector.addSelectionListener(cfg -> chrome.getProject().setArchitectModelConfig(cfg));
+        modelSelector.selectConfig(chrome.getProject().getModelConfig(ModelProperties.ModelType.ARCHITECT));
+        modelSelector.addSelectionListener(cfg -> {
+            IProject iProject = chrome.getProject();
+            iProject.setModelConfig(ModelProperties.ModelType.ARCHITECT, cfg);
+        });
         // Also recompute token/cost indicator when model changes
         modelSelector.addSelectionListener(cfg -> updateTokenCostIndicator());
         // Ensure model selector component is focusable
@@ -470,26 +472,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         tokenUsageBar.setVisible(false);
         tokenUsageBar.setAlignmentY(Component.CENTER_ALIGNMENT);
         tokenUsageBar.setToolTipText("Shows Workspace token usage and estimated cost.");
-
-        // Initialize TokenUsageBar popup menu
-        tokenUsageBarPopupMenu = new JPopupMenu();
-
-        JMenuItem dropAllMenuItem = new JMenuItem("Drop All");
-        dropAllMenuItem.addActionListener(
-                e -> chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.DROP, List.of()));
-        tokenUsageBarPopupMenu.add(dropAllMenuItem);
-
-        JMenuItem copyAllMenuItem = new JMenuItem("Copy All");
-        copyAllMenuItem.addActionListener(
-                e -> chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.COPY, List.of()));
-        tokenUsageBarPopupMenu.add(copyAllMenuItem);
-
-        JMenuItem pasteMenuItem = new JMenuItem("Paste text, images, urls");
-        pasteMenuItem.addActionListener(
-                e -> chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of()));
-        tokenUsageBarPopupMenu.add(pasteMenuItem);
-
-        SwingUtilities.invokeLater(() -> chrome.themeManager.registerPopupMenu(tokenUsageBarPopupMenu));
 
         this.contextAreaContainer = createContextAreaContainer();
         // Top Bar (History, Configure Models, Stop) (North)
@@ -560,8 +542,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * If a region is selected, operates on all lines that overlap the selection.
      * If nothing is selected, operates on the current line.
      *
-     * @param area    The JTextArea to modify.
-     * @param indent  true to indent, false to unindent.
+     * @param area   The JTextArea to modify.
+     * @param indent true to indent, false to unindent.
      */
     private static void applyIndentation(JTextArea area, boolean indent) {
         Document doc = area.getDocument();
@@ -908,10 +890,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     } else {
                         rows++;
                         lineWidth = w;
-                        if (rows >= 2) break;
+                        int maxRows = GlobalUiSettings.isVerticalActivityLayout() ? 3 : 2;
+                        if (rows >= maxRows) break;
                     }
                 }
-                return Math.max(1, Math.min(2, rows));
+                int maxRows = GlobalUiSettings.isVerticalActivityLayout() ? 3 : 2;
+                return Math.max(1, Math.min(maxRows, rows));
             }
 
             @Override
@@ -996,25 +980,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Ensure the token bar expands to fill available width
         tokenUsageBar.setAlignmentY(Component.CENTER_ALIGNMENT);
-
-        // Add right-click handler to TokenUsageBar
-        tokenUsageBar.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent e) {
-                // Block popup when read-only (tokenUsageBar is disabled)
-                if (e.isPopupTrigger() && tokenUsageBar.isEnabled()) {
-                    tokenUsageBarPopupMenu.show(tokenUsageBar, e.getX(), e.getY());
-                }
-            }
-
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                // Block popup when read-only (tokenUsageBar is disabled)
-                if (e.isPopupTrigger() && tokenUsageBar.isEnabled()) {
-                    tokenUsageBarPopupMenu.show(tokenUsageBar, e.getX(), e.getY());
-                }
-            }
-        });
 
         bottomLinePanel.add(tokenUsageBar, BorderLayout.CENTER);
 
@@ -1126,7 +1091,26 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 if (SwingUtilities.isDescendingFrom(clickedComponent, workspaceItemsChipPanel)) {
                     return;
                 }
-                tokenUsageBarPopupMenu.show(titledContainer, e.getX(), e.getY());
+                // The actual menu for the titledContainer empty space
+                JPopupMenu emptySpaceMenu = new JPopupMenu();
+
+                JMenuItem dropAll = new JMenuItem("Drop All");
+                dropAll.addActionListener(ev -> chrome.getContextPanel()
+                        .performContextActionAsync(ai.brokk.gui.WorkspacePanel.ContextAction.DROP, List.of()));
+                emptySpaceMenu.add(dropAll);
+
+                JMenuItem copyAll = new JMenuItem("Copy All");
+                copyAll.addActionListener(ev -> chrome.getContextPanel()
+                        .performContextActionAsync(ai.brokk.gui.WorkspacePanel.ContextAction.COPY, List.of()));
+                emptySpaceMenu.add(copyAll);
+
+                JMenuItem paste = new JMenuItem("Paste text, images, urls");
+                paste.addActionListener(ev -> chrome.getContextPanel()
+                        .performContextActionAsync(ai.brokk.gui.WorkspacePanel.ContextAction.PASTE, List.of()));
+                emptySpaceMenu.add(paste);
+
+                chrome.getThemeManager().registerPopupMenu(emptySpaceMenu);
+                emptySpaceMenu.show(titledContainer, e.getX(), e.getY());
             }
         });
 
@@ -1142,7 +1126,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getContextManager()
                 .submitBackgroundTask("Compute token estimate (Instructions)", () -> {
                     // Use ContextManager-aware model resolution (no ad-hoc fallbacks here)
-                    var model = contextManager.getModelOrDefault(config, "Selected");
+                    var model = contextManager.getService().getModel(config);
 
                     if (model == null || model instanceof Service.UnavailableStreamingModel) {
                         return new TokenUsageBarComputation(
@@ -1264,7 +1248,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             Service.ModelConfig config,
             int successRate,
             boolean isTested) {}
-    /** Calculate cost estimate mirroring WorkspacePanel for only the model currently selected in InstructionsPanel. */
+
+    /**
+     * Calculate cost estimate mirroring WorkspacePanel for only the model currently selected in InstructionsPanel.
+     */
     private String calculateCostEstimate(Service.ModelConfig config, int inputTokens, AbstractService service) {
         var pricing = service.getModelPricing(config.name());
         if (pricing.bands().isEmpty()) {
@@ -1501,7 +1488,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         dropdown.addActionListener(ev -> SwingUtilities.invokeLater(() -> {
             try {
                 var menu = historyMenuSupplier.get();
-                chrome.themeManager.registerPopupMenu(menu);
+                chrome.getThemeManager().registerPopupMenu(menu);
                 menu.show(dropdown, 0, dropdown.getHeight());
             } catch (Exception ex) {
                 logger.error("Error showing history dropdown", ex);
@@ -1533,10 +1520,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private void showVisionSupportErrorDialog(String requiredModelsInfo) {
         String message =
                 """
-                         <html>The current operation involves images, but the following selected model(s) do not support vision:<br>
-                         <b>%s</b><br><br>
-                         Please select vision-capable models in the settings to proceed with image-based tasks.</html>
-                         """
+                        <html>The current operation involves images, but the following selected model(s) do not support vision:<br>
+                        <b>%s</b><br><br>
+                        Please select vision-capable models in the settings to proceed with image-based tasks.</html>
+                        """
                         .formatted(requiredModelsInfo);
         Object[] options = {"Open Model Settings", "Cancel"};
         int choice = JOptionPane.showOptionDialog(
@@ -1552,7 +1539,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         if (choice == JOptionPane.YES_OPTION) { // Open Settings
             SwingUtilities.invokeLater(
-                    () -> SettingsDialog.showSettingsDialog(chrome, SettingsGlobalPanel.MODELS_TAB_TITLE));
+                    () -> SettingsDialog.showSettingsDialog(chrome, SettingsAdvancedPanel.MODELS_TAB_TITLE));
         }
         // In either case (Settings opened or Cancel pressed), the original action is aborted by returning from the
         // caller.
@@ -1566,7 +1553,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         try {
             var models = contextManager.getService();
             // If we have an UnavailableStreamingModel, the service failed to initialize
-            if (models.quickModel() instanceof Service.UnavailableStreamingModel) {
+            if (models.quickestModel() instanceof Service.UnavailableStreamingModel) {
                 return "Service contains unavailable model stub (initialization may have failed)";
             }
             return "Service appears initialized; check network connectivity and API key validity";
@@ -1605,12 +1592,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         // Use ContextManager-aware resolution so centralized fallbacks are applied
-        var selectedModel = cm.getModelOrDefault(config, "Selected");
+        var selectedModel = contextManager.getService().getModel(config);
 
         if (selectedModel == null) {
             chrome.toolError("Selected model '" + config.name() + "' is not available with reasoning level "
                     + config.reasoning());
-            return null;
+            selectedModel = models.getModel(ModelProperties.ModelType.ARCHITECT);
         }
 
         boolean hasImages = contextHasImages();
@@ -1758,12 +1745,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // If Workspace is empty, ask the user how to proceed
         if (chrome.getContextManager().liveContext().isEmpty()) {
             String message =
-                    "Are you sure you want to code against an empty Workspace? This is the right thing to do if you want to create new source files with no other context. Otherwise, run Search first or manually add context to the Workspace.";
+                    "Are you sure you want to code with no attached context? This is the right thing to do if you want to create new source files from scratch. Otherwise, run Search first or manually attach context.";
             Object[] options = {"Code", "Search", "Cancel"};
             int choice = JOptionPane.showOptionDialog(
                     chrome.getFrame(),
                     message,
-                    "Empty Workspace",
+                    "No Context",
                     JOptionPane.YES_NO_CANCEL_OPTION,
                     JOptionPane.QUESTION_MESSAGE,
                     null,
@@ -1785,7 +1772,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var contextManager1 = chrome.getContextManager();
 
             CodeAgent agent = new CodeAgent(contextManager1, modelToUse);
-            return agent.runTask(input, Set.of());
+            return agent.execute(input, Set.of());
         });
     }
 
@@ -1850,33 +1837,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         autoClearCompletedTasks();
 
-        // Derive objective and auto-execute behavior from action
-        SearchAgent.Objective objective;
-        boolean shouldAutoExecuteTasks;
-        if (ACTION_PLAN.equals(action)) {
-            objective = SearchAgent.Objective.TASKS_ONLY;
-            shouldAutoExecuteTasks = false;
-        } else {
-            // Default to Lutz for ACTION_LUTZ and any other value
-            objective = SearchAgent.Objective.LUTZ;
-            shouldAutoExecuteTasks = true;
-        }
-
-        // CRITICAL: Capture pre-existing incomplete tasks BEFORE submitAction to avoid race condition.
-        // SearchAgent will modify the task list, so we must capture the state before that happens.
-        final var preExistingIncompleteTasks = contextManager.liveContext().getTaskListDataOrEmpty().tasks().stream()
-                .filter(t -> !t.done())
-                .map(TaskList.TaskItem::text)
-                .collect(Collectors.toSet());
+        // Derive objective from action
+        SearchAgent.Objective objective =
+                ACTION_PLAN.equals(action) ? SearchAgent.Objective.TASKS_ONLY : SearchAgent.Objective.LUTZ;
 
         submitAction(action, query, scope -> {
                     assert !query.isBlank();
 
                     var cm = chrome.getContextManager();
                     var context = cm.liveContext();
+
+                    // Check for existing incomplete tasks before running agent
+                    var beforeTasks = context.getTaskListDataOrEmpty();
+                    boolean hadIncomplete = hasIncomplete(beforeTasks);
+
                     SearchAgent agent = new SearchAgent(context, query, modelToUse, objective, scope);
                     try {
-                        agent.scanInitialContext();
+                        context = agent.scanInitialContext();
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         return new TaskResult(
@@ -1888,16 +1865,56 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                 new TaskResult.TaskMeta(
                                         TaskResult.Type.SEARCH, Service.ModelConfig.from(modelToUse, cm.getService())));
                     }
-                    return agent.execute();
+
+                    var result = agent.execute();
+                    // Apply results to context
+                    context = result.context();
+                    var agentTasks = context.getTaskListDataOrEmpty();
+
+                    // Gating: If we had existing incomplete tasks and the agent produced new ones, ask how to reconcile
+                    if (hadIncomplete && !agentTasks.tasks().isEmpty()) {
+                        final int[] choiceHolder = new int[1];
+                        try {
+                            SwingUtilities.invokeAndWait(() -> {
+                                String message = "New tasks were created. What would you like to do?";
+                                Object[] options = {"Append to existing", "Replace with new"};
+                                choiceHolder[0] = JOptionPane.showOptionDialog(
+                                        SwingUtilities.getWindowAncestor(this),
+                                        message,
+                                        "New Tasks",
+                                        JOptionPane.YES_NO_OPTION,
+                                        JOptionPane.QUESTION_MESSAGE,
+                                        null,
+                                        options,
+                                        options[0]);
+                            });
+                        } catch (Exception ex) {
+                            logger.debug("Error showing task gating dialog", ex);
+                            choiceHolder[0] = 0; // Default to append
+                        }
+
+                        if (choiceHolder[0] == 0) {
+                            // Append: concatenate both lists
+                            var combined = new ArrayList<>(beforeTasks.tasks());
+                            combined.addAll(agentTasks.tasks());
+                            context = cm.deriveContextWithTaskList(
+                                    context, new TaskList.TaskListData(combined), "Appended new tasks");
+                        } else {
+                            // Replace: already the state of 'context' from result, but we ensure it is set in CM
+                            context = cm.deriveContextWithTaskList(
+                                    context, agentTasks, "Replaced task list with new tasks");
+                        }
+                    }
+
+                    return result.withContext(context);
                 })
-                .thenAccept(unused -> {
-                    // Explicit second phase: trigger task execution if appropriate
-                    // Lutz Mode (shouldAutoExecuteTasks=true) auto-executes in EZ mode
-                    // Plan Mode (shouldAutoExecuteTasks=false) shows tasks but does not execute
-                    if (shouldAutoExecuteTasks && !GlobalUiSettings.isAdvancedMode()) {
-                        logger.debug("EZ-mode: start aut play");
-                        SwingUtilities.invokeLater(() ->
-                                chrome.getTaskListPanel().showAutoPlayGateDialogAndAct(preExistingIncompleteTasks));
+                .thenAccept(result -> {
+                    // Auto-run only in Lutz EZ if successful and there are incomplete tasks available
+                    // we can use live context, because Lutz Mode already pushed
+                    boolean isLutzEz = ACTION_LUTZ.equals(action) && !GlobalUiSettings.isAdvancedMode();
+                    if (isLutzEz && hasIncomplete(contextManager.getTaskList())) {
+                        SwingUtilities.invokeLater(
+                                () -> chrome.getTaskListPanel().runArchitectOnAll());
                     }
                 });
     }
@@ -1943,7 +1960,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
     }
 
-    /** Overload that provides a TaskScope to the task body so callers can pass it to agents. */
+    /**
+     * Overload that provides a TaskScope to the task body so callers can pass it to agents.
+     */
     public CompletableFuture<Void> submitAction(
             String action, String input, Function<ContextManager.TaskScope, TaskResult> task) {
         var cm = chrome.getContextManager();
@@ -2182,7 +2201,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Sets text in the instructions area while preserving undo capability.
      * The entire text replacement is captured as a single undoable edit,
      * and previous undo history (e.g., user typing) is preserved.
-     *
+     * <p>
      * For wand streaming, the caller (WandButton) disables the undo listener
      * before streaming starts, so no intermediate edits are captured.
      *
@@ -2265,6 +2284,26 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
+     * Appends transcript text to the instructions area (used by voice input).
+     * If placeholder is active, replaces it; otherwise appends with space separator.
+     */
+    private void appendToInstructionsArea(String transcript) {
+        SwingUtilities.invokeLater(() -> {
+            var currentText = instructionsArea.getText();
+            var isEmpty = isPlaceholderText(currentText) || currentText.isBlank();
+
+            if (isEmpty || !instructionsArea.isEnabled()) {
+                activateCommandInput();
+            }
+
+            var newText = isEmpty ? transcript : currentText + " " + transcript;
+            setTextWithUndo(newText, isEmpty ? "" : currentText);
+            instructionsArea.requestFocusInWindow();
+            instructionsArea.setCaretPosition(newText.length());
+        });
+    }
+
+    /**
      * Hides the command input overlay, enables the input field and deep scan button, clears the placeholder text if
      * present, and requests focus for the input field.
      */
@@ -2273,9 +2312,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         commandInputOverlay.hideOverlay(); // Hide the overlay
         // Enable input and deep scan button
         instructionsArea.setEnabled(true);
-        // Clear placeholder only if it's still present
+        // Clear placeholder only if it's still present (inline to avoid invokeLater race)
         if (isPlaceholderText(instructionsArea.getText())) {
-            clearCommandInput();
+            instructionsArea.setText("");
+            commandInputUndoManager.discardAllEdits();
         }
         // Enable undo listener now that real content can be entered
         enableUndoListener();
@@ -2309,7 +2349,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * default if none is available.
      */
     public StreamingChatModel getSelectedModel() {
-        return contextManager.getModelOrDefault(modelSelector.getModel(), "Selected");
+        Service.ModelConfig config = modelSelector.getModel();
+        var service = contextManager.getService();
+        StreamingChatModel model = service.getModel(config);
+        if (model != null) {
+            return model;
+        }
+
+        return contextManager.getService().getModel(ModelProperties.ModelType.ARCHITECT);
     }
 
     // TODO this is unnecessary if we can push config into StreamingChatModel
@@ -2336,7 +2383,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     /**
      * Accepts an externally provided status strip and places it immediately next to the ModelSelector
      * in the bottom toolbar. Safe to call from any thread.
-     *
+     * <p>
      * If a strip was previously installed, it is removed first. The provided component is detached
      * from any prior parent before insertion (Swing components can only have one parent).
      */
@@ -2548,9 +2595,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         private static final String MODE_TOOLTIP_ASK =
                 "<b>Ask Mode:</b> An Ask agent giving you general purpose answers to a question or a request based on the files in your context.";
         private static final String MODE_TOOLTIP_LUTZ =
-                "<b>Lutz Mode:</b> Performs an \"agentic\" search across your entire project to find code relevant to your prompt and will generate a plan for you by creating a list of tasks.";
+                "<b>Lutz Mode:</b> Performs an \"agentic\" search across your entire project to find code relevant to your prompt and will generate a plan for you by creating a list of tasks. If you have incomplete tasks, Brokk will let you choose to replace your current task list or append the new tasks before proceeding.";
         private static final String MODE_TOOLTIP_PLAN =
-                "<b>Plan Mode:</b> Performs an agentic search and generates a task list without auto-executing tasks.";
+                "<b>Plan Mode:</b> Performs an agentic search and generates a task list without auto-executing tasks. If you have incomplete tasks, Brokk will let you choose to replace your current task list or append the new tasks before proceeding.";
         private boolean dropdownEnabled = true;
 
         public ActionSplitButton(Supplier<Boolean> isActionRunning, String defaultMode) {
@@ -2772,6 +2819,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         @Override
         protected void paintComponent(Graphics g) {
+            // 1) Custom rounded background
             Graphics2D g2 = (Graphics2D) g.create();
             try {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -2787,15 +2835,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
                 g2.setColor(bg);
                 g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
+            } finally {
+                g2.dispose();
+            }
 
-                // Draw divider line and dropdown icon only if dropdown is enabled and not in stop mode
-                if (!inStopMode && dropdownEnabled) {
+            // 2) Let the LAF draw text/icon (with contentAreaFilled=false this won't overpaint our bg)
+            super.paintComponent(g);
+
+            // 3) Draw divider + dropdown chevron on top so they can't be overpainted by the LAF
+            if (!inStopMode && dropdownEnabled) {
+                Graphics2D g3 = (Graphics2D) g.create();
+                try {
+                    g3.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                     int dropdownX = getWidth() - DROPDOWN_WIDTH;
                     boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
-                    g2.setColor(isHighContrast ? Color.BLACK : Color.WHITE);
-                    g2.drawLine(dropdownX, 6, dropdownX, getHeight() - 6);
+                    g3.setColor(isHighContrast ? Color.BLACK : Color.WHITE);
+                    g3.drawLine(dropdownX, 6, dropdownX, getHeight() - 6);
 
-                    // Lazy-load and paint dropdown icon centered in the dropdown area
                     if (dropdownIcon == null) {
                         dropdownIcon = Icons.KEYBOARD_DOWN_LIGHT;
                     }
@@ -2805,20 +2861,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     Icon iconToPaint = (dropdownIcon instanceof SwingUtil.ThemedIcon themedIcon)
                             ? themedIcon.delegate()
                             : dropdownIcon;
-                    // Apply high-contrast processing to dropdown icon
                     iconToPaint = ColorUtil.createHighContrastIcon(iconToPaint, getBackground(), isHighContrast);
                     if (iconToPaint != null) {
                         int iw = iconToPaint.getIconWidth();
                         int ih = iconToPaint.getIconHeight();
                         int ix = dropdownX + Math.max(0, (DROPDOWN_WIDTH - iw) / 2);
                         int iy = Math.max(0, (getHeight() - ih) / 2);
-                        iconToPaint.paintIcon(this, g2, ix, iy);
+                        iconToPaint.paintIcon(this, g3, ix, iy);
                     }
+                } finally {
+                    g3.dispose();
                 }
-            } finally {
-                g2.dispose();
             }
-            super.paintComponent(g);
         }
 
         @Override
@@ -2865,6 +2919,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
             }
 
+            // Ensure custom painting is not overpainted by LAF after theme changes
+            setContentAreaFilled(false);
+            setOpaque(false);
+
             // Now update icon - this will trigger high-contrast processing with the new background
             if (this.originalIcon != null) {
                 setIcon(this.originalIcon);
@@ -2877,6 +2935,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         @Override
         public void applyTheme(GuiTheme guiTheme) {
             applyTheme(guiTheme, false);
+        }
+
+        @Override
+        public void updateUI() {
+            super.updateUI();
+            // Prevent LAF from painting a full rectangular background over our custom rendering
+            setContentAreaFilled(false);
+            setOpaque(false);
+            // Re-apply compact custom border that uses current theme border color
+            Color borderColor = UIManager.getColor("Component.borderColor");
+            if (borderColor == null) borderColor = Color.GRAY;
+            setBorder(BorderFactory.createCompoundBorder(
+                    new LineBorder(borderColor, 1, true), BorderFactory.createEmptyBorder(4, 0, 4, 8)));
         }
     }
 
@@ -3023,12 +3094,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     case ACTION_PLAN -> {
                         title = "Plan Mode";
                         desc =
-                                "Plan: Performs an agentic search across your entire project, gathers the right context, and generates a task list without auto-executing the tasks.";
+                                "Plan: Performs an agentic search and generates a task list without auto-executing the tasks. If you have incomplete tasks, you can choose to replace your current list or append the new tasks before proceeding.";
                     }
                     case ACTION_LUTZ -> {
                         title = "Lutz Mode";
                         desc =
-                                "Lutz: Performs an \"agentic\" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding. It is a great way to kick off work with strong context and a clear plan.";
+                                "Lutz: Performs an \"agentic\" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding. It is a great way to kick off work with strong context and a clear plan. If you have incomplete tasks, you can choose to replace your current list or append the new tasks before proceeding.";
                     }
                     default -> {
                         title = "Lutz Mode";
@@ -3252,5 +3323,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             Icon processedIcon = ColorUtil.createHighContrastIcon(icon, getBackground(), isHighContrast);
             super.setIcon(processedIcon);
         }
+    }
+
+    private static boolean hasIncomplete(TaskList.TaskListData data) {
+        for (var it : data.tasks()) {
+            if (!it.done()) return true;
+        }
+        return false;
     }
 }

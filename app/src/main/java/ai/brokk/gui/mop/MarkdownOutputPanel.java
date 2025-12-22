@@ -5,7 +5,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.mop.webview.MOPBridge;
 import ai.brokk.gui.mop.webview.MOPWebViewHost;
@@ -43,6 +43,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     private final List<ChatMessage> messages = new ArrayList<>();
     private @Nullable ContextManager currentContextManager;
     private @Nullable String lastHistorySignature = null;
+    private boolean transientMessageVisible = false;
 
     @Override
     public boolean getScrollableTracksViewportHeight() {
@@ -190,6 +191,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     public void clear() {
         messages.clear();
         lastHistorySignature = null;
+        transientMessageVisible = false;
         webHost.clear();
         webHost.historyReset();
         textChangeListeners.forEach(Runnable::run);
@@ -204,8 +206,18 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
             return;
         }
 
+        // If transient message was visible, this chunk should start a new message
+        boolean wasTransientVisible = transientMessageVisible;
+        if (wasTransientVisible) {
+            transientMessageVisible = false;
+            webHost.hideTransientMessage();
+        }
+
+        // Compute effective isNew: force true if transient was visible
+        boolean effectiveIsNew = isNewMessage || wasTransientVisible;
+
         var lastMessageIsReasoning = !messages.isEmpty() && isReasoningMessage(messages.getLast());
-        if (isNewMessage
+        if (effectiveIsNew
                 || messages.isEmpty()
                 || reasoning != lastMessageIsReasoning
                 || (!reasoning && type != messages.getLast().type())) {
@@ -219,11 +231,11 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
             messages.set(lastIdx, Messages.create(combined, type, reasoning));
         }
 
-        webHost.append(text, isNewMessage, type, true, reasoning);
+        webHost.append(text, effectiveIsNew, type, true, reasoning);
         textChangeListeners.forEach(Runnable::run);
     }
 
-    public void setText(ContextFragment.TaskFragment newOutput) {
+    public void setText(ContextFragments.TaskFragment newOutput) {
         setText(newOutput.messages());
     }
 
@@ -392,6 +404,16 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         for (var entry : entries) {
             webHost.historyTask(entry);
         }
+    }
+
+    public void showTransientMessage(String message) {
+        transientMessageVisible = true;
+        webHost.showTransientMessage(message);
+    }
+
+    public void hideTransientMessage() {
+        transientMessageVisible = false;
+        webHost.hideTransientMessage();
     }
 
     public void dispose() {

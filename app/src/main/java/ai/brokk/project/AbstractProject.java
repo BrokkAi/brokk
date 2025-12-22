@@ -1,5 +1,6 @@
 package ai.brokk.project;
 
+import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
@@ -25,6 +26,7 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import javax.swing.JFrame;
 import org.apache.logging.log4j.LogManager;
@@ -149,9 +151,73 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
+    public CompletableFuture<Void> updateLiveDependencies(
+            Set<Path> newLiveDependencyDirs, @Nullable IAnalyzerWrapper analyzerWrapper) {
+        return CompletableFuture.supplyAsync(() -> {
+            // If analyzer provided, pause watcher and compute prev files
+            Set<ProjectFile> prevFiles = null;
+            if (analyzerWrapper != null) {
+                analyzerWrapper.pause();
+                prevFiles = new HashSet<>();
+                for (var d : getLiveDependencies()) {
+                    prevFiles.addAll(d.files());
+                }
+            }
+
+            // Always persist
+            saveLiveDependencies(newLiveDependencyDirs);
+
+            // If analyzer provided, compute diff and update
+            if (analyzerWrapper != null) {
+                var nextFiles = new HashSet<ProjectFile>();
+                for (var d : getLiveDependencies()) {
+                    nextFiles.addAll(d.files());
+                }
+
+                // Symmetric difference: files that changed (added or removed)
+                var changedFiles = new HashSet<>(nextFiles);
+                changedFiles.removeAll(prevFiles);
+                var removedFiles = new HashSet<>(prevFiles);
+                removedFiles.removeAll(nextFiles);
+                changedFiles.addAll(removedFiles);
+
+                if (!changedFiles.isEmpty()) {
+                    try {
+                        analyzerWrapper.updateFiles(changedFiles).get();
+                    } catch (Exception e) {
+                        logger.error("Error updating analyzer with dependency changes", e);
+                    }
+                }
+
+                analyzerWrapper.resume();
+            }
+
+            return null;
+        });
+    }
+
+    @Override
     public abstract Set<Dependency> getLiveDependencies();
 
+    @Override
     public abstract void saveLiveDependencies(Set<Path> dependencyTopLevelDirs);
+
+    @Override
+    public CompletableFuture<Void> addLiveDependency(
+            String dependencyName, @Nullable IAnalyzerWrapper analyzerWrapper) {
+        // Build new live set = current live deps + new dependency
+        var liveDependencyTopLevelDirs = new HashSet<Path>();
+        for (var dep : getLiveDependencies()) {
+            liveDependencyTopLevelDirs.add(dep.root().absPath());
+        }
+        var newDepDir = masterRootPathForConfig
+                .resolve(BROKK_DIR)
+                .resolve(DEPENDENCIES_DIR)
+                .resolve(dependencyName);
+        liveDependencyTopLevelDirs.add(newDepDir);
+
+        return updateLiveDependencies(liveDependencyTopLevelDirs, analyzerWrapper);
+    }
 
     @Override
     public final List<String> loadTextHistory() {
@@ -177,7 +243,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
         var history = new ArrayList<>(loadTextHistory());
         history.removeIf(i -> i.equals(item));
-        history.addFirst(item);
+        history.add(0, item);
         if (history.size() > maxItems) {
             history = new ArrayList<>(history.subList(0, maxItems));
         }
@@ -525,6 +591,12 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         } else {
             workspaceProps.setProperty("actionMode", mode);
         }
+        saveWorkspaceProperties();
+    }
+
+    /** Marks onboarding as completed so dialogs won't show again. */
+    public final void markOnboardingCompleted() {
+        workspaceProps.setProperty("onboardingCompleted", "true");
         saveWorkspaceProperties();
     }
 

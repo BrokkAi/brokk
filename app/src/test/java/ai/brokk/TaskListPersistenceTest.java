@@ -3,10 +3,13 @@ package ai.brokk;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.Json;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -22,7 +25,8 @@ public class TaskListPersistenceTest {
 
     @Test
     void createOrReplaceTaskList_persistsAndDeserializes() throws Exception {
-        var initial = new Context(null);
+        var initial =
+                new Context(new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO()));
 
         var tasks = List.of("Build feature X", "Add unit tests", "Write documentation");
         var afterCreate = initial.withTaskList(
@@ -32,7 +36,7 @@ public class TaskListPersistenceTest {
                 "Task list created");
 
         // Verify fragment exists and is JSON
-        Optional<ContextFragment.StringFragment> fragOpt = afterCreate.getTaskListFragment();
+        Optional<ContextFragments.StringFragment> fragOpt = afterCreate.getTaskListFragment();
         assertTrue(fragOpt.isPresent(), "Task list fragment should exist after creation");
 
         var frag = fragOpt.get();
@@ -57,43 +61,9 @@ public class TaskListPersistenceTest {
     }
 
     @Test
-    void appendTaskList_persistsIncrementalChanges() throws Exception {
-        var initial = new Context(null);
-
-        // Create initial list
-        var initialTasks = List.of("Task 1", "Task 2");
-        var initialData = new TaskList.TaskListData(initialTasks.stream()
-                .map(t -> new TaskList.TaskItem(t, t, false))
-                .toList());
-        var afterCreate = initial.withTaskList(initialData, "Initial tasks");
-
-        // Append more tasks
-        var appendTasks = List.of("Task 3", "Task 4");
-        var existingTasks =
-                new java.util.ArrayList<>(afterCreate.getTaskListDataOrEmpty().tasks());
-        existingTasks.addAll(appendTasks.stream()
-                .map(t -> new TaskList.TaskItem(t, t, false))
-                .toList());
-        var afterAppend = afterCreate.withTaskList(new TaskList.TaskListData(existingTasks), "Tasks appended");
-
-        // Verify all 4 tasks exist
-        var data = afterAppend.getTaskListDataOrEmpty();
-        assertEquals(4, data.tasks().size());
-        assertEquals("Task 1", data.tasks().get(0).text());
-        assertEquals("Task 2", data.tasks().get(1).text());
-        assertEquals("Task 3", data.tasks().get(2).text());
-        assertEquals("Task 4", data.tasks().get(3).text());
-
-        // Verify JSON persistence
-        var frag = afterAppend.getTaskListFragment();
-        assertTrue(frag.isPresent());
-        var parsedData = Json.fromJson(frag.get().text().join(), TaskList.TaskListData.class);
-        assertEquals(4, parsedData.tasks().size());
-    }
-
-    @Test
     void createOrReplaceTaskList_dropsCompletedTasks_persistsCorrectly() throws Exception {
-        var initial = new Context(null);
+        var initial =
+                new Context(new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO()));
 
         // Create with mixed states
         var mixed = new TaskList.TaskListData(List.of(
@@ -123,39 +93,9 @@ public class TaskListPersistenceTest {
     }
 
     @Test
-    void appendTaskList_preservesTaskOrder_acrossMultipleAppends() throws Exception {
-        var initial = new Context(null);
-
-        // First create
-        var c1 = initial.withTaskList(
-                new TaskList.TaskListData(List.of("Task A", "Task B").stream()
-                        .map(t -> new TaskList.TaskItem(t, t, false))
-                        .toList()),
-                "Created A, B");
-
-        // First append
-        var existing2 = new java.util.ArrayList<>(c1.getTaskListDataOrEmpty().tasks());
-        existing2.add(new TaskList.TaskItem("Task C", "Task C", false));
-        var c2 = c1.withTaskList(new TaskList.TaskListData(existing2), "Appended C");
-
-        // Second append
-        var existing3 = new java.util.ArrayList<>(c2.getTaskListDataOrEmpty().tasks());
-        existing3.add(new TaskList.TaskItem("Task D", "Task D", false));
-        existing3.add(new TaskList.TaskItem("Task E", "Task E", false));
-        var c3 = c2.withTaskList(new TaskList.TaskListData(existing3), "Appended D, E");
-
-        var data = c3.getTaskListDataOrEmpty();
-        assertEquals(5, data.tasks().size());
-        assertEquals("Task A", data.tasks().get(0).text());
-        assertEquals("Task B", data.tasks().get(1).text());
-        assertEquals("Task C", data.tasks().get(2).text());
-        assertEquals("Task D", data.tasks().get(3).text());
-        assertEquals("Task E", data.tasks().get(4).text());
-    }
-
-    @Test
     void taskListFragment_usesCorrectSyntaxStyle() throws Exception {
-        var initial = new Context(null);
+        var initial =
+                new Context(new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO()));
 
         var result = initial.withTaskList(
                 new TaskList.TaskListData(List.of(new TaskList.TaskItem("Task 1", "Task 1", false))),

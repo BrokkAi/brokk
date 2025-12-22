@@ -7,6 +7,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
@@ -40,7 +41,7 @@ public class SessionManagerTest {
     void setup() throws IOException {
         mockContextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
         // Reset fragment ID counter for test isolation
-        ContextFragment.setMinimumId(1);
+        ContextFragments.setMinimumId(1);
 
         // Clean .brokk/sessions directory for session tests
         Path sessionsDir = tempDir.resolve(".brokk").resolve("sessions");
@@ -108,9 +109,10 @@ public class SessionManagerTest {
 
         // Populate originalHistory
 
-        ContextFragment.StringFragment sf = new ContextFragment.StringFragment(
+        ContextFragments.StringFragment sf = new ContextFragments.StringFragment(
                 mockContextManager, "Test string fragment content", "TestSF", SyntaxConstants.SYNTAX_STYLE_NONE);
-        ContextFragment.ProjectPathFragment pf = new ContextFragment.ProjectPathFragment(dummyFile, mockContextManager);
+        ContextFragments.ProjectPathFragment pf =
+                new ContextFragments.ProjectPathFragment(dummyFile, mockContextManager);
         Context context2 = new Context(mockContextManager).addFragments(List.of(sf, pf));
         originalHistory.pushContext(context2);
 
@@ -429,6 +431,51 @@ public class SessionManagerTest {
 
         assertTrue(copiedSessionInfo.created() <= copiedSessionInfo.modified());
         assertTrue(copiedSessionInfo.created() >= originalSessionInfo.modified()); // Copied time is 'now'
+
+        project.close();
+    }
+
+    @Test
+    void testCountAiResponses_sessionWithKnownAiCount() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        var sessionManager = project.getSessionManager();
+        SessionInfo sessionInfo = sessionManager.newSession("AI Count Test Session");
+        UUID sessionId = sessionInfo.id();
+
+        // Create history with exactly 3 AI responses
+        var history = new ContextHistory(new Context(mockContextManager));
+        for (int i = 0; i < 3; i++) {
+            var msgs = List.<ChatMessage>of(
+                    dev.langchain4j.data.message.UserMessage.from("Query " + i),
+                    dev.langchain4j.data.message.AiMessage.from("Response " + i));
+            var tf = new ContextFragments.TaskFragment(mockContextManager, msgs, "Task " + i);
+            var ctx = new Context(mockContextManager)
+                    .addHistoryEntry(
+                            new TaskEntry(i + 1, tf, null),
+                            tf,
+                            java.util.concurrent.CompletableFuture.completedFuture("action" + i));
+            history.pushContext(ctx);
+        }
+
+        sessionManager.saveHistory(history, sessionId);
+
+        // saveHistory is async; wait for the count to update
+        assertEventually(() ->
+                assertEquals(3, sessionManager.countAiResponses(sessionId), "Should count exactly 3 AI responses"));
+
+        project.close();
+    }
+
+    @Test
+    void testCountAiResponses_missingSession() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        var sessionManager = project.getSessionManager();
+
+        // Use a random UUID that doesn't exist
+        UUID nonExistentId = SessionManager.newSessionId();
+
+        int count = sessionManager.countAiResponses(nonExistentId);
+        assertEquals(0, count, "Non-existent session should return 0");
 
         project.close();
     }

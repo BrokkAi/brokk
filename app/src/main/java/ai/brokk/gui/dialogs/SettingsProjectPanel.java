@@ -114,13 +114,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     @Nullable
     private LanguagesTableModel languagesTableModel;
 
-    /**
-     * Constructor for creating panel without data (will be populated later).
-     * Panel starts in disabled state until data is loaded.
-     */
     public SettingsProjectPanel(
             Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton) {
-        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         this.chrome = chrome;
         this.parentDialog = parentDialog;
         this.okButtonParent = okButton;
@@ -212,9 +207,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         } else {
             updateExcludedDirectories(List.of());
         }
-
-        // Build Tab - delegate to buildPanelInstance
-        buildPanelInstance.loadBuildPanelSettings();
     }
 
     private void initComponents() {
@@ -289,7 +281,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.weightx = 0.0;
         gbc.anchor = GridBagConstraints.NORTHWEST;
         gbc.fill = GridBagConstraints.NONE;
-        generalPanel.add(new JLabel("Style Guide:"), gbc);
+        generalPanel.add(new JLabel("AGENTS.md:"), gbc);
         styleGuideArea.setWrapStyleWord(true);
         styleGuideArea.setLineWrap(true);
         var styleScrollPane = new JScrollPane(styleGuideArea);

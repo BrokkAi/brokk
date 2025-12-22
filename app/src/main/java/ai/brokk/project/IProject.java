@@ -1,6 +1,7 @@
 package ai.brokk.project;
 
-import ai.brokk.AbstractService;
+import ai.brokk.AbstractService.ModelConfig;
+import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IssueProvider;
 import ai.brokk.SessionManager;
@@ -9,6 +10,8 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
+import ai.brokk.project.ModelProperties.ModelType;
+import ai.brokk.util.Environment;
 import com.jakewharton.disklrucache.DiskLruCache;
 import java.awt.Rectangle;
 import java.io.IOException;
@@ -26,6 +29,8 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 public interface IProject extends AutoCloseable {
+
+    long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
 
     default IGitRepo getRepo() {
         throw new UnsupportedOperationException();
@@ -138,11 +143,11 @@ public interface IProject extends AutoCloseable {
         return CompletableFuture.failedFuture(new UnsupportedOperationException());
     }
 
-    default AbstractService.ModelConfig getCodeModelConfig() {
-        throw new UnsupportedOperationException();
+    default ModelConfig getModelConfig(ModelType modelType) {
+        return new ModelConfig("test-model");
     }
 
-    default AbstractService.ModelConfig getQuickModelConfig() {
+    default void setModelConfig(ModelType modelType, ModelConfig config) {
         throw new UnsupportedOperationException();
     }
 
@@ -289,22 +294,6 @@ public interface IProject extends AutoCloseable {
         return false;
     }
 
-    default void setQuickModelConfig(AbstractService.ModelConfig modelConfig) {
-        throw new UnsupportedOperationException();
-    }
-
-    default void setCodeModelConfig(AbstractService.ModelConfig modelConfig) {
-        throw new UnsupportedOperationException();
-    }
-
-    default AbstractService.ModelConfig getArchitectModelConfig() {
-        throw new UnsupportedOperationException();
-    }
-
-    default void setArchitectModelConfig(AbstractService.ModelConfig config) {
-        throw new UnsupportedOperationException();
-    }
-
     default String getCommitMessageFormat() {
         throw new UnsupportedOperationException();
     }
@@ -431,6 +420,44 @@ public interface IProject extends AutoCloseable {
 
     default IConsoleIO getConsoleIO() {
         throw new UnsupportedOperationException();
+    }
+
+    default void saveLiveDependencies(Set<Path> dependencyTopLevelDirs) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Updates the live dependencies set. If an analyzer is provided, also pauses/resumes
+     * the watcher, computes file diffs, and updates the analyzer.
+     *
+     * @param newLiveDependencyDirs the complete desired set of live dependency directories
+     * @param analyzerWrapper the analyzer to update, or null for persistence-only (CLI usage)
+     * @return CompletableFuture that completes when all operations are done
+     */
+    default CompletableFuture<Void> updateLiveDependencies(
+            Set<Path> newLiveDependencyDirs, @Nullable IAnalyzerWrapper analyzerWrapper) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Adds a dependency to the live set (merge semantics).
+     * Used after importing a new dependency.
+     *
+     * @param dependencyName the name of the dependency directory to add
+     * @param analyzerWrapper the analyzer to update, or null for persistence-only (CLI usage)
+     * @return CompletableFuture that completes when the operation is done
+     */
+    default CompletableFuture<Void> addLiveDependency(
+            String dependencyName, @Nullable IAnalyzerWrapper analyzerWrapper) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Obtains the user-defined run command timeout if set, or the default value otherwise.
+     * @return the default timeout for how long a shell command may run for.
+     */
+    default long getRunCommandTimeoutSeconds() {
+        return DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
     }
 
     enum CodeAgentTestScope {

@@ -57,7 +57,6 @@ import org.jetbrains.annotations.Nullable;
 
 public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsChangeListener {
     private static final Logger logger = LogManager.getLogger(SettingsGlobalPanel.class);
-    public static final String MODELS_TAB_TITLE = "Models"; // kept for compatibility where referenced
 
     private final Chrome chrome;
     private final SettingsDialog parentDialog; // To access project for data retention refresh
@@ -77,11 +76,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JCheckBox forceToolEmulationCheckbox; // dev-only
 
     // Appearance controls (kept in Global)
-    private JRadioButton lightThemeRadio = new JRadioButton("Light");
-    private JRadioButton lightPlusThemeRadio = new JRadioButton("Light+");
-    private JRadioButton darkThemeRadio = new JRadioButton("Dark");
-    private JRadioButton darkPlusThemeRadio = new JRadioButton("Dark+");
-    private JRadioButton highContrastThemeRadio = new JRadioButton("High Contrast");
+    private JComboBox<String> themeCombo = new JComboBox<>();
     private JCheckBox wordWrapCheckbox = new JCheckBox("Enable word wrap");
     private JCheckBox classicBrokkViewCheckbox = new JCheckBox("Enable Classic (Horizontal) View");
     private JRadioButton diffSideBySideRadio = new JRadioButton("Side-by-Side");
@@ -113,7 +108,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         this.chrome = chrome;
         this.parentDialog = parentDialog;
         setLayout(new BorderLayout());
-        initComponents();
+        initComponents(); // This will fully initialize or conditionally initialize fields
+        // NOTE: loadSettings() is now called explicitly in SettingsDialog.showSettingsDialog()
+        // to ensure consistent timing with project panel
+
+        // Disable panel until data is loaded
         setEnabled(false);
         MainProject.addSettingsChangeListener(this);
     }
@@ -144,13 +143,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Appearance
         String currentTheme = MainProject.getTheme();
-        switch (currentTheme) {
-            case GuiTheme.THEME_DARK -> darkThemeRadio.setSelected(true);
-            case GuiTheme.THEME_DARK_PLUS -> darkPlusThemeRadio.setSelected(true);
-            case GuiTheme.THEME_LIGHT_PLUS -> lightPlusThemeRadio.setSelected(true);
-            case GuiTheme.THEME_HIGH_CONTRAST -> highContrastThemeRadio.setSelected(true);
-            default -> lightThemeRadio.setSelected(true);
-        }
+        String displayName = getThemeDisplayName(currentTheme);
+        themeCombo.setSelectedItem(displayName);
         wordWrapCheckbox.setSelected(MainProject.getCodeBlockWrapMode());
         classicBrokkViewCheckbox.setSelected(!GlobalUiSettings.isVerticalActivityLayout());
 
@@ -331,11 +325,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         if (Boolean.getBoolean("brokk.devmode")) {
-            forceToolEmulationCheckbox = new JCheckBox(
-                    "[Dev Mode] Force tool emulation (also show empty workspace chips)",
-                    MainProject.getForceToolEmulation());
-            forceToolEmulationCheckbox.setToolTipText(
-                    "Development override: emulate tool calls. Also forces the UI to show visually-empty workspace chips for debugging and testing only.");
+            forceToolEmulationCheckbox =
+                    new JCheckBox("[Dev Mode] Force tool emulation", MainProject.getForceToolEmulation());
+            forceToolEmulationCheckbox.setToolTipText("Development override: emulate tool calls.");
             gbc.gridx = 1;
             gbc.gridy = ++row;
             gbc.weightx = 1.0;
@@ -361,77 +353,66 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         var appearancePanel = new JPanel(new GridBagLayout());
         appearancePanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         var gbc = new GridBagConstraints();
-        gbc.insets = new Insets(2, 5, 2, 5);
         gbc.anchor = GridBagConstraints.WEST;
         int row = 0;
 
-        // Theme radios
+        // Theme dropdown
         gbc.gridx = 0;
         gbc.gridy = row;
+        gbc.insets = new Insets(2, 0, 2, 5);
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0.0;
         appearancePanel.add(new JLabel("Theme:"), gbc);
 
-        lightThemeRadio = new JRadioButton("Light");
-        lightPlusThemeRadio = new JRadioButton("Light+");
-        darkThemeRadio = new JRadioButton("Dark");
-        darkPlusThemeRadio = new JRadioButton("Dark+");
-        highContrastThemeRadio = new JRadioButton("High Contrast");
-        var themeGroup = new ButtonGroup();
-        themeGroup.add(lightThemeRadio);
-        themeGroup.add(lightPlusThemeRadio);
-        themeGroup.add(darkThemeRadio);
-        themeGroup.add(darkPlusThemeRadio);
-        themeGroup.add(highContrastThemeRadio);
-
-        lightThemeRadio.putClientProperty("theme", GuiTheme.THEME_LIGHT);
-        lightPlusThemeRadio.putClientProperty("theme", GuiTheme.THEME_LIGHT_PLUS);
-        darkThemeRadio.putClientProperty("theme", GuiTheme.THEME_DARK);
-        darkPlusThemeRadio.putClientProperty("theme", GuiTheme.THEME_DARK_PLUS);
-        highContrastThemeRadio.putClientProperty("theme", GuiTheme.THEME_HIGH_CONTRAST);
+        var themeModel = new DefaultComboBoxModel<String>();
+        themeModel.addElement("Light");
+        themeModel.addElement("Light+");
+        themeModel.addElement("Dark");
+        themeModel.addElement("Dark+");
+        themeModel.addElement("High Contrast");
+        themeCombo.setModel(themeModel);
 
         gbc.gridx = 1;
         gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        appearancePanel.add(lightThemeRadio, gbc);
-
-        gbc.gridy = row++;
-        appearancePanel.add(lightPlusThemeRadio, gbc);
-
-        gbc.gridy = row++;
-        appearancePanel.add(darkThemeRadio, gbc);
-
-        gbc.gridy = row++;
-        appearancePanel.add(darkPlusThemeRadio, gbc);
-
-        gbc.gridy = row++;
-        appearancePanel.add(highContrastThemeRadio, gbc);
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.insets = new Insets(2, 0, 2, 0);
+        appearancePanel.add(themeCombo, gbc);
 
         // Word wrap
-        gbc.insets = new Insets(10, 5, 2, 5);
         gbc.gridx = 0;
         gbc.gridy = row;
+        gbc.insets = new Insets(10, 0, 2, 5);
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0.0;
         appearancePanel.add(new JLabel("Code Block Layout:"), gbc);
 
         gbc.gridx = 1;
         gbc.gridy = row++;
         gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(10, 0, 2, 0);
         appearancePanel.add(wordWrapCheckbox, gbc);
 
         // Vertical Layout (classic view)
-        gbc.insets = new Insets(10, 5, 2, 5);
         gbc.gridx = 0;
         gbc.gridy = row;
+        gbc.insets = new Insets(10, 0, 2, 5);
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0.0;
         appearancePanel.add(new JLabel("Activity Layout:"), gbc);
 
         gbc.gridx = 1;
         gbc.gridy = row++;
         gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(10, 0, 2, 0);
         appearancePanel.add(classicBrokkViewCheckbox, gbc);
 
         // Diff view
-        gbc.insets = new Insets(10, 5, 2, 5);
         gbc.gridx = 0;
         gbc.gridy = row;
+        gbc.insets = new Insets(10, 0, 2, 5);
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0.0;
         appearancePanel.add(new JLabel("Diff View:"), gbc);
 
         var diffViewGroup = new ButtonGroup();
@@ -441,6 +422,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.gridx = 1;
         gbc.gridy = row++;
         gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(10, 0, 2, 0);
         appearancePanel.add(diffSideBySideRadio, gbc);
 
         gbc.gridy = row++;
@@ -452,9 +434,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         boolean isJbr = vmVendor.toLowerCase(Locale.ROOT).contains("jetbrains")
                 || runtimeName.toLowerCase(Locale.ROOT).contains("jetbrains");
         if (!Environment.isMacOs() && !isJbr) {
-            gbc.insets = new Insets(10, 5, 2, 5);
             gbc.gridx = 0;
             gbc.gridy = row;
+            gbc.insets = new Insets(10, 0, 2, 5);
+            gbc.fill = GridBagConstraints.NONE;
+            gbc.weightx = 0.0;
             appearancePanel.add(new JLabel("UI Scale:"), gbc);
 
             uiScaleAutoRadio = new JRadioButton("Auto (recommended)");
@@ -480,6 +464,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             gbc.gridx = 1;
             gbc.gridy = row++;
             gbc.fill = GridBagConstraints.HORIZONTAL;
+            gbc.insets = new Insets(10, 0, 2, 0);
             appearancePanel.add(uiScaleAutoRadio, gbc);
 
             var customPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
@@ -492,9 +477,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             var restartLabel = new JLabel("Restart required after changing UI scale");
             restartLabel.setFont(restartLabel.getFont().deriveFont(Font.ITALIC));
             gbc.gridy = row++;
-            gbc.insets = new Insets(0, 25, 2, 5);
+            gbc.insets = new Insets(0, 0, 2, 0);
             appearancePanel.add(restartLabel, gbc);
-            gbc.insets = new Insets(2, 5, 2, 5);
         } else {
             uiScaleAutoRadio = null;
             uiScaleCustomRadio = null;
@@ -502,9 +486,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         // Terminal font size
-        gbc.insets = new Insets(10, 5, 2, 5);
         gbc.gridx = 0;
         gbc.gridy = row;
+        gbc.insets = new Insets(10, 0, 2, 5);
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0.0;
         appearancePanel.add(new JLabel("Terminal Font Size:"), gbc);
 
         var fontSizeModel = new SpinnerNumberModel(11.0, 8.0, 36.0, 0.5);
@@ -517,9 +503,22 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.gridx = 1;
         gbc.gridy = row++;
         gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(10, 0, 2, 0);
         appearancePanel.add(terminalFontSizePanel, gbc);
 
+        // Horizontal filler to push content left
+        gbc.gridx = 2;
+        gbc.gridy = 0;
+        gbc.weightx = 1.0;
+        gbc.weighty = 0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(0, 0, 0, 0);
+        appearancePanel.add(Box.createHorizontalGlue(), gbc);
+
+        // Vertical filler to push content up
+        gbc.gridx = 0;
         gbc.gridy = row;
+        gbc.weightx = 0;
         gbc.weighty = 1.0;
         gbc.fill = GridBagConstraints.VERTICAL;
         appearancePanel.add(Box.createVerticalGlue(), gbc);
@@ -764,6 +763,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         adder.add("global.toggleMicrophone", "Toggle Microphone");
         adder.add("global.openSettings", "Open Settings");
         adder.add("global.closeWindow", "Close Window");
+        adder.add("global.closeTab", "Close Tab");
         adder.add("panel.switchToProjectFiles", "Switch to Project Files");
         adder.add("panel.switchToDependencies", "Switch to Dependencies");
         adder.add("panel.switchToChanges", "Switch to Changes");
@@ -895,6 +895,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "global.toggleMicrophone",
             "global.openSettings",
             "global.closeWindow",
+            "global.closeTab",
             "panel.switchToProjectFiles",
             "panel.switchToDependencies",
             "panel.switchToChanges",
@@ -935,6 +936,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             case "global.toggleMicrophone" -> "Toggle Microphone";
             case "global.openSettings" -> "Open Settings";
             case "global.closeWindow" -> "Close Window";
+            case "global.closeTab" -> "Close Tab";
             case "panel.switchToProjectFiles" -> "Switch to Project Files";
             case "panel.switchToDependencies" -> "Switch to Dependencies";
             case "panel.switchToChanges" -> "Switch to Changes";
@@ -967,6 +969,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             "global.toggleMicrophone",
             "global.openSettings",
             "global.closeWindow",
+            "global.closeTab",
             "panel.switchToProjectFiles",
             "panel.switchToDependencies",
             "panel.switchToChanges",
@@ -1067,20 +1070,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         MainProject.setForceToolEmulation(forceToolEmulation);
 
         // Appearance: theme
-        String newTheme;
-        if (lightThemeRadio.isSelected()) {
-            newTheme = (String) lightThemeRadio.getClientProperty("theme");
-        } else if (lightPlusThemeRadio.isSelected()) {
-            newTheme = (String) lightPlusThemeRadio.getClientProperty("theme");
-        } else if (darkThemeRadio.isSelected()) {
-            newTheme = (String) darkThemeRadio.getClientProperty("theme");
-        } else if (darkPlusThemeRadio.isSelected()) {
-            newTheme = (String) darkPlusThemeRadio.getClientProperty("theme");
-        } else if (highContrastThemeRadio.isSelected()) {
-            newTheme = (String) highContrastThemeRadio.getClientProperty("theme");
-        } else {
-            newTheme = GuiTheme.THEME_LIGHT;
-        }
+        String selectedDisplay = (String) themeCombo.getSelectedItem();
+        String newTheme = getThemeValueFromDisplayName(selectedDisplay != null ? selectedDisplay : "Light");
         MainProject.setTheme(newTheme);
 
         // Appearance: word wrap
@@ -2304,6 +2295,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W);
     }
 
+    private static KeyStroke defaultCloseTab() {
+        return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W);
+    }
+
     private static KeyStroke defaultOpenSettings() {
         return KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA);
     }
@@ -2372,12 +2367,35 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             case "view.resetZoom" -> defaultResetZoom();
             case "global.openSettings" -> defaultOpenSettings();
             case "global.closeWindow" -> defaultCloseWindow();
+            case "global.closeTab" -> defaultCloseTab();
             case "workspace.attachContext" -> KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_I);
             case "workspace.attachFilesAndSummarize" ->
                 KeyStroke.getKeyStroke(KeyEvent.VK_I, InputEvent.CTRL_DOWN_MASK);
             default ->
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        };
+    }
+
+    private static String getThemeDisplayName(String themeValue) {
+        return switch (themeValue) {
+            case GuiTheme.THEME_LIGHT -> "Light";
+            case GuiTheme.THEME_LIGHT_PLUS -> "Light+";
+            case GuiTheme.THEME_DARK -> "Dark";
+            case GuiTheme.THEME_DARK_PLUS -> "Dark+";
+            case GuiTheme.THEME_HIGH_CONTRAST -> "High Contrast";
+            default -> "Light";
+        };
+    }
+
+    private static String getThemeValueFromDisplayName(String displayName) {
+        return switch (displayName) {
+            case "Light" -> GuiTheme.THEME_LIGHT;
+            case "Light+" -> GuiTheme.THEME_LIGHT_PLUS;
+            case "Dark" -> GuiTheme.THEME_DARK;
+            case "Dark+" -> GuiTheme.THEME_DARK_PLUS;
+            case "High Contrast" -> GuiTheme.THEME_HIGH_CONTRAST;
+            default -> GuiTheme.THEME_LIGHT;
         };
     }
 }

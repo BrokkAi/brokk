@@ -50,6 +50,9 @@ public class ThemeColors {
     public static final String GIT_BADGE_BACKGROUND = "git_badge_background";
     public static final String GIT_BADGE_TEXT = "git_badge_text";
 
+    // CI exclusion colors
+    public static final String CI_EXCLUDED_FOREGROUND = "ci_excluded_foreground";
+
     // Mode indicator colors
     public static final String MODE_ANSWER_BG = "mode_answer_bg";
     public static final String MODE_ANSWER_FG = "mode_answer_fg";
@@ -123,6 +126,9 @@ public class ThemeColors {
     public static final String CHIP_NEUTRAL_BACKGROUND = "chip_neutral_bg";
     public static final String CHIP_NEUTRAL_FOREGROUND = "chip_neutral_fg";
     public static final String CHIP_NEUTRAL_BORDER = "chip_neutral_border";
+    public static final String CHIP_INVALID_BACKGROUND = "chip_invalid_bg";
+    public static final String CHIP_INVALID_FOREGROUND = "chip_invalid_fg";
+    public static final String CHIP_INVALID_BORDER = "chip_invalid_border";
 
     // Extended palette colors for modern visuals (gradients, transparency, overlays)
     public static final String ACCENT_GRADIENT_START = "accent_gradient_start";
@@ -159,6 +165,7 @@ public class ThemeColors {
             case DIFF_DELETED -> new Color(250, 220, 220);
             case CHAT_BACKGROUND -> new Color(37, 37, 37);
             case CHAT_TEXT -> new Color(212, 212, 212);
+            case CI_EXCLUDED_FOREGROUND -> Color.GRAY;
             default -> {
                 logger.warn("No fallback color defined for key: {}", key);
                 yield Color.MAGENTA; // Bright error color for unexpected keys

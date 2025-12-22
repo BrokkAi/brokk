@@ -11,6 +11,7 @@ import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.MainProject.DataRetentionPolicy;
+import ai.brokk.project.ModelProperties;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
@@ -46,7 +47,7 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
         super(owner, "Settings");
         this.chrome = chrome;
         setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-        setSize(1100, 600);
+        setSize(800, 600);
         setLocationRelativeTo(owner);
 
         tabbedPane = new JTabbedPane(JTabbedPane.LEFT);
@@ -63,6 +64,8 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
         globalSettingsPanel = new SettingsGlobalPanel(chrome, this);
         tabbedPane.addTab("Global", null, globalSettingsPanel, "Global application settings");
 
+        // Project Settings Panel
+        // Pass dialog buttons to project panel for enabling/disabling during build agent run
         projectSettingsPanel = new SettingsProjectPanel(chrome, this, okButton, cancelButton, applyButton);
         tabbedPane.addTab("Project", null, projectSettingsPanel, "Settings specific to the current project");
 
@@ -259,8 +262,15 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
         this.uiScaleSettingsChanged = true;
     }
 
+    /**
+     * Shows settings dialog.
+     */
     public static SettingsDialog showSettingsDialog(Chrome chrome, String targetTabName) {
         var dialog = new SettingsDialog(chrome.getFrame(), chrome);
+
+        // Load settings after dialog construction but before showing
+        // This ensures any background file writes (e.g., style guide generation) have completed
+        dialog.loadSettingsInBackground();
 
         boolean tabSelected = false;
         // Top-level tabs: "Global", "Project", "Advanced"
@@ -303,7 +313,7 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
                         dialog.tabbedPane.setSelectedIndex(globalTabIndex); // Select "Global" parent
                         if (globalSubTabs.isEnabledAt(i)
                                 || targetTabName.equals(
-                                        SettingsGlobalPanel
+                                        SettingsAdvancedPanel
                                                 .MODELS_TAB_TITLE)) { // Models tab content itself handles enablement
                             globalSubTabs.setSelectedIndex(i);
                             tabSelected = true;
@@ -470,7 +480,7 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
 
             // If empty, create default and save
             if (project != null && models.isEmpty()) {
-                var currentCodeConfig = project.getMainProject().getCodeModelConfig();
+                var currentCodeConfig = project.getMainProject().getModelConfig(ModelProperties.ModelType.CODE);
                 var defaultAlias = "default";
                 var defaultFavorite = new Service.FavoriteModel(defaultAlias, currentCodeConfig);
                 models = List.of(defaultFavorite);

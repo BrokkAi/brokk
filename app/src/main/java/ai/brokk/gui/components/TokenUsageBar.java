@@ -5,8 +5,9 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
+import ai.brokk.gui.ChipColorUtils;
 import ai.brokk.gui.Chrome;
-import ai.brokk.gui.FragmentColorUtils;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -30,6 +31,8 @@ import org.jetbrains.annotations.Nullable;
 
 public class TokenUsageBar extends JComponent implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(TokenUsageBar.class);
+
+    private final Chrome chrome;
 
     public enum WarningLevel {
         NONE,
@@ -86,6 +89,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     private volatile boolean rateIsTested = false;
 
     public TokenUsageBar(Chrome chrome) {
+        this.chrome = chrome;
         setOpaque(false);
         setMinimumSize(new Dimension(50, 24));
         setPreferredSize(new Dimension(75, 24));
@@ -95,6 +99,20 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
         // Track hover per segment and support left-click to trigger action if provided
         MouseAdapter mouseAdapter = new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger() && isEnabled()) {
+                    showContextMenu(e);
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger() && isEnabled()) {
+                    showContextMenu(e);
+                }
+            }
+
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (!isEnabled() || readOnly) {
@@ -125,7 +143,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                                 }
                             }
 
-                            var syntheticFragment = new ContextFragment.StringFragment(
+                            var syntheticFragment = new ContextFragments.StringFragment(
                                     chrome.getContextManager(),
                                     combinedText.toString(),
                                     title,
@@ -287,7 +305,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         // Dispose prior subscriptions bound to this component before rebinding
         ComputedSubscription.disposeAll(this);
 
-        this.fragments = List.copyOf(fragments);
+        this.fragments = fragments.stream().filter(ContextFragment::isValid).toList();
         // Invalidate token cache entries for removed ids to keep memory bounded
         var validIds = this.fragments.stream().map(ContextFragment::id).collect(Collectors.toSet());
         tokenCache.keySet().retainAll(validIds);
@@ -306,7 +324,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     /**
      * Update the bar with fragments from the given Context.
      * - Schedules UI update on the EDT.
-     * - Pre-warms token counts off-EDT to avoid doing heavy work during paint.
+     * - Pre-warms token counts and classifications off-EDT to avoid doing heavy work during paint.
      * - Repaints on completion so segment widths reflect computed tokens.
      */
     public void setFragmentsForContext(Context context) {
@@ -315,7 +333,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         // Update UI on EDT (and attach listeners)
         SwingUtilities.invokeLater(() -> setFragments(frags));
 
-        // Precompute token counts off-EDT to avoid jank during paint and tooltips
+        // Precompute token counts and classifications off-EDT to avoid jank during paint and tooltips
         new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() {
@@ -323,6 +341,12 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                     if (f.isText() || f.getType().isOutput()) {
                         // This will compute and cache the token count for the fragment (non-blocking text path)
                         tokensForFragment(f);
+                    }
+                }
+                // Pre-compute classifications to avoid blocking calls during computeSegments
+                for (var f : frags) {
+                    if (f.isText() || f.getType().isOutput()) {
+                        ChipColorUtils.classify(f);
                     }
                 }
                 return null;
@@ -496,6 +520,14 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     }
 
     /**
+     * Returns the currently hovered segment, or null if none.
+     */
+    @Nullable
+    public Segment getHoveredSegment() {
+        return hoveredSegment;
+    }
+
+    /**
      * Returns the fragments corresponding to the currently hovered segment, or an empty collection
      * if no segment is hovered. Safe to call from any thread; the returned collection is immutable.
      */
@@ -506,6 +538,55 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         }
         // Expose a defensive copy so callers cannot mutate our internal state.
         return List.copyOf(seg.fragments);
+    }
+
+    private void showContextMenu(MouseEvent e) {
+        Segment seg = getHoveredSegment();
+        JPopupMenu menu = new JPopupMenu();
+
+        if (seg != null && !seg.getFragments().isEmpty()) {
+            // Specific segment: show context-aware actions for these fragments
+            List<ContextFragment> hovered = List.copyOf(seg.getFragments());
+
+            JMenuItem dropSelected = new JMenuItem(hovered.size() == 1 ? "Drop" : "Drop (" + hovered.size() + ")");
+            dropSelected.addActionListener(ev -> chrome.getContextManager()
+                    .submitContextTask(() -> chrome.getContextManager().dropWithHistorySemantics(hovered)));
+            menu.add(dropSelected);
+
+            JMenuItem dropOthers = new JMenuItem("Drop Others");
+            dropOthers.addActionListener(ev -> {
+                Context currentCtx = chrome.getContextManager().selectedContext();
+                if (currentCtx == null) return;
+                List<ContextFragment> toDrop = currentCtx.getAllFragmentsInDisplayOrder().stream()
+                        .filter(f -> !hovered.contains(f))
+                        .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
+                        .toList();
+                if (!toDrop.isEmpty()) {
+                    chrome.getContextManager()
+                            .submitContextTask(() -> chrome.getContextManager().dropWithHistorySemantics(toDrop));
+                }
+            });
+            menu.add(dropOthers);
+        } else {
+            // Empty area: show general workspace actions
+            JMenuItem dropAllMenuItem = new JMenuItem("Drop All");
+            dropAllMenuItem.addActionListener(ev -> chrome.getContextPanel()
+                    .performContextActionAsync(ai.brokk.gui.WorkspacePanel.ContextAction.DROP, List.of()));
+            menu.add(dropAllMenuItem);
+
+            JMenuItem copyAllMenuItem = new JMenuItem("Copy All");
+            copyAllMenuItem.addActionListener(ev -> chrome.getContextPanel()
+                    .performContextActionAsync(ai.brokk.gui.WorkspacePanel.ContextAction.COPY, List.of()));
+            menu.add(copyAllMenuItem);
+
+            JMenuItem pasteMenuItem = new JMenuItem("Paste text, images, urls");
+            pasteMenuItem.addActionListener(ev -> chrome.getContextPanel()
+                    .performContextActionAsync(ai.brokk.gui.WorkspacePanel.ContextAction.PASTE, List.of()));
+            menu.add(pasteMenuItem);
+        }
+
+        chrome.getThemeManager().registerPopupMenu(menu);
+        menu.show(this, e.getX(), e.getY());
     }
 
     @Nullable
@@ -722,6 +803,10 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                 .filter(f -> f.getType() != ContextFragment.FragmentType.SKELETON)
                 .toList();
 
+        // Pre-compute classifications for non-summary fragments
+        var classifiedNonSummaries =
+                nonSummaries.stream().map(ChipColorUtils::classify).toList();
+
         int tokensSummaries =
                 summaries.stream().mapToInt(this::tokensForFragment).sum();
         int tokensNonSummaries =
@@ -870,17 +955,21 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             if (w.width <= 0) continue;
 
             if (w.item.isSummaryGroup) {
-                Color bg = FragmentColorUtils.getBackgroundColor(FragmentColorUtils.FragmentKind.SUMMARY, isDark);
+                Color bg = ChipColorUtils.getBackgroundColor(ChipColorUtils.ChipKind.SUMMARY, isDark);
                 Set<ContextFragment> segmentFrags = Set.copyOf(summaries);
                 out.add(new Segment(x, w.width, bg, segmentFrags, true));
             } else if (w.item.isOther) {
-                Color bg = FragmentColorUtils.getBackgroundColor(FragmentColorUtils.FragmentKind.OTHER, isDark);
+                Color bg = ChipColorUtils.getBackgroundColor(ChipColorUtils.ChipKind.OTHER, isDark);
                 Set<ContextFragment> segmentFrags = Set.copyOf(small);
                 out.add(new Segment(x, w.width, bg, segmentFrags, false));
             } else {
                 ContextFragment frag = Objects.requireNonNull(w.item.frag);
-                FragmentColorUtils.FragmentKind kind = FragmentColorUtils.classify(frag);
-                Color bg = FragmentColorUtils.getBackgroundColor(kind, isDark);
+                ChipColorUtils.ChipKind kind = classifiedNonSummaries.stream()
+                        .filter(cf -> cf.fragment().equals(frag))
+                        .map(ChipColorUtils.ClassifiedFragment::kind)
+                        .findFirst()
+                        .orElse(ChipColorUtils.ChipKind.OTHER);
+                Color bg = ChipColorUtils.getBackgroundColor(kind, isDark);
                 Set<ContextFragment> segmentFrags = Set.of(frag);
                 out.add(new Segment(x, w.width, bg, segmentFrags, false));
             }
@@ -952,7 +1041,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         }
     }
 
-    private static class Segment {
+    public static class Segment {
         final int startX;
         final int widthPx;
         final Color bg;
@@ -967,7 +1056,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             this.isSummaryGroup = isSummaryGroup;
         }
 
-        Set<ContextFragment> getFragments() {
+        public Set<ContextFragment> getFragments() {
             return fragments;
         }
     }

@@ -1,11 +1,8 @@
 package ai.brokk.util;
 
-import static java.util.Objects.requireNonNull;
-
-import ai.brokk.AbstractService;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
-import ai.brokk.Service;
+import ai.brokk.project.ModelProperties.ModelType;
 import com.google.common.base.Splitter;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -96,7 +93,7 @@ public class BuildOutputPreprocessor {
         }
 
         // Limit build output to fit within token constraints
-        var model = requireNonNull(cm.getService().getModel(AbstractService.GPT_5_NANO));
+        var model = cm.getService().getModel(ModelType.BUILD_PROCESSOR);
         var llm = cm.getLlm(model, "BuildOutputPreprocessor");
         String truncatedOutput = truncateToTokenLimit(buildOutput, model, cm);
         return preprocessOutput(truncatedOutput, cm, llm);

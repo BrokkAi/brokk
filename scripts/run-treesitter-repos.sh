@@ -25,6 +25,7 @@ print_usage() {
     echo "  setup          Download/clone all test projects"
     echo "  full           Run comprehensive baseline suite"
     echo "  stress         Memory stress test until OutOfMemoryError"
+    echo "  coarse-memory  Coarse memory regression test (1G heap; fails on prolonged GC thrashing)"
     echo "  chromium-cpp   Test Chromium C++ analysis specifically"
     echo "  vscode-ts      Test VS Code TypeScript analysis"
     echo "  openjdk-java   Test OpenJDK Java analysis"

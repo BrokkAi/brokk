@@ -9,11 +9,13 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.JDeploySettingsUtil;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.EventObject;
 import java.util.List;
+import java.util.Map;
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
 import javax.swing.DefaultListCellRenderer;
@@ -74,7 +76,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
     private FavoriteModelsTableModel quickModelsTableModel = new FavoriteModelsTableModel(new ArrayList<>());
     private JComboBox<Service.FavoriteModel> preferredCodeModelCombo = new JComboBox<>();
     private JComboBox<Service.FavoriteModel> primaryModelCombo = new JComboBox<>();
-    private JComboBox<String> otherModelsVendorCombo = new JComboBox<>(new String[] {"Default"});
+    private JComboBox<String> otherModelsVendorCombo = new JComboBox<>();
 
     @Nullable
     private JLabel otherModelsVendorLabel;
@@ -95,6 +97,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             @Nullable Service.FavoriteModel selectedCodeFavorite,
             @Nullable Service.FavoriteModel selectedPrimaryFavorite,
             String otherModelsVendor,
+            Map<ModelProperties.ModelType, AbstractService.ModelConfig> vendorModelMap,
             boolean showCostNotifications,
             boolean showFreeInternalLLMCostNotifications,
             boolean showErrorNotifications,
@@ -165,7 +168,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         }
         var favoriteModels = quickModelsTableModel.getFavorites();
         if (favoriteModels.isEmpty()) {
-            var currentCodeConfig = chrome.getProject().getMainProject().getCodeModelConfig();
+            var currentCodeConfig = chrome.getProject().getMainProject().getModelConfig(ModelProperties.ModelType.CODE);
             favoriteModels = List.of(new Service.FavoriteModel("default", currentCodeConfig));
             quickModelsTableModel.setFavorites(favoriteModels);
         }
@@ -174,8 +177,12 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         Service.FavoriteModel selectedPrimaryFavorite = (Service.FavoriteModel) primaryModelCombo.getSelectedItem();
         String vendor = (String) otherModelsVendorCombo.getSelectedItem();
         if (vendor == null) {
-            vendor = "Default";
+            vendor = ModelProperties.DEFAULT_VENDOR;
         }
+
+        Map<ModelProperties.ModelType, AbstractService.ModelConfig> vendorModelMap;
+        var map = ModelProperties.getVendorModels(vendor);
+        vendorModelMap = map == null ? Map.of() : map;
 
         return new AdvancedValues(
                 jvmSettings,
@@ -188,6 +195,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 selectedCodeFavorite,
                 selectedPrimaryFavorite,
                 vendor,
+                vendorModelMap,
                 showCostNotificationsCheckbox.isSelected(),
                 showFreeInternalLLMCheckbox.isSelected(),
                 showErrorNotificationsCheckbox.isSelected(),
@@ -206,7 +214,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         boolean previousAdvancedMode = GlobalUiSettings.isAdvancedMode();
 
         String previousVendorPref = MainProject.getOtherModelsVendorPreference();
-        String previousVendorSelection = previousVendorPref.isBlank() ? "Default" : previousVendorPref;
+        String previousVendorSelection =
+                previousVendorPref.isBlank() ? ModelProperties.DEFAULT_VENDOR : previousVendorPref;
 
         // JVM memory
         MainProject.setJvmMemorySettings(values.jvmMemorySettings());
@@ -238,46 +247,40 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         // Model roles (code / architect)
         var mainProject = chrome.getProject().getMainProject();
         if (values.selectedCodeFavorite() != null) {
-            mainProject.setCodeModelConfig(values.selectedCodeFavorite().config());
+            mainProject.setModelConfig(
+                    ModelProperties.ModelType.CODE,
+                    values.selectedCodeFavorite().config());
         }
         if (values.selectedPrimaryFavorite() != null) {
-            mainProject.setArchitectModelConfig(values.selectedPrimaryFavorite().config());
+            mainProject.setModelConfig(
+                    ModelProperties.ModelType.ARCHITECT,
+                    values.selectedPrimaryFavorite().config());
             chrome.getInstructionsPanel()
                     .selectPlannerModelConfig(values.selectedPrimaryFavorite().config());
         }
 
         // Vendor preference and Quick/Scan mappings for other models
         String selectedVendor = values.otherModelsVendor();
-        if (selectedVendor == null || selectedVendor.isBlank()) {
-            selectedVendor = "Default";
-        }
-
         String normalizedVendorPref;
-        if ("Default".equalsIgnoreCase(selectedVendor)) {
+
+        if (ModelProperties.DEFAULT_VENDOR.equals(selectedVendor)) {
+            // When Default is selected, clear persisted overrides for internal roles
+            // to allow fall-through to ModelType.defaultConfig() and freeConfig()
+            for (ModelProperties.ModelType type : ModelProperties.ModelType.values()) {
+                if (type != ModelProperties.ModelType.CODE && type != ModelProperties.ModelType.ARCHITECT) {
+                    mainProject.removeModelConfig(type);
+                }
+            }
+
             normalizedVendorPref = "";
         } else {
+            values.vendorModelMap().forEach(mainProject::setModelConfig);
             normalizedVendorPref = selectedVendor.trim();
         }
         MainProject.setOtherModelsVendorPreference(normalizedVendorPref);
 
-        if ("OpenAI".equals(selectedVendor)) {
-            mainProject.setQuickModelConfig(new Service.ModelConfig(Service.GPT_5_NANO));
-            mainProject.setQuickEditModelConfig(new Service.ModelConfig(Service.GPT_5_NANO));
-            mainProject.setQuickestModelConfig(new Service.ModelConfig(Service.GPT_5_NANO));
-            mainProject.setScanModelConfig(new Service.ModelConfig(Service.GPT_5_MINI));
-        } else if ("Anthropic".equals(selectedVendor)) {
-            mainProject.setQuickModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
-            mainProject.setQuickEditModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
-            mainProject.setQuickestModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
-            mainProject.setScanModelConfig(new Service.ModelConfig(Service.HAIKU_4_5));
-        } else {
-            mainProject.setQuickModelConfig(MainProject.getDefaultQuickModelConfig());
-            mainProject.setQuickEditModelConfig(MainProject.getDefaultQuickEditModelConfig());
-            mainProject.setQuickestModelConfig(MainProject.getDefaultQuickestModelConfig());
-            mainProject.setScanModelConfig(MainProject.getDefaultScanModelConfig());
-        }
-
-        String currentVendorSelection = normalizedVendorPref.isBlank() ? "Default" : normalizedVendorPref;
+        String currentVendorSelection =
+                normalizedVendorPref.isBlank() ? ModelProperties.DEFAULT_VENDOR : normalizedVendorPref;
         if (!previousVendorSelection.equals(currentVendorSelection)) {
             chrome.getContextManager().reloadService();
         }
@@ -366,7 +369,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
     }
 
     private void populateQuickModelsTab(SettingsData data) {
-        var service = chrome.getContextManager().getService();
         var loadedFavorites = data.favoriteModels();
         quickModelsTableModel.setFavorites(loadedFavorites);
 
@@ -386,7 +388,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         preferredCodeModelCombo.setRenderer(favoriteRenderer);
         primaryModelCombo.setRenderer(favoriteRenderer);
 
-        var currentCodeConfig = chrome.getProject().getMainProject().getCodeModelConfig();
+        var currentCodeConfig = chrome.getProject().getMainProject().getModelConfig(ModelProperties.ModelType.CODE);
         preferredCodeModelCombo.removeAllItems();
         for (Service.FavoriteModel favorite : loadedFavorites) {
             preferredCodeModelCombo.addItem(favorite);
@@ -404,7 +406,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             preferredCodeModelCombo.setSelectedIndex(0);
         }
 
-        var currentPlannerConfig = chrome.getProject().getMainProject().getArchitectModelConfig();
+        var currentPlannerConfig =
+                chrome.getProject().getMainProject().getModelConfig(ModelProperties.ModelType.ARCHITECT);
         primaryModelCombo.removeAllItems();
         for (Service.FavoriteModel favorite : loadedFavorites) {
             primaryModelCombo.addItem(favorite);
@@ -412,7 +415,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         boolean foundPrimary = false;
         for (int i = 0; i < primaryModelCombo.getItemCount(); i++) {
             Service.FavoriteModel fm = primaryModelCombo.getItemAt(i);
-            if (fm != null && fm.config().equals(currentPlannerConfig)) {
+            if (fm.config().equals(currentPlannerConfig)) {
                 primaryModelCombo.setSelectedIndex(i);
                 foundPrimary = true;
                 break;
@@ -422,15 +425,9 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             primaryModelCombo.setSelectedIndex(0);
         }
 
-        var availableNames = service.getAvailableModels().keySet();
         var vendors = new ArrayList<String>();
-        vendors.add("Default");
-        if (availableNames.contains(Service.HAIKU_4_5)) {
-            vendors.add("Anthropic");
-        }
-        if (availableNames.contains(Service.GPT_5_NANO) && availableNames.contains(Service.GPT_5_MINI)) {
-            vendors.add("OpenAI");
-        }
+        vendors.add(ModelProperties.DEFAULT_VENDOR);
+        vendors.addAll(ModelProperties.getAvailableVendors());
 
         otherModelsVendorCombo.setModel(new javax.swing.DefaultComboBoxModel<>(vendors.toArray(new String[0])));
 
@@ -439,7 +436,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         if (!persistedVendor.isBlank() && vendors.contains(persistedVendor)) {
             vendorToSelect = persistedVendor;
         } else {
-            vendorToSelect = "Default";
+            vendorToSelect = ModelProperties.DEFAULT_VENDOR;
         }
         otherModelsVendorCombo.setSelectedItem(vendorToSelect);
 
@@ -911,29 +908,15 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         otherModelsVendorLabel = new JLabel("Vendor for Other Models:");
         rolesPanel.add(otherModelsVendorLabel, gbcRoles);
 
-        otherModelsVendorCombo = new JComboBox<>(new String[] {"Anthropic", "Default", "OpenAI"});
+        otherModelsVendorCombo = new JComboBox<>(new String[] {"Anthropic", ModelProperties.DEFAULT_VENDOR, "OpenAI"});
         otherModelsVendorCombo.setToolTipText(
                 "Selects the default models for Quick, Quick Edit, Quickest, and Scan operations.");
         otherModelsVendorHolder = new JPanel(new BorderLayout(0, 0));
         otherModelsVendorHolder.add(otherModelsVendorCombo, BorderLayout.CENTER);
 
-        String defaultQuick = MainProject.getDefaultQuickModelConfig().name();
-        String defaultQuickEdit = MainProject.getDefaultQuickEditModelConfig().name();
-        String defaultQuickest = MainProject.getDefaultQuickestModelConfig().name();
-        String defaultScan = MainProject.getDefaultScanModelConfig().name();
-
         String vendorTooltip = "<html><div style='width: 340px;'>"
-                + "Selecting a vendor sets Quick, Quick Edit, Quickest, and Scan to vendor defaults.<br/><br/>"
-                + "<b>OpenAI:</b> Quick=gpt-5-nano; Quick Edit=gpt-5-nano; Quickest=gpt-5-nano; Scan=gpt-5-mini<br/>"
-                + "<b>Anthropic:</b> Quick=claude-haiku-4-5; Quick Edit=claude-haiku-4-5; Quickest=claude-haiku-4-5; Scan=claude-haiku-4-5<br/>"
-                + "<b>Default:</b> Quick="
-                + defaultQuick
-                + "; Quick Edit="
-                + defaultQuickEdit
-                + "; Quickest="
-                + defaultQuickest
-                + "; Scan="
-                + defaultScan
+                + "Brokk will use the best model for each internal task (scanning, summarizing, etc.) by default, "
+                + "but you can pin these activities to a single vendor if others have an outage."
                 + "</div></html>";
 
         var vendorHelpButton = new MaterialButton();
@@ -982,12 +965,17 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 return;
             }
 
-            otherModelsVendorCombo.setSelectedItem("Default");
+            otherModelsVendorCombo.setSelectedItem(ModelProperties.DEFAULT_VENDOR);
 
+            // Get preferred defaults from ModelProperties
+            var architectConfig = ModelProperties.ModelType.ARCHITECT.defaultConfig();
+            var codeConfig = ModelProperties.ModelType.CODE.defaultConfig();
+
+            // Restore primary model to ARCHITECT default
             boolean foundPrimary = false;
             for (int i = 0; i < primaryModelCombo.getItemCount(); i++) {
                 Service.FavoriteModel fm = primaryModelCombo.getItemAt(i);
-                if (fm != null && Service.GPT_5.equals(fm.config().name())) {
+                if (architectConfig.equals(fm.config())) {
                     primaryModelCombo.setSelectedIndex(i);
                     foundPrimary = true;
                     break;
@@ -997,10 +985,11 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
                 primaryModelCombo.setSelectedIndex(0);
             }
 
+            // Restore code model to CODE default
             boolean foundCode = false;
             for (int i = 0; i < preferredCodeModelCombo.getItemCount(); i++) {
                 Service.FavoriteModel fm = preferredCodeModelCombo.getItemAt(i);
-                if (fm != null && Service.HAIKU_4_5.equals(fm.config().name())) {
+                if (codeConfig.equals(fm.config())) {
                     preferredCodeModelCombo.setSelectedIndex(i);
                     foundCode = true;
                     break;

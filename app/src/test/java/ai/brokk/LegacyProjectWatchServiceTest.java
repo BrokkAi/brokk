@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -26,6 +27,7 @@ class LegacyProjectWatchServiceTest {
 
     private LegacyProjectWatchService watchService;
     private final List<TestListener> testListeners = new ArrayList<>();
+    private Path gitRepoDir; // For worktree tests
 
     @BeforeEach
     void setUp() {
@@ -33,9 +35,21 @@ class LegacyProjectWatchServiceTest {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown() throws Exception {
         if (watchService != null) {
             watchService.close();
+        }
+        if (gitRepoDir != null) {
+            try {
+                // Best-effort cleanup
+                Files.walk(gitRepoDir)
+                        .map(Path::toFile)
+                        .sorted((a, b) -> -a.compareTo(b))
+                        .forEach(f -> f.delete());
+            } catch (Exception ignored) {
+            } finally {
+                gitRepoDir = null;
+            }
         }
     }
 
@@ -355,6 +369,143 @@ class LegacyProjectWatchServiceTest {
 
         assertEquals(1, listener1_v2.filesChangedCount.get());
         assertEquals(1, listener3_v2.filesChangedCount.get());
+    }
+
+    /**
+     * Tests that git metadata events from an external directory (worktree scenario) are properly
+     * captured. In a worktree, the .git directory is located in the main repository, not under
+     * the worktree's root directory.
+     */
+    @Test
+    void testWorktreeGitMetadataEventsFromExternalDirectory() throws Exception {
+        // Create a separate directory to simulate worktree scenario
+        // - tempDir: the worktree root (project root)
+        // - gitRepoDir: the main repository root where .git lives
+        gitRepoDir = Files.createTempDirectory("legacy-watcher-main-repo");
+
+        // Create .git directory structure in the main repo
+        Path gitDir = gitRepoDir.resolve(".git");
+        Files.createDirectories(gitDir);
+        Path refsDir = gitDir.resolve("refs").resolve("heads");
+        Files.createDirectories(refsDir);
+
+        // Create a test listener
+        TestListener listener = new TestListener("WorktreeListener");
+        testListeners.add(listener);
+
+        // Create the watcher with gitRepoRoot pointing to the external main repo
+        watchService = new LegacyProjectWatchService(tempDir, gitRepoDir, null, List.of(listener));
+        watchService.start(CompletableFuture.completedFuture(null));
+
+        // Allow watcher to settle
+        Thread.sleep(500);
+
+        // Simulate a git operation by modifying a file in .git (e.g., HEAD update after commit)
+        Path headFile = gitDir.resolve("HEAD");
+        Files.writeString(headFile, "ref: refs/heads/main\n");
+
+        // Wait for the event to be delivered
+        assertTrue(
+                listener.filesChangedLatch.await(5, TimeUnit.SECONDS),
+                "Git metadata event from external directory should be delivered");
+
+        EventBatch batch = listener.lastBatch;
+        assertNotNull(batch, "EventBatch should be non-null");
+        assertFalse(batch.files.isEmpty(), "EventBatch should contain files");
+
+        // Verify the batch contains files with .git prefix
+        var gitFiles = batch.files.stream()
+                .filter(pf -> pf.getRelPath().startsWith(".git"))
+                .toList();
+        assertFalse(gitFiles.isEmpty(), "EventBatch should contain files with .git prefix");
+    }
+
+    /**
+     * Tests that regular file events in the worktree root are still captured correctly
+     * even when gitRepoRoot is external.
+     */
+    @Test
+    void testWorktreeRegularFilesStillWork() throws Exception {
+        // Create a separate directory to simulate worktree scenario
+        gitRepoDir = Files.createTempDirectory("legacy-watcher-main-repo-regular");
+
+        // Create .git directory structure in the main repo
+        Path gitDir = gitRepoDir.resolve(".git");
+        Files.createDirectories(gitDir);
+
+        // Create a test listener
+        TestListener listener = new TestListener("WorktreeRegularListener");
+        testListeners.add(listener);
+
+        // Create the watcher with gitRepoRoot pointing to the external main repo
+        watchService = new LegacyProjectWatchService(tempDir, gitRepoDir, null, List.of(listener));
+        watchService.start(CompletableFuture.completedFuture(null));
+
+        // Allow watcher to settle
+        Thread.sleep(500);
+
+        // Create a regular file in the worktree root
+        Path sourceFile = tempDir.resolve("Source.java");
+        Files.writeString(sourceFile, "public class Source {}");
+
+        // Wait for the event to be delivered
+        assertTrue(
+                listener.filesChangedLatch.await(5, TimeUnit.SECONDS),
+                "Regular file event in worktree root should be delivered");
+
+        EventBatch batch = listener.lastBatch;
+        assertNotNull(batch, "EventBatch should be non-null");
+
+        // The file should be in the batch with tempDir (worktree root) as base
+        assertTrue(
+                batch.files.stream().anyMatch(pf -> pf.getRelPath().toString().equals("Source.java")),
+                "EventBatch should contain the source file");
+    }
+
+    /**
+     * Tests that the service correctly resolves and watches git metadata when .git is a FILE
+     * (the real worktree case where .git contains "gitdir: /path/to/main/.git/worktrees/xxx").
+     */
+    @Disabled("Fails on Windows")
+    @Test
+    void testWorktreeWithGitFile() throws Exception {
+        // tempDir is provided by @TempDir - use it as worktree root
+        // Create external git metadata directory (simulates main repo's .git/worktrees/xxx)
+        gitRepoDir = Files.createTempDirectory("legacy-watcher-external-git");
+        Path externalGitDir = gitRepoDir.resolve(".git").resolve("worktrees").resolve("myworktree");
+        Files.createDirectories(externalGitDir);
+        Path refsDir = externalGitDir.resolve("refs").resolve("heads");
+        Files.createDirectories(refsDir);
+
+        // Create .git FILE in worktree (tempDir) pointing to external directory
+        Path gitFile = tempDir.resolve(".git");
+        Files.writeString(gitFile, "gitdir: " + externalGitDir);
+
+        // Create watcher with worktree as BOTH root and gitRepoRoot (real scenario)
+        var listener = new TestListener("worktree-git-file");
+        watchService = new LegacyProjectWatchService(tempDir, tempDir, null, List.of(listener));
+
+        watchService.start(CompletableFuture.completedFuture(null));
+
+        // Allow watcher to settle
+        Thread.sleep(500);
+
+        // Simulate a git operation by modifying HEAD in the external git directory
+        Path headFile = externalGitDir.resolve("HEAD");
+        Files.writeString(headFile, "ref: refs/heads/main\n");
+
+        // Wait for the event to be delivered
+        boolean delivered = listener.filesChangedLatch.await(5, TimeUnit.SECONDS);
+        assertTrue(delivered, "Git metadata event from external worktree directory should be delivered");
+
+        EventBatch batch = listener.lastBatch;
+        assertNotNull(batch, "EventBatch should be non-null");
+        assertFalse(batch.files.isEmpty(), "EventBatch should contain files");
+
+        // Verify the event was received
+        assertTrue(
+                batch.files.stream().anyMatch(pf -> pf.getRelPath().toString().contains("HEAD")),
+                "EventBatch should contain the HEAD file change");
     }
 
     /**

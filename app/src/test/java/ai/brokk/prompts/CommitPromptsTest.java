@@ -237,6 +237,28 @@ class CommitPromptsTest {
     }
 
     @Test
+    void unicodeCharacters_areHandledCorrectly() {
+        // Test with exact Unicode chars: arrow →, emoji 🚀, accented é, ï, etc.
+        var lines = new ArrayList<String>();
+        lines.add("diff --git a/unicode.md b/unicode.md");
+        lines.add("--- a/unicode.md");
+        lines.add("+++ b/unicode.md");
+        lines.add("@@ -1,1 +1,1 @@");
+        lines.add("-old line");
+        lines.add("+<!-- Test: Unicode chars → émojis 🚀 and accénts café naïve -->");
+        String diff = String.join("\n", lines) + "\n";
+
+        String trimmed = invokePreprocess(diff);
+
+        assertFalse(trimmed.isBlank(), "Diff with Unicode should not be blank");
+        assertTrue(trimmed.contains("→"), "Should contain arrow character");
+        assertTrue(trimmed.contains("🚀"), "Should contain rocket emoji");
+        assertTrue(trimmed.contains("émojis"), "Should contain accented e");
+        assertTrue(trimmed.contains("café"), "Should contain café with accent");
+        assertTrue(trimmed.contains("naïve"), "Should contain naïve with diaeresis");
+    }
+
+    @Test
     void newFileWithContent_isNotFiltered() {
         // Test case: New file that starts empty but has content added (like AppQuitHandler.java scenario)
         // This represents the real-world case where a file is created empty and then content is added

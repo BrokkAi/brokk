@@ -4,7 +4,7 @@ import ai.brokk.*;
 import ai.brokk.agents.ConflictInspector;
 import ai.brokk.agents.MergeAgent;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
@@ -13,6 +13,7 @@ import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.CommitDialog;
 import ai.brokk.gui.Constants;
+import ai.brokk.gui.DeferredUpdateHelper;
 import ai.brokk.gui.DiffWindowManager;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
@@ -68,6 +69,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
 
     // Thread-safe cached list of modified files
     private volatile List<ProjectFile> cachedModifiedFiles = List.of();
+    private final DeferredUpdateHelper deferredUpdateHelper;
 
     // Guard to avoid repeatedly offering AI merge while a conflict is active
     private volatile boolean mergeOfferShown = false;
@@ -89,6 +91,8 @@ public class GitCommitTab extends JPanel implements ThemeAware {
         this.contextManager = contextManager;
         this.workflowService = new GitWorkflow(contextManager);
         buildCommitTabUI();
+        // Deferred update helper: run full commit-panel update when visible, otherwise mark dirty.
+        this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::performUpdateCommitPanel);
     }
 
     /** Builds the Changes tab UI elements. */
@@ -247,14 +251,9 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 return;
             }
 
-            // Determine a safe owner Frame for the CommitDialog:
-            // - prefer the immediate window ancestor if it's a Frame (typical for the main UI)
-            // - otherwise fall back to the main application frame (chrome.getFrame())
-            Window ancestor = SwingUtilities.getWindowAncestor(GitCommitTab.this);
-            Frame ownerFrame = (ancestor instanceof Frame f) ? f : chrome.getFrame();
-
+            Window owner = SwingUtilities.getWindowAncestor(GitCommitTab.this);
             CommitDialog dialog = new CommitDialog(
-                    ownerFrame,
+                    owner,
                     chrome,
                     contextManager,
                     workflowService,
@@ -265,7 +264,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                                 "Committed "
                                         + getRepo().shortHash(commitResult.commitId())
                                         + ": " + commitResult.firstLine());
-                        updateCommitPanel(); // Refresh file list
+                        requestUpdate(); // Refresh file list
                         chrome.updateLogTab();
                         chrome.selectCurrentBranchInLogTab();
                     });
@@ -344,8 +343,23 @@ public class GitCommitTab extends JPanel implements ThemeAware {
         return (GitRepo) repo;
     }
 
-    /** Populates the uncommitted files table and enables/disables commit-related buttons. */
-    public void updateCommitPanel() {
+    /** Populates the uncommitted files table and enables/disables commit-related buttons.
+     *  This defers the update when the tab is not visible. */
+    public void requestUpdate() {
+        // Update badge immediately, even if tab is not visible
+        contextManager.submitBackgroundTask("Updating file count", () -> {
+            var modifiedFiles = getRepo().getModifiedFiles();
+            var projectFiles =
+                    modifiedFiles.stream().map(GitRepo.ModifiedFile::file).collect(Collectors.toList());
+            SwingUtilities.invokeLater(() -> updateAfterStatusChange(projectFiles));
+            return null;
+        });
+        // Defer full panel update for when tab becomes visible
+        deferredUpdateHelper.requestUpdate();
+    }
+
+    /** Performs the actual update logic previously in updateCommitPanel(). */
+    private void performUpdateCommitPanel() {
         logger.trace("Starting updateCommitPanel");
         // Store currently selected rows before updating
         int[] selectedRowsIndices = uncommittedFilesTable.getSelectedRows();
@@ -620,7 +634,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
 
                 for (var file : orderedFiles) {
-                    var rightSource = new BufferSource.FileSource(file.absPath().toFile(), file.getFileName());
+                    var rightSource = new BufferSource.FileSource(file);
 
                     String headContent = "";
                     try {
@@ -639,14 +653,13 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                     // Create normalized sources for window raising check (use all files in consistent order)
                     var normalizedFiles = allFiles.stream()
                             .sorted((f1, f2) -> f1.getFileName().compareToIgnoreCase(f2.getFileName()))
-                            .collect(Collectors.toList());
+                            .toList();
 
                     var leftSources = new ArrayList<BufferSource>();
                     var rightSources = new ArrayList<BufferSource>();
 
                     for (var file : normalizedFiles) {
-                        var rightSource =
-                                new BufferSource.FileSource(file.absPath().toFile(), file.getFileName());
+                        var rightSource = new BufferSource.FileSource(file);
                         String headContent = "";
                         try {
                             var repo = contextManager.getProject().getRepo();
@@ -717,11 +730,11 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                         .liveContext()
                         .fileFragments()
                         .filter(f ->
-                                f instanceof ContextFragment.ProjectPathFragment ppf && newFiles.contains(ppf.file()))
+                                f instanceof ContextFragments.ProjectPathFragment ppf && newFiles.contains(ppf.file()))
                         .toList();
                 var deletedFilesInfo = fragmentsForNewFiles.stream()
                         .map(f -> {
-                            var ppf = (ContextFragment.ProjectPathFragment) f;
+                            var ppf = (ContextFragments.ProjectPathFragment) f;
                             try {
                                 ProjectFile pf = ppf.file();
                                 return new ContextHistory.DeletedFile(
@@ -774,7 +787,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                     var fragmentsToDrop = contextManager
                             .liveContext()
                             .fileFragments()
-                            .filter(f -> f instanceof ContextFragment.ProjectPathFragment ppf
+                            .filter(f -> f instanceof ContextFragments.ProjectPathFragment ppf
                                     && otherFilesToDrop.contains(ppf.file()))
                             .toList();
                     if (!fragmentsToDrop.isEmpty()) {
@@ -786,7 +799,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 SwingUtilities.invokeLater(() -> {
                     String successMessage = "Rolled back " + fileList + " to HEAD state. Use Ctrl+Z to undo.";
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, successMessage);
-                    updateCommitPanel();
+                    requestUpdate();
                     chrome.updateLogTab();
                 });
             } catch (Exception ex) {
@@ -826,7 +839,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO, "Stashed " + fileList + ": " + stashDescription);
             }
-            updateCommitPanel(); // Refresh file list
+            requestUpdate(); // Refresh file list
             chrome.updateLogTab(); // Refresh log
         });
     }
@@ -1060,7 +1073,7 @@ Would you like to resolve these conflicts with the Merge Agent?
                             () -> chrome.toolError("AI merge failed: " + ex.getMessage(), "Merge Agent Error"));
                 } finally {
                     SwingUtilities.invokeLater(() -> {
-                        updateCommitPanel();
+                        requestUpdate();
                         chrome.updateLogTab();
                     });
                 }

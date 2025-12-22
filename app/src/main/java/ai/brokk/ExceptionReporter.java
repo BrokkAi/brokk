@@ -117,7 +117,7 @@ public class ExceptionReporter {
      * @param throwable The throwable to format
      * @return Formatted stacktrace string
      */
-    private String formatStackTrace(Throwable throwable) {
+    public static String formatStackTrace(Throwable throwable) {
         StringWriter sw = new StringWriter();
         PrintWriter pw = new PrintWriter(sw);
         throwable.printStackTrace(pw);

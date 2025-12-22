@@ -13,7 +13,7 @@ import ai.brokk.agents.RelevanceClassifier;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.gui.BorderUtils;
 import ai.brokk.gui.Chrome;
@@ -1247,11 +1247,10 @@ public class BlitzForgeDialog extends BaseThemedDialog {
         var dlg = new AttachContextDialog(chrome.getFrame(), chrome.getContextManager(), false);
         dlg.setLocationRelativeTo(this);
         dlg.setVisible(true);
-        var result = dlg.getSelection();
-        if (result == null) {
+        var fragments = dlg.getSelectedFragments();
+        if (fragments == null) {
             return;
         }
-        Set<ContextFragment> fragments = result.fragments();
         var cm = chrome.getContextManager();
         cm.submitBackgroundTask("Attach files", () -> fragments.stream()
                         .flatMap(frag -> frag.files().join().stream())
@@ -1374,7 +1373,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
         var service = cm.getService();
         // Resolve per-file model via ContextManager-aware resolution
         StreamingChatModel perFileModel =
-                requireNonNull(cm.getModelOrDefault(perFileModelSelection.config(), "PerFile"));
+                requireNonNull(cm.getService().getModel(perFileModelSelection.config()));
         var engineOutputMode =
                 switch (parallelOutputMode) {
                     case NONE -> BlitzForge.ParallelOutputMode.NONE;
@@ -1405,7 +1404,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     if (fRelatedKSupplier != null) {
                         try {
                             var acList = cm.liveContext().buildAutoContext(fRelatedKSupplier);
-                            var acText = ContextFragment.SummaryFragment.combinedText(acList);
+                            var acText = ContextFragments.SummaryFragment.combinedText(acList);
                             if (!acText.isBlank()) {
                                 return """
                                                             <related_classes>
@@ -1584,7 +1583,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
         var context = cm.liveContext();
         var selectedFavorite = (Service.FavoriteModel) requireNonNull(modelComboBox.getSelectedItem());
         // Resolve favorite model via ContextManager-aware resolution
-        var model = requireNonNull(cm.getModelOrDefault(selectedFavorite.config(), "PerFile"));
+        var model = requireNonNull(cm.getService().getModel(selectedFavorite.config()));
 
         // Engine + per-file processor
         var engine = new BlitzForge(cm, service, runCfg, progressDialog);
@@ -1607,7 +1606,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                 }
                 if (fRelatedK != null) {
                     var acList = cm.liveContext().buildAutoContext(fRelatedK);
-                    var acText = ContextFragment.SummaryFragment.combinedText(acList);
+                    var acText = ContextFragments.SummaryFragment.combinedText(acList);
                     if (!acText.isBlank()) {
                         var msgText =
                                 """
@@ -1682,7 +1681,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                 tr = InstructionsPanel.executeAskCommand(llm, messages, cm, instructions, meta);
             } else {
                 var agent = new CodeAgent(cm, model, dialogIo);
-                tr = agent.runSingleFileEdit(file, instructions, readOnlyMessages);
+                tr = agent.execute(file, instructions, readOnlyMessages);
             }
 
             if (tr.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {

@@ -4,9 +4,13 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.gui.theme.ThemeTitleBarManager;
+import ai.brokk.gui.util.KeyboardShortcutUtil;
+import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.HashMap;
@@ -36,8 +40,8 @@ public class PreviewFrame extends JFrame implements ThemeAware {
 
         // Apply icon, macOS full-window-content, and title bar
         Chrome.applyIcon(this);
-        Chrome.applyMacOSFullWindowContent(this);
-        Chrome.applyTitleBar(this, "Preview");
+        Chrome.maybeApplyMacFullWindowContent(this);
+        ThemeTitleBarManager.maybeApplyMacTitleBar(this, "Preview");
 
         // Create tabbed pane
         tabbedPane = new JTabbedPane(JTabbedPane.TOP, JTabbedPane.SCROLL_TAB_LAYOUT);
@@ -54,6 +58,18 @@ public class PreviewFrame extends JFrame implements ThemeAware {
             @Override
             public void windowClosing(WindowEvent e) {
                 handleFrameClose();
+            }
+        });
+
+        // Register close tab shortcut for PreviewFrame (defaults to platform accelerator + W)
+        KeyStroke closeTabKeyStroke = GlobalUiSettings.getKeybinding(
+                "global.closeTab", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W));
+        var root = this.getRootPane();
+        root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(closeTabKeyStroke, "closePreviewTab");
+        root.getActionMap().put("closePreviewTab", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                closeSelectedTab();
             }
         });
     }
@@ -135,8 +151,8 @@ public class PreviewFrame extends JFrame implements ThemeAware {
      */
     private boolean fragmentsMatch(ContextFragment existing, ContextFragment candidate) {
         // Content equality for string fragments
-        if (existing instanceof ContextFragment.StringFragment sfExisting
-                && candidate instanceof ContextFragment.StringFragment sfCandidate) {
+        if (existing instanceof ContextFragments.StringFragment sfExisting
+                && candidate instanceof ContextFragments.StringFragment sfCandidate) {
             String textA = sfExisting.text().renderNowOrNull();
             String textB = sfCandidate.text().renderNowOrNull();
             return Objects.equals(textA, textB);
@@ -270,6 +286,24 @@ public class PreviewFrame extends JFrame implements ThemeAware {
     }
 
     /**
+     * Closes the currently selected tab if any. Attempts to find an associated ProjectFile key for proper tracking.
+     */
+    private void closeSelectedTab() {
+        int selectedIndex = tabbedPane.getSelectedIndex();
+        if (selectedIndex >= 0) {
+            Component comp = tabbedPane.getComponentAt(selectedIndex);
+            ProjectFile fileKey = null;
+            for (Map.Entry<ProjectFile, Component> entry : fileToTabMap.entrySet()) {
+                if (entry.getValue() == comp) {
+                    fileKey = entry.getKey();
+                    break;
+                }
+            }
+            closeTab(comp, fileKey);
+        }
+    }
+
+    /**
      * Handles window close button (X) - closes entire frame after confirming all tabs.
      */
     private void handleFrameClose() {
@@ -319,7 +353,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
                     }
                 }
             }
-            Chrome.applyTitleBar(this, getTitle());
+            ThemeTitleBarManager.maybeApplyMacTitleBar(this, getTitle());
         });
     }
 

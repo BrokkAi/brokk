@@ -4,8 +4,9 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IWatchService.EventBatch;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.FileUtil;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,7 +18,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Tests for ContextManager's file watching features (Phases 4-6).
@@ -26,8 +26,7 @@ import org.junit.jupiter.api.io.TempDir;
  */
 class ContextManagerFileWatchingTest {
 
-    @TempDir
-    Path tempDir;
+    private Path tempDir;
 
     private Path projectRoot;
     private Path gitRepoRoot;
@@ -37,6 +36,7 @@ class ContextManagerFileWatchingTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        tempDir = Files.createTempDirectory("context-manager-test-");
         projectRoot = tempDir;
 
         // Create a minimal git repo structure
@@ -70,6 +70,7 @@ class ContextManagerFileWatchingTest {
                 e.printStackTrace();
             }
         }
+        FileUtil.deleteRecursively(tempDir);
     }
 
     /**
@@ -127,8 +128,8 @@ class ContextManagerFileWatchingTest {
         ProjectFile file1 = new ProjectFile(projectRoot, Path.of("src/Main.java"));
         ProjectFile file2 = new ProjectFile(projectRoot, Path.of("src/Test.java"));
 
-        var fragment1 = new ContextFragment.ProjectPathFragment(file1, contextManager);
-        var fragment2 = new ContextFragment.ProjectPathFragment(file2, contextManager);
+        var fragment1 = new ContextFragments.ProjectPathFragment(file1, contextManager);
+        var fragment2 = new ContextFragments.ProjectPathFragment(file2, contextManager);
 
         contextManager.pushContext(ctx -> ctx.addFragments(List.of(fragment1, fragment2)));
 
@@ -190,7 +191,7 @@ class ContextManagerFileWatchingTest {
 
         // Add file to context
         ProjectFile file1 = new ProjectFile(projectRoot, Path.of("src/Main.java"));
-        var fragment1 = new ContextFragment.ProjectPathFragment(file1, contextManager);
+        var fragment1 = new ContextFragments.ProjectPathFragment(file1, contextManager);
         contextManager.pushContext(ctx -> ctx.addFragments(List.of(fragment1)));
 
         // Set the test IO using reflection (io field must remain private)
@@ -321,7 +322,7 @@ class ContextManagerFileWatchingTest {
         ProjectFile contextFile = new ProjectFile(projectRoot, Path.of("src/Main.java"));
         ProjectFile nonContextFile = new ProjectFile(projectRoot, Path.of("src/Test.java"));
 
-        var fragment = new ContextFragment.ProjectPathFragment(contextFile, contextManager);
+        var fragment = new ContextFragments.ProjectPathFragment(contextFile, contextManager);
         contextManager.pushContext(ctx -> ctx.addFragments(List.of(fragment)));
 
         // Get context files to verify directly

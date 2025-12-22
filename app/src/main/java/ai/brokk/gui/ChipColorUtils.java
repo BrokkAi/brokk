@@ -1,6 +1,7 @@
 package ai.brokk.gui;
 
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.gui.mop.ThemeColors;
 import java.awt.Color;
@@ -9,43 +10,58 @@ import java.awt.Color;
  * Shared utilities for fragment classification and color styling, used by both WorkspaceItemsChipPanel and
  * TokenUsageBar.
  */
-public class FragmentColorUtils {
+public class ChipColorUtils {
 
-    public enum FragmentKind {
+    public enum ChipKind {
         EDIT,
         SUMMARY,
         HISTORY,
         TASK_LIST,
+        INVALID,
         OTHER
     }
 
     /**
-     * Classifies a fragment into EDIT (user-editable), SUMMARY (skeleton outputs), HISTORY, TASK_LIST, or OTHER.
+     * Holds a fragment and its pre-computed classification.
      */
-    public static FragmentKind classify(ContextFragment fragment) {
-        if (fragment.getType().isEditable()) {
-            return FragmentKind.EDIT;
-        }
+    public record ClassifiedFragment(ContextFragment fragment, ChipKind kind) {}
+
+    /**
+     * Classifies a fragment into EDIT (user-editable), SUMMARY (skeleton outputs), HISTORY, TASK_LIST, or OTHER.
+     *
+     * Do NOT use this when you need to know the actual fragment type (use fragment.getType() instead) because
+     * INVALID overlaps with other ChipKinds.
+     *
+     * This method must be called off the EDT to avoid blocking UI operations.
+     */
+    public static ClassifiedFragment classify(ContextFragment fragment) {
         if (fragment.getType() == ContextFragment.FragmentType.SKELETON) {
-            return FragmentKind.SUMMARY;
+            return new ClassifiedFragment(fragment, ChipKind.SUMMARY);
+        }
+        if (!fragment.isValid()) {
+            return new ClassifiedFragment(fragment, ChipKind.INVALID);
+        }
+        if (fragment.getType().isEditable()) {
+            return new ClassifiedFragment(fragment, ChipKind.EDIT);
         }
         if (fragment.getType() == ContextFragment.FragmentType.HISTORY) {
-            return FragmentKind.HISTORY;
+            return new ClassifiedFragment(fragment, ChipKind.HISTORY);
         }
-        if (fragment instanceof ContextFragment.StringFragment sf
+        if (fragment instanceof ContextFragments.StringFragment sf
                 && SpecialTextType.TASK_LIST
                         .description()
                         .equals(sf.description().renderNowOrNull())) {
-            return FragmentKind.TASK_LIST;
+            return new ClassifiedFragment(fragment, ChipKind.TASK_LIST);
         }
-        return FragmentKind.OTHER;
+        return new ClassifiedFragment(fragment, ChipKind.OTHER);
     }
 
     /**
      * Gets the background color for a fragment based on its classification and theme.
      */
-    public static Color getBackgroundColor(FragmentKind kind, boolean isDarkTheme) {
+    public static Color getBackgroundColor(ChipKind kind, boolean isDarkTheme) {
         return switch (kind) {
+            case INVALID -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_INVALID_BACKGROUND);
             case EDIT -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_EDIT_BACKGROUND);
             case SUMMARY -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_SUMMARY_BACKGROUND);
             case HISTORY -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_HISTORY_BACKGROUND);
@@ -57,8 +73,9 @@ public class FragmentColorUtils {
     /**
      * Gets the foreground (text) color for a fragment based on its classification and theme.
      */
-    public static Color getForegroundColor(FragmentKind kind, boolean isDarkTheme) {
+    public static Color getForegroundColor(ChipKind kind, boolean isDarkTheme) {
         return switch (kind) {
+            case INVALID -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_INVALID_FOREGROUND);
             case EDIT -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_EDIT_FOREGROUND);
             case SUMMARY -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_SUMMARY_FOREGROUND);
             case HISTORY -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_HISTORY_FOREGROUND);
@@ -70,8 +87,9 @@ public class FragmentColorUtils {
     /**
      * Gets the border color for a fragment based on its classification and theme.
      */
-    public static Color getBorderColor(FragmentKind kind, boolean isDarkTheme) {
+    public static Color getBorderColor(ChipKind kind, boolean isDarkTheme) {
         return switch (kind) {
+            case INVALID -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_INVALID_BORDER);
             case EDIT -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_EDIT_BORDER);
             case SUMMARY -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_SUMMARY_BORDER);
             case HISTORY -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_HISTORY_BORDER);

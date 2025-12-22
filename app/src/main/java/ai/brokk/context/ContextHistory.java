@@ -63,8 +63,6 @@ public class ContextHistory {
     public ContextHistory(Context liveContext) {
         pushContext(liveContext);
         this.diffService = new DiffService(this);
-        // Warm-up diffs for all contexts so UI can peek results soon after load
-        this.diffService.warmUp(getHistory());
     }
 
     public ContextHistory(List<Context> contexts) {
@@ -93,8 +91,6 @@ public class ContextHistory {
         this.entryInfos.putAll(entryInfos);
         selected = history.peekLast();
         this.diffService = new DiffService(this);
-        // Warm-up diffs for all contexts so the restored session has diffs computed asynchronously
-        this.diffService.warmUp(getHistory());
     }
 
     /* ───────────────────────── public API ─────────────────────────── */
@@ -174,26 +170,11 @@ public class ContextHistory {
     public synchronized @Nullable Context processExternalFileChangesIfNeeded(Set<ProjectFile> changed) {
         var base = liveContext();
 
-        // Determine target files to compare against:
-        // - If 'changed' is empty (e.g., compatibility path), treat all files referenced by the context as candidates.
-        Set<ProjectFile> targetFiles;
-        if (changed.isEmpty()) {
-            targetFiles =
-                    base.allFragments().flatMap(f -> f.files().join().stream()).collect(Collectors.toSet());
-            if (targetFiles.isEmpty()) {
-                return null;
-            }
-        } else {
-            targetFiles = changed;
-        }
-
-        // Identify only the affected path fragments (by referenced ProjectFiles).
-        List<ContextFragment.PathFragment> toReplace = base.allFragments()
-                .filter(f -> f instanceof ContextFragment.PathFragment)
-                .map(f -> (ContextFragment.PathFragment) f)
+        // Identify the affected fragments by referenced ProjectFiles
+        var toReplace = base.allFragments()
                 .filter(f -> {
                     var filesOpt = f.files().await(SNAPSHOT_AWAIT_TIMEOUT);
-                    return filesOpt.map(projectFiles -> projectFiles.stream().anyMatch(targetFiles::contains))
+                    return filesOpt.map(projectFiles -> projectFiles.stream().anyMatch(changed::contains))
                             .orElse(false);
                 })
                 .toList();
@@ -203,13 +184,19 @@ public class ContextHistory {
         }
 
         // Refresh only the affected fragments; do NOT precompute text(), to keep snapshots cleared pre-serialization.
-        List<ContextFragment.PathFragment> replacements = toReplace.stream()
-                .map(ContextFragment.PathFragment::refreshCopy)
-                .map(ContextFragment.PathFragment.class::cast)
-                .toList();
+        var replacements = toReplace.stream().map(ContextFragment::refreshCopy).toList();
 
         // Merge: keep all unaffected fragments, but swap in the refreshed ones.
         Context merged = base.removeFragments(toReplace).addFragments(replacements);
+
+        // Guard: if refresh produced no actual content differences, avoid adding a no-op
+        // "Load external changes" entry to history. This addresses Issue #2062 where
+        // Activity showed external-change events with no changed filenames.
+        // Note: this may block briefly while diffs are computed; this method is @Blocking.
+        var changedFilesBetween = merged.getChangedFiles(base);
+        if (changedFilesBetween.isEmpty()) {
+            return null; // nothing meaningful changed; do not push/replace
+        }
 
         // Maintain "Load external changes (n)" semantics.
         var previousAction = base.getAction();
@@ -417,8 +404,6 @@ public class ContextHistory {
             entryInfos.remove(removed.id());
             var historyIds = getContextIds();
             resetEdges.removeIf(edge -> !historyIds.contains(edge.sourceId()) || !historyIds.contains(edge.targetId()));
-            // keep diff cache bounded to current history
-            diffService.retainOnly(historyIds);
             if (logger.isDebugEnabled()) {
                 logger.debug("Truncated history (removed oldest context: {})", removed);
             }
@@ -455,7 +440,7 @@ public class ContextHistory {
     private void snapshotContext(Context ctx) {
         for (var fragment : ctx.allFragments().toList()) {
             try {
-                if (fragment instanceof ContextFragment.AbstractComputedFragment cf) {
+                if (fragment instanceof ContextFragments.AbstractComputedFragment cf) {
                     cf.await(SNAPSHOT_AWAIT_TIMEOUT);
                 }
             } catch (Exception e) {

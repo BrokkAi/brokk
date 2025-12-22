@@ -48,6 +48,7 @@ public class ProjectFilesPanel extends JPanel {
     private AutoCompletion ac;
     private JSplitPane contentSplitPane;
     private boolean dependenciesVisible = false;
+    private final DeferredUpdateHelper deferredUpdateHelper;
 
     public ProjectFilesPanel(Chrome chrome, ContextManager contextManager, DependenciesPanel dependenciesPanel) {
         super(new BorderLayout(Constants.H_GAP, Constants.V_GAP));
@@ -96,6 +97,9 @@ public class ProjectFilesPanel extends JPanel {
         dependenciesPanel.ensureInitialized();
 
         add(contentSplitPane, BorderLayout.CENTER);
+
+        // Deferred update helper for ProjectFilesPanel (defers refresh when not visible)
+        this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::refreshProjectFiles);
 
         // Initialize badge with current dependency count (also updates border title)
         int liveCount = chrome.getProject().getLiveDependencies().size();
@@ -367,9 +371,10 @@ public class ProjectFilesPanel extends JPanel {
         chrome.updateCommitPanel();
     }
 
-    /** Updates the panel to reflect the current project state, including branch name in title. */
-    public void updatePanel() {
-        refreshProjectFiles();
+    /** Updates the panel to reflect the current project state, including branch name in title.
+     *  This defers the actual refresh when the panel is not visible. */
+    public void requestUpdate() {
+        deferredUpdateHelper.requestUpdate();
     }
 
     // Public getters for focus traversal policy

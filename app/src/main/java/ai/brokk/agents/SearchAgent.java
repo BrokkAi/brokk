@@ -1,7 +1,5 @@
 package ai.brokk.agents;
 
-import static java.util.Objects.requireNonNull;
-
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
@@ -13,12 +11,14 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.mcp.McpUtils;
 import ai.brokk.metrics.SearchMetrics;
+import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.McpPrompts;
@@ -147,20 +147,18 @@ public class SearchAgent {
             StreamingChatModel model,
             Objective objective,
             ContextManager.TaskScope scope,
-            @Nullable IConsoleIO io) {
+            IConsoleIO io) {
         this.goal = goal;
         this.cm = initialContext.getContextManager();
         this.model = model;
         this.scope = scope;
 
-        this.io = io != null ? io : cm.getIo();
+        this.io = io;
         var llmOptions = new Llm.Options(model, "Search: " + goal).withEcho();
         this.llm = cm.getLlm(llmOptions);
         this.llm.setOutput(this.io);
 
-        var summarizeConfig = new Service.ModelConfig(
-                cm.getService().nameOf(cm.getService().getScanModel()), Service.ReasoningLevel.LOW);
-        var summarizeModel = requireNonNull(cm.getService().getModel(summarizeConfig));
+        var summarizeModel = cm.getService().getModel(ModelType.SCAN);
         this.summarizer = cm.getLlm(summarizeModel, "Summarizer: " + goal);
 
         this.beastMode = false;
@@ -192,7 +190,13 @@ public class SearchAgent {
             StreamingChatModel model,
             Objective objective,
             ContextManager.TaskScope scope) {
-        this(initialContext, goal, model, objective, scope, null);
+        this(
+                initialContext,
+                goal,
+                model,
+                objective,
+                scope,
+                initialContext.getContextManager().getIo());
     }
 
     /** Entry point. Runs until answer/abort or interruption. */
@@ -269,7 +273,6 @@ public class SearchAgent {
             var globalTerminals = new ArrayList<String>();
             if (allowedTerminals.contains(Terminal.TASK_LIST)) {
                 globalTerminals.add("createOrReplaceTaskList");
-                globalTerminals.add("appendTaskList");
             }
 
             // Merge allowed names with agent terminals and global terminals
@@ -285,7 +288,7 @@ public class SearchAgent {
             long turnStartTime = System.currentTimeMillis();
 
             // Decide next action(s)
-            io.llmOutput("\n**Brokk Search** is preparing the next actions…\n\n", ChatMessageType.AI, true, false);
+            io.showTransientMessage("Brokk Search is preparing the next actions…");
             var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
 
             long llmTimeMs = System.currentTimeMillis() - turnStartTime;
@@ -553,8 +556,7 @@ public class SearchAgent {
             finals.add(
                     """
                     - Use createOrReplaceTaskList(String explanation, List<String> tasks) to replace the entire task list when the request involves code changes. Titles are summarized automatically from task text; pass task texts only. Completed tasks from the previous list are implicitly dropped. Produce a clear, minimal, incremental, and testable sequence of tasks that an Architect/Code agent can execute, once you understand where all the necessary pieces live.
-                    - Use appendTaskList(String explanation, List<String> tasks) to add new tasks without modifying existing ones. Titles are summarized automatically from task text; pass task texts only. Use this when you want to extend the current task list incrementally.
-                      Guidance for both:
+                      Guidance:
                         - Each task should be self-contained and verifiable via code review or automated tests.
                         - Prefer adding or updating automated tests to demonstrate behavior; if automation is not a good fit, it is acceptable to omit tests rather than prescribe manual steps.
                         - Keep the project buildable and testable after each step.
@@ -616,7 +618,7 @@ public class SearchAgent {
 
                         You can call multiple non-final tools in a single turn. Provide a list of separate tool calls,
                         each with its own name and arguments (add summaries, drop fragments, etc).
-                        Final actions (answer, createOrReplaceTaskList, appendTaskList, workspaceComplete, abortSearch) must be the ONLY tool in a turn.
+                        Final actions (answer, createOrReplaceTaskList, workspaceComplete, abortSearch) must be the ONLY tool in a turn.
                         If you include a final together with other tools, the final will be ignored for this turn.
                         It is NOT your objective to write code.
 
@@ -639,7 +641,7 @@ public class SearchAgent {
                     The Workspace is full or execution was interrupted.
                     Finalize now using the best available information.
                     Prefer answer(String) when no code changes are needed.
-                    For code-change requests, use createOrReplaceTaskList(String explanation, List<String> tasks) when replacing the entire list (completed tasks will be dropped), or appendTaskList(String explanation, List<String> tasks) to add tasks without modifying existing ones. Titles are summarized automatically from task text; pass task texts only. Otherwise use abortSearch with reasons.
+                    For code-change requests, use createOrReplaceTaskList(String explanation, List<String> tasks) to replace the entire list (completed tasks will be dropped). Titles are summarized automatically from task text; pass task texts only. Otherwise use abortSearch with reasons.
                     </beast-mode>
                     """;
         }
@@ -690,7 +692,7 @@ public class SearchAgent {
         }
 
         // Human-in-the-loop tool (only meaningful when GUI is available; safe to include otherwise)
-        if (io instanceof Chrome) {
+        if (io instanceof Chrome && objective != Objective.WORKSPACE_ONLY) {
             names.add("askHuman");
         }
 
@@ -719,7 +721,7 @@ public class SearchAgent {
                 new TerminalObjective(
                         "instructions",
                         """
-                    Deliver a task list using the createOrReplaceTaskList(List<String>) or appendTaskList(List<String>) tool.
+                    Deliver a task list using the createOrReplaceTaskList(String explanation, List<String> tasks) tool.
                     """);
             case WORKSPACE_ONLY ->
                 new TerminalObjective(
@@ -736,13 +738,13 @@ public class SearchAgent {
                     In all cases, find and add appropriate source context to the Workspace so that you do not have to guess. Then,
                       - Prefer answer(String) when no code changes are needed.
                       - Prefer callCodeAgent(String) if the requested change is small.
-                      - Otherwise, decompose the problem with createOrReplaceTaskList(String explanation, List<String> tasks) or appendTaskList(String explanation, List<String> tasks); do not attempt to write code yet.
+                      - Otherwise, decompose the problem with createOrReplaceTaskList(String explanation, List<String> tasks); do not attempt to write code yet.
                     """);
         };
     }
 
     private enum ToolCategory {
-        TERMINAL, // answer, createOrReplaceTaskList, appendTaskList, workspaceComplete, abortSearch
+        TERMINAL, // answer, createOrReplaceTaskList, workspaceComplete, abortSearch
         WORKSPACE_HYGIENE, // dropWorkspaceFragments, appendNote (safe to pair with terminals)
         RESEARCH // everything else (blocks terminals)
     }
@@ -753,7 +755,6 @@ public class SearchAgent {
                     "askForClarification",
                     "callCodeAgent",
                     "createOrReplaceTaskList",
-                    "appendTaskList",
                     "workspaceComplete",
                     "abortSearch" -> ToolCategory.TERMINAL;
             case "dropWorkspaceFragments", "appendNote" -> ToolCategory.WORKSPACE_HYGIENE;
@@ -788,7 +789,7 @@ public class SearchAgent {
             case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries" -> 8;
 
             case "callCodeAgent" -> 99;
-            case "createOrReplaceTaskList", "appendTaskList" -> 100;
+            case "createOrReplaceTaskList" -> 100;
             case "answer", "askForClarification", "workspaceComplete" -> 101; // should never co-occur
             case "abortSearch" -> 200;
             default -> 9;
@@ -935,7 +936,7 @@ public class SearchAgent {
         int finalBudget = cm.getService().getMaxInputTokens(this.model) / 2 - Messages.getApproximateTokens(context);
         if (totalTokens > finalBudget) {
             var summaries = ContextFragment.describe(recommendation.fragments());
-            context = context.addFragments(List.of(new ContextFragment.StringFragment(
+            context = context.addFragments(List.of(new ContextFragments.StringFragment(
                     cm,
                     "ContextAgent analyzed the repository and marked these fragments as highly relevant. Since including all would exceed the model’s context capacity, their summarized descriptions are provided below:\n\n"
                             + summaries,
@@ -997,7 +998,7 @@ public class SearchAgent {
 
         // Process ProjectPathFragments
         var pathFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.PROJECT_PATH, List.of()).stream()
-                .map(ContextFragment.ProjectPathFragment.class::cast)
+                .map(ContextFragments.ProjectPathFragment.class::cast)
                 .toList();
         if (!pathFragments.isEmpty()) {
             logger.debug(
@@ -1008,7 +1009,7 @@ public class SearchAgent {
 
         // Process SkeletonFragments
         var skeletonFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.SKELETON, List.of()).stream()
-                .map(ContextFragment.SummaryFragment.class::cast)
+                .map(ContextFragments.SummaryFragment.class::cast)
                 .toList();
         if (!skeletonFragments.isEmpty()) {
             context = context.addFragments(skeletonFragments);
@@ -1019,8 +1020,8 @@ public class SearchAgent {
     }
 
     private void emitContextAddedExplanation(
-            List<ContextFragment.ProjectPathFragment> pathFragments,
-            List<ContextFragment.SummaryFragment> skeletonFragments) {
+            List<ContextFragments.ProjectPathFragment> pathFragments,
+            List<ContextFragments.SummaryFragment> skeletonFragments) {
         var details = new LinkedHashMap<String, Object>();
         details.put("fragmentCount", pathFragments.size() + skeletonFragments.size());
 
@@ -1140,7 +1141,7 @@ public class SearchAgent {
         // Keep a snapshot to determine if changes occurred
         Context contextBefore = context;
 
-        var result = agent.runTask(context, List.of(), instructions, opts);
+        var result = agent.executeWithoutHistory(context, instructions, opts);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
 
@@ -1210,7 +1211,7 @@ public class SearchAgent {
         }
 
         var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
-        var fragment = new ContextFragment.TaskFragment(cm, finalMessages, goal);
+        var fragment = new ContextFragments.TaskFragment(cm, finalMessages, goal);
 
         // Record final metrics
         recordFinalWorkspaceState();
@@ -1231,7 +1232,7 @@ public class SearchAgent {
         }
 
         String action = "Search: " + goal + " [" + details.reason().name() + "]";
-        var fragment = new ContextFragment.TaskFragment(cm, finalMessages, goal);
+        var fragment = new ContextFragments.TaskFragment(cm, finalMessages, goal);
 
         // Record final metrics
         recordFinalWorkspaceState();
@@ -1314,8 +1315,8 @@ public class SearchAgent {
      */
     private String buildNonDroppableSection() {
         var items = context.allFragments()
-                .filter(f -> f instanceof ContextFragment.StringFragment)
-                .map(f -> (ContextFragment.StringFragment) f)
+                .filter(f -> f instanceof ContextFragments.StringFragment)
+                .map(f -> (ContextFragments.StringFragment) f)
                 .filter(sf ->
                         sf.specialType().isPresent() && !sf.specialType().get().droppable())
                 .map(sf -> "- " + sf.description().join() + " (fragmentid=" + sf.id() + "): non-droppable by policy.")
@@ -1341,7 +1342,7 @@ public class SearchAgent {
      */
     private boolean hasDroppableFragments() {
         return context.allFragments().anyMatch(f -> {
-            if (f instanceof ContextFragment.StringFragment sf) {
+            if (f instanceof ContextFragments.StringFragment sf) {
                 var st = sf.specialType();
                 if (st.isPresent()) {
                     return st.get().droppable();

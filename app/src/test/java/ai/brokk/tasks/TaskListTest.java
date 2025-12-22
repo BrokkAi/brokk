@@ -4,13 +4,16 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IContextManager;
 import ai.brokk.context.Context;
+import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestContextManager;
+import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for createOrReplaceTaskList and appendTaskList operations.
- * Tests verify task list replacement, appending, summarization, and state persistence.
+ * Unit tests for createOrReplaceTaskList operations.
+ * Tests verify task list replacement, summarization, and state persistence.
  */
 public class TaskListTest {
 
@@ -19,7 +22,7 @@ public class TaskListTest {
 
     @BeforeEach
     void setUp() {
-        cm = new IContextManager() {};
+        cm = new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO());
         context = new Context(cm);
     }
 
@@ -107,87 +110,6 @@ public class TaskListTest {
         assertEquals("Valid Task", data.tasks().get(0).text());
     }
 
-    // ===== appendTaskList Tests =====
-
-    @Test
-    void appendTaskList_toEmptyList() throws Exception {
-        var tasks = List.of("New Task 1", "New Task 2");
-
-        // Simulate appending to empty list
-        var items = tasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList();
-        var result = context.withTaskList(new TaskList.TaskListData(items), "Task list created");
-
-        var data = result.getTaskListDataOrEmpty();
-        assertEquals(2, data.tasks().size(), "Should append 2 tasks to empty list");
-        assertEquals("New Task 1", data.tasks().get(0).text());
-        assertEquals("New Task 2", data.tasks().get(1).text());
-    }
-
-    @Test
-    void appendTaskList_toExistingList() throws Exception {
-        // Start with initial tasks
-        var initialData = new TaskList.TaskListData(List.of(
-                new TaskList.TaskItem("Title 1", "First task", false),
-                new TaskList.TaskItem("Title 2", "Second task", true)));
-        var contextWithInitial = context.withTaskList(initialData, "Initial setup");
-
-        // Append new tasks (simulate appending)
-        var newTasks = List.of("Third task", "Fourth task");
-        var existing = new java.util.ArrayList<>(
-                contextWithInitial.getTaskListDataOrEmpty().tasks());
-        existing.addAll(
-                newTasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList());
-        var result = contextWithInitial.withTaskList(new TaskList.TaskListData(existing), "Task list updated");
-
-        // Verify all tasks preserved in order
-        var data = result.getTaskListDataOrEmpty();
-        assertEquals(4, data.tasks().size(), "Should have 4 tasks total");
-        assertEquals("First task", data.tasks().get(0).text());
-        assertEquals("Second task", data.tasks().get(1).text());
-        assertTrue(data.tasks().get(1).done(), "Second task should remain done");
-        assertEquals("Third task", data.tasks().get(2).text());
-        assertEquals("Fourth task", data.tasks().get(3).text());
-
-        // New tasks should be incomplete
-        assertFalse(data.tasks().get(2).done());
-        assertFalse(data.tasks().get(3).done());
-    }
-
-    @Test
-    void appendTaskList_emptyTasksNoOp() throws Exception {
-        // Start with initial tasks
-        var initialData = new TaskList.TaskListData(List.of(new TaskList.TaskItem("Task", "Existing task", false)));
-        var contextWithInitial = context.withTaskList(initialData, "Initial setup");
-
-        // Append empty list (no-op)
-        var result = contextWithInitial;
-
-        // Should return same context (no-op)
-        var data = result.getTaskListDataOrEmpty();
-        assertEquals(1, data.tasks().size(), "Should remain unchanged");
-        assertEquals("Existing task", data.tasks().get(0).text());
-    }
-
-    @Test
-    void appendTaskList_preservesCompletedTasks() throws Exception {
-        // Start with one completed task
-        var initialData = new TaskList.TaskListData(List.of(new TaskList.TaskItem("Done", "Completed task", true)));
-        var contextWithInitial = context.withTaskList(initialData, "Initial setup");
-
-        // Append new tasks
-        var newTasks = List.of("New incomplete task");
-        var existing = new java.util.ArrayList<>(
-                contextWithInitial.getTaskListDataOrEmpty().tasks());
-        existing.addAll(
-                newTasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList());
-        var result = contextWithInitial.withTaskList(new TaskList.TaskListData(existing), "Task list updated");
-
-        var data = result.getTaskListDataOrEmpty();
-        assertEquals(2, data.tasks().size());
-        assertTrue(data.tasks().get(0).done(), "Completed task should remain done");
-        assertFalse(data.tasks().get(1).done(), "New task should be incomplete");
-    }
-
     // ===== Title Summarization Tests =====
 
     @Test
@@ -234,21 +156,5 @@ public class TaskListTest {
 
         var action = result.getAction();
         assertTrue(action.toLowerCase().contains("replaced"), "Action should indicate replacement");
-    }
-
-    @Test
-    void appendTaskList_setsCorrectAction() throws Exception {
-        var initialData = new TaskList.TaskListData(List.of(new TaskList.TaskItem("Task", "Initial", false)));
-        var contextWithInitial = context.withTaskList(initialData, "Initial");
-        var tasks = List.of("New task");
-
-        var existing = new java.util.ArrayList<>(
-                contextWithInitial.getTaskListDataOrEmpty().tasks());
-        existing.addAll(
-                tasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList());
-        var result = contextWithInitial.withTaskList(new TaskList.TaskListData(existing), "Task list updated");
-
-        var action = result.getAction();
-        assertTrue(action.toLowerCase().contains("updated"), "Action should indicate update");
     }
 }

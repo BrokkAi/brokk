@@ -27,7 +27,7 @@ public class RoundTripSnapshotTest {
         pf.write("v1");
 
         // Build context and history (constructor snapshots computed values)
-        var live = new Context(cm).addFragments(new ContextFragment.ProjectPathFragment(pf, cm));
+        var live = new Context(cm).addFragments(new ContextFragments.ProjectPathFragment(pf, cm));
         var history = new ContextHistory(live);
 
         // Serialize to zip
@@ -43,8 +43,8 @@ public class RoundTripSnapshotTest {
 
         // Find the project path fragment and assert its text is the snapshot ("v1")
         var fragment = ctx.fileFragments()
-                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
-                .map(f -> (ContextFragment.ProjectPathFragment) f)
+                .filter(f -> f instanceof ContextFragments.ProjectPathFragment)
+                .map(f -> (ContextFragments.ProjectPathFragment) f)
                 .findFirst()
                 .orElseThrow();
 
@@ -61,7 +61,7 @@ public class RoundTripSnapshotTest {
         var ef = new ExternalFile(externalPath);
 
         // Build context and history (constructor snapshots computed values)
-        var live = new Context(cm).addFragments(new ContextFragment.ExternalPathFragment(ef, cm));
+        var live = new Context(cm).addFragments(new ContextFragments.ExternalPathFragment(ef, cm));
         var history = new ContextHistory(live);
 
         // Serialize to zip
@@ -77,8 +77,8 @@ public class RoundTripSnapshotTest {
 
         // Find the external path fragment and assert its text is the snapshot ("v1")
         var fragment = ctx.fileFragments()
-                .filter(f -> f instanceof ContextFragment.ExternalPathFragment)
-                .map(f -> (ContextFragment.ExternalPathFragment) f)
+                .filter(f -> f instanceof ContextFragments.ExternalPathFragment)
+                .map(f -> (ContextFragments.ExternalPathFragment) f)
                 .findFirst()
                 .orElseThrow();
 

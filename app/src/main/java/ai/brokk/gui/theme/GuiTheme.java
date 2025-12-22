@@ -160,7 +160,7 @@ public class GuiTheme {
 
         // Update title bar styling for macOS frames
         SwingUtilities.invokeLater(() -> {
-            Chrome.updateTitleBarStyling(frame);
+            ThemeTitleBarManager.updateTitleBarStyling(frame);
         });
 
         // Update registered popup menus
