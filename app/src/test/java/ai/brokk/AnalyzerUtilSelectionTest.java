@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.NoOpConsoleIO;
@@ -55,7 +56,7 @@ public class AnalyzerUtilSelectionTest {
         Optional<ContextFragment> frag = AnalyzerUtil.selectFileFragment(cm, "src/main/java/A.java", false);
         assertTrue(frag.isPresent(), "Expected ProjectPathFragment for existing file");
         assertTrue(
-                frag.get() instanceof ContextFragment.ProjectPathFragment,
+                frag.get() instanceof ContextFragments.ProjectPathFragment,
                 "Expected a ProjectPathFragment when summarize=false");
     }
 
@@ -63,8 +64,8 @@ public class AnalyzerUtilSelectionTest {
     void fileFound_summarize() {
         Optional<ContextFragment> frag = AnalyzerUtil.selectFileFragment(cm, "src/main/java/A.java", true);
         assertTrue(frag.isPresent(), "Expected SummaryFragment for existing file when summarize=true");
-        assertTrue(frag.get() instanceof ContextFragment.SummaryFragment, "Expected SummaryFragment");
-        ContextFragment.SummaryFragment s = (ContextFragment.SummaryFragment) frag.get();
+        assertTrue(frag.get() instanceof ContextFragments.SummaryFragment, "Expected SummaryFragment");
+        ContextFragments.SummaryFragment s = (ContextFragments.SummaryFragment) frag.get();
         assertEquals(
                 ContextFragment.SummaryType.FILE_SKELETONS,
                 s.getSummaryType(),
@@ -88,7 +89,7 @@ public class AnalyzerUtilSelectionTest {
         Set<ContextFragment> fragments = AnalyzerUtil.selectFolderFragments(cm, "src/main/java", false, false);
         assertEquals(1, fragments.size(), "Expected only the direct child file A.java");
         assertTrue(
-                fragments.stream().allMatch(f -> f instanceof ContextFragment.ProjectPathFragment),
+                fragments.stream().allMatch(f -> f instanceof ContextFragments.ProjectPathFragment),
                 "All fragments should be ProjectPathFragment when summarize=false");
     }
 
@@ -97,10 +98,10 @@ public class AnalyzerUtilSelectionTest {
         Set<ContextFragment> fragments = AnalyzerUtil.selectFolderFragments(cm, "src/main/java", true, true);
         assertEquals(2, fragments.size(), "Expected A.java and sub/B.java when including subfolders");
         assertTrue(
-                fragments.stream().allMatch(f -> f instanceof ContextFragment.SummaryFragment),
+                fragments.stream().allMatch(f -> f instanceof ContextFragments.SummaryFragment),
                 "All fragments should be SummaryFragment when summarize=true");
         fragments.forEach(f -> {
-            ContextFragment.SummaryFragment s = (ContextFragment.SummaryFragment) f;
+            ContextFragments.SummaryFragment s = (ContextFragments.SummaryFragment) f;
             assertEquals(
                     ContextFragment.SummaryType.FILE_SKELETONS,
                     s.getSummaryType(),
@@ -114,15 +115,15 @@ public class AnalyzerUtilSelectionTest {
     void class_exact_noSummarize() {
         Optional<ContextFragment> frag = AnalyzerUtil.selectClassFragment(analyzer, cm, "com.acme.Foo", false);
         assertTrue(frag.isPresent(), "Expected fragment for exact class name");
-        assertTrue(frag.get() instanceof ContextFragment.CodeFragment, "Expected CodeFragment when summarize=false");
+        assertTrue(frag.get() instanceof ContextFragments.CodeFragment, "Expected CodeFragment when summarize=false");
     }
 
     @Test
     void class_fallback_summarize() {
         Optional<ContextFragment> frag = AnalyzerUtil.selectClassFragment(analyzer, cm, "Foo", true);
         assertTrue(frag.isPresent(), "Expected fragment via fallback search for class 'Foo'");
-        assertTrue(frag.get() instanceof ContextFragment.SummaryFragment, "Expected SummaryFragment");
-        ContextFragment.SummaryFragment s = (ContextFragment.SummaryFragment) frag.get();
+        assertTrue(frag.get() instanceof ContextFragments.SummaryFragment, "Expected SummaryFragment");
+        ContextFragments.SummaryFragment s = (ContextFragments.SummaryFragment) frag.get();
         assertEquals(
                 ContextFragment.SummaryType.CODEUNIT_SKELETON,
                 s.getSummaryType(),
@@ -135,15 +136,15 @@ public class AnalyzerUtilSelectionTest {
     void method_exact_noSummarize() {
         Optional<ContextFragment> frag = AnalyzerUtil.selectMethodFragment(analyzer, cm, "com.acme.Foo.bar", false);
         assertTrue(frag.isPresent(), "Expected fragment for exact method name");
-        assertTrue(frag.get() instanceof ContextFragment.CodeFragment, "Expected CodeFragment when summarize=false");
+        assertTrue(frag.get() instanceof ContextFragments.CodeFragment, "Expected CodeFragment when summarize=false");
     }
 
     @Test
     void method_fallback_summarize() {
         Optional<ContextFragment> frag = AnalyzerUtil.selectMethodFragment(analyzer, cm, "bar", true);
         assertTrue(frag.isPresent(), "Expected fragment via fallback search for method 'bar'");
-        assertTrue(frag.get() instanceof ContextFragment.SummaryFragment, "Expected SummaryFragment");
-        ContextFragment.SummaryFragment s = (ContextFragment.SummaryFragment) frag.get();
+        assertTrue(frag.get() instanceof ContextFragments.SummaryFragment, "Expected SummaryFragment");
+        ContextFragments.SummaryFragment s = (ContextFragments.SummaryFragment) frag.get();
         assertEquals(
                 ContextFragment.SummaryType.CODEUNIT_SKELETON,
                 s.getSummaryType(),
@@ -157,9 +158,9 @@ public class AnalyzerUtilSelectionTest {
         Optional<ContextFragment> frag = AnalyzerUtil.selectUsageFragment(analyzer, cm, "com.acme.Foo.bar", true, true);
         assertTrue(frag.isPresent(), "Expected a fragment for usage selection on exact method");
         assertTrue(
-                frag.get() instanceof ContextFragment.CallGraphFragment,
+                frag.get() instanceof ContextFragments.CallGraphFragment,
                 "Summarize=true for a method should return a CallGraphFragment");
-        ContextFragment.CallGraphFragment cg = (ContextFragment.CallGraphFragment) frag.get();
+        ContextFragments.CallGraphFragment cg = (ContextFragments.CallGraphFragment) frag.get();
         assertEquals("com.acme.Foo.bar", cg.getMethodName(), "Method name should match input");
         assertEquals(1, cg.getDepth(), "Depth should be 1");
         assertFalse(cg.isCalleeGraph(), "Expected caller graph (isCalleeGraph=false)");
@@ -170,9 +171,9 @@ public class AnalyzerUtilSelectionTest {
         Optional<ContextFragment> frag = AnalyzerUtil.selectUsageFragment(analyzer, cm, "com.acme.Foo", false, true);
         assertTrue(frag.isPresent(), "Expected a fragment for class/unknown usage selection");
         assertTrue(
-                frag.get() instanceof ContextFragment.UsageFragment,
+                frag.get() instanceof ContextFragments.UsageFragment,
                 "Summarize=true for non-method should return a UsageFragment");
-        ContextFragment.UsageFragment u = (ContextFragment.UsageFragment) frag.get();
+        ContextFragments.UsageFragment u = (ContextFragments.UsageFragment) frag.get();
         assertEquals("com.acme.Foo", u.targetIdentifier(), "Target identifier should be the input/class FQN");
         assertFalse(u.includeTestFiles(), "includeTestFiles should be false as passed");
     }
@@ -209,9 +210,9 @@ public class AnalyzerUtilSelectionTest {
         assertEquals(2, b.size(), "Expected two files under src/main/java with subfolders");
         assertEquals(2, c.size(), "Expected two files under src/main/java with subfolders");
 
-        assertTrue(a.stream().allMatch(f -> f instanceof ContextFragment.ProjectPathFragment));
-        assertTrue(b.stream().allMatch(f -> f instanceof ContextFragment.ProjectPathFragment));
-        assertTrue(c.stream().allMatch(f -> f instanceof ContextFragment.ProjectPathFragment));
+        assertTrue(a.stream().allMatch(f -> f instanceof ContextFragments.ProjectPathFragment));
+        assertTrue(b.stream().allMatch(f -> f instanceof ContextFragments.ProjectPathFragment));
+        assertTrue(c.stream().allMatch(f -> f instanceof ContextFragments.ProjectPathFragment));
     }
 
     // (i) Edge cases: no matches for classes/methods/usages
@@ -232,8 +233,8 @@ public class AnalyzerUtilSelectionTest {
     void usage_noMatch_returnsUsageFragmentWithRawInput() {
         var frag = AnalyzerUtil.selectUsageFragment(analyzer, cm, "noSuchSymbol", false, false);
         assertTrue(frag.isPresent(), "Expected UsageFragment to be returned even when no symbol was found");
-        assertTrue(frag.get() instanceof ContextFragment.UsageFragment, "Expected UsageFragment");
-        ContextFragment.UsageFragment u = (ContextFragment.UsageFragment) frag.get();
+        assertTrue(frag.get() instanceof ContextFragments.UsageFragment, "Expected UsageFragment");
+        ContextFragments.UsageFragment u = (ContextFragments.UsageFragment) frag.get();
         assertEquals("noSuchSymbol", u.targetIdentifier(), "Target identifier should be the raw input");
     }
 }

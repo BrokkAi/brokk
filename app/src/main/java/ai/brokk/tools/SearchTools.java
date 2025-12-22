@@ -13,7 +13,7 @@ import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
@@ -346,7 +346,7 @@ public class SearchTools {
             if (cuOpt.isPresent()) {
                 var cu = cuOpt.get();
                 if (added.add(cu.fqName())) {
-                    var fragment = new ContextFragment.CodeFragment(contextManager, cu);
+                    var fragment = new ContextFragments.CodeFragment(contextManager, cu);
                     var text = fragment.text().join();
                     if (!text.isEmpty()) {
                         if (!result.isEmpty()) {
@@ -432,7 +432,7 @@ public class SearchTools {
             if (cuOpt.isPresent()) {
                 var cu = cuOpt.get();
                 if (added.add(cu.fqName())) {
-                    var fragment = new ContextFragment.CodeFragment(contextManager, cu);
+                    var fragment = new ContextFragments.CodeFragment(contextManager, cu);
                     var text = fragment.text().join();
                     if (!text.isEmpty()) {
                         if (!result.isEmpty()) {

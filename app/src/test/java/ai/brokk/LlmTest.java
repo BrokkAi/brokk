@@ -41,6 +41,10 @@ public class LlmTest {
         contextManager = new TestContextManager(tempDir, consoleIO);
     }
 
+    private dev.langchain4j.model.chat.StreamingChatModel getModel(String modelName) {
+        return contextManager.getService().getModel(new AbstractService.ModelConfig(modelName));
+    }
+
     // Simple tool for testing
     static class WeatherTool {
         @Tool(value = "Get the current weather")
@@ -75,7 +79,7 @@ public class LlmTest {
             try {
                 System.out.println("Testing model: " + modelName);
                 // Get model instance via the Models object
-                StreamingChatModel model = models.getModel(modelName);
+                StreamingChatModel model = getModel(modelName);
                 var coder = contextManager.getLlm(model, "testModels");
                 assertNotNull(model, "Failed to get model instance for: " + modelName);
 
@@ -143,7 +147,7 @@ public class LlmTest {
         availableModels.keySet().parallelStream().forEach(modelName -> {
             try {
                 System.out.println("Testing tool calling for model: " + modelName);
-                StreamingChatModel model = models.getModel(modelName);
+                StreamingChatModel model = getModel(modelName);
                 var coder = contextManager.getLlm(model, "testToolCalling");
                 assertNotNull(model, "Failed to get model instance for: " + modelName);
 
@@ -263,14 +267,7 @@ public class LlmTest {
 
     @Test
     void testParseJsonToToolRequests() {
-        var llm = new Llm(
-                contextManager.getService().getModel("test"),
-                "testParseJsonToToolRequests",
-                contextManager,
-                false,
-                false,
-                false,
-                false);
+        var llm = new Llm(getModel("test"), "testParseJsonToToolRequests", contextManager, false, false, false, false);
         var mapper = new ObjectMapper();
 
         // Case 1: Pure JSON with tool calls

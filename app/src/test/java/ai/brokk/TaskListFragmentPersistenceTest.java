@@ -3,7 +3,7 @@ package ai.brokk;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.testutil.TestConsoleIO;
@@ -36,7 +36,7 @@ public class TaskListFragmentPersistenceTest {
         var after = initial.withTaskList(data, "Task list created");
 
         // Then: Top context should include a Task List StringFragment with JSON content
-        Optional<ContextFragment.StringFragment> fragOpt = after.getTaskListFragment();
+        Optional<ContextFragments.StringFragment> fragOpt = after.getTaskListFragment();
         assertTrue(fragOpt.isPresent(), "Task List fragment should be present");
 
         var frag = fragOpt.get();

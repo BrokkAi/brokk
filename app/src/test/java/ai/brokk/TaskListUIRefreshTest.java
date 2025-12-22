@@ -98,39 +98,6 @@ public class TaskListUIRefreshTest {
     }
 
     @Test
-    void appendTaskList_preservesPreExistingIncompleteTasksAcrossAppend() {
-        var cm = new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO());
-        var initial = new Context(cm);
-
-        // Create initial list with incomplete task
-        var initialTasks = List.of("Existing incomplete");
-        var c1 = initial.withTaskList(
-                new TaskList.TaskListData(initialTasks.stream()
-                        .map(t -> new TaskList.TaskItem(t, t, false))
-                        .toList()),
-                "Initial task");
-
-        // Capture pre-existing incomplete
-        var preExisting = c1.getTaskListDataOrEmpty().tasks().stream()
-                .filter(t -> !t.done())
-                .map(TaskList.TaskItem::text)
-                .toList();
-        assertTrue(preExisting.contains("Existing incomplete"));
-
-        // Append more tasks
-        var existing = new java.util.ArrayList<>(c1.getTaskListDataOrEmpty().tasks());
-        existing.add(new TaskList.TaskItem("New task", "New task", false));
-        var c2 = c1.withTaskList(new TaskList.TaskListData(existing), "Appended new task");
-
-        // Verify pre-existing incomplete is preserved
-        var afterAppendData = c2.getTaskListDataOrEmpty();
-        assertTrue(afterAppendData.tasks().stream()
-                .anyMatch(t -> !t.done() && t.text().equals("Existing incomplete")));
-        assertTrue(afterAppendData.tasks().stream()
-                .anyMatch(t -> !t.done() && t.text().equals("New task")));
-    }
-
-    @Test
     void setTaskList_fragmentDescriptionAndSyntaxConsistent() {
         var cm = new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO());
         var initial = new Context(cm);

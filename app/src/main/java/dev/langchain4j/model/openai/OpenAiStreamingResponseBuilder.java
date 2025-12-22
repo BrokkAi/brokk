@@ -148,15 +148,7 @@ public class OpenAiStreamingResponseBuilder {
                 .build();
 
         String text = contentBuilder.toString();
-        if (isNullOrBlank(text)) {
-            text = null;
-        }
-
         String reasoning = reasoningContentBuilder.toString();
-        if (isNullOrBlank(reasoning)) {
-            reasoning = null;
-        }
-
         String toolName = toolNameBuilder.toString();
         if (!toolName.isEmpty()) {
             ToolExecutionRequest toolExecutionRequest = ToolExecutionRequest.builder()
@@ -189,16 +181,11 @@ public class OpenAiStreamingResponseBuilder {
                     .build();
         }
 
-        if (text != null || reasoning != null) {
-            AiMessage aiMessage = AiMessage.from(text, reasoning, List.of());
-
-            return ChatResponse.builder()
-                    .aiMessage(aiMessage)
-                    .metadata(chatResponseMetadata)
-                    .build();
-        }
-
-        return null;
+        AiMessage aiMessage = AiMessage.from(text, reasoning, List.of());
+        return ChatResponse.builder()
+                .aiMessage(aiMessage)
+                .metadata(chatResponseMetadata)
+                .build();
     }
 
     private static class ToolExecutionRequestBuilder {

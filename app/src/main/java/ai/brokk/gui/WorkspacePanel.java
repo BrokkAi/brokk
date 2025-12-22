@@ -13,6 +13,7 @@ import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.OverlayPanel;
 import ai.brokk.gui.dialogs.*;
@@ -181,7 +182,7 @@ public class WorkspacePanel extends JPanel {
                         .ifPresent(projectFile ->
                                 actions.add(WorkspaceAction.VIEW_HISTORY.createFileAction(panel, projectFile)));
             } else if (fragment.getType() == ContextFragment.FragmentType.HISTORY) {
-                var cf = (ContextFragment.HistoryFragment) fragment;
+                var cf = (ContextFragments.HistoryFragment) fragment;
                 var uncompressedExists = cf.entries().stream().anyMatch(entry -> !entry.isCompressed());
                 if (uncompressedExists) {
                     actions.add(WorkspaceAction.COMPRESS_HISTORY.createAction(panel));
@@ -223,7 +224,7 @@ public class WorkspacePanel extends JPanel {
                     }
 
                     // Summarize the exact fragment instance that was clicked, so we can drop that same instance after.
-                    actions.add(new AbstractAction("Summarize " + fileData.getFileName()) {
+                    actions.add(new AbstractAction("Summarize " + projectFile.getFileName()) {
                         @Override
                         public void actionPerformed(ActionEvent e) {
                             panel.performContextActionAsync(ContextAction.SUMMARIZE, List.of(fragment));
@@ -358,7 +359,7 @@ public class WorkspacePanel extends JPanel {
                     switch (WorkspaceAction.this) {
                         case SHOW_IN_PROJECT -> panel.chrome.showFileInProjectTree(file);
                         case VIEW_FILE -> {
-                            var fragment = new ContextFragment.ProjectPathFragment(file, panel.contextManager);
+                            var fragment = new ContextFragments.ProjectPathFragment(file, panel.contextManager);
                             panel.chrome.openFragmentPreview(fragment);
                         }
                         case VIEW_HISTORY -> panel.chrome.addFileHistoryTab(file);
@@ -386,7 +387,7 @@ public class WorkspacePanel extends JPanel {
                                                 "File ref action not implemented: " + WorkspaceAction.this);
                                 };
                         var fragment =
-                                new ContextFragment.ProjectPathFragment(fileRef.getRepoFile(), panel.contextManager);
+                                new ContextFragments.ProjectPathFragment(fileRef.getRepoFile(), panel.contextManager);
                         panel.performContextActionAsync(contextAction, List.of(fragment));
                     } else {
                         panel.chrome.toolError("Cannot " + label.toLowerCase(Locale.ROOT) + ": " + fileRef.getFullPath()
@@ -2104,7 +2105,7 @@ public class WorkspacePanel extends JPanel {
             }
 
             for (var fragment : fragments) {
-                if (fragment instanceof ContextFragment.PathFragment pathFrag) {
+                if (fragment instanceof ContextFragments.PathFragment pathFrag) {
                     contextManager.addFragmentAsync(pathFrag);
                 } else {
                     contextManager.addFragments(fragment);

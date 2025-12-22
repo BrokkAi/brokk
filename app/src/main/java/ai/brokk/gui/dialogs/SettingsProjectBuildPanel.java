@@ -646,30 +646,23 @@ public class SettingsProjectBuildPanel extends JPanel {
                         proj, cm.getLlm(cm.getService().getScanModel(), "Infer build details"), cm.getToolRegistry());
                 var newBuildDetails = agent.execute();
 
-                if (Objects.equals(newBuildDetails, BuildAgent.BuildDetails.EMPTY)) {
-                    logger.warn("Build Agent returned null or empty details, considering it an error.");
-                    boolean isCancellation = ACTION_CANCEL.equals(inferBuildDetailsButton.getActionCommand());
+                // Check if task was cancelled during execution
+                if (Thread.currentThread().isInterrupted()) {
+                    logger.info("Build Agent completed but thread was interrupted - treating as cancellation");
+                    throw new InterruptedException("Build Agent cancelled by user");
+                }
 
+                if (Objects.equals(newBuildDetails, BuildAgent.BuildDetails.EMPTY)) {
+                    logger.info("Build Agent returned EMPTY - no build configuration found");
                     SwingUtilities.invokeLater(() -> {
-                        if (isCancellation) {
-                            logger.info("Build Agent execution cancelled by user");
-                            chrome.showNotification(
-                                    IConsoleIO.NotificationRole.INFO, "Build Inference Agent cancelled.");
-                            JOptionPane.showMessageDialog(
-                                    SettingsProjectBuildPanel.this,
-                                    "Build Inference Agent cancelled.",
-                                    "Build Cancelled",
-                                    JOptionPane.INFORMATION_MESSAGE);
-                        } else {
-                            String errorMessage =
-                                    "Build Agent failed to determine build details. Please check agent logs.";
-                            chrome.toolError(errorMessage);
-                            JOptionPane.showMessageDialog(
-                                    SettingsProjectBuildPanel.this,
-                                    errorMessage,
-                                    "Build Agent Error",
-                                    JOptionPane.ERROR_MESSAGE);
-                        }
+                        String message =
+                                "Could not determine build configuration - project structure may be unsupported or incomplete.";
+                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, message);
+                        JOptionPane.showMessageDialog(
+                                SettingsProjectBuildPanel.this,
+                                message,
+                                "No Build Configuration Found",
+                                JOptionPane.INFORMATION_MESSAGE);
                     });
                 } else {
                     var llmPatterns = agent.getLlmAddedPatterns();
@@ -682,7 +675,20 @@ public class SettingsProjectBuildPanel extends JPanel {
                                 IConsoleIO.NotificationRole.INFO, "Build Agent finished. Review and apply settings.");
                     });
                 }
+            } catch (InterruptedException ex) {
+                logger.info("Build Agent execution cancelled by user");
+                Thread.currentThread().interrupt(); // Restore interrupt status
+                showBuildAgentCancelledNotification();
             } catch (Exception ex) {
+                // Check if this is a wrapped InterruptedException (BuildAgent wraps it in RuntimeException)
+                Throwable cause = ex.getCause();
+                if (cause instanceof InterruptedException) {
+                    logger.info("Build Agent execution cancelled by user (wrapped exception)");
+                    Thread.currentThread().interrupt(); // Restore interrupt status
+                    showBuildAgentCancelledNotification();
+                    return;
+                }
+                // Not a cancellation - treat as error
                 logger.error("Error running Build Agent", ex);
                 SwingUtilities.invokeLater(() -> {
                     String errorMessage = "Build Agent failed: " + ex.getMessage();
@@ -1034,5 +1040,16 @@ public class SettingsProjectBuildPanel extends JPanel {
             }
         };
         worker.execute();
+    }
+
+    private void showBuildAgentCancelledNotification() {
+        SwingUtilities.invokeLater(() -> {
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Build Inference Agent cancelled.");
+            JOptionPane.showMessageDialog(
+                    SettingsProjectBuildPanel.this,
+                    "Build Inference Agent cancelled.",
+                    "Build Cancelled",
+                    JOptionPane.INFORMATION_MESSAGE);
+        });
     }
 }

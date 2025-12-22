@@ -5,6 +5,7 @@ import static ai.brokk.prompts.EditBlockUtils.*;
 import ai.brokk.EditBlock;
 import ai.brokk.analyzer.ProjectFile;
 import java.util.*;
+import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -28,7 +29,7 @@ public class EditBlockParser {
         var editBlocks = all.blocks().stream()
                 .map(EditBlock.OutputBlock::block)
                 .filter(Objects::nonNull)
-                .toList();
+                .collect(Collectors.toCollection(LinkedHashSet::new));
 
         if (!editBlocks.isEmpty() || all.parseError() != null) {
             return new EditBlock.ParseResult(editBlocks, all.parseError());

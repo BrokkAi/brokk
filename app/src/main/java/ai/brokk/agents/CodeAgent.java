@@ -12,7 +12,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.prompts.CodePrompts;
@@ -92,9 +92,9 @@ public class CodeAgent {
     }
 
     /** Implicitly includes the DEFER_BUILD option. */
-    public TaskResult runSingleFileEdit(ProjectFile file, String instructions, List<ChatMessage> readOnlyMessages) {
+    public TaskResult execute(ProjectFile file, String instructions, List<ChatMessage> readOnlyMessages) {
         var ctx = new Context(contextManager)
-                .addFragments(List.of(new ContextFragment.ProjectPathFragment(file, contextManager)));
+                .addFragments(List.of(new ContextFragments.ProjectPathFragment(file, contextManager)));
 
         contextManager.getAnalyzerWrapper().pause();
         try {
@@ -109,7 +109,7 @@ public class CodeAgent {
      * @param userInput The user's goal/instructions.
      * @return A TaskResult containing the conversation history and original file contents
      */
-    public TaskResult runTask(String userInput, Set<Option> options) {
+    public TaskResult execute(String userInput, Set<Option> options) {
         // pause watching for external changes (so they don't get added to activity history while we're still making
         // changes);
         // this means that we're responsible for refreshing the analyzer when we make changes
@@ -121,19 +121,33 @@ public class CodeAgent {
         }
     }
 
+    /**
+     * Executes the coding task against the given context, suppressing the conversation history
+     * for the duration of the task.
+     */
     @Blocking
-    TaskResult runTask(Context initialContext, List<ChatMessage> prologue, String userInput, Set<Option> options) {
+    TaskResult executeWithoutHistory(Context context, String userInput, Set<Option> options) {
         // pause watching for external changes (so they don't get added to activity history while we're still making
         // changes);
         // this means that we're responsible for refreshing the analyzer when we make changes
         contextManager.getAnalyzerWrapper().pause();
         try {
-            return runTaskInternal(initialContext, prologue, userInput, options);
+            if (context.getTaskHistory().isEmpty()) {
+                // special case no-history to avoid changing Context identity unnecessarily
+                return runTaskInternal(context, List.of(), userInput, options);
+            } else {
+                return runTaskInternal(context.withHistory(List.of()), List.of(), userInput, options)
+                        .withHistory(context.getTaskHistory());
+            }
         } finally {
             contextManager.getAnalyzerWrapper().resume();
         }
     }
 
+    /**
+     * CodeAgent's "conversation" will be included in TaskResult.output, it will NOT be baked into
+     * TaskResult.context.
+     */
     @Blocking
     TaskResult runTaskInternal(
             Context initialContext, List<ChatMessage> prologue, String userInput, Set<Option> options) {
@@ -155,7 +169,7 @@ public class CodeAgent {
         int blocksAppliedWithoutBuild = 0;
 
         String buildError = "";
-        var blocks = new ArrayList<EditBlock.SearchReplaceBlock>(); // This will be part of WorkspaceState
+        var blocks = new LinkedHashSet<EditBlock.SearchReplaceBlock>(); // This will be part of WorkspaceState
         Map<ProjectFile, String> originalFileContents = new HashMap<>();
 
         TaskResult.StopDetails stopDetails;
@@ -284,7 +298,7 @@ public class CodeAgent {
                 }
 
                 var newFrags = newlyCreated.stream()
-                        .map(pf -> new ContextFragment.ProjectPathFragment(pf, contextManager))
+                        .map(pf -> new ContextFragments.ProjectPathFragment(pf, contextManager))
                         .collect(Collectors.toList());
                 context = context.addFragments(newFrags);
             }
@@ -461,17 +475,17 @@ public class CodeAgent {
             }
 
             var nextCs = new ConversationState(cs.taskMessages(), messageForRetry, cs.turnStartIndex());
-            // Add any newly parsed blocks before the error to the pending list for the next apply phase
-            var nextPending = new ArrayList<>(es.pendingBlocks());
+            // Add any newly parsed blocks before the error to the pending set for the next apply phase
+            var nextPending = new LinkedHashSet<>(es.pendingBlocks());
             nextPending.addAll(newlyParsedBlocks);
             var nextEs = es.withPendingBlocks(nextPending, updatedConsecutiveParseFailures);
             report(consoleLogForRetry);
             return new Step.Retry(nextCs, nextEs);
         }
 
-        // No explicit parse error. Reset counter. Add newly parsed blocks to the pending list.
+        // No explicit parse error. Reset counter. Add newly parsed blocks to the pending set.
         int updatedConsecutiveParseFailures = 0;
-        var mutablePendingBlocks = new ArrayList<>(es.pendingBlocks());
+        var mutablePendingBlocks = new LinkedHashSet<>(es.pendingBlocks());
         mutablePendingBlocks.addAll(newlyParsedBlocks);
 
         // Handle case where LLM response was cut short, even if syntactically valid so far.
@@ -645,7 +659,7 @@ public class CodeAgent {
     }
 
     private EditBlock.EditResult applyBlocksAndHandleErrors(
-            Context ctx, List<EditBlock.SearchReplaceBlock> blocksToApply)
+            Context ctx, Collection<EditBlock.SearchReplaceBlock> blocksToApply)
             throws EditStopException, InterruptedException {
 
         EditBlock.EditResult editResult;
@@ -784,7 +798,7 @@ public class CodeAgent {
                     : "blocksAppliedWithoutBuild cannot be negative: prior=%d, delta=%d"
                             .formatted(es.blocksAppliedWithoutBuild(), succeededCount);
 
-            List<EditBlock.SearchReplaceBlock> nextPendingBlocks = List.of();
+            SequencedSet<EditBlock.SearchReplaceBlock> nextPendingBlocks = new LinkedHashSet<>();
 
             if (!failedBlocks.isEmpty()) { // Some blocks failed the direct apply
                 if (succeededCount == 0) { // Total failure for this batch of pendingBlocks
@@ -1228,7 +1242,7 @@ public class CodeAgent {
 
     record EditState(
             // parsed but not yet applied
-            List<EditBlock.SearchReplaceBlock> pendingBlocks,
+            SequencedSet<EditBlock.SearchReplaceBlock> pendingBlocks,
             int consecutiveParseFailures,
             int consecutiveApplyFailures,
             int consecutiveBuildFailures,
@@ -1239,7 +1253,7 @@ public class CodeAgent {
             Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics) {
 
         /** Returns a new WorkspaceState with updated pending blocks and parse failures. */
-        EditState withPendingBlocks(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures) {
+        EditState withPendingBlocks(SequencedSet<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures) {
             return new EditState(
                     newPendingBlocks,
                     newParseFailures,
@@ -1271,7 +1285,7 @@ public class CodeAgent {
 
         /** Returns a new WorkspaceState after applying blocks, updating relevant fields. */
         EditState afterApply(
-                List<EditBlock.SearchReplaceBlock> newPendingBlocks,
+                SequencedSet<EditBlock.SearchReplaceBlock> newPendingBlocks,
                 int newApplyFailures,
                 int newBlocksApplied,
                 Map<ProjectFile, String> newOriginalContents) {
@@ -1319,8 +1333,8 @@ public class CodeAgent {
          * history compaction without depending on the diff library package structure at compile time.
          */
         @VisibleForTesting
-        List<EditBlock.SearchReplaceBlock> toSearchReplaceBlocks() {
-            var results = new ArrayList<EditBlock.SearchReplaceBlock>();
+        SequencedSet<EditBlock.SearchReplaceBlock> toSearchReplaceBlocks() {
+            var results = new LinkedHashSet<EditBlock.SearchReplaceBlock>();
             var originals = originalFileContents();
 
             // Include both files we have originals for and new files created in this turn
@@ -1494,7 +1508,7 @@ public class CodeAgent {
             logger.warn("Interrupted while waiting for contexts to be computed", e);
         }
         var readonlyPaths = ctx.getMarkedReadonlyFragments()
-                .filter(cf -> cf instanceof ContextFragment.ProjectPathFragment)
+                .filter(cf -> cf instanceof ContextFragments.ProjectPathFragment)
                 .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
                 .collect(Collectors.toSet());
         var editableAll = ctx.getEditableFragments()
