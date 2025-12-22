@@ -71,8 +71,6 @@ public class Chrome
     private static final Set<Chrome> openInstances = ConcurrentHashMap.newKeySet();
 
     // Default layout proportions - can be overridden by saved preferences
-    private static final double DEFAULT_WORKSPACE_INSTRUCTIONS_SPLIT = 0.583; // 58.3% workspace, 41.7% instructions
-    private static final double DEFAULT_OUTPUT_MAIN_SPLIT = 0.4; // 40% output, 60% main content
     private static final double MIN_SIDEBAR_WIDTH_FRACTION = 0.12; // 12% minimum sidebar width
     private static final int MIN_SIDEBAR_WIDTH_PX = 220; // absolute minimum sidebar width for usability
     private static final double MAX_SIDEBAR_WIDTH_FRACTION = 0.40; // 40% maximum sidebar width (normal screens)
@@ -107,15 +105,6 @@ public class Chrome
 
     // Store original divider size for hiding/showing divider
     private int originalBottomDividerSize;
-
-    // Workspace collapse state (toggled by clicking token/cost label)
-    private boolean workspaceCollapsed = false;
-
-    // Pin exact Instructions height (in px) during collapse so only Output resizes
-    private int pinnedInstructionsHeightPx = -1;
-
-    // Guard to prevent recursion when clamping the Output↔Bottom divider
-    private boolean adjustingMainDivider = false;
 
     // Swing components:
     final JFrame frame;
@@ -961,18 +950,6 @@ public class Chrome
         im.put(stroke, actionKey);
     }
 
-    /**
-     * Applies advanced mode to the instructions panel with consistent error handling.
-     * Centralized helper to avoid duplication and ensure uniform logging.
-     */
-    private void applyAdvancedModeToInstructionsSafely(boolean advanced) {
-        try {
-            buildPane.getInstructionsPanel().applyAdvancedModeForInstructions(advanced);
-        } catch (Exception ex) {
-            logger.warn("Failed to apply advanced mode to instructions panel", ex);
-        }
-    }
-
     /** Re-registers global keyboard shortcuts from current GlobalUiSettings. */
     public void refreshKeybindings() {
         // Unregister and re-register by rebuilding the maps for the keys we manage
@@ -1370,30 +1347,6 @@ public class Chrome
     }
 
     // --- Workspace collapsed persistence (per-project with global fallback) ---
-
-    private static final String PREF_KEY_WORKSPACE_COLLAPSED = "workspaceCollapsed";
-    private static final String PREF_KEY_WORKSPACE_COLLAPSED_GLOBAL = "workspaceCollapsedGlobal";
-    /**
-     * Save the current workspace collapsed state both per-project and as a global default.
-     */
-    private void saveWorkspaceCollapsedSetting(boolean collapsed) {
-        try {
-            // Per-project
-            var p = toolsPane.projectPrefsNode();
-            p.putBoolean(PREF_KEY_WORKSPACE_COLLAPSED, collapsed);
-            p.flush();
-        } catch (Exception ignored) {
-            // Non-fatal persistence failure
-        }
-        try {
-            // Global default
-            var g = toolsPane.prefsRoot();
-            g.putBoolean(PREF_KEY_WORKSPACE_COLLAPSED_GLOBAL, collapsed);
-            g.flush();
-        } catch (Exception ignored) {
-            // Non-fatal persistence failure
-        }
-    }
 
     /**
      * Adds property change listeners to split panes for saving positions (global-first).
@@ -2462,9 +2415,9 @@ public class Chrome
      * Updates the Project Files tab badge with the current number of live dependencies. Should be called whenever
      * the dependency count changes or on startup to initialize the badge. EDT-safe.
      */
+    @SuppressWarnings("RedundantNullCheck")
     public void updateProjectFilesTabBadge(int dependencyCount) {
         SwingUtil.runOnEdt(() -> {
-            // null check is important for circular initialization calls
             if (toolsPane != null) {
                 toolsPane.updateProjectFilesTabBadge(dependencyCount);
             }
@@ -2569,15 +2522,6 @@ public class Chrome
 
     public JComponent getAnalyzerStatusStrip() {
         return analyzerStatusStrip;
-    }
-
-    private static void detachFromParent(Component component) {
-        Container parent = component.getParent();
-        if (parent != null) {
-            parent.remove(component);
-            parent.revalidate();
-            parent.repaint();
-        }
     }
 
     @Override

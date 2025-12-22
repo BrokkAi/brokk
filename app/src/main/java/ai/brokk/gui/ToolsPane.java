@@ -205,7 +205,7 @@ public class ToolsPane extends JPanel implements ThemeAware {
         }
     }
 
-    private void removeTab(Component comp) {
+    private void removeTab(@Nullable Component comp) {
         int idx = toolsPane.indexOfComponent(comp);
         if (idx != -1) toolsPane.removeTabAt(idx);
     }
@@ -368,13 +368,15 @@ public class ToolsPane extends JPanel implements ThemeAware {
             Preferences p = projectPrefsNode();
             p.putBoolean(PREF_KEY_SIDEBAR_OPEN, open);
             p.flush();
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            logger.error(e);
         }
         try {
             Preferences g = prefsRoot();
             g.putBoolean(PREF_KEY_SIDEBAR_OPEN_GLOBAL, open);
             g.flush();
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            logger.error(e);
         }
     }
 

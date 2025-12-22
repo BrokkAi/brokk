@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Optional;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Abstraction for a filename relative to the repo. This exists to make it less difficult to ensure that different
@@ -85,7 +86,7 @@ public class ProjectFile implements BrokkFile {
     }
 
     @Override
-    public boolean equals(Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) return true;
         if (!(o instanceof ProjectFile projectFile)) return false;
         return Objects.equals(root, projectFile.root) && Objects.equals(relPath, projectFile.relPath);

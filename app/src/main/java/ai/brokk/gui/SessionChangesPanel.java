@@ -6,7 +6,6 @@ import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.git.GitWorkflow;
-import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.dialogs.CreatePullRequestDialog;
@@ -18,32 +17,22 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import javax.swing.*;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * A panel that displays an aggregated diff of changes for the current session/branch.
  */
 public class SessionChangesPanel extends JPanel implements ThemeAware {
-    private static final Logger logger = LogManager.getLogger(SessionChangesPanel.class);
-
     private final Chrome chrome;
     private final ContextManager contextManager;
 
     @Nullable
     private BrokkDiffPanel diffPanel;
-
-    @Nullable
-    private String lastBaselineLabel;
-
-    @Nullable
-    private BaselineMode lastBaselineMode;
 
     public SessionChangesPanel(Chrome chrome, ContextManager contextManager) {
         super(new BorderLayout());
@@ -57,8 +46,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             List<Map.Entry<String, Context.DiffEntry>> prepared,
             @Nullable String baselineLabel,
             @Nullable BaselineMode baselineMode) {
-        this.lastBaselineLabel = baselineLabel;
-        this.lastBaselineMode = baselineMode;
 
         if (diffPanel != null) {
             diffPanel.dispose();
@@ -80,13 +67,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         buttonPanel.setOpaque(false);
 
         boolean hasUncommittedChanges = false;
+        var repo = contextManager.getProject().getRepo();
         try {
-            Optional<IGitRepo> repo = repo();
-            if (repo.isPresent()) {
-                hasUncommittedChanges = !repo.get().getModifiedFiles().isEmpty();
-            }
-        } catch (Exception e) {
-            hasUncommittedChanges = false;
+            hasUncommittedChanges = !repo.getModifiedFiles().isEmpty();
+        } catch (GitAPIException e) {
+            throw new RuntimeException(e);
         }
 
         if (hasUncommittedChanges) {
@@ -111,8 +96,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             buttonPanel.add(pushBtn);
         }
 
-        boolean showPR = lastBaselineMode == BaselineMode.NON_DEFAULT_BRANCH
-                || (lastBaselineMode == BaselineMode.DEFAULT_WITH_UPSTREAM && res.filesChanged() > 0);
+        boolean showPR = baselineMode == BaselineMode.NON_DEFAULT_BRANCH
+                || (baselineMode == BaselineMode.DEFAULT_WITH_UPSTREAM && res.filesChanged() > 0);
 
         if (showPR) {
             var prBtn = new MaterialButton("Create PR");
@@ -128,11 +113,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         topContainer.add(headerPanel, BorderLayout.NORTH);
 
         String projectName = "Project";
-        try {
-            var root = contextManager.getProject().getRoot();
-            if (root.getFileName() != null) projectName = root.getFileName().toString();
-        } catch (Exception ignored) {
-        }
+        var root = contextManager.getProject().getRoot();
+        if (root.getFileName() != null) projectName = root.getFileName().toString();
 
         var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
                 .setMultipleCommitsContext(false)
@@ -219,14 +201,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             }
             return null;
         });
-    }
-
-    private Optional<IGitRepo> repo() {
-        try {
-            return Optional.of(contextManager.getProject().getRepo());
-        } catch (Exception e) {
-            return Optional.empty();
-        }
     }
 
     @Override

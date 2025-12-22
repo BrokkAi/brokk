@@ -347,9 +347,8 @@ public class PreviewManager {
             }
 
             // 2. Check for existing tab in the BuildPane or PreviewFrame
-            PreviewTabbedPane tabs = null;
             BuildPane buildPane = chrome.getBuildPane();
-            tabs = buildPane.getPreviewTabbedPane();
+            PreviewTabbedPane tabs = buildPane.getPreviewTabbedPane();
 
             BrokkDiffPanel existing = findExistingDiffTab(tabs, leftSources, rightSources);
             if (existing != null) {
@@ -370,7 +369,7 @@ public class PreviewManager {
 
     private boolean tryRaiseExistingDiffWindow(List<BufferSource> leftSources, List<BufferSource> rightSources) {
         for (Frame frame : Frame.getFrames()) {
-            if (frame == null || !frame.isDisplayable()) {
+            if (!frame.isDisplayable()) {
                 continue;
             }
 

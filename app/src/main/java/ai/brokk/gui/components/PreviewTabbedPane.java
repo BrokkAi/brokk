@@ -14,8 +14,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
 import javax.swing.*;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -23,8 +21,6 @@ import org.jetbrains.annotations.Nullable;
  * Can be used inside a standalone frame or embedded in the main UI.
  */
 public class PreviewTabbedPane extends JTabbedPane implements ThemeAware {
-    private static final Logger logger = LogManager.getLogger(PreviewTabbedPane.class);
-
     private final Chrome chrome;
     private GuiTheme guiTheme;
     private final Consumer<String> titleChangedCallback;
@@ -130,10 +126,7 @@ public class PreviewTabbedPane extends JTabbedPane implements ThemeAware {
         if (fragmentKey != null) tabToFragmentMap.put(panel, fragmentKey);
 
         if (panel instanceof ThemeAware themeAware) {
-            try {
-                themeAware.applyTheme(guiTheme);
-            } catch (Exception ignore) {
-            }
+            themeAware.applyTheme(guiTheme);
         }
 
         setSelectedIndex(index);
@@ -209,10 +202,7 @@ public class PreviewTabbedPane extends JTabbedPane implements ThemeAware {
             if (fragmentKey != null) tabToFragmentMap.put(newComponent, fragmentKey);
 
             if (newComponent instanceof ThemeAware themeAware) {
-                try {
-                    themeAware.applyTheme(guiTheme);
-                } catch (Exception ignore) {
-                }
+                themeAware.applyTheme(guiTheme);
             }
             setSelectedIndex(index);
         }

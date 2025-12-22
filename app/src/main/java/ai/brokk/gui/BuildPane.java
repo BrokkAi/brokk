@@ -482,21 +482,17 @@ public class BuildPane extends JPanel implements ThemeAware {
                         var summarizedChanges =
                                 DiffService.summarizeDiff(repo, requireNonNull(leftCommitSha), "WORKING", fileSet);
 
-                        GitWorkflow.PushPullState pushPullState = null;
-                        try {
-                            boolean hasUpstream = gitRepo.hasUpstreamBranch(currentBranch);
-                            boolean canPush;
-                            Set<String> unpushedCommitIds = new HashSet<>();
-                            if (hasUpstream) {
-                                unpushedCommitIds.addAll(gitRepo.remote().getUnpushedCommitIds(currentBranch));
-                                canPush = !unpushedCommitIds.isEmpty();
-                            } else {
-                                canPush = true;
-                            }
-                            pushPullState =
-                                    new GitWorkflow.PushPullState(hasUpstream, hasUpstream, canPush, unpushedCommitIds);
-                        } catch (Exception ignored) {
+                        boolean hasUpstream = gitRepo.hasUpstreamBranch(currentBranch);
+                        boolean canPush;
+                        Set<String> unpushedCommitIds = new HashSet<>();
+                        if (hasUpstream) {
+                            unpushedCommitIds.addAll(gitRepo.remote().getUnpushedCommitIds(currentBranch));
+                            canPush = !unpushedCommitIds.isEmpty();
+                        } else {
+                            canPush = true;
                         }
+                        GitWorkflow.PushPullState pushPullState =
+                                new GitWorkflow.PushPullState(hasUpstream, hasUpstream, canPush, unpushedCommitIds);
 
                         return new DiffService.CumulativeChanges(
                                 summarizedChanges.perFileChanges().size(),
@@ -567,7 +563,7 @@ public class BuildPane extends JPanel implements ThemeAware {
                     ? "Detached HEAD \u2014 no changes to review"
                     : ((lastBaselineMode == SessionChangesPanel.BaselineMode.NO_BASELINE)
                             ? "No baseline to compare"
-                            : (("HEAD".equals(lastBaselineLabel))
+                            : ("HEAD".equals(lastBaselineLabel)
                                     ? "Working tree is clean (no uncommitted changes)."
                                     : ((lastBaselineLabel != null && !lastBaselineLabel.isBlank())
                                             ? "No changes vs " + lastBaselineLabel + "."

@@ -12,7 +12,6 @@ import ai.brokk.context.ContextHistory;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.utils.ColorUtil;
-import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.components.SplitButton;
@@ -62,7 +61,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
@@ -3045,17 +3043,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 }
             });
         });
-    }
-
-    /**
-     * Returns the Git repository for the current project, if available.
-     */
-    private Optional<IGitRepo> repo() {
-        try {
-            return Optional.of(contextManager.getProject().getRepo());
-        } catch (Exception e) {
-            return Optional.empty();
-        }
     }
 
     private class SessionInfoRenderer extends JPanel implements ListCellRenderer<SessionInfo> {

@@ -12,16 +12,15 @@ import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
-import java.awt.event.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.KeyEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.util.Map;
 import javax.swing.*;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 public class PreviewFrame extends JFrame implements ThemeAware {
-    private static final Logger logger = LogManager.getLogger(PreviewFrame.class);
-
     private PreviewTabbedPane tabbedPane;
     private final Chrome chrome;
     private GuiTheme guiTheme;
@@ -31,9 +30,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
     }
 
     public void setTabbedPane(PreviewTabbedPane newPane) {
-        if (this.tabbedPane != null) {
-            mainContent.remove(this.tabbedPane);
-        }
+        mainContent.remove(this.tabbedPane);
         this.tabbedPane = newPane;
         mainContent.add(tabbedPane, BorderLayout.CENTER);
         mainContent.revalidate();
@@ -96,10 +93,6 @@ public class PreviewFrame extends JFrame implements ThemeAware {
         SwingUtilities.invokeLater(() -> tabbedPane.addOrSelectTab(title, panel, fileKey, fragmentKey));
     }
 
-    public void updateTabTitle(JComponent panel, String newTitle) {
-        SwingUtilities.invokeLater(() -> tabbedPane.updateTabTitle(panel, newTitle));
-    }
-
     /**
      * Closes the currently selected tab if any. Attempts to find an associated ProjectFile key for proper tracking.
      */
@@ -134,30 +127,9 @@ public class PreviewFrame extends JFrame implements ThemeAware {
     }
 
     private void disposeFrame() {
-        if (tabbedPane != null) {
-            tabbedPane.clearTracking();
-        }
+        tabbedPane.clearTracking();
         chrome.clearPreviewTextFrame();
         dispose();
-    }
-
-    private void updateWindowTitle(String label) {
-        SwingUtilities.invokeLater(() -> {
-            if (label.isEmpty()) {
-                setTitle("Preview");
-            } else {
-                setTitle("Preview: " + label);
-            }
-            ThemeTitleBarManager.maybeApplyMacTitleBar(this, getTitle());
-        });
-    }
-
-    /**
-     * Replaces an existing tab's component with a new one.
-     * Used when placeholder content needs to be replaced with a different component type.
-     */
-    public void replaceTabComponent(JComponent oldComponent, JComponent newComponent, String title) {
-        SwingUtilities.invokeLater(() -> tabbedPane.replaceTabComponent(oldComponent, newComponent, title));
     }
 
     /**
