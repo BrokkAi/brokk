@@ -624,9 +624,8 @@ public class CodeAgent {
                     logger.debug("Quick Edit: LLM returned unchanged code, skipping diagnostics");
                 } else {
                     // Validation 3: Verify replacement occurs
-                    var updatedContent = fileContents.replaceFirst(
-                            Pattern.quote(oldText),
-                            Matcher.quoteReplacement(snippet));
+                    var updatedContent =
+                            fileContents.replaceFirst(Pattern.quote(oldText), Matcher.quoteReplacement(snippet));
 
                     if (updatedContent.equals(fileContents)) {
                         logger.warn("Quick Edit diagnostics: could not find target text in file (may have changed)");
@@ -642,7 +641,7 @@ public class CodeAgent {
                                         .append(diag.description())
                                         .append("\n");
                             }
-                            io.llmOutput(diagnosticMessages.toString(), ChatMessageType.AI);
+                            io.llmOutput(diagnosticMessages.toString(), ChatMessageType.CUSTOM);
                         }
                     }
                 }
@@ -1077,8 +1076,11 @@ public class CodeAgent {
     }
 
     /**
-     * Quickly parse files in memory for local-only errors, with no classpath bindings, before proceeding to the
-     * expensive full build. Goal is to catch as many true positives as possible with zero false positives.
+     * Quickly parse files in memory for local-only errors before proceeding to the expensive full build.
+     * Uses JDT binding resolution with empty environment (boot classpath only) to detect control-flow
+     * and value-category errors. Goal is to catch as many true positives as possible with zero false positives.
+     * Note: Binding resolution with empty environment may produce unstable results; we filter out diagnostics
+     * that require stable type information to avoid false positives.
      */
     Step parseJavaPhase(ConversationState cs, EditState es, @Nullable Metrics metrics) {
         // Only run if there were edits since the last build attempt (PJ-21)
@@ -1118,6 +1120,15 @@ public class CodeAgent {
     /**
      * Parse a Java source file using Eclipse JDT and return diagnostics.
      * Used by both parseJavaPhase and Quick Edit.
+     *
+     * Performance/Stability Trade-off: Enables binding resolution with empty environment
+     * (boot classpath only). This is moderately expensive (~100-200ms per file) but necessary
+     * to detect control-flow and value-category errors (e.g., uninitialized variables, missing
+     * returns). Without bindings, JDT cannot analyze these issues.
+     *
+     * The empty environment means type resolution is incomplete, so we filter out diagnostics
+     * that require stable type information (see shouldKeepJavaProblem). This minimizes false
+     * positives while catching true local-only errors early, before the expensive full build.
      */
     static List<JavaDiagnostic> parseJavaForDiagnostics(ProjectFile file, String src) {
         char[] sourceChars = src.toCharArray();
@@ -1125,7 +1136,7 @@ public class CodeAgent {
         ASTParser parser = ASTParser.newParser(AST.JLS24);
         parser.setKind(ASTParser.K_COMPILATION_UNIT);
         parser.setSource(sourceChars);
-        // Enable binding resolution with recovery and use the running JVM's boot classpath.
+        // Enable binding resolution with recovery (see method javadoc for trade-off discussion)
         parser.setResolveBindings(true);
         parser.setStatementsRecovery(true);
         parser.setBindingsRecovery(true);

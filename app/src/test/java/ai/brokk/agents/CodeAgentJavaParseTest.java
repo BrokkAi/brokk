@@ -864,7 +864,7 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
         assertNotNull(diags, "Expected diagnostics for Bad.java");
         assertFalse(diags.isEmpty(), "Expected at least one diagnostic");
 
-        // Format diagnostics as DEFER_BUILD mode does (CodeAgent.java:356-369)
+        // Format diagnostics as DEFER_BUILD mode does
         var diagnosticMessages = new StringBuilder();
         diagnosticMessages.append("Java syntax issues detected:\n\n");
         for (var entry : diagMap.entrySet()) {
@@ -940,9 +940,8 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
         var snippet = "logger.debug(\"changed\");";
 
         // Use replaceFirst (as fixed in CodeAgent.java line 615)
-        var updatedContent = sourceWithDuplicates.replaceFirst(
-                Pattern.quote(oldText),
-                Matcher.quoteReplacement(snippet));
+        var updatedContent =
+                sourceWithDuplicates.replaceFirst(Pattern.quote(oldText), Matcher.quoteReplacement(snippet));
 
         // Verify only first occurrence was replaced
         assertTrue(updatedContent.contains("logger.debug(\"changed\");"), "First occurrence should be replaced");
@@ -971,12 +970,12 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
                 "Here's your refactored code: public void method() {}",
                 "I've updated the code as requested.",
                 "```\n\n```", // Empty code block
-                "The code looks good!"
-        );
+                "The code looks good!");
 
         for (var response : responsesWithoutFences) {
             var extracted = EditBlock.extractCodeFromTripleBackticks(response);
-            assertTrue(extracted.isEmpty() || extracted.isBlank(),
+            assertTrue(
+                    extracted.isEmpty() || extracted.isBlank(),
                     "Should extract empty/blank for response without proper fences: " + response);
         }
     }
@@ -985,7 +984,8 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
     // Verifies that identical code replacement is correctly identified
     @Test
     void testQuickEdit_identicalCode_noOpDetection() throws Exception {
-        var sourceCode = """
+        var sourceCode =
+                """
                 class Test {
                     void method() {
                         System.out.println("hello");
@@ -1006,9 +1006,7 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
         // and return early without computing diagnostics
 
         // Verify that if we proceeded anyway, content wouldn't change
-        var updatedContent = sourceCode.replaceFirst(
-                Pattern.quote(oldText),
-                Matcher.quoteReplacement(snippet));
+        var updatedContent = sourceCode.replaceFirst(Pattern.quote(oldText), Matcher.quoteReplacement(snippet));
         assertEquals(sourceCode, updatedContent, "Content should be unchanged for no-op");
     }
 
@@ -1016,7 +1014,8 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
     // Verifies that oldText not found is correctly detected
     @Test
     void testQuickEdit_targetNotFound_replacementFails() throws Exception {
-        var sourceCode = """
+        var sourceCode =
+                """
                 class Test {
                     void method() {
                         System.out.println("hello");
@@ -1030,13 +1029,10 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
         var snippet = "logger.debug(\"changed\");";
 
         // Attempt replacement
-        var updatedContent = sourceCode.replaceFirst(
-                Pattern.quote(oldText),
-                Matcher.quoteReplacement(snippet));
+        var updatedContent = sourceCode.replaceFirst(Pattern.quote(oldText), Matcher.quoteReplacement(snippet));
 
         // Verify replacement didn't occur (content unchanged)
-        assertEquals(sourceCode, updatedContent,
-                "Content should be unchanged when oldText not found");
+        assertEquals(sourceCode, updatedContent, "Content should be unchanged when oldText not found");
 
         // In the actual implementation, this would trigger:
         // logger.warn("Quick Edit diagnostics: could not find target text in file (may have changed)");
