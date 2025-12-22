@@ -1359,9 +1359,6 @@ public class Chrome
 
         // Restore drawer states from global settings
         restoreDrawersFromGlobalSettings();
-
-        // Always start with workspace collapsed on every session
-        setWorkspaceCollapsed(true);
     }
 
     /**
@@ -2507,26 +2504,6 @@ public class Chrome
         int frameWidth = frame.getWidth();
         int byFraction = (int) (frameWidth * MIN_SIDEBAR_WIDTH_FRACTION);
         return Math.max(MIN_SIDEBAR_WIDTH_PX, byFraction);
-    }
-
-    /**
-     * Toggle collapsing the Workspace (top of Workspace|Instructions split) and hide/show the divider between Output
-     * and the bottom stack.
-     */
-    public void toggleWorkspaceCollapsed() {
-        setWorkspaceCollapsed(!workspaceCollapsed);
-    }
-
-    /**
-     * Collapse the Workspace area. Expand requests are ignored; the workspace remains permanently hidden.
-     *
-     * <p>When collapsed, the Workspace+Instructions split is removed from the bottom stack and only the
-     * Instructions/Drawer is shown as the bottom component. The Output↔Bottom divider remains visible.
-     * Once collapsed, the workspace cannot be expanded. Any call to expand (collapsed=false) is a no-op.
-     */
-    public void setWorkspaceCollapsed(boolean collapsed) {
-        // Workspace functionality is retired in this layout, but we keep the field state for persistence compatibility.
-        this.workspaceCollapsed = collapsed;
     }
 
     /**
