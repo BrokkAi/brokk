@@ -15,6 +15,7 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -22,7 +23,10 @@ import java.util.stream.Stream;
 public class TestProject implements IProject {
     private final Path root;
     private final Language language;
+
+    private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
     private BuildAgent.BuildDetails buildDetails = BuildAgent.BuildDetails.EMPTY;
+
     private IProject.CodeAgentTestScope codeAgentTestScope = IProject.CodeAgentTestScope.WORKSPACE;
     private String styleGuide = "";
     private Set<String> exclusionPatterns = Set.of();
@@ -41,6 +45,25 @@ public class TestProject implements IProject {
 
     public void setBuildDetails(BuildAgent.BuildDetails buildDetails) {
         this.buildDetails = buildDetails;
+        if (detailsFuture.isDone()) {
+            detailsFuture = new CompletableFuture<>();
+        }
+        detailsFuture.complete(buildDetails);
+    }
+
+    @Override
+    public boolean hasBuildDetails() {
+        return detailsFuture.isDone();
+    }
+
+    @Override
+    public CompletableFuture<BuildAgent.BuildDetails> getBuildDetailsFuture() {
+        return detailsFuture;
+    }
+
+    @Override
+    public void saveBuildDetails(BuildAgent.BuildDetails details) {
+        setBuildDetails(details);
     }
 
     @Override
@@ -50,7 +73,7 @@ public class TestProject implements IProject {
 
     @Override
     public BuildAgent.BuildDetails awaitBuildDetails() {
-        return this.buildDetails;
+        return detailsFuture.join();
     }
 
     @Override

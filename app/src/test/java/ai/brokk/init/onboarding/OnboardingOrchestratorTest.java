@@ -2,9 +2,12 @@ package ai.brokk.init.onboarding;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.agents.BuildAgent;
 import ai.brokk.git.GitRepo;
 import ai.brokk.project.IProject;
 import java.nio.file.Path;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
 
@@ -14,7 +17,19 @@ import org.junit.jupiter.api.Test;
  */
 class OnboardingOrchestratorTest {
     // Platform-independent absolute path for testing
-    private static final Path TEST_ROOT = Path.of(System.getProperty("java.io.tmpdir"), "test");
+    private static final Path TEST_ROOT =
+            assertExistingTestRoot(Path.of(System.getProperty("java.io.tmpdir"), "test"));
+
+    private static Path assertExistingTestRoot(Path preferred) {
+        if (java.nio.file.Files.isDirectory(preferred)) {
+            return preferred;
+        }
+        try {
+            return java.nio.file.Files.createTempDirectory("brokk-test-");
+        } catch (java.io.IOException e) {
+            throw new RuntimeException("Unable to create temp directory for tests", e);
+        }
+    }
 
     /**
      * Minimal test implementation of IProject for testing.
@@ -332,5 +347,38 @@ class OnboardingOrchestratorTest {
         assertEquals(BuildSettingsStep.STEP_ID, steps.get(1).id());
         assertEquals(GitConfigStep.STEP_ID, steps.get(2).id());
         assertEquals(PostGitStyleRegenerationStep.STEP_ID, steps.get(3).id());
+    }
+
+    @Test
+    void testBuildDetails_InitiallyEmpty() {
+        var project = new ai.brokk.testutil.TestProject(TEST_ROOT);
+
+        assertFalse(project.hasBuildDetails(), "Fresh project should not have build details");
+        assertEquals(BuildAgent.BuildDetails.EMPTY, project.loadBuildDetails());
+    }
+
+    @Test
+    void testBuildDetailsPersistence_AfterOnboardingSettingsApplied() {
+        var project = new ai.brokk.testutil.TestProject(TEST_ROOT);
+
+        assertFalse(project.hasBuildDetails(), "Should not have build details initially");
+
+        var buildDetails = new BuildAgent.BuildDetails(
+                "mvn clean install",
+                "mvn test",
+                "mvn test -Dtest={{#classes}}",
+                Set.of("target/", "*.class"),
+                Map.of("JAVA_HOME", "/usr/lib/jvm/java-21"));
+
+        project.saveBuildDetails(buildDetails);
+
+        assertTrue(project.hasBuildDetails(), "Should have build details after saving");
+
+        var retrieved = project.awaitBuildDetails();
+        assertEquals("mvn clean install", retrieved.buildLintCommand());
+        assertEquals("mvn test", retrieved.testAllCommand());
+        assertEquals("mvn test -Dtest={{#classes}}", retrieved.testSomeCommand());
+        assertTrue(retrieved.exclusionPatterns().contains("target/"));
+        assertEquals("/usr/lib/jvm/java-21", retrieved.environmentVariables().get("JAVA_HOME"));
     }
 }
