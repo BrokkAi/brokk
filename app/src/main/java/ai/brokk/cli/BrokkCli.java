@@ -727,41 +727,80 @@ public final class BrokkCli implements Callable<Integer> {
                         System.err.println("Error: --lutz requires --codemodel to be specified.");
                         return 1;
                     }
-                    // SearchAgent now handles scanning internally via execute()
-                    var agent = new SearchAgent(
-                            cm.liveContext(),
-                            requireNonNull(lutzPrompt),
-                            planModel,
-                            SearchAgent.Objective.TASKS_ONLY,
-                            scope);
-                    result = agent.execute();
-                    context = scope.append(result);
 
-                    // Execute pending tasks sequentially
-                    var tasksData = cm.getTaskList();
-                    var pendingTasks =
-                            tasksData.tasks().stream().filter(t -> !t.done()).toList();
+                    // Create workflow metrics for Lutz mode
+                    var workflowMetrics = ai.brokk.metrics.WorkflowMetrics.create();
+                    workflowMetrics.setWorkflowType("lutz");
 
-                    if (!pendingTasks.isEmpty()) {
-                        io.showNotification(
-                                IConsoleIO.NotificationRole.INFO,
-                                "Executing " + pendingTasks.size() + " task" + (pendingTasks.size() == 1 ? "" : "s")
-                                        + " from Task List...");
+                    try {
+                        // Phase 1: Search (task list generation)
+                        workflowMetrics.startPhase("search");
+                        var agent = new SearchAgent(
+                                cm.liveContext(),
+                                requireNonNull(lutzPrompt),
+                                planModel,
+                                SearchAgent.Objective.TASKS_ONLY,
+                                scope);
+                        result = agent.execute();
+                        context = scope.append(result);
+                        workflowMetrics.endPhase("search");
 
-                        for (var task : pendingTasks) {
-                            io.showNotification(IConsoleIO.NotificationRole.INFO, "Running task: " + task.text());
+                        // Merge SearchAgent's own metrics into the workflow metrics
+                        var searchMetrics = agent.getWorkflowMetrics();
+                        workflowMetrics.attachAgentMetrics("search", "search_agent", searchMetrics.toJson());
 
-                            var taskResult = cm.executeTask(task, planModel, codeModel);
-                            context = scope.append(taskResult);
-                            result = taskResult; // Track last result for final status check
+                        // Phase 2: Task execution
+                        workflowMetrics.startPhase("task_execution");
+                        try {
+                            // Execute pending tasks sequentially
+                            var tasksData = cm.getTaskList();
+                            var pendingTasks = tasksData.tasks().stream()
+                                    .filter(t -> !t.done())
+                                    .toList();
 
-                            if (taskResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-                                io.toolError(taskResult.stopDetails().explanation(), "Task failed: " + task.text());
-                                break; // Stop on first failure
+                            if (!pendingTasks.isEmpty()) {
+                                io.showNotification(
+                                        IConsoleIO.NotificationRole.INFO,
+                                        "Executing " + pendingTasks.size() + " task"
+                                                + (pendingTasks.size() == 1 ? "" : "s") + " from Task List...");
+
+                                int taskIndex = 0;
+                                for (var task : pendingTasks) {
+                                    io.showNotification(
+                                            IConsoleIO.NotificationRole.INFO, "Running task: " + task.text());
+
+                                    workflowMetrics.startSubphase("task_" + taskIndex);
+                                    var taskResult = cm.executeTask(task, planModel, codeModel);
+                                    workflowMetrics.endSubphase("task_" + taskIndex);
+
+                                    context = scope.append(taskResult);
+                                    result = taskResult; // Track last result for final status check
+
+                                    if (taskResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+                                        workflowMetrics.incrementCounter("tasks_succeeded");
+                                    } else {
+                                        workflowMetrics.incrementCounter("tasks_failed");
+                                        io.toolError(
+                                                taskResult.stopDetails().explanation(), "Task failed: " + task.text());
+                                        break; // Stop on first failure
+                                    }
+                                    taskIndex++;
+                                }
+                            } else {
+                                io.showNotification(IConsoleIO.NotificationRole.INFO, "No pending tasks to execute.");
                             }
+                        } finally {
+                            workflowMetrics.endPhase("task_execution");
                         }
-                    } else {
-                        io.showNotification(IConsoleIO.NotificationRole.INFO, "No pending tasks to execute.");
+
+                        // Record final outcome
+                        var finalResult = castNonNull(result);
+                        workflowMetrics.recordOutcome(
+                                finalResult.stopDetails().reason(),
+                                finalResult.stopDetails().explanation());
+                    } finally {
+                        // Emit metrics
+                        workflowMetrics.emit();
                     }
                 }
             } catch (Throwable th) {

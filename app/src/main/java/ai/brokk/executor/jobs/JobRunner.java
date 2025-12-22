@@ -247,75 +247,126 @@ public final class JobRunner {
                                                         "code model unavailable for ARCHITECT jobs"));
                                     }
                                     case LUTZ -> {
-                                        // Phase 1: Use SearchAgent to generate a task list from the initial task
-                                        try (var scope = cm.beginTask(spec.taskInput(), false)) {
-                                            var context = cm.liveContext();
-                                            var searchAgent = new SearchAgent(
-                                                    context,
-                                                    spec.taskInput(),
-                                                    Objects.requireNonNull(
-                                                            architectPlannerModel,
-                                                            "plannerModel required for LUTZ jobs"),
-                                                    SearchAgent.Objective.TASKS_ONLY,
-                                                    scope);
-                                            var taskListResult = searchAgent.execute();
-                                            scope.append(taskListResult);
-                                        }
-                                        // Task list is now in the live context and persisted by the scope
-                                        logger.debug("LUTZ Phase 1 complete: task list generated");
+                                        // Create workflow metrics for LUTZ mode
+                                        var workflowMetrics = ai.brokk.metrics.WorkflowMetrics.create();
+                                        workflowMetrics.setWorkflowType("lutz");
 
-                                        // Phase 2: Check if task list was generated; if empty, mark job complete
-                                        var generatedTasks = cm.getTaskList().tasks();
-                                        if (generatedTasks.isEmpty()) {
-                                            var msg = "SearchAgent generated no tasks for: " + spec.taskInput();
-                                            logger.info("LUTZ job {}: {}", jobId, msg);
-                                            if (console != null) {
+                                        ai.brokk.TaskResult lastTaskResult = null;
+                                        try {
+                                            // Phase 1: Use SearchAgent to generate a task list from the initial task
+                                            workflowMetrics.startPhase("search");
+                                            try (var scope = cm.beginTask(spec.taskInput(), false)) {
+                                                var context = cm.liveContext();
+                                                var searchAgent = new SearchAgent(
+                                                        context,
+                                                        spec.taskInput(),
+                                                        Objects.requireNonNull(
+                                                                architectPlannerModel,
+                                                                "plannerModel required for LUTZ jobs"),
+                                                        SearchAgent.Objective.TASKS_ONLY,
+                                                        scope);
+                                                lastTaskResult = searchAgent.execute();
+                                                scope.append(lastTaskResult);
+
+                                                // Merge SearchAgent's own metrics
+                                                var searchMetrics = searchAgent.getWorkflowMetrics();
+                                                workflowMetrics.attachAgentMetrics(
+                                                        "search", "search_agent", searchMetrics.toJson());
+                                            }
+                                            workflowMetrics.endPhase("search");
+                                            // Task list is now in the live context and persisted by the scope
+                                            logger.debug("LUTZ Phase 1 complete: task list generated");
+
+                                            // Phase 2: Check if task list was generated; if empty, mark job complete
+                                            var generatedTasks =
+                                                    cm.getTaskList().tasks();
+                                            if (generatedTasks.isEmpty()) {
+                                                var msg = "SearchAgent generated no tasks for: " + spec.taskInput();
+                                                logger.info("LUTZ job {}: {}", jobId, msg);
+                                                if (console != null) {
+                                                    try {
+                                                        console.showNotification(IConsoleIO.NotificationRole.INFO, msg);
+                                                    } catch (Throwable ignore) {
+                                                        // Non-critical: event writing failed
+                                                    }
+                                                }
+                                                // No tasks generated; outer loop will handle completion/progress
+                                            } else {
+                                                // Phase 3: Execute each generated incomplete task sequentially
+                                                logger.debug(
+                                                        "LUTZ Phase 2 complete: {} task(s) to execute",
+                                                        generatedTasks.size());
+                                                var incompleteTasks = generatedTasks.stream()
+                                                        .filter(t -> !t.done())
+                                                        .toList();
+                                                logger.debug(
+                                                        "LUTZ will execute {} incomplete task(s)",
+                                                        incompleteTasks.size());
+
+                                                workflowMetrics.startPhase("task_execution");
                                                 try {
-                                                    console.showNotification(IConsoleIO.NotificationRole.INFO, msg);
-                                                } catch (Throwable ignore) {
-                                                    // Non-critical: event writing failed
+                                                    int taskIndex = 0;
+                                                    for (TaskList.TaskItem generatedTask : incompleteTasks) {
+                                                        if (cancelled.get()) {
+                                                            logger.info(
+                                                                    "LUTZ job {} execution cancelled during task iteration",
+                                                                    jobId);
+                                                            return; // Cancelled: exit submitLlmAction early to prevent
+                                                            // further job completion handling in the outer loop
+                                                        }
+
+                                                        logger.info(
+                                                                "LUTZ job {} executing generated task: {}",
+                                                                jobId,
+                                                                generatedTask.text());
+
+                                                        workflowMetrics.startSubphase("task_" + taskIndex);
+                                                        try {
+                                                            lastTaskResult = cm.executeTask(
+                                                                    generatedTask,
+                                                                    architectPlannerModel,
+                                                                    Objects.requireNonNull(architectCodeModel));
+
+                                                            if (lastTaskResult
+                                                                            .stopDetails()
+                                                                            .reason()
+                                                                    == ai.brokk.TaskResult.StopReason.SUCCESS) {
+                                                                workflowMetrics.incrementCounter("tasks_succeeded");
+                                                            } else {
+                                                                workflowMetrics.incrementCounter("tasks_failed");
+                                                            }
+                                                        } catch (Exception e) {
+                                                            workflowMetrics.incrementCounter("tasks_failed");
+                                                            logger.warn(
+                                                                    "Generated task execution failed for job {}: {}",
+                                                                    jobId,
+                                                                    e.getMessage());
+                                                            throw e;
+                                                        } finally {
+                                                            workflowMetrics.endSubphase("task_" + taskIndex);
+                                                        }
+                                                        taskIndex++;
+                                                    }
+
+                                                    logger.debug("LUTZ Phase 3 complete: all generated tasks executed");
+                                                } finally {
+                                                    workflowMetrics.endPhase("task_execution");
                                                 }
                                             }
-                                            // No tasks generated; outer loop will handle completion/progress
-                                        } else {
-                                            // Phase 3: Execute each generated incomplete task sequentially
-                                            logger.debug(
-                                                    "LUTZ Phase 2 complete: {} task(s) to execute",
-                                                    generatedTasks.size());
-                                            var incompleteTasks = generatedTasks.stream()
-                                                    .filter(t -> !t.done())
-                                                    .toList();
-                                            logger.debug(
-                                                    "LUTZ will execute {} incomplete task(s)", incompleteTasks.size());
 
-                                            for (TaskList.TaskItem generatedTask : incompleteTasks) {
-                                                if (cancelled.get()) {
-                                                    logger.info(
-                                                            "LUTZ job {} execution cancelled during task iteration",
-                                                            jobId);
-                                                    return; // Cancelled: exit submitLlmAction early to prevent
-                                                    // further job completion handling in the outer loop
-                                                }
-
-                                                logger.info(
-                                                        "LUTZ job {} executing generated task: {}",
-                                                        jobId,
-                                                        generatedTask.text());
-                                                try {
-                                                    cm.executeTask(
-                                                            generatedTask,
-                                                            architectPlannerModel,
-                                                            Objects.requireNonNull(architectCodeModel));
-                                                } catch (Exception e) {
-                                                    logger.warn(
-                                                            "Generated task execution failed for job {}: {}",
-                                                            jobId,
-                                                            e.getMessage());
-                                                    throw e;
-                                                }
+                                            // Record final outcome
+                                            if (lastTaskResult != null) {
+                                                workflowMetrics.recordOutcome(
+                                                        lastTaskResult
+                                                                .stopDetails()
+                                                                .reason(),
+                                                        lastTaskResult
+                                                                .stopDetails()
+                                                                .explanation());
                                             }
-
-                                            logger.debug("LUTZ Phase 3 complete: all generated tasks executed");
+                                        } finally {
+                                            // Emit metrics
+                                            workflowMetrics.emit();
                                         }
                                     }
                                     case CODE -> {
