@@ -179,14 +179,15 @@ public class BuildPane extends JPanel implements ThemeAware {
         // Move all current tabs to the PreviewManager's frame
         var manager = chrome.getPreviewManager();
         var dockedTabs = previewTabbedPane.getFileToTabMap();
-        
+
         // Use a copy to avoid concurrent modification while closing tabs
         var files = new java.util.HashSet<>(dockedTabs.keySet());
         for (var file : files) {
             var comp = dockedTabs.get(file);
             if (comp instanceof JComponent jc) {
+                String title = previewTabbedPane.getTitleAt(previewTabbedPane.indexOfComponent(comp));
                 previewTabbedPane.closeTab(jc, file);
-                manager.showPreviewInTabbedFrame("Preview: " + file.toString(), jc, null);
+                manager.showPreviewInTabbedFrame(title, jc, null);
             }
         }
 
@@ -194,6 +195,37 @@ public class BuildPane extends JPanel implements ThemeAware {
         if (idx != -1) {
             buildReviewTabs.removeTabAt(idx);
         }
+    }
+
+    public void redockPreview(PreviewTabbedPane sourcePane) {
+        if (isPreviewDocked) return;
+
+        isPreviewDocked = true;
+        GlobalUiSettings.savePreviewDocked(true);
+
+        // Re-add the Preview tab to BuildPane
+        int terminalIdx = buildReviewTabs.indexOfTab("Terminal");
+        if (terminalIdx != -1) {
+            buildReviewTabs.insertTab("Preview", Icons.VISIBILITY, previewTabbedPane, null, terminalIdx);
+        } else {
+            buildReviewTabs.addTab("Preview", Icons.VISIBILITY, previewTabbedPane);
+        }
+
+        // Transfer tabs from the floating frame to the docked pane
+        var floatingTabs = sourcePane.getFileToTabMap();
+        var files = new java.util.HashSet<>(floatingTabs.keySet());
+        for (var file : files) {
+            var comp = floatingTabs.get(file);
+            if (comp instanceof JComponent jc) {
+                int idx = sourcePane.indexOfComponent(comp);
+                String title = sourcePane.getTitleAt(idx);
+                sourcePane.closeTab(jc, file);
+                previewTabbedPane.addOrSelectTab(title, jc, file, null);
+                chrome.getPreviewManager().getProjectFileToPreviewWindow().put(file, chrome.getFrame());
+            }
+        }
+
+        selectPreviewTab();
     }
 
     public void setPreviewDocked(boolean docked) {

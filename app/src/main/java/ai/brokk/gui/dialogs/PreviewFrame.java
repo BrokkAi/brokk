@@ -5,10 +5,12 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.PreviewTabbedPane;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.theme.ThemeTitleBarManager;
+import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
@@ -47,7 +49,20 @@ public class PreviewFrame extends JFrame implements ThemeAware {
                 title -> updateWindowTitle(title),
                 this::disposeFrame
         );
-        add(tabbedPane, BorderLayout.CENTER);
+
+        // Create toolbar with dock button
+        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 2));
+        MaterialButton dockButton = new MaterialButton("");
+        dockButton.setIcon(Icons.VISIBILITY);
+        dockButton.setToolTipText("Dock Preview");
+        dockButton.addActionListener(e -> handleRedock());
+        toolbar.add(dockButton);
+
+        JPanel mainContent = new JPanel(new BorderLayout());
+        mainContent.add(toolbar, BorderLayout.NORTH);
+        mainContent.add(tabbedPane, BorderLayout.CENTER);
+
+        add(mainContent, BorderLayout.CENTER);
 
         // Set default close operation to DO_NOTHING so we can handle it
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
@@ -101,19 +116,24 @@ public class PreviewFrame extends JFrame implements ThemeAware {
     }
 
     /**
-     * Handles window close button (X) - closes entire frame after confirming all tabs.
+     * Handles window close button (X) - redocks the frame to the main window.
      */
     private void handleFrameClose() {
-        // Check all tabs for unsaved changes before closing
+        handleRedock();
+    }
+
+    private void handleRedock() {
+        // Check all tabs for unsaved changes before redocking
         for (int i = 0; i < tabbedPane.getTabCount(); i++) {
             Component comp = tabbedPane.getComponentAt(i);
             if (comp instanceof PreviewTextPanel textPanel) {
                 if (!textPanel.confirmClose()) {
-                    // User cancelled - don't close
                     return;
                 }
             }
         }
+
+        chrome.getBuildPane().redockPreview(tabbedPane);
         disposeFrame();
     }
 
