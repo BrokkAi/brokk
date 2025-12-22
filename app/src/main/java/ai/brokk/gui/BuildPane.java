@@ -270,15 +270,6 @@ public class BuildPane extends JPanel implements ThemeAware {
         }
     }
 
-    public boolean isPreviewTabSelected() {
-        int idx = buildReviewTabs.indexOfTab("Preview");
-        return idx != -1 && buildReviewTabs.getSelectedIndex() == idx;
-    }
-
-    public JTabbedPane getBuildReviewTabs() {
-        return buildReviewTabs;
-    }
-
     public PreviewTabbedPane getPreviewTabbedPane() {
         return previewTabbedPane;
     }

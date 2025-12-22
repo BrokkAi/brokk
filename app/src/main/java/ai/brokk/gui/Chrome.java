@@ -1709,10 +1709,6 @@ public class Chrome
         return buildPane.getHistoryOutputPanel();
     }
 
-    public JTabbedPane getBuildReviewTabs() {
-        return buildPane.getBuildReviewTabs();
-    }
-
     public JTabbedPane getCommandPane() {
         return buildPane.getCommandPane();
     }

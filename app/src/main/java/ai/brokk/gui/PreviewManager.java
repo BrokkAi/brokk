@@ -213,25 +213,18 @@ public class PreviewManager {
     public void showPreviewInTabbedFrame(String title, JComponent panel, @Nullable ContextFragment fragment) {
         SwingUtilities.invokeLater(() -> {
             // Try BuildPane first
-            var buildTabs = chrome.getBuildReviewTabs();
-            if (buildTabs != null) {
-                Container p = buildTabs.getParent();
-                while (p != null && !(p instanceof BuildPane)) {
-                    p = p.getParent();
+            BuildPane buildPane = chrome.getBuildPane();
+            if (buildPane != null) {
+                var previewTabs = buildPane.getPreviewTabbedPane();
+                ProjectFile file = extractFileKey(panel, fragment);
+
+                previewTabs.addOrSelectTab(title, panel, file, fragment);
+                if (file != null) {
+                    projectFileToPreviewWindow.put(file, chrome.getFrame());
                 }
 
-                if (p instanceof BuildPane buildPane) {
-                    var previewTabs = buildPane.getPreviewTabbedPane();
-                    ProjectFile file = extractFileKey(panel, fragment);
-
-                    previewTabs.addOrSelectTab(title, panel, file, fragment);
-                    if (file != null) {
-                        projectFileToPreviewWindow.put(file, chrome.getFrame());
-                    }
-
-                    buildTabs.setSelectedComponent(previewTabs);
-                    return;
-                }
+                buildPane.selectPreviewTab();
+                return;
             }
 
             // Fallback to standalone frame
@@ -333,31 +326,18 @@ public class PreviewManager {
 
             // 2. Check for existing tab in the BuildPane or PreviewFrame
             PreviewTabbedPane tabs = null;
-            var buildTabs = chrome.getBuildReviewTabs();
-            // Find the BuildPane in the hierarchy if possible
-            Container p = buildTabs.getParent();
-            while (p != null && !(p instanceof BuildPane)) {
-                p = p.getParent();
-            }
-            if (p instanceof BuildPane bp) {
-                tabs = bp.getPreviewTabbedPane();
-            }
+            BuildPane buildPane = chrome.getBuildPane();
+            tabs = buildPane.getPreviewTabbedPane();
 
-            if (tabs == null && previewFrame != null && previewFrame.isDisplayable()) {
-                tabs = previewFrame.getTabbedPane();
-            }
-
-            if (tabs != null) {
-                BrokkDiffPanel existing = findExistingDiffTab(tabs, leftSources, rightSources);
-                if (existing != null) {
-                    int index = tabs.indexOfComponent(existing);
-                    if (index >= 0) {
-                        tabs.setSelectedIndex(index);
-                        if (SwingUtilities.isDescendingFrom(tabs, buildTabs)) {
-                            buildTabs.setSelectedComponent(tabs);
-                        }
-                        return;
+            BrokkDiffPanel existing = findExistingDiffTab(tabs, leftSources, rightSources);
+            if (existing != null) {
+                int index = tabs.indexOfComponent(existing);
+                if (index >= 0) {
+                    tabs.setSelectedIndex(index);
+                    if (tabs == buildPane.getPreviewTabbedPane()) {
+                        buildPane.selectPreviewTab();
                     }
+                    return;
                 }
             }
 
@@ -367,7 +347,7 @@ public class PreviewManager {
     }
 
     private boolean tryRaiseExistingDiffWindow(List<BufferSource> leftSources, List<BufferSource> rightSources) {
-        for (java.awt.Frame frame : java.awt.Frame.getFrames()) {
+        for (Frame frame : Frame.getFrames()) {
             if (frame == null || !frame.isDisplayable()) {
                 continue;
             }
@@ -399,7 +379,6 @@ public class PreviewManager {
     @Nullable
     private static BrokkDiffPanel findBrokkDiffPanel(Container root) {
         for (var comp : root.getComponents()) {
-            if (comp == null) continue;
             if (comp instanceof BrokkDiffPanel panel) {
                 return panel;
             }
@@ -444,10 +423,8 @@ public class PreviewManager {
 
                 // If it's in the main frame, refresh the BuildPane's preview tabs
                 if (previewFrame == chrome.getFrame()) {
-                    var tabs = chrome.getBuildReviewTabs();
-                    if (tabs != null && tabs.getParent() instanceof BuildPane bp) {
-                        bp.getPreviewTabbedPane().refreshTabsForFile(file);
-                    }
+                    BuildPane buildPane = chrome.getBuildPane();
+                    buildPane.getPreviewTabbedPane().refreshTabsForFile(file);
                     continue;
                 }
 
@@ -749,14 +726,8 @@ public class PreviewManager {
     private void replaceTabContent(JComponent oldComponent, JComponent newComponent, String title) {
         SwingUtilities.invokeLater(() -> {
             // Check BuildPane first
-            var tabs = chrome.getBuildReviewTabs();
-            if (tabs != null && tabs.getParent() instanceof BuildPane bp) {
-                bp.getPreviewTabbedPane().replaceTabComponent(oldComponent, newComponent, title);
-                return;
-            }
-            if (previewFrame != null && previewFrame.isDisplayable()) {
-                previewFrame.replaceTabComponent(oldComponent, newComponent, title);
-            }
+            BuildPane buildPane = chrome.getBuildPane();
+            buildPane.getPreviewTabbedPane().replaceTabComponent(oldComponent, newComponent, title);
         });
     }
 
@@ -767,14 +738,8 @@ public class PreviewManager {
         SwingUtilities.invokeLater(() -> {
             try {
                 // Check BuildPane first
-                var tabs = chrome.getBuildReviewTabs();
-                if (tabs != null && tabs.getParent() instanceof BuildPane bp) {
-                    bp.getPreviewTabbedPane().updateTabTitle(contentComponent, newTitle);
-                    return;
-                }
-                if (previewFrame != null && previewFrame.isDisplayable()) {
-                    previewFrame.updateTabTitle(contentComponent, newTitle);
-                }
+                BuildPane buildPane = chrome.getBuildPane();
+                buildPane.getPreviewTabbedPane().updateTabTitle(contentComponent, newTitle);
             } catch (Exception ex) {
                 logger.debug("Unable to update preview window title", ex);
             }
