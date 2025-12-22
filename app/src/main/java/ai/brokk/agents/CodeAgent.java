@@ -37,6 +37,8 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -611,8 +613,10 @@ public class CodeAgent {
                 var snippet =
                         EditBlock.extractCodeFromTripleBackticks(responseText).trim();
                 if (!snippet.isEmpty()) {
-                    // Construct the full file content with the replacement
-                    var updatedContent = fileContents.replace(oldText, snippet);
+                    // Construct the full file content with the replacement (only first occurrence)
+                    var updatedContent = fileContents.replaceFirst(
+                            Pattern.quote(oldText),
+                            Matcher.quoteReplacement(snippet));
                     var diags = parseJavaForDiagnostics(file, updatedContent);
                     if (!diags.isEmpty()) {
                         var diagnosticMessages = new StringBuilder();

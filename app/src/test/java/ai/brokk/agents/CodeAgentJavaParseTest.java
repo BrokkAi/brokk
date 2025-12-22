@@ -12,6 +12,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.eclipse.jdt.core.compiler.CategorizedProblem;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.junit.jupiter.api.Test;
@@ -913,5 +915,46 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
         // Verify diagnostics were detected
         assertFalse(diags.isEmpty(), "Expected diagnostics for syntactically invalid code");
         assertTrue(diags.getFirst().description().contains("Good.java"), "Diagnostic should reference the file");
+    }
+
+    // Quick Edit replacement bug (PR review issue #1)
+    // Verifies that replaceFirst() only replaces the first occurrence when duplicate text exists
+    @Test
+    void testQuickEdit_replacesOnlyFirstOccurrence() throws Exception {
+        var sourceWithDuplicates =
+                """
+                class Test {
+                    void method1() {
+                        System.out.println("duplicate");
+                    }
+                    void method2() {
+                        System.out.println("duplicate");
+                    }
+                }
+                """;
+        var javaFile = cm.toFile("Test.java");
+        javaFile.write(sourceWithDuplicates);
+
+        var oldText = "System.out.println(\"duplicate\");";
+        var snippet = "logger.debug(\"changed\");";
+
+        // Use replaceFirst (as fixed in CodeAgent.java line 615)
+        var updatedContent = sourceWithDuplicates.replaceFirst(
+                Pattern.quote(oldText),
+                Matcher.quoteReplacement(snippet));
+
+        // Verify only first occurrence was replaced
+        assertTrue(updatedContent.contains("logger.debug(\"changed\");"), "First occurrence should be replaced");
+        assertTrue(updatedContent.contains("System.out.println(\"duplicate\");"), "Second occurrence should remain");
+
+        // Count occurrences to be sure
+        int firstOccurrenceCount = updatedContent.split("logger\\.debug", -1).length - 1;
+        int secondOccurrenceCount = updatedContent.split("System\\.out\\.println\\(\"duplicate\"\\)", -1).length - 1;
+        assertEquals(1, firstOccurrenceCount, "Should have exactly one replacement");
+        assertEquals(1, secondOccurrenceCount, "Should have exactly one original");
+
+        // Verify diagnostics can be computed on correct content
+        var diags = CodeAgent.parseJavaForDiagnostics(javaFile, updatedContent);
+        assertTrue(diags.isEmpty(), "Valid code should produce no diagnostics");
     }
 }
