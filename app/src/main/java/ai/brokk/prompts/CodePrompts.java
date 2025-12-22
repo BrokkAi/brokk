@@ -151,7 +151,7 @@ public abstract class CodePrompts {
 
     public String codeReminder(AbstractService service, StreamingChatModel model) {
         var baseReminder = service.isLazy(model) ? LAZY_REMINDER : OVEREAGER_REMINDER;
-        return baseReminder + "\n" + MARKDOWN_REMINDER;
+        return baseReminder;
     }
 
     public String architectReminder() {
