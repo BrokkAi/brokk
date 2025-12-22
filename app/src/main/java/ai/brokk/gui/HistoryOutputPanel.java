@@ -2015,17 +2015,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Public entry-point to refresh the branch-based Changes tab on demand.
-     * Safe to call from any thread. Defers the heavy recompute if the panel is not visible.
-     */
-    public void requestDiffUpdate() {
-        var bp = chrome.getBuildPane();
-        if (bp != null) {
-            bp.requestReviewUpdate();
-        }
-    }
-
-    /**
      * Gets the LLM scroll pane
      */
     public JScrollPane getLlmScrollPane() {
@@ -2650,7 +2639,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         } else {
                             chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Pull: " + pullResult);
                         }
-                        requestDiffUpdate();
+                        var bp = chrome.getBuildPane();
+                        if (bp != null) bp.requestReviewUpdate();
                         chrome.updateGitRepo();
                     });
                 } catch (Exception e) {
@@ -2693,7 +2683,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         } else {
                             chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Push: " + pushResult);
                         }
-                        requestDiffUpdate();
+                        var bp = chrome.getBuildPane();
+                        if (bp != null) bp.requestReviewUpdate();
                         chrome.updateGitRepo();
                     });
                 } catch (Exception e) {
@@ -3138,6 +3129,34 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     /**
+     * Public entry-point to refresh the branch-based Review tab on demand.
+     * Delegates to BuildPane.
+     */
+    public void requestDiffUpdate() {
+        var bp = chrome.getBuildPane();
+        if (bp != null) {
+            bp.requestReviewUpdate();
+        }
+    }
+
+    /**
+     * Returns true if the given string looks like a Git commit hash (hex string of 7-40 chars).
+     * Used to detect detached HEAD states.
+     */
+    public static boolean isLikelyCommitHash(String s) {
+        if (s.length() < 7 || s.length() > 40) {
+            return false;
+        }
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Kicks off a background load of the AI-response count for a single session.
      * Safe to call repeatedly; concurrent calls are deduped by sessionCountLoading.
      */
@@ -3176,22 +3195,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
     }
 
-    /**
-     * Returns true if the given string looks like a Git commit hash (hex string of 7-40 chars).
-     * Used to detect detached HEAD states.
-     */
-    private static boolean isLikelyCommitHash(String s) {
-        if (s.length() < 7 || s.length() > 40) {
-            return false;
-        }
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
-                return false;
-            }
-        }
-        return true;
-    }
 
 
     private class SessionInfoRenderer extends JPanel implements ListCellRenderer<SessionInfo> {

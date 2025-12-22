@@ -171,7 +171,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         dialog.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosed(WindowEvent e) {
-                chrome.getHistoryOutputPanel().requestDiffUpdate();
+                var bp = chrome.getBuildPane();
+                if (bp != null) bp.requestReviewUpdate();
                 var tab = chrome.getGitCommitTab();
                 if (tab != null) tab.requestUpdate();
             }
@@ -187,7 +188,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 new GitWorkflow(contextManager).pull(branch);
                 SwingUtilities.invokeLater(() -> {
                     chrome.hideOutputSpinner();
-                    chrome.getHistoryOutputPanel().requestDiffUpdate();
+                    var bp = chrome.getBuildPane();
+                    if (bp != null) bp.requestReviewUpdate();
                     chrome.updateGitRepo();
                 });
             } catch (Exception e) {
@@ -208,7 +210,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 new GitWorkflow(contextManager).push(branch);
                 SwingUtilities.invokeLater(() -> {
                     chrome.hideOutputSpinner();
-                    chrome.getHistoryOutputPanel().requestDiffUpdate();
+                    var bp = chrome.getBuildPane();
+                    if (bp != null) bp.requestReviewUpdate();
                     chrome.updateGitRepo();
                 });
             } catch (Exception e) {

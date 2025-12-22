@@ -563,7 +563,7 @@ public class BuildPane extends JPanel implements ThemeAware {
             String defaultBranch = gitRepo.getDefaultBranch();
             String currentBranch = gitRepo.getCurrentBranch();
 
-            boolean isDetached = isLikelyCommitHash(currentBranch) || !gitRepo.listLocalBranches().contains(currentBranch);
+            boolean isDetached = HistoryOutputPanel.isLikelyCommitHash(currentBranch) || !gitRepo.listLocalBranches().contains(currentBranch);
             if (isDetached) return new BaselineInfo(SessionChangesPanel.BaselineMode.DETACHED, "HEAD", "detached HEAD");
 
             if (!currentBranch.equals(defaultBranch)) return new BaselineInfo(SessionChangesPanel.BaselineMode.NON_DEFAULT_BRANCH, defaultBranch, defaultBranch);
@@ -575,15 +575,6 @@ public class BuildPane extends JPanel implements ThemeAware {
         } catch (Exception e) {
             return new BaselineInfo(SessionChangesPanel.BaselineMode.NO_BASELINE, "", "Error: " + e.getMessage());
         }
-    }
-
-    private static boolean isLikelyCommitHash(String s) {
-        if (s.length() < 7 || s.length() > 40) return false;
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
-        }
-        return true;
     }
 
     private static String escapeHtml(String s) {
