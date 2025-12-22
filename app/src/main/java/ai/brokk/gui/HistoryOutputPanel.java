@@ -2614,17 +2614,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         repaint();
     }
 
-    /**
-     * Public entry-point to refresh the branch-based Review tab on demand.
-     * Delegates to BuildPane.
-     */
-    public void requestDiffUpdate() {
-        chrome.getBuildPane().requestReviewUpdate();
-    }
-
-    /**
-     * Releases owned resources. Must be called on the EDT.
-     */
     public void showTransientMessage(String message) {
         // Apply preset layout before showing transient message
         applyPresetIfNeeded();

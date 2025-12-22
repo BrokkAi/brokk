@@ -593,7 +593,7 @@ public class Chrome
 
         // Ensure the Changes tab reflects the current repo/branch state
         try {
-            buildPane.getHistoryOutputPanel().requestDiffUpdate();
+            buildPane.requestReviewUpdate();
         } catch (Exception ex) {
             logger.debug("Unable to refresh Changes tab after repo update", ex);
         }
@@ -1123,7 +1123,7 @@ public class Chrome
 
     @Override
     public void onTrackedFileChange() {
-        buildPane.getHistoryOutputPanel().requestDiffUpdate();
+        buildPane.requestReviewUpdate();
     }
 
     /**

@@ -1223,7 +1223,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
 
         // Also refresh the Changes tab to reflect the new branch's diff
         try {
-            chrome.getHistoryOutputPanel().requestDiffUpdate();
+            chrome.getBuildPane().requestReviewUpdate();
         } catch (Exception ex) {
             logger.debug("Unable to refresh Changes tab after Git UI action", ex);
         }
