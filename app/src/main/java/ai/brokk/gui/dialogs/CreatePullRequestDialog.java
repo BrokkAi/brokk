@@ -22,7 +22,6 @@ import ai.brokk.gui.git.GitHubErrorUtil;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.widgets.FileStatusTable;
 import java.awt.*;
-import java.awt.event.ActionListener;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -49,12 +48,16 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     private final Chrome chrome;
     private final ContextManager contextManager;
     private final GitWorkflow workflowService;
+
     @Nullable
     private JPanel branchSelectorPanel;
+
     @Nullable
     private FuzzyComboBox<String> sourceBranchComboBox;
+
     @Nullable
     private FuzzyComboBox<String> targetBranchComboBox;
+
     private JTextField titleField;
     private JTextArea descriptionArea;
     private JLabel descriptionHintLabel; // Hint for description generation source
@@ -599,8 +602,8 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
 
     private List<String> getTargetBranches(List<String> remoteBranches) {
         return remoteBranches.stream()
-                .filter(branch -> branch.startsWith("origin/"))
-                .filter(branch -> !branch.equals("origin/HEAD"))
+                .filter(branch -> !branch.endsWith("/HEAD"))
+                .sorted()
                 .toList();
     }
 
@@ -642,13 +645,43 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
 
     @Nullable
     private String findDefaultTargetBranch(List<String> targetBranches) {
-        if (targetBranches.contains("origin/main")) {
-            return "origin/main";
+        if (targetBranches.isEmpty()) {
+            return null;
         }
-        if (targetBranches.contains("origin/master")) {
-            return "origin/master";
+
+        var repo = contextManager.getProject().getRepo();
+        if (!(repo instanceof GitRepo gitRepo)) {
+            return targetBranches.getFirst();
         }
-        return targetBranches.isEmpty() ? null : targetBranches.getFirst();
+
+        // Get preferred remote name (origin or fallback)
+        var preferredRemote = gitRepo.remote().getOriginRemoteNameWithFallback();
+        if (preferredRemote != null) {
+            // Try main/master on preferred remote first
+            var preferredMain = preferredRemote + "/main";
+            if (targetBranches.contains(preferredMain)) {
+                return preferredMain;
+            }
+
+            var preferredMaster = preferredRemote + "/master";
+            if (targetBranches.contains(preferredMaster)) {
+                return preferredMaster;
+            }
+        }
+
+        // Fall back to any remote's main/master
+        var anyMain = targetBranches.stream().filter(b -> b.endsWith("/main")).findFirst();
+        if (anyMain.isPresent()) {
+            return anyMain.get();
+        }
+
+        var anyMaster = targetBranches.stream().filter(b -> b.endsWith("/master")).findFirst();
+        if (anyMaster.isPresent()) {
+            return anyMaster.get();
+        }
+
+        // Last resort: first branch alphabetically
+        return targetBranches.getFirst();
     }
 
     private void selectDefaultSourceBranch(GitRepo gitRepo, List<String> sourceBranches, List<String> localBranches)
