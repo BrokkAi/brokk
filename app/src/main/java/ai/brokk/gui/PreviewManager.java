@@ -27,11 +27,8 @@ import ai.brokk.util.ImageUtil;
 import ai.brokk.util.Messages;
 import com.formdev.flatlaf.util.SystemInfo;
 import dev.langchain4j.data.message.ChatMessage;
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Container;
-import java.awt.Dimension;
+
+import java.awt.*;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.io.IOException;
@@ -65,6 +62,27 @@ public class PreviewManager {
 
     // Track preview windows by ProjectFile for refresh on file changes
     private final Map<ProjectFile, JFrame> projectFileToPreviewWindow = new ConcurrentHashMap<>();
+
+    /** Raise the given window to the front and give it focus. */
+    public static void raiseWindow(Window window) {
+        SwingUtilities.invokeLater(() -> {
+            // Bring window to front
+            window.toFront();
+
+            // Request focus
+            window.requestFocus();
+
+            // On some platforms, also need to set visible again
+            if (!window.isVisible()) {
+                window.setVisible(true);
+            }
+
+            // Make sure it's not minimized (iconified)
+            if (window instanceof Frame frame && frame.getState() == Frame.ICONIFIED) {
+                frame.setState(Frame.NORMAL);
+            }
+        });
+    }
 
     public Map<ProjectFile, JFrame> getProjectFileToPreviewWindow() {
         return projectFileToPreviewWindow;
@@ -360,7 +378,7 @@ public class PreviewManager {
             if (brokkPanel != null && brokkPanel.matchesContent(leftSources, rightSources)) {
                 var window = SwingUtilities.getWindowAncestor(brokkPanel);
                 if (window != null) {
-                    DiffWindowManager.raiseWindow(window);
+                    raiseWindow(window);
                     return true;
                 }
             }
