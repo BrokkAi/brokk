@@ -90,6 +90,10 @@ public class PreviewManager {
         return projectFileToPreviewWindow;
     }
 
+    public boolean isPreviewDocked() {
+        return isPreviewDocked;
+    }
+
     public void setPreviewDocked(boolean docked) {
         if (this.isPreviewDocked == docked) return;
         this.isPreviewDocked = docked;
