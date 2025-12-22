@@ -622,7 +622,9 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         // Show local branches first, then remote branches (instead of mixing them alphabetically)
         var sortedLocal = localBranches.stream().sorted().toList();
         var sortedRemote = remoteBranches.stream().sorted().toList();
-        return Stream.concat(sortedLocal.stream(), sortedRemote.stream()).toList();
+        return Stream.concat(sortedLocal.stream(), sortedRemote.stream())
+                .distinct()
+                .toList();
     }
 
     private void populateBranchDropdowns(List<String> targetBranches, List<String> sourceBranches) {
