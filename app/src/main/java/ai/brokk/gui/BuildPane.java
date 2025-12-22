@@ -217,6 +217,46 @@ public class BuildPane extends JPanel implements ThemeAware {
         return taskListPanel;
     }
 
+    public void setReviewTabTitle(String title) {
+        int idx = buildReviewTabs.indexOfTab("Review");
+        if (idx != -1) {
+            buildReviewTabs.setTitleAt(idx, title);
+        }
+    }
+
+    public void setReviewTabTooltip(String tooltip) {
+        int idx = buildReviewTabs.indexOfTab("Review");
+        if (idx != -1) {
+            buildReviewTabs.setToolTipTextAt(idx, tooltip);
+        }
+    }
+
+    public void setReviewTabLoading(boolean loading) {
+        int idx = buildReviewTabs.indexOfTab("Review");
+        if (idx != -1) {
+            buildReviewTabs.setIconAt(idx, loading ? Icons.REFRESH : Icons.FLOWSHEET);
+        }
+    }
+
+    public void selectReviewTab() {
+        int idx = buildReviewTabs.indexOfTab("Review");
+        if (idx != -1) {
+            buildReviewTabs.setSelectedIndex(idx);
+        }
+    }
+
+    public void selectPreviewTab() {
+        int idx = buildReviewTabs.indexOfTab("Preview");
+        if (idx != -1) {
+            buildReviewTabs.setSelectedIndex(idx);
+        }
+    }
+
+    public boolean isPreviewTabSelected() {
+        int idx = buildReviewTabs.indexOfTab("Preview");
+        return idx != -1 && buildReviewTabs.getSelectedIndex() == idx;
+    }
+
     public JTabbedPane getBuildReviewTabs() {
         return buildReviewTabs;
     }
