@@ -847,10 +847,7 @@ public class Chrome
             @Override
             public void actionPerformed(ActionEvent e) {
                 // Terminal drawer removed; instead, switch to the Terminal tab if present.
-                SwingUtilities.invokeLater(() -> {
-                    int idx = buildPane.getCommandPane().indexOfTab("Terminal");
-                    if (idx != -1) buildPane.getCommandPane().setSelectedIndex(idx);
-                });
+                SwingUtilities.invokeLater(buildPane::selectTerminalTab);
             }
         });
 
@@ -863,10 +860,7 @@ public class Chrome
         rootPane.getActionMap().put("switchToTerminalTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                SwingUtilities.invokeLater(() -> {
-                    int idx = buildPane.getCommandPane().indexOfTab("Terminal");
-                    if (idx != -1) buildPane.getCommandPane().setSelectedIndex(idx);
-                });
+                SwingUtilities.invokeLater(buildPane::selectTerminalTab);
             }
         });
 
@@ -879,10 +873,7 @@ public class Chrome
         rootPane.getActionMap().put("switchToTasksTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                SwingUtilities.invokeLater(() -> {
-                    int idx = buildPane.getCommandPane().indexOfTab("Tasks");
-                    if (idx != -1) buildPane.getCommandPane().setSelectedIndex(idx);
-                });
+                SwingUtilities.invokeLater(buildPane::selectTasksTab);
             }
         });
 
@@ -1741,6 +1732,10 @@ public class Chrome
             updateGitTabBadge(getModifiedFiles().size());
             refreshKeybindings();
         });
+    }
+
+    public BuildPane getBuildPane() {
+        return buildPane;
     }
 
     public void applyVerticalActivityLayout() {

@@ -994,26 +994,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             updateUndoRedoButtonStates();
 
             // Put the Changes tab into a loading state before aggregation
-            var tabs = chrome.getBuildReviewTabs();
-            if (tabs != null && changesTabPlaceholder != null) {
-                int idx = -1;
-                for (int i = 0; i < tabs.getTabCount(); i++) {
-                    Component c = tabs.getComponentAt(i);
-                    if (c == changesTabPlaceholder
-                            || (c instanceof Container cont && cont.isAncestorOf(changesTabPlaceholder))) {
-                        idx = i;
-                        break;
-                    }
-                }
-
-                if (idx >= 0) {
-                    try {
-                        tabs.setTitleAt(idx, "Review (...)");
-                        tabs.setToolTipTextAt(idx, "Computing branch-based changes...");
-                    } catch (IndexOutOfBoundsException ignore) {
-                        // Tab might have changed; ignore safely
-                    }
-                }
+            var bp = chrome.getBuildPane();
+            if (bp != null) {
+                bp.setReviewTabTitle("Review (...)");
+                bp.setReviewTabTooltip("Computing branch-based changes...");
 
                 // Replace content with a spinner while loading
                 var container = changesTabPlaceholder;
@@ -1906,22 +1890,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      * using theme-appropriate + / - colors.
      */
     private void setChangesTabTitleAndTooltip(DiffService.CumulativeChanges res) {
-        var tabs = chrome.getBuildReviewTabs();
-        if (tabs == null) return;
-
-        int idx = -1;
-        if (changesTabPlaceholder != null) {
-            // Find the index of the Review tab which contains our placeholder
-            for (int i = 0; i < tabs.getTabCount(); i++) {
-                Component c = tabs.getComponentAt(i);
-                if (c == changesTabPlaceholder
-                        || (c instanceof Container cont && cont.isAncestorOf(changesTabPlaceholder))) {
-                    idx = i;
-                    break;
-                }
-            }
-        }
-        if (idx < 0) return;
+        var bp = chrome.getBuildPane();
+        if (bp == null) return;
 
         // For special baseline states (detached HEAD or no repository), omit the suffix
         boolean isSpecialState = "detached HEAD".equals(lastBaselineLabel) || "No repository".equals(lastBaselineLabel);
@@ -1929,42 +1899,38 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 ? " vs " + lastBaselineLabel
                 : "";
 
-        try {
-            if (res.filesChanged() == 0) {
-                tabs.setTitleAt(idx, "Review (0)" + baselineSuffix);
-                String tooltipMsg;
-                if (isSpecialState) {
-                    tooltipMsg = "No baseline to compare";
-                } else if ("HEAD".equals(lastBaselineLabel)) {
-                    tooltipMsg = "Working tree is clean";
-                } else if (lastBaselineLabel != null && !lastBaselineLabel.isBlank()) {
-                    tooltipMsg = "No changes vs " + lastBaselineLabel;
-                } else {
-                    tooltipMsg = "No changes to review";
-                }
-                tabs.setToolTipTextAt(idx, tooltipMsg + ".");
+        if (res.filesChanged() == 0) {
+            bp.setReviewTabTitle("Review (0)" + baselineSuffix);
+            String tooltipMsg;
+            if (isSpecialState) {
+                tooltipMsg = "No baseline to compare";
+            } else if ("HEAD".equals(lastBaselineLabel)) {
+                tooltipMsg = "Working tree is clean";
+            } else if (lastBaselineLabel != null && !lastBaselineLabel.isBlank()) {
+                tooltipMsg = "No changes vs " + lastBaselineLabel;
             } else {
-                boolean isDark = chrome.getTheme().isDarkTheme();
-                Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
-                Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
-                String htmlTitle = String.format(
-                        "<html>Review (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)%s</html>",
-                        res.filesChanged(),
-                        ColorUtil.toHex(plusColor),
-                        res.totalAdded(),
-                        ColorUtil.toHex(minusColor),
-                        res.totalDeleted(),
-                        escapeHtml(baselineSuffix));
-                tabs.setTitleAt(idx, htmlTitle);
-                String tooltip = "Cumulative changes: "
-                        + res.filesChanged()
-                        + " files, +" + res.totalAdded()
-                        + "/-" + res.totalDeleted()
-                        + baselineSuffix;
-                tabs.setToolTipTextAt(idx, tooltip);
+                tooltipMsg = "No changes to review";
             }
-        } catch (IndexOutOfBoundsException ignore) {
-            // Tab lineup changed; ignore safely
+            bp.setReviewTabTooltip(tooltipMsg + ".");
+        } else {
+            boolean isDark = chrome.getTheme().isDarkTheme();
+            Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
+            Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
+            String htmlTitle = String.format(
+                    "<html>Review (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)%s</html>",
+                    res.filesChanged(),
+                    ColorUtil.toHex(plusColor),
+                    res.totalAdded(),
+                    ColorUtil.toHex(minusColor),
+                    res.totalDeleted(),
+                    escapeHtml(baselineSuffix));
+            bp.setReviewTabTitle(htmlTitle);
+            String tooltip = "Cumulative changes: "
+                    + res.filesChanged()
+                    + " files, +" + res.totalAdded()
+                    + "/-" + res.totalDeleted()
+                    + baselineSuffix;
+            bp.setReviewTabTooltip(tooltip);
         }
     }
 
@@ -2134,25 +2100,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             sessionChangesPanel = null;
 
             // Update the Changes tab to a loading state and show a spinner placeholder
-            var tabs = chrome.getBuildReviewTabs();
-            if (tabs != null && changesTabPlaceholder != null) {
-                int idx = -1;
-                for (int i = 0; i < tabs.getTabCount(); i++) {
-                    Component c = tabs.getComponentAt(i);
-                    if (c == changesTabPlaceholder
-                            || (c instanceof Container cont && cont.isAncestorOf(changesTabPlaceholder))) {
-                        idx = i;
-                        break;
-                    }
-                }
-                if (idx >= 0) {
-                    try {
-                        tabs.setTitleAt(idx, "Review (...)");
-                        tabs.setToolTipTextAt(idx, "Computing branch-based changes...");
-                    } catch (IndexOutOfBoundsException ignore) {
-                        // Safe-guard: tab lineup may have changed
-                    }
-                }
+            var bp = chrome.getBuildPane();
+            if (bp != null) {
+                bp.setReviewTabTitle("Review (...)");
+                bp.setReviewTabTooltip("Computing branch-based changes...");
 
                 var container = changesTabPlaceholder;
                 container.removeAll();
@@ -2195,25 +2146,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             }
 
             // Show loading state in Changes tab before triggering refresh
-            var tabs = chrome.getBuildReviewTabs();
-            if (tabs != null && changesTabPlaceholder != null) {
-                int idx = -1;
-                for (int i = 0; i < tabs.getTabCount(); i++) {
-                    Component c = tabs.getComponentAt(i);
-                    if (c == changesTabPlaceholder
-                            || (c instanceof Container cont && cont.isAncestorOf(changesTabPlaceholder))) {
-                        idx = i;
-                        break;
-                    }
-                }
-                if (idx >= 0) {
-                    try {
-                        tabs.setTitleAt(idx, "Review (...)");
-                        tabs.setToolTipTextAt(idx, "Computing branch-based changes...");
-                    } catch (IndexOutOfBoundsException ignore) {
-                        // Safe-guard
-                    }
-                }
+            var bp = chrome.getBuildPane();
+            if (bp != null) {
+                bp.setReviewTabTitle("Review (...)");
+                bp.setReviewTabTooltip("Computing branch-based changes...");
 
                 var container = changesTabPlaceholder;
                 container.removeAll();
@@ -2255,25 +2191,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             sessionChangesPanel = null;
 
             // Put the Changes tab into a loading state with spinner
-            var tabs = chrome.getBuildReviewTabs();
-            if (tabs != null && changesTabPlaceholder != null) {
-                int idx = -1;
-                for (int i = 0; i < tabs.getTabCount(); i++) {
-                    Component c = tabs.getComponentAt(i);
-                    if (c == changesTabPlaceholder
-                            || (c instanceof Container cont && cont.isAncestorOf(changesTabPlaceholder))) {
-                        idx = i;
-                        break;
-                    }
-                }
-                if (idx >= 0) {
-                    try {
-                        tabs.setTitleAt(idx, "Review (...)");
-                        tabs.setToolTipTextAt(idx, "Computing branch-based changes...");
-                    } catch (IndexOutOfBoundsException ignore) {
-                        // Tab lineup might have changed; ignore safely
-                    }
-                }
+            var bp = chrome.getBuildPane();
+            if (bp != null) {
+                bp.setReviewTabTitle("Review (...)");
+                bp.setReviewTabTooltip("Computing branch-based changes...");
 
                 var container = changesTabPlaceholder;
                 container.removeAll();

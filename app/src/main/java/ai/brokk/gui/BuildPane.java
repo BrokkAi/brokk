@@ -252,6 +252,24 @@ public class BuildPane extends JPanel implements ThemeAware {
         }
     }
 
+    public void selectTerminalTab() {
+        int idx = buildReviewTabs.indexOfTab("Terminal");
+        if (idx != -1) {
+            buildReviewTabs.setSelectedIndex(idx);
+        }
+    }
+
+    public void selectTasksTab() {
+        int buildIdx = buildReviewTabs.indexOfTab("Build");
+        if (buildIdx != -1) {
+            buildReviewTabs.setSelectedIndex(buildIdx);
+        }
+        int taskIdx = commandPane.indexOfTab("Tasks");
+        if (taskIdx != -1) {
+            commandPane.setSelectedIndex(taskIdx);
+        }
+    }
+
     public boolean isPreviewTabSelected() {
         int idx = buildReviewTabs.indexOfTab("Preview");
         return idx != -1 && buildReviewTabs.getSelectedIndex() == idx;
