@@ -2257,4 +2257,23 @@ public final class MainProject extends AbstractProject {
             SwingUtilities.invokeLater(() -> chrome.getHistoryOutputPanel().updateSessionComboBox());
         }
     }
+
+    /**
+     * Returns true if this project contains no analyzable source files.
+     * A project is considered "empty" when none of its files have extensions
+     * matching any language in Languages.ALL_LANGUAGES (excluding NONE).
+     *
+     * This intentionally ignores configuration files like AGENTS.md, .brokk/**,
+     * .gitignore, etc. since those don't have analyzable extensions.
+     */
+    public boolean isEmptyProject() {
+        Set<String> analyzableExtensions = Languages.ALL_LANGUAGES.stream()
+                .filter(lang -> lang != Languages.NONE)
+                .flatMap(lang -> lang.getExtensions().stream())
+                .collect(Collectors.toSet());
+
+        return getAllFiles().stream()
+                .map(ProjectFile::extension)
+                .noneMatch(analyzableExtensions::contains);
+    }
 }

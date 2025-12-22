@@ -5,6 +5,8 @@ import ai.brokk.IssueProvider;
 import ai.brokk.SessionManager;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.MainProject.DataRetentionPolicy;
 import com.jakewharton.disklrucache.DiskLruCache;
@@ -269,5 +271,19 @@ public final class WorktreeProject extends AbstractProject {
     @Override
     public void setModelConfig(ModelProperties.ModelType modelType, AbstractService.ModelConfig config) {
         parent.setModelConfig(modelType, config);
+    }
+
+    /**
+     * Returns true if this worktree contains no analyzable source files.
+     */
+    public boolean isEmptyProject() {
+        Set<String> analyzableExtensions = Languages.ALL_LANGUAGES.stream()
+                .filter(lang -> lang != Languages.NONE)
+                .flatMap(lang -> lang.getExtensions().stream())
+                .collect(Collectors.toSet());
+
+        return getAllFiles().stream()
+                .map(ProjectFile::extension)
+                .noneMatch(analyzableExtensions::contains);
     }
 }
