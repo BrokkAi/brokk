@@ -15,6 +15,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.project.IProject;
+import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.BuildOutputPreprocessor;
@@ -136,7 +137,7 @@ public class BuildAgent {
 
         // build message containing root directory contents
         ToolExecutionRequest initialRequest = ToolExecutionRequest.builder()
-                .name("listFiles")
+                .name("listTrackedFiles")
                 .arguments("{\"directoryPath\": \".\"}") // Request root dir
                 .build();
         ToolExecutionResult initialResult = tr.executeTool(initialRequest);
@@ -232,8 +233,8 @@ public class BuildAgent {
 
             // 4. Add tools
             // Get specifications for ALL tools the agent might use in this turn, from the local registry.
-            var tools = new ArrayList<>(
-                    tr.getTools(List.of("listFiles", "searchFilenames", "searchSubstrings", "getFileContents")));
+            var tools = new ArrayList<>(tr.getTools(List.of(
+                    "listTrackedFiles", "listFiles", "searchFilenames", "searchSubstrings", "getFileContents")));
             if (chatHistory.size() > 1) {
                 // allow terminal tools
                 tools.addAll(tr.getTools(List.of("reportBuildDetails", "abortBuildDetails")));
@@ -390,10 +391,13 @@ public class BuildAgent {
 
                 Then call `abortBuildDetails` immediately with an explanation. Do NOT continue exploring indefinitely.
                 Examples of when to abort:
-                - `listFiles(".")` returns "No files found"
-                - `listFiles(".")` returns files but none are recognized build configuration files
+                - `listTrackedFiles(".")` returns "No tracked files found"
+                - `listTrackedFiles(".")` returns files but none are recognized build configuration files
                 - Root directory contains only documentation files (*.md, *.txt, LICENSE, etc.) and no source code or build files
                 - After checking root directory, no recognized build system or project structure is found
+
+                Note: `listTrackedFiles` shows all git-tracked files (unfiltered), while `listFiles` respects exclusion patterns.
+                Use `listTrackedFiles` to discover build configurations, then `listFiles` or other tools to explore filtered content.
 
                 When selecting build or test commands, prefer flags or sub-commands that minimise console output (for example, Maven -q, Gradle --quiet, npm test --silent, sbt -error).
                 Avoid verbose flags such as --info, --debug, or -X unless they are strictly required for correct operation.
@@ -456,6 +460,26 @@ public class BuildAgent {
                         "Determine if this project has a recognizable build system. If build configuration files are found, gather the development build details and report using 'reportBuildDetails'. If no build files are found or the project structure is unclear, call 'abortBuildDetails' with an explanation."));
 
         return messages;
+    }
+
+    @Tool("List all tracked files in a directory, ignoring exclusion patterns. Use '.' for the project root.")
+    public String listTrackedFiles(
+            @P("Directory path relative to the project root (e.g., '.', 'src/main/java')") String directoryPath) {
+        if (directoryPath.isBlank()) {
+            throw new IllegalArgumentException("Directory path cannot be empty");
+        }
+
+        // Normalize path for filtering (remove leading/trailing slashes, handle '.')
+        var normalizedPath = Path.of(directoryPath).normalize();
+
+        logger.debug(
+                "BuildAgent listing tracked files for directory path: '{}' (normalized to `{}`)",
+                directoryPath,
+                normalizedPath);
+
+        // Use tracked files (unfiltered) to ensure build files are visible during discovery
+        // This is critical: getAllFiles() applies exclusion patterns which may hide build configs
+        return SearchTools.formatFilesInDirectory(project.getRepo().getTrackedFiles(), normalizedPath, directoryPath);
     }
 
     @Tool("Report the gathered build details when ALL information is collected. DO NOT call this method before then.")
