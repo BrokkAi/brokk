@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.Brokk;
 import ai.brokk.SettingsChangeListener;
+import ai.brokk.annotation.EdtSafe;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependencyUpdateHelper;
 import ai.brokk.project.MainProject;
@@ -99,6 +100,7 @@ public class DependencyUpdateScheduler implements SettingsChangeListener {
         }
     }
 
+    @EdtSafe
     private void ensureSchedulerRunning() {
         synchronized (schedulerLock) {
             if (scheduler == null || scheduler.isShutdown()) {

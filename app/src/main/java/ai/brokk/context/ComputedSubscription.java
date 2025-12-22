@@ -1,5 +1,6 @@
 package ai.brokk.context;
 
+import ai.brokk.annotation.EdtSafe;
 import ai.brokk.util.ComputedValue;
 import java.util.ArrayList;
 import java.util.List;
@@ -59,6 +60,7 @@ public final class ComputedSubscription {
      * @param owner the Swing component that owns these subscriptions
      * @param uiUpdate a runnable to execute on the EDT when any computed value completes
      */
+    @EdtSafe
     public static void bind(ContextFragment fragment, JComponent owner, Runnable uiUpdate) {
         // Helper to run UI update, coalesced onto EDT
         Runnable scheduleUpdate = () -> SwingUtilities.invokeLater(uiUpdate);
@@ -77,6 +79,7 @@ public final class ComputedSubscription {
      * Dispose all subscriptions associated with the given component and remove the internal
      * AncestorListener, if any.
      */
+    @EdtSafe
     public static void disposeAll(JComponent owner) {
         synchronized (owner) {
             @SuppressWarnings("unchecked")

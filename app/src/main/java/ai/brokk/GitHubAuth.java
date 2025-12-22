@@ -2,6 +2,7 @@ package ai.brokk;
 
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.annotation.EdtSafe;
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.util.GitRepoIdUtil;
 import ai.brokk.issues.IssueProviderType;
@@ -238,6 +239,7 @@ public class GitHubAuth {
      * Invalidates the current GitHubAuth instance. This is typically called when a GitHub token changes or an explicit
      * reset is needed.
      */
+    @EdtSafe
     public static synchronized void invalidateInstance() {
         if (instance != null) {
             logger.info(

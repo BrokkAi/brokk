@@ -1,5 +1,6 @@
 package ai.brokk.gui.components;
 
+import ai.brokk.annotation.EdtSafe;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
@@ -283,6 +284,7 @@ public final class DialogButtonSizing {
     }
 
     // Cleanup: restore all buttons under the window and remove listeners for containers that belong to the window.
+    @EdtSafe
     private static void cleanupWindow(Window w) {
         if (!SwingUtilities.isEventDispatchThread()) {
             SwingUtilities.invokeLater(() -> cleanupWindow(w));

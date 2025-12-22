@@ -99,6 +99,7 @@ public class ContextHistory {
     /**
      * Immutable view (oldest → newest).
      */
+    @EdtSafe
     public synchronized List<Context> getHistory() {
         return List.copyOf(history);
     }
@@ -111,14 +112,17 @@ public class ContextHistory {
         return castNonNull(history.peekLast());
     }
 
+    @EdtSafe
     public synchronized boolean hasUndoStates() {
         return history.size() > 1;
     }
 
+    @EdtSafe
     public synchronized boolean hasRedoStates() {
         return !redo.isEmpty();
     }
 
+    @EdtSafe
     public synchronized @Nullable Context getSelectedContext() {
         if (selected == null || !getContextIds().contains(selected.id())) {
             selected = liveContext();
@@ -132,6 +136,7 @@ public class ContextHistory {
      * @param ctx the context to check
      * @return {@code true} iff {@code ctx} is present in history.
      */
+    @EdtSafe
     public synchronized boolean setSelectedContext(@Nullable Context ctx) {
         if (ctx != null && getContextIds().contains(ctx.id())) {
             selected = ctx;
@@ -149,6 +154,7 @@ public class ContextHistory {
         return false;
     }
 
+    @EdtSafe
     public synchronized Context push(Function<Context, Context> contextGenerator) {
         var updatedLiveContext = contextGenerator.apply(liveContext());
         // we deliberately do NOT use a deep equals() here, since we don't want to block for dynamic fragments to
@@ -164,6 +170,7 @@ public class ContextHistory {
     /**
      * Push {@code ctx}, select it, and clear redo stack.
      */
+    @EdtSafe
     public synchronized void pushContext(Context ctx) {
         pushContextInternal(ctx, true);
     }
@@ -235,6 +242,7 @@ public class ContextHistory {
     /**
      * Returns the previous frozen Context for the given one, or {@code null} if none (oldest).
      */
+    @EdtSafe
     public synchronized @Nullable Context previousOf(Context curr) {
         Context prev = null;
         for (var c : history) {
@@ -468,6 +476,7 @@ public class ContextHistory {
         resetEdges.add(new ResetEdge(source.id(), target.id()));
     }
 
+    @EdtSafe
     public synchronized List<ResetEdge> getResetEdges() {
         return List.copyOf(resetEdges);
     }

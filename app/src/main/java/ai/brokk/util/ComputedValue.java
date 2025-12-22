@@ -1,5 +1,6 @@
 package ai.brokk.util;
 
+import ai.brokk.annotation.EdtSafe;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -160,6 +161,7 @@ public final class ComputedValue<T> {
      * <p>
      * Returns a Subscription that can be disposed to remove the handler before completion.
      */
+    @EdtSafe
     public Subscription onComplete(BiConsumer<? super T, ? super Throwable> handler) {
         synchronized (this) {
             if (futureRef.isDone()) {

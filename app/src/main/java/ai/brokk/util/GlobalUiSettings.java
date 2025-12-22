@@ -91,6 +91,7 @@ public final class GlobalUiSettings {
         return cachedProps;
     }
 
+    @EdtSafe
     private static synchronized void saveProps(Properties props) {
         try {
             var configDir = BrokkConfigPaths.getGlobalConfigDir();
@@ -498,6 +499,7 @@ public final class GlobalUiSettings {
         return Boolean.parseBoolean(raw.trim());
     }
 
+    @EdtSafe
     private static void setBoolean(String key, boolean value) {
         var props = loadProps();
         props.setProperty(key, Boolean.toString(value));

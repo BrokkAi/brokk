@@ -8,6 +8,7 @@ import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.BrokkFile;
+import ai.brokk.annotation.EdtSafe;
 import ai.brokk.analyzer.CallSite;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
@@ -772,6 +773,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Returns the current live, dynamic Context. Besides being dynamic (they load their text() content on demand, based
      * on the current files and Analyzer), live Fragments have a working sources() implementation.
      */
+    @EdtSafe
     @Override
     public Context liveContext() {
         return contextHistory.liveContext();
@@ -1703,6 +1705,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param contextGenerator A function that takes the current live context and returns an updated context.
      * @return The new `liveContext`, or the existing `liveContext` if no changes were made by the generator.
      */
+    @EdtSafe
     @SuppressWarnings("RedundantNullCheck") // called during Chrome init while instructionsPanel is null
     @Override
     public Context pushContext(Function<Context, Context> contextGenerator) {

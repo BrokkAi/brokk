@@ -258,6 +258,7 @@ public class ToolRegistry {
     }
 
     /** Register @Tool methods from the given instance (allowed only when not sealed). */
+    @EdtSafe
     public void register(Object toolProviderInstance) {
         Class<?> clazz = toolProviderInstance.getClass();
 

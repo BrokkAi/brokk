@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.IConsoleIO;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.annotation.EdtSafe;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.InstructionsPanel;
 import ai.brokk.gui.components.MaterialButton;
@@ -1032,12 +1033,14 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             this.state = RunState.RUNNING;
         }
 
+        @EdtSafe
         void appendOutput(String text) {
             synchronized (output) {
                 output.append(text);
             }
         }
 
+        @EdtSafe
         String getOutput() {
             synchronized (output) {
                 return output.toString();

@@ -3,6 +3,7 @@ package ai.brokk.github;
 import ai.brokk.ExceptionReporter;
 import ai.brokk.GitHubAuth;
 import ai.brokk.IContextManager;
+import ai.brokk.annotation.EdtSafe;
 import ai.brokk.project.MainProject;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
@@ -30,6 +31,7 @@ public class BackgroundGitHubAuth {
                         "GitHubAuth-Shutdown"));
     }
 
+    @EdtSafe
     public static void startBackgroundAuth(
             DeviceFlowModels.DeviceCodeResponse deviceCodeResponse, IContextManager contextManager) {
         logger.info("Starting background GitHub authentication");
@@ -61,6 +63,7 @@ public class BackgroundGitHubAuth {
         }
     }
 
+    @EdtSafe
     public static void cancelCurrentAuth() {
         synchronized (authLock) {
             cancelCurrentAuthUnsafe();
@@ -84,6 +87,7 @@ public class BackgroundGitHubAuth {
         currentAuthFuture = null;
     }
 
+    @EdtSafe
     public static boolean isAuthInProgress() {
         synchronized (authLock) {
             return currentAuthFuture != null && !currentAuthFuture.isDone();

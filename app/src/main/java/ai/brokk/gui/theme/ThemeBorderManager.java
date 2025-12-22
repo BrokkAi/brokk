@@ -1,6 +1,7 @@
 package ai.brokk.gui.theme;
 
 import ai.brokk.Brokk;
+import ai.brokk.annotation.EdtSafe;
 import ai.brokk.gui.highcontrast.SwingExternalBorderDecorator;
 import ai.brokk.project.MainProject;
 import java.awt.*;
@@ -43,6 +44,7 @@ public final class ThemeBorderManager {
 
     private ThemeBorderManager() {}
 
+    @EdtSafe
     public static synchronized ThemeBorderManager getInstance() {
         if (instance == null) {
             instance = new ThemeBorderManager();

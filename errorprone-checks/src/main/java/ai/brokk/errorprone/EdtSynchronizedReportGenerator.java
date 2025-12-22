@@ -448,8 +448,8 @@ public class EdtSynchronizedReportGenerator {
                         List<String> newPath = new ArrayList<>(path);
                         newPath.add(calledMethod);
 
-                        // Check if this is a directly synchronized method
-                        if (directlySynchronizedMethods.contains(calledMethod)) {
+                        // Check if this is a directly synchronized method (and not suppressed)
+                        if (directlySynchronizedMethods.contains(calledMethod) && !isSuppressed(calledMethod)) {
                             System.out.println("    DEBUG BFS: Found path after exploring " + explored + " methods");
                             return newPath;
                         }

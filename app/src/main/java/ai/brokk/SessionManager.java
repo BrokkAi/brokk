@@ -1,5 +1,6 @@
 package ai.brokk;
 
+import ai.brokk.annotation.EdtSafe;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
@@ -399,6 +400,7 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
+    @EdtSafe
     public void saveHistory(ContextHistory ch, UUID sessionId) {
         // ContextHistory is mutable, take a copy before passing it to an async task
         var contextHistory =
