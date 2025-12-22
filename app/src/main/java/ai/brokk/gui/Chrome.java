@@ -581,11 +581,7 @@ public class Chrome
         projectFilesPanel.requestUpdate();
 
         // Ensure the Changes tab reflects the current repo/branch state
-        try {
-            buildPane.requestReviewUpdate();
-        } catch (Exception ex) {
-            logger.debug("Unable to refresh Changes tab after repo update", ex);
-        }
+        buildPane.requestReviewUpdate();
 
         logger.trace("updateGitRepo: finished");
     }

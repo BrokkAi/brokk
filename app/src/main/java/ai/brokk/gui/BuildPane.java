@@ -48,6 +48,7 @@ public class BuildPane extends JPanel implements ThemeAware {
 
     private final JSplitPane buildSplitPane;
     private final JTabbedPane buildReviewTabs;
+    private final int reviewTabIndex;
     private PreviewTabbedPane previewTabbedPane;
     private final JTabbedPane commandPane;
     private final JPanel commandPanel;
@@ -123,6 +124,8 @@ public class BuildPane extends JPanel implements ThemeAware {
         buildReviewTabs = new JTabbedPane(JTabbedPane.TOP);
         buildReviewTabs.addTab("Build", Icons.SCIENCE, buildSplitPane);
         buildReviewTabs.addTab("Review", Icons.FLOWSHEET, reviewTabContainer);
+        reviewTabIndex = buildReviewTabs.indexOfTab("Review");
+
         // Set minimum size to preferred size to ensure the tab labels and icons are respected
         reviewTabContainer.setMinimumSize(reviewTabContainer.getPreferredSize());
 
@@ -365,30 +368,26 @@ public class BuildPane extends JPanel implements ThemeAware {
     }
 
     public void setReviewTabTitle(String title) {
-        int idx = buildReviewTabs.indexOfTab("Review");
-        if (idx != -1) {
-            buildReviewTabs.setTitleAt(idx, title);
+        if (reviewTabIndex != -1) {
+            buildReviewTabs.setTitleAt(reviewTabIndex, title);
         }
     }
 
     public void setReviewTabTooltip(String tooltip) {
-        int idx = buildReviewTabs.indexOfTab("Review");
-        if (idx != -1) {
-            buildReviewTabs.setToolTipTextAt(idx, tooltip);
+        if (reviewTabIndex != -1) {
+            buildReviewTabs.setToolTipTextAt(reviewTabIndex, tooltip);
         }
     }
 
     public void setReviewTabLoading(boolean loading) {
-        int idx = buildReviewTabs.indexOfTab("Review");
-        if (idx != -1) {
-            buildReviewTabs.setIconAt(idx, loading ? Icons.REFRESH : Icons.FLOWSHEET);
+        if (reviewTabIndex != -1) {
+            buildReviewTabs.setIconAt(reviewTabIndex, loading ? Icons.REFRESH : Icons.FLOWSHEET);
         }
     }
 
     public void selectReviewTab() {
-        int idx = buildReviewTabs.indexOfTab("Review");
-        if (idx != -1) {
-            buildReviewTabs.setSelectedIndex(idx);
+        if (reviewTabIndex != -1) {
+            buildReviewTabs.setSelectedIndex(reviewTabIndex);
         }
     }
 
