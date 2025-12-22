@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.agents.MergeAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
 import io.github.jbellis.brokk.agents.SearchAgent.Terminal;
 import io.github.jbellis.brokk.analyzer.*;
+import io.github.jbellis.brokk.analyzer.DeclarationsProvider;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
@@ -230,6 +231,11 @@ public final class BrokkCli implements Callable<Integer> {
 
         // Create Project + ContextManager
         var mainProject = new MainProject(projectPath);
+        if (mainProject.getRepo().isWorktree() && worktreePath == null) {
+            System.err.println(
+                    "Error: The specified project path is a Git worktree. To work with a worktree, use both --project (pointing to the main repository) and --worktree (pointing to the worktree directory).");
+            return 1;
+        }
         project = worktreePath == null ? mainProject : new WorktreeProject(worktreePath, mainProject);
         cm = new ContextManager(project);
         cm.createHeadless();
@@ -267,13 +273,30 @@ public final class BrokkCli implements Callable<Integer> {
         var workspaceTools = new WorkspaceTools(cm);
 
         // --- Name Resolution and Context Building ---
-        boolean callsAndUsagesRequired = !addUsages.isEmpty() || !addCallers.isEmpty() || !addCallees.isEmpty();
-
-        if (callsAndUsagesRequired) {
+        boolean declarationsRequired = !addClasses.isEmpty() || !addSummaryClasses.isEmpty();
+        if (declarationsRequired) {
             var analyzer = cm.getAnalyzer();
-            if (!(analyzer instanceof CallGraphProvider && analyzer instanceof UsagesProvider)) {
+            if (!(analyzer instanceof DeclarationsProvider)) {
                 System.err.println(
                         "One or more of the requested options requires Code Intelligence, which is not available.");
+                return 1;
+            }
+        }
+
+        if (!addUsages.isEmpty()) {
+            var analyzer = cm.getAnalyzer();
+            if (!(analyzer instanceof UsagesProvider)) {
+                System.err.println(
+                        "Finding usages requires Code Intelligence, which is not available.");
+                return 1;
+            }
+        }
+
+        if (!addCallers.isEmpty() || !addCallees.isEmpty()) {
+            var analyzer = cm.getAnalyzer();
+            if (!(analyzer instanceof CallGraphProvider)) {
+                System.err.println(
+                        "Call graph generation requires Code Intelligence, which is not available.");
                 return 1;
             }
         }

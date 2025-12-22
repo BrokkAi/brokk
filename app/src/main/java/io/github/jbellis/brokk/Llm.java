@@ -73,6 +73,23 @@ public class Llm {
     /** Base directory where LLM interaction history logs are stored. */
     public static final String HISTORY_DIR_NAME = "llm-history";
 
+    /**
+     * Callback interface for LLM retry events. Allows callers to receive notifications when retries occur, enabling
+     * better UI feedback and metrics tracking.
+     */
+    @FunctionalInterface
+    public interface RetryCallback {
+        /**
+         * Called when a retry is about to be attempted.
+         *
+         * @param attempt the current attempt number (1-indexed, so first retry is attempt 2)
+         * @param maxAttempts the maximum number of attempts
+         * @param error the error that caused the retry
+         * @param backoffSeconds the number of seconds to wait before retrying
+         */
+        void onRetry(int attempt, int maxAttempts, Throwable error, long backoffSeconds);
+    }
+
     private IConsoleIO io;
     private final Path taskHistoryDir; // Directory for this specific LLM task's history files
     final IContextManager contextManager;
@@ -80,6 +97,8 @@ public class Llm {
     private final StreamingChatModel model;
     private final boolean allowPartialResponses;
     private final boolean tagRetain;
+
+    private @Nullable RetryCallback retryCallback;
 
     // Monotonically increasing sequence for emulated tool request IDs
     private final AtomicInteger toolRequestIdSeq = new AtomicInteger();
@@ -514,6 +533,13 @@ public class Llm {
             // wait between attempts
             long backoffSeconds = 1L << (attempt - 1);
             backoffSeconds = Math.min(backoffSeconds, 16L);
+
+            var callback = retryCallback;
+            if (callback != null) {
+                int retryAttempt = attempt + 1;
+                Throwable errorForCallback = lastError == null ? new EmptyResponseError() : lastError;
+                callback.onRetry(retryAttempt, maxAttempts, errorForCallback, backoffSeconds);
+            }
 
             // Busywait with countdown
             if (backoffSeconds > 1) {
@@ -1317,6 +1343,10 @@ public class Llm {
             var messageText = text == null ? "" : text;
             return new AiMessage(messageText, reasoningContent, toolRequests);
         }
+    }
+
+    public void setRetryCallback(@Nullable RetryCallback callback) {
+        this.retryCallback = callback;
     }
 
     public void setOutput(IConsoleIO io) {
