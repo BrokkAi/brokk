@@ -63,7 +63,7 @@ public class PreviewManager {
 
     // Track preview windows by ProjectFile for refresh on file changes
     private final Map<ProjectFile, JFrame> projectFileToPreviewWindow = new ConcurrentHashMap<>();
-    private boolean isPreviewDocked = true;
+    private boolean isPreviewDocked;
 
     /** Raise the given window to the front and give it focus. */
     public static void raiseWindow(Window window) {
@@ -88,6 +88,12 @@ public class PreviewManager {
 
     public Map<ProjectFile, JFrame> getProjectFileToPreviewWindow() {
         return projectFileToPreviewWindow;
+    }
+
+    public void setPreviewDocked(boolean docked) {
+        if (this.isPreviewDocked == docked) return;
+        this.isPreviewDocked = docked;
+        chrome.getBuildPane().setPreviewDocked(docked);
     }
 
     // Shared frame for all PreviewTextPanel tabs
@@ -215,80 +221,73 @@ public class PreviewManager {
      */
     public void showPreviewInTabbedFrame(String title, JComponent panel, @Nullable ContextFragment fragment) {
         SwingUtilities.invokeLater(() -> {
-            // Try BuildPane first
-            BuildPane buildPane = chrome.getBuildPane();
-            if (isPreviewDocked) {
-                var previewTabs = buildPane.getPreviewTabbedPane();
-                ProjectFile file = extractFileKey(panel, fragment);
+            ProjectFile file = extractFileKey(panel, fragment);
 
+            if (isPreviewDocked) {
+                BuildPane buildPane = chrome.getBuildPane();
+                var previewTabs = buildPane.getPreviewTabbedPane();
                 previewTabs.addOrSelectTab(title, panel, file, fragment);
                 if (file != null) {
                     projectFileToPreviewWindow.put(file, chrome.getFrame());
                 }
-
                 buildPane.selectPreviewTab();
                 return;
             }
 
-            // Fallback to standalone frame
-            if (previewFrame == null || !previewFrame.isDisplayable()) {
-                previewFrame = new PreviewFrame(chrome, chrome.getTheme());
+            // Standalone frame
+            ensurePreviewFrame();
+            var frame = castNonNull(previewFrame);
 
-                // Set bounds using same logic as regular preview windows
-                var project = cm.getProject();
-                var storedBounds = project.getPreviewWindowBounds();
-                if (storedBounds.width > 0 && storedBounds.height > 0) {
-                    previewFrame.setBounds(storedBounds);
-                    if (!chrome.isPositionOnScreen(storedBounds.x, storedBounds.y)) {
-                        previewFrame.setLocationRelativeTo(chrome.getFrame());
-                    }
-                } else {
-                    previewFrame.setSize(800, 600);
-                    previewFrame.setLocationRelativeTo(chrome.getFrame());
-                }
-
-                // Set minimum size
-                previewFrame.setMinimumSize(new Dimension(700, 200));
-
-                // Add listener to save bounds
-                previewFrame.addComponentListener(new ComponentAdapter() {
-                    @Override
-                    public void componentMoved(ComponentEvent e) {
-                        cm.getProject().savePreviewWindowBounds(castNonNull(previewFrame));
-                    }
-
-                    @Override
-                    public void componentResized(ComponentEvent e) {
-                        cm.getProject().savePreviewWindowBounds(castNonNull(previewFrame));
-                    }
-                });
-
-                // Apply theme
-                previewFrame.applyTheme(chrome.getTheme());
-            }
-
-            // Compute file key from panel or fragment
-            ProjectFile file = extractFileKey(panel, fragment);
-
-            // Add or select tab with both file and fragment keys for deduplication
-            previewFrame.addOrSelectTab(title, panel, file, fragment);
-
-            // Track file mapping if applicable
+            frame.addOrSelectTab(title, panel, file, fragment);
             if (file != null) {
-                projectFileToPreviewWindow.put(file, previewFrame);
+                projectFileToPreviewWindow.put(file, frame);
             }
 
-            // Show and focus
-            previewFrame.setVisible(true);
-            previewFrame.toFront();
-            previewFrame.requestFocus();
+            frame.setVisible(true);
+            frame.toFront();
+            frame.requestFocus();
 
-            // macOS focus workaround
             if (SystemInfo.isMacOS) {
-                previewFrame.setAlwaysOnTop(true);
-                previewFrame.setAlwaysOnTop(false);
+                frame.setAlwaysOnTop(true);
+                frame.setAlwaysOnTop(false);
             }
         });
+    }
+
+    private void ensurePreviewFrame() {
+        if (previewFrame != null && previewFrame.isDisplayable()) {
+            return;
+        }
+
+        previewFrame = new PreviewFrame(chrome, chrome.getTheme());
+        var frame = previewFrame;
+
+        var project = cm.getProject();
+        var storedBounds = project.getPreviewWindowBounds();
+        if (storedBounds.width > 0 && storedBounds.height > 0) {
+            frame.setBounds(storedBounds);
+            if (!chrome.isPositionOnScreen(storedBounds.x, storedBounds.y)) {
+                frame.setLocationRelativeTo(chrome.getFrame());
+            }
+        } else {
+            frame.setSize(800, 600);
+            frame.setLocationRelativeTo(chrome.getFrame());
+        }
+
+        frame.setMinimumSize(new Dimension(700, 200));
+        frame.addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentMoved(ComponentEvent e) {
+                cm.getProject().savePreviewWindowBounds(frame);
+            }
+
+            @Override
+            public void componentResized(ComponentEvent e) {
+                cm.getProject().savePreviewWindowBounds(frame);
+            }
+        });
+
+        frame.applyTheme(chrome.getTheme());
     }
 
     /**
