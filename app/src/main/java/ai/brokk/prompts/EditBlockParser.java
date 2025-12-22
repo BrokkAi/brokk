@@ -5,6 +5,7 @@ import static ai.brokk.prompts.EditBlockUtils.*;
 import ai.brokk.EditBlock;
 import ai.brokk.analyzer.ProjectFile;
 import java.util.*;
+import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -28,7 +29,7 @@ public class EditBlockParser {
         var editBlocks = all.blocks().stream()
                 .map(EditBlock.OutputBlock::block)
                 .filter(Objects::nonNull)
-                .toList();
+                .collect(Collectors.toCollection(LinkedHashSet::new));
 
         if (!editBlocks.isEmpty() || all.parseError() != null) {
             return new EditBlock.ParseResult(editBlocks, all.parseError());
@@ -64,6 +65,14 @@ public class EditBlockParser {
             if (hasAtAt && hasPlusMinus) return true;
         }
         return false;
+    }
+
+    // Detect forbidden BRK markers in REPLACE blocks.
+    private static final java.util.regex.Pattern BRK_MARKER_IN_REPLACE_PATTERN =
+            java.util.regex.Pattern.compile("(?m)^BRK_(CLASS|FUNCTION|ENTIRE_FILE|CONFLICT)");
+
+    private static boolean containsBrkMarkerInReplace(String text) {
+        return BRK_MARKER_IN_REPLACE_PATTERN.matcher(text).find();
     }
 
     /**
@@ -130,6 +139,11 @@ public class EditBlockParser {
                     var afterJoined =
                             stripQuotedWrapping(String.join("\n", scan.after), Objects.toString(blockFilename, ""));
 
+                    if (containsBrkMarkerInReplace(afterJoined)) {
+                        return new EditBlock.ExtendedParseResult(
+                                blocks, "BRK_* markers are only allowed in SEARCH blocks, not in REPLACE blocks.");
+                    }
+
                     if (!beforeJoined.isEmpty() && !beforeJoined.endsWith("\n")) beforeJoined += "\n";
                     if (!afterJoined.isEmpty() && !afterJoined.endsWith("\n")) afterJoined += "\n";
 
@@ -169,6 +183,11 @@ public class EditBlockParser {
                         stripQuotedWrapping(String.join("\n", scan.before), Objects.toString(currentFilename, ""));
                 var afterJoined =
                         stripQuotedWrapping(String.join("\n", scan.after), Objects.toString(currentFilename, ""));
+
+                if (containsBrkMarkerInReplace(afterJoined)) {
+                    return new EditBlock.ExtendedParseResult(
+                            blocks, "BRK_* markers are only allowed in SEARCH blocks, not in REPLACE blocks.");
+                }
 
                 if (!beforeJoined.isEmpty() && !beforeJoined.endsWith("\n")) beforeJoined += "\n";
                 if (!afterJoined.isEmpty() && !afterJoined.endsWith("\n")) afterJoined += "\n";

@@ -10,7 +10,8 @@ import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
+import ai.brokk.context.ContextHistory;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo.ModifiedFile;
 import ai.brokk.tools.GitTools;
@@ -36,6 +37,7 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -115,6 +117,7 @@ public class MergeAgent {
      * High-level merge entry point. First annotates all conflicts, then resolves them file-by-file. Also publishes
      * commit explanations for the relevant ours/theirs commits discovered by blame.
      */
+    @Blocking
     public TaskResult execute() throws IOException, GitAPIException, InterruptedException {
         logger.debug("MergeAgent.execute() started for mode: {}, otherCommitId: {}", mode, otherCommitId);
         codeAgentFailures.clear();
@@ -284,7 +287,7 @@ public class MergeAgent {
         // to verification
         var testFiles = testFilesReferencedInOursAndTheirs();
         logger.debug("Test files referenced in changes: {}", testFiles);
-        var buildContext = new Context(cm, "").addPathFragments(cm.toPathFragments(testFiles));
+        var buildContext = new Context(cm).addFragments(cm.toPathFragments(testFiles));
 
         // Run verification step if configured
         logger.debug("Running verification step.");
@@ -306,7 +309,7 @@ public class MergeAgent {
             logger.debug(msg);
             cm.getIo().llmOutput(msg, ChatMessageType.AI);
 
-            var ctx = new Context(cm, "Resolved conflicts").addPathFragments(cm.toPathFragments(changedFiles));
+            var ctx = new Context(cm).addFragments(cm.toPathFragments(changedFiles));
             return new TaskResult(
                     cm,
                     "Merge",
@@ -434,8 +437,8 @@ public class MergeAgent {
     }
 
     private void addTextToWorkspace(String title, String text) {
-        var fragment = new ContextFragment.StringFragment(cm, text, title, SyntaxConstants.SYNTAX_STYLE_NONE);
-        cm.addVirtualFragment(fragment);
+        var fragment = new ContextFragments.StringFragment(cm, text, title, SyntaxConstants.SYNTAX_STYLE_NONE);
+        cm.addFragments(fragment);
     }
 
     /** Metadata describing non-textual aspects of a conflict detected from the git index and trees. */
@@ -713,19 +716,26 @@ public class MergeAgent {
         }
     }
 
+    @Blocking
     private TaskResult interruptedResult(String message) {
         // Build resulting context that contains all conflict files
         var top = cm.liveContext();
         var conflictFiles = allConflictFilesInWorkspace();
+        // Give fragments time to compute if necessary
+        try {
+            top.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+        } catch (InterruptedException e) {
+            logger.warn("Interrupted while waiting for contexts to be computed", e);
+        }
         var existingEditableFiles = top.fileFragments()
                 .filter(cf -> cf.getType().isEditable())
-                .flatMap(cf -> cf.files().stream())
+                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
                 .collect(Collectors.toSet());
         var fragmentsToAdd = conflictFiles.stream()
                 .filter(pf -> !existingEditableFiles.contains(pf))
-                .map(pf -> new ContextFragment.ProjectPathFragment(pf, cm))
+                .map(pf -> new ContextFragments.ProjectPathFragment(pf, cm))
                 .toList();
-        Context resultingCtx = fragmentsToAdd.isEmpty() ? top : top.addPathFragments(fragmentsToAdd);
+        Context resultingCtx = fragmentsToAdd.isEmpty() ? top : top.addFragments(fragmentsToAdd);
 
         return new TaskResult(
                 cm,

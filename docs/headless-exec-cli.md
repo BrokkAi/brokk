@@ -46,9 +46,11 @@ Or via Gradle:
 
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
-| `--mode MODE` | String | No | `ARCHITECT` | Execution mode: `ASK`, `CODE`, `ARCHITECT`, or `LUTZ` |
+| `--mode MODE` | String | No | `ARCHITECT` | Execution mode: `ASK`, `CODE`, `ARCHITECT`, `LUTZ`, or `SEARCH` |
 | `--planner-model MODEL` | String | **Yes** | N/A | LLM model for planning and reasoning (e.g., `gpt-5`, `claude-3-opus`) |
-| `--code-model MODEL` | String | No | Project default | LLM model for code generation (CODE and ARCHITECT modes) |
+| `--scan-model MODEL` | String | No | Project default | LLM model to use for repository scanning (used by `SEARCH` mode; if omitted, the project's default scan model is used) |
+| `--code-model MODEL` | String | No | Project default | LLM model for code generation (CODE and ARCHITECT modes). Note: `--code-model` is ignored when using `--mode SEARCH` or `--mode ASK`. |
+| `--pre-scan` | Flag | No | `false` | When used together with `--mode ASK`, enable a repository pre-scan that seeds the Workspace before ASK reasoning. If provided, `--scan-model` will be used for the pre-scan; otherwise the project's default scan model is used. Ignored for modes other than `ASK`. |
 | `--token TOKEN` | String | No | Random UUID | Authentication token for the executor (defaults to a randomly generated UUID if not provided) |
 | `--auto-commit` | Flag | No | `false` | Enable automatic git commits after task completion |
 | `--auto-compress` | Flag | No | `false` | Enable automatic context compression to reduce token usage |
@@ -56,6 +58,13 @@ Or via Gradle:
 | `<prompt>` | Positional | **Yes** | N/A | The task or question to submit to the executor |
 
 ## Usage Examples
+
+| Option | Description |
+|--------|-------------|
+| ASK Mode: Read-Only Codebase Search | Search and explore code without making modifications: `--mode ASK` |
+| SEARCH Mode: Read-Only Repository Scan | Explicit scan-only mode where you can choose the scanning LLM via `--scan-model` |
+| CODE Mode: Single-Shot Code Generation | Use `--mode CODE` and provide `--code-model` for code generation |
+| ARCHITECT / LUTZ | Multi-step planning and execution flows |
 
 ### ASK Mode: Read-Only Codebase Search
 
@@ -65,11 +74,44 @@ Search and explore code without making modifications:
 ./gradlew :app:runHeadlessCli --args "--mode ASK --planner-model gpt-5 'Find the UserService class and explain its responsibilities'"
 ```
 
-**Characteristics:**
+Characteristics:
 - Read-only: no code changes or commits
 - Uses `SearchAgent` for intelligent codebase exploration
 - `--code-model` is ignored (SearchAgent doesn't generate code)
 - Streams search results and code summaries
+
+Optional pre-scan:
+- Use `--pre-scan` (only meaningful with `--mode ASK`) to seed the Workspace via a repository scan before running ASK reasoning. This can improve recall for large repositories or vague queries.
+- If you pass `--scan-model` together with `--pre-scan`, the CLI will include the scan model in the job payload and the executor will use that model for the prescan. If you omit `--scan-model`, the project's default scan model will be used by the executor.
+
+ASK with pre-scan (explicit scan model):
+
+```bash
+./gradlew :app:runHeadlessCli --args "--mode ASK --planner-model gpt-5 --pre-scan --scan-model gpt-5-mini 'Find the UserService class and explain its responsibilities'"
+```
+
+ASK with pre-scan (use project default scan model):
+
+```bash
+./gradlew :app:runHeadlessCli --args "--mode ASK --planner-model gpt-5 --pre-scan 'Summarize where AuthenticationManager is used across the repo.'"
+```
+
+**Note:** The `--pre-scan` flag is ignored unless `--mode ASK` is selected.
+
+### SEARCH Mode: Read-Only Repository Scan
+
+Run an explicit repository scan and discovery using a chosen scan model. SEARCH is read-only like ASK but gives callers control over which model does the scanning.
+
+```bash
+./gradlew :app:runHeadlessCli --args "--mode SEARCH --planner-model gpt-5 --scan-model gpt-5-mini 'Describe the project layout and list files related to authentication'"
+```
+
+Characteristics:
+- Read-only: no code changes, no commits
+- Uses `SearchAgent` for repository discovery and summaries
+- `--scan-model` selects the scanning LLM for SEARCH; if omitted, the project default scan model is used
+- `--planner-model` is still required by the CLI/API for validation
+- `--code-model` is ignored when running in `SEARCH` mode
 
 ### CODE Mode: Single-Shot Code Generation
 
@@ -79,7 +121,7 @@ Generate code quickly for a specific task:
 ./gradlew :app:runHeadlessCli --args "--mode CODE --planner-model gpt-5 --code-model gpt-5-mini 'Create a utility class to sanitize filenames'"
 ```
 
-**Characteristics:**
+Characteristics:
 - Generates code for a single objective (no decomposition)
 - Uses `plannerModel` for reasoning, `codeModel` for code generation
 - No automatic commits unless `--auto-commit` is specified
@@ -93,7 +135,7 @@ Full multi-step planning and implementation workflow (default):
 ./gradlew :app:runHeadlessCli --args "--mode ARCHITECT --planner-model gpt-5 --code-model gpt-5-mini --auto-commit 'Refactor the authentication module to improve error handling and add comprehensive logging'"
 ```
 
-**Characteristics:**
+Characteristics:
 - Implicit per-task reasoning and planning
 - User provides task via `--prompt` (tasks are not auto-decomposed)
 - Uses `plannerModel` for reasoning, `codeModel` for implementation
@@ -108,12 +150,11 @@ Auto-decompose complex objectives into tasks, then execute each:
 ./gradlew :app:runHeadlessCli --args "--mode LUTZ --planner-model gpt-5 --code-model gpt-5-mini --auto-commit --auto-compress 'Add comprehensive error handling to the UserService class and ensure all exceptions are properly logged with context'"
 ```
 
-**Characteristics:**
+Characteristics:
 - Two-phase execution: planning → task decomposition → sequential execution
 - `SearchAgent` generates a structured task list from your objective
 - `ArchitectAgent` executes each subtask sequentially
 - Respects `--auto-commit` and `--auto-compress` per task
-- Streams planning and execution events
 - Ideal for complex objectives that benefit from structured decomposition
 
 ## Authentication and Tokens
@@ -236,7 +277,7 @@ This enables:
 Optimize cost and performance by using different models:
 
 ```bash
-./gradlew :app:runHeadlessCli --args "--mode ARCHITECT --planner-model gpt-5 --code-model gpt-5-mini 'Add comprehensive error handling'"
+./gradlew :app:runHeadlessCli --args "--planner-model gpt-5 --mode ARCHITECT --code-model gpt-5-mini 'Add comprehensive error handling'"
 ```
 
 - `--planner-model`: More capable model for reasoning (typically more expensive)

@@ -10,6 +10,8 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.gui.util.GitDiffUiUtil;
+import ai.brokk.gui.util.GitRepoIdUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.issues.FilterOptions;
 import ai.brokk.issues.IssueProviderType;
@@ -29,9 +31,12 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Function;
 import javax.swing.*;
 import javax.swing.BorderFactory;
 import javax.swing.SwingWorker;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import org.apache.logging.log4j.LogManager;
@@ -46,44 +51,56 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private final SettingsDialog parentDialog;
 
     // General UI Components
-    private JTextArea styleGuideArea = new JTextArea(5, 40);
-    private JTextArea commitFormatArea = new JTextArea(5, 40);
+    private final JTextArea styleGuideArea = new JTextArea(5, 40);
+    private final JTextArea commitFormatArea = new JTextArea(5, 40);
 
     @Nullable
     private JTextArea reviewGuideArea;
 
-    // CI Exclusions (moved to build panel; kept list model only for short-term compatibility removal)
-    // Analyzer-related UI
-    private DefaultListModel<String> excludedDirectoriesListModel = new DefaultListModel<>();
-    private JList<String> excludedDirectoriesList = new JList<>(excludedDirectoriesListModel);
-    private JScrollPane excludedScrollPane = new JScrollPane(excludedDirectoriesList);
-    private MaterialButton addExcludedDirButton = new MaterialButton();
-    private MaterialButton removeExcludedDirButton = new MaterialButton();
+    // Unified exclusion patterns (directories and file patterns combined)
+    private final DefaultListModel<String> exclusionPatternsListModel = new DefaultListModel<>();
+    private final JList<String> exclusionPatternsList = new JList<>(exclusionPatternsListModel);
+    private final JScrollPane exclusionPatternsScrollPane = new JScrollPane(exclusionPatternsList);
+    private final MaterialButton addExclusionButton = new MaterialButton();
+    private final MaterialButton removeExclusionButton = new MaterialButton();
+    private final Set<String> newlyAddedPatterns = new HashSet<>(); // Track patterns added by BuildAgent or manually
+    private final Set<String> baselinePatterns =
+            new TreeSet<>(String.CASE_INSENSITIVE_ORDER); // Patterns loaded from storage
 
-    private Set<Language> currentAnalyzerLanguagesForDialog = new HashSet<>();
+    // Dependency auto-update (Code Intelligence tab)
+    private final JCheckBox autoUpdateLocalDependenciesCheckBox =
+            new JCheckBox("Automatically update local path dependencies");
+    private final JCheckBox autoUpdateGitDependenciesCheckBox =
+            new JCheckBox("Automatically update GitHub dependencies");
 
-    private JTabbedPane projectSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
+    private final Set<Language> currentAnalyzerLanguagesForDialog = new HashSet<>();
+
+    private final JTabbedPane projectSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
     // Issue Provider related UI
-    private JComboBox<IssueProviderType> issueProviderTypeComboBox = new JComboBox<>(IssueProviderType.values());
-    private CardLayout issueProviderCardLayout = new CardLayout();
-    private JPanel issueProviderConfigPanel = new JPanel(issueProviderCardLayout);
+    private final JComboBox<IssueProviderType> issueProviderTypeComboBox = new JComboBox<>(IssueProviderType.values());
+    private final CardLayout issueProviderCardLayout = new CardLayout();
+    private final JPanel issueProviderConfigPanel = new JPanel(issueProviderCardLayout);
 
     // GitHub specific fields
-    private JTextField githubOwnerField = new JTextField(20);
-    private JTextField githubRepoField = new JTextField(20);
-    private JTextField githubHostField = new JTextField(20);
-    private JCheckBox githubOverrideCheckbox = new JCheckBox("Fetch issues from a different GitHub repository");
+    private final JTextField githubOwnerField = new JTextField(20);
+    private final JTextField githubRepoField = new JTextField(20);
+    private final JTextField githubHostField = new JTextField(20);
+    private final JCheckBox githubOverrideCheckbox = new JCheckBox("Fetch issues from a different GitHub repository");
+    private final JLabel githubOwnerLabel = new JLabel();
+    private final JLabel githubRepoLabel = new JLabel();
+    private final JLabel githubHostLabel = new JLabel();
+    private final JLabel githubInfoLabel = new JLabel();
 
     private static final String NONE_CARD = "None";
     private static final String GITHUB_CARD = "GitHub";
     private static final String JIRA_CARD = "Jira";
 
     // Jira specific fields
-    private JTextField jiraProjectKeyField = new JTextField();
-    private JTextField jiraBaseUrlField = new JTextField();
-    private JPasswordField jiraApiTokenField = new JPasswordField();
-    private MaterialButton testJiraConnectionButton = new MaterialButton("Test Jira Connection");
+    private final JTextField jiraProjectKeyField = new JTextField();
+    private final JTextField jiraBaseUrlField = new JTextField();
+    private final JPasswordField jiraApiTokenField = new JPasswordField();
+    private final MaterialButton testJiraConnectionButton = new MaterialButton("Test Jira Connection");
 
     // Holds the analyzer configuration panels so we can persist their settings when the user clicks Apply/OK.
     private final LinkedHashMap<Language, AnalyzerSettingsPanel> analyzerSettingsCache = new LinkedHashMap<>();
@@ -99,13 +116,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     @Nullable
     private LanguagesTableModel languagesTableModel;
 
-    /**
-     * Constructor for creating panel without data (will be populated later).
-     * Panel starts in disabled state until data is loaded.
-     */
     public SettingsProjectPanel(
             Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton) {
-        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         this.chrome = chrome;
         this.parentDialog = parentDialog;
         this.okButtonParent = okButton;
@@ -123,7 +135,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
      * Populates UI fields from pre-loaded settings data. No I/O operations.
      * Must be called on EDT. Enables the panel after populating.
      */
-    public void populateFromData(SettingsData data) {
+    public void populateFromData(SettingsDialog.SettingsData data) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
         // Enable panel now that we have data
@@ -135,7 +147,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         populateBuildTab(data);
     }
 
-    private void populateGeneralTab(SettingsData data) {
+    private void populateGeneralTab(SettingsDialog.SettingsData data) {
         styleGuideArea.setText(data.styleGuide() != null ? data.styleGuide() : "");
         styleGuideArea.setCaretPosition(0); // Reset scroll position to top
         commitFormatArea.setText(data.commitMessageFormat() != null ? data.commitMessageFormat() : "");
@@ -190,16 +202,13 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private void populateBuildTab(SettingsData data) {
+    private void populateBuildTab(SettingsDialog.SettingsData data) {
         // Build details - use pre-loaded data
         if (data.buildDetails() != null) {
-            updateExcludedDirectories(data.buildDetails().excludedDirectories());
+            updateExclusionPatterns(data.buildDetails().exclusionPatterns());
         } else {
-            updateExcludedDirectories(List.of());
+            updateExclusionPatterns(Set.of());
         }
-
-        // Build Tab - delegate to buildPanelInstance
-        buildPanelInstance.loadBuildPanelSettings();
     }
 
     private void initComponents() {
@@ -237,21 +246,44 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         return projectSubTabbedPane;
     }
 
-    // Update CI exclusions list model safely and consistently (EDT, sorted, deduped case-insensitively)
-    public void updateExcludedDirectories(@Nullable Collection<String> dirs) {
+    // Update exclusion patterns list model safely and consistently (EDT, sorted, deduped case-insensitively)
+    public void updateExclusionPatterns(@Nullable Collection<String> patterns) {
+        updateExclusionPatternsInternal(patterns, null);
+    }
+
+    // Update exclusion patterns from BuildAgent, marking LLM additions for highlighting
+    public void updateExclusionPatternsFromAgent(
+            @Nullable Collection<String> patterns, @Nullable Set<String> llmAddedPatterns) {
+        updateExclusionPatternsInternal(patterns, llmAddedPatterns);
+    }
+
+    private void updateExclusionPatternsInternal(
+            @Nullable Collection<String> patterns, @Nullable Set<String> llmPatternsToHighlight) {
         Runnable r = () -> {
             try {
                 var unique = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
-                if (dirs != null) {
-                    unique.addAll(dirs);
+                if (patterns != null) {
+                    unique.addAll(patterns);
                 }
-                excludedDirectoriesListModel.clear();
-                for (String d : unique) {
-                    excludedDirectoriesListModel.addElement(d);
+
+                if (llmPatternsToHighlight != null) {
+                    // From agent: highlight only the LLM-added patterns
+                    newlyAddedPatterns.clear();
+                    newlyAddedPatterns.addAll(llmPatternsToHighlight);
+                } else {
+                    // Loading from storage: update baseline and clear tracking
+                    baselinePatterns.clear();
+                    baselinePatterns.addAll(unique);
+                    newlyAddedPatterns.clear();
+                }
+
+                exclusionPatternsListModel.clear();
+                for (String p : unique) {
+                    exclusionPatternsListModel.addElement(p);
                 }
             } catch (Exception ex) {
-                logger.warn("Failed to update CI exclusions list model: {}", ex.getMessage(), ex);
-                excludedDirectoriesListModel.clear();
+                logger.warn("Failed to update exclusion patterns list model: {}", ex.getMessage(), ex);
+                exclusionPatternsListModel.clear();
             }
         };
         if (SwingUtilities.isEventDispatchThread()) {
@@ -274,7 +306,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.weightx = 0.0;
         gbc.anchor = GridBagConstraints.NORTHWEST;
         gbc.fill = GridBagConstraints.NONE;
-        generalPanel.add(new JLabel("Style Guide:"), gbc);
+        generalPanel.add(new JLabel("AGENTS.md:"), gbc);
         styleGuideArea.setWrapStyleWord(true);
         styleGuideArea.setLineWrap(true);
         var styleScrollPane = new JScrollPane(styleGuideArea);
@@ -485,7 +517,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcGitHub.gridy = githubRow;
         gbcGitHub.weightx = 0.0;
         gbcGitHub.fill = GridBagConstraints.NONE;
-        gitHubCard.add(new JLabel("Owner:"), gbcGitHub);
+        githubOwnerLabel.setText("Owner:");
+        gitHubCard.add(githubOwnerLabel, gbcGitHub);
         gbcGitHub.gridx = 1;
         gbcGitHub.gridy = githubRow++;
         gbcGitHub.weightx = 1.0;
@@ -496,18 +529,43 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcGitHub.gridy = githubRow;
         gbcGitHub.weightx = 0.0;
         gbcGitHub.fill = GridBagConstraints.NONE;
-        gitHubCard.add(new JLabel("Repository:"), gbcGitHub);
+        githubRepoLabel.setText("Repository:");
+        gitHubCard.add(githubRepoLabel, gbcGitHub);
         gbcGitHub.gridx = 1;
         gbcGitHub.gridy = githubRow++;
         gbcGitHub.weightx = 1.0;
         gbcGitHub.fill = GridBagConstraints.HORIZONTAL;
         gitHubCard.add(githubRepoField, gbcGitHub);
 
+        // Individual validation for owner field
+        Function<String, Optional<String>> ownerValidator = ownerText -> {
+            if (!githubOverrideCheckbox.isSelected() || ownerText.isEmpty()) {
+                return Optional.empty();
+            }
+            return GitRepoIdUtil.validateOwnerFormat(ownerText);
+        };
+
+        // Individual validation for repo field
+        Function<String, Optional<String>> repoValidator = repoText -> {
+            if (!githubOverrideCheckbox.isSelected() || repoText.isEmpty()) {
+                return Optional.empty();
+            }
+            return GitRepoIdUtil.validateRepoFormat(repoText);
+        };
+
+        githubOwnerField
+                .getDocument()
+                .addDocumentListener(GitDiffUiUtil.createRealtimeValidationListener(githubOwnerField, ownerValidator));
+        githubRepoField
+                .getDocument()
+                .addDocumentListener(GitDiffUiUtil.createRealtimeValidationListener(githubRepoField, repoValidator));
+
         gbcGitHub.gridx = 0;
         gbcGitHub.gridy = githubRow;
         gbcGitHub.weightx = 0.0;
         gbcGitHub.fill = GridBagConstraints.NONE;
-        gitHubCard.add(new JLabel("Host (optional):"), gbcGitHub);
+        githubHostLabel.setText("Host (optional):");
+        gitHubCard.add(githubHostLabel, gbcGitHub);
         githubHostField.setToolTipText("e.g., github.mycompany.com (leave blank for github.com)");
         gbcGitHub.gridx = 1;
         gbcGitHub.gridy = githubRow++;
@@ -515,33 +573,92 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcGitHub.fill = GridBagConstraints.HORIZONTAL;
         gitHubCard.add(githubHostField, gbcGitHub);
 
-        var ghInfoLabel = new JLabel(
+        // Real-time validation for host field
+        Function<String, Optional<String>> hostValidator = hostText -> {
+            if (hostText.isEmpty() || !githubOverrideCheckbox.isSelected()) {
+                return Optional.empty();
+            }
+            var normalizedOpt = GitRepoIdUtil.normalizeGitHubHost(hostText);
+            return normalizedOpt.flatMap(GitRepoIdUtil::validateGitHubHost);
+        };
+        githubHostField
+                .getDocument()
+                .addDocumentListener(GitDiffUiUtil.createRealtimeValidationListener(githubHostField, hostValidator));
+
+        githubInfoLabel.setText(
                 "<html>If not overridden, issues are fetched from the project's own GitHub repository. Uses global GitHub token. Specify host for GitHub Enterprise.</html>");
-        ghInfoLabel.setFont(ghInfoLabel
+        githubInfoLabel.setFont(githubInfoLabel
                 .getFont()
-                .deriveFont(Font.ITALIC, ghInfoLabel.getFont().getSize() * 0.9f));
+                .deriveFont(Font.ITALIC, githubInfoLabel.getFont().getSize() * 0.9f));
         gbcGitHub.gridx = 0;
         gbcGitHub.gridy = githubRow++;
         gbcGitHub.gridwidth = 2;
         gbcGitHub.insets = new Insets(8, 2, 2, 2);
-        gitHubCard.add(ghInfoLabel, gbcGitHub);
+        gitHubCard.add(githubInfoLabel, gbcGitHub);
 
         githubOverrideCheckbox.addActionListener(e -> {
             boolean selected = githubOverrideCheckbox.isSelected();
+            githubOwnerLabel.setVisible(selected);
+            githubOwnerField.setVisible(selected);
+            githubRepoLabel.setVisible(selected);
+            githubRepoField.setVisible(selected);
+            githubHostLabel.setVisible(selected);
+            githubHostField.setVisible(selected);
+            githubInfoLabel.setVisible(selected);
+
+            // Enable/disable text fields based on checkbox selection
             githubOwnerField.setEnabled(selected);
             githubRepoField.setEnabled(selected);
             githubHostField.setEnabled(selected);
+
             if (!selected) {
-                // Optionally clear or reset fields if needed when unchecked
+                // Clear fields when unchecked - validation listener will restore borders
                 githubOwnerField.setText("");
                 githubRepoField.setText("");
                 githubHostField.setText("");
             }
+
+            // Revalidate and repaint to update layout
+            gitHubCard.revalidate();
+            gitHubCard.repaint();
         });
-        // Initial state
-        githubOwnerField.setEnabled(false);
-        githubRepoField.setEnabled(false);
-        githubHostField.setEnabled(false);
+
+        githubRepoField.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                onRepoFieldChanged();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                onRepoFieldChanged();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                onRepoFieldChanged();
+            }
+
+            private void onRepoFieldChanged() {
+                String repoText = githubRepoField.getText().trim();
+                if (!repoText.isEmpty()) {
+                    var parseResult = GitRepoIdUtil.parseOwnerRepoFlexible(repoText);
+                    parseResult.ifPresent(ownerRepo -> SwingUtilities.invokeLater(() -> {
+                        githubOwnerField.setText(ownerRepo.owner());
+                        githubRepoField.setText(ownerRepo.repo());
+                    }));
+                }
+            }
+        });
+
+        // Initial state - hide all fields and labels until checkbox is checked
+        githubOwnerLabel.setVisible(false);
+        githubOwnerField.setVisible(false);
+        githubRepoLabel.setVisible(false);
+        githubRepoField.setVisible(false);
+        githubHostLabel.setVisible(false);
+        githubHostField.setVisible(false);
+        githubInfoLabel.setVisible(false);
 
         gbcGitHub.gridx = 0;
         gbcGitHub.gridy = githubRow;
@@ -763,66 +880,92 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         toolbar.add(refreshBtn);
 
         // User-configured CI Exclusions are stored in BuildDetails and can be edited here.
-        var ciPanel = new JPanel(new GridBagLayout());
-        var gbcCi = new GridBagConstraints();
-        gbcCi.insets = new Insets(2, 2, 2, 2);
-        gbcCi.fill = GridBagConstraints.HORIZONTAL;
-        int ciRow = 0;
+        // Unified exclusion patterns panel (directories and file patterns combined)
+        var exclusionsPanel = new JPanel(new GridBagLayout());
+        var gbcExcl = new GridBagConstraints();
+        gbcExcl.insets = new Insets(2, 2, 2, 2);
+        gbcExcl.fill = GridBagConstraints.HORIZONTAL;
+        int exclRow = 0;
 
-        gbcCi.gridx = 0;
-        gbcCi.gridy = ciRow;
-        gbcCi.weightx = 0.0;
-        gbcCi.anchor = GridBagConstraints.NORTHWEST;
-        var ciExclusionsLabel = new JLabel("CI Exclusions:");
-        ciExclusionsLabel.setToolTipText(
-                "<html>User-configured directories to exclude from Code Intelligence.<br>Additional exclusions from .gitignore and for unmanaged dependencies are applied automatically.</html>");
-        ciPanel.add(ciExclusionsLabel, gbcCi);
-        excludedDirectoriesList.setVisibleRowCount(3);
-        gbcCi.gridx = 1;
-        gbcCi.gridy = ciRow++;
-        gbcCi.weightx = 1.0;
-        gbcCi.weighty = 0.5;
-        gbcCi.fill = GridBagConstraints.BOTH;
-        ciPanel.add(this.excludedScrollPane, gbcCi);
+        gbcExcl.gridx = 0;
+        gbcExcl.gridy = exclRow;
+        gbcExcl.weightx = 0.0;
+        gbcExcl.anchor = GridBagConstraints.NORTHWEST;
+        var exclusionsLabel = new JLabel("Exclusion Patterns:");
+        exclusionsLabel.setToolTipText("<html>Patterns to exclude from Code Intelligence.<br>"
+                + "Directory names (e.g., 'build', 'node_modules') match at any depth.<br>"
+                + "File patterns (e.g., '*.svg', 'package-lock.json') match files.<br>"
+                + "Additional exclusions from .gitignore are applied automatically.</html>");
+        exclusionsPanel.add(exclusionsLabel, gbcExcl);
+        exclusionPatternsList.setVisibleRowCount(5);
+        gbcExcl.gridx = 1;
+        gbcExcl.gridy = exclRow++;
+        gbcExcl.weightx = 1.0;
+        gbcExcl.weighty = 0.5;
+        gbcExcl.fill = GridBagConstraints.BOTH;
+        exclusionsPanel.add(this.exclusionPatternsScrollPane, gbcExcl);
 
-        var excludedButtonsPanel2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        this.addExcludedDirButton.setIcon(Icons.ADD);
-        this.addExcludedDirButton.setToolTipText("Add");
-        this.removeExcludedDirButton.setIcon(Icons.REMOVE);
-        this.removeExcludedDirButton.setToolTipText("Remove");
+        var exclusionButtonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        this.addExclusionButton.setIcon(Icons.ADD);
+        this.addExclusionButton.setToolTipText("Add");
+        this.removeExclusionButton.setIcon(Icons.REMOVE);
+        this.removeExclusionButton.setToolTipText("Remove");
 
-        excludedButtonsPanel2.add(this.addExcludedDirButton);
-        excludedButtonsPanel2.add(Box.createHorizontalStrut(5));
-        excludedButtonsPanel2.add(this.removeExcludedDirButton);
-        gbcCi.gridy = ciRow++;
-        gbcCi.weighty = 0.0;
-        gbcCi.fill = GridBagConstraints.HORIZONTAL;
-        gbcCi.anchor = GridBagConstraints.WEST;
-        ciPanel.add(excludedButtonsPanel2, gbcCi);
+        exclusionButtonsPanel.add(this.addExclusionButton);
+        exclusionButtonsPanel.add(Box.createHorizontalStrut(5));
+        exclusionButtonsPanel.add(this.removeExclusionButton);
+        gbcExcl.gridy = exclRow++;
+        gbcExcl.weighty = 0.0;
+        gbcExcl.fill = GridBagConstraints.HORIZONTAL;
+        gbcExcl.anchor = GridBagConstraints.WEST;
+        exclusionsPanel.add(exclusionButtonsPanel, gbcExcl);
 
-        // Wire add/remove actions for the exclusions buttons.
-        this.addExcludedDirButton.addActionListener(e -> {
-            String newDir = JOptionPane.showInputDialog(
-                    parentDialog,
-                    "Enter directory to exclude (e.g., target/, build/):",
-                    "Add Excluded Directory",
-                    JOptionPane.PLAIN_MESSAGE);
-            if (newDir != null && !newDir.trim().isEmpty()) {
-                String trimmedNewDir = newDir.trim();
-                List<String> currentElements = Collections.list(excludedDirectoriesListModel.elements());
-                if (!currentElements.contains(trimmedNewDir)) { // Avoid duplicates
-                    currentElements.add(trimmedNewDir);
+        // Custom cell renderer to highlight newly added patterns with italics and muted color
+        exclusionPatternsList.setCellRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(
+                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                var c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof String s && newlyAddedPatterns.contains(s)) {
+                    c.setFont(c.getFont().deriveFont(Font.ITALIC));
+                    if (!isSelected) {
+                        c.setForeground(UIManager.getColor("Label.disabledForeground"));
+                    }
                 }
-                currentElements.sort(String::compareToIgnoreCase);
-
-                excludedDirectoriesListModel.clear();
-                currentElements.forEach(excludedDirectoriesListModel::addElement);
+                return c;
             }
         });
-        this.removeExcludedDirButton.addActionListener(e -> {
-            int[] selectedIndices = excludedDirectoriesList.getSelectedIndices();
-            for (int i = selectedIndices.length - 1; i >= 0; i--)
-                excludedDirectoriesListModel.removeElementAt(selectedIndices[i]);
+
+        // Wire add/remove actions for the exclusion patterns buttons.
+        this.addExclusionButton.addActionListener(e -> {
+            String newPattern = JOptionPane.showInputDialog(
+                    parentDialog,
+                    "Enter exclusion pattern (e.g., 'build', 'node_modules', '*.svg', 'package-lock.json'):",
+                    "Add Exclusion Pattern",
+                    JOptionPane.PLAIN_MESSAGE);
+            if (newPattern != null && !newPattern.trim().isEmpty()) {
+                String trimmedPattern = newPattern.trim();
+                // Use case-insensitive set for proper deduplication
+                var unique = new TreeSet<String>(String.CASE_INSENSITIVE_ORDER);
+                unique.addAll(Collections.list(exclusionPatternsListModel.elements()));
+
+                // Track as newly added if it's actually new
+                if (!unique.contains(trimmedPattern)) {
+                    newlyAddedPatterns.add(trimmedPattern);
+                }
+                unique.add(trimmedPattern);
+
+                exclusionPatternsListModel.clear();
+                unique.forEach(exclusionPatternsListModel::addElement);
+            }
+        });
+        this.removeExclusionButton.addActionListener(e -> {
+            int[] selectedIndices = exclusionPatternsList.getSelectedIndices();
+            for (int i = selectedIndices.length - 1; i >= 0; i--) {
+                String removed = exclusionPatternsListModel.getElementAt(selectedIndices[i]);
+                newlyAddedPatterns.remove(removed);
+                exclusionPatternsListModel.removeElementAt(selectedIndices[i]);
+            }
         });
 
         // Compose a north container that holds toolbar only
@@ -908,8 +1051,51 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             }
         }
 
-        // Add excluded directories panel below the languages configuration
-        ciPanel.setBorder(BorderFactory.createTitledBorder("Excluded directories"));
+        // Set border on the unified exclusions panel
+        exclusionsPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+
+        // Auto-update dependency checkboxes (apply only to Dependencies panel imports)
+        var autoUpdatePanel = new JPanel(new GridBagLayout());
+        var gbcAuto = new GridBagConstraints();
+        gbcAuto.insets = new Insets(2, 2, 2, 2);
+        gbcAuto.fill = GridBagConstraints.HORIZONTAL;
+        gbcAuto.gridx = 0;
+        gbcAuto.gridy = 0;
+        gbcAuto.gridwidth = 2;
+        gbcAuto.weightx = 1.0;
+        gbcAuto.weighty = 0.0;
+        gbcAuto.anchor = GridBagConstraints.WEST;
+
+        gbcAuto.insets = new Insets(8, 2, 0, 2);
+        autoUpdatePanel.add(autoUpdateLocalDependenciesCheckBox, gbcAuto);
+
+        gbcAuto.gridy++;
+        gbcAuto.insets = new Insets(2, 2, 0, 2);
+        autoUpdatePanel.add(autoUpdateGitDependenciesCheckBox, gbcAuto);
+
+        autoUpdateLocalDependenciesCheckBox.setToolTipText(
+                "Automatically refresh dependencies imported from local directories via the Dependencies panel.");
+        autoUpdateGitDependenciesCheckBox.setToolTipText(
+                "Automatically refresh dependencies imported from GitHub repositories via the Dependencies panel.");
+
+        var autoUpdateInfoLabel =
+                new JLabel("<html>Auto-update applies only to dependencies imported via the Dependencies panel "
+                        + "(local directories and GitHub repositories).</html>");
+        autoUpdateInfoLabel.setFont(autoUpdateInfoLabel
+                .getFont()
+                .deriveFont(autoUpdateInfoLabel.getFont().getSize() * 0.9f));
+
+        gbcAuto.gridy++;
+        gbcAuto.insets = new Insets(4, 2, 2, 2);
+        autoUpdatePanel.add(autoUpdateInfoLabel, gbcAuto);
+
+        // Container for exclusions and auto-update settings
+        var ciPanel = new JPanel(new BorderLayout());
+        ciPanel.setBorder(BorderFactory.createTitledBorder("Code Intelligence Exclusions"));
+        ciPanel.add(exclusionsPanel, BorderLayout.CENTER);
+        ciPanel.add(autoUpdatePanel, BorderLayout.SOUTH);
+
+        // Add exclusions container below the languages configuration
         panel.add(ciPanel, BorderLayout.SOUTH);
 
         return panel;
@@ -943,10 +1129,11 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         @Override
         public Class<?> getColumnClass(int columnIndex) {
-            return switch (columnIndex) {
-                case 0 -> Boolean.class;
-                default -> String.class;
-            };
+            if (columnIndex == 0) {
+                return Boolean.class;
+            } else {
+                return String.class;
+            }
         }
 
         @Override
@@ -1051,6 +1238,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         if (languagesTableModel != null) {
             languagesTableModel.fireTableDataChanged();
         }
+
+        // Load auto-update dependency flags
+        autoUpdateLocalDependenciesCheckBox.setSelected(project.getAutoUpdateLocalDependencies());
+        autoUpdateGitDependenciesCheckBox.setSelected(project.getAutoUpdateGitDependencies());
     }
 
     public boolean applySettings() {
@@ -1079,6 +1270,33 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                     String owner = githubOwnerField.getText().trim();
                     String repo = githubRepoField.getText().trim();
                     String host = githubHostField.getText().trim();
+
+                    var validationError = GitRepoIdUtil.validateOwnerRepo(owner, repo);
+                    if (validationError.isPresent()) {
+                        JOptionPane.showMessageDialog(
+                                parentDialog,
+                                "Invalid GitHub configuration: " + validationError.get(),
+                                "GitHub Configuration Error",
+                                JOptionPane.ERROR_MESSAGE);
+                        return false;
+                    }
+
+                    if (!host.isEmpty()) {
+                        var normalizedHostOpt = GitRepoIdUtil.normalizeGitHubHost(host);
+                        if (normalizedHostOpt.isPresent()) {
+                            var hostValidationError = GitRepoIdUtil.validateGitHubHost(normalizedHostOpt.get());
+                            if (hostValidationError.isPresent()) {
+                                JOptionPane.showMessageDialog(
+                                        parentDialog,
+                                        "Invalid GitHub host: " + hostValidationError.get(),
+                                        "GitHub Host Error",
+                                        JOptionPane.ERROR_MESSAGE);
+                                return false;
+                            }
+                            host = normalizedHostOpt.get();
+                        }
+                    }
+
                     newProviderToSet = IssueProvider.github(owner, repo, host);
                 } else {
                     newProviderToSet = IssueProvider.github(); // Default GitHub (empty owner, repo, host)
@@ -1090,6 +1308,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 break;
         }
         project.setIssuesProvider(newProviderToSet);
+
+        // Code Intelligence Tab - dependency auto-update flags
+        project.setAutoUpdateLocalDependencies(autoUpdateLocalDependenciesCheckBox.isSelected());
+        project.setAutoUpdateGitDependencies(autoUpdateGitDependenciesCheckBox.isSelected());
 
         // Persist CI exclusions from Code Intelligence panel into BuildDetails BEFORE build panel applies its settings
         saveCiExclusions();
@@ -1116,27 +1338,39 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         try {
             var currentDetails = project.loadBuildDetails();
 
-            var rawExclusions = Collections.list(excludedDirectoriesListModel.elements());
-            var canonicalized =
-                    PathNormalizer.canonicalizeAllForProject(rawExclusions, project.getMasterRootPathForConfig());
-            // Preserve case-insensitive de-duplication for stability in UI and persistence
-            Set<String> excludesSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-            excludesSet.addAll(canonicalized);
+            // Get all patterns from the unified list
+            var rawPatterns = Collections.list(exclusionPatternsListModel.elements());
+
+            // Canonicalize directory patterns (non-wildcards), leave glob patterns as-is
+            Set<String> exclusionPatterns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+            for (String pattern : rawPatterns) {
+                if (pattern.contains("*") || pattern.contains("?")) {
+                    exclusionPatterns.add(pattern);
+                } else {
+                    String canonicalized =
+                            PathNormalizer.canonicalizeForProject(pattern, project.getMasterRootPathForConfig());
+                    if (!canonicalized.isBlank()) {
+                        exclusionPatterns.add(canonicalized);
+                    }
+                }
+            }
 
             var newDetails = new BuildDetails(
                     currentDetails.buildLintCommand(),
                     currentDetails.testAllCommand(),
                     currentDetails.testSomeCommand(),
-                    excludesSet,
+                    exclusionPatterns,
                     currentDetails.environmentVariables());
 
             if (!newDetails.equals(currentDetails)) {
                 project.saveBuildDetails(newDetails);
-                logger.debug("Saved CI exclusions from Code Intelligence panel into BuildDetails: {}", excludesSet);
+                logger.debug(
+                        "Saved CI exclusions from Code Intelligence panel into BuildDetails: patterns={}",
+                        exclusionPatterns);
             }
 
             // Refresh the UI to reflect canonicalized values
-            updateExcludedDirectories(excludesSet);
+            updateExclusionPatterns(exclusionPatterns);
         } catch (Exception e) {
             logger.warn("Failed to persist CI exclusions before applying build settings: {}", e.toString(), e);
         }

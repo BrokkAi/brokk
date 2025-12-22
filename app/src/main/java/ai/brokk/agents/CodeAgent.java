@@ -12,7 +12,8 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
+import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
@@ -20,6 +21,7 @@ import ai.brokk.prompts.QuickEditPrompts;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.difflib.DiffUtils;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.AiMessage;
@@ -32,15 +34,18 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.SequencedSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -55,6 +60,7 @@ import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -76,7 +82,7 @@ public class CodeAgent {
     private final IConsoleIO io;
 
     // A "global" for current task Context. Updated mid-task with new files and build status.
-    private Context context;
+    Context context;
 
     public CodeAgent(IContextManager contextManager, StreamingChatModel model) {
         this(contextManager, model, contextManager.getIo());
@@ -89,7 +95,7 @@ public class CodeAgent {
         // free tier models are dumber; cut them off sooner
         MAX_BUILD_FAILURES = contextManager.getService().isFreeTier(model) ? 3 : 5;
         // placeholder to make Null Away happy; initialized in runTaskInternal
-        this.context = new Context(contextManager, null);
+        this.context = new Context(contextManager);
     }
 
     public enum Option {
@@ -97,9 +103,9 @@ public class CodeAgent {
     }
 
     /** Implicitly includes the DEFER_BUILD option. */
-    public TaskResult runSingleFileEdit(ProjectFile file, String instructions, List<ChatMessage> readOnlyMessages) {
-        var ctx = new Context(contextManager, null)
-                .addPathFragments(List.of(new ContextFragment.ProjectPathFragment(file, contextManager)));
+    public TaskResult execute(ProjectFile file, String instructions, List<ChatMessage> readOnlyMessages) {
+        var ctx = new Context(contextManager)
+                .addFragments(List.of(new ContextFragments.ProjectPathFragment(file, contextManager)));
 
         contextManager.getAnalyzerWrapper().pause();
         try {
@@ -114,7 +120,7 @@ public class CodeAgent {
      * @param userInput The user's goal/instructions.
      * @return A TaskResult containing the conversation history and original file contents
      */
-    public TaskResult runTask(String userInput, Set<Option> options) {
+    public TaskResult execute(String userInput, Set<Option> options) {
         // pause watching for external changes (so they don't get added to activity history while we're still making
         // changes);
         // this means that we're responsible for refreshing the analyzer when we make changes
@@ -126,18 +132,34 @@ public class CodeAgent {
         }
     }
 
-    TaskResult runTask(Context initialContext, List<ChatMessage> prologue, String userInput, Set<Option> options) {
+    /**
+     * Executes the coding task against the given context, suppressing the conversation history
+     * for the duration of the task.
+     */
+    @Blocking
+    TaskResult executeWithoutHistory(Context context, String userInput, Set<Option> options) {
         // pause watching for external changes (so they don't get added to activity history while we're still making
         // changes);
         // this means that we're responsible for refreshing the analyzer when we make changes
         contextManager.getAnalyzerWrapper().pause();
         try {
-            return runTaskInternal(initialContext, prologue, userInput, options);
+            if (context.getTaskHistory().isEmpty()) {
+                // special case no-history to avoid changing Context identity unnecessarily
+                return runTaskInternal(context, List.of(), userInput, options);
+            } else {
+                return runTaskInternal(context.withHistory(List.of()), List.of(), userInput, options)
+                        .withHistory(context.getTaskHistory());
+            }
         } finally {
             contextManager.getAnalyzerWrapper().resume();
         }
     }
 
+    /**
+     * CodeAgent's "conversation" will be included in TaskResult.output, it will NOT be baked into
+     * TaskResult.context.
+     */
+    @Blocking
     TaskResult runTaskInternal(
             Context initialContext, List<ChatMessage> prologue, String userInput, Set<Option> options) {
         var collectMetrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"));
@@ -158,7 +180,8 @@ public class CodeAgent {
         int applyFailures = 0;
         int blocksAppliedWithoutBuild = 0;
 
-        var blocks = new ArrayList<EditBlock.SearchReplaceBlock>(); // This will be part of WorkspaceState
+        String buildError = "";
+        SequencedSet<EditBlock.SearchReplaceBlock> blocks = new LinkedHashSet<>();
         Map<ProjectFile, String> originalFileContents = new HashMap<>();
 
         TaskResult.StopDetails stopDetails;
@@ -189,7 +212,7 @@ public class CodeAgent {
             contextManager
                     .getAnalyzerWrapper()
                     .updateFiles(context.fileFragments()
-                            .flatMap(cf -> cf.files().stream())
+                            .flatMap(cf -> cf.files().join().stream())
                             .collect(Collectors.toSet()))
                     .get();
         } catch (InterruptedException e) {
@@ -275,7 +298,7 @@ public class CodeAgent {
 
             // Incorporate any newly created files into the live context immediately
             var filesInContext = context.getAllFragmentsInDisplayOrder().stream()
-                    .flatMap(f -> f.files().stream())
+                    .flatMap(f -> f.files().join().stream())
                     .collect(Collectors.toSet());
             var newlyCreated = es.changedFiles().stream()
                     .filter(pf -> !filesInContext.contains(pf))
@@ -290,10 +313,13 @@ public class CodeAgent {
                 }
 
                 var newFrags = newlyCreated.stream()
-                        .map(pf -> new ContextFragment.ProjectPathFragment(pf, contextManager))
+                        .map(pf -> new ContextFragments.ProjectPathFragment(pf, contextManager))
                         .collect(Collectors.toList());
-                context = context.addPathFragments(newFrags);
+                context = context.addFragments(newFrags);
             }
+
+            // Refresh context fragments for any files that were modified (so LLM sees current contents)
+            context = context.copyAndRefresh(es.changedFiles(), "CodeAgent Changes");
 
             if (applyOutcome instanceof Step.Retry retryApply) {
                 cs = retryApply.cs();
@@ -436,17 +462,17 @@ public class CodeAgent {
             }
 
             var nextCs = cs.withNextRequest(messageForRetry);
-            // Add any newly parsed blocks before the error to the pending list for the next apply phase
-            var nextPending = new ArrayList<>(es.pendingBlocks());
+            // Add any newly parsed blocks before the error to the pending set for the next apply phase
+            var nextPending = new LinkedHashSet<>(es.pendingBlocks());
             nextPending.addAll(newlyParsedBlocks);
             var nextEs = es.withPendingBlocks(nextPending, updatedConsecutiveParseFailures);
             report(consoleLogForRetry);
             return new Step.Retry(nextCs, nextEs);
         }
 
-        // No explicit parse error. Reset counter. Add newly parsed blocks to the pending list.
+        // No explicit parse error. Reset counter. Add newly parsed blocks to the pending set.
         int updatedConsecutiveParseFailures = 0;
-        var mutablePendingBlocks = new ArrayList<>(es.pendingBlocks());
+        var mutablePendingBlocks = new LinkedHashSet<>(es.pendingBlocks());
         mutablePendingBlocks.addAll(newlyParsedBlocks);
 
         // Handle case where LLM response was cut short, even if syntactically valid so far.
@@ -620,7 +646,7 @@ public class CodeAgent {
     }
 
     private EditBlock.EditResult applyBlocksAndHandleErrors(
-            Context ctx, List<EditBlock.SearchReplaceBlock> blocksToApply)
+            Context ctx, Collection<EditBlock.SearchReplaceBlock> blocksToApply)
             throws EditStopException, InterruptedException {
 
         EditBlock.EditResult editResult;
@@ -734,6 +760,7 @@ public class CodeAgent {
         }
     }
 
+    @Blocking
     Step applyPhase(ConversationState cs, EditState es, @Nullable Metrics metrics) {
         if (es.pendingBlocks().isEmpty()) {
             logger.debug("nothing to apply, continuing to next phase");
@@ -775,7 +802,7 @@ public class CodeAgent {
                     : "blocksAppliedWithoutBuild cannot be negative: prior=%d, delta=%d"
                             .formatted(es.blocksAppliedWithoutBuild(), succeededCount);
 
-            List<EditBlock.SearchReplaceBlock> nextPendingBlocks = List.of();
+            SequencedSet<EditBlock.SearchReplaceBlock> nextPendingBlocks = new LinkedHashSet<>();
 
             if (!failedBlocks.isEmpty()) { // Some blocks failed the direct apply
                 if (succeededCount == 0) { // Total failure for this batch of pendingBlocks
@@ -907,8 +934,10 @@ public class CodeAgent {
             IProblem.CannotInferElidedTypes,
             IProblem.CannotInferInvocationType,
             IProblem.GenericInferenceError,
-            IProblem.MissingTypeForInference
+            IProblem.MissingTypeForInference,
             // Verified by PJ-19 (missing external type via var inference ignored)
+            IProblem.IncompatibleMethodReference
+            // PJ-22: method ref return type vs generic descriptor mismatch without full classpath
             );
 
     /**
@@ -1257,7 +1286,7 @@ public class CodeAgent {
 
     record EditState(
             // parsed but not yet applied
-            List<EditBlock.SearchReplaceBlock> pendingBlocks,
+            SequencedSet<EditBlock.SearchReplaceBlock> pendingBlocks,
             int consecutiveParseFailures,
             int consecutiveApplyFailures,
             int consecutiveBuildFailures,
@@ -1269,7 +1298,7 @@ public class CodeAgent {
             boolean hasAttemptedBuild) {
 
         /** Returns a new WorkspaceState with updated pending blocks and parse failures. */
-        EditState withPendingBlocks(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures) {
+        EditState withPendingBlocks(SequencedSet<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures) {
             return new EditState(
                     newPendingBlocks,
                     newParseFailures,
@@ -1303,7 +1332,7 @@ public class CodeAgent {
 
         /** Returns a new WorkspaceState after applying blocks, updating relevant fields. */
         EditState afterApply(
-                List<EditBlock.SearchReplaceBlock> newPendingBlocks,
+                SequencedSet<EditBlock.SearchReplaceBlock> newPendingBlocks,
                 int newApplyFailures,
                 int newBlocksApplied,
                 Map<ProjectFile, String> newOriginalContents) {
@@ -1343,22 +1372,224 @@ public class CodeAgent {
                     diags,
                     hasAttemptedBuild);
         }
+
+        /**
+         * Generate SEARCH/REPLACE blocks by diffing each changed file's current contents against the per-turn original
+         * contents captured at the start of the turn. For files that were created in this turn (no original content),
+         * generate a "new file" block (empty before / full after).
+         *
+         * <p>Note: We use full-file replacements for simplicity and robustness. This ensures correctness for the
+         * history compaction without depending on the diff library package structure at compile time.
+         */
+        @org.jetbrains.annotations.VisibleForTesting
+        SequencedSet<EditBlock.SearchReplaceBlock> toSearchReplaceBlocks() {
+            var results = new LinkedHashSet<EditBlock.SearchReplaceBlock>();
+            var originals = originalFileContents();
+
+            // Include both files we have originals for and new files created in this turn
+            var candidates = new HashSet<>(changedFiles());
+            candidates.addAll(originals.keySet());
+
+            // Sort for determinism
+            var sorted = candidates.stream()
+                    .sorted(java.util.Comparator.comparing(ProjectFile::toString))
+                    .toList();
+
+            for (var file : sorted) {
+                String original = originals.getOrDefault(file, "");
+                String revised;
+                revised = file.read().orElse("");
+
+                if (Objects.equals(original, revised)) {
+                    continue; // No effective change
+                }
+
+                // New file created this turn
+                if (!originals.containsKey(file)) {
+                    results.add(new EditBlock.SearchReplaceBlock(file.toString(), "", revised));
+                    continue;
+                }
+
+                var originalLines = original.isEmpty() ? List.<String>of() : Arrays.asList(original.split("\n", -1));
+                var revisedLines = revised.isEmpty() ? List.<String>of() : Arrays.asList(revised.split("\n", -1));
+
+                try {
+                    var patch = DiffUtils.diff(originalLines, revisedLines);
+
+                    // 1) Build minimal windows per delta in original line space
+                    record Window(int start, int end) {
+                        Window expandLeft() {
+                            return new Window(Math.max(0, start - 1), end);
+                        }
+
+                        Window expandRight(int max) {
+                            return new Window(start, Math.min(max, end + 1));
+                        }
+                    }
+                    var windows = new ArrayList<Window>();
+                    for (var delta : patch.getDeltas()) {
+                        var src = delta.getSource();
+                        int sPos = src.getPosition();
+                        int sSize = src.size();
+
+                        int wStart, wEnd;
+                        if (sSize > 0) {
+                            wStart = sPos;
+                            wEnd = sPos + sSize - 1;
+                        } else {
+                            // Pure insertion: anchor on previous line when possible, else next
+                            wStart = (sPos == 0) ? 0 : sPos - 1;
+                            wEnd = wStart;
+                        }
+                        if (!originalLines.isEmpty()) {
+                            wStart = Math.max(0, Math.min(wStart, originalLines.size() - 1));
+                            wEnd = Math.max(0, Math.min(wEnd, originalLines.size() - 1));
+                        }
+                        windows.add(new Window(wStart, wEnd));
+                    }
+
+                    // 2) Expand each window until its before-text is unique in the original
+                    int lastIdx = Math.max(0, originalLines.size() - 1);
+                    windows = windows.stream()
+                            .map(w -> {
+                                Window cur = w;
+                                String before = joinLines(originalLines, cur.start, cur.end);
+                                while (!before.isEmpty()
+                                        && countOccurrences(original, before) > 1
+                                        && (cur.start > 0 || cur.end < lastIdx)) {
+                                    if (cur.start > 0) cur = cur.expandLeft();
+                                    if (cur.end < lastIdx) cur = cur.expandRight(lastIdx);
+                                    before = joinLines(originalLines, cur.start, cur.end);
+                                }
+                                return cur;
+                            })
+                            .collect(Collectors.toCollection(ArrayList::new));
+
+                    // 3) Merge overlapping/adjacent windows after expansion
+                    windows.sort(java.util.Comparator.comparingInt(w -> w.start));
+                    var merged = new ArrayList<Window>();
+                    for (var w : windows) {
+                        if (merged.isEmpty()) {
+                            merged.add(w);
+                        } else {
+                            var last = merged.get(merged.size() - 1);
+                            if (w.start <= last.end + 1) { // overlap or adjacent
+                                merged.set(merged.size() - 1, new Window(last.start, Math.max(last.end, w.end)));
+                            } else {
+                                merged.add(w);
+                            }
+                        }
+                    }
+
+                    // Precompute net line deltas for mapping original -> revised
+                    record DeltaShape(int pos, int size, int net) {}
+                    var shapes = patch.getDeltas().stream()
+                            .map(d -> new DeltaShape(
+                                    d.getSource().getPosition(),
+                                    d.getSource().size(),
+                                    d.getTarget().size() - d.getSource().size()))
+                            .sorted(java.util.Comparator.comparingInt(s -> s.pos()))
+                            .toList();
+
+                    for (var w : merged) {
+                        // Map original start to revised start
+                        int netBeforeStart = shapes.stream()
+                                .filter(s -> s.pos + s.size <= w.start) // ends before start
+                                .mapToInt(s -> s.net)
+                                .sum();
+                        int revisedStart = w.start + netBeforeStart;
+
+                        int windowLen = w.end - w.start + 1;
+                        // Net deltas that intersect the window
+                        int netInWindow = 0;
+                        for (var d : patch.getDeltas()) {
+                            int p = d.getSource().getPosition();
+                            int sz = d.getSource().size();
+                            int net = d.getTarget().size() - sz;
+                            boolean overlaps;
+                            if (sz > 0) {
+                                overlaps = p < (w.end + 1) && (p + sz) > w.start;
+                            } else {
+                                overlaps = p >= w.start && p <= (w.end + 1);
+                            }
+                            if (overlaps) {
+                                netInWindow += net;
+                            }
+                        }
+                        int revisedEnd = revisedStart + windowLen + netInWindow - 1;
+
+                        String before = joinLines(originalLines, w.start, w.end);
+                        String after = joinLines(
+                                revisedLines,
+                                clamp(revisedStart, 0, Math.max(0, revisedLines.size() - 1)),
+                                clamp(revisedEnd, 0, Math.max(0, revisedLines.size() - 1)));
+
+                        // If uniqueness still fails (pathological), fall back to whole-file
+                        if (!before.isEmpty() && countOccurrences(original, before) > 1) {
+                            results.add(new EditBlock.SearchReplaceBlock(file.toString(), original, revised));
+                            continue;
+                        }
+
+                        results.add(new EditBlock.SearchReplaceBlock(file.toString(), before, after));
+                    }
+                } catch (Exception e) {
+                    // If diffing fails for any reason, fall back to a conservative whole-file replacement
+                    logger.warn("Diff generation failed for {}; falling back to whole-file SRB", file, e);
+                    results.add(new EditBlock.SearchReplaceBlock(file.toString(), original, revised));
+                }
+            }
+            return results;
+        }
+
+        private static String joinLines(List<String> lines, int start, int end) {
+            if (lines.isEmpty() || start > end) return "";
+            var sj = new java.util.StringJoiner("\n");
+            for (int i = start; i <= end; i++) {
+                sj.add(lines.get(i));
+            }
+            return sj.toString();
+        }
+
+        private static int countOccurrences(String text, String sub) {
+            if (sub.isEmpty()) return 0;
+            int count = 0;
+            int idx = 0;
+            while ((idx = text.indexOf(sub, idx)) != -1) {
+                count++;
+                idx += sub.length();
+            }
+            return count;
+        }
+
+        private static int clamp(int val, int min, int max) {
+            return Math.max(min, Math.min(max, val));
+        }
     }
 
+    @Blocking
     static Set<String> computeReadOnlyPaths(Context ctx) {
         // Since ContextFragments can refer to multiple files, we need a way to resolve conflicting read-only status.
         // Our priority is:
         // 1. Files referred to by a ProjectPathFragment marked read-only should always be in our Set.
         // 2. Files referred to by other editable Fragments should not be in our Set.
         // 3. Files referred to by other read-only Fragments should be in our Set.
+
+        // If any fragments need to be computed, we'll wait a bit
+        try {
+            ctx.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+        } catch (InterruptedException e) {
+            logger.warn("Interrupted while waiting for contexts to be computed", e);
+        }
         var readonlyPaths = ctx.getMarkedReadonlyFragments()
-                .filter(cf -> cf instanceof ContextFragment.ProjectPathFragment)
-                .flatMap(cf -> cf.files().stream())
+                .filter(cf -> cf instanceof ContextFragments.ProjectPathFragment)
+                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
                 .collect(Collectors.toSet());
-        var editableAll =
-                ctx.getEditableFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toSet());
-        var readonly =
-                ctx.getReadonlyFragments().flatMap(cf -> cf.files().stream()).collect(Collectors.toSet());
+        var editableAll = ctx.getEditableFragments()
+                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
+                .collect(Collectors.toSet());
+        var readonly = ctx.getReadonlyFragments()
+                .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
+                .collect(Collectors.toSet());
         var files = Streams.concat(Sets.difference(readonly, editableAll).stream(), readonlyPaths.stream());
         return files.map(ProjectFile::toString).collect(Collectors.toSet());
     }

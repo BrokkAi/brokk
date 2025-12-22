@@ -98,26 +98,6 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public AbstractService.ModelConfig getCodeModelConfig() {
-        return parent.getCodeModelConfig();
-    }
-
-    @Override
-    public void setCodeModelConfig(AbstractService.ModelConfig config) {
-        parent.setCodeModelConfig(config);
-    }
-
-    @Override
-    public AbstractService.ModelConfig getArchitectModelConfig() {
-        return parent.getArchitectModelConfig();
-    }
-
-    @Override
-    public void setArchitectModelConfig(AbstractService.ModelConfig config) {
-        parent.setArchitectModelConfig(config);
-    }
-
-    @Override
     public boolean isDataShareAllowed() {
         return parent.isDataShareAllowed();
     }
@@ -259,5 +239,35 @@ public final class WorktreeProject extends AbstractProject {
     @Override
     public void setMcpConfig(McpConfig config) {
         parent.setMcpConfig(config);
+    }
+
+    @Override
+    public boolean getAutoUpdateLocalDependencies() {
+        return parent.getAutoUpdateLocalDependencies();
+    }
+
+    @Override
+    public void setAutoUpdateLocalDependencies(boolean enabled) {
+        parent.setAutoUpdateLocalDependencies(enabled);
+    }
+
+    @Override
+    public boolean getAutoUpdateGitDependencies() {
+        return parent.getAutoUpdateGitDependencies();
+    }
+
+    @Override
+    public void setAutoUpdateGitDependencies(boolean enabled) {
+        parent.setAutoUpdateGitDependencies(enabled);
+    }
+
+    @Override
+    public AbstractService.ModelConfig getModelConfig(ModelProperties.ModelType modelType) {
+        return parent.getModelConfig(modelType);
+    }
+
+    @Override
+    public void setModelConfig(ModelProperties.ModelType modelType, AbstractService.ModelConfig config) {
+        parent.setModelConfig(modelType, config);
     }
 }

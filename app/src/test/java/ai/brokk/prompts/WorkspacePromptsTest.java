@@ -6,7 +6,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
@@ -50,9 +50,9 @@ class WorkspacePromptsTest {
         var file = createTestFile("file.txt", "content");
         cm.addEditableFile(file);
 
-        var ctx = new Context(cm, null);
-        var frag = new ContextFragment.ProjectPathFragment(file, cm);
-        ctx = ctx.addPathFragments(List.of(frag));
+        var ctx = new Context(cm);
+        var frag = new ContextFragments.ProjectPathFragment(file, cm);
+        ctx = ctx.addFragments(List.of(frag));
 
         WorkspacePrompts.CodeAgentMessages records =
                 WorkspacePrompts.getMessagesForCodeAgent(ctx, new ViewingPolicy(TaskResult.Type.CODE), true);
@@ -63,7 +63,7 @@ class WorkspacePromptsTest {
 
     @Test
     void testBuildFailurePopulatedWhenBuildFragmentExists() {
-        var ctx = new Context(cm, null).withBuildResult(false, "Build failed: syntax error on line 42");
+        var ctx = new Context(cm).withBuildResult(false, "Build failed: syntax error on line 42");
 
         WorkspacePrompts.CodeAgentMessages records =
                 WorkspacePrompts.getMessagesForCodeAgent(ctx, new ViewingPolicy(TaskResult.Type.CODE), true);
@@ -77,9 +77,9 @@ class WorkspacePromptsTest {
         var file = createTestFile("file.txt", "content");
         cm.addEditableFile(file);
 
-        var ctx = new Context(cm, null);
-        var frag = new ContextFragment.ProjectPathFragment(file, cm);
-        ctx = ctx.addPathFragments(List.of(frag));
+        var ctx = new Context(cm);
+        var frag = new ContextFragments.ProjectPathFragment(file, cm);
+        ctx = ctx.addFragments(List.of(frag));
         ctx = ctx.withBuildResult(false, "Compilation failed");
 
         WorkspacePrompts.CodeAgentMessages records =
@@ -105,11 +105,11 @@ class WorkspacePromptsTest {
         Files.setLastModifiedTime(projectRoot.resolve("src/C.java"), FileTime.fromMillis(baseMillis + 2_000L));
 
         // Create fragments in reverse order (C, B, A) to verify sorting reorders them
-        var fragC = new ContextFragment.ProjectPathFragment(fileC, cm);
-        var fragB = new ContextFragment.ProjectPathFragment(fileB, cm);
-        var fragA = new ContextFragment.ProjectPathFragment(fileA, cm);
+        var fragC = new ContextFragments.ProjectPathFragment(fileC, cm);
+        var fragB = new ContextFragments.ProjectPathFragment(fileB, cm);
+        var fragA = new ContextFragments.ProjectPathFragment(fileA, cm);
 
-        var ctx = new Context(cm, null).addPathFragments(List.of(fragC, fragB, fragA));
+        var ctx = new Context(cm).addFragments(List.of(fragC, fragB, fragA));
 
         // Sort and verify order is by mtime (oldest A, then B, then newest C)
         var sorted = WorkspacePrompts.sortByMtime(ctx.getEditableFragments()).toList();
@@ -121,16 +121,16 @@ class WorkspacePromptsTest {
     }
 
     @Test
-    void testFormatTocConsolidatesFormats() throws IOException {
+    void testFormatTocConsolidatesFormats() {
         var file = createTestFile("test.java", "class Test {}");
         cm.addEditableFile(file);
 
-        var ctx = new Context(cm, null);
-        var frag = new ContextFragment.ProjectPathFragment(file, cm);
-        ctx = ctx.addPathFragments(List.of(frag));
+        var ctx = new Context(cm);
+        var frag = new ContextFragments.ProjectPathFragment(file, cm);
+        ctx = ctx.addFragments(List.of(frag));
 
         // TOC should always show a single editable section and never split by changed/unchanged
-        String toc = WorkspacePrompts.formatToc(ctx, false);
+        String toc = WorkspacePrompts.formatToc(ctx);
         assertTrue(toc.contains("<workspace_editable>"), "Should have a single editable section");
         assertFalse(
                 toc.contains("<workspace_editable_unchanged>"),
@@ -146,17 +146,17 @@ class WorkspacePromptsTest {
         cm.addEditableFile(file);
 
         // Create an editable virtual fragment (UsageFragment) and a project path fragment
-        var virtualFrag = new ContextFragment.UsageFragment(cm, "com.example.SomeTarget");
-        var projectFrag = new ContextFragment.ProjectPathFragment(file, cm);
+        var virtualFrag = new ContextFragments.UsageFragment(cm, "com.example.SomeTarget");
+        var projectFrag = new ContextFragments.ProjectPathFragment(file, cm);
 
-        var ctx = new Context(cm, null).addPathFragments(List.of(projectFrag)).addVirtualFragment(virtualFrag);
+        var ctx = new Context(cm).addFragments(List.of(projectFrag)).addFragments(virtualFrag);
 
         // Sort and verify virtual fragment stays first
         var sorted = WorkspacePrompts.sortByMtime(ctx.getEditableFragments()).toList();
 
         assertEquals(2, sorted.size());
         assertInstanceOf(
-                ContextFragment.UsageFragment.class, sorted.get(0), "Editable virtual fragment should remain first");
+                ContextFragments.UsageFragment.class, sorted.get(0), "Editable virtual fragment should remain first");
         assertEquals(projectFrag, sorted.get(1), "Project fragment should be second");
     }
 

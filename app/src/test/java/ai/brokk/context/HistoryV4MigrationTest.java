@@ -94,7 +94,7 @@ class HistoryV4MigrationTest {
 
     @ParameterizedTest
     @MethodSource("v3ZipProvider")
-    void testMigrateV3Zip(String zipFileName) throws IOException {
+    void testMigrateV3Zip(String zipFileName) throws IOException, InterruptedException {
         var resourcePath = "/context-fragments/generated-v3-zips-for-migration/" + zipFileName;
         Path tempZip = tempDir.resolve(zipFileName);
 
@@ -118,21 +118,21 @@ class HistoryV4MigrationTest {
             assertEquals(2, history.getHistory().size());
             var ctx1 = history.getHistory().get(0);
             assertEquals(2, ctx1.allFragments().count());
-            var ff = findFragment(ctx1, ContextFragment.ProjectPathFragment.class, f -> true);
+            var ff = findFragment(ctx1, ContextFragments.ProjectPathFragment.class, f -> true);
             assertNotNull(ff);
-            assertTrue(ff.description().contains("File1.java"));
+            assertTrue(ff.description().join().contains("File1.java"));
 
-            var sf = findFragment(ctx1, ContextFragment.StringFragment.class, f -> true);
+            var sf = findFragment(ctx1, ContextFragments.StringFragment.class, f -> true);
             assertNotNull(sf);
-            assertEquals("Virtual content 1", sf.text());
+            assertEquals("Virtual content 1", sf.text().join());
 
             var ctx2 = history.getHistory().get(1);
             assertEquals(1, ctx2.virtualFragments().count());
-            var pif = findFragment(ctx2, ContextFragment.AnonymousImageFragment.class, f -> true);
+            var pif = findFragment(ctx2, ContextFragments.AnonymousImageFragment.class, f -> true);
             assertNotNull(pif);
-            assertEquals("Pasted Red Image", pif.description());
+            assertEquals("Pasted Red Image", pif.description().join());
             assertNotNull(pif.imageBytes());
-            assertTrue(pif.imageBytes().length > 0);
+            assertTrue(pif.imageBytes().join().length > 0);
 
             assertEquals(1, ctx2.getTaskHistory().size());
             var taskEntry = ctx2.getTaskHistory().get(0);
@@ -142,7 +142,7 @@ class HistoryV4MigrationTest {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();
             assertEquals(1, ctx.fileFragments().count());
-            var gff = findFragment(ctx, ContextFragment.GitFileFragment.class, f -> true);
+            var gff = findFragment(ctx, ContextFragments.GitFileFragment.class, f -> true);
             assertNotNull(gff);
             assertEquals("abcdef1234567890", gff.revision());
             assertEquals("content for git file", gff.content());
@@ -150,7 +150,7 @@ class HistoryV4MigrationTest {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();
             assertEquals(1, ctx.allFragments().count());
-            var iff = findFragment(ctx, ContextFragment.ImageFileFragment.class, f -> true);
+            var iff = findFragment(ctx, ContextFragments.ImageFileFragment.class, f -> true);
             assertNotNull(iff);
             // We don't assert on image() because it requires the file to be on disk,
             // and the migration test context doesn't extract it.
@@ -158,96 +158,73 @@ class HistoryV4MigrationTest {
         } else if ("v3-shared-image-fragment.zip".equals(zipFileName)) {
             assertEquals(2, history.getHistory().size());
             var ctx1 = history.getHistory().get(0);
-            var aif = findFragment(ctx1, ContextFragment.AnonymousImageFragment.class, f -> true);
+            var aif = findFragment(ctx1, ContextFragments.AnonymousImageFragment.class, f -> true);
             assertNotNull(aif);
-            assertNotNull(aif.image());
+            assertNotNull(aif.imageBytes());
 
             var ctx2 = history.getHistory().get(1);
-            var iff = findFragment(ctx2, ContextFragment.AnonymousImageFragment.class, f -> true);
+            var iff = findFragment(ctx2, ContextFragments.AnonymousImageFragment.class, f -> true);
             assertNotNull(iff);
-            assertNotNull(iff.image());
+            assertNotNull(iff.imageBytes());
         } else if ("v3-anonymous-image-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();
             assertEquals(1, ctx.allFragments().count());
-            var aif = findFragment(ctx, ContextFragment.AnonymousImageFragment.class, f -> true);
+            var aif = findFragment(ctx, ContextFragments.AnonymousImageFragment.class, f -> true);
             assertNotNull(aif);
-            assertNotNull(aif.image());
+            assertNotNull(aif.imageBytes());
         } else if ("v3-task-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();
             assertEquals(1, ctx.allFragments().count());
-            var tf = findFragment(ctx, ContextFragment.TaskFragment.class, f -> true);
+            var tf = findFragment(ctx, ContextFragments.TaskFragment.class, f -> true);
             assertNotNull(tf);
-            assertEquals("Test Task Fragment", tf.description());
+            assertEquals("Test Task Fragment", tf.description().join());
         } else if ("v3-string-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();
             assertEquals(1, ctx.allFragments().count());
-            var sf = findFragment(ctx, ContextFragment.StringFragment.class, f -> true);
+            var sf = findFragment(ctx, ContextFragments.StringFragment.class, f -> true);
             assertNotNull(sf);
-            assertEquals("some description", sf.description());
-            assertEquals("some text", sf.text());
+            assertEquals("some description", sf.description().join());
+            assertEquals("some text", sf.text().join());
         } else if ("v3-projectpath-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();
             assertEquals(1, ctx.allFragments().count());
-            var ppf = findFragment(ctx, ContextFragment.ProjectPathFragment.class, f -> true);
+            var ppf = findFragment(ctx, ContextFragments.ProjectPathFragment.class, f -> true);
             assertNotNull(ppf);
-            assertTrue(ppf.description().contains("ProjectPath.java"));
+            assertEquals("public class ProjectPath {}", ppf.text().join());
         } else if ("v3-externalpath-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();
             assertEquals(1, ctx.allFragments().count());
-            var epf = findFragment(ctx, ContextFragment.ExternalPathFragment.class, f -> true);
+            var epf = findFragment(ctx, ContextFragments.ExternalPathFragment.class, f -> true);
             assertNotNull(epf);
             assertTrue(epf.file().toString().endsWith("external_file.txt"));
-            assertEquals("", epf.text());
-        } else if ("v3-search-fragment.zip".equals(zipFileName)) {
-            assertEquals(1, history.getHistory().size());
-            var ctx = history.liveContext();
-            assertEquals(1, ctx.allFragments().count());
-            var sf = findFragment(ctx, ContextFragment.SearchFragment.class, f -> true);
-            assertNotNull(sf);
-            assertEquals("Search: foobar", sf.description());
-            assertFalse(sf.messages().isEmpty());
-        } else if ("v3-skeleton-fragment.zip".equals(zipFileName)) {
-            assertEquals(1, history.getHistory().size());
-            var ctx = history.liveContext();
-            assertEquals(1, ctx.allFragments().count());
-            var sf = findFragment(ctx, ContextFragment.SkeletonFragment.class, f -> true);
-            assertNotNull(sf);
-            assertEquals(2, sf.getTargetIdentifiers().size());
-            assertEquals("Summary of com.example.ClassA, com.example.ClassB", sf.description());
-            assertFalse(sf.getTargetIdentifiers().isEmpty());
+            assertEquals("External file content", epf.text().join());
         } else if ("v3-usage-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();
             assertEquals(1, ctx.allFragments().count());
-            var uf = findFragment(ctx, ContextFragment.UsageFragment.class, f -> true);
+            var uf = findFragment(ctx, ContextFragments.UsageFragment.class, f -> true);
             assertNotNull(uf);
-            assertEquals("Uses of com.example.MyClass.myMethod", uf.description());
             assertEquals("com.example.MyClass.myMethod", uf.targetIdentifier());
         } else if ("v3-code-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();
             assertEquals(1, ctx.allFragments().count());
-            var cf = findFragment(ctx, ContextFragment.CodeFragment.class, f -> true);
+            var cf = findFragment(ctx, ContextFragments.CodeFragment.class, f -> true);
             assertNotNull(cf);
-            assertTrue(cf.description().startsWith("Source for"));
-            var maybeCu = cf.computedUnit().await(Duration.ofSeconds(10));
-            if (maybeCu.isPresent()) {
-                assertNotNull(maybeCu.get().fqName());
-            } else {
-                fail("Code unit could not be computed within 10 seconds");
-            }
+            assertTrue(cf.description().join().startsWith("Source for"));
+            assertNotNull(cf.getFullyQualifiedName());
         } else if ("v3-callgraph-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();
             assertEquals(1, ctx.allFragments().count());
-            var cgf = findFragment(ctx, ContextFragment.CallGraphFragment.class, f -> true);
+            var cgf = findFragment(ctx, ContextFragments.CallGraphFragment.class, f -> true);
             assertNotNull(cgf);
-            assertTrue(cgf.description().contains("Callees of"));
+            assertTrue(cgf.description().join().contains("Callees of"));
             assertEquals("com.example.MyClass.doStuff", cgf.getMethodName());
             assertEquals(3, cgf.getDepth());
             assertTrue(cgf.isCalleeGraph());
@@ -255,24 +232,24 @@ class HistoryV4MigrationTest {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();
             assertEquals(1, ctx.allFragments().count());
-            var hf = findFragment(ctx, ContextFragment.HistoryFragment.class, f -> true);
+            var hf = findFragment(ctx, ContextFragments.HistoryFragment.class, f -> true);
             assertNotNull(hf);
-            assertTrue(hf.description().startsWith("Conversation"));
+            assertTrue(hf.description().join().startsWith("Conversation"));
             assertFalse(hf.entries().isEmpty());
         } else if ("v3-pastetext-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();
             assertEquals(1, ctx.allFragments().count());
-            var ptf = findFragment(ctx, ContextFragment.PasteTextFragment.class, f -> true);
+            var ptf = findFragment(ctx, ContextFragments.PasteTextFragment.class, f -> true);
             assertNotNull(ptf);
-            assertEquals("Pasted text content", ptf.text());
+            assertEquals("Pasted text content", ptf.text().join());
         } else if ("v3-stacktrace-fragment.zip".equals(zipFileName)) {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();
             assertEquals(1, ctx.allFragments().count());
-            var sf = findFragment(ctx, ContextFragment.StacktraceFragment.class, f -> true);
+            var sf = findFragment(ctx, ContextFragments.StacktraceFragment.class, f -> true);
             assertNotNull(sf);
-            assertEquals("stacktrace of NullPointerException", sf.description());
+            assertEquals("stacktrace of NullPointerException", sf.description().join());
             assertTrue(sf.getOriginal().contains("Full stacktrace original text"));
         }
     }

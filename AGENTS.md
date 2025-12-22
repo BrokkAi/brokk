@@ -15,7 +15,7 @@ or return value is not annotated @Nullable.
 1. **Prefer functional streams to manual loops**: Leverage streams for transforming collections, joining to Strings, etc.
 1. **Favor Immutable Data Structures**: Prefer `List.of` and `Map.of`, as well as the Stream Collectors.
 1. **Provide Comprehensive Logging**: Log relevant information using log4j, including request/response details, errors, and other important events.
-1. **@Blocking and EDT safety**: Annotate methods that may block (I/O, analyzer work, network, filesystem, or other expensive computation) with `org.jetbrains.annotations.Blocking`. On the Swing Event Dispatch Thread (EDT), do not invoke `@Blocking` methods; prefer the non-blocking `computed*` alternatives (e.g., `computedFiles()`, `computedSources()`, `computedText()`, `computedDescription()`, `computedSyntaxStyle()`) to keep the UI responsive. An Error Prone check (`BrokkBlockingOperation`) enforces this and will warn if an `@Blocking` method is called on the EDT (e.g., inside `SwingUtilities.invokeLater(...)` or the true branch of an `isEventDispatchThread()`/`isDispatchThread()` check). Fix by moving the call off the EDT or by using the appropriate `computed*` method; do not suppress the warning.
+1. **@Blocking and EDT safety**: Annotate public methods that may block (I/O, analyzer work, network, filesystem, or other expensive computation) with `org.jetbrains.annotations.Blocking`. On the Swing Event Dispatch Thread (EDT), do not invoke `@Blocking` methods; prefer the non-blocking `computed*` alternatives (e.g., `computedFiles()`, `computedSources()`, `computedText()`, `computedDescription()`, `computedSyntaxStyle()`) to keep the UI responsive. An Error Prone check (`BrokkBlockingOperation`) enforces this and will warn if an `@Blocking` method is called on the EDT (e.g., inside `SwingUtilities.invokeLater(...)` or the true branch of an `isEventDispatchThread()`/`isDispatchThread()` check). Fix by moving the call off the EDT or by using the appropriate `computed*` method; do not suppress the warning.
 1. **Use asserts to validate assumptions**: Use `assert` to validate assumptions, and prefer making reasonable assumptions backed by assert to defensive `if` checks.
 1. **DRY**: Don't Repeat Yourself. Refactor similar code into a common method. But feature flag parameters are a design smell; if you would need to add flags, write separate methods instead.
 1. **Parsimony**: If you can write a general case that also generates correct results in the special case (empty input, maximum size, etc), then do so. Don't write special cases unless they are necessary.
@@ -48,6 +48,7 @@ with try/catch is unnecessary and futile; don't do that.
    - Use `assertCodeEquals`/`assertCodeStartsWith`/`assertCodeEndsWith`/`assertCodeContains` for code string comparisons.
    - These helpers normalize line endings and trim outer whitespace, making tests stable across platforms and editors.
    - Avoid direct assertEquals on raw multi-line code output.
+2. We have standard mock versions of common interfaces: TestAnalyzer, TestConsoleIO, TestContextManager, TestGitRepo, TestProject. Ask the user to add these to the Workspace rather than rolling your own.
 
 ## GUI standards
 
@@ -57,3 +58,5 @@ with try/catch is unnecessary and futile; don't do that.
 1. **Buttons**: Use ai.brokk.gui.components.MaterialButton instead of JButton. Use ai.brokk.gui.components.MaterialToggleButton instead of JToggleButton.
 1. **Dialogs**: When building dialogs have buttons on the bottom. Start with a primary action button such as Ok or Done. It should have the following function applied to it ai.brokk.gui.SwingUtil.applyPrimaryButtonStyle(javax.swing.AbstractButton b). Next it should have a cancel button which is a normal ai.brokk.gui.components.MaterialButton with the text Cancel.
 1. **Notifications**: Use IConsoleIO.showNotification for informational messages, and IConsoleIO.toolError for modal errors. If you do not have the IConsoleIO API available in the Workspace, stop and ask the user to provide it.
+
+

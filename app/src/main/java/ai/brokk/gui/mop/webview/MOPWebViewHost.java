@@ -74,6 +74,10 @@ public final class MOPWebViewHost extends JPanel {
 
         record HideSpinner() implements HostCommand {}
 
+        record ShowTransientMessage(String message) implements HostCommand {}
+
+        record HideTransientMessage() implements HostCommand {}
+
         record SetTaskInProgress(boolean inProgress) implements HostCommand {}
 
         record Clear() implements HostCommand {}
@@ -81,6 +85,8 @@ public final class MOPWebViewHost extends JPanel {
         record HistoryReset() implements HostCommand {}
 
         record HistoryTask(TaskEntry entry) implements HostCommand {}
+
+        record LiveSummary(int taskSequence, boolean compressed, String summary) implements HostCommand {}
     }
 
     public MOPWebViewHost() {
@@ -356,6 +362,14 @@ public final class MOPWebViewHost extends JPanel {
         sendOrQueue(new HostCommand.HideSpinner(), bridge -> bridge.hideSpinner());
     }
 
+    public void showTransientMessage(String message) {
+        sendOrQueue(new HostCommand.ShowTransientMessage(message), bridge -> bridge.showTransientMessage(message));
+    }
+
+    public void hideTransientMessage() {
+        sendOrQueue(new HostCommand.HideTransientMessage(), MOPBridge::hideTransientMessage);
+    }
+
     public void setTaskInProgress(boolean inProgress) {
         sendOrQueue(new HostCommand.SetTaskInProgress(inProgress), bridge -> bridge.setTaskInProgress(inProgress));
     }
@@ -372,6 +386,12 @@ public final class MOPWebViewHost extends JPanel {
             return;
         }
         bridge.sendEnvironmentInfo(analyzerReady);
+    }
+
+    public void sendLiveSummary(int taskSequence, boolean compressed, String summary) {
+        sendOrQueue(
+                new HostCommand.LiveSummary(taskSequence, compressed, summary),
+                bridge -> bridge.sendLiveSummary(taskSequence, compressed, summary));
     }
 
     public void addSearchStateListener(Consumer<MOPBridge.SearchState> l) {
@@ -528,10 +548,14 @@ public final class MOPWebViewHost extends JPanel {
                     case HostCommand.SetZoom z -> bridge.setZoom(z.zoom());
                     case HostCommand.ShowSpinner s -> bridge.showSpinner(s.message());
                     case HostCommand.HideSpinner ignored -> bridge.hideSpinner();
+                    case HostCommand.ShowTransientMessage stm -> bridge.showTransientMessage(stm.message());
+                    case HostCommand.HideTransientMessage ignored -> bridge.hideTransientMessage();
                     case HostCommand.SetTaskInProgress stp -> bridge.setTaskInProgress(stp.inProgress());
                     case HostCommand.Clear ignored -> bridge.clear();
                     case HostCommand.HistoryReset ignored -> bridge.sendHistoryReset();
                     case HostCommand.HistoryTask ht -> bridge.sendHistoryTask(ht.entry());
+                    case HostCommand.LiveSummary ls ->
+                        bridge.sendLiveSummary(ls.taskSequence(), ls.compressed(), ls.summary());
                 }
             });
             pendingCommands.clear();

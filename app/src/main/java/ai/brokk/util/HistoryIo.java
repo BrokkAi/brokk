@@ -7,6 +7,7 @@ import ai.brokk.context.ContentDtos.DiffContentMetadataDto;
 import ai.brokk.context.ContentDtos.FullContentMetadataDto;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.DtoMapper;
 import ai.brokk.context.FragmentDtos.*;
@@ -15,8 +16,10 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;
 import com.fasterxml.jackson.databind.jsontype.TypeIdResolver;
+import java.io.BufferedReader;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.InvalidObjectException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -59,6 +62,47 @@ public final class HistoryIo {
     private static final int CURRENT_FORMAT_VERSION = 4;
 
     private HistoryIo() {}
+
+    /**
+     * Counts AI responses in a session zip without full deserialization.
+     * Only reads contexts.jsonl and counts entries with non-null parsedOutputId.
+     * Uses JsonNode parsing to work with both V3 and V4 formats.
+     */
+    public static int countAiResponses(Path zip) throws IOException {
+        if (!Files.exists(zip)) {
+            return 0;
+        }
+
+        try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                if (entry.getName().equals(CONTEXTS_FILENAME)) {
+                    // Stream line-by-line to avoid materializing entire file in memory
+                    var reader = new BufferedReader(new InputStreamReader(zis, StandardCharsets.UTF_8));
+                    int count = 0;
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (line.trim().isEmpty()) continue;
+                        try {
+                            var node = objectMapper.readTree(line);
+                            var parsedOutputId = node.get("parsedOutputId");
+                            if (parsedOutputId != null && !parsedOutputId.isNull()) {
+                                count++;
+                            }
+                        } catch (Exception e) {
+                            // Skip malformed lines, but log for troubleshooting
+                            logger.debug(
+                                    "Skipping malformed JSON line in contexts.jsonl: '{}'. Exception: {}",
+                                    line.length() > 200 ? line.substring(0, 200) + "..." : line,
+                                    e.toString());
+                        }
+                    }
+                    return count;
+                }
+            }
+        }
+        return 0;
+    }
 
     public static ContextHistory readZip(Path zip, IContextManager mgr) throws IOException {
         if (!Files.exists(zip)) {
@@ -213,7 +257,7 @@ public final class HistoryIo {
                 })
                 .filter(Objects::nonNull)
                 .max(Integer::compareTo)
-                .ifPresent(maxId -> ContextFragment.setMinimumId(maxId + 1));
+                .ifPresent(maxId -> ContextFragments.setMinimumId(maxId + 1));
 
         var contexts = new ArrayList<Context>();
         for (String line : compactContextDtoLines) {
@@ -250,7 +294,7 @@ public final class HistoryIo {
         var collectedVirtualDtos = new HashMap<String, VirtualFragmentDto>();
         var collectedTaskDtos = new HashMap<String, TaskFragmentDto>();
         var imageDomainFragments = new HashSet<ContextFragment.ImageFragment>();
-        var pastedImageFragments = new HashSet<ContextFragment.AnonymousImageFragment>();
+        var pastedImageFragments = new HashSet<ContextFragments.AnonymousImageFragment>();
 
         for (Context ctx : ch.getHistory()) {
             ctx.fileFragments().forEach(fragment -> {
@@ -259,27 +303,21 @@ public final class HistoryIo {
                 }
             });
             ctx.virtualFragments().forEach(vf -> {
-                if (vf instanceof ContextFragment.TaskFragment taskFragment
-                        && !(vf instanceof ContextFragment.SearchFragment)) {
+                if (vf instanceof ContextFragments.TaskFragment taskFragment) {
                     if (!collectedTaskDtos.containsKey(taskFragment.id())) {
                         collectedTaskDtos.put(taskFragment.id(), DtoMapper.toTaskFragmentDto(taskFragment, writer));
                     }
                 } else if (!collectedVirtualDtos.containsKey(vf.id())) {
                     collectedVirtualDtos.put(vf.id(), DtoMapper.toVirtualFragmentDto(vf, writer));
                     if (vf instanceof ContextFragment.ImageFragment ff && !ff.isText()) {
-                        if (vf instanceof ContextFragment.AnonymousImageFragment aif) {
+                        if (vf instanceof ContextFragments.AnonymousImageFragment aif) {
                             pastedImageFragments.add(aif);
                         } else {
-                            if (ff instanceof ContextFragment.ComputedFragment cf) {
-                                var futureImageBytes = cf.computedImageBytes();
-                                if (futureImageBytes != null)
-                                    futureImageBytes.start(); // ensure this starts for when we need it later
-                            }
                             imageDomainFragments.add(ff);
                         }
                     }
 
-                    if (vf instanceof ContextFragment.HistoryFragment hf) {
+                    if (vf instanceof ContextFragments.HistoryFragment hf) {
                         hf.entries().stream()
                                 .map(TaskEntry::log)
                                 .filter(Objects::nonNull)
@@ -398,14 +436,9 @@ public final class HistoryIo {
 
                 for (ContextFragment.ImageFragment ff : imageDomainFragments) {
                     byte[] imageBytes = null;
-                    if (ff instanceof ContextFragment.ComputedFragment cf) {
-                        var futureBytes = cf.computedImageBytes();
-                        if (futureBytes != null) {
-                            imageBytes =
-                                    futureBytes.await(Duration.ofSeconds(10)).orElse(null);
-                        }
-                    } else {
-                        imageBytes = ImageUtil.imageToBytes(ff.image());
+                    var futureBytes = ff.imageBytes();
+                    if (futureBytes != null) {
+                        imageBytes = futureBytes.await(Duration.ofSeconds(10)).orElse(null);
                     }
                     if (imageBytes != null) {
                         ZipEntry entry = new ZipEntry(
@@ -424,11 +457,19 @@ public final class HistoryIo {
 
                 for (var aif : pastedImageFragments) {
                     try {
-                        byte[] imageBytes = aif.imageBytes();
-                        if (imageBytes == null) {
+                        var imageBytesFuture = aif.imageBytes();
+                        if (imageBytesFuture == null) {
                             logger.warn("Skipping image fragment {} because imageBytes is null", aif.id());
                             continue;
                         }
+                        var imageBytesOpt = imageBytesFuture.await(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+                        if (imageBytesOpt.isEmpty()) {
+                            logger.error(
+                                    "Unable to read image bytes within a reasonable amount of time. Image will not be saved: {}",
+                                    aif);
+                            continue;
+                        }
+                        var imageBytes = imageBytesOpt.get();
                         ZipEntry entry = new ZipEntry(IMAGES_DIR_PREFIX + aif.id() + ".png"); // Assumes PNG
                         entry.setMethod(ZipEntry.STORED);
                         entry.setSize(imageBytes.length);

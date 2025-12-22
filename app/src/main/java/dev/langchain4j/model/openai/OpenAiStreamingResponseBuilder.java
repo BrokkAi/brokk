@@ -149,7 +149,6 @@ public class OpenAiStreamingResponseBuilder {
 
         String text = contentBuilder.toString();
         String reasoning = reasoningContentBuilder.toString();
-
         String toolName = toolNameBuilder.toString();
         if (!toolName.isEmpty()) {
             ToolExecutionRequest toolExecutionRequest = ToolExecutionRequest.builder()
@@ -157,14 +156,7 @@ public class OpenAiStreamingResponseBuilder {
                     .arguments(toolArgumentsBuilder.toString())
                     .build();
 
-            AiMessage aiMessage;
-            if (isNullOrBlank(text)) {
-                aiMessage = AiMessage.from(toolExecutionRequest);
-            } else if (isNullOrBlank(reasoning)) {
-                aiMessage = AiMessage.from(text, singletonList(toolExecutionRequest));
-            } else {
-                aiMessage = AiMessage.from(text, reasoning, singletonList(toolExecutionRequest));
-            }
+            AiMessage aiMessage = AiMessage.from(text, reasoning, singletonList(toolExecutionRequest));
 
             return ChatResponse.builder()
                     .aiMessage(aiMessage)
@@ -181,14 +173,7 @@ public class OpenAiStreamingResponseBuilder {
                             .build())
                     .collect(toList());
 
-            AiMessage aiMessage;
-            if (isNullOrBlank(text)) {
-                aiMessage = AiMessage.from(toolExecutionRequests);
-            } else if (isNullOrBlank(reasoning)) {
-                aiMessage = AiMessage.from(text, toolExecutionRequests);
-            } else {
-                aiMessage = AiMessage.from(text, reasoning, toolExecutionRequests);
-            }
+            AiMessage aiMessage = AiMessage.from(text, reasoning, toolExecutionRequests);
 
             return ChatResponse.builder()
                     .aiMessage(aiMessage)
@@ -196,20 +181,11 @@ public class OpenAiStreamingResponseBuilder {
                     .build();
         }
 
-        if (!isNullOrBlank(text)) {
-            AiMessage aiMessage;
-            if (isNullOrBlank(reasoning)) {
-                aiMessage = AiMessage.from(text);
-            } else {
-                aiMessage = AiMessage.from(text, reasoning);
-            }
-            return ChatResponse.builder()
-                    .aiMessage(aiMessage)
-                    .metadata(chatResponseMetadata)
-                    .build();
-        }
-
-        return null;
+        AiMessage aiMessage = AiMessage.from(text, reasoning, List.of());
+        return ChatResponse.builder()
+                .aiMessage(aiMessage)
+                .metadata(chatResponseMetadata)
+                .build();
     }
 
     private static class ToolExecutionRequestBuilder {

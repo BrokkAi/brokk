@@ -8,6 +8,7 @@ import dev.langchain4j.data.message.UserMessage;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -26,7 +27,7 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = new CodeAgent.EditState(
-                List.of(), // pending blocks
+                new LinkedHashSet<>(), // pending blocks
                 0, // parse failures
                 0, // apply failures
                 0, // build failures
@@ -178,7 +179,16 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = new CodeAgent.EditState(
-                List.of(), 0, 0, 0, 1, "", new HashSet<>(Set.of(f1, f2)), new HashMap<>(), new HashMap<>(), false);
+                new LinkedHashSet<>(),
+                0,
+                0,
+                0,
+                1,
+                "",
+                new HashSet<>(Set.of(f1, f2)),
+                new HashMap<>(),
+                new HashMap<>(),
+                false);
 
         var result = codeAgent.parseJavaPhase(cs, es, null);
         var diags = result.es().javaLintDiagnostics();
@@ -441,7 +451,7 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = new CodeAgent.EditState(
-                List.of(), // pending blocks
+                new LinkedHashSet<>(), // pending blocks
                 0, // parse failures
                 0, // apply failures
                 0, // build failures
@@ -780,5 +790,67 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
         assertTrue(
                 res.step().es().javaLintDiagnostics().isEmpty(),
                 res.step().es().javaLintDiagnostics().toString());
+    }
+
+    // PJ-22: method reference with incompatible return type should be ignored (classpath inference)
+    // ECJ can't verify method reference compatibility without full classpath/generic resolution
+    @Test
+    void testParseJavaPhase_incompatibleMethodReference_ignored_continue() throws IOException {
+        var src =
+                """
+                import java.util.function.Function;
+                class MethodRefIncompat {
+                    // Simulates a method that returns a type ECJ can't fully resolve
+                    static MissingType parse(String s) { return null; }
+
+                    void m() {
+                        // Method ref where return type doesn't match descriptor exactly
+                        // (ECJ reports IncompatibleMethodReference without full type info)
+                        Function<String, Object> f = MethodRefIncompat::parse;
+                    }
+                }
+                """;
+        var res = runParseJava("MethodRefIncompat.java", src);
+
+        // The IncompatibleMethodReference error should be suppressed because it's
+        // a cross-file inference issue (ECJ can't verify without MissingType on classpath)
+        assertTrue(
+                res.step().es().javaLintDiagnostics().isEmpty(),
+                "IncompatibleMethodReference should be ignored: "
+                        + res.step().es().javaLintDiagnostics());
+    }
+
+    // PJ-43: Switch expressions with arrow syntax (issue #2025)
+    // Regression test: JDT 3.43.0 incorrectly reported false positives, fixed in 3.44.0
+    @Test
+    void testParseJavaPhase_switchExpressionArrowSyntax_noFalsePositives() throws IOException {
+        var src =
+                """
+                class SwitchArrow {
+                    enum ObligationType { RESERVATION, CALENDAR_BLOCK, ALLOTMENT_BLOCK, SPLIT_INVENTORY }
+                    record Room(String name) {}
+
+                    void process(ObligationType type, Object obligation, Room room, Object context) {
+                        switch (type) {
+                            case RESERVATION -> saveReservation(obligation, room, context);
+                            case CALENDAR_BLOCK -> saveCalendarBlock(obligation, context);
+                            case ALLOTMENT_BLOCK -> saveAllotmentBlock(obligation, context);
+                            case SPLIT_INVENTORY -> saveSplitInventoryBlock(obligation, context);
+                        }
+                    }
+
+                    void saveReservation(Object o, Room r, Object c) {}
+                    void saveCalendarBlock(Object o, Object c) {}
+                    void saveAllotmentBlock(Object o, Object c) {}
+                    void saveSplitInventoryBlock(Object o, Object c) {}
+                }
+                """;
+        var res = runParseJava("SwitchArrow.java", src);
+
+        // Valid Java switch expression with arrow syntax should not produce any diagnostics
+        assertTrue(
+                res.step().es().javaLintDiagnostics().isEmpty(),
+                "Valid switch arrow syntax should not produce diagnostics: "
+                        + res.step().es().javaLintDiagnostics());
     }
 }

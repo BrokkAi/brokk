@@ -160,7 +160,7 @@ public class GuiTheme {
 
         // Update title bar styling for macOS frames
         SwingUtilities.invokeLater(() -> {
-            Chrome.updateTitleBarStyling(frame);
+            ThemeTitleBarManager.updateTitleBarStyling(frame);
         });
 
         // Update registered popup menus
@@ -647,8 +647,12 @@ public class GuiTheme {
                 }
                 var exclamationIndex = jarPath.indexOf('!');
                 if (exclamationIndex >= 0) {
-                    var jarFile = jarPath.substring(5, exclamationIndex); // Remove "file:"
+                    var jarFileUrl = jarPath.substring(5, exclamationIndex); // Remove "file:"
                     var entryPath = jarPath.substring(exclamationIndex + 2); // Remove "!/"
+
+                    // Decode URL encoding (e.g., %20 -> space) to handle paths with spaces
+                    // Use URI to properly decode file paths (handles %20, etc. correctly)
+                    var jarFile = new java.net.URI(jarFileUrl).getPath();
 
                     try (var jar = new JarFile(jarFile)) {
                         var entries = jar.entries();

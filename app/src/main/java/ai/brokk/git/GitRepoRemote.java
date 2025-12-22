@@ -1,8 +1,10 @@
 package ai.brokk.git;
 
+import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import java.io.IOException;
 import java.util.*;
+import java.util.function.Supplier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.Git;
@@ -13,6 +15,7 @@ import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.transport.PushResult;
 import org.eclipse.jgit.transport.RefSpec;
 import org.eclipse.jgit.transport.RemoteRefUpdate;
+import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -417,6 +420,27 @@ public class GitRepoRemote {
     }
 
     /**
+     * Get the remote name for GitHub PR operations, preferring "origin".
+     * Falls back to standard remote resolution if "origin" doesn't exist.
+     */
+    public @Nullable String getOriginRemoteNameWithFallback() {
+        var remoteNames = repository.getRemoteNames();
+        if (remoteNames.contains("origin")) {
+            return "origin";
+        }
+        return getTargetRemoteName();
+    }
+
+    /**
+     * Get the URL of the origin remote with fallback to target remote.
+     * Preferred for GitHub PR operations.
+     */
+    public @Nullable String getOriginUrlWithFallback() {
+        var remoteName = getOriginRemoteNameWithFallback();
+        return remoteName != null ? getUrl(remoteName) : null;
+    }
+
+    /**
      * Lists branches and tags from a remote repository URL.
      *
      * @param url The URL of the remote repository.
@@ -424,11 +448,23 @@ public class GitRepoRemote {
      * @throws GitAPIException if the remote is inaccessible or another Git error occurs.
      */
     public static GitRepo.RemoteInfo listRemoteRefs(String url) throws GitAPIException {
-        var remoteRefs = Git.lsRemoteRepository()
-                .setHeads(true)
-                .setTags(true)
-                .setRemote(url)
-                .call();
+        return listRemoteRefs(MainProject::getGitHubToken, url);
+    }
+
+    static GitRepo.RemoteInfo listRemoteRefs(Supplier<String> tokenSupplier, String url) throws GitAPIException {
+        var lsRemote = Git.lsRemoteRepository().setHeads(true).setTags(true).setRemote(url);
+
+        // Apply GitHub authentication if needed (only for GitHub HTTPS URLs)
+        if (GitRepoFactory.isGitHubHttpsUrl(url)) {
+            var token = tokenSupplier.get();
+            if (!token.trim().isEmpty()) {
+                logger.debug("Using GitHub token authentication for ls-remote: {}", url);
+                lsRemote.setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", token));
+            }
+            // Don't throw if token is empty - allow graceful failure for public repos
+        }
+
+        var remoteRefs = lsRemote.call();
 
         var branches = new ArrayList<String>();
         var tags = new ArrayList<String>();
@@ -573,5 +609,52 @@ public class GitRepoRemote {
 
         // Remote branch exists, check if local has unpushed commits
         return !getUnpushedCommitIds(branch).isEmpty();
+    }
+
+    /**
+     * Ensures a commit SHA is available locally by fetching a specific refSpec from a remote.
+     *
+     * @param sha The commit SHA that must be present locally
+     * @param refSpec The refSpec to fetch (e.g. "+refs/pull/123/head:refs/remotes/origin/pr/123/head")
+     * @param remoteName The remote to fetch from
+     * @return true if the SHA is now available locally, false otherwise
+     */
+    public boolean ensureShaIsLocal(String sha, String refSpec, String remoteName) {
+        if (repo.isCommitLocallyAvailable(sha)) {
+            return true;
+        }
+
+        logger.debug("SHA {} not available locally - fetching {} from {}", sha, refSpec, remoteName);
+        try {
+            var fetchCommand =
+                    git.fetch().setRemote(remoteName).setRefSpecs(new org.eclipse.jgit.transport.RefSpec(refSpec));
+            repo.applyGitHubAuthentication(fetchCommand, getUrl(remoteName));
+            fetchCommand.call();
+            if (repo.isCommitLocallyAvailable(sha)) {
+                logger.debug("Successfully fetched and verified SHA {}", sha);
+                repo.invalidateCaches();
+                return true;
+            } else {
+                logger.warn(
+                        "Failed to make SHA {} available locally even after fetching {} from {}",
+                        sha,
+                        refSpec,
+                        remoteName);
+                return false;
+            }
+        } catch (Exception e) {
+            logger.warn("Error during fetch operation for SHA {}: {}", sha, e.getMessage(), e);
+            return false;
+        }
+    }
+
+    /**
+     * Checks if a commit's data is fully available and parsable in the local repository.
+     *
+     * @param sha The commit SHA to check
+     * @return true if the commit is resolvable and its object data is parsable, false otherwise
+     */
+    public boolean isCommitLocallyAvailable(String sha) {
+        return repo.isCommitLocallyAvailable(sha);
     }
 }

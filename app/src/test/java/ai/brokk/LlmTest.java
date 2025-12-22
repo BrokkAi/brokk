@@ -41,11 +41,25 @@ public class LlmTest {
         contextManager = new TestContextManager(tempDir, consoleIO);
     }
 
+    private dev.langchain4j.model.chat.StreamingChatModel getModel(String modelName) {
+        return contextManager.getService().getModel(new AbstractService.ModelConfig(modelName));
+    }
+
     // Simple tool for testing
     static class WeatherTool {
         @Tool(value = "Get the current weather")
         public String getWeather(@P("Location at which to perform the weather lookup") String location) {
             return "The weather in " + location + " is sunny.";
+        }
+    }
+
+    // Tool with List<Record> parameter to test getInstructions handles JsonObjectSchema array items
+    public record ItemEntry(String id, String description) {}
+
+    static class RecordListTool {
+        @Tool(value = "Process a list of items")
+        public String processItems(@P("List of items to process") List<ItemEntry> items) {
+            return "Processed " + items.size() + " items.";
         }
     }
 
@@ -65,7 +79,7 @@ public class LlmTest {
             try {
                 System.out.println("Testing model: " + modelName);
                 // Get model instance via the Models object
-                StreamingChatModel model = models.getModel(modelName);
+                StreamingChatModel model = getModel(modelName);
                 var coder = contextManager.getLlm(model, "testModels");
                 assertNotNull(model, "Failed to get model instance for: " + modelName);
 
@@ -133,7 +147,7 @@ public class LlmTest {
         availableModels.keySet().parallelStream().forEach(modelName -> {
             try {
                 System.out.println("Testing tool calling for model: " + modelName);
-                StreamingChatModel model = models.getModel(modelName);
+                StreamingChatModel model = getModel(modelName);
                 var coder = contextManager.getLlm(model, "testToolCalling");
                 assertNotNull(model, "Failed to get model instance for: " + modelName);
 
@@ -253,14 +267,7 @@ public class LlmTest {
 
     @Test
     void testParseJsonToToolRequests() {
-        var llm = new Llm(
-                contextManager.getService().getModel("test"),
-                "testParseJsonToToolRequests",
-                contextManager,
-                false,
-                false,
-                false,
-                false);
+        var llm = new Llm(getModel("test"), "testParseJsonToToolRequests", contextManager, false, false, false, false);
         var mapper = new ObjectMapper();
 
         // Case 1: Pure JSON with tool calls
@@ -569,5 +576,19 @@ public class LlmTest {
         assertFalse(ai9.hasToolExecutionRequests(), "AI message should not contain native tool requests");
         assertEquals(Messages.getRepr(aiWithToolCalls), ai9.text());
         assertEquals(user2, result9.get(3));
+    }
+
+    @Test
+    void testGetInstructionsHandlesArrayOfObjects() {
+        // Create tool specifications for a tool with List<Record> parameter
+        var recordListTool = new RecordListTool();
+        var toolSpecs = ToolSpecifications.toolSpecificationsFrom(recordListTool);
+
+        // This should not throw - previously it threw IllegalArgumentException for JsonObjectSchema array items
+        var result = Llm.getInstructions(toolSpecs, t -> "");
+
+        assertNotNull(result);
+        assertTrue(result.contains("processItems"), "Should contain the tool name");
+        assertTrue(result.contains("array of object"), "Should describe parameter as array of object");
     }
 }

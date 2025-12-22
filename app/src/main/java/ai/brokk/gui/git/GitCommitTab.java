@@ -4,7 +4,7 @@ import ai.brokk.*;
 import ai.brokk.agents.ConflictInspector;
 import ai.brokk.agents.MergeAgent;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
@@ -13,13 +13,15 @@ import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.CommitDialog;
 import ai.brokk.gui.Constants;
+import ai.brokk.gui.DeferredUpdateHelper;
 import ai.brokk.gui.DiffWindowManager;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.ResponsiveButtonPanel;
+import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.gui.util.GitUiUtil;
+import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.widgets.FileStatusTable;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
@@ -67,6 +69,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
 
     // Thread-safe cached list of modified files
     private volatile List<ProjectFile> cachedModifiedFiles = List.of();
+    private final DeferredUpdateHelper deferredUpdateHelper;
 
     // Guard to avoid repeatedly offering AI merge while a conflict is active
     private volatile boolean mergeOfferShown = false;
@@ -88,6 +91,8 @@ public class GitCommitTab extends JPanel implements ThemeAware {
         this.contextManager = contextManager;
         this.workflowService = new GitWorkflow(contextManager);
         buildCommitTabUI();
+        // Deferred update helper: run full commit-panel update when visible, otherwise mark dirty.
+        this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::performUpdateCommitPanel);
     }
 
     /** Builds the Changes tab UI elements. */
@@ -181,7 +186,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
         captureDiffItem.addActionListener(e -> {
             // Unified call:
             var selectedFiles = getSelectedFilesFromTable();
-            GitUiUtil.captureUncommittedDiff(contextManager, chrome, selectedFiles);
+            GitDiffUiUtil.captureUncommittedDiff(contextManager, chrome, selectedFiles);
         });
 
         editFileItem.addActionListener(e -> {
@@ -246,14 +251,9 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 return;
             }
 
-            // Determine a safe owner Frame for the CommitDialog:
-            // - prefer the immediate window ancestor if it's a Frame (typical for the main UI)
-            // - otherwise fall back to the main application frame (chrome.getFrame())
-            Window ancestor = SwingUtilities.getWindowAncestor(GitCommitTab.this);
-            Frame ownerFrame = (ancestor instanceof Frame f) ? f : chrome.getFrame();
-
+            Window owner = SwingUtilities.getWindowAncestor(GitCommitTab.this);
             CommitDialog dialog = new CommitDialog(
-                    ownerFrame,
+                    owner,
                     chrome,
                     contextManager,
                     workflowService,
@@ -264,7 +264,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                                 "Committed "
                                         + getRepo().shortHash(commitResult.commitId())
                                         + ": " + commitResult.firstLine());
-                        updateCommitPanel(); // Refresh file list
+                        requestUpdate(); // Refresh file list
                         chrome.updateLogTab();
                         chrome.selectCurrentBranchInLogTab();
                     });
@@ -308,6 +308,10 @@ public class GitCommitTab extends JPanel implements ThemeAware {
         });
         buttonPanel.add(resolveConflictsButton);
 
+        // Fix button widths to accommodate all text variants, preventing layout shifts
+        fixButtonWidth(commitButton, "Commit All...", "Commit Selected...");
+        fixButtonWidth(stashButton, "Stash All", "Stash Selected");
+
         // Table selection => update commit button text and enable/disable buttons
         uncommittedFilesTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
@@ -339,8 +343,23 @@ public class GitCommitTab extends JPanel implements ThemeAware {
         return (GitRepo) repo;
     }
 
-    /** Populates the uncommitted files table and enables/disables commit-related buttons. */
-    public void updateCommitPanel() {
+    /** Populates the uncommitted files table and enables/disables commit-related buttons.
+     *  This defers the update when the tab is not visible. */
+    public void requestUpdate() {
+        // Update badge immediately, even if tab is not visible
+        contextManager.submitBackgroundTask("Updating file count", () -> {
+            var modifiedFiles = getRepo().getModifiedFiles();
+            var projectFiles =
+                    modifiedFiles.stream().map(GitRepo.ModifiedFile::file).collect(Collectors.toList());
+            SwingUtilities.invokeLater(() -> updateAfterStatusChange(projectFiles));
+            return null;
+        });
+        // Defer full panel update for when tab becomes visible
+        deferredUpdateHelper.requestUpdate();
+    }
+
+    /** Performs the actual update logic previously in updateCommitPanel(). */
+    private void performUpdateCommitPanel() {
         logger.trace("Starting updateCommitPanel");
         // Store currently selected rows before updating
         int[] selectedRowsIndices = uncommittedFilesTable.getSelectedRows();
@@ -456,6 +475,21 @@ public class GitCommitTab extends JPanel implements ThemeAware {
         // Let the horizontal scroll handle overflow; no wrapping or panel-wide revalidation necessary
         buttonPanel.revalidate();
         buttonPanel.repaint();
+    }
+
+    /**
+     * Sets a fixed preferred width on the button to accommodate the widest text variant.
+     */
+    private static void fixButtonWidth(AbstractButton button, String... textVariants) {
+        var fm = button.getFontMetrics(button.getFont());
+        var insets = button.getInsets();
+        int maxTextWidth = 0;
+        for (var text : textVariants) {
+            maxTextWidth = Math.max(maxTextWidth, fm.stringWidth(text));
+        }
+        int fixedWidth = maxTextWidth + insets.left + insets.right;
+        var pref = button.getPreferredSize();
+        button.setPreferredSize(new Dimension(fixedWidth, pref.height));
     }
 
     /**
@@ -600,7 +634,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
 
                 for (var file : orderedFiles) {
-                    var rightSource = new BufferSource.FileSource(file.absPath().toFile(), file.getFileName());
+                    var rightSource = new BufferSource.FileSource(file);
 
                     String headContent = "";
                     try {
@@ -619,14 +653,13 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                     // Create normalized sources for window raising check (use all files in consistent order)
                     var normalizedFiles = allFiles.stream()
                             .sorted((f1, f2) -> f1.getFileName().compareToIgnoreCase(f2.getFileName()))
-                            .collect(Collectors.toList());
+                            .toList();
 
                     var leftSources = new ArrayList<BufferSource>();
                     var rightSources = new ArrayList<BufferSource>();
 
                     for (var file : normalizedFiles) {
-                        var rightSource =
-                                new BufferSource.FileSource(file.absPath().toFile(), file.getFileName());
+                        var rightSource = new BufferSource.FileSource(file);
                         String headContent = "";
                         try {
                             var repo = contextManager.getProject().getRepo();
@@ -677,7 +710,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                         .filter(pf -> contextManager
                                 .liveContext()
                                 .allFragments()
-                                .noneMatch(f -> f.files().contains(pf)))
+                                .noneMatch(f -> f.files().join().contains(pf)))
                         .collect(Collectors.toSet());
 
                 // 2. Add all selected files to the workspace to snapshot their current state.
@@ -697,14 +730,15 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                         .liveContext()
                         .fileFragments()
                         .filter(f ->
-                                f instanceof ContextFragment.ProjectPathFragment ppf && newFiles.contains(ppf.file()))
+                                f instanceof ContextFragments.ProjectPathFragment ppf && newFiles.contains(ppf.file()))
                         .toList();
                 var deletedFilesInfo = fragmentsForNewFiles.stream()
                         .map(f -> {
-                            var ppf = (ContextFragment.ProjectPathFragment) f;
+                            var ppf = (ContextFragments.ProjectPathFragment) f;
                             try {
-                                ProjectFile pf = (ProjectFile) ppf.file();
-                                return new ContextHistory.DeletedFile(pf, ppf.text(), true);
+                                ProjectFile pf = ppf.file();
+                                return new ContextHistory.DeletedFile(
+                                        pf, ppf.text().join(), true);
                             } catch (UncheckedIOException e) {
                                 logger.error("Could not read content for new file being rolled back: " + ppf.file(), e);
                                 return null;
@@ -728,7 +762,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 }
 
                 // 7. Create a new context history entry for the rollback action.
-                String fileList = GitUiUtil.formatFileList(selectedFiles);
+                String fileList = GitDiffUiUtil.formatFileList(selectedFiles);
                 var rollbackDescription =
                         otherFiles.isEmpty() ? "Deleted " + fileList : "Rollback " + fileList + " to HEAD";
                 contextManager.pushContext(ctx -> ctx.withParsedOutput(null, rollbackDescription));
@@ -753,7 +787,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                     var fragmentsToDrop = contextManager
                             .liveContext()
                             .fileFragments()
-                            .filter(f -> f instanceof ContextFragment.ProjectPathFragment ppf
+                            .filter(f -> f instanceof ContextFragments.ProjectPathFragment ppf
                                     && otherFilesToDrop.contains(ppf.file()))
                             .toList();
                     if (!fragmentsToDrop.isEmpty()) {
@@ -765,7 +799,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 SwingUtilities.invokeLater(() -> {
                     String successMessage = "Rolled back " + fileList + " to HEAD state. Use Ctrl+Z to undo.";
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, successMessage);
-                    updateCommitPanel();
+                    requestUpdate();
                     chrome.updateLogTab();
                 });
             } catch (Exception ex) {
@@ -801,11 +835,11 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO, "All changes stashed successfully: " + stashDescription);
             } else {
-                String fileList = GitUiUtil.formatFileList(selectedFiles);
+                String fileList = GitDiffUiUtil.formatFileList(selectedFiles);
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO, "Stashed " + fileList + ": " + stashDescription);
             }
-            updateCommitPanel(); // Refresh file list
+            requestUpdate(); // Refresh file list
             chrome.updateLogTab(); // Refresh log
         });
     }
@@ -858,8 +892,9 @@ Would you like to resolve these conflicts with the Merge Agent?
                         .formatted(conflict.state(), conflict.otherCommitId(), conflictCount);
 
         // Create custom dialog with instructions textarea
-        var dialog = new JDialog(chrome.getFrame(), "Merge Conflicts Detected", true);
-        dialog.setLayout(new BorderLayout(Constants.H_GAP, Constants.V_GAP));
+        var dialog = new BaseThemedDialog(chrome.getFrame(), "Merge Conflicts Detected");
+        var root = dialog.getContentRoot();
+        root.setLayout(new BorderLayout(Constants.H_GAP, Constants.V_GAP));
 
         // Message panel
         var messageArea = new JTextArea(message);
@@ -909,9 +944,9 @@ Would you like to resolve these conflicts with the Merge Agent?
         dialogButtonPanel.add(cancelButton);
 
         // Layout
-        dialog.add(messagePanel, BorderLayout.NORTH);
-        dialog.add(customPanel, BorderLayout.CENTER);
-        dialog.add(dialogButtonPanel, BorderLayout.SOUTH);
+        root.add(messagePanel, BorderLayout.NORTH);
+        root.add(customPanel, BorderLayout.CENTER);
+        root.add(dialogButtonPanel, BorderLayout.SOUTH);
 
         dialog.pack();
         dialog.setLocationRelativeTo(chrome.getFrame());
@@ -939,8 +974,9 @@ Would you like to resolve these conflicts with the Merge Agent?
                         .formatted(conflict.state(), conflict.otherCommitId(), conflictCount);
 
         // Create custom dialog with instructions textarea
-        var dialog = new JDialog(chrome.getFrame(), "Merge Conflicts Detected", true);
-        dialog.setLayout(new BorderLayout(Constants.H_GAP, Constants.V_GAP));
+        var dialog = new BaseThemedDialog(chrome.getFrame(), "Merge Conflicts Detected");
+        var root = dialog.getContentRoot();
+        root.setLayout(new BorderLayout(Constants.H_GAP, Constants.V_GAP));
 
         // Message panel
         var messageArea = new JTextArea(message);
@@ -990,9 +1026,9 @@ Would you like to resolve these conflicts with the Merge Agent?
         dialogButtonPanel.add(cancelButton);
 
         // Layout
-        dialog.add(messagePanel, BorderLayout.NORTH);
-        dialog.add(customPanel, BorderLayout.CENTER);
-        dialog.add(dialogButtonPanel, BorderLayout.SOUTH);
+        root.add(messagePanel, BorderLayout.NORTH);
+        root.add(customPanel, BorderLayout.CENTER);
+        root.add(dialogButtonPanel, BorderLayout.SOUTH);
 
         dialog.pack();
         dialog.setLocationRelativeTo(chrome.getFrame());
@@ -1037,7 +1073,7 @@ Would you like to resolve these conflicts with the Merge Agent?
                             () -> chrome.toolError("AI merge failed: " + ex.getMessage(), "Merge Agent Error"));
                 } finally {
                     SwingUtilities.invokeLater(() -> {
-                        updateCommitPanel();
+                        requestUpdate();
                         chrome.updateLogTab();
                     });
                 }

@@ -1,6 +1,7 @@
 package ai.brokk.project;
 
-import ai.brokk.AbstractService;
+import ai.brokk.AbstractService.ModelConfig;
+import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IssueProvider;
 import ai.brokk.SessionManager;
@@ -9,6 +10,8 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
+import ai.brokk.project.ModelProperties.ModelType;
+import ai.brokk.util.Environment;
 import com.jakewharton.disklrucache.DiskLruCache;
 import java.awt.Rectangle;
 import java.io.IOException;
@@ -26,6 +29,8 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 public interface IProject extends AutoCloseable {
+
+    long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
 
     default IGitRepo getRepo() {
         throw new UnsupportedOperationException();
@@ -77,14 +82,12 @@ public interface IProject extends AutoCloseable {
     default void invalidateAllFiles() {}
 
     /**
-     * Checks if a directory is ignored by gitignore rules.
-     * This is used by BuildAgent to identify excluded directories for LLM context.
-     * Uses explicit gitignore validation with isDirectory=true rather than inferring from absence.
+     * Check if a path (file or directory) is ignored by gitignore rules.
      *
-     * @param directoryRelPath Path relative to project root
-     * @return true if the directory is ignored by gitignore rules, false otherwise
+     * @param relPath Path relative to project root
+     * @return true if the path is ignored by gitignore rules, false otherwise
      */
-    default boolean isDirectoryIgnored(Path directoryRelPath) {
+    default boolean isGitignored(Path relPath) {
         return false; // Conservative default: assume not ignored
     }
 
@@ -138,11 +141,11 @@ public interface IProject extends AutoCloseable {
         return CompletableFuture.failedFuture(new UnsupportedOperationException());
     }
 
-    default AbstractService.ModelConfig getCodeModelConfig() {
-        throw new UnsupportedOperationException();
+    default ModelConfig getModelConfig(ModelType modelType) {
+        return new ModelConfig("test-model");
     }
 
-    default AbstractService.ModelConfig getQuickModelConfig() {
+    default void setModelConfig(ModelType modelType, ModelConfig config) {
         throw new UnsupportedOperationException();
     }
 
@@ -289,22 +292,6 @@ public interface IProject extends AutoCloseable {
         return false;
     }
 
-    default void setQuickModelConfig(AbstractService.ModelConfig modelConfig) {
-        throw new UnsupportedOperationException();
-    }
-
-    default void setCodeModelConfig(AbstractService.ModelConfig modelConfig) {
-        throw new UnsupportedOperationException();
-    }
-
-    default AbstractService.ModelConfig getArchitectModelConfig() {
-        throw new UnsupportedOperationException();
-    }
-
-    default void setArchitectModelConfig(AbstractService.ModelConfig config) {
-        throw new UnsupportedOperationException();
-    }
-
     default String getCommitMessageFormat() {
         throw new UnsupportedOperationException();
     }
@@ -341,6 +328,14 @@ public interface IProject extends AutoCloseable {
 
     default void setExecutorArgs(@Nullable String args) {}
 
+    /** Gets a UI filter property for persistence across sessions (e.g., "issues.status"). */
+    default @Nullable String getUiFilterProperty(String key) {
+        return null;
+    }
+
+    /** Sets a UI filter property for persistence across sessions. */
+    default void setUiFilterProperty(String key, @Nullable String value) {}
+
     default boolean getArchitectRunInWorktree() {
         throw new UnsupportedOperationException();
     }
@@ -371,12 +366,132 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-    default Set<String> getExcludedDirectories() {
+    /**
+     * Whether this project should automatically attempt to update dependencies that were imported
+     * from local directories on disk. Implementations may persist this at the project level.
+     *
+     * Default is {@code false}.
+     */
+    default boolean getAutoUpdateLocalDependencies() {
+        return false;
+    }
+
+    /**
+     * Configure whether this project should automatically attempt to update dependencies that were
+     * imported from local directories on disk.
+     */
+    default void setAutoUpdateLocalDependencies(boolean enabled) {}
+
+    /**
+     * Whether this project should automatically attempt to update dependencies that were imported
+     * from GitHub repositories. Implementations may persist this at the project level.
+     *
+     * Default is {@code false}.
+     */
+    default boolean getAutoUpdateGitDependencies() {
+        return false;
+    }
+
+    /**
+     * Configure whether this project should automatically attempt to update dependencies that were
+     * imported from GitHub repositories.
+     */
+    default void setAutoUpdateGitDependencies(boolean enabled) {}
+
+    /**
+     * Returns all on-disk dependency directories (immediate children of the dependencies folder).
+     */
+    default Set<ProjectFile> getAllOnDiskDependencies() {
         return Set.of();
+    }
+
+    /**
+     * Returns the set of enabled (live) dependencies.
+     */
+    default Set<Dependency> getLiveDependencies() {
+        return Set.of();
+    }
+
+    /**
+     * Returns the set of exclusion patterns for code intelligence.
+     * Patterns can be simple names (e.g., "node_modules") or globs (e.g., "*.svg").
+     */
+    default Set<String> getExclusionPatterns() {
+        return Set.of();
+    }
+
+    /**
+     * Returns exclusion patterns that are simple directory/file names (no wildcards).
+     * Convenience method for callers that need Path-based exclusions.
+     */
+    default Set<String> getExcludedDirectories() {
+        return getExclusionPatterns().stream()
+                .filter(p -> !p.contains("*") && !p.contains("?"))
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * Returns exclusion patterns that contain wildcards (glob patterns).
+     * Convenience method for callers that need only glob-style patterns.
+     */
+    default Set<String> getExcludedGlobPatterns() {
+        return getExclusionPatterns().stream()
+                .filter(p -> p.contains("*") || p.contains("?"))
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * Check if a path (file or directory) is excluded by any pattern.
+     * Implementations should cache compiled patterns for efficiency.
+     *
+     * @param relativePath the relative path to check (e.g., "src/main/java" or "node_modules/foo/bar.js")
+     * @param isDirectory true if the path is a directory (skips Extension pattern checks like *.svg)
+     * @return true if the path is excluded
+     */
+    default boolean isPathExcluded(String relativePath, boolean isDirectory) {
+        return false;
     }
 
     default IConsoleIO getConsoleIO() {
         throw new UnsupportedOperationException();
+    }
+
+    default void saveLiveDependencies(Set<Path> dependencyTopLevelDirs) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Updates the live dependencies set. If an analyzer is provided, also pauses/resumes
+     * the watcher, computes file diffs, and updates the analyzer.
+     *
+     * @param newLiveDependencyDirs the complete desired set of live dependency directories
+     * @param analyzerWrapper the analyzer to update, or null for persistence-only (CLI usage)
+     * @return CompletableFuture that completes when all operations are done
+     */
+    default CompletableFuture<Void> updateLiveDependencies(
+            Set<Path> newLiveDependencyDirs, @Nullable IAnalyzerWrapper analyzerWrapper) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Adds a dependency to the live set (merge semantics).
+     * Used after importing a new dependency.
+     *
+     * @param dependencyName the name of the dependency directory to add
+     * @param analyzerWrapper the analyzer to update, or null for persistence-only (CLI usage)
+     * @return CompletableFuture that completes when the operation is done
+     */
+    default CompletableFuture<Void> addLiveDependency(
+            String dependencyName, @Nullable IAnalyzerWrapper analyzerWrapper) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Obtains the user-defined run command timeout if set, or the default value otherwise.
+     * @return the default timeout for how long a shell command may run for.
+     */
+    default long getRunCommandTimeoutSeconds() {
+        return DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
     }
 
     enum CodeAgentTestScope {

@@ -1,6 +1,5 @@
 package ai.brokk.testutil;
 
-import ai.brokk.AbstractService;
 import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
@@ -8,17 +7,19 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.git.TestRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.tasks.TaskList;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.File;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jetbrains.annotations.Nullable;
 
@@ -36,7 +37,7 @@ public final class TestContextManager implements IContextManager {
     private final Set<ProjectFile> editableFiles;
     private final IConsoleIO consoleIO;
     private final TestService stubService;
-    private final Context liveContext;
+    private Context liveContext;
 
     // Test-friendly AnalyzerWrapper that uses a "quick runner" to return the mockAnalyzer immediately.
     private final IAnalyzerWrapper analyzerWrapper;
@@ -62,7 +63,7 @@ public final class TestContextManager implements IContextManager {
         this.repo = new TestRepo(project.getRoot());
         this.consoleIO = consoleIO;
         this.stubService = new TestService(this.project);
-        this.liveContext = new Context(this, "Test context").addPathFragments(toPathFragments(editableFiles));
+        this.liveContext = new Context(this).addFragments(toPathFragments(editableFiles));
 
         this.analyzerWrapper = new IAnalyzerWrapper() {
             @Override
@@ -103,13 +104,8 @@ public final class TestContextManager implements IContextManager {
         return repo;
     }
 
-    @Override
-    public Set<ProjectFile> getFilesInContext() {
-        return new HashSet<>(editableFiles);
-    }
-
     public void addEditableFile(ProjectFile file) {
-        this.editableFiles.add(file);
+        liveContext = liveContext.addFragments(new ContextFragments.ProjectPathFragment(file, this));
     }
 
     @Override
@@ -148,21 +144,13 @@ public final class TestContextManager implements IContextManager {
     }
 
     @Override
-    public AbstractService getService() {
+    public TestService getService() {
         return stubService;
     }
 
     @Override
     public StreamingChatModel getCodeModel() {
         return null;
-    }
-
-    /**
-     * Set a custom model to be returned by getLlm when requesting the quickest model. Used for testing preprocessing
-     * behavior.
-     */
-    public void setQuickestModel(StreamingChatModel model) {
-        stubService.setQuickestModel(model);
     }
 
     public ProjectFile toFile(String relativePath) {
@@ -201,18 +189,10 @@ public final class TestContextManager implements IContextManager {
         return context.withTaskList(new TaskList.TaskListData(items), "Task list replaced");
     }
 
-    @Override
-    public Context appendTasksToTaskList(Context context, List<String> tasks) {
-        var cleaned =
-                tasks.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
-        if (cleaned.isEmpty()) {
-            return context; // no-op
-        }
-        var existing = new ArrayList<>(context.getTaskListDataOrEmpty().tasks());
-        existing.addAll(
-                cleaned.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList());
-        return context.withTaskList(new TaskList.TaskListData(List.copyOf(existing)), "Task list updated");
-    }
+    private final ExecutorService backgroundTasks = Executors.newCachedThreadPool();
 
-    private String buildFragmentContent = "";
+    @Override
+    public ExecutorService getBackgroundTasks() {
+        return backgroundTasks;
+    }
 }

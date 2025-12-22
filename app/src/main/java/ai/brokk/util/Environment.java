@@ -502,11 +502,6 @@ public class Environment {
         pb.environment().remove("EDITOR");
         pb.environment().remove("VISUAL");
         pb.environment().put("TERM", "dumb");
-        // Ensure git has identity in environments where global config is missing (helps tests and sandboxes)
-        pb.environment().putIfAbsent("GIT_AUTHOR_NAME", "TestUser");
-        pb.environment().putIfAbsent("GIT_AUTHOR_EMAIL", "test@example.com");
-        pb.environment().putIfAbsent("GIT_COMMITTER_NAME", "TestUser");
-        pb.environment().putIfAbsent("GIT_COMMITTER_EMAIL", "test@example.com");
         return pb;
     }
 
@@ -563,6 +558,28 @@ public class Environment {
 
     public static boolean isLinux() {
         return System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("linux");
+    }
+
+    /**
+     * Returns a concise description of the current operating system, including
+     * name, version, and architecture where available.
+     */
+    public static String getOsDescription() {
+        String name = System.getProperty("os.name", "unknown");
+        String version = System.getProperty("os.version", "unknown");
+        String arch = System.getProperty("os.arch", "unknown");
+        return "%s %s (%s)".formatted(name, version, arch);
+    }
+
+    /**
+     * Returns a concise description of the current Java runtime (JRE/JDK),
+     * including runtime name, version, and vendor where available.
+     */
+    public static String getJreDescription() {
+        String runtimeName = System.getProperty("java.runtime.name", "unknown");
+        String version = System.getProperty("java.runtime.version", System.getProperty("java.version", "unknown"));
+        String vendor = System.getProperty("java.vendor", "unknown");
+        return "%s %s (%s)".formatted(runtimeName, version, vendor);
     }
 
     /** Returns the current user's home directory as a Path. */

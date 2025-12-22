@@ -50,14 +50,14 @@ public class V3_DtoMapper {
                 .toList();
 
         var virtualFragments = dto.virtuals().stream()
-                .map(id -> (ContextFragment.VirtualFragment) fragmentCache.get(id))
+                .map(fragmentCache::get)
                 .filter(Objects::nonNull)
                 .toList();
 
         var taskHistory = dto.tasks().stream()
                 .map(taskRefDto -> {
                     if (taskRefDto.logId() != null) {
-                        var logFragment = (ContextFragment.TaskFragment) fragmentCache.get(taskRefDto.logId());
+                        var logFragment = (ContextFragments.TaskFragment) fragmentCache.get(taskRefDto.logId());
                         if (logFragment != null) {
                             return new TaskEntry(taskRefDto.sequence(), logFragment, null);
                         }
@@ -71,7 +71,7 @@ public class V3_DtoMapper {
                 .collect(Collectors.toCollection(ArrayList::new));
 
         var parsedOutputFragment = dto.parsedOutputId() != null
-                ? (ContextFragment.TaskFragment) fragmentCache.get(dto.parsedOutputId())
+                ? (ContextFragments.TaskFragment) fragmentCache.get(dto.parsedOutputId())
                 : null;
 
         var actionFuture = CompletableFuture.completedFuture(dto.action());
@@ -126,22 +126,22 @@ public class V3_DtoMapper {
         throw new IllegalStateException("Fragment DTO not found for ID: " + idToResolve);
     }
 
-    private static ContextFragment _buildReferencedFragment(
+    private static @Nullable ContextFragment _buildReferencedFragment(
             V3_FragmentDtos.ReferencedFragmentDto dto, IContextManager mgr, V3_HistoryIo.ContentReader reader) {
         return switch (dto) {
             case V3_FragmentDtos.ProjectFileDto pfd ->
                 // Use current project root for cross-platform compatibility
-                ContextFragment.ProjectPathFragment.withId(mgr.toFile(pfd.relPath()), pfd.id(), mgr);
+                ContextFragments.ProjectPathFragment.withId(mgr.toFile(pfd.relPath()), pfd.id(), mgr);
             case V3_FragmentDtos.ExternalFileDto efd ->
-                ContextFragment.ExternalPathFragment.withId(
+                ContextFragments.ExternalPathFragment.withId(
                         new ExternalFile(Path.of(efd.absPath()).toAbsolutePath()), efd.id(), mgr);
             case V3_FragmentDtos.ImageFileDto ifd -> {
                 BrokkFile file = fromImageFileDtoToBrokkFile(ifd, mgr);
-                yield ContextFragment.ImageFileFragment.withId(file, ifd.id(), mgr);
+                yield ContextFragments.ImageFileFragment.withId(file, ifd.id(), mgr);
             }
             case V3_FragmentDtos.GitFileFragmentDto gfd ->
                 // Use current project root for cross-platform compatibility
-                ContextFragment.GitFileFragment.withId(
+                ContextFragments.GitFileFragment.withId(
                         mgr.toFile(gfd.relPath()), gfd.revision(), reader.readContent(gfd.contentId()), gfd.id());
             case V3_FragmentDtos.FrozenFragmentDto ffd -> {
                 // Unfreeze all FrozenFragmentDto objects during V3 migration.
@@ -168,16 +168,16 @@ public class V3_DtoMapper {
         };
     }
 
-    private static @Nullable ContextFragment.TaskFragment _buildTaskFragment(
+    private static @Nullable ContextFragments.TaskFragment _buildTaskFragment(
             @Nullable V3_FragmentDtos.TaskFragmentDto dto, IContextManager mgr, V3_HistoryIo.ContentReader reader) {
         if (dto == null) return null;
         var messages = dto.messages().stream()
                 .map(msgDto -> fromChatMessageDto(msgDto, reader))
                 .toList();
-        return new ContextFragment.TaskFragment(dto.id(), mgr, messages, dto.sessionName());
+        return new ContextFragments.TaskFragment(dto.id(), mgr, messages, dto.sessionName());
     }
 
-    private static ContextFragment fromFrozenDtoToLiveFragment(
+    private static @Nullable ContextFragment fromFrozenDtoToLiveFragment(
             V3_FragmentDtos.FrozenFragmentDto ffd, IContextManager mgr, V3_HistoryIo.ContentReader reader) {
         var original = ffd.originalClassName();
         var meta = ffd.meta();
@@ -190,7 +190,10 @@ public class V3_DtoMapper {
                     if (relPath == null)
                         throw new IllegalArgumentException("Missing metadata 'relPath' for ProjectPathFragment");
                     var file = mgr.toFile(relPath);
-                    return new ContextFragment.ProjectPathFragment(file, mgr);
+                    String snapshot = ffd.contentId() != null && ffd.isTextFragment()
+                            ? reader.readContent(ffd.contentId())
+                            : null;
+                    return new ContextFragments.ProjectPathFragment(file, mgr, snapshot);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$ExternalPathFragment",
                         "ai.brokk.context.ContextFragment$ExternalPathFragment" -> {
@@ -198,7 +201,10 @@ public class V3_DtoMapper {
                     if (absPath == null)
                         throw new IllegalArgumentException("Missing metadata 'absPath' for ExternalPathFragment");
                     var file = new ExternalFile(Path.of(absPath).toAbsolutePath());
-                    return new ContextFragment.ExternalPathFragment(file, mgr);
+                    String snapshot = ffd.contentId() != null && ffd.isTextFragment()
+                            ? reader.readContent(ffd.contentId())
+                            : null;
+                    return new ContextFragments.ExternalPathFragment(file, mgr, snapshot);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$ImageFileFragment",
                         "ai.brokk.context.ContextFragment$ImageFileFragment" -> {
@@ -215,7 +221,7 @@ public class V3_DtoMapper {
                     } else {
                         file = new ExternalFile(Path.of(absPath).toAbsolutePath());
                     }
-                    return new ContextFragment.ImageFileFragment(file, mgr);
+                    return new ContextFragments.ImageFileFragment(file, mgr);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$GitFileFragment",
                         "ai.brokk.context.ContextFragment$GitFileFragment" -> {
@@ -230,21 +236,12 @@ public class V3_DtoMapper {
                         throw new IllegalArgumentException("Frozen GitFileFragment missing contentId");
                     }
                     var content = reader.readContent(contentId);
-                    return new ContextFragment.GitFileFragment(file, revision, content);
+                    return new ContextFragments.GitFileFragment(file, revision, content);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$SkeletonFragment",
                         "ai.brokk.context.ContextFragment$SkeletonFragment" -> {
-                    var targetIdentifiersStr = meta.get("targetIdentifiers");
-                    var summaryTypeStr = meta.get("summaryType");
-                    if (targetIdentifiersStr == null || summaryTypeStr == null) {
-                        throw new IllegalArgumentException(
-                                "Missing 'targetIdentifiers' or 'summaryType' for SkeletonFragment");
-                    }
-                    var targets = targetIdentifiersStr.isEmpty()
-                            ? List.<String>of()
-                            : List.of(targetIdentifiersStr.split(";"));
-                    var summaryType = ContextFragment.SummaryType.valueOf(summaryTypeStr);
-                    return new ContextFragment.SkeletonFragment(mgr, targets, summaryType);
+                    logger.warn("Skeleton fragments are no longer supported, dropping fragment");
+                    return null;
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$SummaryFragment",
                         "ai.brokk.context.ContextFragment$SummaryFragment" -> {
@@ -255,7 +252,7 @@ public class V3_DtoMapper {
                                 "Missing 'targetIdentifier' or 'summaryType' for SummaryFragment");
                     }
                     var summaryType = ContextFragment.SummaryType.valueOf(summaryTypeStr);
-                    return new ContextFragment.SummaryFragment(mgr, targetIdentifier, summaryType);
+                    return new ContextFragments.SummaryFragment(mgr, targetIdentifier, summaryType);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$UsageFragment",
                         "ai.brokk.context.ContextFragment$UsageFragment" -> {
@@ -263,7 +260,10 @@ public class V3_DtoMapper {
                     if (targetIdentifier == null) {
                         throw new IllegalArgumentException("Missing 'targetIdentifier' for UsageFragment");
                     }
-                    return new ContextFragment.UsageFragment(mgr, targetIdentifier);
+                    String snapshot = ffd.contentId() != null && ffd.isTextFragment()
+                            ? reader.readContent(ffd.contentId())
+                            : null;
+                    return new ContextFragments.UsageFragment(mgr, targetIdentifier, true, snapshot);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$CallGraphFragment",
                         "ai.brokk.context.ContextFragment$CallGraphFragment" -> {
@@ -276,7 +276,7 @@ public class V3_DtoMapper {
                     }
                     int depth = Integer.parseInt(depthStr);
                     boolean isCalleeGraph = Boolean.parseBoolean(isCalleeGraphStr);
-                    return new ContextFragment.CallGraphFragment(mgr, methodName, depth, isCalleeGraph);
+                    return new ContextFragments.CallGraphFragment(mgr, methodName, depth, isCalleeGraph);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$CodeFragment",
                         "ai.brokk.context.ContextFragment$CodeFragment" -> {
@@ -284,7 +284,10 @@ public class V3_DtoMapper {
                     if (fqName == null) {
                         throw new IllegalArgumentException("Missing 'fqName' for CodeFragment");
                     }
-                    return new ContextFragment.CodeFragment(mgr, fqName);
+                    String snapshot = ffd.contentId() != null && ffd.isTextFragment()
+                            ? reader.readContent(ffd.contentId())
+                            : null;
+                    return new ContextFragments.CodeFragment(mgr, fqName, snapshot);
                 }
                 default -> {
                     throw new RuntimeException("Unsupported FrozenFragment originalClassName=" + original);
@@ -300,7 +303,7 @@ public class V3_DtoMapper {
         }
     }
 
-    private static @Nullable ContextFragment.VirtualFragment _buildVirtualFragment(
+    private static @Nullable ContextFragment _buildVirtualFragment(
             @Nullable V3_FragmentDtos.VirtualFragmentDto dto,
             IContextManager mgr,
             Map<String, ContextFragment> fragmentCacheForRecursion,
@@ -317,39 +320,32 @@ public class V3_DtoMapper {
                 }
                 // FrozenFragmentDto is treated as a ReferencedFragmentDto and unfrozen during deserialization.
                 // No fallback to frozen objects; _buildReferencedFragment() will fail fast if unfreezing fails.
-                yield (ContextFragment.VirtualFragment) _buildReferencedFragment(ffd, mgr, reader);
+                yield _buildReferencedFragment(ffd, mgr, reader);
             }
-            case V3_FragmentDtos.SearchFragmentDto searchDto -> {
-                var sources = searchDto.sources().stream()
-                        .map(cuDto -> fromCodeUnitDto(cuDto, mgr))
-                        .collect(Collectors.toSet());
-                var messages = searchDto.messages().stream()
-                        .map(msgDto -> fromChatMessageDto(msgDto, reader))
-                        .toList();
-                yield new ContextFragment.SearchFragment(searchDto.id(), mgr, searchDto.query(), messages, sources);
+            case V3_FragmentDtos.SearchFragmentDto ignored -> {
+                logger.warn("Search fragments are no longer supported, dropping fragment");
+                yield null;
             }
             case V3_FragmentDtos.TaskFragmentDto taskDto -> _buildTaskFragment(taskDto, mgr, reader);
             case V3_FragmentDtos.StringFragmentDto stringDto ->
-                new ContextFragment.StringFragment(
+                new ContextFragments.StringFragment(
                         stringDto.id(),
                         mgr,
                         reader.readContent(stringDto.contentId()),
                         stringDto.description(),
                         stringDto.syntaxStyle());
-            case V3_FragmentDtos.SkeletonFragmentDto skeletonDto ->
-                new ContextFragment.SkeletonFragment(
-                        skeletonDto.id(),
-                        mgr,
-                        skeletonDto.targetIdentifiers(),
-                        mapSummaryType(skeletonDto.summaryType()));
+            case V3_FragmentDtos.SkeletonFragmentDto ignored -> {
+                logger.warn("Skeleton fragments are no longer supported, dropping fragment");
+                yield null;
+            }
             case V3_FragmentDtos.SummaryFragmentDto summaryDto ->
-                new ContextFragment.SummaryFragment(
+                new ContextFragments.SummaryFragment(
                         summaryDto.id(), mgr, summaryDto.targetIdentifier(), mapSummaryType(summaryDto.summaryType()));
             case V3_FragmentDtos.UsageFragmentDto usageDto ->
-                new ContextFragment.UsageFragment(
+                new ContextFragments.UsageFragment(
                         usageDto.id(), mgr, usageDto.targetIdentifier(), usageDto.includeTestFiles());
             case V3_FragmentDtos.PasteTextFragmentDto pasteTextDto ->
-                new ContextFragment.PasteTextFragment(
+                new ContextFragments.PasteTextFragment(
                         pasteTextDto.id(),
                         mgr,
                         reader.readContent(pasteTextDto.contentId()),
@@ -364,7 +360,7 @@ public class V3_DtoMapper {
                         yield null;
                     }
                     var image = ImageUtil.bytesToImage(imageBytes);
-                    yield new ContextFragment.AnonymousImageFragment(
+                    yield new ContextFragments.AnonymousImageFragment(
                             pasteImageDto.id(),
                             mgr,
                             image,
@@ -377,7 +373,7 @@ public class V3_DtoMapper {
                 var sources = stDto.sources().stream()
                         .map(cuDto -> fromCodeUnitDto(cuDto, mgr))
                         .collect(Collectors.toSet());
-                yield new ContextFragment.StacktraceFragment(
+                yield new ContextFragments.StacktraceFragment(
                         stDto.id(),
                         mgr,
                         sources,
@@ -386,7 +382,7 @@ public class V3_DtoMapper {
                         reader.readContent(stDto.codeContentId()));
             }
             case V3_FragmentDtos.CallGraphFragmentDto callGraphDto ->
-                new ContextFragment.CallGraphFragment(
+                new ContextFragments.CallGraphFragment(
                         callGraphDto.id(),
                         mgr,
                         callGraphDto.methodName(),
@@ -395,12 +391,12 @@ public class V3_DtoMapper {
             case V3_FragmentDtos.CodeFragmentDto codeDto -> {
                 // Extract fully qualified name from the V3 CodeUnitDto and preserve the ID
                 String fqName = buildFullyQualifiedName(codeDto.unit());
-                yield new ContextFragment.CodeFragment(codeDto.id(), mgr, fqName);
+                yield new ContextFragments.CodeFragment(codeDto.id(), mgr, fqName);
             }
             case V3_FragmentDtos.BuildFragmentDto bfDto -> {
                 // Backward compatibility: convert legacy BuildFragment to StringFragment with BUILD_RESULTS
                 var text = reader.readContent(bfDto.contentId());
-                yield new ContextFragment.StringFragment(
+                yield new ContextFragments.StringFragment(
                         bfDto.id(),
                         mgr,
                         text,
@@ -418,7 +414,7 @@ public class V3_DtoMapper {
                                 allTaskDtos,
                                 reader))
                         .toList();
-                yield new ContextFragment.HistoryFragment(historyDto.id(), mgr, historyEntries);
+                yield new ContextFragments.HistoryFragment(historyDto.id(), mgr, historyEntries);
             }
         };
     }
@@ -463,7 +459,7 @@ public class V3_DtoMapper {
             Map<String, V3_FragmentDtos.TaskFragmentDto> allTaskDtos,
             V3_HistoryIo.ContentReader reader) {
         if (dto.log() != null) {
-            var taskFragment = (ContextFragment.TaskFragment) fragmentCacheForRecursion.computeIfAbsent(
+            var taskFragment = (ContextFragments.TaskFragment) fragmentCacheForRecursion.computeIfAbsent(
                     dto.log().id(),
                     id -> resolveAndBuildFragment(
                             id,

@@ -1,6 +1,6 @@
 package ai.brokk.prompts;
 
-import ai.brokk.ContextManager;
+import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.util.StyleGuideResolver;
@@ -8,15 +8,28 @@ import dev.langchain4j.data.message.SystemMessage;
 import java.util.Comparator;
 import java.util.Map;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.Blocking;
 
 public abstract class ArchitectPrompts extends CodePrompts {
     public static final ArchitectPrompts instance = new ArchitectPrompts() {};
     public static final double WORKSPACE_WARNING_THRESHOLD = 0.5;
     public static final double WORKSPACE_CRITICAL_THRESHOLD = 0.9;
 
+    @Blocking
+    private static String resolveAggregatedStyleGuide(IContextManager cm, Context ctx) {
+        // Collect project-backed files from current context (nearest-first resolution uses parent dirs).
+        var projectFiles =
+                ctx.fileFragments().flatMap(cf -> cf.files().join().stream()).toList();
+
+        // Resolve composite style guide from AGENTS.md files nearest to current context files;
+        // falls back to project root guide internally.
+        return StyleGuideResolver.resolve(projectFiles, cm.getProject());
+    }
+
     @Override
+    @Blocking
     public SystemMessage systemMessage(Context ctx, String reminder) {
-        var styleGuide = StyleGuideResolver.resolve(ctx);
+        var styleGuide = StyleGuideResolver.resolve(ctx, ctx.getContextManager().getProject());
 
         var text =
                 """
@@ -131,7 +144,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
         """;
     }
 
-    public String getFinalInstructions(ContextManager cm, String goal, int workspaceTokenSize, int maxInputTokens) {
+    public String getFinalInstructions(Context ctx, String goal, int workspaceTokenSize, int maxInputTokens) {
         String workspaceWarning = "";
         if (maxInputTokens > 0) {
             double criticalLimit = WORKSPACE_CRITICAL_THRESHOLD * maxInputTokens;
@@ -178,7 +191,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
             %s
             </goal>
 
-            Please decide the next tool action(s) to make progress towards resolving the goal.
+            %s
 
             You MUST think carefully before each function call, and reflect extensively on the outcomes of the previous function calls.
             DO NOT do this entire process by making function calls only, as this can impair your ability to solve the problem and think insightfully.
@@ -194,13 +207,17 @@ public abstract class ArchitectPrompts extends CodePrompts {
             When you are done, call projectFinished or abortProject.
 
             Here is a summary of the current Workspace. Its full contents were sent earlier in the chat.
-            <workspace_summary>
+            <workspace-toc>
             %s
-            </workspace_summary>
+            </workspace-toc>
 
             %s
             """
-                .formatted(goal, WorkspacePrompts.formatToc(cm.liveContext()), workspaceWarning);
+                .formatted(goal, instructionsMarker(), WorkspacePrompts.formatToc(ctx), workspaceWarning);
+    }
+
+    public static String instructionsMarker() {
+        return "Please decide the next tool action(s) to make progress towards resolving the goal.";
     }
 
     /**

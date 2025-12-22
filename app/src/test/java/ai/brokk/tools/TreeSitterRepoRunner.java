@@ -8,6 +8,9 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.IProject;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import java.io.IOException;
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
@@ -17,31 +20,36 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
+import picocli.CommandLine;
 
 /**
- * Simplified baseline measurement utility for TreeSitter performance analysis. Compatible with master branch - uses
- * basic caching and simplified metrics.
+ * Simplified baseline measurement utility for TreeSitter performance analysis.
+ * Now uses picocli for CLI parsing (modeled after BrokkCli).
  *
- * <p>Usage: java TreeSitterRepoRunner [options] <command>
+ * Usage:
+ *   java TreeSitterRepoRunner <command> [options]
  *
- * <p>Commands: setup-projects Download/clone all test projects run-baselines Execute full baseline suite test-project
- * Test specific project: --project <name> --language <lang> memory-stress Memory stress test with increasing file
- * counts multi-language Multi-language analysis on same project
- *
- * <p>Options: --project <name> Specific project (chromium, llvm, vscode, etc.) --language <lang> Language to analyze
- * (cpp, java, typescript, etc.) --directory <path> Custom directory to analyze (use absolute paths) --max-files <count>
- * Maximum files to process (default: 1000) --output <path> Output directory for results (default:
- * build/reports/treesitter-baseline) --memory-profile Enable detailed memory profiling --stress-test Run until
- * OutOfMemoryError to find limits --json Output results in JSON format --verbose Enable verbose logging --show-details
- * Show symbols found in each file
+ * Commands:
+ *   setup-projects    Download/clone all test projects
+ *   run-baselines     Execute full baseline suite
+ *   test-project      Test specific project
+ *   memory-stress     Memory stress test with increasing file counts
+ *   multi-language    Multi-language analysis on same project
+ *   cleanup           Clean up report files from output directory
+ *   help              Show usage
  */
-public class TreeSitterRepoRunner {
+@CommandLine.Command(
+        name = "TreeSitterRepoRunner",
+        mixinStandardHelpOptions = true,
+        description = "TreeSitter Performance Baseline Measurement (Simplified)")
+public class TreeSitterRepoRunner implements Callable<Integer> {
 
     private static final String PROJECTS_DIR = "../test-projects";
     private static final String DEFAULT_OUTPUT_DIR = "build/reports/treesitter-baseline";
@@ -50,6 +58,9 @@ public class TreeSitterRepoRunner {
      * Base directory where test projects are stored. Defaults to {@link #PROJECTS_DIR} but may be overridden with the
      * --projects-dir CLI option.
      */
+    @CommandLine.Option(
+            names = "--projects-dir",
+            description = "Base directory for cloned projects (default: " + PROJECTS_DIR + ")")
     private Path projectsBaseDir = Paths.get(PROJECTS_DIR).toAbsolutePath().normalize();
 
     // Project configurations for real-world testing
@@ -134,37 +145,96 @@ public class TreeSitterRepoRunner {
             Languages.C_CPP, List.of("**/*.c", "**/*.cc", "**/*.cpp", "**/*.h", "**/*.hpp"),
             Languages.TYPESCRIPT, List.of("**/*.ts"),
             Languages.JAVASCRIPT, List.of("**/*.js"),
-            Languages.PYTHON, List.of("**/*.py"));
+            Languages.PYTHON, List.of("*.py", "**/*.py"));
 
     private final MemoryMXBean memoryBean = ManagementFactory.getMemoryMXBean();
     private final List<GarbageCollectorMXBean> gcBeans = ManagementFactory.getGarbageCollectorMXBeans();
 
+    private static final String GC_THRASHING_REASON = "GC thrashing";
+
+    // Thresholds for coarse GC thrashing detection
+    private static final long GC_THRASH_MIN_TIME_MS = 500L; // minimum total GC time during analysis
+    private static final double GC_THRASH_RATIO_THRESHOLD = 0.6; // GC time as a fraction of analysis duration
+
+    @CommandLine.Option(
+            names = {"--memory-profile", "--memory"},
+            description = "Enable detailed memory profiling")
     private boolean memoryProfiling = false;
+
+    @CommandLine.Option(names = "--stress-test", description = "Run until OutOfMemoryError to find limits")
     private boolean stressTest = false;
+
+    @CommandLine.Option(names = "--json", description = "Output results in JSON format")
     private boolean jsonOutput = false;
+
+    @CommandLine.Option(names = "--verbose", description = "Enable verbose logging")
     private boolean verbose = false;
+
+    @CommandLine.Option(names = "--show-details", description = "Show symbols found in each file")
     private boolean showDetails = false;
+
+    @CommandLine.Option(names = "--stats", description = "Show stage timing diagram (if supported)")
     private boolean showStats = false;
+
+    @CommandLine.Option(
+            names = "--fail-on-thrashing",
+            description = "Exit with non-zero status if prolonged GC thrashing is detected (coarse check)")
+    private boolean failOnThrashing = false;
+
+    @CommandLine.Option(names = "--cleanup", description = "Clean up reports before running command")
     private boolean cleanupReports = false;
+
+    @CommandLine.Option(names = "--max-files", description = "Maximum files to process (default: 1000)")
     private int maxFiles = 1000;
+
+    @CommandLine.Option(
+            names = {"-wi", "--warm-up-iterations"},
+            description = "Number of warm-up iterations to run before measurement (default: 0)")
+    private int warmupIterations = 0;
+
+    @CommandLine.Option(
+            names = {"-i", "--iterations"},
+            description = "Number of measured iterations to execute (default: 1)")
+    private int iterations = 1;
+
+    @CommandLine.Option(
+            names = "--output",
+            description = "Output directory for results (default: " + DEFAULT_OUTPUT_DIR + ")")
     private Path outputDir = Paths.get(DEFAULT_OUTPUT_DIR);
+
+    @CommandLine.Option(names = "--project", description = "Specific project to test")
     private @Nullable String testProject = null;
+
+    @CommandLine.Option(
+            names = "--language",
+            description = "Language to analyze (java, typescript, cpp, etc.)",
+            converter = LanguageTypeConverter.class)
     private @Nullable Language testLanguage = null;
+
+    @CommandLine.Option(names = "--directory", description = "Custom directory to analyze (use absolute paths)")
     private @Nullable Path testDirectory = null;
 
+    @CommandLine.Parameters(index = "0", arity = "1", description = "Command to run")
+    private @Nullable String command;
+
     public static void main(String[] args) {
-        new TreeSitterRepoRunner().run(args);
+        int exitCode = new CommandLine(new TreeSitterRepoRunner()).execute(args);
+        System.exit(exitCode);
     }
 
-    private void run(String[] args) {
-        if (args.length == 0) {
-            printUsage();
-            System.exit(1);
+    @Override
+    public Integer call() {
+        if (command == null) {
+            // Picocli should enforce arity=1, but double-check for safety
+            new CommandLine(this).usage(System.out);
+            return 1;
         }
 
-        try {
-            String command = parseArgumentsAndGetCommand(args);
+        // Normalize iteration options
+        if (warmupIterations < 0) warmupIterations = 0;
+        if (iterations < 1) iterations = 1;
 
+        try {
             if (cleanupReports) {
                 cleanupReportsDirectory();
                 if (!"cleanup".equals(command)) {
@@ -183,25 +253,26 @@ public class TreeSitterRepoRunner {
                 case "multi-language" -> multiLanguageAnalysis();
                 case "cleanup" -> {
                     System.out.println("✓ Reports directory cleaned");
-                    return;
+                    return 0;
                 }
                 case "help" -> {
-                    printUsage();
-                    return;
+                    new CommandLine(this).usage(System.out);
+                    return 0;
                 }
                 default -> {
                     System.err.println("Unknown command: " + command);
-                    printUsage();
-                    System.exit(1);
+                    new CommandLine(this).usage(System.out);
+                    return 1;
                 }
             }
 
+            return 0;
         } catch (Exception e) {
             System.err.println("Error: " + e.getMessage());
             if (verbose) {
                 e.printStackTrace();
             }
-            System.exit(1);
+            return 1;
         }
     }
 
@@ -232,9 +303,6 @@ public class TreeSitterRepoRunner {
     private void runFullBaselines() throws Exception {
         System.out.println("Running comprehensive baselines...");
 
-        var timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
-        var results = new BaselineResults();
-
         // Test each project with primary language (ordered by complexity)
         var projectTests = new LinkedHashMap<String, Language>();
         projectTests.put("kafka", Languages.JAVA); // Start with medium Java project
@@ -247,13 +315,34 @@ public class TreeSitterRepoRunner {
         projectTests.put("llvm", Languages.C_CPP); // Large C++ complexity
         projectTests.put("chromium", Languages.C_CPP); // Largest - expect failure/OOM
 
+        // Discover once per (project, language) and perform warm-ups
+        var discoveries = new LinkedHashMap<String, FileDiscoveryResult>();
         for (var entry : projectTests.entrySet()) {
             String project = entry.getKey();
             Language language = entry.getValue();
-            runAndRecordBaseline(project, language, results, timestamp);
+
+            var discovery = getProjectFiles(project, language, maxFiles);
+            discoveries.put(keyOf(project, language), discovery);
+
+            // Warm-ups (no recording/reporting)
+            runWarmups(project, language, discovery);
         }
 
-        saveFinalReports(results, timestamp);
+        // Measured iterations: produce a fresh set of timestamped result files per iteration
+        for (int iter = 1; iter <= iterations; iter++) {
+            var timestamp = timestampNow();
+            var results = new BaselineResults();
+
+            for (var entry : projectTests.entrySet()) {
+                String project = entry.getKey();
+                Language language = entry.getValue();
+
+                var discovery = discoveries.get(keyOf(project, language));
+                runAndRecordBaseline(project, language, discovery, results, timestamp);
+            }
+
+            saveFinalReports(results, timestamp);
+        }
     }
 
     private void runAndRecordBaseline(String project, Language language, BaselineResults results, String timestamp) {
@@ -294,6 +383,10 @@ public class TreeSitterRepoRunner {
                 System.out.println("✓ Analysis completed successfully");
             }
 
+            if (failOnThrashing && result.failed && GC_THRASHING_REASON.equals(result.failureReason)) {
+                throw new RuntimeException("GC thrashing detected");
+            }
+
         } catch (OutOfMemoryError e) {
             System.out.println("❌ OutOfMemoryError - scalability limit reached");
             results.recordOOM(project, language, maxFiles);
@@ -317,6 +410,108 @@ public class TreeSitterRepoRunner {
                 System.out.println("📊 Incremental failure result saved");
             } catch (Exception ex) {
                 System.err.println("⚠ Failed to save incremental failure result: " + ex.getMessage());
+            }
+            if ("GC thrashing detected".equals(e.getMessage())) {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
+    // Overload that uses already-discovered files (avoids rediscovery per iteration)
+    private void runAndRecordBaseline(
+            String project,
+            Language language,
+            FileDiscoveryResult discovery,
+            BaselineResults results,
+            String timestamp) {
+        System.out.println("\n=== BASELINE: " + project + " (" + language + ") ===");
+
+        try {
+            System.out.println("Project path: " + getProjectPath(project));
+            var result = runProjectBaseline(project, language, discovery);
+            results.addResult(project, language, result);
+
+            // Write incremental reports immediately
+            try {
+                results.saveIncrementalResult(project, language, result, outputDir, timestamp);
+                System.out.println("📊 Incremental results saved");
+            } catch (Exception e) {
+                System.err.println("⚠ Failed to save incremental results: " + e.getMessage());
+            }
+
+            // Print immediate results
+            System.out.printf("Files added: %d of %d total matched%n", result.filesProcessed, result.totalMatched);
+            System.out.printf(Locale.ROOT, "Discovery time: %.2f seconds%n", result.discoveryTime.toMillis() / 1000.0);
+            System.out.printf(Locale.ROOT, "Analyzer time: %.2f seconds%n", result.duration.toMillis() / 1000.0);
+            System.out.printf(
+                    Locale.ROOT,
+                    "Total time: %.2f seconds%n",
+                    (result.discoveryTime.toMillis() + result.duration.toMillis()) / 1000.0);
+            System.out.printf(Locale.ROOT, "Peak memory: %.1f MB%n", result.peakMemoryMB);
+            System.out.printf(
+                    Locale.ROOT,
+                    "Memory per file: %.1f KB%n",
+                    result.filesProcessed > 0 ? result.peakMemoryMB * 1024 / result.filesProcessed : 0.0);
+
+            if (result.failed) {
+                System.out.println("❌ Analysis failed: " + result.failureReason);
+                results.recordFailure(project, language, result.failureReason);
+            } else {
+                System.out.println("✓ Analysis completed successfully");
+            }
+
+            if (failOnThrashing && result.failed && GC_THRASHING_REASON.equals(result.failureReason)) {
+                throw new RuntimeException("GC thrashing detected");
+            }
+
+        } catch (OutOfMemoryError e) {
+            System.out.println("❌ OutOfMemoryError - scalability limit reached");
+            results.recordOOM(project, language, maxFiles);
+            // Write incremental results for OOM failure
+            try {
+                var failedResult = new BaselineResult(
+                        maxFiles,
+                        0,
+                        Duration.ZERO,
+                        0,
+                        0,
+                        true,
+                        "OutOfMemoryError",
+                        0,
+                        0,
+                        discovery.discoveryTime(),
+                        discovery.totalMatched(),
+                        null);
+                results.saveIncrementalResult(project, language, failedResult, outputDir, timestamp);
+                System.out.println("📊 Incremental failure result saved");
+            } catch (Exception ex) {
+                System.err.println("⚠ Failed to save incremental failure result: " + ex.getMessage());
+            }
+        } catch (Exception e) {
+            System.out.println("❌ Failed: " + e.getMessage());
+            results.recordError(project, language, e.getMessage());
+            // Write incremental results for general failure
+            try {
+                var failedResult = new BaselineResult(
+                        0,
+                        0,
+                        Duration.ZERO,
+                        0,
+                        0,
+                        true,
+                        e.getMessage(),
+                        0,
+                        0,
+                        discovery.discoveryTime(),
+                        discovery.totalMatched(),
+                        null);
+                results.saveIncrementalResult(project, language, failedResult, outputDir, timestamp);
+                System.out.println("📊 Incremental failure result saved");
+            } catch (Exception ex) {
+                System.err.println("⚠ Failed to save incremental failure result: " + ex.getMessage());
+            }
+            if ("GC thrashing detected".equals(e.getMessage())) {
+                throw new RuntimeException(e);
             }
         }
     }
@@ -427,14 +622,15 @@ public class TreeSitterRepoRunner {
                     : memoryBean.getHeapMemoryUsage().getUsed();
             var memoryDelta = peakMemory - startMemory;
 
+            boolean thrashing = failOnThrashing && isGcThrashing(gcTimeDelta, analyzerDuration);
             return new BaselineResult(
                     files.size(),
                     declarations.size(),
                     analyzerDuration,
-                    memoryDelta / (1024.0 * 1024.0), // Convert to MB
-                    peakMemory / (1024.0 * 1024.0), // Convert to MB
-                    false,
-                    null,
+                    memoryDelta / (1024.0 * 1024.0),
+                    peakMemory / (1024.0 * 1024.0),
+                    thrashing,
+                    thrashing ? GC_THRASHING_REASON : null,
                     gcCollectionsDelta,
                     gcTimeDelta,
                     discovery.discoveryTime(),
@@ -508,35 +704,52 @@ public class TreeSitterRepoRunner {
             System.out.println("  ...");
         }
 
-        try {
-            var result = runProjectBaseline(projectKey, testLanguage, discovery);
+        // Warm-ups (no recording/reporting)
+        runWarmups(projectKey, testLanguage, discovery);
 
-            var target = testProject != null ? testProject : testDirectory.toString();
-            System.out.printf("✅ SUCCESS: %s (%s)%n", target, testLanguage);
-            System.out.printf("Files added: %d of %d total matched%n", result.filesProcessed, result.totalMatched);
-            System.out.printf(Locale.ROOT, "Discovery time: %.2f seconds%n", result.discoveryTime.toMillis() / 1000.0);
-            System.out.printf(Locale.ROOT, "Analyzer time: %.2f seconds%n", result.duration.toMillis() / 1000.0);
-            System.out.printf(
-                    Locale.ROOT,
-                    "Total time: %.2f seconds%n",
-                    (result.discoveryTime.toMillis() + result.duration.toMillis()) / 1000.0);
-            System.out.printf(Locale.ROOT, "Peak memory: %.1f MB%n", result.peakMemoryMB);
-            System.out.printf(
-                    Locale.ROOT,
-                    "Memory per file: %.1f KB%n",
-                    result.filesProcessed > 0 ? result.peakMemoryMB * 1024 / result.filesProcessed : 0.0);
+        // Measured iterations
+        for (int iter = 1; iter <= iterations; iter++) {
+            try {
+                var result = runProjectBaseline(projectKey, testLanguage, discovery);
 
-            // Print stage timing diagram if --stats flag is set
-            if (showStats && result.stageTiming != null) {
-                System.out.println();
-                System.out.println(generateStagingDiagram(result.stageTiming));
-            }
+                var target = testProject != null ? testProject : testDirectory.toString();
+                if (iterations > 1) {
+                    System.out.printf("Run %d/%d%n", iter, iterations);
+                }
+                System.out.printf("✅ SUCCESS: %s (%s)%n", target, testLanguage);
+                System.out.printf("Files added: %d of %d total matched%n", result.filesProcessed, result.totalMatched);
+                System.out.printf(
+                        Locale.ROOT, "Discovery time: %.2f seconds%n", result.discoveryTime.toMillis() / 1000.0);
+                System.out.printf(Locale.ROOT, "Analyzer time: %.2f seconds%n", result.duration.toMillis() / 1000.0);
+                System.out.printf(
+                        Locale.ROOT,
+                        "Total time: %.2f seconds%n",
+                        (result.discoveryTime.toMillis() + result.duration.toMillis()) / 1000.0);
+                System.out.printf(Locale.ROOT, "Peak memory: %.1f MB%n", result.peakMemoryMB);
+                System.out.printf(
+                        Locale.ROOT,
+                        "Memory per file: %.1f KB%n",
+                        result.filesProcessed > 0 ? result.peakMemoryMB * 1024 / result.filesProcessed : 0.0);
 
-        } catch (Exception e) {
-            var target = testProject != null ? testProject : testDirectory.toString();
-            System.err.printf("❌ FAILED: %s (%s) - %s%n", target, testLanguage, e.getMessage());
-            if (verbose) {
-                e.printStackTrace();
+                // Print stage timing diagram if --stats flag is set
+                if (showStats && result.stageTiming != null) {
+                    System.out.println();
+                    System.out.println(generateStagingDiagram(result.stageTiming));
+                }
+
+                if (failOnThrashing && result.failed && GC_THRASHING_REASON.equals(result.failureReason)) {
+                    throw new RuntimeException("GC thrashing detected");
+                }
+
+            } catch (Exception e) {
+                var target = testProject != null ? testProject : testDirectory.toString();
+                System.err.printf("❌ FAILED: %s (%s) - %s%n", target, testLanguage, e.getMessage());
+                if (verbose) {
+                    e.printStackTrace();
+                }
+                if ("GC thrashing detected".equals(e.getMessage())) {
+                    throw e;
+                }
             }
         }
     }
@@ -547,7 +760,7 @@ public class TreeSitterRepoRunner {
         logEntries.add("Running memory stress test...");
 
         // Timestamp for the output filename
-        var timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
+        var timestamp = timestampNow();
 
         // Determine project and language based on CLI inputs or defaults
         var project = (testProject != null) ? testProject : "chromium";
@@ -638,6 +851,13 @@ public class TreeSitterRepoRunner {
                 System.out.print(detailedResults);
                 logEntries.add(detailedResults);
 
+                if (failOnThrashing && result.failed && GC_THRASHING_REASON.equals(result.failureReason)) {
+                    String warn2 = "⚠ GC thrashing detected; exiting due to --fail-on-thrashing\n";
+                    System.out.print(warn2);
+                    logEntries.add(warn2);
+                    throw new RuntimeException("GC thrashing detected");
+                }
+
                 // Check for exponential growth
                 if (fileCount > 1000 && result.peakMemoryMB > fileCount * 2.0) { // >2 MB per file indicates trouble
                     String warn = String.format(
@@ -676,18 +896,30 @@ public class TreeSitterRepoRunner {
     private void multiLanguageAnalysis() throws Exception {
         System.out.println("Running multi-language analysis...");
 
-        var timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
-        var results = new BaselineResults();
-
         // Test Chromium with multiple languages
         var project = "chromium";
         var languages = List.of(Languages.C_CPP, Languages.JAVASCRIPT, Languages.PYTHON);
 
+        // Discover once per language and perform warm-ups
+        var discoveries = new LinkedHashMap<Language, FileDiscoveryResult>();
         for (Language language : languages) {
-            runAndRecordBaseline(project, language, results, timestamp);
+            var discovery = getProjectFiles(project, language, maxFiles);
+            discoveries.put(language, discovery);
+            runWarmups(project, language, discovery);
         }
 
-        saveFinalReports(results, timestamp);
+        // Measured iterations: produce a fresh set of timestamped result files per iteration
+        for (int iter = 1; iter <= iterations; iter++) {
+            var timestamp = timestampNow();
+            var results = new BaselineResults();
+
+            for (Language language : languages) {
+                var discovery = discoveries.get(language);
+                runAndRecordBaseline(project, language, discovery, results, timestamp);
+            }
+
+            saveFinalReports(results, timestamp);
+        }
     }
 
     private FileDiscoveryResult getProjectFiles(String projectName, Language language, int maxFiles)
@@ -801,6 +1033,15 @@ public class TreeSitterRepoRunner {
         long getPeak() {
             return peak.get();
         }
+    }
+
+    private boolean isGcThrashing(long gcTimeMs, Duration analysisDuration) {
+        long analysisMs = analysisDuration.toMillis();
+        if (analysisMs <= 0) {
+            return false;
+        }
+        double ratio = (double) gcTimeMs / analysisMs;
+        return gcTimeMs >= GC_THRASH_MIN_TIME_MS && ratio >= GC_THRASH_RATIO_THRESHOLD;
     }
 
     private void drawStageLine(
@@ -958,67 +1199,6 @@ public class TreeSitterRepoRunner {
         return baseCandidate;
     }
 
-    private String parseArgumentsAndGetCommand(String[] args) {
-        String command = null;
-
-        for (int i = 0; i < args.length; i++) {
-            String arg = args[i];
-
-            // Check if this is a command (not starting with --)
-            if (!arg.startsWith("--")) {
-                command = arg;
-                continue;
-            }
-
-            // Parse options
-            switch (arg) {
-                case "--max-files" -> {
-                    if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
-                        maxFiles = Integer.parseInt(args[++i]);
-                    }
-                }
-                case "--output" -> {
-                    if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
-                        outputDir = Paths.get(args[++i]);
-                    }
-                }
-                case "--project" -> {
-                    if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
-                        testProject = args[++i];
-                    }
-                }
-                case "--language" -> {
-                    if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
-                        testLanguage = Languages.valueOf(args[++i].toUpperCase(Locale.ROOT));
-                    }
-                }
-                case "--projects-dir" -> {
-                    if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
-                        projectsBaseDir = Paths.get(args[++i]).toAbsolutePath().normalize();
-                    }
-                }
-                case "--directory" -> {
-                    if (i + 1 < args.length && !args[i + 1].startsWith("--")) {
-                        testDirectory = Paths.get(args[++i]).toAbsolutePath().normalize();
-                    }
-                }
-                case "--memory-profile", "--memory" -> memoryProfiling = true;
-                case "--stress-test" -> stressTest = true;
-                case "--json" -> jsonOutput = true;
-                case "--verbose" -> verbose = true;
-                case "--show-details" -> showDetails = true;
-                case "--stats" -> showStats = true;
-                case "--cleanup" -> cleanupReports = true;
-            }
-        }
-
-        if (command == null) {
-            throw new IllegalArgumentException("No command specified");
-        }
-
-        return command;
-    }
-
     private void printStartupBanner(String command) {
         System.out.println("=".repeat(80));
         System.out.println("TreeSitterRepoRunner starting (Simplified Version)");
@@ -1033,6 +1213,8 @@ public class TreeSitterRepoRunner {
             System.out.printf("Directory     : %s%n", testDirectory.toAbsolutePath());
         }
         System.out.printf("Max files     : %d%n", maxFiles);
+        System.out.printf("Warm-ups      : %d%n", warmupIterations);
+        System.out.printf("Iterations    : %d%n", iterations);
         System.out.printf("Memory profile: %s%n", memoryProfiling ? "ENABLED" : "disabled");
         System.out.println("Output dir    : " + outputDir.toAbsolutePath());
         System.out.println("=".repeat(80));
@@ -1040,6 +1222,14 @@ public class TreeSitterRepoRunner {
 
     private void ensureOutputDirectory() throws IOException {
         Files.createDirectories(outputDir);
+    }
+
+    private static String timestampNow() {
+        return LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss-SSS"));
+    }
+
+    private static String keyOf(String project, Language language) {
+        return project + "|" + language.internalName();
     }
 
     private void cleanupReportsDirectory() throws IOException {
@@ -1073,37 +1263,6 @@ public class TreeSitterRepoRunner {
         }
     }
 
-    private void printUsage() {
-        System.out.println(
-                """
-            TreeSitterRepoRunner - TreeSitter Performance Baseline Measurement (Simplified)
-
-            Usage: java TreeSitterRepoRunner [options] <command>
-
-            Commands:
-              setup-projects    Download/clone all test projects
-              run-baselines     Execute full baseline suite
-              test-project      Test specific project
-              memory-stress     Memory stress test with increasing file counts (supports --project, --language, --directory)
-              multi-language    Multi-language analysis on same project
-              cleanup           Clean up report files from output directory
-
-            Options:
-              --max-files <n>   Maximum files to process (default: 1000)
-              --output <path>   Output directory (default: baseline-results)
-              --projects-dir <path>  Base directory for cloned projects (default: ../test-projects)
-              --directory <path>     Custom directory to analyze (use absolute paths)
-              --project <name>       Specific project to test
-              --language <lang>      Language to analyze (java, typescript, cpp, etc.)
-              --memory-profile  Enable detailed memory profiling
-              --stress-test     Run until OutOfMemoryError
-              --json            Output in JSON format
-              --verbose         Enable verbose logging
-              --show-details    Show symbols found in each file
-              --cleanup         Clean up reports before running command
-            """);
-    }
-
     private void printBaselineSummary(BaselineResults results) {
         System.out.println("\n" + "=".repeat(60));
         System.out.println("BASELINE SUMMARY");
@@ -1125,6 +1284,25 @@ public class TreeSitterRepoRunner {
 
         // Implementation for summary printing
         System.out.println("Baseline execution completed. Check output files for details.");
+    }
+
+    // Warm-up runner that does not record or report results
+    private void runWarmups(String project, Language language, FileDiscoveryResult discovery) {
+        if (warmupIterations <= 0) {
+            return;
+        }
+        for (int i = 1; i <= warmupIterations; i++) {
+            if (verbose) {
+                System.out.printf("Warm-up %d/%d for %s (%s)%n", i, warmupIterations, project, language);
+            }
+            try {
+                runProjectBaseline(project, language, discovery);
+            } catch (Exception e) {
+                if (verbose) {
+                    System.err.println("Warm-up failed: " + e.getMessage());
+                }
+            }
+        }
     }
 
     // Helper classes
@@ -1228,33 +1406,91 @@ public class TreeSitterRepoRunner {
                     file, header + resultLine, fileExists ? StandardOpenOption.APPEND : StandardOpenOption.CREATE);
         }
 
-        void saveToFile(Path file) throws IOException {
-            var resultsJson =
-                    results.entrySet().stream().map(this::formatProjectJson).collect(Collectors.joining(",\n"));
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        private static final class LangMetrics {
+            public int files_processed;
+            public int total_matched_files;
+            public int declarations_found;
+            public long file_discovery_time_ms;
+            public long analysis_time_ms;
+            public double analysis_time_seconds;
+            public long total_time_ms;
+            public double memory_delta_mb;
+            public double peak_memory_mb;
+            public double memory_per_file_kb;
+            public double files_per_second;
+            public long gc_collections;
+            public long gc_time_ms;
+            public boolean failed;
+            public @Nullable String failure_reason;
+        }
 
-            var json = String.format(
-                    Locale.ROOT,
-                    """
-                    {
-                      "timestamp": "%s",
-                      "jvm_settings": {
-                        "heap_max": "%dMB",
-                        "processors": %d
-                      },
-                      "results": {
-                    %s
-                      },
-                      "failures": [
-                    %s
-                      ]
-                    }
-                    """,
-                    LocalDateTime.now(),
-                    Runtime.getRuntime().maxMemory() / (1024 * 1024),
-                    Runtime.getRuntime().availableProcessors(),
-                    resultsJson,
-                    formatFailuresJson());
-            Files.writeString(file, json);
+        private static final class JvmSettings {
+            public String heap_max;
+            public int processors;
+        }
+
+        private static final class Report {
+            public String timestamp;
+            public JvmSettings jvm_settings;
+            public Map<String, Map<String, LangMetrics>> results;
+            public List<String> failures;
+        }
+
+        void saveToFile(Path file) throws IOException {
+            // Build the report object in a type-safe manner
+            var report = new Report();
+            report.timestamp = LocalDateTime.now().toString();
+
+            var js = new JvmSettings();
+            js.heap_max = (Runtime.getRuntime().maxMemory() / (1024 * 1024)) + "MB";
+            js.processors = Runtime.getRuntime().availableProcessors();
+            report.jvm_settings = js;
+
+            // results: project -> language(internalName) -> metrics
+            Map<String, Map<String, LangMetrics>> outResults = new LinkedHashMap<>();
+            for (var projectEntry : results.entrySet()) {
+                String projectName = projectEntry.getKey();
+                Map<String, LangMetrics> langMapOut = new LinkedHashMap<>();
+                for (var langEntry : projectEntry.getValue().entrySet()) {
+                    Language lang = langEntry.getKey();
+                    BaselineResult r = langEntry.getValue();
+
+                    var m = new LangMetrics();
+                    m.files_processed = r.filesProcessed;
+                    m.total_matched_files = r.totalMatched;
+                    m.declarations_found = r.declarationsFound;
+                    m.file_discovery_time_ms = r.discoveryTime.toMillis();
+                    m.analysis_time_ms = r.duration.toMillis();
+                    m.analysis_time_seconds = r.duration.toMillis() / 1000.0;
+                    m.total_time_ms = r.discoveryTime.toMillis() + r.duration.toMillis();
+                    m.memory_delta_mb = r.memoryDeltaMB;
+                    m.peak_memory_mb = r.peakMemoryMB;
+                    m.memory_per_file_kb = r.filesProcessed > 0 ? (r.peakMemoryMB * 1024.0 / r.filesProcessed) : 0.0;
+                    m.files_per_second =
+                            r.duration.toMillis() > 0 ? (r.filesProcessed / (r.duration.toMillis() / 1000.0)) : 0.0;
+                    m.gc_collections = r.gcCollections;
+                    m.gc_time_ms = r.gcTimeMs;
+                    m.failed = r.failed;
+                    m.failure_reason = r.failureReason;
+
+                    langMapOut.put(lang.internalName(), m);
+                }
+                outResults.put(projectName, langMapOut);
+            }
+            report.results = outResults;
+
+            report.failures = List.copyOf(failures);
+
+            // Ensure parent directory exists and write JSON using Jackson
+            var parent = file.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            var mapper = new ObjectMapper();
+            mapper.enable(SerializationFeature.INDENT_OUTPUT);
+            mapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
+            mapper.writeValue(file.toFile(), report);
         }
 
         private String formatProjectJson(Map.Entry<String, Map<Language, BaselineResult>> projectEntry) {
@@ -1464,6 +1700,19 @@ public class TreeSitterRepoRunner {
         @Override
         public Set<ProjectFile> getAllFiles() {
             return files;
+        }
+    }
+
+    // Type converter to map --language values to the project's Language enum implementation.
+    public static class LanguageTypeConverter implements CommandLine.ITypeConverter<Language> {
+        @Override
+        public Language convert(String value) {
+            try {
+                return Languages.valueOf(value.toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException ex) {
+                throw new CommandLine.TypeConversionException(
+                        "Invalid language: " + value + ". Supported: java, typescript, cpp, javascript, python");
+            }
         }
     }
 

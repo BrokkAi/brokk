@@ -1,7 +1,7 @@
 package ai.brokk;
 
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.exception.ContextTooLargeException;
 import java.util.List;
@@ -16,7 +16,7 @@ import org.jetbrains.annotations.Nullable;
  */
 public record TaskResult(
         String actionDescription,
-        ContextFragment.TaskFragment output,
+        ContextFragments.TaskFragment output,
         Context context,
         StopDetails stopDetails,
         @Nullable TaskMeta meta) {
@@ -27,10 +27,10 @@ public record TaskResult(
             List<ChatMessage> uiMessages,
             Context resultingContext,
             StopDetails stopDetails,
-            TaskMeta meta) {
+            @Nullable TaskMeta meta) {
         this(
                 actionDescription,
-                new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),
+                new ContextFragments.TaskFragment(contextManager, uiMessages, actionDescription),
                 resultingContext,
                 stopDetails,
                 meta);
@@ -44,10 +44,18 @@ public record TaskResult(
             StopReason simpleReason) {
         return new TaskResult(
                 actionDescription,
-                new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),
+                new ContextFragments.TaskFragment(contextManager, uiMessages, actionDescription),
                 resultingContext,
                 new StopDetails(simpleReason),
                 null);
+    }
+
+    public TaskResult withContext(Context ctx) {
+        return new TaskResult(actionDescription, output, ctx, stopDetails, meta);
+    }
+
+    public TaskResult withHistory(List<TaskEntry> taskHistory) {
+        return new TaskResult(actionDescription, output, context.withHistory(taskHistory), stopDetails, meta);
     }
 
     /** Enum representing the reason a session concluded. */

@@ -260,8 +260,8 @@ public class MultiAnalyzer
     }
 
     @Override
-    public Optional<String> extractClassName(String reference) {
-        return findFirst(analyzer -> analyzer.extractClassName(reference));
+    public Optional<String> extractCallReceiver(String reference) {
+        return findFirst(analyzer -> analyzer.extractCallReceiver(reference));
     }
 
     @Override

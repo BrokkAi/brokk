@@ -8,7 +8,7 @@ import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
 import ai.brokk.tools.ToolExecutionResult;
@@ -405,14 +405,14 @@ public final class MergeOneFile {
         try {
             var desc = "Merge instructions for " + file;
             var fragment =
-                    new ContextFragment.StringFragment(cm, instructions, desc, SyntaxConstants.SYNTAX_STYLE_NONE);
-            cm.addVirtualFragment(fragment);
+                    new ContextFragments.StringFragment(cm, instructions, desc, SyntaxConstants.SYNTAX_STYLE_NONE);
+            cm.addFragments(fragment);
         } catch (Exception e) {
             logger.warn("Failed to persist merge instructions for {}: {}", file, e.toString(), e);
         }
 
         var agent = new CodeAgent(cm, codeModel, io);
-        var result = agent.runSingleFileEdit(file, instructions, requireNonNull(currentSessionMessages));
+        var result = agent.execute(file, instructions, requireNonNull(currentSessionMessages));
         this.lastCodeAgentResult = result;
         return String.valueOf(result.stopDetails());
     }

@@ -2,9 +2,11 @@ package ai.brokk.gui.tests;
 
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.IConsoleIO;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.InstructionsPanel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
@@ -40,11 +42,13 @@ import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
+import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
+import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
@@ -70,6 +74,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     private final @Nullable Chrome chrome;
     private final MaterialButton runAllButton = new MaterialButton();
     private final MaterialButton stopButton = new MaterialButton();
+    private final MaterialButton clearAllButton = new MaterialButton();
     private final AtomicBoolean testProcessRunning = new AtomicBoolean(false);
     private volatile @Nullable Process activeTestProcess;
 
@@ -103,6 +108,13 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     // Limit stored output size to avoid unbounded JSON growth
     private static final int MAX_SNAPSHOT_OUTPUT_CHARS = 200_000;
 
+    // Fix button width in the run list renderer
+    private static final int FIX_BUTTON_WIDTH_PX = 30;
+
+    // Session name truncation constants
+    private static final int MAX_COMMAND_LABEL_LEN = 40; // max length for command segment before ellipsis
+    private static final int ELLIPSIS_LEN = 3;
+
     public TestRunnerPanel(TestRunsStore runsStore) {
         this(null, runsStore);
     }
@@ -116,7 +128,24 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
         runQueue = new ArrayDeque<>();
 
-        runList = new JList<>(runListModel);
+        runList = new JList<>(runListModel) {
+            @Override
+            public @Nullable String getToolTipText(java.awt.event.MouseEvent e) {
+                int index = locationToIndex(e.getPoint());
+                if (index < 0) return null;
+                java.awt.Rectangle cellBounds = getCellBounds(index, index);
+                if (cellBounds == null) return null;
+
+                RunEntry run = runListModel.get(index);
+                if (run.isFailed()) {
+                    int buttonX = cellBounds.x + cellBounds.width - FIX_BUTTON_WIDTH_PX;
+                    if (e.getX() >= buttonX) {
+                        return "Fix this failing test with Lutz Mode";
+                    }
+                }
+                return run.command;
+            }
+        };
         runList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         runList.setCellRenderer(new RunEntryRenderer());
         runList.setVisibleRowCount(5);
@@ -125,6 +154,29 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 updateOutputForSelectedRun();
             }
         });
+
+        runList.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                int index = runList.locationToIndex(e.getPoint());
+                if (index < 0) return;
+
+                RunEntry run = runListModel.get(index);
+                if (!run.isFailed() || chrome == null) return;
+
+                // Check if click is in the button area (right side of the cell)
+                java.awt.Rectangle cellBounds = runList.getCellBounds(index, index);
+                if (cellBounds == null) return;
+
+                // Button is approximately 30px wide on the right (see FIX_BUTTON_WIDTH_PX)
+                int buttonX = cellBounds.x + cellBounds.width - FIX_BUTTON_WIDTH_PX;
+                if (e.getX() >= buttonX) {
+                    fixFailedRun(run);
+                }
+            }
+        });
+
+        javax.swing.ToolTipManager.sharedInstance().registerComponent(runList);
 
         runListScrollPane = new JScrollPane(
                 runList, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
@@ -158,6 +210,12 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         stopButton.setEnabled(false);
         stopButton.setVisible(false);
         leftToolbar.add(stopButton);
+
+        clearAllButton.setIcon(Icons.CLEAR_ALL);
+        clearAllButton.setMargin(new Insets(0, 0, 0, 0));
+        clearAllButton.setToolTipText("Clear all test runs.");
+        clearAllButton.addActionListener(e -> clearAllRuns());
+        leftToolbar.add(clearAllButton);
 
         topToolbar.add(leftToolbar, BorderLayout.WEST);
 
@@ -224,6 +282,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                         return null;
                     });
         }
+        updateClearButtonTooltip();
     }
 
     private static void runOnEdt(Runnable r) {
@@ -369,6 +428,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         }
 
         currentActiveRunId = lastRunningId;
+        updateClearButtonTooltip();
     }
 
     /**
@@ -446,6 +506,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
             // Persist after updating the UI/model
             triggerSave();
+            updateClearButtonTooltip();
         });
         return id;
     }
@@ -536,6 +597,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
             // Persist updated completion state
             triggerSave();
+            updateClearButtonTooltip();
         });
     }
 
@@ -579,19 +641,68 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         return saveExecutor.awaitCompletion("test_runs_save");
     }
 
-    /** Clear all runs and output. */
+    /** Clear runs. If an active run exists, clear only completed runs; otherwise clear all. */
     public void clearAllRuns() {
         runOnEdt(() -> {
-            runsById.clear();
-            currentActiveRunId = null;
-            runListModel.clear();
-            try {
-                document.withWritePermission(() -> outputArea.setText(""));
-            } catch (RuntimeException ex) {
-                logger.warn("Failed to clear output", ex);
+            boolean hasActive = false;
+            for (int i = 0; i < runListModel.getSize(); i++) {
+                RunEntry re = runListModel.get(i);
+                if (re.isRunning()) {
+                    hasActive = true;
+                    break;
+                }
             }
-            // Persist cleared state
+
+            if (!hasActive) {
+                runsById.clear();
+                currentActiveRunId = null;
+                runListModel.clear();
+                try {
+                    document.withWritePermission(() -> outputArea.setText(""));
+                } catch (RuntimeException ex) {
+                    logger.warn("Failed to clear output", ex);
+                }
+                // Persist cleared state
+                triggerSave();
+                updateClearButtonTooltip();
+                return;
+            }
+
+            // Active run exists: remove only completed runs; keep running and queued
+            for (int i = runListModel.getSize() - 1; i >= 0; i--) {
+                RunEntry run = runListModel.get(i);
+                if (!run.isRunning() && !run.isQueued()) {
+                    runListModel.remove(i);
+                    runsById.remove(run.id);
+                }
+            }
+
+            // Ensure a sensible selection after removals
+            RunEntry selected = runList.getSelectedValue();
+            boolean selectionValid = selected != null && runListModel.contains(selected);
+            if (!selectionValid) {
+                int runningIdx = -1;
+                for (int i = 0; i < runListModel.getSize(); i++) {
+                    if (runListModel.get(i).isRunning()) {
+                        runningIdx = i;
+                        break;
+                    }
+                }
+                if (runningIdx >= 0) {
+                    runList.setSelectedIndex(runningIdx);
+                } else if (runListModel.getSize() > 0) {
+                    runList.setSelectedIndex(0);
+                } else {
+                    try {
+                        document.withWritePermission(() -> outputArea.setText(""));
+                    } catch (RuntimeException ex) {
+                        logger.warn("Failed to clear output", ex);
+                    }
+                }
+            }
+            updateOutputForSelectedRun();
             triggerSave();
+            updateClearButtonTooltip();
         });
     }
 
@@ -712,6 +823,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         var project = chrome.getProject();
         var cm = chrome.getContextManager();
         cm.submitBackgroundTask("Running tests", () -> {
+            int exitCode = -1;
             try {
                 ExecutorConfig execCfg = ExecutorConfig.fromProject(project);
 
@@ -723,18 +835,21 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                         execCfg,
                         environment,
                         process -> activeTestProcess = process);
-                completeRun(runId, 0, Instant.now());
+                exitCode = 0;
             } catch (Environment.SubprocessException e) {
                 appendToRun(runId, "\n" + e.getMessage() + "\n" + e.getOutput() + "\n");
-                completeRun(runId, -1, Instant.now());
+                exitCode = -1;
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt(); // Retain interrupted status
                 appendToRun(runId, "\n--- TEST EXECUTION INTERRUPTED ---\n");
-                completeRun(runId, -1, Instant.now());
+                exitCode = -1;
             } catch (Exception e) {
                 appendToRun(runId, "\nError: " + e + "\n");
-                completeRun(runId, -1, Instant.now());
+                exitCode = -1;
             } finally {
+                completeRun(runId, exitCode, Instant.now());
+                updateContextWithTestResult(runId, exitCode == 0);
+
                 testProcessRunning.set(false);
                 activeTestProcess = null;
                 runOnEdt(() -> {
@@ -745,6 +860,15 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             }
             return null;
         });
+    }
+
+    private void updateContextWithTestResult(String runId, boolean success) {
+        if (chrome == null) return;
+        var run = runsById.get(runId);
+        if (run == null) return;
+
+        var cm = chrome.getContextManager();
+        cm.pushContext(ctx -> ctx.withBuildResult(success, run.getOutput()));
     }
 
     private void applyThemeColorsFromUIManager() {
@@ -767,8 +891,79 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         repaint();
     }
 
+    private void updateClearButtonTooltip() {
+        runOnEdt(() -> {
+            String tip = hasActiveRun() ? "Clear finished runs." : "Clear all test runs.";
+            clearAllButton.setToolTipText(tip);
+        });
+    }
+
+    private boolean hasActiveRun() {
+        for (int i = 0; i < runListModel.getSize(); i++) {
+            if (runListModel.get(i).isRunning()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Initiates a fix workflow for a failed test run:
+     * 1. Creates a new session
+     * 2. Switches to the Instructions tab
+     * 3. Adds the failed test output to the workspace
+     * 4. Sets instruction text
+     * 5. Starts Lutz Mode
+     */
+    private void fixFailedRun(RunEntry run) {
+        if (chrome == null) {
+            logger.warn("Cannot fix failed run without Chrome context");
+            return;
+        }
+
+        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Starting fix for failed tests...");
+
+        String output = run.getOutput();
+        String sessionName = "Fix: " + withEllipsis(run.command, MAX_COMMAND_LABEL_LEN);
+
+        var cm = chrome.getContextManager();
+
+        // Create a new session and then perform the fix workflow
+        cm.createSessionAsync(sessionName)
+                .thenRun(() -> {
+                    SwingUtilities.invokeLater(() -> {
+                        // Switch to Instructions tab in the right tabbed panel
+                        JTabbedPane rightTabs = chrome.getRightTabbedPanel();
+                        int idx = rightTabs.indexOfTab("Instructions");
+                        if (idx != -1) {
+                            rightTabs.setSelectedIndex(idx);
+                        }
+
+                        // Add the failed test output to the workspace
+                        cm.addPastedTextFragment(output);
+
+                        // Set the instruction and run Lutz Mode when text is ready
+                        InstructionsPanel instructionsPanel = chrome.getInstructionsPanel();
+                        String instruction =
+                                "Analyze the failing test output and fix the issue. The problem may be in the test code or the tested code. Explain what's wrong before making changes.";
+                        instructionsPanel.populateInstructionsArea(
+                                instruction, () -> instructionsPanel.runSearchCommand());
+                    });
+                })
+                .exceptionally(ex -> {
+                    logger.error("Failed to create session for fix workflow", ex);
+                    return null;
+                });
+    }
+
     private void scrollToBottom() {
         outputArea.setCaretPosition(outputArea.getDocument().getLength());
+    }
+
+    private static String withEllipsis(String s, int maxLen) {
+        if (s.length() <= maxLen) return s;
+        int cut = Math.max(0, maxLen - ELLIPSIS_LEN);
+        return s.substring(0, cut) + "...";
     }
 
     /**
@@ -869,6 +1064,10 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             return state == RunState.COMPLETED && exitCode == 0;
         }
 
+        boolean isFailed() {
+            return state == RunState.COMPLETED && exitCode != 0;
+        }
+
         long getDurationSeconds() {
             if (state == RunState.QUEUED) {
                 return 0L;
@@ -878,7 +1077,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private static class RunEntryRenderer extends DefaultListCellRenderer {
+    private class RunEntryRenderer extends DefaultListCellRenderer {
         private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
 
         @Override
@@ -913,6 +1112,27 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                                 ? new Color(100, 150, 255)
                                 : (run.isSuccess() ? new Color(100, 200, 100) : new Color(255, 100, 100)));
                 label.setForeground(statusColor);
+            }
+
+            // For failed runs (completed but not successful), add a Fix button
+            if (run.isFailed() && chrome != null) {
+                JPanel panel = new JPanel(new BorderLayout(4, 0));
+                panel.setOpaque(true);
+                panel.setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
+
+                label.setOpaque(false);
+                panel.add(label, BorderLayout.CENTER);
+
+                JButton fixButton = new JButton(Icons.WAND);
+                fixButton.setToolTipText("Fix this failing test with Lutz Mode");
+                fixButton.setMargin(new Insets(0, 2, 0, 2));
+                fixButton.setBorderPainted(false);
+                fixButton.setContentAreaFilled(false);
+                fixButton.setFocusPainted(false);
+                fixButton.setOpaque(false);
+                panel.add(fixButton, BorderLayout.EAST);
+
+                return panel;
             }
 
             return label;

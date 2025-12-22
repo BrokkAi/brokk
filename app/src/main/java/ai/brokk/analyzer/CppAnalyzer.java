@@ -22,7 +22,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     private static final Logger log = LoggerFactory.getLogger(CppAnalyzer.class);
 
     @Override
-    public Optional<String> extractClassName(String reference) {
+    public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForCpp(reference);
     }
 
@@ -71,7 +71,11 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             Set.of(STORAGE_CLASS_SPECIFIER, TYPE_QUALIFIER, ACCESS_SPECIFIER));
 
     public CppAnalyzer(IProject project) {
-        super(project, Languages.CPP_TREESITTER);
+        this(project, ProgressListener.NOOP);
+    }
+
+    public CppAnalyzer(IProject project, ProgressListener listener) {
+        super(project, Languages.CPP_TREESITTER, listener);
 
         this.parserCache = ThreadLocal.withInitial(() -> {
             var parser = new TSParser();
@@ -84,8 +88,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         this.namespaceProcessor = new NamespaceProcessor(templateParser);
     }
 
-    private CppAnalyzer(IProject project, AnalyzerState state) {
-        super(project, Languages.CPP_TREESITTER, state);
+    private CppAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
+        super(project, Languages.CPP_TREESITTER, state, listener);
         this.parserCache = ThreadLocal.withInitial(() -> {
             var parser = new TSParser();
             parser.setLanguage(createTSLanguage());
@@ -97,13 +101,13 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         this.namespaceProcessor = new NamespaceProcessor(templateParser);
     }
 
-    public static CppAnalyzer fromState(IProject project, AnalyzerState state) {
-        return new CppAnalyzer(project, state);
+    public static CppAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+        return new CppAnalyzer(project, state, listener);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state) {
-        return new CppAnalyzer(getProject(), state);
+    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+        return new CppAnalyzer(getProject(), state, listener);
     }
 
     @Override
@@ -123,7 +127,14 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected @Nullable CodeUnit createCodeUnit(
-            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
+            ProjectFile file,
+            String captureName,
+            String simpleName,
+            String packageName,
+            String classChain,
+            List<ScopeSegment> scopeChain,
+            @Nullable TSNode definitionNode,
+            SkeletonType skeletonType) {
         final char delimiter =
                 Optional.ofNullable(CPP_SYNTAX_PROFILE.captureConfiguration().get(captureName)).stream()
                                 .anyMatch(x -> x.equals(SkeletonType.CLASS_LIKE))
@@ -140,8 +151,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         }
 
         String fqName = correctedClassChain.isEmpty() ? simpleName : correctedClassChain + delimiter + simpleName;
-
-        var skeletonType = getSkeletonTypeForCapture(captureName);
 
         var type =
                 switch (skeletonType) {
@@ -186,7 +195,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src) {
+    protected String determinePackageName(
+            ProjectFile file, TSNode definitionNode, TSNode rootNode, SourceContent sourceContent) {
         var namespaceParts = new ArrayList<String>();
 
         var current = definitionNode;
@@ -200,7 +210,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             if (NAMESPACE_DEFINITION.equals(current.getType())) {
                 var nameNode = current.getChildByFieldName("name");
                 if (nameNode != null && !nameNode.isNull()) {
-                    namespaceParts.add(ASTTraversalUtils.extractNodeText(nameNode, src));
+                    namespaceParts.add(sourceContent.substringFrom(nameNode));
                 }
             }
         }
@@ -211,7 +221,11 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String renderClassHeader(
-            TSNode classNode, String src, String exportPrefix, String signatureText, String baseIndent) {
+            TSNode classNode,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String signatureText,
+            String baseIndent) {
         return signatureText + " {";
     }
 
@@ -223,7 +237,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String renderFunctionDeclaration(
             TSNode funcNode,
-            String src,
+            SourceContent sourceContent,
             String exportAndModifierPrefix,
             String asyncPrefix,
             String functionName,
@@ -239,7 +253,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         if (declaratorNode != null && "function_declarator".equals(declaratorNode.getType())) {
             TSNode paramsNode = declaratorNode.getChildByFieldName("parameters");
             if (paramsNode != null && !paramsNode.isNull()) {
-                actualParamsText = ASTTraversalUtils.extractNodeText(paramsNode, src);
+                actualParamsText = sourceContent.substringFrom(paramsNode);
             }
         }
 
@@ -248,7 +262,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             if (fallbackDeclaratorNode != null && "function_declarator".equals(fallbackDeclaratorNode.getType())) {
                 TSNode innerDeclaratorNode = fallbackDeclaratorNode.getChildByFieldName("declarator");
                 if (innerDeclaratorNode != null) {
-                    String extractedName = ASTTraversalUtils.extractNodeText(innerDeclaratorNode, src);
+                    String extractedName = sourceContent.substringFrom(innerDeclaratorNode);
                     if (!extractedName.isBlank()) {
                         functionName = extractedName;
                     }
@@ -265,7 +279,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
         var throwsNode = funcNode.getChildByFieldName("noexcept_specifier");
         if (throwsNode != null) {
-            signature += " " + ASTTraversalUtils.extractNodeText(throwsNode, src);
+            signature += " " + sourceContent.substringFrom(throwsNode);
         }
 
         // Presentation-only marker: we still append bodyPlaceholder() to the rendered signature for UI clarity.
@@ -325,6 +339,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
         // Use cached tree to avoid redundant parsing - significant performance improvement
         String fileContent = getCachedFileContent(file);
+        var sourceContent = SourceContent.of(fileContent);
         TSTree tree = treeOf(file);
         if (tree == null) {
             var parser = getSharedParser();
@@ -332,8 +347,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         }
         var rootNode = tree.getRootNode();
 
-        resultSkeletons = skeletonGenerator.fixGlobalEnumSkeletons(resultSkeletons, file, rootNode, fileContent);
-        resultSkeletons = skeletonGenerator.fixGlobalUnionSkeletons(resultSkeletons, file, rootNode, fileContent);
+        resultSkeletons = skeletonGenerator.fixGlobalEnumSkeletons(resultSkeletons, file, rootNode, sourceContent);
+        resultSkeletons = skeletonGenerator.fixGlobalUnionSkeletons(resultSkeletons, file, rootNode, sourceContent);
         final var tempSkeletons = resultSkeletons; // we need an "effectively final" variable for the callback
         resultSkeletons = withCodeUnitProperties(properties -> {
             var signaturesMap = new HashMap<CodeUnit, List<String>>();
@@ -343,7 +358,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                     signaturesMap,
                     file,
                     rootNode,
-                    fileContent,
+                    sourceContent,
                     namespaceName -> createCodeUnit(file, CodeUnitType.MODULE, "", namespaceName));
         });
         if (isHeaderFile(file)) {
@@ -439,11 +454,11 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      * Note: This method returns only the comma-separated parameter type list (no enclosing parentheses).
      *
      * @param funcOrDeclNode the function definition or declaration node
-     * @param src the source code
+     * @param sourceContent the source content wrapper
      * @return normalized parameter types CSV, or empty string if no parameters or extraction fails
      */
     @SuppressWarnings("RedundantNullCheck") // Defensive check for TreeSitter JNI interop
-    private String buildCppOverloadSuffix(TSNode funcOrDeclNode, String src) {
+    private String buildCppOverloadSuffix(TSNode funcOrDeclNode, SourceContent sourceContent) {
         if (funcOrDeclNode == null || funcOrDeclNode.isNull()) return "";
 
         // Find the function_declarator (descend if necessary)
@@ -464,7 +479,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             TSNode paramNode = paramsNode.getNamedChild(i);
             if (paramNode == null || paramNode.isNull()) continue;
 
-            String raw = ASTTraversalUtils.extractNodeText(paramNode, src).strip();
+            String raw = sourceContent.substringFrom(paramNode).strip();
             if (raw.isEmpty()) continue;
             if (raw.equals("...")) {
                 paramTypes.add("...");
@@ -488,8 +503,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             }
 
             if (nameNode != null && !nameNode.isNull()) {
-                String nameText =
-                        ASTTraversalUtils.extractNodeText(nameNode, src).strip();
+                String nameText = sourceContent.substringFrom(nameNode).strip();
                 if (!nameText.isEmpty()) {
                     // Remove the identifier token (token-boundary) to avoid clobbering template names
                     raw = raw.replaceAll("\\b" + java.util.regex.Pattern.quote(nameText) + "\\b", "")
@@ -556,13 +570,13 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected Optional<String> extractSimpleName(TSNode decl, String src) {
+    protected Optional<String> extractSimpleName(TSNode decl, SourceContent sourceContent) {
         if (NAMESPACE_DEFINITION.equals(decl.getType())) {
             TSNode nameNode = decl.getChildByFieldName("name");
             if (nameNode == null || nameNode.isNull()) {
                 return Optional.of("(anonymous)");
             }
-            String name = ASTTraversalUtils.extractNodeText(nameNode, src);
+            String name = sourceContent.substringFrom(nameNode);
             return Optional.of(name);
         }
 
@@ -576,7 +590,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                 // Anonymous struct/class/union/enum (e.g., anonymous struct in union)
                 return Optional.of("(anonymous)");
             }
-            String name = ASTTraversalUtils.extractNodeText(nameNode, src);
+            String name = sourceContent.substringFrom(nameNode);
             if (name.isBlank()) {
                 // Name exists but is blank - likely parsing edge case
                 return Optional.of("(anonymous)");
@@ -589,7 +603,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             if (declaratorNode != null && "function_declarator".equals(declaratorNode.getType())) {
                 TSNode innerDeclaratorNode = declaratorNode.getChildByFieldName("declarator");
                 if (innerDeclaratorNode != null) {
-                    String name = ASTTraversalUtils.extractNodeText(innerDeclaratorNode, src);
+                    String name = sourceContent.substringFrom(innerDeclaratorNode);
                     if (!name.isBlank()) {
                         return Optional.of(name);
                     }
@@ -607,13 +621,13 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                 if ("function_declarator".equals(declaratorNode.getType())) {
                     TSNode innerDeclaratorNode = declaratorNode.getChildByFieldName("declarator");
                     if (innerDeclaratorNode != null) {
-                        String name = ASTTraversalUtils.extractNodeText(innerDeclaratorNode, src);
+                        String name = sourceContent.substringFrom(innerDeclaratorNode);
                         if (!name.isBlank()) {
                             return Optional.of(name);
                         }
                     }
                 } else {
-                    String name = ASTTraversalUtils.extractNodeText(declaratorNode, src);
+                    String name = sourceContent.substringFrom(declaratorNode);
                     if (!name.isBlank()) {
                         return Optional.of(name);
                     }
@@ -621,7 +635,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             }
         }
 
-        return super.extractSimpleName(decl, src);
+        return super.extractSimpleName(decl, sourceContent);
     }
 
     @Override
@@ -654,7 +668,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String enhanceFqName(String fqName, String captureName, TSNode definitionNode, String src) {
+    protected String enhanceFqName(
+            String fqName, String captureName, TSNode definitionNode, SourceContent sourceContent) {
         var skeletonType = getSkeletonTypeForCapture(captureName);
 
         // For functions, apply name normalization (e.g., destructor tilde) but do NOT append signature
@@ -679,11 +694,12 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      *
      * @param captureName The capture name from the query
      * @param definitionNode The AST node for the function definition
-     * @param src The source code string
+     * @param sourceContent The source content wrapper
      * @return The signature string (e.g., "(int)" or "(int) const"), or null for non-functions
      */
     @Override
-    protected @Nullable String extractSignature(String captureName, TSNode definitionNode, String src) {
+    protected @Nullable String extractSignature(
+            String captureName, TSNode definitionNode, SourceContent sourceContent) {
         var skeletonType = getSkeletonTypeForCapture(captureName);
 
         // Only extract signature for function-like entities
@@ -691,8 +707,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             return null;
         }
 
-        String paramSignature = buildCppOverloadSuffix(definitionNode, src);
-        String qualifierSuffix = buildCppQualifierSuffix(definitionNode, src);
+        String paramSignature = buildCppOverloadSuffix(definitionNode, sourceContent);
+        String qualifierSuffix = buildCppQualifierSuffix(definitionNode, sourceContent);
 
         if (!paramSignature.isEmpty()) {
             return "(" + paramSignature + ")" + (qualifierSuffix.isEmpty() ? "" : " " + qualifierSuffix);
@@ -714,7 +730,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      * - complete noexcept clause (including optional parenthesized condition)
      */
     @SuppressWarnings("RedundantNullCheck") // Defensive check for TreeSitter JNI interop
-    private String buildCppQualifierSuffix(TSNode funcOrDeclNode, String src) {
+    private String buildCppQualifierSuffix(TSNode funcOrDeclNode, SourceContent sourceContent) {
         if (funcOrDeclNode.isNull()) return "";
 
         // Find the function_declarator if present
@@ -745,18 +761,17 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         int tailEnd = outerTailEnd;
         if (tailStart >= tailEnd) return "";
 
-        String tail = ASTTraversalUtils.safeSubstringFromByteOffsets(src, tailStart, tailEnd)
-                .strip();
+        String tail = sourceContent.substringFromBytes(tailStart, tailEnd).strip();
 
         // Augment textual detection with AST-based scanning for robust qualifier extraction
         boolean nodeHasConst;
         boolean nodeHasVolatile;
 
         // Scan both the outer node and the function_declarator node for TYPE_QUALIFIER children in the tail region
-        nodeHasConst = scanForQualifier(funcOrDeclNode, tailStart, tailEnd, src, "const");
-        nodeHasVolatile = scanForQualifier(funcOrDeclNode, tailStart, tailEnd, src, "volatile");
-        nodeHasConst = nodeHasConst || scanForQualifier(decl, tailStart, tailEnd, src, "const");
-        nodeHasVolatile = nodeHasVolatile || scanForQualifier(decl, tailStart, tailEnd, src, "volatile");
+        nodeHasConst = scanForQualifier(funcOrDeclNode, tailStart, tailEnd, sourceContent, "const");
+        nodeHasVolatile = scanForQualifier(funcOrDeclNode, tailStart, tailEnd, sourceContent, "volatile");
+        nodeHasConst = nodeHasConst || scanForQualifier(decl, tailStart, tailEnd, sourceContent, "const");
+        nodeHasVolatile = nodeHasVolatile || scanForQualifier(decl, tailStart, tailEnd, sourceContent, "volatile");
 
         var quals = new ArrayList<String>();
         var addedQualTypes = new HashSet<String>(); // Track which qualifier types have been added
@@ -897,7 +912,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      * for TYPE_QUALIFIER nodes containing the specified qualifier token.
      */
     @SuppressWarnings("RedundantNullCheck") // Defensive check for TreeSitter JNI interop
-    private boolean scanForQualifier(TSNode parent, int tailStart, int tailEnd, String src, String qualifier) {
+    private boolean scanForQualifier(
+            TSNode parent, int tailStart, int tailEnd, SourceContent sourceContent, String qualifier) {
         if (parent == null || parent.isNull()) return false;
         int count = parent.getNamedChildCount();
         for (int i = 0; i < count; i++) {
@@ -907,7 +923,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             if (sb < tailStart || sb >= tailEnd) continue;
             String t = child.getType();
             if (TYPE_QUALIFIER.equals(t)) {
-                String q = ASTTraversalUtils.extractNodeText(child, src).strip();
+                String q = sourceContent.substringFrom(child).strip();
                 if (q.contains(qualifier)) {
                     return true;
                 }
@@ -987,11 +1003,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         int parsedTreeCount = withFileProperties(fileProps -> (int) fileProps.values().stream()
                 .filter(fp -> fp.parsedTree() != null)
                 .count());
-        return String.format(
-                "FileContent: %d, ParsedTrees: %d, SkeletonGen: %d, NamespaceProc: %d",
-                fileContentCache.size(),
-                parsedTreeCount,
-                skeletonGenerator.getCacheSize(),
-                namespaceProcessor.getCacheSize());
+        return String.format("FileContent: %d, ParsedTrees: %d", fileContentCache.size(), parsedTreeCount);
     }
 }

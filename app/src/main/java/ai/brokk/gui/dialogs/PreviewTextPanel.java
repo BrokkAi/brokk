@@ -16,6 +16,7 @@ import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.VoiceInputButton;
 import ai.brokk.gui.components.EditorFontSizeControl;
@@ -165,13 +166,13 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
         // Capture button (conditionally added for GitHistoryFragment)
         if (fragment != null && fragment.getType() == ContextFragment.FragmentType.GIT_FILE) {
-            var ghf = (ContextFragment.GitFileFragment) fragment;
+            var ghf = (ContextFragments.GitFileFragment) fragment;
             captureButton = new MaterialButton("Capture this Revision");
             SwingUtilities.invokeLater(() -> requireNonNull(captureButton).setIcon(Icons.CONTENT_CAPTURE));
             var finalCaptureButton = captureButton; // Final reference for lambda
             captureButton.addActionListener(e -> {
                 // Add the GitHistoryFragment to the read-only context
-                cm.addPathFragmentAsync(ghf);
+                cm.addFragmentAsync(ghf);
                 finalCaptureButton.setEnabled(false); // Disable after capture
                 finalCaptureButton.setToolTipText("Revision captured");
             });
@@ -186,17 +187,24 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             editButton = new MaterialButton(text);
             SwingUtilities.invokeLater(() -> requireNonNull(editButton).setIcon(Icons.EDIT_DOCUMENT));
             var finalEditButton = editButton; // Final reference for lambda
-            if (cm.getFilesInContext().contains(file)) {
-                finalEditButton.setEnabled(false);
-                finalEditButton.setToolTipText("File is in Edit context");
-            } else {
-                finalEditButton.addActionListener(e -> {
-                    cm.addFiles(List.of(this.file));
-                    finalEditButton.setEnabled(false);
-                    finalEditButton.setToolTipText("File is in Edit context");
+
+            cm.submitBackgroundTask("Determining files in the current context", () -> {
+                var files = cm.getFilesInContext();
+
+                SwingUtilities.invokeLater(() -> {
+                    if (files.contains(file)) {
+                        finalEditButton.setEnabled(false);
+                        finalEditButton.setToolTipText("File is in Edit context");
+                    } else {
+                        finalEditButton.addActionListener(e -> {
+                            cm.addFiles(List.of(this.file));
+                            finalEditButton.setEnabled(false);
+                            finalEditButton.setToolTipText("File is in Edit context");
+                        });
+                    }
+                    actionButtonPanel.add(editButton); // Add edit button to the action panel
                 });
-            }
-            actionButtonPanel.add(editButton); // Add edit button to the action panel
+            });
         }
 
         // Create font size control buttons using interface methods
@@ -270,8 +278,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         // Scroll to the beginning of the document
         textArea.setCaretPosition(0);
 
-        // Register ESC key to close the dialog
-        registerEscapeKey();
         // Register Ctrl/Cmd+S to save
         registerSaveKey();
         // Setup custom window close handler
@@ -708,15 +714,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
         // Create quick edit dialog
         var ancestor = SwingUtilities.getWindowAncestor(this);
-        JDialog quickEditDialog;
-        if (ancestor instanceof Frame frame) {
-            quickEditDialog = new JDialog(frame, "Quick Edit", true);
-        } else if (ancestor instanceof Dialog dialog) {
-            quickEditDialog = new JDialog(dialog, "Quick Edit", true);
-        } else {
-            quickEditDialog = new JDialog((Frame) null, "Quick Edit", true);
-        }
-        quickEditDialog.setLayout(new BorderLayout());
+        var quickEditDialog = new BaseThemedDialog(ancestor, "Quick Edit");
+        var quickEditRoot = quickEditDialog.getContentRoot();
+        quickEditRoot.setLayout(new BorderLayout());
 
         // Create main panel for quick edit dialog (without system messages pane)
         var mainPanel = new JPanel(new BorderLayout(5, 5));
@@ -818,7 +818,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         // Assemble quick edit dialog main panel
         mainPanel.add(inputPanel, BorderLayout.CENTER);
         mainPanel.add(buttonPanel, BorderLayout.PAGE_END);
-        quickEditDialog.add(mainPanel);
+        quickEditRoot.add(mainPanel);
 
         // Set a preferred size for the scroll pane
         scrollPane.setPreferredSize(new Dimension(400, 150));
@@ -881,15 +881,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         requireNonNull(file);
 
         var ancestor = SwingUtilities.getWindowAncestor(this);
-        JDialog resultsDialog;
-        if (ancestor instanceof Frame frame) {
-            resultsDialog = new JDialog(frame, "Quick Edit", false);
-        } else if (ancestor instanceof Dialog dialog) {
-            resultsDialog = new JDialog(dialog, "Quick Edit", false);
-        } else {
-            resultsDialog = new JDialog((Frame) null, "Quick Edit", false);
-        }
-        resultsDialog.setLayout(new BorderLayout());
+        var resultsDialog = new BaseThemedDialog(ancestor, "Quick Edit", Dialog.ModalityType.MODELESS);
+        var resultsRoot = resultsDialog.getContentRoot();
+        resultsRoot.setLayout(new BorderLayout());
 
         // System messages pane
         var systemArea = new JTextArea();
@@ -915,8 +909,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         bottomPanel.add(okayButton);
         bottomPanel.add(stopButton);
 
-        resultsDialog.add(systemScrollPane, BorderLayout.CENTER);
-        resultsDialog.add(bottomPanel, BorderLayout.PAGE_END);
+        resultsRoot.add(systemScrollPane, BorderLayout.CENTER);
+        resultsRoot.add(bottomPanel, BorderLayout.PAGE_END);
         resultsDialog.pack();
         resultsDialog.setLocationRelativeTo(this);
 
@@ -1100,18 +1094,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         return new QuickEditResult(snippet, null);
     }
 
-    /** Registers ESC key to close the preview panel */
-    private void registerEscapeKey() {
-        KeyboardShortcutUtil.registerCloseEscapeShortcut(this, () -> {
-            if (confirmClose()) {
-                var window = SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
-                if (window != null) {
-                    window.dispose();
-                }
-            }
-        });
-    }
-
     /** Sets up a handler for the window's close button ("X") to ensure `confirmClose` is called. */
     private void setupWindowCloseHandler() {
         var listener = new HierarchyListener() {
@@ -1120,6 +1102,12 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && isShowing()) {
                     var ancestor = SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
                     if (ancestor != null) {
+                        // If embedded in a shared PreviewFrame, let the frame own close behavior.
+                        if (ancestor instanceof ai.brokk.gui.dialogs.PreviewFrame) {
+                            SwingUtilities.invokeLater(() -> removeHierarchyListener(this));
+                            return;
+                        }
+
                         logger.debug(
                                 "Setting up window close handler for {}",
                                 ancestor.getClass().getSimpleName());
@@ -1215,7 +1203,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                         messagesForHistory.add(Messages.customSystem("### " + fileNameForDiff));
                         messagesForHistory.add(Messages.customSystem("```" + diffText + "```"));
                         // Build resulting Context by adding the saved file if it is not already editable
-                        var ctx = cm.liveContext().addPathFragments(cm.toPathFragments(List.of(file)));
+                        var ctx = cm.liveContext().addFragments(cm.toPathFragments(List.of(file)));
 
                         // Determine TaskMeta only if there was LLM activity in quick edits.
                         TaskResult.TaskMeta meta = null;

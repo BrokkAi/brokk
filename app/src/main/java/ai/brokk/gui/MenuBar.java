@@ -7,7 +7,9 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.Service;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.dialogs.AboutDialog;
+import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.dialogs.BlitzForgeDialog;
 import ai.brokk.gui.dialogs.FeedbackDialog;
 import ai.brokk.gui.dialogs.SessionsDialog;
@@ -63,9 +65,9 @@ public class MenuBar {
     private static void showDialog(Chrome chrome, String title, JComponent content, @Nullable Runnable onClose) {
         Runnable task = () -> {
             // Create new modeless dialog
-            JDialog dialog = new JDialog(chrome.getFrame(), title, false);
-            dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-            dialog.getContentPane().add(content);
+            var dialog = new BaseThemedDialog(chrome.getFrame(), title, Dialog.ModalityType.MODELESS);
+            dialog.setDefaultCloseOperation(BaseThemedDialog.DISPOSE_ON_CLOSE);
+            dialog.getContentRoot().add(content);
 
             // Calculate size with reasonable minimums
             Dimension prefSize = content.getPreferredSize();
@@ -410,7 +412,7 @@ public class MenuBar {
                         }
 
                         var projectRoot = project.getRoot();
-                        List<ContextFragment.PathFragment> fragments = new ArrayList<>();
+                        List<ContextFragments.PathFragment> fragments = new ArrayList<>();
                         for (Path p : pathsToAttach) {
                             BrokkFile bf = Completions.maybeExternalFile(
                                     projectRoot, p.toAbsolutePath().normalize().toString());
@@ -533,7 +535,7 @@ public class MenuBar {
         commitItem.addActionListener(e -> {
             var content = new GitCommitTab(chrome, chrome.getContextManager());
             // Start an initial refresh so the dialog is populated with repository status
-            content.updateCommitPanel();
+            content.requestUpdate();
             showDialog(chrome, "Changes", content, null);
         });
         gitMenu.add(commitItem);

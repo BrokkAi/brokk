@@ -9,12 +9,14 @@ import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.*;
+import java.util.SequencedSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
@@ -102,6 +104,7 @@ public class EditBlock {
      * <p>Note: it is the responsibility of the caller (e.g. CodeAgent::preCreateNewFiles) to create empty files for
      * blocks corresponding to new files.
      */
+    @Blocking
     public static EditResult apply(Context ctx, IConsoleIO io, Collection<SearchReplaceBlock> blocks)
             throws IOException, InterruptedException {
         IContextManager contextManager = ctx.getContextManager();
@@ -119,25 +122,11 @@ public class EditBlock {
             final var rawFileName = block.rawFileName();
             ProjectFile file;
             try {
-                file = resolveProjectFile(ctx, rawFileName);
+                file = resolveProjectFile(ctx, rawFileName, block.beforeText.startsWith("BRK_ENTIRE_FILE"));
             } catch (SymbolAmbiguousException | SymbolInvalidException e) {
                 logger.debug("File resolution failed for block [{}]: {}", rawFileName, e.getMessage());
                 failed.add(new FailedBlock(block, EditBlockFailureReason.FILE_NOT_FOUND));
                 continue;
-            } catch (SymbolNotFoundException e) {
-                if (rawFileName == null) {
-                    // would have thrown SymbolInvalidException if null
-                    failed.add(new FailedBlock(block, EditBlockFailureReason.FILE_NOT_FOUND));
-                    continue;
-                }
-                // create new file for the edit block to work on
-                file = contextManager.toFile(rawFileName);
-                try {
-                    file.write(""); // Using ProjectFile.write handles directory creation internally
-                    logger.debug("Pre-created empty file: {}", file);
-                } catch (IOException ioException) {
-                    io.toolError("Failed to create empty file " + file + ": " + e.getMessage(), "Error");
-                }
             }
 
             // Pre-resolve BRK_CLASS/BRK_FUNCTION so analyzer offsets are from the original file content
@@ -280,7 +269,7 @@ public class EditBlock {
         }
     }
 
-    public record ParseResult(List<SearchReplaceBlock> blocks, @Nullable String parseError) {}
+    public record ParseResult(SequencedSet<SearchReplaceBlock> blocks, @Nullable String parseError) {}
 
     public record ExtendedParseResult(List<OutputBlock> blocks, @Nullable String parseError) {}
 
@@ -413,9 +402,9 @@ public class EditBlock {
         // -------------------------
         // 2) Normal search/replace (existing behavior)
         // -------------------------
-        ContentLines originalCL = prep(content);
-        ContentLines targetCl = prep(target);
-        ContentLines replaceCL = prep(replace);
+        ContentLines originalCL = toLines(content);
+        ContentLines targetCl = toLines(target);
+        ContentLines replaceCL = toLines(replace);
 
         if (logger.isTraceEnabled()) {
             logger.trace(
@@ -730,12 +719,8 @@ public class EditBlock {
         return line.substring(0, count);
     }
 
-    /**
-     * Scanning for a filename up to 3 lines above the HEAD block index. If none found, fallback to currentFilename if
-     * it's not null.
-     */
-    private static ContentLines prep(String content) {
-        boolean originalEndsWithNewline = !content.isEmpty() && content.endsWith("\n");
+    private static ContentLines toLines(String content) {
+        boolean originalEndsWithNewline = content.endsWith("\n");
         List<String> rawLines = content.lines().toList();
         return new ContentLines(content, rawLines, originalEndsWithNewline);
     }
@@ -834,23 +819,23 @@ public class EditBlock {
      * Resolves a filename string to a ProjectFile. Handles partial paths, checks against editable files, tracked files,
      * and project files.
      *
-     * @param ctx The context.
-     * @param filename The filename string to resolve (potentially partial).
+     * @param ctx          The context.
+     * @param filename     The filename string to resolve (potentially partial).
+     * @param maybeNewFile
      * @return The resolved ProjectFile.
-     * @throws SymbolNotFoundException if the file cannot be found.
      * @throws SymbolAmbiguousException if the filename matches multiple files.
-     * @throws SymbolInvalidException if the file name is not a valid path (possibly absolute) or is null.
+     * @throws SymbolInvalidException   if the file name is not a valid path (possibly absolute) or is null.
      */
-    static ProjectFile resolveProjectFile(Context ctx, @Nullable String filename)
-            throws SymbolNotFoundException, SymbolAmbiguousException, SymbolInvalidException {
+    @Blocking
+    static ProjectFile resolveProjectFile(Context ctx, @Nullable String filename, boolean maybeNewFile)
+            throws SymbolAmbiguousException, SymbolInvalidException {
         IContextManager cm = ctx.getContextManager();
         if (filename == null || filename.isBlank()) { // Handle null or blank rawFileName early
             throw new SymbolInvalidException("Filename cannot be null or blank.");
         }
 
         // Strip leading comment prefixes (// or #) that LLMs might include
-        var stripped = filename.strip();
-        stripped = stripped.replaceFirst("^(//|#)\\s*", "");
+        var stripped = filename.strip().replaceFirst("^(//|#)\\s*", "");
 
         ProjectFile file;
         try {
@@ -862,14 +847,14 @@ public class EditBlock {
         }
 
         // 1. Exact match (common case)
-        if (file.exists()) {
+        if (file.exists() || maybeNewFile) {
             return file;
         }
 
-        // 2. Check editable files (case-insensitive basename match)
-        var editableMatches = ctx.getAllFragmentsInDisplayOrder().stream()
-                .flatMap(f -> f.files().stream())
-                .filter(f -> f.getFileName().equalsIgnoreCase(file.getFileName()))
+        // 2. Try to map the given filename to a filename in the Context
+        var editableMatches = ctx.getEditableFragments()
+                .flatMap(f -> f.files().join().stream())
+                .filter(f -> f.getFileName().equals(file.getFileName()))
                 .toList();
         if (editableMatches.size() == 1) {
             logger.debug("Resolved partial filename [{}] to editable file [{}]", filename, editableMatches.getFirst());
@@ -880,22 +865,6 @@ public class EditBlock {
                     "Filename '%s' matches multiple editable files: %s".formatted(filename, editableMatches));
         }
 
-        // 3. Check tracked files in git repo (basename match only)
-        var repo = cm.getRepo();
-        var trackedMatches = repo.getTrackedFiles().stream()
-                .filter(f -> f.getFileName().equalsIgnoreCase(file.getFileName()))
-                .toList();
-        if (trackedMatches.size() == 1) {
-            logger.debug("Resolved partial filename [{}] to tracked file [{}]", filename, trackedMatches.getFirst());
-            return trackedMatches.getFirst();
-        }
-        if (trackedMatches.size() > 1) {
-            throw new SymbolAmbiguousException(
-                    "Filename '%s' matches multiple tracked files: %s".formatted(filename, trackedMatches));
-        }
-
-        // 4. Not found anywhere
-        throw new SymbolNotFoundException(
-                "Filename '%s' could not be resolved to an existing file.".formatted(filename));
+        return file;
     }
 }

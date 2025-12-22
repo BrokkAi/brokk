@@ -1,5 +1,6 @@
 package ai.brokk.git;
 
+import static ai.brokk.project.FileFilteringService.toUnixPath;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.analyzer.ProjectFile;
@@ -54,6 +55,7 @@ public class GitRepo implements Closeable, IGitRepo {
     private final char @Nullable [] gpgPassPhrase; // if the user has enabled GPG signing by default
     private final Supplier<String> tokenSupplier; // Supplier for GitHub token
     private @Nullable Set<ProjectFile> trackedFilesCache = null;
+    private @Nullable Set<Path> trackedPathsCache = null;
 
     // New field holding remote-related helpers
     private final GitRepoRemote remote;
@@ -253,7 +255,7 @@ public class GitRepo implements Closeable, IGitRepo {
         // We need to make it relative to JGit's working tree root.
         Path workingTreeRoot = repository.getWorkTree().toPath().normalize();
         Path relativePath = workingTreeRoot.relativize(file.absPath());
-        return relativePath.toString().replace('\\', '/');
+        return toUnixPath(relativePath);
     }
 
     /**
@@ -418,6 +420,7 @@ public class GitRepo implements Closeable, IGitRepo {
         // TODO probably we should split ".git changed" apart from "tracked files changed"
         repository.getRefDatabase().refresh();
         trackedFilesCache = null;
+        trackedPathsCache = null;
     }
 
     /** Adds files to staging. */
@@ -431,10 +434,9 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     @Override
-    public synchronized void add(Path path) throws GitAPIException {
+    public synchronized void add(ProjectFile file) throws GitAPIException {
         var addCommand = git.add();
-        var repoRelativePath = gitTopLevel.relativize(path.toAbsolutePath()).toString();
-        addCommand.addFilepattern(repoRelativePath);
+        addCommand.addFilepattern(toRepoRelativePath(file));
         addCommand.call();
     }
 
@@ -532,7 +534,17 @@ public class GitRepo implements Closeable, IGitRepo {
                 .filter(Optional::isPresent)
                 .map(Optional::get)
                 .collect(Collectors.toSet());
+        trackedPathsCache =
+                trackedFilesCache.stream().map(ProjectFile::getRelPath).collect(Collectors.toSet());
         return trackedFilesCache;
+    }
+
+    @Override
+    public synchronized boolean isTracked(Path relativePath) {
+        if (trackedPathsCache == null) {
+            getTrackedFiles(); // populates both caches
+        }
+        return requireNonNull(trackedPathsCache).contains(relativePath);
     }
 
     /** Get the current commit ID (HEAD) */
@@ -663,10 +675,10 @@ public class GitRepo implements Closeable, IGitRepo {
      * @param remoteUrl The remote URL to check
      * @throws GitHubAuthenticationException if GitHub HTTPS URL is detected but no token is configured
      */
-    public <T, C extends TransportCommand<C, T>> void applyGitHubAuthentication(C command, @Nullable String remoteUrl)
+    <T, C extends TransportCommand<C, T>> void applyGitHubAuthentication(C command, @Nullable String remoteUrl)
             throws GitHubAuthenticationException {
         // Only handle GitHub HTTPS URLs - everything else uses JGit defaults
-        if (remoteUrl == null || !remoteUrl.startsWith("https://") || !remoteUrl.contains("github.com")) {
+        if (!GitRepoFactory.isGitHubHttpsUrl(remoteUrl)) {
             return;
         }
 
@@ -678,6 +690,32 @@ public class GitRepo implements Closeable, IGitRepo {
         } else {
             throw new GitHubAuthenticationException("GitHub token required for HTTPS authentication. "
                     + "Configure in Settings -> Global -> GitHub, or use SSH URL instead.");
+        }
+    }
+
+    /**
+     * Checks if a commit's data is fully available and parsable in the local repository.
+     *
+     * @param sha The commit SHA to check
+     * @return true if the commit is resolvable and its object data is parsable, false otherwise
+     */
+    boolean isCommitLocallyAvailable(String sha) {
+        ObjectId objectId = null;
+        try {
+            objectId = resolveToCommit(sha);
+            try (var revWalk = new RevWalk(repository)) {
+                revWalk.parseCommit(objectId);
+                return true;
+            }
+        } catch (MissingObjectException e) {
+            logger.debug(
+                    "Commit object for SHA {} (resolved to {}) is missing locally.",
+                    shortHash(sha),
+                    objectId != null ? objectId.name() : "null");
+            return false;
+        } catch (Exception e) {
+            logger.debug("Cannot resolve or parse SHA {}: {}", shortHash(sha), e.getMessage());
+            return false;
         }
     }
 
@@ -823,9 +861,15 @@ public class GitRepo implements Closeable, IGitRepo {
         } catch (IOException e) {
             throw new GitWrappedIOException(e);
         }
+        // Normalize paths to forward slashes for JGit (required on all platforms)
+        String fromRepo = from.replace('\\', '/');
+        String toRepo = to.replace('\\', '/');
         // Stage as delete + add; Git will detect rename heuristically
-        git.rm().addFilepattern(from).call();
-        git.add().addFilepattern(to).call();
+        git.rm().addFilepattern(fromRepo).call();
+        logger.debug("Staged removal of {} in move operation", fromRepo);
+        // Force add even if file matches gitignore patterns (needed for !AGENTS.md negation to work)
+        var addResult = git.add().addFilepattern(toRepo).call();
+        logger.debug("Staged addition of {} in move operation, result entries: {}", toRepo, addResult.getEntryCount());
         invalidateCaches();
     }
 
@@ -1939,6 +1983,15 @@ public class GitRepo implements Closeable, IGitRepo {
     @Override
     public @Nullable String getRemoteUrl() {
         return remote().getUrl();
+    }
+
+    /**
+     * Get the URL of the origin remote with fallback to target remote.
+     * Preferred for GitHub PR operations.
+     */
+    @Override
+    public @Nullable String getOriginRemoteUrl() {
+        return remote().getOriginUrlWithFallback();
     }
 
     /**

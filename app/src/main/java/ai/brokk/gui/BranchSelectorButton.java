@@ -1,14 +1,13 @@
 package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
-import ai.brokk.FuzzyMatcher;
 import ai.brokk.IConsoleIO;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
+import ai.brokk.gui.components.FuzzySearchListPanel;
 import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.dialogs.CreatePullRequestDialog;
-import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.project.IProject;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
@@ -16,12 +15,8 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import javax.swing.*;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,17 +40,9 @@ public class BranchSelectorButton extends SplitButton {
         setMenuSupplier(this::buildBranchMenu);
 
         addActionListener(ev -> SwingUtilities.invokeLater(() -> {
-            try {
-                var menu = buildBranchMenu();
-                try {
-                    chrome.themeManager.registerPopupMenu(menu);
-                } catch (Exception e) {
-                    logger.debug("Error registering popup menu", e);
-                }
-                menu.show(this, 0, getHeight());
-            } catch (Exception ex) {
-                logger.error("Error showing branch dropdown", ex);
-            }
+            var menu = buildBranchMenu();
+            chrome.getThemeManager().registerPopupMenu(menu);
+            menu.show(this, 0, getHeight());
         }));
 
         initializeCurrentBranch();
@@ -144,11 +131,7 @@ public class BranchSelectorButton extends SplitButton {
                 SwingUtilities.invokeLater(() -> {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Branches refreshed");
                     var newMenu = buildBranchMenu();
-                    try {
-                        chrome.themeManager.registerPopupMenu(newMenu);
-                    } catch (Exception e) {
-                        logger.debug("Error registering popup menu", e);
-                    }
+                    chrome.getThemeManager().registerPopupMenu(newMenu);
                     newMenu.show(this, 0, getHeight());
                 });
             });
@@ -207,155 +190,43 @@ public class BranchSelectorButton extends SplitButton {
                     menu.add(header);
                 }
 
-                // Create a scrollable list of branches, so the popup can remain below the button
-                DefaultListModel<String> model = new DefaultListModel<>();
-                for (String b : localBranches) {
-                    model.addElement(b);
-                }
-                JList<String> list = new JList<>(model);
-                list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-                list.setVisibleRowCount(-1); // let the scrollpane determine visible rows
-                list.setFocusable(true);
+                // Branch list with optional fuzzy search in Advanced Mode
+                JList<String> list;
+                DefaultListModel<String> model;
+                FuzzySearchListPanel<String> fuzzyPanel = null;
 
-                // In Advanced Mode, add search field with highlighting
-                JTextField searchField = null;
-                final FuzzyMatcher[] currentMatcher = {null};
                 if (advancedMode) {
-                    searchField = new JTextField();
-                    searchField.putClientProperty("JTextField.placeholderText", "Search branches...");
-                    searchField.setBorder(BorderFactory.createCompoundBorder(
-                            BorderFactory.createEmptyBorder(4, 4, 4, 4), searchField.getBorder()));
-                    var finalSearchField = searchField;
+                    fuzzyPanel = FuzzySearchListPanel.forStrings(localBranches);
+                    var panel = fuzzyPanel;
+                    panel.setSelectionListener(b -> checkoutBranch(b, menu, cm, project));
 
-                    menu.add(searchField);
+                    menu.add(panel.getSearchField());
 
-                    // Custom cell renderer for highlighting matches
-                    list.setCellRenderer(new DefaultListCellRenderer() {
-                        @Override
-                        public Component getListCellRendererComponent(
-                                JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-                            super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                            String text = value.toString();
-                            var matcher = currentMatcher[0];
-                            if (matcher != null) {
-                                var fragments = matcher.getMatchingFragments(text);
-                                if (fragments != null && !fragments.isEmpty()) {
-                                    setText(highlightMatches(text, fragments));
-                                }
-                            }
-                            return this;
-                        }
-
-                        private String highlightMatches(String text, List<FuzzyMatcher.TextRange> fragments) {
-                            fragments.sort(Comparator.comparingInt(FuzzyMatcher.TextRange::getStartOffset));
-                            Color highlightColor = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT);
-                            String hexColor = String.format(
-                                    "#%02x%02x%02x",
-                                    highlightColor.getRed(), highlightColor.getGreen(), highlightColor.getBlue());
-                            Color fg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT_TEXT);
-                            String fgHex = String.format("#%02x%02x%02x", fg.getRed(), fg.getGreen(), fg.getBlue());
-                            String result = "<html>";
-                            int lastEnd = 0;
-                            for (var range : fragments) {
-                                if (range.getStartOffset() > lastEnd) {
-                                    result += escapeHtml(text.substring(lastEnd, range.getStartOffset()));
-                                }
-                                result += "<span style='background-color:" + hexColor + ";color:" + fgHex + ";'>"
-                                        + escapeHtml(text.substring(range.getStartOffset(), range.getEndOffset()))
-                                        + "</span>";
-                                lastEnd = range.getEndOffset();
-                            }
-                            if (lastEnd < text.length()) {
-                                result += escapeHtml(text.substring(lastEnd));
-                            }
-                            return result + "</html>";
-                        }
-
-                        private String escapeHtml(String s) {
-                            return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-                        }
-                    });
-
-                    // Fuzzy search filtering
-                    searchField.getDocument().addDocumentListener(new DocumentListener() {
-                        @Override
-                        public void insertUpdate(DocumentEvent e) {
-                            filterBranches();
-                        }
-
-                        @Override
-                        public void removeUpdate(DocumentEvent e) {
-                            filterBranches();
-                        }
-
-                        @Override
-                        public void changedUpdate(DocumentEvent e) {
-                            filterBranches();
-                        }
-
-                        private void filterBranches() {
-                            String query = finalSearchField.getText().trim();
-                            model.clear();
-                            if (query.isEmpty()) {
-                                currentMatcher[0] = null;
-                                for (String b : localBranches) {
-                                    model.addElement(b);
-                                }
-                            } else {
-                                var matcher = new FuzzyMatcher(query);
-                                currentMatcher[0] = matcher;
-                                var matches = new ArrayList<String>();
-                                for (String b : localBranches) {
-                                    if (matcher.matches(b)) {
-                                        matches.add(b);
-                                    }
-                                }
-                                matches.sort(Comparator.comparingInt(matcher::score));
-                                for (String b : matches) {
-                                    model.addElement(b);
-                                }
-                            }
-                            if (!model.isEmpty()) {
-                                list.setSelectedIndex(0);
-                            }
-                        }
-                    });
-
-                    // Keyboard navigation from search field
-                    searchField.addKeyListener(new KeyAdapter() {
+                    // Handle Escape to close menu when search is empty
+                    panel.getSearchField().addKeyListener(new KeyAdapter() {
                         @Override
                         public void keyPressed(KeyEvent e) {
-                            if (e.getKeyCode() == KeyEvent.VK_DOWN) {
-                                list.requestFocusInWindow();
-                                if (list.getSelectedIndex() < 0 && !model.isEmpty()) {
-                                    list.setSelectedIndex(0);
-                                }
-                                e.consume();
-                            } else if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-                                if (!model.isEmpty()) {
-                                    int idx = list.getSelectedIndex();
-                                    if (idx < 0) idx = 0;
-                                    String b = model.getElementAt(idx);
-                                    checkoutBranch(b, menu, cm, project);
-                                }
-                                e.consume();
-                            } else if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
-                                if (!finalSearchField.getText().isEmpty()) {
-                                    finalSearchField.setText("");
-                                    e.consume();
-                                } else {
-                                    menu.setVisible(false);
-                                }
+                            if (e.getKeyCode() == KeyEvent.VK_ESCAPE
+                                    && panel.getSearchField().getText().isEmpty()) {
+                                menu.setVisible(false);
+                            }
+                        }
+                    });
+                    panel.getList().addKeyListener(new KeyAdapter() {
+                        @Override
+                        public void keyPressed(KeyEvent e) {
+                            if (e.getKeyCode() == KeyEvent.VK_ESCAPE
+                                    && panel.getSearchField().getText().isEmpty()) {
+                                menu.setVisible(false);
                             }
                         }
                     });
 
                     // Auto-focus search field when menu becomes visible
-                    var finalSearchFieldForFocus = searchField;
                     menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
                         @Override
                         public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {
-                            SwingUtilities.invokeLater(finalSearchFieldForFocus::requestFocusInWindow);
+                            SwingUtilities.invokeLater(panel::focusSearchField);
                         }
 
                         @Override
@@ -364,44 +235,45 @@ public class BranchSelectorButton extends SplitButton {
                         @Override
                         public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) {}
                     });
-                }
 
-                // Single-click to checkout, like JMenuItem behavior
-                list.addMouseListener(new MouseAdapter() {
-                    @Override
-                    public void mouseClicked(MouseEvent e) {
-                        int idx = list.locationToIndex(e.getPoint());
-                        if (idx >= 0) {
-                            String b = model.getElementAt(idx);
-                            checkoutBranch(b, menu, cm, project);
-                        }
+                    list = panel.getList();
+                    model = panel.getModel();
+                } else {
+                    model = new DefaultListModel<>();
+                    for (String b : localBranches) {
+                        model.addElement(b);
                     }
-                });
+                    list = new JList<>(model);
+                    list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+                    list.setVisibleRowCount(-1);
+                    list.setFocusable(true);
 
-                // Enter key triggers checkout for keyboard users
-                var finalSearchFieldForList = searchField;
-                list.addKeyListener(new KeyAdapter() {
-                    @Override
-                    public void keyPressed(KeyEvent e) {
-                        if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-                            int idx = list.getSelectedIndex();
+                    // Single-click to checkout
+                    list.addMouseListener(new MouseAdapter() {
+                        @Override
+                        public void mouseClicked(MouseEvent e) {
+                            int idx = list.locationToIndex(e.getPoint());
                             if (idx >= 0) {
-                                String b = model.getElementAt(idx);
-                                checkoutBranch(b, menu, cm, project);
+                                checkoutBranch(model.getElementAt(idx), menu, cm, project);
                             }
-                        } else if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
-                            if (advancedMode
-                                    && finalSearchFieldForList != null
-                                    && !finalSearchFieldForList.getText().isEmpty()) {
-                                finalSearchFieldForList.setText("");
-                                finalSearchFieldForList.requestFocusInWindow();
-                                e.consume();
-                            } else {
+                        }
+                    });
+
+                    // Enter/Escape key handling
+                    list.addKeyListener(new KeyAdapter() {
+                        @Override
+                        public void keyPressed(KeyEvent e) {
+                            if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+                                int idx = list.getSelectedIndex();
+                                if (idx >= 0) {
+                                    checkoutBranch(model.getElementAt(idx), menu, cm, project);
+                                }
+                            } else if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
                                 menu.setVisible(false);
                             }
                         }
-                    }
-                });
+                    });
+                }
 
                 JScrollPane scrollPane = new JScrollPane(list);
                 scrollPane.setBorder(BorderFactory.createEmptyBorder());

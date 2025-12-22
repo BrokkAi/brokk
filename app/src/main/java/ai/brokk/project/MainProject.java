@@ -16,12 +16,13 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.theme.GuiTheme;
-import ai.brokk.issues.IssueProviderType;
+import ai.brokk.init.onboarding.GitIgnoreUtils;
+import ai.brokk.init.onboarding.StyleGuideMigrator;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.AtomicWrites;
 import ai.brokk.util.BrokkConfigPaths;
-import ai.brokk.util.Environment;
+import ai.brokk.util.DependencyUpdateScheduler;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.PathNormalizer;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -72,6 +73,8 @@ public final class MainProject extends AbstractProject {
     @Nullable
     private volatile DiskLruCache diskCache = null;
 
+    private final DependencyUpdateScheduler dependencyUpdateScheduler;
+
     private static final long DEFAULT_DISK_CACHE_SIZE = 10L * 1024L * 1024L; // 10 MB
 
     private static final String BUILD_DETAILS_KEY = "buildDetailsJson";
@@ -106,10 +109,11 @@ public final class MainProject extends AbstractProject {
     private static final String JIRA_PROJECT_KEY_KEY = "jiraProjectKey";
 
     private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
-    private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
     private static final String COMMIT_MESSAGE_FORMAT_KEY = "commitMessageFormat";
     private static final String EXCEPTION_REPORTING_ENABLED_KEY = "exceptionReportingEnabled";
+    private static final String AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY = "autoUpdateLocalDependencies";
+    private static final String AUTO_UPDATE_GIT_DEPENDENCIES_KEY = "autoUpdateGitDependencies";
 
     private static final List<SettingsChangeListener> settingsChangeListeners = new CopyOnWriteArrayList<>();
 
@@ -121,6 +125,12 @@ public final class MainProject extends AbstractProject {
 
     @Nullable
     private static volatile Boolean isDataShareAllowedCache = null;
+
+    @Nullable
+    private static volatile String headlessBrokkApiKeyOverride = null;
+
+    @Nullable
+    private static volatile LlmProxySetting headlessProxySettingOverride = null;
 
     @Nullable
     @VisibleForTesting
@@ -202,6 +212,9 @@ public final class MainProject extends AbstractProject {
 
         // Initialize cache and trigger migration/defaulting if necessary
         this.issuesProviderCache = getIssuesProvider();
+
+        // Initialize dependency update scheduler
+        this.dependencyUpdateScheduler = new DependencyUpdateScheduler(this);
     }
 
     @Override
@@ -237,6 +250,7 @@ public final class MainProject extends AbstractProject {
         }
 
         var props = new Properties();
+        boolean needsSave = false;
         if (Files.exists(GLOBAL_PROPERTIES_PATH)) {
             try (var reader = Files.newBufferedReader(GLOBAL_PROPERTIES_PATH)) {
                 props.load(reader);
@@ -246,14 +260,70 @@ public final class MainProject extends AbstractProject {
                 return props;
             }
         }
+
+        // Perform model settings migration if needed
+        int storedVersion = 0;
+        String versionStr = props.getProperty(ModelProperties.MODEL_SETTINGS_VERSION_KEY);
+        if (versionStr != null) {
+            try {
+                storedVersion = Integer.parseInt(versionStr.trim());
+            } catch (NumberFormatException e) {
+                logger.warn("Invalid model settings version in properties: {}", versionStr);
+            }
+        }
+
+        if (storedVersion < ModelProperties.MODEL_SETTINGS_VERSION) {
+            logger.info(
+                    "Migrating model settings from version {} to {}. Resetting model defaults.",
+                    storedVersion,
+                    ModelProperties.MODEL_SETTINGS_VERSION);
+
+            // Remove keys to force fallback to current defaults in ModelProperties
+            props.remove(ModelProperties.FAVORITE_MODELS_KEY);
+            props.remove(ModelType.CODE.propertyKey);
+            props.remove(ModelType.ARCHITECT.propertyKey);
+
+            props.setProperty(
+                    ModelProperties.MODEL_SETTINGS_VERSION_KEY, String.valueOf(ModelProperties.MODEL_SETTINGS_VERSION));
+            needsSave = true;
+        }
+
+        if (needsSave) {
+            saveGlobalProperties(props);
+        }
+
         globalPropertiesCache = (Properties) props.clone();
         return props;
     }
 
     private static synchronized void saveGlobalProperties(Properties props) {
         try {
-            if (loadGlobalProperties().equals(props)) {
+            // Load directly from disk to avoid re-triggering migration in loadGlobalProperties
+            var existingProps = new Properties();
+            if (Files.exists(GLOBAL_PROPERTIES_PATH)) {
+                try (var reader = Files.newBufferedReader(GLOBAL_PROPERTIES_PATH)) {
+                    existingProps.load(reader);
+                } catch (IOException e) {
+                    // Proceed with save even if we can't read existing props
+                }
+            }
+            if (existingProps.equals(props)) {
                 return;
+            }
+
+            // Log brokkApiKey changes to help diagnose disappearing key issues
+            var existingKey = existingProps.getProperty("brokkApiKey", "");
+            var newKey = props.getProperty("brokkApiKey", "");
+            if (!existingKey.equals(newKey)) {
+                if (newKey.isEmpty() && !existingKey.isEmpty()) {
+                    logger.warn(
+                            "brokkApiKey is being REMOVED from global properties. Stack trace for diagnosis:",
+                            new Exception("brokkApiKey removal trace"));
+                } else if (!newKey.isEmpty() && existingKey.isEmpty()) {
+                    logger.info("brokkApiKey is being SET in global properties");
+                } else {
+                    logger.info("brokkApiKey is being CHANGED in global properties");
+                }
             }
             AtomicWrites.atomicSaveProperties(GLOBAL_PROPERTIES_PATH, props, "Brokk global configuration");
             globalPropertiesCache = (Properties) props.clone();
@@ -274,12 +344,17 @@ public final class MainProject extends AbstractProject {
             try {
                 var details = objectMapper.readValue(json, BuildAgent.BuildDetails.class);
 
-                // Canonicalize excluded directories relative to the master root for config, preserving insertion order
-                var canonicalExcludes = new LinkedHashSet<String>();
-                for (String r : details.excludedDirectories()) {
-                    String c = PathNormalizer.canonicalizeForProject(r, getMasterRootPathForConfig());
-                    if (!c.isBlank()) {
-                        canonicalExcludes.add(c);
+                // Canonicalize exclusion patterns that look like paths
+                var canonicalExclusions = new LinkedHashSet<String>();
+                for (String pattern : details.exclusionPatterns()) {
+                    // Only canonicalize patterns that look like directory paths (contain / or \)
+                    if (pattern.contains("/") || pattern.contains("\\")) {
+                        String c = PathNormalizer.canonicalizeForProject(pattern, getMasterRootPathForConfig());
+                        if (!c.isBlank()) {
+                            canonicalExclusions.add(c);
+                        }
+                    } else {
+                        canonicalExclusions.add(pattern);
                     }
                 }
 
@@ -305,7 +380,7 @@ public final class MainProject extends AbstractProject {
                         details.buildLintCommand(),
                         details.testAllCommand(),
                         details.testSomeCommand(),
-                        canonicalExcludes,
+                        canonicalExclusions,
                         canonicalEnv);
             } catch (JsonProcessingException e) {
                 logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
@@ -322,12 +397,17 @@ public final class MainProject extends AbstractProject {
     @Override
     public void saveBuildDetails(BuildAgent.BuildDetails details) {
         // Build canonical details for stable on-disk representation
-        // 1) Canonicalize excluded directories relative to masterRootPathForConfig, preserving insertion order
-        var canonicalExcludes = new LinkedHashSet<String>();
-        for (String r : details.excludedDirectories()) {
-            String c = PathNormalizer.canonicalizeForProject(r, getMasterRootPathForConfig());
-            if (!c.isBlank()) {
-                canonicalExcludes.add(c);
+        // 1) Canonicalize exclusion patterns that look like paths
+        var canonicalExclusions = new LinkedHashSet<String>();
+        for (String pattern : details.exclusionPatterns()) {
+            // Only canonicalize patterns that look like directory paths (contain / or \)
+            if (pattern.contains("/") || pattern.contains("\\")) {
+                String c = PathNormalizer.canonicalizeForProject(pattern, getMasterRootPathForConfig());
+                if (!c.isBlank()) {
+                    canonicalExclusions.add(c);
+                }
+            } else {
+                canonicalExclusions.add(pattern);
             }
         }
 
@@ -351,7 +431,7 @@ public final class MainProject extends AbstractProject {
                 details.buildLintCommand(),
                 details.testAllCommand(),
                 details.testSomeCommand(),
-                canonicalExcludes,
+                canonicalExclusions,
                 canonicalEnv);
 
         if (!canonicalDetails.equals(BuildAgent.BuildDetails.EMPTY)) {
@@ -403,69 +483,25 @@ public final class MainProject extends AbstractProject {
         }
     }
 
-    private ModelConfig getModelConfigInternal(ModelType modelType) {
+    @Override
+    public ModelConfig getModelConfig(ModelType modelType) {
         var props = loadGlobalProperties();
         return ModelProperties.getModelConfig(props, modelType);
     }
 
-    private void setModelConfigInternal(ModelType modelType, ModelConfig config) {
+    @Override
+    public void setModelConfig(ModelType modelType, ModelConfig config) {
         var props = loadGlobalProperties();
         ModelProperties.setModelConfig(props, modelType, config);
         saveGlobalProperties(props);
     }
 
-    @Override
-    public ModelConfig getQuickModelConfig() {
-        return getModelConfigInternal(ModelType.QUICK);
-    }
-
-    @Override
-    public void setQuickModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.QUICK, config);
-    }
-
-    @Override
-    public ModelConfig getCodeModelConfig() {
-        return getModelConfigInternal(ModelType.CODE);
-    }
-
-    @Override
-    public void setCodeModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.CODE, config);
-    }
-
-    @Override
-    public ModelConfig getArchitectModelConfig() {
-        return getModelConfigInternal(ModelType.ARCHITECT);
-    }
-
-    @Override
-    public void setArchitectModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.ARCHITECT, config);
-    }
-
-    public ModelConfig getQuickEditModelConfig() {
-        return getModelConfigInternal(ModelType.QUICK_EDIT);
-    }
-
-    public void setQuickEditModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.QUICK_EDIT, config);
-    }
-
-    public ModelConfig getQuickestModelConfig() {
-        return getModelConfigInternal(ModelType.QUICKEST);
-    }
-
-    public void setQuickestModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.QUICKEST, config);
-    }
-
-    public ModelConfig getScanModelConfig() {
-        return getModelConfigInternal(ModelType.SCAN);
-    }
-
-    public void setScanModelConfig(ModelConfig config) {
-        setModelConfigInternal(ModelType.SCAN, config);
+    public void removeModelConfig(ModelType modelType) {
+        var props = loadGlobalProperties();
+        if (props.containsKey(modelType.propertyKey)) {
+            props.remove(modelType.propertyKey);
+            saveGlobalProperties(props);
+        }
     }
 
     @Override
@@ -488,6 +524,41 @@ public final class MainProject extends AbstractProject {
         }
     }
 
+    @Override
+    public boolean getAutoUpdateLocalDependencies() {
+        String value = projectProps.getProperty(AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY);
+        return value != null && Boolean.parseBoolean(value);
+    }
+
+    @Override
+    public void setAutoUpdateLocalDependencies(boolean enabled) {
+        if (enabled) {
+            projectProps.setProperty(AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY, "true");
+        } else {
+            projectProps.remove(AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY);
+        }
+        saveProjectProperties();
+        notifyAutoUpdateLocalDependenciesChanged();
+    }
+
+    @Override
+    public boolean getAutoUpdateGitDependencies() {
+        String value = projectProps.getProperty(AUTO_UPDATE_GIT_DEPENDENCIES_KEY);
+        return value != null && Boolean.parseBoolean(value);
+    }
+
+    @Override
+    public void setAutoUpdateGitDependencies(boolean enabled) {
+        if (enabled) {
+            projectProps.setProperty(AUTO_UPDATE_GIT_DEPENDENCIES_KEY, "true");
+        } else {
+            projectProps.remove(AUTO_UPDATE_GIT_DEPENDENCIES_KEY);
+        }
+        saveProjectProperties();
+        notifyAutoUpdateGitDependenciesChanged();
+    }
+
+    @Override
     public long getRunCommandTimeoutSeconds() {
         String valueStr = projectProps.getProperty(RUN_COMMAND_TIMEOUT_SECONDS_KEY);
         if (valueStr == null) {
@@ -642,26 +713,18 @@ public final class MainProject extends AbstractProject {
     @Override
     public void setIssuesProvider(IssueProvider provider) {
         IssueProvider oldProvider = this.issuesProviderCache;
-        IssueProviderType oldType = null;
-        if (oldProvider != null) {
-            oldType = oldProvider.type();
-        } else {
-            // Attempt to load from props if cache is null to get a definitive "before" type
+        if (oldProvider == null) {
             String currentJsonInProps = projectProps.getProperty(ISSUES_PROVIDER_JSON_KEY);
             if (currentJsonInProps != null && !currentJsonInProps.isBlank()) {
                 try {
-                    IssueProvider providerFromProps = objectMapper.readValue(currentJsonInProps, IssueProvider.class);
-                    oldType = providerFromProps.type();
+                    oldProvider = objectMapper.readValue(currentJsonInProps, IssueProvider.class);
                 } catch (JsonProcessingException e) {
-                    // Log or ignore, oldType remains null or determined by migration if applicable
                     logger.debug(
-                            "Could not parse existing IssueProvider JSON from properties while determining old type: {}",
+                            "Could not parse existing IssueProvider JSON from properties while determining old provider: {}",
                             e.getMessage());
                 }
             }
         }
-
-        var newType = provider.type();
 
         try {
             String json = objectMapper.writeValueAsString(provider);
@@ -683,9 +746,8 @@ public final class MainProject extends AbstractProject {
                     provider.type(),
                     getRoot().getFileName());
 
-            // Notify listeners if the provider *type* has changed.
-            if (oldType != newType) {
-                logger.debug("Issue provider type changed from {} to {}. Notifying listeners.", oldType, newType);
+            if (!Objects.equals(oldProvider, provider)) {
+                logger.debug("Issue provider changed from {} to {}. Notifying listeners.", oldProvider, provider);
                 notifyIssueProviderChanged();
             }
         } catch (JsonProcessingException e) {
@@ -729,9 +791,9 @@ public final class MainProject extends AbstractProject {
     @Override
     public boolean isGitIgnoreSet() {
         try {
-            var gitignorePath = getMasterRootPathForConfig().resolve(".gitignore");
-            if (isBrokkIgnored(gitignorePath)) {
-                logger.debug(".gitignore at {} is set to ignore Brokk files.", gitignorePath);
+            var gitignoreFile = new ProjectFile(getMasterRootPathForConfig(), ".gitignore");
+            if (GitIgnoreUtils.isBrokkIgnored(gitignoreFile)) {
+                logger.debug(".gitignore at {} is set to ignore Brokk files.", gitignoreFile.absPath());
                 return true;
             }
         } catch (IOException e) {
@@ -746,7 +808,7 @@ public final class MainProject extends AbstractProject {
             if (excludesFile != null && !excludesFile.isBlank()) {
                 try {
                     var excludesFilePath = Path.of(excludesFile);
-                    if (isBrokkIgnored(excludesFilePath)) {
+                    if (GitIgnoreUtils.isBrokkIgnored(excludesFilePath)) {
                         logger.debug("core.excludesfile at {} is set to ignore Brokk files.", excludesFilePath);
                         return true;
                     }
@@ -756,14 +818,6 @@ public final class MainProject extends AbstractProject {
             }
         } catch (IOException | ConfigInvalidException e) {
             logger.error("Error checking core.excludesfile setting in ~/.gitconfig: {}", e.getMessage());
-        }
-        return false;
-    }
-
-    private static boolean isBrokkIgnored(Path gitignorePath) throws IOException {
-        if (Files.exists(gitignorePath)) {
-            var content = Files.readString(gitignorePath);
-            return content.contains(".brokk/") || content.contains(".brokk/**");
         }
         return false;
     }
@@ -797,12 +851,30 @@ public final class MainProject extends AbstractProject {
     public void saveStyleGuide(String styleGuide) {
         Path targetPath;
 
+        // Check if legacy style.md exists and has non-empty content
+        boolean hasLegacyContent = false;
+        if (Files.exists(legacyStyleGuidePath)) {
+            try {
+                // If an exception is thrown we assume the file is empty
+                String legacyContent = Files.readString(legacyStyleGuidePath);
+                hasLegacyContent = !legacyContent.isBlank();
+            } catch (IOException e) {
+                logger.warn("Error reading legacy style guide: {}", e.getMessage());
+            }
+        }
+
+        // Decision logic:
+        // 1. If AGENTS.md already exists → use it (already migrated)
+        // 2. Else if .brokk/style.md has content → use it (preserve legacy)
+        // 3. Else → use AGENTS.md (default for fresh projects)
         if (Files.exists(styleGuidePath)) {
             targetPath = styleGuidePath;
-        } else if (Files.exists(legacyStyleGuidePath)) {
+        } else if (hasLegacyContent) {
             targetPath = legacyStyleGuidePath;
+            logger.debug("Legacy style guide has content; saving to .brokk/style.md");
         } else {
             targetPath = styleGuidePath;
+            logger.debug("No legacy content; saving to AGENTS.md");
         }
 
         try {
@@ -837,6 +909,12 @@ public final class MainProject extends AbstractProject {
     }
 
     public static LlmProxySetting getProxySetting() {
+        // Check headless executor override first (process-scoped)
+        LlmProxySetting override = headlessProxySettingOverride;
+        if (override != null) {
+            return override;
+        }
+        // Fall back to global properties
         var props = loadGlobalProperties();
         String val = props.getProperty(LLM_PROXY_SETTING_KEY, LlmProxySetting.BROKK.name());
         try {
@@ -850,6 +928,19 @@ public final class MainProject extends AbstractProject {
         var props = loadGlobalProperties();
         props.setProperty(LLM_PROXY_SETTING_KEY, setting.name());
         saveGlobalProperties(props);
+    }
+
+    /**
+     * Set a process-scoped override for the LLM proxy setting.
+     * Used by headless executors to use a per-executor proxy configuration instead of the global config.
+     * If set to a non-null value, getProxySetting() will return this override instead of
+     * reading from global properties.
+     *
+     * @param setting the proxy setting override, or null to clear the override
+     */
+    public static void setHeadlessProxySettingOverride(@Nullable LlmProxySetting setting) {
+        headlessProxySettingOverride = setting;
+        logger.debug("Set headless proxy setting override: {}", setting != null ? setting.name() : "(cleared)");
     }
 
     public static String getProxyUrl() {
@@ -874,7 +965,7 @@ public final class MainProject extends AbstractProject {
         try {
             return StartupOpenMode.valueOf(val);
         } catch (IllegalArgumentException e) {
-            return StartupOpenMode.LAST;
+            return StartupOpenMode.ALL;
         }
     }
 
@@ -911,6 +1002,26 @@ public final class MainProject extends AbstractProject {
                 listener.gitHubTokenChanged();
             } catch (Exception e) {
                 logger.error("Error notifying listener of GitHub token change", e);
+            }
+        }
+    }
+
+    private static void notifyAutoUpdateLocalDependenciesChanged() {
+        for (SettingsChangeListener listener : settingsChangeListeners) {
+            try {
+                listener.autoUpdateLocalDependenciesChanged();
+            } catch (Exception e) {
+                logger.error("Error notifying listener of auto-update local dependencies change", e);
+            }
+        }
+    }
+
+    private static void notifyAutoUpdateGitDependenciesChanged() {
+        for (SettingsChangeListener listener : settingsChangeListeners) {
+            try {
+                listener.autoUpdateGitDependenciesChanged();
+            } catch (Exception e) {
+                logger.error("Error notifying listener of auto-update git dependencies change", e);
             }
         }
     }
@@ -1069,177 +1180,41 @@ public final class MainProject extends AbstractProject {
 
     /**
      * Performs the actual style.md to AGENTS.md migration.
-     * Renames the file, stages it in Git (if applicable), and updates the declined flag.
+     * Delegates to StyleGuideMigrator for the core migration logic.
      *
      * @param chrome the Chrome instance for showing notifications
      * @return true if migration succeeded, false otherwise
      */
     public boolean performStyleMdToAgentsMdMigration(Chrome chrome) {
         try {
-            Path brokkDir = getMasterRootPathForConfig().resolve(BROKK_DIR);
-            Path styleFile = brokkDir.resolve("style.md");
-            Path agentsFile = getMasterRootPathForConfig().resolve("AGENTS.md");
+            var gitTopLevel = getMasterRootPathForConfig();
+            var legacyStyle = new ai.brokk.analyzer.ProjectFile(gitTopLevel, BROKK_DIR + "/style.md");
+            var agentsFile = new ai.brokk.analyzer.ProjectFile(gitTopLevel, STYLE_GUIDE_FILE);
+            var gitRepo = hasGit() ? (GitRepo) getRepo() : null;
 
-            if (!Files.exists(styleFile)) {
-                logger.warn("style.md does not exist at {}; migration cannot proceed.", styleFile);
-                chrome.showNotification(
-                        IConsoleIO.NotificationRole.ERROR, "Migration failed: .brokk/style.md not found");
+            logger.info(
+                    "Starting style.md to AGENTS.md migration for {} via StyleGuideMigrator",
+                    getRoot().getFileName());
+
+            var result = StyleGuideMigrator.migrate(legacyStyle, agentsFile, gitRepo);
+
+            if (result.performed()) {
+                logger.info("Migration successful: {}", result.message());
+                setMigrationDeclined(false);
+                chrome.showNotification(IConsoleIO.NotificationRole.INFO, result.message());
+                return true;
+            } else {
+                logger.info("Migration not performed: {}", result.message());
+                chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Migration skipped: " + result.message());
                 return false;
             }
-
-            logger.info(
-                    "Starting .brokk/style.md to AGENTS.md (root) migration for {}",
-                    getRoot().getFileName());
-
-            // Copy content from style.md to AGENTS.md at project root
-            String content = Files.readString(styleFile);
-            Files.writeString(agentsFile, content);
-            logger.debug("Created AGENTS.md at project root with content from .brokk/style.md");
-
-            // If this is a Git repository, stage the changes
-            if (hasGit()) {
-                GitRepo gitRepo = (GitRepo) getRepo();
-
-                try {
-                    // Use GitRepo.move to handle the rename with proper Git staging
-                    String relStylePath =
-                            getMasterRootPathForConfig().relativize(styleFile).toString();
-                    String relAgentsPath =
-                            getMasterRootPathForConfig().relativize(agentsFile).toString();
-
-                    gitRepo.move(relStylePath, relAgentsPath);
-                    logger.info(
-                            "Staged style.md -> AGENTS.md rename in Git for {}",
-                            getRoot().getFileName());
-                } catch (Exception gitEx) {
-                    logger.warn(
-                            "Error staging Git rename for style.md to AGENTS.md, attempting manual deletion: {}",
-                            gitEx.getMessage());
-                    // If GitRepo.move fails, just delete the old file manually
-                    // The new file will have been created above
-                    try {
-                        Files.delete(styleFile);
-                        logger.debug("Deleted style.md manually");
-                    } catch (IOException deleteEx) {
-                        logger.warn("Failed to delete style.md: {}", deleteEx.getMessage());
-                    }
-                }
-            } else {
-                // Not a Git repository; just delete the old file
-                try {
-                    Files.delete(styleFile);
-                    logger.debug("Deleted style.md (non-Git project)");
-                } catch (IOException deleteEx) {
-                    logger.warn("Failed to delete style.md: {}", deleteEx.getMessage());
-                }
-            }
-
-            // Mark migration as complete by resetting the declined flag
-            setMigrationDeclined(false);
-            logger.info(
-                    "Completed .brokk/style.md to AGENTS.md (root) migration for {}",
-                    getRoot().getFileName());
-
-            chrome.showNotification(
-                    IConsoleIO.NotificationRole.INFO,
-                    "Migration complete: .brokk/style.md has been renamed to AGENTS.md at project root and staged in Git.");
-            return true;
         } catch (Exception e) {
             logger.error(
                     "Error performing style.md to AGENTS.md migration for {}: {}",
                     getRoot().getFileName(),
                     e.getMessage(),
                     e);
-            chrome.showNotification(IConsoleIO.NotificationRole.ERROR, "Migration failed: " + e.getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * DEPRECATED: Use performStyleMdToAgentsMdMigration(Chrome) instead.
-     * Performs the actual style.md to AGENTS.md migration.
-     * Renames the file, stages it in Git (if applicable), and updates the declined flag.
-     *
-     * @param chrome the Chrome instance for showing notifications
-     * @return true if migration succeeded, false otherwise
-     */
-    @Deprecated
-    public boolean performStyleMdToAgentsMdMigrationOld(Chrome chrome) {
-        try {
-            Path brokkDir = getMasterRootPathForConfig().resolve(BROKK_DIR);
-            Path styleFile = brokkDir.resolve("style.md");
-            Path agentsFile = brokkDir.resolve("AGENTS.md");
-
-            if (!Files.exists(styleFile)) {
-                logger.warn("style.md does not exist at {}; migration cannot proceed.", styleFile);
-                chrome.showNotification(
-                        IConsoleIO.NotificationRole.ERROR, "Migration failed: style.md not found at " + styleFile);
-                return false;
-            }
-
-            logger.info(
-                    "Starting style.md to AGENTS.md migration for {}", getRoot().getFileName());
-
-            // Copy content from style.md to AGENTS.md
-            String content = Files.readString(styleFile);
-            Files.writeString(agentsFile, content);
-            logger.debug("Created AGENTS.md with content from style.md");
-
-            // If this is a Git repository, stage the changes
-            if (hasGit()) {
-                GitRepo gitRepo = (GitRepo) getRepo();
-
-                try {
-                    // Use GitRepo.move to handle the rename with proper Git staging
-                    String relStylePath =
-                            getMasterRootPathForConfig().relativize(styleFile).toString();
-                    String relAgentsPath =
-                            getMasterRootPathForConfig().relativize(agentsFile).toString();
-
-                    gitRepo.move(relStylePath, relAgentsPath);
-                    logger.info(
-                            "Staged style.md -> AGENTS.md rename in Git for {}",
-                            getRoot().getFileName());
-                } catch (Exception gitEx) {
-                    logger.warn(
-                            "Error staging Git rename for style.md to AGENTS.md, attempting manual deletion: {}",
-                            gitEx.getMessage());
-                    // If GitRepo.move fails, just delete the old file manually
-                    // The new file will have been created above
-                    try {
-                        Files.delete(styleFile);
-                        logger.debug("Deleted style.md manually");
-                    } catch (IOException deleteEx) {
-                        logger.warn("Failed to delete style.md: {}", deleteEx.getMessage());
-                    }
-                }
-            } else {
-                // Not a Git repository; just delete the old file
-                try {
-                    Files.delete(styleFile);
-                    logger.debug("Deleted style.md (non-Git project)");
-                } catch (IOException deleteEx) {
-                    logger.warn("Failed to delete style.md: {}", deleteEx.getMessage());
-                }
-            }
-
-            // Mark migration as complete by resetting the declined flag
-            setMigrationDeclined(false);
-            logger.info(
-                    "Completed style.md to AGENTS.md migration for {}",
-                    getRoot().getFileName());
-
-            chrome.showNotification(
-                    IConsoleIO.NotificationRole.INFO,
-                    "Migration complete: style.md has been renamed to AGENTS.md and staged in Git.");
-            return true;
-        } catch (Exception e) {
-            logger.error(
-                    "Error performing style.md to AGENTS.md migration for {}: {}",
-                    getRoot().getFileName(),
-                    e.getMessage(),
-                    e);
-            chrome.showNotification(IConsoleIO.NotificationRole.ERROR, "Migration failed: " + e.getMessage());
+            chrome.toolError("Migration failed: " + e.getMessage(), "Migration Error");
             return false;
         }
     }
@@ -1330,6 +1305,95 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
 
+    // Preference key for selecting the watch service implementation.
+    // Allowed values persisted: "legacy", "native". If unset/blank/unrecognized, treated as "default".
+    private static final String WATCH_SERVICE_IMPL_KEY = "watchServiceImpl";
+
+    // Keys for history auto-compression settings
+    private static final String HISTORY_AUTO_COMPRESS_KEY = "historyAutoCompress";
+    private static final String HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY = "historyAutoCompressThresholdPercent";
+
+    /**
+     * Returns the persisted watch service implementation preference.
+     *
+     * Normalized return values:
+     *  - "legacy"  => legacy implementation
+     *  - "native"  => native implementation
+     *  - "default" => no explicit preference / use platform-default behavior
+     */
+    public static String getWatchServiceImplPreference() {
+        var props = loadGlobalProperties();
+        String raw = props.getProperty(WATCH_SERVICE_IMPL_KEY);
+        if (raw == null || raw.isBlank()) {
+            return "default";
+        }
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if ("legacy".equals(normalized) || "native".equals(normalized)) {
+            return normalized;
+        }
+        return "default";
+    }
+
+    /**
+     * Persist the watch service implementation preference.
+     *
+     * Accepts case-insensitive values: "default", "legacy", "native".
+     * If "default" (or blank/unrecognized) the property will be removed to fall back to platform default.
+     */
+    public static void setWatchServiceImplPreference(String v) {
+        var props = loadGlobalProperties();
+        String normalized = v.trim().toLowerCase(Locale.ROOT);
+        if ("default".equals(normalized) || normalized.isBlank()) {
+            props.remove(WATCH_SERVICE_IMPL_KEY);
+        } else if ("legacy".equals(normalized) || "native".equals(normalized)) {
+            props.setProperty(WATCH_SERVICE_IMPL_KEY, normalized);
+        } else {
+            // Unrecognized value: remove key to ensure default behavior.
+            props.remove(WATCH_SERVICE_IMPL_KEY);
+            normalized = "default";
+        }
+        saveGlobalProperties(props);
+        logger.debug("Set watch service implementation preference to {}", normalized);
+    }
+
+    /**
+     * Returns whether automatic history compression is enabled.
+     * Enabled by default to help manage conversation context size.
+     *
+     * @return true if history auto-compression is enabled, false otherwise
+     */
+    public static boolean getHistoryAutoCompress() {
+        var props = loadGlobalProperties();
+        return Boolean.parseBoolean(props.getProperty(HISTORY_AUTO_COMPRESS_KEY, "true"));
+    }
+
+    /**
+     * Returns the threshold percentage for auto-compressing conversation history.
+     * When the token count of history exceeds this percentage of the model's max input tokens,
+     * automatic compression is triggered.
+     *
+     * @return threshold as a percentage (e.g., 70 means 70%), clamped to [10, 95]
+     */
+    public static int getHistoryAutoCompressThresholdPercent() {
+        var props = loadGlobalProperties();
+        String value = props.getProperty(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY);
+        int defaultValue = 70;
+        if (value == null || value.isBlank()) {
+            return defaultValue;
+        }
+        try {
+            int pct = Integer.parseInt(value.trim());
+            // Clamp to reasonable bounds [10, 95]
+            if (pct < 10) pct = 10;
+            if (pct > 95) pct = 95;
+            return pct;
+        } catch (NumberFormatException e) {
+            logger.debug(
+                    "Invalid history auto-compress threshold percentage: {}, using default {}", value, defaultValue);
+            return defaultValue;
+        }
+    }
+
     // UI Scale global preference
     // Values:
     //  - "auto" (default): detect from environment (kscreen-doctor/gsettings on Linux)
@@ -1340,9 +1404,6 @@ public final class MainProject extends AbstractProject {
     private static final String STARTUP_OPEN_MODE_KEY = "startupOpenMode";
     private static final String FORCE_TOOL_EMULATION_KEY = "forceToolEmulation";
     private static final String OTHER_MODELS_VENDOR_KEY = "otherModelsVendor";
-    private static final String HISTORY_AUTO_COMPRESS_KEY = "historyAutoCompress";
-    private static final String HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY = "historyAutoCompressThresholdPercent";
-    private static final String HISTORY_COMPRESSION_CONCURRENCY_KEY = "historyCompressionConcurrency";
 
     public static String getUiScalePref() {
         var props = loadGlobalProperties();
@@ -1439,73 +1500,6 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
 
-    public static boolean getHistoryAutoCompress() {
-        var props = loadGlobalProperties();
-        return Boolean.parseBoolean(props.getProperty(HISTORY_AUTO_COMPRESS_KEY, "true"));
-    }
-
-    public static void setHistoryAutoCompress(boolean autoCompress) {
-        var props = loadGlobalProperties();
-        props.setProperty(HISTORY_AUTO_COMPRESS_KEY, Boolean.toString(autoCompress));
-        saveGlobalProperties(props);
-    }
-
-    public static int getHistoryAutoCompressThresholdPercent() {
-        var props = loadGlobalProperties();
-        String value = props.getProperty(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY);
-        int def = 10;
-        if (value == null || value.isBlank()) {
-            return def;
-        }
-        try {
-            int parsed = Integer.parseInt(value.trim());
-            if (parsed < 1) parsed = 1;
-            if (parsed > 50) parsed = 50;
-            return parsed;
-        } catch (NumberFormatException e) {
-            return def;
-        }
-    }
-
-    public static void setHistoryAutoCompressThresholdPercent(int percent) {
-        int clamped = Math.max(1, Math.min(50, percent));
-        var props = loadGlobalProperties();
-        if (clamped == 10) {
-            props.remove(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY);
-        } else {
-            props.setProperty(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY, Integer.toString(clamped));
-        }
-        saveGlobalProperties(props);
-    }
-
-    public static int getHistoryCompressionConcurrency() {
-        var props = loadGlobalProperties();
-        String value = props.getProperty(HISTORY_COMPRESSION_CONCURRENCY_KEY);
-        int def = 2;
-        if (value == null || value.isBlank()) {
-            return def;
-        }
-        try {
-            int parsed = Integer.parseInt(value.trim());
-            if (parsed < 1) parsed = 1;
-            if (parsed > 8) parsed = 8;
-            return parsed;
-        } catch (NumberFormatException e) {
-            return def;
-        }
-    }
-
-    public static void setHistoryCompressionConcurrency(int value) {
-        int clamped = Math.max(1, Math.min(8, value));
-        var props = loadGlobalProperties();
-        if (clamped == 2) {
-            props.remove(HISTORY_COMPRESSION_CONCURRENCY_KEY);
-        } else {
-            props.setProperty(HISTORY_COMPRESSION_CONCURRENCY_KEY, Integer.toString(clamped));
-        }
-        saveGlobalProperties(props);
-    }
-
     // JVM memory settings (global)
     private static final String JVM_MEMORY_MODE_KEY = "jvmMemoryMode";
     private static final String JVM_MEMORY_MB_KEY = "jvmMemoryMb";
@@ -1547,7 +1541,11 @@ public final class MainProject extends AbstractProject {
     // Grouped settings records for atomic batch saving
     public record ServiceSettings(String brokkApiKey, LlmProxySetting proxySetting, boolean forceToolEmulation) {
         public void applyTo(Properties props) {
+            var existingKey = props.getProperty("brokkApiKey", "");
             if (brokkApiKey.isBlank()) {
+                if (!existingKey.isBlank()) {
+                    logger.info("ServiceSettings.applyTo: removing brokkApiKey (blank key in settings record)");
+                }
                 props.remove("brokkApiKey");
             } else {
                 props.setProperty("brokkApiKey", brokkApiKey.trim());
@@ -1570,18 +1568,6 @@ public final class MainProject extends AbstractProject {
                 props.remove(TERMINAL_FONT_SIZE_KEY);
             } else {
                 props.setProperty(TERMINAL_FONT_SIZE_KEY, Float.toString(terminalFontSize));
-            }
-        }
-    }
-
-    public record CompressionSettings(boolean autoCompress, int thresholdPercent) {
-        public void applyTo(Properties props) {
-            props.setProperty(HISTORY_AUTO_COMPRESS_KEY, String.valueOf(autoCompress));
-            int clamped = Math.max(0, Math.min(100, thresholdPercent));
-            if (clamped == 80) {
-                props.remove(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY);
-            } else {
-                props.setProperty(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY, Integer.toString(clamped));
             }
         }
     }
@@ -1624,14 +1610,12 @@ public final class MainProject extends AbstractProject {
     public static void saveAllGlobalSettings(
             ServiceSettings service,
             AppearanceSettings appearance,
-            CompressionSettings compression,
             StartupSettings startup,
             GeneralSettings general,
             ModelSettings models) {
         var props = loadGlobalProperties();
         service.applyTo(props);
         appearance.applyTo(props);
-        compression.applyTo(props);
         startup.applyTo(props);
         general.applyTo(props);
         models.applyTo(props);
@@ -1646,13 +1630,39 @@ public final class MainProject extends AbstractProject {
     }
 
     public static String getBrokkKey() {
+        // Check headless executor override first (process-scoped)
+        String override = headlessBrokkApiKeyOverride;
+        if (override != null && !override.isBlank()) {
+            return override;
+        }
+        // Fall back to global properties
         var props = loadGlobalProperties();
         return props.getProperty("brokkApiKey", "");
     }
 
+    /**
+     * Set a process-scoped override for the Brokk API key.
+     * Used by headless executors to use a per-executor API key instead of the global config.
+     * If set to a non-blank value, getBrokkKey() will return this override instead of
+     * reading from global properties.
+     *
+     * @param key the API key override, or null/blank to clear the override
+     */
+    public static void setHeadlessBrokkApiKeyOverride(@Nullable String key) {
+        headlessBrokkApiKeyOverride = key;
+        isDataShareAllowedCache = null; // Clear cache since key changed
+        logger.debug(
+                "Set headless Brokk API key override: {}",
+                (key != null && !key.isBlank()) ? "(non-blank, length=" + key.length() + ")" : "(cleared)");
+    }
+
     public static void setBrokkKey(String key) {
+        logger.info(
+                "setBrokkKey called with key={}",
+                key.isBlank() ? "(blank)" : "(non-blank, length=" + key.length() + ")");
         var props = loadGlobalProperties();
         if (key.isBlank()) {
+            logger.info("setBrokkKey: removing brokkApiKey (blank key provided)");
             props.remove("brokkApiKey");
         } else {
             props.setProperty("brokkApiKey", key.trim());
@@ -2093,6 +2103,9 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void close() {
+        // Close dependency update scheduler
+        dependencyUpdateScheduler.close();
+
         // Close disk cache if open
         try {
             if (diskCache != null) {
@@ -2107,6 +2120,14 @@ public final class MainProject extends AbstractProject {
         // Close session manager and other resources
         sessionManager.close();
         super.close();
+    }
+
+    /**
+     * Returns the dependency update scheduler for this project.
+     * Worktree projects delegate to the main project's scheduler.
+     */
+    public DependencyUpdateScheduler getDependencyUpdateScheduler() {
+        return dependencyUpdateScheduler;
     }
 
     public Path getWorktreeStoragePath() {

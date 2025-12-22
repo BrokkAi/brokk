@@ -14,7 +14,7 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.gui.BorderUtils;
 import ai.brokk.gui.Chrome;
@@ -56,7 +56,7 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class BlitzForgeDialog extends JDialog {
+public class BlitzForgeDialog extends BaseThemedDialog {
     private static final Logger logger = LogManager.getLogger(BlitzForgeDialog.class);
     private final Chrome chrome;
     private JTextArea instructionsArea;
@@ -154,7 +154,7 @@ public class BlitzForgeDialog extends JDialog {
     }
 
     public BlitzForgeDialog(Frame owner, Chrome chrome) {
-        super(owner, "BlitzForge", true);
+        super(owner, "BlitzForge");
         setPreferredSize(new Dimension(1000, 800));
         this.chrome = chrome;
         initComponents();
@@ -175,7 +175,8 @@ public class BlitzForgeDialog extends JDialog {
     }
 
     private void initComponents() {
-        setLayout(new BorderLayout(10, 10));
+        JPanel root = getContentRoot();
+        root.setLayout(new BorderLayout(10, 10));
 
         JPanel contentPanel = new JPanel();
         contentPanel.setLayout(new GridBagLayout());
@@ -193,8 +194,6 @@ public class BlitzForgeDialog extends JDialog {
         gbc.weightx = 1.0;
         gbc.weighty = 0.15;
         gbc.fill = GridBagConstraints.BOTH;
-
-        JPanel combined = new JPanel(new GridLayout(1, 2, H_GAP, 0));
 
         // ---- parallel processing panel --------------------------------
         JPanel parallelProcessingPanel = new JPanel(new GridBagLayout());
@@ -621,6 +620,38 @@ public class BlitzForgeDialog extends JDialog {
         ppPanel.add(outputPanel, ppGBC);
         ppGBC.gridwidth = 1;
 
+        // Add both panels to contentPanel
+        JPanel combined = new JPanel(new GridLayout(1, 2, H_GAP, 0));
+        combined.add(parallelProcessingPanel);
+        combined.add(ppPanel);
+        contentPanel.add(combined, gbc);
+
+        // Scope Panel: Files table + left actions (top-left aligned)
+        gbc.gridy++;
+        gbc.gridx = 0;
+        gbc.gridwidth = 3;
+        gbc.weighty = 0.1;
+        gbc.fill = GridBagConstraints.BOTH;
+
+        JPanel scopePanel = createScopePanel();
+        contentPanel.add(scopePanel, gbc);
+        root.add(contentPanel, BorderLayout.CENTER);
+
+        // Buttons Panel
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        var okButton = new MaterialButton("OK");
+        var cancelButton = new MaterialButton("Cancel");
+
+        // Style OK button as primary action (bright blue with white text)
+        SwingUtil.applyPrimaryButtonStyle(okButton);
+
+        okButton.addActionListener(e -> onOK());
+        cancelButton.addActionListener(e -> setVisible(false));
+
+        buttonPanel.add(okButton);
+        buttonPanel.add(cancelButton);
+        root.add(buttonPanel, BorderLayout.SOUTH);
+
         ActionListener postProcessListener = ev -> {
             String selectedOption = (String) runPostProcessCombo.getSelectedItem();
             boolean ask = "Ask".equals(selectedOption);
@@ -683,37 +714,6 @@ public class BlitzForgeDialog extends JDialog {
         };
         runPostProcessCombo.addActionListener(postProcessListener);
         postProcessListener.actionPerformed(new ActionEvent(runPostProcessCombo, ActionEvent.ACTION_PERFORMED, ""));
-
-        // Add both panels
-        combined.add(parallelProcessingPanel);
-        combined.add(ppPanel);
-        contentPanel.add(combined, gbc);
-
-        // Scope Panel: Files table + left actions (top-left aligned)
-        gbc.gridy++;
-        gbc.gridx = 0;
-        gbc.gridwidth = 3;
-        gbc.weighty = 0.1;
-        gbc.fill = GridBagConstraints.BOTH;
-
-        JPanel scopePanel = createScopePanel();
-        contentPanel.add(scopePanel, gbc);
-        add(contentPanel, BorderLayout.CENTER);
-
-        // Buttons Panel
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        var okButton = new MaterialButton("OK");
-        var cancelButton = new MaterialButton("Cancel");
-
-        // Style OK button as primary action (bright blue with white text)
-        SwingUtil.applyPrimaryButtonStyle(okButton);
-
-        okButton.addActionListener(e -> onOK());
-        cancelButton.addActionListener(e -> setVisible(false));
-
-        buttonPanel.add(okButton);
-        buttonPanel.add(cancelButton);
-        add(buttonPanel, BorderLayout.SOUTH);
     }
 
     private JPanel createScopePanel() {
@@ -1250,14 +1250,13 @@ public class BlitzForgeDialog extends JDialog {
         var dlg = new AttachContextDialog(chrome.getFrame(), chrome.getContextManager(), false);
         dlg.setLocationRelativeTo(this);
         dlg.setVisible(true);
-        var result = dlg.getSelection();
-        if (result == null) {
+        var fragments = dlg.getSelectedFragments();
+        if (fragments == null) {
             return;
         }
-        Set<ContextFragment> fragments = result.fragments();
         var cm = chrome.getContextManager();
         cm.submitBackgroundTask("Attach files", () -> fragments.stream()
-                        .flatMap(frag -> frag.files().stream())
+                        .flatMap(frag -> frag.files().join().stream())
                         .collect(Collectors.toCollection(ArrayList::new)))
                 .thenAccept(flist -> SwingUtil.runOnEdt(() -> addProjectFilesToTable(flist)));
     }
@@ -1406,7 +1405,7 @@ public class BlitzForgeDialog extends JDialog {
                     if (fRelatedKSupplier != null) {
                         try {
                             var acList = cm.liveContext().buildAutoContext(fRelatedKSupplier);
-                            var acText = ContextFragment.SummaryFragment.combinedText(acList);
+                            var acText = ContextFragments.SummaryFragment.combinedText(acList);
                             if (!acText.isBlank()) {
                                 return """
                                 <related_classes>
@@ -1607,7 +1606,7 @@ public class BlitzForgeDialog extends JDialog {
                 }
                 if (fRelatedK != null) {
                     var acList = cm.liveContext().buildAutoContext(fRelatedK);
-                    var acText = ContextFragment.SummaryFragment.combinedText(acList);
+                    var acText = ContextFragments.SummaryFragment.combinedText(acList);
                     if (!acText.isBlank()) {
                         var msgText =
                                 """
@@ -1682,7 +1681,7 @@ public class BlitzForgeDialog extends JDialog {
                 tr = InstructionsPanel.executeAskCommand(llm, messages, cm, instructions, meta);
             } else {
                 var agent = new CodeAgent(cm, model, dialogIo);
-                tr = agent.runSingleFileEdit(file, instructions, readOnlyMessages);
+                tr = agent.execute(file, instructions, readOnlyMessages);
             }
 
             if (tr.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {

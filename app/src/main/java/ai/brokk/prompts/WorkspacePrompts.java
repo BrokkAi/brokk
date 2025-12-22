@@ -2,6 +2,7 @@ package ai.brokk.prompts;
 
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.util.ImageUtil;
 import dev.langchain4j.data.message.AiMessage;
@@ -58,7 +59,7 @@ public final class WorkspacePrompts {
 
         return editableFragments
                 .map(cf -> {
-                    long minMtime = cf.files().stream()
+                    long minMtime = cf.files().join().stream()
                             .mapToLong(pf -> {
                                 try {
                                     return pf.mtime();
@@ -265,9 +266,7 @@ public final class WorkspacePrompts {
         // For CodeAgent, the workspace includes build status only if showBuildStatusInWorkspace is true.
         // The detailed build output is also available separately in buildFailure for inline display.
         var workspace = getMessagesGroupedByMutability(ctx, viewingPolicy, showBuildStatusInWorkspace);
-        var buildFailure = ctx.getBuildFragment()
-                .map(ContextFragment.VirtualFragment::format)
-                .orElse(null);
+        var buildFailure = ctx.getBuildFragment().map(f -> f.format().join()).orElse(null);
         return new CodeAgentMessages(workspace, buildFailure);
     }
 
@@ -277,7 +276,7 @@ public final class WorkspacePrompts {
         var editableTextFragments = new StringBuilder();
         editableFragments.forEach(fragment -> {
             // Editable fragments use their own formatting; ViewingPolicy does not currently affect them.
-            String formatted = fragment.format();
+            String formatted = fragment.format().join();
             if (!formatted.isBlank()) {
                 editableTextFragments.append(formatted).append("\n\n");
             }
@@ -399,19 +398,19 @@ public final class WorkspacePrompts {
      */
     private static RenderedContent renderReadOnlyFragments(List<ContextFragment> readOnly, ViewingPolicy vp) {
         var summaryFragments = readOnly.stream()
-                .filter(ContextFragment.SummaryFragment.class::isInstance)
-                .map(ContextFragment.SummaryFragment.class::cast)
+                .filter(ContextFragments.SummaryFragment.class::isInstance)
+                .map(ContextFragments.SummaryFragment.class::cast)
                 .toList();
 
         var otherFragments = readOnly.stream()
-                .filter(f -> !(f instanceof ContextFragment.SummaryFragment))
+                .filter(f -> !(f instanceof ContextFragments.SummaryFragment))
                 .toList();
 
         var renderedOther = formatWithPolicy(otherFragments, vp);
         var textBuilder = new StringBuilder(renderedOther.text);
 
         if (!summaryFragments.isEmpty()) {
-            var summaryText = ContextFragment.SummaryFragment.combinedText(summaryFragments);
+            var summaryText = ContextFragments.SummaryFragment.combinedText(summaryFragments);
             var combinedBlock =
                     """
                     <api_summaries fragmentid="api_summaries">
@@ -435,7 +434,7 @@ public final class WorkspacePrompts {
         for (var fragment : fragments) {
             if (fragment.isText()) {
                 String formatted;
-                if (fragment instanceof ContextFragment.StringFragment sf) {
+                if (fragment instanceof ContextFragments.StringFragment sf) {
                     var visibleText = sf.textForAgent(vp);
                     formatted =
                             """
@@ -443,9 +442,9 @@ public final class WorkspacePrompts {
                             %s
                             </fragment>
                             """
-                                    .formatted(sf.description(), sf.id(), visibleText);
+                                    .formatted(sf.description().join(), sf.id(), visibleText);
                 } else {
-                    formatted = fragment.format();
+                    formatted = fragment.format().join();
                 }
                 if (!formatted.isBlank()) {
                     textBuilder.append(formatted).append("\n\n");
@@ -453,16 +452,23 @@ public final class WorkspacePrompts {
             } else if (fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE
                     || fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
                 try {
-                    var l4jImage = ImageUtil.toL4JImage(fragment.image());
-                    imageList.add(ImageContent.from(l4jImage));
-                    textBuilder.append(fragment.format()).append("\n\n");
+                    var imageBytes = fragment.imageBytes();
+                    if (imageBytes != null) {
+                        var l4jImage = ImageUtil.toL4JImage(ImageUtil.bytesToImage(imageBytes.join()));
+                        imageList.add(ImageContent.from(l4jImage));
+                    }
+                    textBuilder.append(fragment.format().join()).append("\n\n");
                 } catch (IOException | UncheckedIOException e) {
-                    logger.error("Failed to process image fragment {} for LLM message", fragment.description(), e);
+                    logger.error(
+                            "Failed to process image fragment {} for LLM message",
+                            fragment.description().join(),
+                            e);
                     textBuilder.append(String.format(
-                            "[Error processing image: %s - %s]\n\n", fragment.description(), e.getMessage()));
+                            "[Error processing image: %s - %s]\n\n",
+                            fragment.description().join(), e.getMessage()));
                 }
             } else {
-                String formatted = fragment.format();
+                String formatted = fragment.format().join();
                 if (!formatted.isBlank()) {
                     textBuilder.append(formatted).append("\n\n");
                 }

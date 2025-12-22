@@ -348,6 +348,20 @@ jDeploy detects pre-releases based on semantic versioning:
 
 Prereleases are marked appropriately in GitHub releases and distribution channels.
 
+### Prelaunch JAR for Legacy Launchers
+
+A `jdeploy-prelaunch.jar` is included in jDeploy distributions to ensure older launchers (pre-0.18.0) prompt users to update before launching incompatible app versions. Prior to 0.18.0, launchers could auto-update the app JAR but not themselves, potentially breaking when the app required launcher features that weren't present. Starting with 0.18.0, the launcher supports the `jdeploy.minLauncherInitialAppVersion` property to enforce minimum launcher versions, but this doesn't help users already on older launchers.
+
+The prelaunch JAR (source: https://github.com/shannah/brokk-jdeploy-prelaunch) runs before the main app and detects launchers older than 0.18.0, prompting users to download and install the latest version for a smooth upgrade experience.
+
+Configuration:
+- **Version**: Specified in `package.json` via the `jdeployPrelaunchVersion` property (currently `v0.0.4`)
+- **Download**: Both `jdeploy.yml` and `release.yml` workflows download the prelaunch JAR from GitHub releases before building
+- **Inclusion**: The JAR is copied to `app/build/libs/` and included via `jdeploy.files` configuration
+- **Auto-update**: When users update the app, the prelaunch JAR updates with it
+
+This is a temporary measure to migrate legacy users to modern launchers and can be removed once most users are on 0.18.0 or newer.
+
 ### Development Builds
 
 Automatic development builds are created by the `jdeploy.yaml` workflow on every commit to the `master` branch. These builds allow developers to test the latest changes without waiting for an official release.
@@ -469,6 +483,37 @@ export BRK_USAGE_BOOL=false
 # Empty/invalid values
 export BRK_USAGE_BOOL=""        # treated as true
 export BRK_USAGE_BOOL="maybe"   # logs warning, uses numeric score mode
+```
+
+### BRK_EAGER_FRAGMENTS
+
+Controls whether ContextFragment prime computations are started eagerly in the background as soon as a fragment is constructed. This reduces first-use latency by priming ComputedValue surfaces off the UI thread.
+
+- Name: BRK_EAGER_FRAGMENTS
+- Type: Boolean-ish
+- Evaluation rules (from ContextFragment.primeComputations()):
+  - Unset: false (no eager priming)
+  - Set to empty string: true
+  - Set to "true" (any case): true
+  - Any other non-empty value: false
+- Effect when true: For each newly created fragment, the following computed surfaces are started asynchronously on the dedicated ContextFragment executor:
+  - shortDescription(), description(), text(), syntaxStyle(), sources(), files(), format()
+  - imageBytes() for image-capable fragments
+  - CodeFragment.computedUnit() for CodeFragment instances
+- Notes:
+  - Scheduling is non-blocking and safe for the Swing EDT.
+  - Improves perceived responsiveness at the cost of additional background CPU work during fragment creation.
+
+Examples:
+```bash
+# Enable eager priming
+export BRK_EAGER_FRAGMENTS=true
+
+# Also enables (empty string is treated as true)
+export BRK_EAGER_FRAGMENTS=""
+
+# Disable eager priming
+export BRK_EAGER_FRAGMENTS=false
 ```
 
 ## Style Guide Aggregation (AGENTS.md)

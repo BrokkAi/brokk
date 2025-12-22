@@ -187,6 +187,14 @@ public class CodeUnit implements Comparable<CodeUnit> {
         return signature != null;
     }
 
+    /**
+     * Returns true if this CodeUnit represents an anonymous or synthetic element that contains "$anon$" in its name.
+     * Used to filter out lambda/anonymous artifacts from summaries and recommendations.
+     */
+    public boolean isAnonymous() {
+        return fqName.contains("$anon$");
+    }
+
     @Override
     public int compareTo(CodeUnit other) {
         // Compare based on the derived fully qualified name
@@ -259,16 +267,11 @@ public class CodeUnit implements Comparable<CodeUnit> {
      *     "_module_.myVar" if required by analyzers to ensure a "." is present.
      */
     public static CodeUnit field(ProjectFile source, String packageName, String shortName) {
-        // Validate that shortName contains a dot IF it's representing a class member field.
-        // Top-level fields (e.g. JS `_module_.myVar`) will also contain a dot.
-        // This validation might be too strict if a language allows fields without a containing structure name in
-        // shortName.
-        // For now, retain the check as it's consistent with current JSAnalyzer practice for top-level vars.
-        if (!shortName.contains(".")) {
-            throw new IllegalArgumentException(
-                    "shortName for FIELD must be in 'ContainingStructure.fieldName' format (e.g. 'MyClass.field' or '_module_.field'), got: "
-                            + shortName);
-        }
+        // Note: shortName format varies by language:
+        // - Class members: "ClassName.fieldName" (contains dot)
+        // - Top-level fields: may or may not contain a dot depending on the language
+        //   - JS: "_module_.myVar" (uses synthetic module container)
+        //   - Python: "fieldName" (no container for module-level fields)
         return new CodeUnit(source, CodeUnitType.FIELD, packageName, shortName);
     }
 

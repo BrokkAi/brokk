@@ -1,11 +1,14 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
-import static ai.brokk.testutil.TestProject.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.IContextManager;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
+import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.util.Map;
@@ -182,12 +185,13 @@ public final class CSharpAnalyzerTest {
                                 }""";
         String expectedMethodAOverload2Source =
                 """
-                        // Overloaded Method
+                                // Overloaded Method
                                 public void MethodA(int param)
                                 {
                                     // Overloaded method body
                                     int x = param + 1;
-                                }""";
+                                }
+                        """;
         String expectedCombinedMethodASource = expectedMethodAOverload1Source + "\n\n" + expectedMethodAOverload2Source;
 
         assertCodeEquals(
@@ -217,6 +221,7 @@ public final class CSharpAnalyzerTest {
     void testCSharpInterfaceSkeleton() {
         TestProject project = TestProject.createTestProject("testcode-cs", Languages.C_SHARP);
         CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
+        IContextManager contextManager = new TestContextManager(project.getRoot(), new TestConsoleIO(), analyzer);
         ProjectFile file = new ProjectFile(project.getRoot(), "AssetRegistrySA.cs");
 
         // Define expected CodeUnits
@@ -266,10 +271,9 @@ public final class CSharpAnalyzerTest {
                 expectedIfaceSkeleton, ifaceSkeletonOpt.get(), "getSkeleton for IAssetRegistrySA FQ name mismatch.");
 
         // Create SkeletonFragment and assert its properties
-        // We pass null for IContextManager as it's not used by the description() method,
         // and we want to avoid complex mocking for this CSharpAnalyzer test.
-        var skeletonFragment = new ContextFragment.SummaryFragment(
-                null, ifaceCU.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
+        var skeletonFragment = new ContextFragments.SummaryFragment(
+                contextManager, ifaceCU.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
 
         // Assert that the skels map (directly from analyzer) contains the interface
         assertTrue(
@@ -281,7 +285,7 @@ public final class CSharpAnalyzerTest {
         // and would re-fetch skeletons, which is beyond the scope of this analyzer unit test.
         assertEquals(
                 "Summary of " + ifaceCU.fqName(),
-                skeletonFragment.description(),
+                skeletonFragment.description().join(),
                 "SkeletonFragment.description() mismatch.");
 
         // Method source extraction for interface methods

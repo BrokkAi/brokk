@@ -2,6 +2,7 @@ package ai.brokk.util;
 
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.project.IProject;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -197,13 +198,34 @@ public final class StyleGuideResolver {
      * @param files a list of ProjectFile inputs used to locate relevant AGENTS.md files
      * @return aggregated style guide content
      */
-    static String resolve(List<ProjectFile> files) {
+    private static String resolve(List<ProjectFile> files) {
         return new StyleGuideResolver(files).resolveCompositeGuide();
     }
 
+    /**
+     * Resolves the composite style guide for the given context, falling back to the project's
+     * default style guide if no local AGENTS.md files are discovered.
+     */
     public static String resolve(Context ctx) {
+        return resolve(ctx, ctx.getContextManager().getProject());
+    }
+
+    public static String resolve(Context ctx, IProject project) {
         var projectFiles =
-                ctx.fileFragments().flatMap(cf -> cf.files().stream()).toList();
-        return resolve(projectFiles);
+                ctx.fileFragments().flatMap(cf -> cf.files().join().stream()).toList();
+        return resolve(projectFiles, project);
+    }
+
+    /**
+     * Resolves the composite style guide, falling back to the project's default style guide
+     * if no local AGENTS.md files are discovered.
+     *
+     * @param files a list of ProjectFile inputs used to locate relevant AGENTS.md files
+     * @param project the project providing the fallback style guide
+     * @return the best available style guide content
+     */
+    public static String resolve(List<ProjectFile> files, IProject project) {
+        String resolved = resolve(files);
+        return resolved.isBlank() ? project.getStyleGuide() : resolved;
     }
 }

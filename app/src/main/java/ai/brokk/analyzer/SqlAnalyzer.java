@@ -4,7 +4,6 @@ import ai.brokk.project.IProject;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -19,7 +18,6 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     final Map<CodeUnit, List<Range>> rangesByCodeUnit; // Made package-private for testing
     private final List<CodeUnit> allDeclarationsList;
     private final Map<String, List<CodeUnit>> definitionsByFqName;
-    private final Set<Path> normalizedExcludedPaths;
     private long lastAnalysisTimeNanos;
 
     // Regex to find "CREATE [OR REPLACE] [TEMPORARY] TABLE|VIEW [IF NOT EXISTS] schema.name"
@@ -29,17 +27,12 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
             "CREATE(?:\\s+OR\\s+REPLACE)?(?:\\s+TEMPORARY)?\\s+(TABLE|VIEW)(?:\\s+IF\\s+NOT\\s+EXISTS)?\\s+([a-zA-Z_0-9]+(?:\\.[a-zA-Z_0-9]+)*)",
             Pattern.CASE_INSENSITIVE);
 
-    public SqlAnalyzer(
-            IProject projectInstance,
-            Set<Path> excludedFiles) { // Renamed parameter to avoid confusion with unused field
+    public SqlAnalyzer(IProject projectInstance) {
         this.project = projectInstance;
         this.declarationsByFile = new HashMap<>();
         this.rangesByCodeUnit = new HashMap<>();
         this.allDeclarationsList = new ArrayList<>();
         this.definitionsByFqName = new HashMap<>();
-        this.normalizedExcludedPaths = excludedFiles.stream()
-                .map(p -> projectInstance.getRoot().resolve(p).toAbsolutePath().normalize())
-                .collect(Collectors.toSet());
         this.lastAnalysisTimeNanos = System.nanoTime();
 
         analyzeSqlFiles();
@@ -53,7 +46,7 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
         for (var pf : filesToAnalyze) {
             try {
                 String content = Files.readString(pf.absPath(), StandardCharsets.UTF_8);
-                // byte[] contentBytes = content.getBytes(StandardCharsets.UTF_8); // Unused variable removed
+                SourceContent sc = SourceContent.of(content);
 
                 var matcher = CREATE_STMT_PATTERN.matcher(content);
                 int searchOffset = 0;
@@ -72,17 +65,10 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
                     }
                     int statementEndOffsetInChars = semicolonCharPos; // inclusive of semicolon
 
-                    // Convert char offsets to byte offsets
-                    int statementStartByte = new String(
-                                    content.substring(0, statementStartOffsetInChars)
-                                            .getBytes(StandardCharsets.UTF_8),
-                                    StandardCharsets.UTF_8)
-                            .length();
-                    int statementEndByte = new String(
-                                    content.substring(0, statementEndOffsetInChars + 1)
-                                            .getBytes(StandardCharsets.UTF_8),
-                                    StandardCharsets.UTF_8)
-                            .length();
+                    // Convert char offsets to byte offsets using SourceContent helper
+                    int statementStartByte = sc.charPositionToByteOffset(statementStartOffsetInChars);
+                    int statementEndByte =
+                            sc.charPositionToByteOffset(statementEndOffsetInChars + 1); // include semicolon
 
                     String packageName;
                     String shortName;
@@ -220,21 +206,19 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
         var range = ranges.get(0);
 
         try {
-            // Read the specific part of the file using byte offsets
-            // Note: Files.readString might be inefficient for very large files if called repeatedly.
-            // Consider caching file contents if performance becomes an issue.
-            byte[] allBytes = Files.readAllBytes(cu.source().absPath());
-            if (range.endByte() > allBytes.length || range.startByte() > range.endByte()) {
+            // Read the specific part of the file using byte offsets via SourceContent
+            String fileContent = Files.readString(cu.source().absPath(), StandardCharsets.UTF_8);
+            SourceContent sc = SourceContent.of(fileContent);
+            if (range.endByte() > sc.byteLength() || range.startByte() > range.endByte()) {
                 logger.error(
                         "Invalid range for skeleton for {}: start {}, end {}, file size {}",
                         cu.fqName(),
                         range.startByte(),
                         range.endByte(),
-                        allBytes.length);
+                        sc.byteLength());
                 return Optional.empty();
             }
-            String statementText = new String(
-                    allBytes, range.startByte(), range.endByte() - range.startByte(), StandardCharsets.UTF_8);
+            String statementText = sc.substringFromBytes(range.startByte(), range.endByte());
             return Optional.of(statementText);
         } catch (IOException e) {
             logger.warn(
@@ -272,21 +256,7 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
         }
 
         // Create a new analyzer with the same configuration
-        var updatedAnalyzer = new SqlAnalyzer(
-                project,
-                normalizedExcludedPaths.stream()
-                        .map(p -> {
-                            // Denormalize back to relative path
-                            try {
-                                return project.getRoot().relativize(p);
-                            } catch (IllegalArgumentException e) {
-                                // If not relative to root, use as-is
-                                return p;
-                            }
-                        })
-                        .collect(Collectors.toSet()));
-
-        return updatedAnalyzer;
+        return new SqlAnalyzer(project);
     }
 
     @Override
@@ -339,7 +309,7 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     }
 
     @Override
-    public Optional<String> extractClassName(String reference) {
+    public Optional<String> extractCallReceiver(String reference) {
         return Optional.empty();
     }
 

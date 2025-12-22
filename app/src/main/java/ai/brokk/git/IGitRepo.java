@@ -27,6 +27,14 @@ public interface IGitRepo {
 
     Set<ProjectFile> getTrackedFiles();
 
+    /**
+     * Checks if a file is tracked by git.
+     * More efficient than getTrackedFiles().contains(new ProjectFile(...)) for repeated lookups.
+     */
+    default boolean isTracked(Path relativePath) {
+        return false;
+    }
+
     default String diff() throws GitAPIException {
         return "";
     }
@@ -111,9 +119,10 @@ public interface IGitRepo {
     void add(Collection<ProjectFile> files) throws GitAPIException;
 
     /**
-     * for the rare case when you need to add a file (e.g. .gitignore) that is not necessarily under the project's root
+     * Adds a single file to the Git index. For files not under the project root, this method can still stage them
+     * relative to the Git repository root.
      */
-    void add(Path path) throws GitAPIException;
+    void add(ProjectFile file) throws GitAPIException;
 
     void remove(ProjectFile file) throws GitAPIException;
 
@@ -227,6 +236,14 @@ public interface IGitRepo {
     }
 
     default @Nullable String getRemoteUrl() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Get the URL of the origin remote with fallback to target remote.
+     * Preferred for GitHub PR operations.
+     */
+    default @Nullable String getOriginRemoteUrl() {
         throw new UnsupportedOperationException();
     }
 }

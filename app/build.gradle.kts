@@ -23,12 +23,17 @@ java {
 
 application {
     mainClass.set("ai.brokk.Brokk")
-    applicationDefaultJvmArgs = listOf(
+    applicationDefaultJvmArgs = buildList {
         // enable feature flags; JavaExec baseline supplies other args
-        "-Dbrokk.servicetiers=true",
-        "-Dbrokk.architectshell=true",
-        "-Dwatch.service.polling=true"
-    )
+        add("-Dbrokk.servicetiers=true")
+        add("-Dbrokk.architectshell=true")
+        add("-Dwatch.service.polling=true")
+        // JDK 24+ requires explicit flags for unsafe memory access and native access
+        if (java.toolchain.languageVersion.get().asInt() >= 24) {
+            add("--sun-misc-unsafe-memory-access=allow")
+            add("--enable-native-access=javafx.graphics,javafx.media,javafx.web,ALL-UNNAMED")
+        }
+    }
 }
 
 javafx {
@@ -101,6 +106,7 @@ dependencies {
     implementation(libs.uuid.creator)
     implementation(libs.mcp.sdk)
     implementation(libs.pcollections)
+    implementation(libs.caffeine)
     // For JSON serialization interfaces (used by CodeUnit)
     api(libs.jackson.annotations)
 
@@ -127,6 +133,9 @@ dependencies {
     implementation(libs.bundles.maven.resolver)
 
     implementation(libs.checker.util)
+
+    // File watching - native recursive directory watching
+    implementation("io.methvin:directory-watcher:0.18.0")
 
     // Testing
     testImplementation(platform(libs.junit.bom))
@@ -577,7 +586,7 @@ tasks.register<JavaExec>("runHeadlessExecutor") {
     description = "Runs the Brokk Headless Executor"
     mainClass.set("ai.brokk.executor.HeadlessExecutorMain")
     classpath = sourceSets.main.get().runtimeClasspath
-    
+
     // Configuration via environment variables:
     // EXEC_ID, LISTEN_ADDR, AUTH_TOKEN, WORKSPACE_DIR, SESSIONS_DIR (optional)
     systemProperty("brokk.devmode", "false")
@@ -615,11 +624,18 @@ tasks.register<JavaExec>("runTreeSitterRepoRunner") {
     classpath = sourceSets.test.get().runtimeClasspath
     // Additional JVM args specific to repository runner; baseline adds -ea and -Dbrokk.devmode=true
     jvmArgumentProviders.add(object : CommandLineArgumentProvider {
-        override fun asArguments(): Iterable<String> = listOf(
-            "-Xmx8g",
-            "-XX:+UseZGC",
-            "-XX:+UnlockExperimentalVMOptions"
-        )
+        override fun asArguments(): Iterable<String> {
+            val runnerXmxProp = (project.findProperty("runnerXmx") as String?)?.trim()
+            val runnerXmxEnv = System.getenv("RUNNER_XMX")?.trim()
+            val runnerXmx = (runnerXmxProp?.takeIf { it.isNotEmpty() }
+                ?: runnerXmxEnv?.takeIf { it.isNotEmpty() }
+                ?: "8g")
+            return listOf(
+                "-Xmx$runnerXmx",
+                "-XX:+UseZGC",
+                "-XX:+UnlockExperimentalVMOptions"
+            )
+        }
     })
     if (project.hasProperty("args")) {
         args((project.property("args") as String).split(" "))

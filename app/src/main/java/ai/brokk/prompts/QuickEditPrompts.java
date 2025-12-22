@@ -1,6 +1,6 @@
 package ai.brokk.prompts;
 
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -21,7 +21,7 @@ public final class QuickEditPrompts {
      * search/replace blocks; we simply ask for the new text (fenced with triple backticks).
      */
     public List<ChatMessage> collectMessages(
-            String fileContents, List<ContextFragment.SummaryFragment> relatedCode, String styleGuide) {
+            String fileContents, List<ContextFragments.SummaryFragment> relatedCode, String styleGuide) {
         var messages = new ArrayList<ChatMessage>();
         // A system message containing the workspace/style guide info and instructions:
         messages.add(systemMessage(quickEditIntro(), styleGuide));
@@ -32,7 +32,7 @@ public final class QuickEditPrompts {
         return messages;
     }
 
-    private List<ChatMessage> contentMessages(String fileContents, List<ContextFragment.SummaryFragment> relatedCode) {
+    private List<ChatMessage> contentMessages(String fileContents, List<ContextFragments.SummaryFragment> relatedCode) {
         var um = new UserMessage(
                 """
         Here is a summary of related code that you may need to reference:
@@ -51,8 +51,8 @@ public final class QuickEditPrompts {
                 um, new AiMessage("I will update the target code in the source file to implement your instructions."));
     }
 
-    private String formatRelatedCode(List<ContextFragment.SummaryFragment> relatedCode) {
-        return ContextFragment.SummaryFragment.combinedText(relatedCode);
+    private String formatRelatedCode(List<ContextFragments.SummaryFragment> relatedCode) {
+        return ContextFragments.SummaryFragment.combinedText(relatedCode);
     }
 
     public String formatInstructions(String target, String instructions) {

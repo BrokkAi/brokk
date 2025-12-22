@@ -2,22 +2,22 @@ package ai.brokk.difftool.ui;
 
 import ai.brokk.*;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.difftool.doc.AbstractBufferDocument;
 import ai.brokk.difftool.doc.BufferDocumentIF;
-import ai.brokk.difftool.doc.FileDocument;
 import ai.brokk.difftool.node.JMDiffNode;
 import ai.brokk.difftool.performance.PerformanceConstants;
 import ai.brokk.difftool.ui.unified.UnifiedDiffDocument;
 import ai.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.EditorFontSizeControl;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.FontSizeAware;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.gui.util.GitUiUtil;
+import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.util.ContentDiffUtils;
@@ -25,9 +25,6 @@ import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
 import ai.brokk.util.SlidingWindowCache;
 import ai.brokk.util.SyntaxDetector;
-import com.github.difflib.DiffUtils;
-import com.github.difflib.UnifiedDiffUtils;
-import com.github.difflib.algorithm.DiffAlgorithmListener;
 import dev.langchain4j.data.message.ChatMessage;
 import java.awt.*;
 import java.awt.event.ComponentAdapter;
@@ -36,12 +33,9 @@ import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -61,7 +55,6 @@ import javax.swing.event.AncestorEvent;
 import javax.swing.event.AncestorListener;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
@@ -98,11 +91,157 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     // Thread-safe sliding window cache for loaded diff panels
     private static final int WINDOW_SIZE = PerformanceConstants.DEFAULT_SLIDING_WINDOW;
     private static final int MAX_CACHED_PANELS = PerformanceConstants.MAX_CACHED_DIFF_PANELS;
-    private final SlidingWindowCache<Integer, IDiffPanel> panelCache =
+    private final SlidingWindowCache<Integer, AbstractDiffPanel> panelCache =
             new SlidingWindowCache<>(MAX_CACHED_PANELS, WINDOW_SIZE);
 
     // View mode state loaded from GlobalUiSettings
     private boolean isUnifiedView = GlobalUiSettings.isDiffUnifiedView();
+
+    /** Creates and displays a diff panel using the optimal sync/async strategy. */
+    public static void createDiffPanel(
+            BufferSource leftSource,
+            BufferSource rightSource,
+            BrokkDiffPanel mainPanel,
+            GuiTheme theme,
+            ContextManager contextManager,
+            boolean isMultipleCommitsContext,
+            int fileIndex) {
+
+        long startTime = System.currentTimeMillis();
+
+        long maxSize = Math.max(leftSource.sizeInBytes(), rightSource.sizeInBytes());
+
+        var sizeValidationError = FileComparisonHelper.validateFileSizes(leftSource, rightSource);
+        if (sizeValidationError != null) {
+            logger.error("File size validation failed: {}", sizeValidationError);
+
+            // Show error on EDT and clear loading state
+            SwingUtilities.invokeLater(() -> {
+                // Clear the loading state and re-enable buttons
+                mainPanel.displayErrorForFile(fileIndex, sizeValidationError);
+            });
+            return; // Don't process the file
+        }
+
+        // Warn about potentially problematic files
+        if (maxSize > PerformanceConstants.HUGE_FILE_THRESHOLD_BYTES) {
+            logger.warn("Processing huge file ({} bytes): may cause memory issues", maxSize);
+        }
+
+        // Use async for large files
+        boolean useAsync = maxSize > PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES;
+
+        if (useAsync) {
+            createAsyncDiffPanel(
+                    leftSource,
+                    rightSource,
+                    mainPanel,
+                    theme,
+                    contextManager,
+                    isMultipleCommitsContext,
+                    fileIndex,
+                    startTime);
+        } else {
+            createSyncDiffPanel(
+                    leftSource,
+                    rightSource,
+                    mainPanel,
+                    theme,
+                    contextManager,
+                    isMultipleCommitsContext,
+                    fileIndex,
+                    startTime);
+        }
+    }
+
+    /** Synchronous diff creation for small files - faster and simpler. */
+    private static void createSyncDiffPanel(
+            BufferSource leftSource,
+            BufferSource rightSource,
+            BrokkDiffPanel mainPanel,
+            GuiTheme theme,
+            ContextManager contextManager,
+            boolean isMultipleCommitsContext,
+            int fileIndex,
+            long startTime) {
+
+        SwingUtilities.invokeLater(() -> {
+            long diffStartTime = System.currentTimeMillis();
+
+            var diffNode = FileComparisonHelper.createDiffNode(
+                    leftSource, rightSource, contextManager, isMultipleCommitsContext);
+
+            long diffCreationTime = System.currentTimeMillis() - diffStartTime;
+            if (diffCreationTime > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS / 2) {
+                logger.warn("Slow diff node creation: {}ms", diffCreationTime);
+            }
+
+            buildAndDisplayPanelOnEdt(diffNode, mainPanel, theme, fileIndex);
+
+            long elapsedTime = System.currentTimeMillis() - startTime;
+            if (elapsedTime > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS) {
+                logger.warn("Slow sync diff creation: {}ms", elapsedTime);
+            }
+        });
+    }
+
+    /**
+     * Asynchronous diff creation for large files - prevents UI blocking. Uses simple background thread instead of
+     * over-engineered SwingWorker.
+     */
+    private static void createAsyncDiffPanel(
+            BufferSource leftSource,
+            BufferSource rightSource,
+            BrokkDiffPanel mainPanel,
+            GuiTheme theme,
+            ContextManager contextManager,
+            boolean isMultipleCommitsContext,
+            int fileIndex,
+            long startTime) {
+
+        var taskDescription = "Computing diff: %s"
+                .formatted(mainPanel.fileComparisons.get(fileIndex).getDisplayName());
+
+        contextManager.submitBackgroundTask(taskDescription, () -> {
+            var diffNode = FileComparisonHelper.createDiffNode(
+                    leftSource, rightSource, contextManager, isMultipleCommitsContext);
+
+            diffNode.diff();
+
+            SwingUtilities.invokeLater(() -> {
+                buildAndDisplayPanelOnEdt(diffNode, mainPanel, theme, fileIndex);
+
+                long elapsedTime = System.currentTimeMillis() - startTime;
+                if (elapsedTime > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS * 5) {
+                    logger.warn("Slow async diff creation: {}ms", elapsedTime);
+                }
+            });
+        });
+    }
+
+    /** Creates, caches, and displays the appropriate diff panel on the EDT. */
+    private static void buildAndDisplayPanelOnEdt(
+            JMDiffNode diffNode, BrokkDiffPanel mainPanel, GuiTheme theme, int fileIndex) {
+        AbstractDiffPanel panel;
+        if (mainPanel.isUnifiedView()) {
+            var unifiedPanel = new UnifiedDiffPanel(mainPanel, theme, diffNode);
+
+            // Apply global context mode preference from main panel
+            var targetMode = mainPanel.getGlobalShowAllLinesInUnified()
+                    ? UnifiedDiffDocument.ContextMode.FULL_CONTEXT
+                    : UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
+            unifiedPanel.setContextMode(targetMode);
+
+            panel = unifiedPanel;
+        } else {
+            var bufferPanel = new BufferDiffPanel(mainPanel, theme);
+            bufferPanel.setDiffNode(diffNode);
+            panel = bufferPanel;
+        }
+
+        mainPanel.cachePanel(fileIndex, panel);
+        mainPanel.displayAndRefreshPanel(fileIndex, panel);
+    }
 
     /**
      * Inner class to hold a single file comparison metadata Note: No longer holds the diffPanel directly - that's
@@ -112,23 +251,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         final BufferSource leftSource;
         final BufferSource rightSource;
 
-        @Nullable
-        BufferDiffPanel sideBySidePanel; // Side-by-side view panel
-
-        @Nullable
-        UnifiedDiffPanel unifiedPanel; // Unified view panel
-
         FileComparisonInfo(BufferSource leftSource, BufferSource rightSource) {
             this.leftSource = leftSource;
             this.rightSource = rightSource;
-            this.sideBySidePanel = null; // Initialize @Nullable fields
-            this.unifiedPanel = null;
-        }
-
-        // Legacy method to maintain compatibility
-        @Nullable
-        BufferDiffPanel getDiffPanel() {
-            return sideBySidePanel;
         }
 
         String getDisplayName() {
@@ -144,7 +269,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
         private String getSourceName(BufferSource source) {
             if (source instanceof BufferSource.FileSource fs) {
-                return fs.file().getName();
+                return fs.file().getFileName();
             } else if (source instanceof BufferSource.StringSource ss) {
                 return ss.filename() != null ? ss.filename() : ss.title();
             }
@@ -259,8 +384,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             if (panel instanceof AbstractDiffPanel adp) {
                 adp.setShowGutterBlame(show);
                 updateBlameForPanel(adp, show);
-            } else if (panel instanceof IDiffPanel idp) {
-                updateBlameForPanel(idp, show);
             }
         });
 
@@ -432,6 +555,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     private final MaterialButton btnRedo = new MaterialButton();
     private final MaterialButton btnSaveAll = new MaterialButton();
     private final MaterialButton captureDiffButton = new MaterialButton();
+    private final MaterialButton captureAllDiffsButton = new MaterialButton();
 
     // Font size adjustment buttons
     private @Nullable MaterialButton btnDecreaseFont;
@@ -465,7 +589,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     private volatile boolean needsLayoutReset = false;
 
     @Nullable
-    private IDiffPanel currentDiffPanel;
+    private AbstractDiffPanel currentDiffPanel;
 
     public void setBufferDiffPanel(@Nullable BufferDiffPanel bufferDiffPanel) {
         // Don't allow BufferDiffPanel to override currentDiffPanel when in unified view mode
@@ -479,50 +603,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     @Nullable
     private BufferDiffPanel getBufferDiffPanel() {
         return currentDiffPanel instanceof BufferDiffPanel ? (BufferDiffPanel) currentDiffPanel : null;
-    }
-
-    @Nullable
-    private UnifiedDiffPanel getUnifiedDiffPanel() {
-        return currentDiffPanel instanceof UnifiedDiffPanel ? (UnifiedDiffPanel) currentDiffPanel : null;
-    }
-
-    /**
-     * Check if the given panel represents a working tree diff (vs a historical commit diff). Working tree diffs have
-     * FileDocument on the right side, while commit diffs have StringDocument.
-     */
-    private boolean isWorkingTreeDiff(IDiffPanel panel) {
-        if (panel instanceof BufferDiffPanel bp) {
-            var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
-            if (right != null) {
-                var bd = right.getBufferDocument();
-                return bd instanceof FileDocument;
-            }
-        } else if (panel instanceof UnifiedDiffPanel up) {
-            var dn = up.getDiffNode();
-            if (dn != null) {
-                var rightNode = dn.getBufferNodeRight();
-                if (rightNode != null) {
-                    var doc = rightNode.getDocument();
-                    return doc instanceof FileDocument;
-                }
-            }
-        }
-        return false;
-    }
-
-    /** Get content string from BufferSource, handling both FileSource and StringSource. */
-    private static String getContentFromSource(BufferSource source) throws Exception {
-        if (source instanceof BufferSource.StringSource stringSource) {
-            return stringSource.content();
-        } else if (source instanceof BufferSource.FileSource fileSource) {
-            var file = fileSource.file();
-            if (!file.exists() || !file.isFile()) {
-                return "";
-            }
-            return Files.readString(file.toPath(), StandardCharsets.UTF_8);
-        } else {
-            throw new IllegalArgumentException("Unsupported BufferSource type: " + source.getClass());
-        }
     }
 
     public void nextFile() {
@@ -732,95 +812,15 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         captureDiffButton.setIcon(Icons.CONTENT_CAPTURE);
         captureDiffButton.setToolTipText("Capture Diff");
         captureDiffButton.addActionListener(e -> {
-            String leftContent;
-            String rightContent;
-            BufferSource currentLeftSource;
-            BufferSource currentRightSource;
-
-            // Handle both unified and side-by-side modes
-            var bufferPanel = getBufferDiffPanel();
-            var unifiedPanel = getUnifiedDiffPanel();
-
-            if (bufferPanel != null) {
-                // Side-by-side mode
-                var leftPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
-                var rightPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
-                if (leftPanel == null || rightPanel == null) {
-                    logger.warn("Capture diff called but left or right panel is null");
-                    return;
-                }
-                leftContent = leftPanel.getEditor().getText();
-                rightContent = rightPanel.getEditor().getText();
-
-                // Get the current file comparison sources
-                var currentComparison = fileComparisons.get(currentFileIndex);
-                currentLeftSource = currentComparison.leftSource;
-                currentRightSource = currentComparison.rightSource;
-            } else if (unifiedPanel != null) {
-                // Unified mode - get content from BufferSources
-                var currentComparison = fileComparisons.get(currentFileIndex);
-                currentLeftSource = currentComparison.leftSource;
-                currentRightSource = currentComparison.rightSource;
-
-                try {
-                    leftContent = getContentFromSource(currentLeftSource);
-                    rightContent = getContentFromSource(currentRightSource);
-                } catch (Exception ex) {
-                    logger.warn("Failed to get content from sources for diff capture", ex);
-                    return;
-                }
-            } else {
-                logger.warn("Capture diff called but both bufferPanel and unifiedPanel are null");
-                return;
-            }
-
-            var leftLines = Arrays.asList(leftContent.split("\\R"));
-            var rightLines = Arrays.asList(rightContent.split("\\R"));
-
-            // Build a friendlier description that shows a shortened hash plus
-            // the first-line commit title (trimmed with ... when overly long)
-            // Build user-friendly labels for the two sides
-            GitRepo repo = null;
-            try {
-                repo = (GitRepo) contextManager.getProject().getRepo();
-            } catch (Exception lookupEx) {
-                // Commit message lookup is best-effort; log at TRACE and continue.
-                if (logger.isTraceEnabled()) {
-                    logger.trace("Commit message lookup failed: {}", lookupEx.toString());
-                }
-            }
-            var description = "Captured Diff: %s vs %s"
-                    .formatted(
-                            GitUiUtil.friendlyCommitLabel(currentLeftSource.title(), repo),
-                            GitUiUtil.friendlyCommitLabel(currentRightSource.title(), repo));
-
-            var patch = DiffUtils.diff(leftLines, rightLines, (DiffAlgorithmListener) null);
-            var unifiedDiff = UnifiedDiffUtils.generateUnifiedDiff(
-                    currentLeftSource.title(), currentRightSource.title(), leftLines, patch, 0);
-            var diffText = String.join("\n", unifiedDiff);
-
-            var detectedFilename = detectFilename(currentLeftSource, currentRightSource);
-
-            var syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
-            if (detectedFilename != null) {
-                int dotIndex = detectedFilename.lastIndexOf('.');
-                if (dotIndex > 0 && dotIndex < detectedFilename.length() - 1) {
-                    var extension = detectedFilename.substring(dotIndex + 1);
-                    syntaxStyle = SyntaxDetector.fromExtension(extension);
-                } else {
-                    // If no extension or malformed, SyntaxDetector might still identify some common filenames
-                    syntaxStyle = SyntaxDetector.fromExtension(detectedFilename);
-                }
-            }
-
-            var fragment = new ContextFragment.StringFragment(contextManager, diffText, description, syntaxStyle);
-            contextManager.submitContextTask(() -> {
-                contextManager.addVirtualFragment(fragment);
-                IConsoleIO iConsoleIO = contextManager.getIo();
-                iConsoleIO.showNotification(
-                        IConsoleIO.NotificationRole.INFO, "Added captured diff to context: " + description);
-            });
+            var currentComparison = fileComparisons.get(currentFileIndex);
+            capture(List.of(currentComparison));
         });
+
+        // "Capture All Diffs" button (visible for multi-file contexts)
+        captureAllDiffsButton.setText("Capture All Diffs");
+        captureAllDiffsButton.setToolTipText("Capture all file diffs to the context");
+        captureAllDiffsButton.addActionListener(e -> capture(new ArrayList<>(fileComparisons)));
+
         // Add buttons to toolbar with spacing
         toolBar.add(btnPrevious);
         toolBar.add(Box.createHorizontalStrut(10)); // 10px spacing
@@ -883,6 +883,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         toolBar.add(btnIncreaseFont);
         toolBar.add(Box.createHorizontalStrut(8));
         toolBar.add(captureDiffButton);
+        if (fileComparisons.size() > 1 || isMultipleCommitsContext) {
+            toolBar.add(Box.createHorizontalStrut(8));
+            toolBar.add(captureAllDiffsButton);
+        }
 
         return toolBar;
     }
@@ -919,27 +923,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         captureDiffButton.setEnabled(true);
 
         // Update blame menu item enabled state
-        // Blame is available for working tree diffs and for StringSource-based diffs with revision metadata
-        // Note: We don't modify isSelected() here - that represents user preference and should persist across file
-        // changes
+        // Blame is available if the panel can provide a target path for blame and it's a git repo
         boolean isGitRepo = contextManager.getProject().getRepo() instanceof GitRepo;
         boolean canShowBlame = false;
         if (isGitRepo && currentDiffPanel != null) {
-            // Check if it's a working tree diff
-            boolean isWorkingTree = isWorkingTreeDiff(currentDiffPanel);
-            // Check if current file has revision metadata for blame
-            boolean hasRevisionMetadata = false;
-            if (currentFileIndex >= 0 && currentFileIndex < fileComparisons.size()) {
-                var comparison = fileComparisons.get(currentFileIndex);
-                if (comparison.leftSource instanceof BufferSource.StringSource leftSS && leftSS.revisionSha() != null) {
-                    hasRevisionMetadata = true;
-                }
-                if (comparison.rightSource instanceof BufferSource.StringSource rightSS
-                        && rightSS.revisionSha() != null) {
-                    hasRevisionMetadata = true;
-                }
-            }
-            canShowBlame = isWorkingTree || hasRevisionMetadata;
+            canShowBlame = currentDiffPanel.getTargetPathForBlame() != null;
         }
         menuShowBlame.setEnabled(canShowBlame);
 
@@ -948,7 +936,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         // include currentDiffPanel (if present) plus all cached panels (deduplicated),
         // and count those with hasUnsavedChanges() == true.
         int dirtyCount = 0;
-        var visited = new HashSet<IDiffPanel>();
+        var visited = new HashSet<AbstractDiffPanel>();
 
         if (currentDiffPanel != null) {
             visited.add(currentDiffPanel);
@@ -990,7 +978,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         }
     }
 
-    /** Returns true if any loaded diff-panel holds modified documents. */
+    /**
+     * Check if any loaded diff-panel holds modified documents. This includes the current visible panel and all cached
+     * panels.
+     */
     public boolean hasUnsavedChanges() {
         if (currentDiffPanel != null && currentDiffPanel.hasUnsavedChanges()) return true;
         for (var p : panelCache.nonNullValues()) {
@@ -1001,216 +992,209 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
     /** Saves every dirty document across all BufferDiffPanels, producing a single undoable history entry. */
     public void saveAll() {
-        try {
-            // Disable save button temporarily
-            btnSaveAll.setEnabled(false);
+        // Disable save button temporarily
+        btnSaveAll.setEnabled(false);
 
-            // Collect unique BufferDiffPanels to process (current + cached)
-            var visited = new LinkedHashSet<BufferDiffPanel>();
-            var currentBufferPanel = getBufferDiffPanel();
-            if (currentBufferPanel != null) {
-                visited.add(currentBufferPanel);
+        // Collect unique BufferDiffPanels to process (current + cached)
+        var visited = new LinkedHashSet<BufferDiffPanel>();
+        var currentBufferPanel = getBufferDiffPanel();
+        if (currentBufferPanel != null) {
+            visited.add(currentBufferPanel);
+        }
+        for (var p : panelCache.nonNullValues()) {
+            if (p instanceof BufferDiffPanel bufferPanel) {
+                visited.add(bufferPanel);
             }
-            for (var p : panelCache.nonNullValues()) {
-                if (p instanceof BufferDiffPanel bufferPanel) {
-                    visited.add(bufferPanel);
+        }
+
+        // Filter to only panels with unsaved changes and at least one editable side
+        var panelsToSave = visited.stream()
+                .filter(p -> p.hasUnsavedChanges() && p.atLeastOneSideEditable())
+                .toList();
+
+        if (panelsToSave.isEmpty()) {
+            // Nothing to do
+            SwingUtilities.invokeLater(this::updateNavigationButtons);
+            return;
+        }
+
+        // Step 0: Add external files to workspace first (to capture original content for undo)
+        var currentContext = contextManager.liveContext();
+        var externalFiles = new ArrayList<ProjectFile>();
+
+        for (var p : panelsToSave) {
+            var panelFiles = p.getFilesBeingSaved();
+            for (var file : panelFiles) {
+                // Check if this file is already in the current workspace context
+                var editableFilesList = currentContext.fileFragments().toList();
+                boolean inWorkspace = editableFilesList.stream()
+                        .anyMatch(f -> f instanceof ContextFragments.ProjectPathFragment ppf
+                                && ppf.file().equals(file));
+                if (!inWorkspace) {
+                    externalFiles.add(file);
                 }
             }
+        }
 
-            // Filter to only panels with unsaved changes and at least one editable side
-            var panelsToSave = visited.stream()
-                    .filter(p -> p.hasUnsavedChanges() && p.atLeastOneSideEditable())
-                    .toList();
+        if (!externalFiles.isEmpty()) {
+            contextManager.addFiles(externalFiles);
+        }
 
-            if (panelsToSave.isEmpty()) {
-                // Nothing to do
-                SwingUtilities.invokeLater(this::updateNavigationButtons);
-                return;
-            }
+        // Step 1: Collect changes (on EDT) before writing to disk
+        var allChanges = new ArrayList<BufferDiffPanel.AggregatedChange>();
+        for (var p : panelsToSave) {
+            allChanges.addAll(p.collectChangesForAggregation());
+        }
 
-            // Step 0: Add external files to workspace first (to capture original content for undo)
-            var currentContext = contextManager.liveContext();
-            var externalFiles = new ArrayList<ProjectFile>();
+        // Deduplicate by filename while preserving order
+        var mergedByFilename = new LinkedHashMap<String, BufferDiffPanel.AggregatedChange>();
+        for (var ch : allChanges) {
+            mergedByFilename.putIfAbsent(ch.filename(), ch);
+        }
 
+        if (mergedByFilename.isEmpty()) {
+            SwingUtilities.invokeLater(this::updateNavigationButtons);
+            return;
+        }
+
+        // Step 2: Write all changed documents while file change notifications are paused, collecting results
+        var perPanelResults = new LinkedHashMap<BufferDiffPanel, BufferDiffPanel.SaveResult>();
+        contextManager.withFileChangeNotificationsPaused(() -> {
             for (var p : panelsToSave) {
-                var panelFiles = p.getFilesBeingSaved();
-                for (var file : panelFiles) {
-                    // Check if this file is already in the current workspace context
-                    var editableFilesList = currentContext.fileFragments().toList();
-                    boolean inWorkspace = editableFilesList.stream()
-                            .anyMatch(f -> f instanceof ContextFragment.ProjectPathFragment ppf
-                                    && ppf.file().equals(file));
-                    if (!inWorkspace) {
-                        externalFiles.add(file);
-                    }
-                }
+                var result = p.writeChangedDocuments();
+                perPanelResults.put(p, result);
             }
+            return null;
+        });
 
-            if (!externalFiles.isEmpty()) {
-                contextManager.addFiles(externalFiles);
+        // Merge results across panels
+        var successfulFiles = new LinkedHashSet<String>();
+        var failedFiles = new LinkedHashMap<String, String>();
+        for (var entry : perPanelResults.entrySet()) {
+            successfulFiles.addAll(entry.getValue().succeeded());
+            entry.getValue().failed().forEach((k, v) -> failedFiles.putIfAbsent(k, v));
+        }
+
+        // Filter to only successfully saved files
+        var mergedByFilenameSuccessful = new LinkedHashMap<String, BufferDiffPanel.AggregatedChange>();
+        for (var e : mergedByFilename.entrySet()) {
+            if (successfulFiles.contains(e.getKey())) {
+                mergedByFilenameSuccessful.put(e.getKey(), e.getValue());
             }
+        }
 
-            // Step 1: Collect changes (on EDT) before writing to disk
-            var allChanges = new ArrayList<BufferDiffPanel.AggregatedChange>();
-            for (var p : panelsToSave) {
-                allChanges.addAll(p.collectChangesForAggregation());
-            }
-
-            // Deduplicate by filename while preserving order
-            var mergedByFilename = new LinkedHashMap<String, BufferDiffPanel.AggregatedChange>();
-            for (var ch : allChanges) {
-                mergedByFilename.putIfAbsent(ch.filename(), ch);
-            }
-
-            if (mergedByFilename.isEmpty()) {
-                SwingUtilities.invokeLater(this::updateNavigationButtons);
-                return;
-            }
-
-            // Step 2: Write all changed documents while file change notifications are paused, collecting results
-            var perPanelResults = new LinkedHashMap<BufferDiffPanel, BufferDiffPanel.SaveResult>();
-            contextManager.withFileChangeNotificationsPaused(() -> {
-                for (var p : panelsToSave) {
-                    var result = p.writeChangedDocuments();
-                    perPanelResults.put(p, result);
-                }
-                return null;
-            });
-
-            // Merge results across panels
-            var successfulFiles = new LinkedHashSet<String>();
-            var failedFiles = new LinkedHashMap<String, String>();
-            for (var entry : perPanelResults.entrySet()) {
-                successfulFiles.addAll(entry.getValue().succeeded());
-                entry.getValue().failed().forEach((k, v) -> failedFiles.putIfAbsent(k, v));
-            }
-
-            // Filter to only successfully saved files
-            var mergedByFilenameSuccessful = new LinkedHashMap<String, BufferDiffPanel.AggregatedChange>();
-            for (var e : mergedByFilename.entrySet()) {
-                if (successfulFiles.contains(e.getKey())) {
-                    mergedByFilenameSuccessful.put(e.getKey(), e.getValue());
-                }
-            }
-
-            // If nothing succeeded, summarize failures and abort history/baseline updates
-            if (mergedByFilenameSuccessful.isEmpty()) {
-                if (!failedFiles.isEmpty()) {
-                    var msg = failedFiles.entrySet().stream()
-                            .map(en -> Paths.get(en.getKey()).getFileName().toString() + ": " + en.getValue())
-                            .collect(Collectors.joining("\n"));
-                    contextManager
-                            .getIo()
-                            .systemNotify(
-                                    "No files were saved. Errors:\n" + msg, "Save failed", JOptionPane.ERROR_MESSAGE);
-                }
-                SwingUtilities.invokeLater(this::updateNavigationButtons);
-                return;
-            }
-
-            // Step 3: Build a single TaskResult containing diffs for successfully saved files
-            var messages = new ArrayList<ChatMessage>();
-            var changedFiles = new LinkedHashSet<ProjectFile>();
-
-            int fileCount = mergedByFilenameSuccessful.size();
-            // Build a friendlier action title: include filenames when 1-2 files, otherwise count
-            var topNames = mergedByFilenameSuccessful.values().stream()
-                    .limit(2)
-                    .map(ch -> {
-                        var pf = ch.projectFile();
-                        return (pf != null)
-                                ? pf.toString()
-                                : Paths.get(ch.filename()).getFileName().toString();
-                    })
-                    .toList();
-            String actionDescription;
-            if (fileCount == 1) {
-                actionDescription = "Saved changes to " + topNames.get(0);
-            } else if (fileCount == 2) {
-                actionDescription = "Saved changes to " + topNames.get(0) + " and " + topNames.get(1);
-            } else {
-                actionDescription = "Saved changes to " + fileCount + " files";
-            }
-            messages.add(Messages.customSystem(actionDescription));
-
-            // Per-file diffs
-            for (var entry : mergedByFilenameSuccessful.values()) {
-                var filename = entry.filename();
-                var diffResult = ContentDiffUtils.computeDiffResult(
-                        entry.originalContent(), entry.currentContent(), filename, filename, 3);
-                var diffText = diffResult.diff();
-
-                var pf = entry.projectFile();
-                var header = "### " + (pf != null ? pf.toString() : filename);
-                messages.add(Messages.customSystem(header));
-                messages.add(Messages.customSystem("```" + diffText + "```"));
-
-                if (pf != null) {
-                    changedFiles.add(pf);
-                } else {
-                    // Outside-project file: keep it in the transcript; not tracked in changedFiles
-                    IConsoleIO iConsoleIO = contextManager.getIo();
-                    iConsoleIO.showNotification(
-                            IConsoleIO.NotificationRole.INFO,
-                            "Saved file outside project scope: " + filename + " (not added to workspace history)");
-                }
-            }
-
-            // Build resulting Context by adding any changed files that are not already editable in the top context
-            var top = contextManager.liveContext();
-            var resultingCtx = top.addPathFragments(contextManager.toPathFragments(changedFiles));
-
-            var result = TaskResult.humanResult(
-                    contextManager, actionDescription, messages, resultingCtx, TaskResult.StopReason.SUCCESS);
-
-            // Add a single history entry for the whole batch
-            try (var scope = contextManager.beginTask(actionDescription, false)) {
-                // This is a local save operation (non-LLM). For now we record no TaskMeta.
-                scope.append(result);
-            }
-            logger.info("Saved changes to {} file(s): {}", fileCount, actionDescription);
-
-            // Step 4: Finalize panels selectively and refresh UI
-            for (var p : panelsToSave) {
-                var saved = perPanelResults
-                        .getOrDefault(p, new BufferDiffPanel.SaveResult(Set.of(), Map.of()))
-                        .succeeded();
-                p.finalizeAfterSaveAggregation(saved);
-                refreshTabTitle(p);
-            }
-
-            // Refresh blame for successfully saved files
-            for (String filename : successfulFiles) {
-                try {
-                    refreshBlameAfterSave(Paths.get(filename));
-                } catch (Exception ex) {
-                    logger.debug("Failed to refresh blame for {}: {}", filename, ex.getMessage());
-                }
-            }
-
-            // If some files failed, notify the user after successful saves
+        // If nothing succeeded, summarize failures and abort history/baseline updates
+        if (mergedByFilenameSuccessful.isEmpty()) {
             if (!failedFiles.isEmpty()) {
                 var msg = failedFiles.entrySet().stream()
                         .map(en -> Paths.get(en.getKey()).getFileName().toString() + ": " + en.getValue())
                         .collect(Collectors.joining("\n"));
                 contextManager
                         .getIo()
-                        .systemNotify(
-                                "Some files could not be saved:\n" + msg,
-                                "Partial save completed",
-                                JOptionPane.WARNING_MESSAGE);
+                        .systemNotify("No files were saved. Errors:\n" + msg, "Save failed", JOptionPane.ERROR_MESSAGE);
             }
-
-            repaint();
             SwingUtilities.invokeLater(this::updateNavigationButtons);
-        } catch (Exception e) {
-            logger.error("Error saving files", e);
-            updateNavigationButtons();
+            return;
         }
+
+        // Step 3: Build a single TaskResult containing diffs for successfully saved files
+        var messages = new ArrayList<ChatMessage>();
+        var changedFiles = new LinkedHashSet<ProjectFile>();
+
+        int fileCount = mergedByFilenameSuccessful.size();
+        // Build a friendlier action title: include filenames when 1-2 files, otherwise count
+        var topNames = mergedByFilenameSuccessful.values().stream()
+                .limit(2)
+                .map(ch -> {
+                    var pf = ch.projectFile();
+                    return (pf != null)
+                            ? pf.toString()
+                            : Paths.get(ch.filename()).getFileName().toString();
+                })
+                .toList();
+        String actionDescription;
+        if (fileCount == 1) {
+            actionDescription = "Saved changes to " + topNames.get(0);
+        } else if (fileCount == 2) {
+            actionDescription = "Saved changes to " + topNames.get(0) + " and " + topNames.get(1);
+        } else {
+            actionDescription = "Saved changes to " + fileCount + " files";
+        }
+        messages.add(Messages.customSystem(actionDescription));
+
+        // Per-file diffs
+        for (var entry : mergedByFilenameSuccessful.values()) {
+            var filename = entry.filename();
+            var diffResult = ContentDiffUtils.computeDiffResult(
+                    entry.originalContent(), entry.currentContent(), filename, filename, 3);
+            var diffText = diffResult.diff();
+
+            var pf = entry.projectFile();
+            var header = "### " + (pf != null ? pf.toString() : filename);
+            messages.add(Messages.customSystem(header));
+            messages.add(Messages.customSystem("```" + diffText + "```"));
+
+            if (pf != null) {
+                changedFiles.add(pf);
+            } else {
+                // Outside-project file: keep it in the transcript; not tracked in changedFiles
+                IConsoleIO iConsoleIO = contextManager.getIo();
+                iConsoleIO.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "Saved file outside project scope: " + filename + " (not added to workspace history)");
+            }
+        }
+
+        // Build resulting Context by adding any changed files that are not already editable in the top context
+        var top = contextManager.liveContext();
+        var resultingCtx = top.addFragments(contextManager.toPathFragments(changedFiles));
+
+        var result = TaskResult.humanResult(
+                contextManager, actionDescription, messages, resultingCtx, TaskResult.StopReason.SUCCESS);
+
+        // Add a single history entry for the whole batch
+        try (var scope = contextManager.beginTask(actionDescription, false)) {
+            // This is a local save operation (non-LLM). For now we record no TaskMeta.
+            scope.append(result);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+        logger.info("Saved changes to {} file(s): {}", fileCount, actionDescription);
+
+        // Step 4: Finalize panels selectively and refresh UI
+        for (var p : panelsToSave) {
+            var saved = perPanelResults
+                    .getOrDefault(p, new BufferDiffPanel.SaveResult(Set.of(), Map.of()))
+                    .succeeded();
+            p.finalizeAfterSaveAggregation(saved);
+            p.recalcDirty();
+            refreshTabTitle(p);
+        }
+
+        // Refresh blame for successfully saved files
+        for (String filename : successfulFiles) {
+            refreshBlameAfterSave(Paths.get(filename));
+        }
+
+        // If some files failed, notify the user after successful saves
+        if (!failedFiles.isEmpty()) {
+            var msg = failedFiles.entrySet().stream()
+                    .map(en -> Paths.get(en.getKey()).getFileName().toString() + ": " + en.getValue())
+                    .collect(Collectors.joining("\n"));
+            contextManager
+                    .getIo()
+                    .systemNotify(
+                            "Some files could not be saved:\n" + msg,
+                            "Partial save completed",
+                            JOptionPane.WARNING_MESSAGE);
+        }
+
+        repaint();
+        SwingUtilities.invokeLater(this::updateNavigationButtons);
     }
 
     /** Refresh tab title (adds/removes “*”). */
-    public void refreshTabTitle(BufferDiffPanel panel) {
+    public void refreshTabTitle(AbstractDiffPanel panel) {
         var idx = tabbedPane.indexOfComponent(panel);
         if (idx != -1) {
             tabbedPane.setTitleAt(idx, panel.getTitle());
@@ -1284,7 +1268,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         }
 
         // Use hybrid approach - sync for small files, async for large files
-        HybridFileComparison.createDiffPanel(
+        createDiffPanel(
                 compInfo.leftSource,
                 compInfo.rightSource,
                 this,
@@ -1316,7 +1300,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         repaint();
     }
 
-    private void displayCachedFile(int fileIndex, IDiffPanel cachedPanel) {
+    private void displayCachedFile(int fileIndex, AbstractDiffPanel cachedPanel) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
         // Check if cached panel type matches current view mode preference
@@ -1365,27 +1349,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         // IMPORTANT: Sync blame state with menu BEFORE any layout-triggering operations
         // This must happen before applyTheme() and diff() which can trigger layout calculations
         // Note: Always set state explicitly to sync cached panels with current menu state
-        // Blame is supported for both working tree diffs and commit diffs with revision metadata
-        boolean isWorkingTree = isWorkingTreeDiff(cachedPanel);
-        boolean hasRevisionMetadata = false;
-        if (fileIndex >= 0 && fileIndex < fileComparisons.size()) {
-            var comparison = fileComparisons.get(fileIndex);
-            if (comparison.leftSource instanceof BufferSource.StringSource leftSS && leftSS.revisionSha() != null) {
-                hasRevisionMetadata = true;
-            }
-            if (comparison.rightSource instanceof BufferSource.StringSource rightSS && rightSS.revisionSha() != null) {
-                hasRevisionMetadata = true;
-            }
-        }
-        boolean canShowBlame = (isWorkingTree || hasRevisionMetadata) && resolveTargetPath(cachedPanel) != null;
+        boolean canShowBlame = cachedPanel.getTargetPathForBlame() != null;
         boolean shouldShowBlame = menuShowBlame.isSelected() && canShowBlame;
-        if (cachedPanel instanceof BufferDiffPanel bp) {
-            var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
-            if (right != null) {
-                right.getGutterComponent().setShowBlame(shouldShowBlame);
-            }
-        } else if (cachedPanel instanceof UnifiedDiffPanel up) {
-            up.setShowGutterBlame(shouldShowBlame);
+        if (shouldShowBlame) {
+            // Blame will be applied asynchronously by updateBlameForPanel
         }
         // Reset auto-scroll flag for file navigation to ensure fresh auto-scroll opportunity
         cachedPanel.resetAutoScrollFlag();
@@ -1582,18 +1549,175 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
     @Nullable
     private String detectFilename(BufferSource leftSource, BufferSource rightSource) {
-        if (leftSource instanceof BufferSource.StringSource s && s.filename() != null) {
-            return s.filename();
-        } else if (leftSource instanceof BufferSource.FileSource f) {
-            return f.file().getName();
+        if (leftSource.filename() != null) {
+            return leftSource.filename();
+        }
+        return rightSource.filename();
+    }
+
+    /**
+     * Builds the user-facing description for a captured diff, including a display name and
+     * friendly commit labels for the left and right sources.
+     */
+    private String buildCaptureDescription(
+            BufferSource left, BufferSource right, @Nullable String filenameOrDisplayName) {
+        GitRepo repo = null;
+        var r = contextManager.getProject().getRepo();
+        if (r instanceof GitRepo gr) {
+            repo = gr;
         }
 
-        if (rightSource instanceof BufferSource.StringSource s && s.filename() != null) {
-            return s.filename();
-        } else if (rightSource instanceof BufferSource.FileSource f) {
-            return f.file().getName();
+        String displayName = (filenameOrDisplayName != null && !filenameOrDisplayName.isBlank())
+                ? filenameOrDisplayName
+                : Optional.ofNullable(detectFilename(left, right)).orElse(left.title());
+
+        return "Captured Diff: %s - %s vs %s"
+                .formatted(
+                        displayName,
+                        GitDiffUiUtil.friendlyCommitLabel(left.title(), repo),
+                        GitDiffUiUtil.friendlyCommitLabel(right.title(), repo));
+    }
+
+    private Set<ProjectFile> collectProjectFilesForSources(BufferSource leftSource, BufferSource rightSource) {
+        var files = new LinkedHashSet<ProjectFile>();
+        addProjectFileForSource(leftSource, files);
+        addProjectFileForSource(rightSource, files);
+        return Set.copyOf(files);
+    }
+
+    private void addProjectFileForSource(BufferSource source, Set<ProjectFile> files) {
+        if (source instanceof BufferSource.StringSource ss) {
+            var filename = ss.filename();
+            if (filename == null || filename.isBlank()) {
+                return;
+            }
+            var normalized = filename.replace('\\', '/');
+            try {
+                var projectFile = contextManager.toFile(normalized);
+                files.add(projectFile);
+            } catch (IllegalArgumentException e) {
+                logger.debug("Unable to resolve ProjectFile from StringSource filename '{}'", normalized, e);
+            }
+        } else if (source instanceof BufferSource.FileSource fs) {
+            files.add(fs.file());
         }
-        return null;
+    }
+
+    /**
+     * Capture one or more file comparisons and add a single StringFragment representing the combined diffs.
+     * If a single file is being captured and the visible buffer panel is present for that file, the current editor
+     * contents are used (including unsaved edits). For multi-file captures the source content is read directly.
+     */
+    private void capture(List<FileComparisonInfo> comps) {
+        if (comps.isEmpty()) return;
+
+        assert SwingUtilities.isEventDispatchThread() : "capture must be called on EDT";
+
+        boolean isSingle = comps.size() == 1;
+
+        // Capture any editor-based overrides on the EDT before doing background work.
+        var leftOverrides = new LinkedHashMap<FileComparisonInfo, String>();
+        var rightOverrides = new LinkedHashMap<FileComparisonInfo, String>();
+
+        if (isSingle) {
+            var currentComparison = fileComparisons.get(currentFileIndex);
+            if (comps.getFirst() == currentComparison) {
+                var bufferPanel = getBufferDiffPanel();
+                if (bufferPanel != null) {
+                    var leftPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
+                    var rightPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
+                    if (leftPanel != null && rightPanel != null) {
+                        leftOverrides.put(
+                                currentComparison, leftPanel.getEditor().getText());
+                        rightOverrides.put(
+                                currentComparison, rightPanel.getEditor().getText());
+                    }
+                }
+            }
+        }
+
+        contextManager.submitBackgroundTask("Capture diffs", () -> {
+            var combinedBuilder = new StringBuilder();
+            var filesForFragment = new LinkedHashSet<ProjectFile>();
+            String primaryDisplayName = null;
+
+            for (FileComparisonInfo comp : comps) {
+                var leftSource = comp.leftSource;
+                var rightSource = comp.rightSource;
+
+                String leftContent;
+                String rightContent;
+
+                // Use editor overrides when available (single-file capture with an editable BufferDiffPanel).
+                String leftOverride = leftOverrides.get(comp);
+                String rightOverride = rightOverrides.get(comp);
+                if (leftOverride != null && rightOverride != null) {
+                    leftContent = leftOverride;
+                    rightContent = rightOverride;
+                } else {
+                    // Fallback to source content; used for multi-file captures and unified view.
+                    leftContent = leftSource.content();
+                    rightContent = rightSource.content();
+                }
+
+                if (Objects.equals(leftContent, rightContent)) {
+                    continue;
+                }
+
+                String oldName = leftSource.title();
+                String newName = rightSource.title();
+                var diffText = ContentDiffUtils.computeDiffResult(leftContent, rightContent, oldName, newName, 0)
+                        .diff();
+
+                String detectedFilename = detectFilename(leftSource, rightSource);
+                String displayName = Optional.ofNullable(detectedFilename).orElse(comp.getDisplayName());
+
+                if (!combinedBuilder.isEmpty()) {
+                    combinedBuilder.append("\n\n");
+                }
+                combinedBuilder.append("### ").append(displayName).append("\n");
+                combinedBuilder.append(diffText);
+
+                filesForFragment.addAll(collectProjectFilesForSources(leftSource, rightSource));
+                if (primaryDisplayName == null) primaryDisplayName = displayName;
+            }
+
+            if (combinedBuilder.isEmpty()) {
+                contextManager.getIo().showNotification(IConsoleIO.NotificationRole.INFO, "No diffs to capture");
+                return;
+            }
+
+            String description;
+            if (isSingle) {
+                var singleInfo = comps.getFirst();
+                description =
+                        buildCaptureDescription(singleInfo.leftSource, singleInfo.rightSource, primaryDisplayName);
+            } else {
+                description = "Captured diffs for " + comps.size() + " file(s)";
+            }
+
+            String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
+            if (primaryDisplayName != null) {
+                int dotIndex = primaryDisplayName.lastIndexOf('.');
+                if (dotIndex > 0 && dotIndex < primaryDisplayName.length() - 1) {
+                    var extension = primaryDisplayName.substring(dotIndex + 1);
+                    syntaxStyle = SyntaxDetector.fromExtension(extension);
+                } else {
+                    syntaxStyle = SyntaxDetector.fromExtension(primaryDisplayName);
+                }
+            }
+
+            var fragment = new ContextFragments.StringFragment(
+                    contextManager, combinedBuilder.toString(), description, syntaxStyle, filesForFragment);
+
+            contextManager.submitContextTask(() -> {
+                contextManager.addFragments(fragment);
+                contextManager
+                        .getIo()
+                        .showNotification(
+                                IConsoleIO.NotificationRole.INFO, "Added captured diffs to context: " + description);
+            });
+        });
     }
 
     @SuppressWarnings("UnusedVariable")
@@ -1730,20 +1854,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         }
         // Otherwise, run on EDT and wait for result
         var result = new AtomicBoolean(true);
-        try {
-            SwingUtilities.invokeAndWait(() -> {
-                try {
-                    result.set(checkUnsavedChangesBeforeClose());
-                } catch (Exception e) {
-                    logger.warn("Error while confirming close on EDT: {}", e.getMessage(), e);
-                    // Be conservative: cancel quit on unexpected error
-                    result.set(false);
-                }
-            });
-        } catch (Exception e) {
-            logger.error("Failed to run close confirmation on EDT: {}", e.getMessage(), e);
-            return false;
-        }
+        SwingUtil.runOnEdt(() -> {
+            result.set(checkUnsavedChangesBeforeClose());
+        });
         return result.get();
     }
 
@@ -1751,7 +1864,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
      * Displays a cached panel and updates navigation buttons. This is the proper way to display panels created by
      * HybridFileComparison.
      */
-    public void displayAndRefreshPanel(int fileIndex, IDiffPanel panel) {
+    public void displayAndRefreshPanel(int fileIndex, AbstractDiffPanel panel) {
         displayCachedFile(fileIndex, panel);
     }
 
@@ -1759,13 +1872,16 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
      * Cache a panel for the given file index. Helper method for both sync and async panel creation. Uses putReserved if
      * the slot was reserved, otherwise regular put.
      */
-    public void cachePanel(int fileIndex, IDiffPanel panel) {
+    public void cachePanel(int fileIndex, AbstractDiffPanel panel) {
         // Validate that panel type matches current view mode
         boolean isPanelUnified = panel instanceof UnifiedDiffPanel;
         if (isPanelUnified != isUnifiedView) {
             // Don't cache panels that don't match current view mode (prevents async race conditions)
             return;
         }
+
+        // Ensure the panel is associated with the correct file index for later operations (blame, saves, etc.)
+        panel.setAssociatedFileIndex(fileIndex);
 
         // Reset auto-scroll flag for newly created panels
         panel.resetAutoScrollFlag();
@@ -1843,7 +1959,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                 if (panelCache.get(fileIndex) == null && panelCache.isInWindow(fileIndex)) {
                     if (loadingResult.isSuccess()) {
                         // Create appropriate panel type based on current view mode
-                        IDiffPanel panel;
+                        AbstractDiffPanel panel;
                         if (isUnifiedView) {
                             // For UnifiedDiffPanel, we need to check if diffNode is null since constructor requires
                             // non-null
@@ -1906,7 +2022,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
     /** Perform cleanup when memory usage is high */
     private void performWindowCleanup() {
-
         // Clear caches in all window panels
         for (var panel : panelCache.nonNullValues()) {
             panel.clearCaches(); // Clear undo history, search results, etc.
@@ -1917,58 +2032,14 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     }
 
     /**
-     * Apply a specific font size to a single panel's editors and gutters. Handles UnifiedDiffPanel, BufferDiffPanel,
-     * and generic panels with comprehensive logic.
+     * Apply a specific font size to a single panel's editors and gutters using the panel's polymorphic interface.
      *
      * @param panel The panel to update
      * @param size The font size to apply
      */
-    private void applySizeToSinglePanel(@Nullable IDiffPanel panel, float size) {
+    private void applySizeToSinglePanel(@Nullable AbstractDiffPanel panel, float size) {
         if (panel == null) return;
-        Component root = panel.getComponent();
-
-        // Special-case UnifiedDiffPanel: use its public getters for reliable access
-        if (panel instanceof UnifiedDiffPanel up) {
-            try {
-                // Apply theme preserving font before setting size
-                theme.applyThemePreservingFont(up.getTextArea());
-                setEditorFont(up.getTextArea(), size);
-            } catch (Exception e) {
-                logger.debug("Unified text area update failed", e);
-            }
-
-            try {
-                var gutter = up.getGutterComponent();
-                if (gutter != null) {
-                    setGutterFonts(gutter, size);
-                }
-            } catch (Exception e) {
-                logger.debug("Unified gutter update failed", e);
-            }
-
-            return;
-        }
-
-        // Special-case BufferDiffPanel: ensure both LEFT and RIGHT FilePanels are updated
-        if (panel instanceof BufferDiffPanel bp) {
-            try {
-                updateFilePanelFonts(bp.getFilePanel(BufferDiffPanel.PanelSide.LEFT), size);
-            } catch (Exception ignored) {
-                // Best-effort: ignore left panel font application errors
-            }
-
-            try {
-                updateFilePanelFonts(bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT), size);
-            } catch (Exception ignored) {
-                // Best-effort: ignore right panel font application errors
-            }
-
-            return;
-        }
-
-        // Generic handling (fallback): find first RSyntaxTextArea and first DiffGutterComponent in component subtree
-        findEditorInComponent(root).ifPresent(editor -> setEditorFont(editor, size));
-        findGutterInComponent(root).ifPresent(gutter -> setGutterFonts(gutter, size));
+        panel.applyEditorFontSize(size);
     }
 
     /**
@@ -1982,20 +2053,12 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
         // Apply to cached panels
         for (var p : panelCache.nonNullValues()) {
-            try {
-                applySizeToSinglePanel(p, fontSize);
-            } catch (Exception e) {
-                logger.debug("Failed applying font size to cached panel", e);
-            }
+            applySizeToSinglePanel(p, fontSize);
         }
 
         // Apply to currently visible panel too
         if (currentDiffPanel != null) {
-            try {
-                applySizeToSinglePanel(currentDiffPanel, fontSize);
-            } catch (Exception e) {
-                logger.debug("Failed applying font size to current panel", e);
-            }
+            applySizeToSinglePanel(currentDiffPanel, fontSize);
         }
 
         SwingUtilities.invokeLater(() -> {
@@ -2026,107 +2089,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     }
 
     /**
-     * Set the font for a gutter including line numbers and blame information.
-     *
-     * @param gutter The gutter to update
-     * @param size The font size to apply
-     */
-    private void setGutterFonts(DiffGutterComponent gutter, float size) {
-        try {
-            Font gbase = gutter.getFont();
-            if (gbase != null) {
-                Font gf = gbase.deriveFont(size);
-                gutter.setFont(gf);
-                try {
-                    gutter.setBlameFont(gf);
-                } catch (Throwable ignored) {
-                    // Best-effort: ignore if setBlameFont not supported
-                }
-            } else {
-                gutter.setFont(gutter.getFont().deriveFont(size));
-            }
-            gutter.revalidate();
-            gutter.repaint();
-            // Ensure parent container (scroll pane) recalculates layout for new gutter width
-            var parent = gutter.getParent();
-            if (parent != null) {
-                parent.revalidate();
-            }
-        } catch (Exception ex) {
-            logger.debug("Could not apply font to gutter", ex);
-        }
-    }
-
-    /**
-     * Update fonts for a FilePanel (editor, gutter, and viewport cache).
-     *
-     * @param filePanel The FilePanel to update
-     * @param size The font size to apply
-     */
-    private void updateFilePanelFonts(@Nullable FilePanel filePanel, float size) {
-        if (filePanel == null) return;
-
-        try {
-            setEditorFont(filePanel.getEditor(), size);
-        } catch (Exception ex) {
-            logger.debug("Could not apply font to file panel editor", ex);
-        }
-
-        try {
-            setGutterFonts(filePanel.getGutterComponent(), size);
-        } catch (Exception ex) {
-            logger.debug("Could not apply font to file panel gutter", ex);
-        }
-
-        try {
-            filePanel.invalidateViewportCache();
-        } catch (Exception ignored) {
-            // Best-effort: ignore cache invalidation errors
-        }
-
-        // Ensure scroll pane recalculates layout for new gutter width
-        try {
-            filePanel.getScrollPane().revalidate();
-        } catch (Exception ignored) {
-            // Best-effort: ignore scroll pane revalidation errors
-        }
-    }
-
-    // updateSyntaxSchemeFonts and setEditorFont delegated to EditorFontSizeControl interface
-
-    /** Recursively search the component tree for the first RSyntaxTextArea instance and return it. */
-    private Optional<RSyntaxTextArea> findEditorInComponent(Component c) {
-        if (c instanceof RSyntaxTextArea rte) {
-            return Optional.of(rte);
-        }
-        if (c instanceof Container container) {
-            for (Component child : container.getComponents()) {
-                var res = findEditorInComponent(child);
-                if (res.isPresent()) return res;
-            }
-        }
-        return Optional.empty();
-    }
-
-    /** Recursively search the component tree for the first DiffGutterComponent instance and return it. */
-    private Optional<DiffGutterComponent> findGutterInComponent(Component c) {
-        if (c instanceof DiffGutterComponent dg) {
-            return Optional.of(dg);
-        }
-        if (c instanceof Container container) {
-            for (Component child : container.getComponents()) {
-                var res = findGutterInComponent(child);
-                if (res.isPresent()) return res;
-            }
-        }
-        return Optional.empty();
-    }
-
-    /**
      * Reset layout hierarchy to fix broken container relationships after file navigation. This rebuilds the
      * BorderLayout relationships to restore proper resize behavior.
      */
-    private void resetLayoutHierarchy(IDiffPanel currentPanel) {
+    private void resetLayoutHierarchy(AbstractDiffPanel currentPanel) {
         // Remove and re-add mainSplitPane to reset BorderLayout relationships
         remove(mainSplitPane);
         invalidate();
@@ -2306,90 +2272,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     }
 
     /**
-     * Resolves file path from panel for blame, converting relative paths to absolute. Returns null if path unavailable.
-     */
-    private @Nullable Path resolveTargetPath(IDiffPanel panel) {
-        Path targetPath = null;
-
-        try {
-            if (panel instanceof BufferDiffPanel bp) {
-                var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
-                if (right != null) {
-                    var bd = right.getBufferDocument();
-                    if (bd != null) {
-                        String name = bd.getName();
-                        if (!name.isBlank()) {
-                            targetPath = Paths.get(name);
-                        } else {
-                            logger.debug("Document has no name/path for blame");
-                            return null;
-                        }
-                    }
-                }
-            } else if (panel instanceof UnifiedDiffPanel up) {
-                var dn = up.getDiffNode();
-                if (dn != null) {
-                    var rightNode = dn.getBufferNodeRight();
-                    if (rightNode != null) {
-                        var doc = rightNode.getDocument();
-                        String name = doc.getName();
-                        if (!name.isBlank()) {
-                            targetPath = Paths.get(name);
-                        } else {
-                            logger.debug("Document has no name/path for blame");
-                            return null;
-                        }
-                    }
-                }
-            }
-
-            if (targetPath == null) {
-                logger.debug("No file path found for blame");
-                return null;
-            }
-
-            if (!targetPath.isAbsolute()) {
-                var repo = contextManager.getProject().getRepo();
-                if (repo instanceof GitRepo gitRepo) {
-                    targetPath = gitRepo.getGitTopLevel().resolve(targetPath).normalize();
-                } else {
-                    targetPath = targetPath.toAbsolutePath().normalize();
-                }
-            }
-        } catch (Exception ex) {
-            logger.warn("Failed to resolve target path for blame: {}", ex.getMessage());
-            return null;
-        }
-
-        return targetPath;
-    }
-
-    /** Applies blame to gutter. Side-by-side: right gutter only. Unified: both left (HEAD) and right (working tree). */
-    private void applyBlameMapsToPanel(
-            IDiffPanel panel,
-            Map<Integer, BlameService.BlameInfo> leftMap,
-            Map<Integer, BlameService.BlameInfo> rightMap) {
-        if (panel instanceof BufferDiffPanel bp) {
-            var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
-            if (right != null) {
-                right.getGutterComponent().setBlameLines(rightMap);
-                right.getGutterComponent().setShowBlame(true);
-                if (bp.hasUnsavedChanges()) {
-                    right.getGutterComponent().markBlameStale();
-                }
-            }
-            var left = bp.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
-            if (left != null) {
-                left.getGutterComponent().setShowBlame(false);
-            }
-        } else if (panel instanceof UnifiedDiffPanel up) {
-            up.setGutterBlameData(rightMap);
-            up.setGutterLeftBlameData(leftMap);
-            up.setShowGutterBlame(true);
-        }
-    }
-
-    /**
      * Shows one-time error dialog and updates menu text. Prioritizes right over left errors. Doesn't auto-disable
      * blame.
      */
@@ -2411,20 +2293,13 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         }
     }
 
-    private void updateBlameForPanel(IDiffPanel panel, boolean show) {
+    private void updateBlameForPanel(AbstractDiffPanel panel, boolean show) {
         if (!show) {
-            if (panel instanceof BufferDiffPanel bp) {
-                var left = bp.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
-                var right = bp.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
-                if (left != null) left.getGutterComponent().clearBlame();
-                if (right != null) right.getGutterComponent().clearBlame();
-            } else if (panel instanceof UnifiedDiffPanel up) {
-                up.setShowGutterBlame(false);
-            }
+            panel.clearBlame();
             return;
         }
 
-        var targetPath = resolveTargetPath(panel);
+        var targetPath = panel.getTargetPathForBlame();
         if (targetPath == null) {
             return;
         }
@@ -2434,19 +2309,16 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             return;
         }
 
-        // Get current file comparison to extract revision metadata
-        var currentComparison = fileComparisons.get(currentFileIndex);
+        // Determine which file comparison this panel represents. Fall back to currentFileIndex if none assigned.
+        int fileIndex = panel.getAssociatedFileIndex();
+        if (fileIndex < 0 || fileIndex >= fileComparisons.size()) {
+            fileIndex = currentFileIndex;
+        }
+        var comparison = fileComparisons.get(fileIndex);
 
         // Extract revision information from BufferSources
-        String leftRevision = null;
-        String rightRevision = null;
-
-        if (currentComparison.leftSource instanceof BufferSource.StringSource leftStringSource) {
-            leftRevision = leftStringSource.revisionSha();
-        }
-        if (currentComparison.rightSource instanceof BufferSource.StringSource rightStringSource) {
-            rightRevision = rightStringSource.revisionSha();
-        }
+        String leftRevision = comparison.leftSource.revisionSha();
+        String rightRevision = comparison.rightSource.revisionSha();
 
         final Path finalTargetPath = targetPath;
 
@@ -2492,7 +2364,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                 if (!rightMap.isEmpty() || !leftMap.isEmpty()) {
                     menuShowBlame.setText("Show Git Blame");
                 }
-                applyBlameMapsToPanel(panel, leftMap, rightMap);
+                panel.applyBlame(leftMap, rightMap);
             });
         });
     }
@@ -2627,12 +2499,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         if (verifyPanel != null) {
             logger.error(
                     "Cache clearing failed - panel still cached after clear(). This indicates a serious cache issue.");
-        } else {
         }
 
         // Refresh the current file with the new view mode (skip loading UI since we already have the data)
         loadFileOnDemand(currentFileIndex, true);
     }
-
-    // FontSizeAware implementation uses default methods from interface
 }

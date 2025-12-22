@@ -1,6 +1,7 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
+import static ai.brokk.testutil.AssertionHelperUtil.*;
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -258,6 +259,7 @@ public class JavaAnalyzerTest {
     @Test
     public void getAllClassesTest() {
         final var classes = analyzer.getAllDeclarations().stream()
+                .filter(CodeUnit::isClass)
                 .map(CodeUnit::fqName)
                 .sorted()
                 .toList();
@@ -283,6 +285,7 @@ public class JavaAnalyzerTest {
                 "E",
                 "EnumClass",
                 "F",
+                "InlineComment",
                 "Interface",
                 "MethodReferenceUsage",
                 "MethodReturner",
@@ -815,5 +818,191 @@ public class JavaAnalyzerTest {
                     children,
                     "Module children should include only top-level classes A and C (exclude nested types)");
         }
+    }
+
+    /**
+     * Regression test for Issue #2121: Verify that Javadoc comments preceding a class
+     * declaration preserve correct indentation when using getClassSource(.., true).
+     */
+    @Test
+    public void testClassJavadocIndentationIsPreserved() {
+        // AnnotatedClass has Javadoc comments above the class declaration
+        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "AnnotatedClass", true);
+        assertTrue(sourceOpt.isPresent(), "AnnotatedClass source should be available");
+
+        String source = sourceOpt.get();
+
+        // Verify Javadoc is present
+        assertCodeContains(source, "/**", "Should include opening Javadoc marker");
+        assertCodeContains(source, "A comprehensive test class", "Should include Javadoc content");
+
+        // Verify source starts with indentation (Javadoc should be included with proper indentation)
+        // For top-level class, Javadoc should start at column 0
+        assertTrue(
+                source.startsWith("/") || source.startsWith(" /"),
+                "Source should start with Javadoc (either at column 0 or with leading space)");
+
+        // Verify the first non-whitespace line is Javadoc and class declaration follows
+        String[] lines = source.split("\n");
+        String firstNonBlank = "";
+        String classLine = "";
+        for (String line : lines) {
+            String trimmed = line.stripLeading();
+            if (!trimmed.isEmpty()) {
+                if (firstNonBlank.isEmpty()) {
+                    firstNonBlank = trimmed;
+                }
+                if (trimmed.contains("public class AnnotatedClass")) {
+                    classLine = trimmed;
+                    break;
+                }
+            }
+        }
+
+        assertTrue(firstNonBlank.startsWith("/**"), "First non-blank line should be Javadoc opening");
+        assertTrue(!classLine.isEmpty(), "Should find class declaration line");
+    }
+
+    /**
+     * Regression test for Issue #2121: Verify that Javadoc comments preceding a method
+     * declaration preserve correct indentation when using getMethodSources(.., true).
+     */
+    @Test
+    public void testMethodJavadocIndentationIsPreserved() {
+        // AnnotatedClass.toString has Javadoc comments above the method declaration
+        final var sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "AnnotatedClass.toString", true);
+        assertTrue(sourceOpt.isPresent(), "Method source should be available");
+
+        String source = sourceOpt.get();
+
+        // Verify Javadoc is present
+        assertCodeContains(source, "/**", "Should include opening Javadoc marker");
+        assertCodeContains(source, "Gets the current configuration value", "Should include Javadoc content");
+
+        // Verify source includes Javadoc before annotations/method
+        String[] lines = source.split("\n");
+        boolean foundJavadoc = false;
+        boolean foundAnnotationOrMethod = false;
+
+        for (String line : lines) {
+            String trimmed = line.stripLeading();
+            if (trimmed.startsWith("/**")) {
+                foundJavadoc = true;
+            }
+            if (foundJavadoc && (trimmed.startsWith("@") || trimmed.startsWith("public"))) {
+                foundAnnotationOrMethod = true;
+                break;
+            }
+        }
+
+        assertTrue(foundJavadoc, "Should find Javadoc opening");
+        assertTrue(foundAnnotationOrMethod, "Should find annotation or method declaration after Javadoc");
+    }
+
+    /**
+     * Regression test for Issue #2121: Verify that indentation is consistent across
+     * all lines of a Javadoc block and with the declaration line.
+     */
+    @Test
+    public void testJavadocMultilineIndentationIsConsistent() {
+        // AnnotatedClass.processValue has multiline Javadoc with complex documentation
+        final var sourceOpt = AnalyzerUtil.getMethodSource(analyzer, "AnnotatedClass.processValue", true);
+        assertTrue(sourceOpt.isPresent(), "Method source should be available");
+
+        String source = sourceOpt.get();
+
+        // Verify Javadoc spans multiple lines
+        assertCodeContains(source, "/**", "Should include opening Javadoc");
+        assertCodeContains(source, "@param", "Should include parameter docs");
+        assertCodeContains(source, "@return", "Should include return documentation");
+
+        // Extract lines and verify indentation consistency
+        String[] lines = source.split("\n");
+        int javadocIndent = -1;
+        int firstParamIndent = -1;
+        int annotationIndent = -1;
+
+        for (String line : lines) {
+            int leadingSpaces = line.length() - line.stripLeading().length();
+            String trimmed = line.stripLeading();
+
+            if (trimmed.startsWith("/**") && javadocIndent < 0) {
+                javadocIndent = leadingSpaces;
+            } else if (trimmed.startsWith("@param") && firstParamIndent < 0) {
+                firstParamIndent = leadingSpaces;
+            } else if ((trimmed.startsWith("@Suppress") || trimmed.startsWith("@Override")) && annotationIndent < 0) {
+                annotationIndent = leadingSpaces;
+            }
+        }
+
+        // Verify that all found indents are consistent
+        if (javadocIndent >= 0 && firstParamIndent >= 0) {
+            assertEquals(
+                    javadocIndent, firstParamIndent, "Javadoc opening and @param lines should have same indentation");
+        }
+
+        if (javadocIndent >= 0 && annotationIndent >= 0) {
+            assertEquals(
+                    javadocIndent, annotationIndent, "Javadoc and following annotations should have same indentation");
+        }
+
+        // At minimum, verify indentation levels are non-negative and reasonable
+        assertTrue(javadocIndent >= 0, "Should find Javadoc opening");
+    }
+
+    /**
+     * Regression test for Issue #2121: Verify that leading indentation is preserved
+     * and not trimmed by the source retrieval APIs.
+     */
+    @Test
+    public void testSourceIndentationNotTrimmed() {
+        // Test with inner class which has natural indentation
+        final var sourceOpt = AnalyzerUtil.getClassSource(analyzer, "AnnotatedClass.InnerHelper", true);
+        assertTrue(sourceOpt.isPresent(), "Inner class source should be available");
+
+        String source = sourceOpt.get();
+
+        // Verify that the source starts with expected whitespace (indentation)
+        assertTrue(
+                source.startsWith(" ") || source.startsWith("\t"),
+                "Source should preserve leading indentation; should not be fully stripped");
+
+        // Verify Javadoc is present in the source with leading indentation
+        assertCodeContains(source, "/**", "Should contain Javadoc marker");
+        assertCodeContains(source, "Inner class with its own documentation", "Should contain Javadoc content");
+
+        // Verify the Javadoc line itself has indentation preserved
+        String[] lines = source.split("\n");
+        for (String line : lines) {
+            if (line.stripLeading().startsWith("/**")) {
+                assertTrue(
+                        line.startsWith(" ") || line.startsWith("\t"),
+                        "Javadoc line should preserve leading indentation");
+                break;
+            }
+        }
+    }
+
+    /**
+     * Regression test for inline comment edge case: when a comment/Javadoc appears on
+     * the same line as other code, we should NOT back up to include that code.
+     */
+    @Test
+    public void testInlineJavadocDoesNotIncludePrecedingCode() throws IOException {
+        var project = TestProject.createTestProject("testcode-java", Languages.JAVA);
+        var testAnalyzer = new JavaAnalyzer(project);
+
+        // methodAfterInlineJavadoc has Javadoc on same line as `private int other = 1;`
+        var sourceOpt = AnalyzerUtil.getMethodSource(testAnalyzer, "InlineComment.methodAfterInlineJavadoc", true);
+        assertTrue(sourceOpt.isPresent(), "Method source should be available");
+
+        String source = sourceOpt.get();
+
+        // Verify Javadoc IS included
+        assertCodeContains(source, "/** Inline Javadoc on same line as code */", "Should include the Javadoc");
+
+        // Verify the preceding code is NOT included
+        assertFalse(source.contains("private int other"), "Should NOT include code from same line as Javadoc");
+        assertFalse(source.contains("= 1;"), "Should NOT include field initialization from same line");
     }
 }

@@ -6,7 +6,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.OverlayPanel;
 import ai.brokk.gui.dependencies.DependenciesPanel;
-import ai.brokk.gui.util.GitUiUtil;
+import ai.brokk.gui.util.GitHostUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.IProject;
 import java.awt.*;
@@ -48,6 +48,7 @@ public class ProjectFilesPanel extends JPanel {
     private AutoCompletion ac;
     private JSplitPane contentSplitPane;
     private boolean dependenciesVisible = false;
+    private final DeferredUpdateHelper deferredUpdateHelper;
 
     public ProjectFilesPanel(Chrome chrome, ContextManager contextManager, DependenciesPanel dependenciesPanel) {
         super(new BorderLayout(Constants.H_GAP, Constants.V_GAP));
@@ -97,6 +98,9 @@ public class ProjectFilesPanel extends JPanel {
 
         add(contentSplitPane, BorderLayout.CENTER);
 
+        // Deferred update helper for ProjectFilesPanel (defers refresh when not visible)
+        this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::refreshProjectFiles);
+
         // Initialize badge with current dependency count (also updates border title)
         int liveCount = chrome.getProject().getLiveDependencies().size();
         chrome.updateProjectFilesTabBadge(liveCount);
@@ -125,7 +129,7 @@ public class ProjectFilesPanel extends JPanel {
      * use this to ensure consistency.
      */
     public void updateBorderTitle() {
-        var branchName = GitUiUtil.getCurrentBranchName(project);
+        var branchName = GitHostUtil.getCurrentBranchName(project);
         int dependencyCount = chrome.getProject().getLiveDependencies().size();
         updateBorderTitle(branchName, dependencyCount);
     }
@@ -367,9 +371,10 @@ public class ProjectFilesPanel extends JPanel {
         chrome.updateCommitPanel();
     }
 
-    /** Updates the panel to reflect the current project state, including branch name in title. */
-    public void updatePanel() {
-        refreshProjectFiles();
+    /** Updates the panel to reflect the current project state, including branch name in title.
+     *  This defers the actual refresh when the panel is not visible. */
+    public void requestUpdate() {
+        deferredUpdateHelper.requestUpdate();
     }
 
     // Public getters for focus traversal policy
@@ -402,22 +407,35 @@ public class ProjectFilesPanel extends JPanel {
             return true; // Always allow autocomplete popup
         }
 
+        /**
+         * Preserves the computed ranking from Completions.scoreProjectFiles by returning
+         * the results from getCompletionsImpl directly. DefaultCompletionProvider#getCompletions
+         * applies additional sorting that would override our project-aware ordering; returning
+         * the pre-ranked list avoids that and keeps the UI consistent with our scorer.
+         */
+        @Override
+        public List<Completion> getCompletions(JTextComponent comp) {
+            return getCompletionsImpl(comp);
+        }
+
         @Override
         protected List<Completion> getCompletionsImpl(JTextComponent comp) {
             String pattern = getAlreadyEnteredText(comp);
+            var minLength = 2;
             if (pattern.isEmpty() || !project.hasGit()) {
                 return Collections.emptyList();
             }
 
             Set<ProjectFile> candidates = project.getRepo().getTrackedFiles();
 
-            var scoredCompletions = Completions.scoreShortAndLong(
+            var scoredCompletions = Completions.scoreProjectFiles(
                     pattern,
+                    project,
                     candidates,
                     ProjectFile::getFileName,
                     pf -> pf.getRelPath().toString(),
-                    pf -> 0,
-                    this::createProjectFileCompletion);
+                    this::createProjectFileCompletion,
+                    minLength);
 
             return scoredCompletions.stream().map(c -> (Completion) c).collect(Collectors.toList());
         }

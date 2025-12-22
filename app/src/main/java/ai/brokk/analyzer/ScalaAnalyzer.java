@@ -12,20 +12,24 @@ import org.treesitter.TreeSitterScala;
 public class ScalaAnalyzer extends TreeSitterAnalyzer {
 
     public ScalaAnalyzer(IProject project) {
-        super(project, Languages.SCALA);
+        this(project, ProgressListener.NOOP);
     }
 
-    private ScalaAnalyzer(IProject project, AnalyzerState state) {
-        super(project, Languages.SCALA, state);
+    public ScalaAnalyzer(IProject project, ProgressListener listener) {
+        super(project, Languages.SCALA, listener);
     }
 
-    public static ScalaAnalyzer fromState(IProject project, AnalyzerState state) {
-        return new ScalaAnalyzer(project, state);
+    private ScalaAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
+        super(project, Languages.SCALA, state, listener);
+    }
+
+    public static ScalaAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+        return new ScalaAnalyzer(project, state, listener);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state) {
-        return new ScalaAnalyzer(getProject(), state);
+    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+        return new ScalaAnalyzer(getProject(), state, listener);
     }
 
     @Override
@@ -45,9 +49,15 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected @Nullable CodeUnit createCodeUnit(
-            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
+            ProjectFile file,
+            String captureName,
+            String simpleName,
+            String packageName,
+            String classChain,
+            List<ScopeSegment> scopeChain,
+            @Nullable TSNode definitionNode,
+            SkeletonType skeletonType) {
         var effectiveSimpleName = simpleName;
-        var skeletonType = getSkeletonTypeForCapture(captureName);
 
         if (CaptureNames.CONSTRUCTOR_DEFINITION.equals(captureName)) {
             // This is a primary constructor, which is matched against the class name. This constructor is "implicit"
@@ -91,9 +101,14 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src) {
+    protected String determinePackageName(
+            ProjectFile file, TSNode definitionNode, TSNode rootNode, SourceContent sourceContent) {
         return JavaAnalyzer.determineJvmPackageName(
-                rootNode, src, PACKAGE_CLAUSE, SCALA_SYNTAX_PROFILE.classLikeNodeTypes(), this::textSlice);
+                rootNode,
+                sourceContent,
+                PACKAGE_CLAUSE,
+                SCALA_SYNTAX_PROFILE.classLikeNodeTypes(),
+                (node, sourceContent1) -> sourceContent1.substringFromBytes(node.getStartByte(), node.getEndByte()));
     }
 
     @Override
@@ -103,7 +118,11 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String renderClassHeader(
-            TSNode classNode, String src, String exportPrefix, String signatureText, String baseIndent) {
+            TSNode classNode,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String signatureText,
+            String baseIndent) {
         return signatureText + " {"; // For consistency with closers, we need to open with Scala 2-style braces
     }
 
@@ -115,7 +134,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String renderFunctionDeclaration(
             TSNode funcNode,
-            String src,
+            SourceContent sourceContent,
             String exportAndModifierPrefix,
             String asyncPrefix,
             String functionName,
@@ -128,7 +147,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
             var nodeKind = funcNode.getFieldNameForChild(i);
             var child = funcNode.getChild(i);
             if ("parameters".equals(nodeKind)) {
-                paramSb.append(textSlice(child, src));
+                paramSb.append(sourceContent.substringFromBytes(child.getStartByte(), child.getEndByte()));
             }
         }
         var allParamsText = paramSb.toString();
@@ -164,9 +183,8 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
             Set.of("modifiers") // modifier node types
             );
 
-    // TODO
     @Override
-    public Optional<String> extractClassName(String reference) {
-        return Optional.empty();
+    public Optional<String> extractCallReceiver(String reference) {
+        return ClassNameExtractor.extractForScala(reference);
     }
 }

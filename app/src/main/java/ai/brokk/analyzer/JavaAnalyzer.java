@@ -23,24 +23,28 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     private static final String LAMBDA_EXPRESSION = "lambda_expression";
 
     public JavaAnalyzer(IProject project) {
-        super(project, Languages.JAVA);
+        this(project, ProgressListener.NOOP);
     }
 
-    private JavaAnalyzer(IProject project, AnalyzerState state) {
-        super(project, Languages.JAVA, state);
+    public JavaAnalyzer(IProject project, ProgressListener listener) {
+        super(project, Languages.JAVA, listener);
     }
 
-    public static JavaAnalyzer fromState(IProject project, AnalyzerState state) {
-        return new JavaAnalyzer(project, state);
+    private JavaAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
+        super(project, Languages.JAVA, state, listener);
+    }
+
+    public static JavaAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+        return new JavaAnalyzer(project, state, listener);
     }
 
     @Override
-    protected IAnalyzer newSnapshot(AnalyzerState state) {
-        return new JavaAnalyzer(getProject(), state);
+    protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+        return new JavaAnalyzer(getProject(), state, listener);
     }
 
     @Override
-    public Optional<String> extractClassName(String reference) {
+    public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForJava(reference);
     }
 
@@ -91,10 +95,16 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected @Nullable CodeUnit createCodeUnit(
-            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
+            ProjectFile file,
+            String captureName,
+            String simpleName,
+            String packageName,
+            String classChain,
+            List<ScopeSegment> scopeChain,
+            @Nullable TSNode definitionNode,
+            SkeletonType skeletonType) {
         final String shortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
 
-        var skeletonType = getSkeletonTypeForCapture(captureName);
         var type =
                 switch (skeletonType) {
                     case CLASS_LIKE -> CodeUnitType.CLASS;
@@ -112,17 +122,22 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src) {
+    protected String determinePackageName(
+            ProjectFile file, TSNode definitionNode, TSNode rootNode, SourceContent sourceContent) {
         return determineJvmPackageName(
-                rootNode, src, PACKAGE_DECLARATION, JAVA_SYNTAX_PROFILE.classLikeNodeTypes(), this::textSlice);
+                rootNode,
+                sourceContent,
+                PACKAGE_DECLARATION,
+                JAVA_SYNTAX_PROFILE.classLikeNodeTypes(),
+                (node, sourceContent1) -> sourceContent1.substringFrom(node));
     }
 
     protected static String determineJvmPackageName(
             TSNode rootNode,
-            String src,
+            SourceContent sourceContent,
             String packageDef,
             Set<String> classLikeNodeType,
-            BiFunction<TSNode, String, String> textSlice) {
+            BiFunction<TSNode, SourceContent, String> textSlice) {
         // Packages are either present or not, and will be the immediate child of the `program`
         // if they are present at all
         final List<String> namespaceParts = new ArrayList<>();
@@ -144,7 +159,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             for (int i = 0; i < maybeDeclaration.getNamedChildCount(); i++) {
                 final TSNode nameNode = maybeDeclaration.getNamedChild(i);
                 if (nameNode != null && !nameNode.isNull()) {
-                    String nsPart = textSlice.apply(nameNode, src);
+                    String nsPart = textSlice.apply(nameNode, sourceContent);
                     namespaceParts.add(nsPart);
                 }
             }
@@ -155,7 +170,11 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String renderClassHeader(
-            TSNode classNode, String src, String exportPrefix, String signatureText, String baseIndent) {
+            TSNode classNode,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String signatureText,
+            String baseIndent) {
         return signatureText + " {";
     }
 
@@ -167,7 +186,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String renderFunctionDeclaration(
             TSNode funcNode,
-            String src,
+            SourceContent sourceContent,
             String exportAndModifierPrefix,
             String asyncPrefix,
             String functionName,
@@ -187,7 +206,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
 
         var throwsNode = funcNode.getChildByFieldName("throws");
         if (throwsNode != null) {
-            signature += " " + textSlice(throwsNode, src);
+            signature += " " + sourceContent.substringFrom(throwsNode);
         }
 
         return signature;
@@ -196,7 +215,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String formatFieldSignature(
             TSNode fieldNode,
-            String src,
+            SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
             String baseIndent,
@@ -204,7 +223,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         if (ENUM_CONSTANT.equals(fieldNode.getType())) {
             return formatEnumConstant(fieldNode, signatureText, baseIndent);
         }
-        return super.formatFieldSignature(fieldNode, src, exportPrefix, signatureText, baseIndent, file);
+        return super.formatFieldSignature(fieldNode, sourceContent, exportPrefix, signatureText, baseIndent, file);
     }
 
     private String formatEnumConstant(TSNode fieldNode, String signatureText, String baseIndent) {
@@ -308,19 +327,20 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected Optional<String> extractSimpleName(TSNode decl, String src) {
+    protected Optional<String> extractSimpleName(TSNode decl, SourceContent sourceContent) {
         // Special handling for Java lambdas: synthesize a bytecode-style anonymous name
         if (LAMBDA_EXPRESSION.equals(decl.getType())) {
-            var enclosingMethod = findEnclosingJavaMethodOrClassName(decl, src).orElse("lambda");
+            var enclosingMethod =
+                    findEnclosingJavaMethodOrClassName(decl, sourceContent).orElse("lambda");
             int line = decl.getStartPoint().getRow();
             int col = decl.getStartPoint().getColumn();
             String synthesized = enclosingMethod + "$anon$" + line + ":" + col;
             return Optional.of(synthesized);
         }
-        return super.extractSimpleName(decl, src);
+        return super.extractSimpleName(decl, sourceContent);
     }
 
-    private Optional<String> findEnclosingJavaMethodOrClassName(TSNode node, String src) {
+    private Optional<String> findEnclosingJavaMethodOrClassName(TSNode node, SourceContent sourceContent) {
         // Walk up to nearest method or constructor
         TSNode current = node.getParent();
         while (current != null && !current.isNull()) {
@@ -328,7 +348,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             if (METHOD_DECLARATION.equals(type) || CONSTRUCTOR_DECLARATION.equals(type)) {
                 TSNode nameNode = current.getChildByFieldName("name");
                 if (nameNode != null && !nameNode.isNull()) {
-                    String name = textSlice(nameNode, src).strip();
+                    String name = sourceContent.substringFrom(nameNode).strip();
                     if (!name.isEmpty()) {
                         return Optional.of(name);
                     }
@@ -344,7 +364,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             if (isClassLike(current)) {
                 TSNode nameNode = current.getChildByFieldName("name");
                 if (nameNode != null && !nameNode.isNull()) {
-                    String cls = textSlice(nameNode, src).strip();
+                    String cls = sourceContent.substringFrom(nameNode).strip();
                     if (!cls.isEmpty()) {
                         return Optional.of(cls);
                     }
@@ -554,7 +574,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected List<String> extractRawSupertypesForClassLike(
-            CodeUnit cu, TSNode classNode, String signature, String src) {
+            CodeUnit cu, TSNode classNode, String signature, SourceContent sourceContent) {
         // Aggregate all @type.super captures for the same @type.decl across all matches.
         // Previously only the first match was considered, which dropped additional interfaces.
         var query = getThreadLocalQuery();
@@ -601,7 +621,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
 
         List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
         for (TSNode s : aggregateSuperNodes) {
-            String text = textSlice(s, src).strip();
+            String text = sourceContent.substringFrom(s).strip();
             if (!text.isEmpty()) {
                 supers.add(text);
             }

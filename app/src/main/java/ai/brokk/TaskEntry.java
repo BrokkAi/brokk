@@ -2,7 +2,7 @@ package ai.brokk;
 
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessage;
 import java.util.List;
@@ -11,28 +11,60 @@ import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Represents a single task interaction for the Task History, including the user request ("description") and the full
- * LLM message log. The log can be compressed to save context space while retaining the most relevant information.
+ * Represents a single task interaction for the Task History, including the user request and the full LLM message log.
+ * The log can be compressed to save context space while retaining the most relevant information.
+ * Both `log` (original messages) and `summary` can coexist: when present, the AI sees the summary,
+ * but the UI prefers to render the full log messages with a visual indicator.
  *
  * @param sequence A unique sequence number for ordering tasks.
- * @param log The uncompressed list of chat messages for this task. Null if compressed.
- * @param summary The compressed representation of the chat messages (summary). Null if uncompressed.
+ * @param log The uncompressed list of chat messages for this task. Null if not available.
+ * @param summary The compressed representation of the chat messages. Null if not available.
+ * @param meta Optional metadata (task type, model config) associated with this task entry.
  */
 public record TaskEntry(
         int sequence,
-        @Nullable ContextFragment.TaskFragment log,
+        @Nullable ContextFragments.TaskFragment log,
         @Nullable String summary,
         @Nullable TaskResult.TaskMeta meta) {
 
-    /** Enforce that exactly one of log or summary is non-null */
+    /** Enforce that at least one of log or summary is non-null */
     public TaskEntry {
-        assert (log == null) != (summary == null) : "Exactly one of log or summary must be non-null";
-        assert summary == null || !summary.isEmpty();
+        assert (log != null) || (summary != null) : "At least one of log or summary must be non-null";
+        assert summary == null || !summary.isEmpty() : "summary must not be empty when present";
     }
 
     // Backward-compatible overload for existing call-sites (pre-meta)
-    public TaskEntry(int sequence, @Nullable ContextFragment.TaskFragment log, @Nullable String summary) {
+    public TaskEntry(int sequence, @Nullable ContextFragments.TaskFragment log, @Nullable String summary) {
         this(sequence, log, summary, null);
+    }
+
+    /**
+     * Returns a copy with the given non-empty summary attached. Preserves sequence, log and meta.
+     * If the summary is unchanged, returns this.
+     *
+     * @param newSummary non-empty summary text
+     * @return a new TaskEntry with the provided summary
+     */
+    public TaskEntry withSummary(String newSummary) {
+        assert !newSummary.isEmpty() : "summary must not be empty";
+        if (summary != null && summary.equals(newSummary)) {
+            return this;
+        }
+        return new TaskEntry(sequence, log, newSummary, meta);
+    }
+
+    /**
+     * Returns true if this TaskEntry holds an original message log.
+     */
+    public boolean hasLog() {
+        return log != null;
+    }
+
+    /**
+     * Returns true if this TaskEntry has a summary that the AI should use.
+     */
+    public boolean isCompressed() {
+        return summary != null;
     }
 
     /**
@@ -52,16 +84,7 @@ public record TaskEntry(
         return new TaskEntry(sequence, null, compressedLog, null);
     }
 
-    /**
-     * Returns true if this TaskEntry holds a compressed summary instead of the full message log.
-     *
-     * @return true if compressed, false otherwise.
-     */
-    public boolean isCompressed() {
-        return summary != null;
-    }
-
-    /** Provides a string representation suitable for logging or context display. */
+    /** Provides a string representation suitable for logging or context display. => what the AI sees */
     @Override
     public String toString() {
         if (isCompressed()) {

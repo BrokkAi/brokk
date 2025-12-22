@@ -11,6 +11,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -43,7 +44,7 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
         var cs = new CodeAgent.ConversationState(List.of(), null, 0, "");
 
         var es = new CodeAgent.EditState(
-                List.of(badSemanticBlock), // pendingBlocks
+                new LinkedHashSet<>(List.of(badSemanticBlock)), // pendingBlocks
                 0, // consecutiveParseFailures
                 0, // consecutiveApplyFailures
                 0, // consecutiveBuildFailures
@@ -115,7 +116,7 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
                         .stripIndent());
 
         var cs = new CodeAgent.ConversationState(new ArrayList<>(), null, 0, "");
-        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 0, "", Set.of(), Map.of(), Map.of(), false);
+        var es = new CodeAgent.EditState(new LinkedHashSet<>(), 0, 0, 0, 0, "", Set.of(), Map.of(), Map.of(), false);
 
         // parsePhase
         var parseStep = codeAgent.parsePhase(cs, es, llmText, false, EditBlockParser.instance, null);
