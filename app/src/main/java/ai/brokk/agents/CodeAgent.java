@@ -318,7 +318,18 @@ public class CodeAgent {
                 context = context.addFragments(newFrags);
             }
 
-            // Refresh context fragments for any files that were modified (so LLM sees current contents)
+            // Refresh analyzer + context fragments for any files that were modified (so LLM sees current contents)
+            try {
+                contextManager
+                        .getAnalyzerWrapper()
+                        .updateFiles(es.changedFiles())
+                        .get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                continue; // let main loop interruption check handle
+            } catch (ExecutionException e) {
+                throw new RuntimeException(e);
+            }
             context = context.copyAndRefresh(es.changedFiles(), "CodeAgent Changes");
 
             if (applyOutcome instanceof Step.Retry retryApply) {
@@ -723,7 +734,7 @@ public class CodeAgent {
             }
             var buildPrompt =
                     """
-                    The build failed.
+                    The build or tests failed.
                     Please analyze the error message, review the conversation history for previous attempts,
                     and provide SEARCH/REPLACE blocks to fix all the errors and warnings in service of the original goal.
                     <build_output>

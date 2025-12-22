@@ -140,6 +140,7 @@ class ContextTest {
         assertTrue(ctx2.isMarkedReadonly(codeFrag), "Read-only state should be tracked");
     }
 
+    @Test
     void testRemoveFragmentsClearsReadOnlyAndAllowsReAdd() throws Exception {
         var pf = new ProjectFile(tempDir, "src/Rm.java");
         Files.createDirectories(pf.absPath().getParent());

@@ -80,23 +80,6 @@ public abstract class CodePrompts {
             </persistence>
             """;
 
-    /** Formats the most recent build error for the LLM retry prompt. */
-    @Blocking
-    public static String buildFeedbackPrompt(Context context) {
-        var cf = context.getBuildFragment().orElseThrow();
-        return """
-                The build failed with the error visible in the Workspace. Please refer to
-                fragment id %s, "%s".
-
-                Please analyze the error message, review the conversation history for previous attempts, and provide SEARCH/REPLACE blocks to fix all the errors and warnings.
-
-                IMPORTANT: If you determine that the build errors are not improving or are going in circles after reviewing the history,
-                do your best to explain the problem but DO NOT provide any edits.
-                Otherwise, provide the edits as usual.
-                """
-                .formatted(cf.id(), cf.description().join());
-    }
-
     @Blocking
     public static Set<InstructionsFlags> instructionsFlags(Context ctx) {
         return instructionsFlags(ctx.getEditableFragments()
