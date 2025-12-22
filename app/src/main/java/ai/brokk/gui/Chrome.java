@@ -2756,15 +2756,6 @@ public class Chrome
         }
     }
 
-    public void refreshTaskListUI() {
-        // Terminal drawer removed — bring the Tasks tab to front instead.
-        SwingUtilities.invokeLater(() -> {
-            int idx = rightTabbedPanel.indexOfTab("Tasks");
-            if (idx != -1) rightTabbedPanel.setSelectedIndex(idx);
-            taskListPanel.refreshFromManager();
-        });
-    }
-
     /**
      * Schedules the build settings dialog to show after initialization completes.
      * Uses OnboardingOrchestrator to determine which dialogs are needed and

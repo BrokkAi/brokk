@@ -6,7 +6,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.TrackedFileChangeListener;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.util.ContextSizeGuard;
@@ -145,7 +145,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                     && treeNode.getFile().isFile()) {
                 ProjectFile projectFile = getProjectFileFromNode(node);
                 if (projectFile != null) {
-                    var fragment = new ContextFragment.ProjectPathFragment(projectFile, contextManager);
+                    var fragment = new ContextFragments.ProjectPathFragment(projectFile, contextManager);
                     chrome.openFragmentPreview(fragment);
                 }
             }
@@ -276,7 +276,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             JMenuItem viewItem = new JMenuItem("View");
             viewItem.addActionListener(ev -> {
                 ProjectFile file = targetFiles.getFirst();
-                var fragment = new ContextFragment.ProjectPathFragment(file, contextManager);
+                var fragment = new ContextFragments.ProjectPathFragment(file, contextManager);
                 chrome.openFragmentPreview(fragment);
             });
             contextMenu.add(viewItem);

@@ -2,7 +2,7 @@ package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import dev.langchain4j.data.message.AiMessage;
@@ -28,7 +28,7 @@ public class ContextCompressionTest {
     @BeforeEach
     void setup() throws IOException {
         contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
-        ContextFragment.setMinimumId(1);
+        ContextFragments.setMinimumId(1);
     }
 
     @Test
@@ -37,7 +37,7 @@ public class ContextCompressionTest {
         List<ChatMessage> messages = List.of(
                 UserMessage.from("What is the capital of France?"), AiMessage.from("The capital of France is Paris."));
 
-        var taskFragment = new ContextFragment.TaskFragment(contextManager, messages, "Geography Question");
+        var taskFragment = new ContextFragments.TaskFragment(contextManager, messages, "Geography Question");
         var originalEntry = new TaskEntry(1, taskFragment, null);
 
         // Verify initial state: has log, no summary
@@ -63,7 +63,7 @@ public class ContextCompressionTest {
     @Test
     void testCompressionPreservesSequenceAndMetadata() {
         List<ChatMessage> messages = List.of(UserMessage.from("Test"));
-        var taskFragment = new ContextFragment.TaskFragment(contextManager, messages, "Test");
+        var taskFragment = new ContextFragments.TaskFragment(contextManager, messages, "Test");
         var meta = new TaskResult.TaskMeta(
                 TaskResult.Type.CODE,
                 new Service.ModelConfig("test-model", Service.ReasoningLevel.DEFAULT, Service.ProcessingTier.DEFAULT));
@@ -83,7 +83,7 @@ public class ContextCompressionTest {
         // If an entry is already summarized (has both log and summary),
         // it should be treated as already compressed and returned unchanged
         List<ChatMessage> messages = List.of(UserMessage.from("Test"));
-        var taskFragment = new ContextFragment.TaskFragment(contextManager, messages, "Test");
+        var taskFragment = new ContextFragments.TaskFragment(contextManager, messages, "Test");
         String summary = "Test summary";
 
         var alreadyCompressed = new TaskEntry(1, taskFragment, summary);
@@ -101,7 +101,7 @@ public class ContextCompressionTest {
         // Entry with only log, no summary: indicates it needs compression
         List<ChatMessage> messages = List.of(UserMessage.from("Hello"), AiMessage.from("Hi there!"));
 
-        var taskFragment = new ContextFragment.TaskFragment(contextManager, messages, "Greeting");
+        var taskFragment = new ContextFragments.TaskFragment(contextManager, messages, "Greeting");
         var logOnlyEntry = new TaskEntry(1, taskFragment, null);
 
         assertTrue(logOnlyEntry.hasLog(), "Should have log");
@@ -127,7 +127,7 @@ public class ContextCompressionTest {
         List<ChatMessage> messages =
                 List.of(UserMessage.from("Refactor this code"), AiMessage.from("Here's the refactored version..."));
 
-        var taskFragment = new ContextFragment.TaskFragment(contextManager, messages, "Code Refactor");
+        var taskFragment = new ContextFragments.TaskFragment(contextManager, messages, "Code Refactor");
         var meta = new TaskResult.TaskMeta(
                 TaskResult.Type.CODE,
                 new Service.ModelConfig("gpt-4", Service.ReasoningLevel.DEFAULT, Service.ProcessingTier.DEFAULT));
@@ -164,7 +164,7 @@ public class ContextCompressionTest {
         // (not the full messages, which are only for the UI)
         List<ChatMessage> messages = List.of(UserMessage.from("Question"), AiMessage.from("Answer"));
 
-        var taskFragment = new ContextFragment.TaskFragment(contextManager, messages, "Q&A");
+        var taskFragment = new ContextFragments.TaskFragment(contextManager, messages, "Q&A");
         String summary = "Q&A interaction";
         var compressedEntry = new TaskEntry(1, taskFragment, summary);
 
@@ -183,7 +183,7 @@ public class ContextCompressionTest {
     @Test
     void testCompressionStateTransitions() {
         List<ChatMessage> messages = List.of(UserMessage.from("Test"));
-        var taskFragment = new ContextFragment.TaskFragment(contextManager, messages, "Test");
+        var taskFragment = new ContextFragments.TaskFragment(contextManager, messages, "Test");
 
         // State 1: Log only (needs compression)
         var logOnly = new TaskEntry(1, taskFragment, null);

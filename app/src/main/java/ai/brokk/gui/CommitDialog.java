@@ -1,11 +1,12 @@
 package ai.brokk.gui;
 
-import ai.brokk.ContextManager;
+import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.dialogs.TextAreaConsoleIO;
+import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import java.awt.*;
 import java.util.Arrays;
@@ -24,7 +25,8 @@ public class CommitDialog extends BaseThemedDialog {
     private final JTextArea commitMessageArea;
     private final MaterialButton commitButton;
     private final MaterialButton cancelButton;
-    private final transient ContextManager contextManager;
+    private final MaterialButton regenerateButton;
+    private final transient IContextManager contextManager;
     private final transient GitWorkflow workflowService;
     private final transient List<ProjectFile> filesToCommit;
     private final transient Consumer<GitWorkflow.CommitResult> onCommitSuccessCallback;
@@ -33,7 +35,7 @@ public class CommitDialog extends BaseThemedDialog {
     public CommitDialog(
             @Nullable Window owner,
             Chrome chrome,
-            ContextManager contextManager,
+            IContextManager contextManager,
             GitWorkflow workflowService,
             List<ProjectFile> filesToCommit,
             Consumer<GitWorkflow.CommitResult> onCommitSuccessCallback) {
@@ -43,7 +45,7 @@ public class CommitDialog extends BaseThemedDialog {
     public CommitDialog(
             @Nullable Window owner,
             Chrome chrome,
-            ContextManager contextManager,
+            IContextManager contextManager,
             GitWorkflow workflowService,
             List<ProjectFile> filesToCommit,
             @Nullable String prefilledMessage,
@@ -66,6 +68,12 @@ public class CommitDialog extends BaseThemedDialog {
             commitMessageArea.setText(prefilledMessage);
         }
 
+        regenerateButton = new MaterialButton();
+        regenerateButton.setIcon(Icons.REFRESH);
+        regenerateButton.setToolTipText("Regenerate AI suggestion");
+        regenerateButton.setVisible(false); // Hidden until first generation completes
+        regenerateButton.addActionListener(e -> regenerateSuggestion());
+
         JScrollPane scrollPane = new JScrollPane(commitMessageArea);
 
         // Use MaterialButton so styling matches other dialogs; commit is primary (blue background + white text)
@@ -78,11 +86,12 @@ public class CommitDialog extends BaseThemedDialog {
         cancelButton.addActionListener(e -> dispose());
 
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        buttonPanel.add(regenerateButton);
         buttonPanel.add(cancelButton);
         buttonPanel.add(commitButton);
 
         // Add padding around the dialog content
-        JPanel contentPanel = new JPanel(new BorderLayout(0, 10));
+        JPanel contentPanel = new JPanel(new BorderLayout(0, 5));
         contentPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         contentPanel.add(scrollPane, BorderLayout.CENTER);
         contentPanel.add(buttonPanel, BorderLayout.SOUTH);
@@ -119,17 +128,21 @@ public class CommitDialog extends BaseThemedDialog {
         if (prefilledMessage == null || prefilledMessage.isEmpty()) {
             initiateCommitMessageSuggestion();
         } else {
+            regenerateButton.setVisible(true); // Show regenerate for prefilled messages
             commitMessageArea.requestFocusInWindow();
             checkCommitButtonState();
         }
     }
 
     private void checkCommitButtonState() {
-        // Never enable the commit button while an LLM suggestion is actively streaming.
+        // Never enable the commit or regenerate button while an LLM suggestion is actively streaming.
         if (streamingSuggestionInProgress) {
             commitButton.setEnabled(false);
+            regenerateButton.setEnabled(false);
             return;
         }
+
+        regenerateButton.setEnabled(commitMessageArea.isEnabled());
 
         if (commitMessageArea.isEnabled()) {
             String text = commitMessageArea.getText();
@@ -143,13 +156,24 @@ public class CommitDialog extends BaseThemedDialog {
 
     // True while an LLM commit suggestion is actively streaming into the text area.
     private volatile boolean streamingSuggestionInProgress = false;
+    private @Nullable SwingWorker<String, Void> currentWorker = null;
+
+    private void regenerateSuggestion() {
+        if (streamingSuggestionInProgress) return;
+
+        commitMessageArea.setText("");
+        commitMessageArea.setCaretPosition(0);
+        initiateCommitMessageSuggestion();
+    }
 
     private void initiateCommitMessageSuggestion() {
+        if (streamingSuggestionInProgress) return;
+
         // Mark streaming as in-progress so the commit button stays disabled until finished.
         streamingSuggestionInProgress = true;
         var streamingIO = new TextAreaConsoleIO(commitMessageArea, chrome, "Inferring commit message");
 
-        var worker = new ExceptionAwareSwingWorker<String, Void>(chrome) {
+        currentWorker = new ExceptionAwareSwingWorker<String, Void>(chrome) {
             @Override
             protected String doInBackground() throws Exception {
                 return workflowService.suggestCommitMessageStreaming(filesToCommit, false, streamingIO);
@@ -162,6 +186,7 @@ public class CommitDialog extends BaseThemedDialog {
                     get();
                     SwingUtilities.invokeLater(() -> {
                         streamingIO.onComplete();
+                        regenerateButton.setVisible(true); // Show after first successful generation
                         commitMessageArea.requestFocusInWindow();
                         commitMessageArea.setCaretPosition(0);
                         checkCommitButtonState();
@@ -177,12 +202,13 @@ public class CommitDialog extends BaseThemedDialog {
                 } finally {
                     // Clear streaming flag regardless of success/failure/cancel.
                     streamingSuggestionInProgress = false;
+                    currentWorker = null;
                     // Re-evaluate button state on the EDT to ensure UI consistency.
                     SwingUtilities.invokeLater(CommitDialog.this::checkCommitButtonState);
                 }
             }
         };
-        worker.execute();
+        currentWorker.execute();
     }
 
     private void performCommit() {
@@ -197,8 +223,9 @@ public class CommitDialog extends BaseThemedDialog {
         commitButton.setEnabled(false);
         cancelButton.setEnabled(false);
         commitMessageArea.setEnabled(false);
+        regenerateButton.setEnabled(false);
 
-        contextManager.submitExclusiveAction(() -> {
+        contextManager.submitBackgroundTask("Committing changes", () -> {
             try {
                 GitWorkflow.CommitResult result = workflowService.commit(filesToCommit, msg);
                 SwingUtilities.invokeLater(() -> {
@@ -215,6 +242,15 @@ public class CommitDialog extends BaseThemedDialog {
                     checkCommitButtonState(); // Re-check commit button state
                 });
             }
+            return null;
         });
+    }
+
+    @Override
+    public void dispose() {
+        if (currentWorker != null) {
+            currentWorker.cancel(true);
+        }
+        super.dispose();
     }
 }

@@ -5,7 +5,7 @@ import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.analyzer.BrokkFile;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.git.GitRepo;
@@ -1719,7 +1719,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
                 if (!descriptionText.isBlank()) {
                     try {
-                        var descriptionFragment = new ContextFragment.StringFragment(
+                        var descriptionFragment = new ContextFragments.StringFragment(
                                 contextManager,
                                 descriptionText,
                                 PrTitleFormatter.formatDescriptionTitle(prNumber),

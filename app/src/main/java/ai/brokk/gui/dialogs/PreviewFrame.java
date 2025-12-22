@@ -4,6 +4,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -150,8 +151,8 @@ public class PreviewFrame extends JFrame implements ThemeAware {
      */
     private boolean fragmentsMatch(ContextFragment existing, ContextFragment candidate) {
         // Content equality for string fragments
-        if (existing instanceof ContextFragment.StringFragment sfExisting
-                && candidate instanceof ContextFragment.StringFragment sfCandidate) {
+        if (existing instanceof ContextFragments.StringFragment sfExisting
+                && candidate instanceof ContextFragments.StringFragment sfCandidate) {
             String textA = sfExisting.text().renderNowOrNull();
             String textB = sfCandidate.text().renderNowOrNull();
             return Objects.equals(textA, textB);

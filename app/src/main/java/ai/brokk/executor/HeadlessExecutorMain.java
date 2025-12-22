@@ -8,6 +8,7 @@ import ai.brokk.SessionManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.jobs.JobSpec;
@@ -1194,8 +1195,8 @@ public final class HeadlessExecutorMain {
             for (var projectFile : addedFiles) {
                 var fragId = liveContext
                         .fileFragments()
-                        .filter(f -> f instanceof ai.brokk.context.ContextFragment.PathFragment)
-                        .map(f -> (ai.brokk.context.ContextFragment.PathFragment) f)
+                        .filter(f -> f instanceof ContextFragments.PathFragment)
+                        .map(f -> (ContextFragments.PathFragment) f)
                         .filter(p -> {
                             var bf = p.file();
                             if (!(bf instanceof ai.brokk.analyzer.ProjectFile)) {
@@ -1370,8 +1371,8 @@ public final class HeadlessExecutorMain {
             for (var className : validClassNames) {
                 var fragId = liveContext
                         .virtualFragments()
-                        .filter(f -> f instanceof ContextFragment.SummaryFragment)
-                        .map(f -> (ContextFragment.SummaryFragment) f)
+                        .filter(f -> f instanceof ContextFragments.SummaryFragment)
+                        .map(f -> (ContextFragments.SummaryFragment) f)
                         .filter(s -> s.getTargetIdentifier().contains(className))
                         .map(ContextFragment::id)
                         .findFirst()
@@ -1486,7 +1487,7 @@ public final class HeadlessExecutorMain {
             var addedMethods = new ArrayList<AddedContextMethod>();
 
             for (var methodName : validMethodNames) {
-                var fragment = new ContextFragment.CodeFragment(contextManager, methodName);
+                var fragment = new ContextFragments.CodeFragment(contextManager, methodName);
                 contextManager.addFragments(fragment);
                 addedMethods.add(new AddedContextMethod(fragment.id(), methodName));
             }

@@ -3,7 +3,7 @@ package ai.brokk.gui.git;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.SettingsChangeListener;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.AutoScalingHtmlPane;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.Constants;
@@ -1251,7 +1251,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 IssueDetails details = issueService.loadDetails(header.id());
 
                 List<ChatMessage> issueTextMessages = buildIssueTextContentFromDetails(details);
-                ContextFragment.TaskFragment issueTextFragment =
+                ContextFragments.TaskFragment issueTextFragment =
                         createIssueTextFragmentFromDetails(details, issueTextMessages);
                 contextManager.addFragments(issueTextFragment);
 
@@ -1310,11 +1310,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         return List.of(UserMessage.from(header.author(), content));
     }
 
-    private ContextFragment.TaskFragment createIssueTextFragmentFromDetails(
+    private ContextFragments.TaskFragment createIssueTextFragmentFromDetails(
             IssueDetails details, List<ChatMessage> messages) {
         IssueHeader header = details.header();
         String description = String.format("Issue %s: %s", header.id(), header.title());
-        return new ContextFragment.TaskFragment(this.contextManager, messages, description, false);
+        return new ContextFragments.TaskFragment(this.contextManager, messages, description, false);
     }
 
     private List<ChatMessage> buildChatMessagesFromDtoComments(List<Comment> dtoComments) {
@@ -1335,11 +1335,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         return chatMessages;
     }
 
-    private ContextFragment.TaskFragment createCommentsFragmentFromDetails(
+    private ContextFragments.TaskFragment createCommentsFragmentFromDetails(
             IssueDetails details, List<ChatMessage> commentMessages) {
         IssueHeader header = details.header();
         String description = String.format("Issue %s: Comments", header.id());
-        return new ContextFragment.TaskFragment(this.contextManager, commentMessages, description, false);
+        return new ContextFragments.TaskFragment(this.contextManager, commentMessages, description, false);
     }
 
     private int processAndCaptureImagesFromDetails(IssueDetails details) {

@@ -12,7 +12,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.prompts.CodePrompts;
@@ -92,9 +92,9 @@ public class CodeAgent {
     }
 
     /** Implicitly includes the DEFER_BUILD option. */
-    public TaskResult runSingleFileEdit(ProjectFile file, String instructions, List<ChatMessage> readOnlyMessages) {
+    public TaskResult execute(ProjectFile file, String instructions, List<ChatMessage> readOnlyMessages) {
         var ctx = new Context(contextManager)
-                .addFragments(List.of(new ContextFragment.ProjectPathFragment(file, contextManager)));
+                .addFragments(List.of(new ContextFragments.ProjectPathFragment(file, contextManager)));
 
         contextManager.getAnalyzerWrapper().pause();
         try {
@@ -109,7 +109,7 @@ public class CodeAgent {
      * @param userInput The user's goal/instructions.
      * @return A TaskResult containing the conversation history and original file contents
      */
-    public TaskResult runTask(String userInput, Set<Option> options) {
+    public TaskResult execute(String userInput, Set<Option> options) {
         // pause watching for external changes (so they don't get added to activity history while we're still making
         // changes);
         // this means that we're responsible for refreshing the analyzer when we make changes
@@ -298,7 +298,7 @@ public class CodeAgent {
                 }
 
                 var newFrags = newlyCreated.stream()
-                        .map(pf -> new ContextFragment.ProjectPathFragment(pf, contextManager))
+                        .map(pf -> new ContextFragments.ProjectPathFragment(pf, contextManager))
                         .collect(Collectors.toList());
                 context = context.addFragments(newFrags);
             }
@@ -1558,7 +1558,7 @@ public class CodeAgent {
             logger.warn("Interrupted while waiting for contexts to be computed", e);
         }
         var readonlyPaths = ctx.getMarkedReadonlyFragments()
-                .filter(cf -> cf instanceof ContextFragment.ProjectPathFragment)
+                .filter(cf -> cf instanceof ContextFragments.ProjectPathFragment)
                 .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())
                 .collect(Collectors.toSet());
         var editableAll = ctx.getEditableFragments()

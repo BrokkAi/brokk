@@ -9,7 +9,8 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.context.ContextFragment.SummaryFragment;
+import ai.brokk.context.ContextFragments;
+import ai.brokk.context.ContextFragments.SummaryFragment;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
@@ -52,7 +53,7 @@ public class ContextAgentSummariesIntegrationTest {
 
         List<ContextFragment> pathFragments = files.stream()
                 .filter(pf -> !existingFiles.contains(pf))
-                .map(f -> (ContextFragment) new ContextFragment.ProjectPathFragment(f, cm))
+                .map(f -> (ContextFragment) new ContextFragments.ProjectPathFragment(f, cm))
                 .toList();
 
         List<ContextFragment> out = new ArrayList<>(summaryFragments.size() + pathFragments.size());
@@ -89,7 +90,7 @@ public class ContextAgentSummariesIntegrationTest {
                 .map(f -> (SummaryFragment) f)
                 .toList();
 
-        String combined = SummaryFragment.combinedText(summaryFragments);
+        String combined = ContextFragments.SummaryFragment.combinedText(summaryFragments);
 
         assertTrue(combined.contains("class Foo"));
         assertFalse(combined.contains("$anon$"));
