@@ -13,6 +13,7 @@ import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.ExceptionAwareSwingWorker;
 import ai.brokk.gui.SwingUtil;
+import ai.brokk.gui.components.FuzzyComboBox;
 import ai.brokk.gui.components.GitHubAppInstallLabel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.MaterialLoadingButton;
@@ -30,6 +31,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -47,8 +49,12 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     private final Chrome chrome;
     private final ContextManager contextManager;
     private final GitWorkflow workflowService;
-    private JComboBox<String> sourceBranchComboBox;
-    private JComboBox<String> targetBranchComboBox;
+    @Nullable
+    private JPanel branchSelectorPanel;
+    @Nullable
+    private FuzzyComboBox<String> sourceBranchComboBox;
+    @Nullable
+    private FuzzyComboBox<String> targetBranchComboBox;
     private JTextField titleField;
     private JTextArea descriptionArea;
     private JLabel descriptionHintLabel; // Hint for description generation source
@@ -227,15 +233,14 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
 
     private JPanel createBranchSelectorPanel() {
         var branchPanel = new JPanel(new GridBagLayout());
+        this.branchSelectorPanel = branchPanel;
+
+        // FuzzyComboBox instances will be created in populateBranchDropdowns() after branch data is loaded
+        // For now, just set up the flow label and warning label
+
         var row = 0;
-
-        // Create combo boxes first
-        targetBranchComboBox = new JComboBox<>();
-        sourceBranchComboBox = new JComboBox<>();
-
-        // Then add them to the panel
-        row = addBranchSelectorToPanel(branchPanel, "Target branch:", targetBranchComboBox, row);
-        row = addBranchSelectorToPanel(branchPanel, "Source branch:", sourceBranchComboBox, row);
+        // Reserve rows 0 and 1 for branch selectors (will be added by populateBranchDropdowns)
+        row = 2;
 
         this.branchFlowLabel = createBranchFlowIndicator(branchPanel, row); // Assign to field
         row++;
@@ -258,7 +263,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         return branchPanel;
     }
 
-    private int addBranchSelectorToPanel(JPanel parent, String labelText, JComboBox<String> comboBox, int row) {
+    private int addBranchSelectorToPanel(JPanel parent, String labelText, FuzzyComboBox<String> comboBox, int row) {
         var gbc = createGbc(0, row);
         parent.add(new JLabel(labelText), gbc);
 
@@ -309,8 +314,9 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     /** Simple immutable holder for commits and changed files between two branches. */
     // Fix the UnnecessaryLambda warning by implementing updateBranchFlow as a method
     private void updateBranchFlow() {
-        var target = (String) targetBranchComboBox.getSelectedItem();
-        var source = (String) sourceBranchComboBox.getSelectedItem();
+        assert targetBranchComboBox != null && sourceBranchComboBox != null;
+        var target = targetBranchComboBox.getSelectedItem();
+        var source = sourceBranchComboBox.getSelectedItem();
         if (target != null && source != null) {
             String text = target + " ← " + source + " (" + currentCommits.size() + " commits)";
             if (sourceBranchNeedsPush && unpushedCommitCount > 0) {
@@ -330,7 +336,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     }
 
     private void setupBranchListeners() {
-        ActionListener branchChangedListener = e -> {
+        Consumer<String> branchChangedListener = branch -> {
             // Immediately update flow label for responsiveness before async refresh.
             this.currentCommits = Collections.emptyList();
             this.sourceBranchNeedsPush = false;
@@ -339,8 +345,12 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
             // Full UI update, including button state, will be handled by refreshCommitList.
             refreshCommitList();
         };
-        targetBranchComboBox.addActionListener(branchChangedListener);
-        sourceBranchComboBox.addActionListener(branchChangedListener);
+
+        assert targetBranchComboBox != null;
+        assert sourceBranchComboBox != null;
+
+        targetBranchComboBox.setSelectionChangeListener(branchChangedListener);
+        sourceBranchComboBox.setSelectionChangeListener(branchChangedListener);
     }
 
     private void updateCommitRelatedUI(
@@ -357,8 +367,9 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     private void refreshCommitList() {
         this.mergeBaseCommit = null; // Ensure merge base is reset for each refresh
 
-        var sourceBranch = (String) sourceBranchComboBox.getSelectedItem();
-        var targetBranch = (String) targetBranchComboBox.getSelectedItem();
+        assert sourceBranchComboBox != null && targetBranchComboBox != null;
+        var sourceBranch = sourceBranchComboBox.getSelectedItem();
+        var targetBranch = targetBranchComboBox.getSelectedItem();
 
         if (sourceBranch == null || targetBranch == null) {
             updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), "Select branches");
@@ -452,8 +463,9 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
 
     private List<String> getCreatePrBlockers() {
         var blockers = new ArrayList<String>();
-        var sourceBranch = (String) sourceBranchComboBox.getSelectedItem();
-        var targetBranch = (String) targetBranchComboBox.getSelectedItem();
+        assert sourceBranchComboBox != null && targetBranchComboBox != null;
+        var sourceBranch = sourceBranchComboBox.getSelectedItem();
+        var targetBranch = targetBranchComboBox.getSelectedItem();
 
         if (currentCommits.isEmpty()) {
             blockers.add("No commits to include in the pull request.");
@@ -565,6 +577,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
 
             // If caller asked for a specific source branch, honour it *after*
             // defaults have been applied (so this wins).
+            assert sourceBranchComboBox != null;
             if (preselectedSourceBranch != null && sourceBranches.contains(preselectedSourceBranch)) {
                 sourceBranchComboBox.setSelectedItem(preselectedSourceBranch);
             }
@@ -599,13 +612,26 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     }
 
     private void populateBranchDropdowns(List<String> targetBranches, List<String> sourceBranches) {
-        targetBranchComboBox.setModel(new DefaultComboBoxModel<>(targetBranches.toArray(new String[0])));
-        sourceBranchComboBox.setModel(new DefaultComboBoxModel<>(sourceBranches.toArray(new String[0])));
+        // Create FuzzyComboBox instances with branch data
+        targetBranchComboBox = FuzzyComboBox.forStrings(targetBranches);
+        sourceBranchComboBox = FuzzyComboBox.forStrings(sourceBranches);
+
+        // Add to panel
+        assert branchSelectorPanel != null;
+        int row = 0;
+        row = addBranchSelectorToPanel(branchSelectorPanel, "Target branch:", targetBranchComboBox, row);
+        row = addBranchSelectorToPanel(branchSelectorPanel, "Source branch:", sourceBranchComboBox, row);
+
+        // Refresh UI
+        branchSelectorPanel.revalidate();
+        branchSelectorPanel.repaint();
     }
 
     private void setDefaultBranchSelections(
             GitRepo gitRepo, List<String> targetBranches, List<String> sourceBranches, List<String> localBranches)
             throws GitAPIException {
+        assert targetBranchComboBox != null && sourceBranchComboBox != null;
+
         var defaultTarget = findDefaultTargetBranch(targetBranches);
         if (defaultTarget != null) {
             targetBranchComboBox.setSelectedItem(defaultTarget);
@@ -627,6 +653,8 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
 
     private void selectDefaultSourceBranch(GitRepo gitRepo, List<String> sourceBranches, List<String> localBranches)
             throws GitAPIException {
+        assert sourceBranchComboBox != null;
+
         var currentBranch = gitRepo.getCurrentBranch();
         if (sourceBranches.contains(currentBranch)) {
             sourceBranchComboBox.setSelectedItem(currentBranch);
@@ -744,8 +772,9 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                 final String title = titleField.getText().trim();
                 final String body = descriptionArea.getText().trim();
                 // Removed duplicate declarations of title and body
-                final String sourceBranch = (String) sourceBranchComboBox.getSelectedItem();
-                final String targetBranch = (String) targetBranchComboBox.getSelectedItem();
+                assert sourceBranchComboBox != null && targetBranchComboBox != null;
+                final String sourceBranch = sourceBranchComboBox.getSelectedItem();
+                final String targetBranch = targetBranchComboBox.getSelectedItem();
 
                 // Ensure selectedItem calls are safe
                 if (sourceBranch == null || targetBranch == null) {
@@ -797,8 +826,9 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                 SwingUtilities.invokeLater(() -> {
                     String message;
                     if (GitHubErrorUtil.isNoCommitsBetweenError(ex)) {
-                        var sourceBranch = (String) sourceBranchComboBox.getSelectedItem();
-                        var targetBranch = (String) targetBranchComboBox.getSelectedItem();
+                        assert sourceBranchComboBox != null && targetBranchComboBox != null;
+                        var sourceBranch = sourceBranchComboBox.getSelectedItem();
+                        var targetBranch = targetBranchComboBox.getSelectedItem();
                         var base = targetBranch != null ? targetBranch : "the target branch";
                         var head = sourceBranch != null ? sourceBranch : "the source branch";
                         message = GitHubErrorUtil.formatNoCommitsBetweenError(base, head);
@@ -881,7 +911,8 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         }
 
         // Get the source branch for right-side content (committed content, not working tree)
-        var sourceBranch = (String) sourceBranchComboBox.getSelectedItem();
+        assert sourceBranchComboBox != null;
+        var sourceBranch = sourceBranchComboBox.getSelectedItem();
         if (sourceBranch == null) {
             return new DiffService.CumulativeChanges(0, 0, 0, List.of());
         }
