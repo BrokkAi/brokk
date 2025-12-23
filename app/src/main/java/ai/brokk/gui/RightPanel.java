@@ -9,6 +9,7 @@ import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
+import java.util.UUID;
 import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
@@ -155,10 +156,35 @@ public class RightPanel extends JPanel implements ThemeAware {
                 .reversed());
         for (var s : sessions) model.addElement(s);
 
+        // Pre-populate counts map with placeholder; load actual counts async
+        var taskCounts = new java.util.concurrent.ConcurrentHashMap<UUID, Integer>();
+        for (var s : sessions) {
+            taskCounts.put(s.id(), -1); // -1 means "loading"
+        }
+
         var list = new JList<ai.brokk.SessionManager.SessionInfo>(model);
         list.setVisibleRowCount(Math.min(8, Math.max(3, model.getSize())));
         list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        list.setCellRenderer(new SessionInfoRenderer());
+
+        // Critical: set prototype and fixed height BEFORE setting renderer
+        // This prevents Swing from rendering all cells just to compute sizes
+        if (!model.isEmpty()) {
+            list.setPrototypeCellValue(model.getElementAt(0));
+        }
+        list.setFixedCellHeight(36);
+
+        list.setCellRenderer(new SessionInfoRenderer(taskCounts));
+
+        // Load counts asynchronously and repaint as each completes
+        var sessionManager = contextManager.getProject().getSessionManager();
+        for (var s : sessions) {
+            var sessionId = s.id();
+            contextManager.getBackgroundTasks().submit(() -> {
+                int count = sessionManager.countAiResponses(sessionId);
+                taskCounts.put(sessionId, count);
+                SwingUtilities.invokeLater(list::repaint);
+            });
+        }
 
         var currentSessionId = contextManager.getCurrentSessionId();
         for (int i = 0; i < model.getSize(); i++) {
@@ -220,27 +246,32 @@ public class RightPanel extends JPanel implements ThemeAware {
         });
     }
 
-    private class SessionInfoRenderer extends JPanel implements ListCellRenderer<ai.brokk.SessionManager.SessionInfo> {
+    private static class SessionInfoRenderer extends JPanel
+            implements ListCellRenderer<ai.brokk.SessionManager.SessionInfo> {
         private final JLabel nameLabel = new JLabel();
         private final JLabel timeLabel = new JLabel();
         private final JLabel countLabel = new JLabel();
-        private final JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, Constants.H_GAP, 0));
+        private final java.util.Map<UUID, Integer> taskCounts;
 
-        SessionInfoRenderer() {
-            setLayout(new BorderLayout());
+        SessionInfoRenderer(java.util.Map<UUID, Integer> taskCounts) {
+            this.taskCounts = taskCounts;
+            setLayout(new BorderLayout(0, 2));
             setOpaque(true);
+            setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
 
-            var baseSize = timeLabel.getFont().getSize2D();
-            timeLabel.setFont(timeLabel.getFont().deriveFont(Math.max(10f, baseSize - 2f)));
-            countLabel.setFont(timeLabel.getFont());
+            var baseSize = nameLabel.getFont().getSize2D();
+            var smallFont = nameLabel.getFont().deriveFont(Math.max(10f, baseSize - 2f));
+            timeLabel.setFont(smallFont);
+            countLabel.setFont(smallFont);
 
-            row2.setOpaque(false);
-            row2.setBorder(BorderFactory.createEmptyBorder(0, Constants.H_GAP, 0, 0));
-            row2.add(timeLabel);
-            row2.add(countLabel);
+            // Simple two-row layout: name on top, time + count on bottom
+            var bottomRow = new JPanel(new BorderLayout(Constants.H_GAP, 0));
+            bottomRow.setOpaque(false);
+            bottomRow.add(timeLabel, BorderLayout.WEST);
+            bottomRow.add(countLabel, BorderLayout.EAST);
 
             add(nameLabel, BorderLayout.NORTH);
-            add(row2, BorderLayout.CENTER);
+            add(bottomRow, BorderLayout.SOUTH);
         }
 
         @Override
@@ -250,6 +281,7 @@ public class RightPanel extends JPanel implements ThemeAware {
                 int index,
                 boolean isSelected,
                 boolean cellHasFocus) {
+            // For combo box display (index == -1), return simple label
             if (index == -1) {
                 var label = new JLabel(value.name());
                 label.setOpaque(false);
@@ -258,14 +290,17 @@ public class RightPanel extends JPanel implements ThemeAware {
                 return label;
             }
 
+            // Populate from in-memory data only - no blocking calls
             nameLabel.setText(value.name());
             var instant = java.time.Instant.ofEpochMilli(value.modified());
             timeLabel.setText(ai.brokk.gui.util.GitDiffUiUtil.formatRelativeDate(
                     instant, java.time.LocalDate.now(java.time.ZoneId.systemDefault())));
 
-            int cnt = contextManager.getProject().getSessionManager().countAiResponses(value.id());
-            countLabel.setText(String.format("%d %s", cnt, cnt == 1 ? "task" : "tasks"));
+            // Read pre-computed count; -1 means still loading
+            int cnt = taskCounts.getOrDefault(value.id(), -1);
+            countLabel.setText(cnt < 0 ? "..." : String.format("%d %s", cnt, cnt == 1 ? "task" : "tasks"));
 
+            // Apply selection colors
             var bg = isSelected ? list.getSelectionBackground() : list.getBackground();
             var fg = isSelected ? list.getSelectionForeground() : list.getForeground();
 
