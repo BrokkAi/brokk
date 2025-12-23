@@ -427,7 +427,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         this.sessionsSyncActive = !project.getRepo().isWorktree()
                 && MainProject.getProxySetting() != MainProject.LlmProxySetting.LOCALHOST
-                && !MainProject.getBrokkKey().isBlank();
+                && !MainProject.getBrokkKey().isBlank()
+                && !project.getRemoteProjectName().isBlank();
 
         // Load saved context history or create a new one
         var contextTask =

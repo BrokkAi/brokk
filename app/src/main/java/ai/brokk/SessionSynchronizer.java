@@ -5,7 +5,6 @@ import ai.brokk.SessionManager.SessionInfo;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.project.IProject;
-import ai.brokk.project.MainProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -93,15 +92,7 @@ class SessionSynchronizer {
 
     public void synchronize() {
         try {
-            String key = MainProject.getBrokkKey();
-            if (key.isBlank()) {
-                return;
-            }
-
             String remoteProject = project.getRemoteProjectName();
-            if (remoteProject.isBlank()) {
-                return;
-            }
 
             List<RemoteSessionMeta> remoteMetas = syncCallbacks.listRemoteSessions(remoteProject);
             Files.createDirectories(sessionsDir);
