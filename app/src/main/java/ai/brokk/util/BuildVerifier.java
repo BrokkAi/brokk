@@ -73,7 +73,9 @@ public final class BuildVerifier {
                     trimmed,
                     root,
                     line -> {
-                        appendBounded(lines, line);
+                        synchronized (lines) {
+                            appendBounded(lines, line);
+                        }
                         if (outputConsumer != null) {
                             outputConsumer.accept(line);
                         }
@@ -81,18 +83,37 @@ public final class BuildVerifier {
                     Environment.DEFAULT_TIMEOUT,
                     execCfg,
                     env);
-            return new VerificationResult(true, 0, joinLines(lines));
+
+            String output;
+            synchronized (lines) {
+                output = joinLines(lines);
+            }
+            return new VerificationResult(true, 0, output);
         } catch (Environment.FailureException e) {
-            String output = lines.isEmpty() ? boundOutput(String.join("\n", e.getMessage(), e.getOutput())) : joinLines(lines);
+            String output;
+            synchronized (lines) {
+                output = lines.isEmpty()
+                        ? boundOutput(String.join("\n", e.getMessage(), e.getOutput()))
+                        : joinLines(lines);
+            }
             logger.debug("Command verification failed with exit code {}: {}", e.getExitCode(), e.getMessage());
             return new VerificationResult(false, e.getExitCode(), output);
         } catch (Environment.SubprocessException e) {
-            String output = lines.isEmpty() ? boundOutput(String.join("\n", e.getMessage(), e.getOutput())) : joinLines(lines);
+            String output;
+            synchronized (lines) {
+                output = lines.isEmpty()
+                        ? boundOutput(String.join("\n", e.getMessage(), e.getOutput()))
+                        : joinLines(lines);
+            }
             logger.debug("Command verification errored: {}", e.getMessage());
             return new VerificationResult(false, -1, output);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return new VerificationResult(false, -1, "Interrupted while running command:\n" + joinLines(lines));
+            String output;
+            synchronized (lines) {
+                output = joinLines(lines);
+            }
+            return new VerificationResult(false, -1, "Interrupted while running command:\n" + output);
         }
     }
 
