@@ -276,6 +276,7 @@ public final class WorktreeProject extends AbstractProject {
     /**
      * Returns true if this worktree contains no analyzable source files.
      */
+    @Override
     public boolean isEmptyProject() {
         Set<String> analyzableExtensions = Languages.ALL_LANGUAGES.stream()
                 .filter(lang -> lang != Languages.NONE)
