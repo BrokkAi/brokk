@@ -490,8 +490,8 @@ public abstract class CodePrompts {
      */
     public static ApplyRetryMessages buildApplyRetryMessages(
             String originalAiText, List<EditBlock.ApplyResult> blockResults, @Nullable String buildError) {
-
         var failures = blockResults.stream().filter(r -> !r.succeeded()).toList();
+        assert !failures.isEmpty();
 
         // Build the tagged AI message
         var taggedText =
@@ -508,60 +508,56 @@ public abstract class CodePrompts {
         sb.append("<instructions>\n");
         sb.append("# SEARCH/REPLACE application results\n\n");
 
-        if (failures.isEmpty()) {
-            sb.append("All blocks applied successfully.\n");
-        } else {
-            sb.append("Some blocks failed to apply. Your previous response has been updated with BRK_BLOCK_N markers ");
-            sb.append(
-                    "to help you identify which blocks failed. Please review the current file state and provide corrected blocks.\n\n");
-        }
-
-        if (buildError != null && !buildError.isBlank()) {
-            sb.append("Reminder: the build is currently failing; the details are in the conversation history.\n");
-        }
+        sb.append("""
+                  Some blocks failed to apply. Your previous response has been updated with BRK_BLOCK_N markers
+                  to help you identify which blocks failed. Please review the current file state and provide corrected blocks.
+                  """);
 
         sb.append("</instructions>\n\n");
 
-        if (!failures.isEmpty()) {
-            // Track original block indices (1-based) for each failure
-            record IndexedFailure(EditBlock.ApplyResult result, int blockIndex) {}
-            var indexedFailures = new ArrayList<IndexedFailure>();
-            for (int i = 0; i < blockResults.size(); i++) {
-                var r = blockResults.get(i);
-                if (!r.succeeded()) {
-                    indexedFailures.add(new IndexedFailure(r, i + 1));
-                }
+        // Track original block indices (1-based) for each failure
+        record IndexedFailure(EditBlock.ApplyResult result, int blockIndex) {}
+        var indexedFailures = new ArrayList<IndexedFailure>();
+        for (int i = 0; i < blockResults.size(); i++) {
+            var r = blockResults.get(i);
+            if (!r.succeeded()) {
+                indexedFailures.add(new IndexedFailure(r, i + 1));
             }
-
-            var failuresByFile = indexedFailures.stream()
-                    .filter(f -> f.result().block().rawFileName() != null)
-                    .collect(Collectors.groupingBy(
-                            f -> requireNonNull(f.result().block().rawFileName())));
-
-            String fileDetails = failuresByFile.entrySet().stream()
-                    .map(entry -> {
-                        var filename = entry.getKey();
-                        var fileFailures = entry.getValue().stream()
-                                .sorted(java.util.Comparator.comparingInt(IndexedFailure::blockIndex))
-                                .toList();
-
-                        String failedBlocksList = fileFailures.stream()
-                                .map(f -> formatBlockFailure(f.result(), f.blockIndex()))
-                                .collect(Collectors.joining("\n\n"));
-
-                        return """
-                                <target_file name="%s">
-                                <failed_blocks>
-                                %s
-                                </failed_blocks>
-                                </target_file>
-                                """
-                                .formatted(filename, failedBlocksList);
-                    })
-                    .collect(Collectors.joining("\n\n"));
-
-            sb.append(fileDetails);
         }
+
+        var failuresByFile = indexedFailures.stream()
+                .filter(f -> f.result().block().rawFileName() != null)
+                .collect(Collectors.groupingBy(
+                        f -> requireNonNull(f.result().block().rawFileName())));
+
+        String fileDetails = failuresByFile.entrySet().stream()
+                .map(entry -> {
+                    var filename = entry.getKey();
+                    var fileFailures = entry.getValue().stream()
+                            .sorted(java.util.Comparator.comparingInt(IndexedFailure::blockIndex))
+                            .toList();
+
+                    String failedBlocksList = fileFailures.stream()
+                            .map(f -> formatBlockFailure(f.result(), f.blockIndex()))
+                            .collect(Collectors.joining("\n\n"));
+
+                    return """
+                            <target_file name="%s">
+                            <failed_blocks>
+                            %s
+                            </failed_blocks>
+                            </target_file>
+                            """
+                            .formatted(filename, failedBlocksList);
+                })
+                .collect(Collectors.joining("\n\n"));
+
+        sb.append(fileDetails);
+
+        if (buildError != null && !buildError.isBlank()) {
+            sb.append("<reminder>The build is currently failing; the details are in the conversation history.</reminder>\n");
+        }
+
 
         return new ApplyRetryMessages(
                 taggedAiMessage, new UserMessage(sb.toString().trim()));
