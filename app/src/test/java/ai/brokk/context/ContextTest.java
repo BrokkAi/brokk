@@ -357,16 +357,21 @@ class ContextTest {
         var stringFrag = new ContextFragments.StringFragment(
                 contextManager, "some text", "description", SyntaxConstants.SYNTAX_STYLE_NONE);
         ctx = ctx.addFragments(stringFrag);
+        // StringFragment.files() returns an empty set, so isFileContentEmpty should be true
         assertTrue(ctx.isFileContentEmpty(), "Context with only STRING fragments should report no file content");
     }
 
     @Test
     void testIsFileContentEmpty_withSummaryFragment() {
-        // SummaryFragment is type SKELETON which represents file content
+        // SummaryFragment is a computed fragment whose files() may not be immediately available
+        // Using the conservative approach: if tryGet() returns empty, we assume it MAY have content
+        // Use a class that exists in the test analyzer so it has actual files
         var summaryFrag = new ContextFragments.SummaryFragment(
-                contextManager, "com.example.SomeClass", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+                contextManager, "com.example.CodeFragmentTarget", ContextFragment.SummaryType.CODEUNIT_SKELETON);
         var ctx = new Context(contextManager).addFragments(summaryFrag);
-        assertFalse(ctx.isFileContentEmpty(), "Context with SKELETON fragment should have file content");
+        // SummaryFragment for an existing class should have files, so isFileContentEmpty() returns false
+        assertFalse(ctx.isFileContentEmpty(), 
+                "Context with SKELETON fragment should be treated as potentially having file content (conservative approach)");
     }
 
     @Test

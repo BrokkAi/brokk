@@ -283,7 +283,7 @@ public class SearchAgent {
         // Auto-scan upfront if workspace has no file content
         if (shouldAutomaticallyScan()) {
             logger.info("Auto-scanning: workspace has no file content");
-            performAutoScan();
+            performAutoScan(); // Throws InterruptedException if interrupted
         }
 
         // Create a per-turn WorkspaceTools instance bound to the agent-local Context
@@ -396,7 +396,7 @@ public class SearchAgent {
                     // Lazy scan: trigger on first search tool if not already scanned
                     if (shouldAutomaticallyScan() && isSearchTool(req.name())) {
                         logger.info("Lazy scan triggered by first search tool: {}", req.name());
-                        performAutoScan();
+                        performAutoScan(); // Throws InterruptedException if interrupted
                         // Continue to execute the tool with potentially updated workspace
                     }
 

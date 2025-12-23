@@ -553,15 +553,31 @@ public class Context {
      * Returns true if the workspace contains no file content.
      * Fragments may exist (STRING, TASK, HISTORY, etc.) but no actual file-based fragments
      * (PROJECT_PATH, GIT_FILE, EXTERNAL_PATH, IMAGE_FILE, etc.).
+     *
+     * Uses a conservative approach: treats file-based fragment types (SKELETON, CODE, etc.)
+     * as potentially having content even if their computed files set is currently empty or uncomputed.
      */
     public boolean isFileContentEmpty() {
         return fragments.stream().allMatch(f -> {
+            // Fragment types that inherently represent file-based content should be considered as having files
             var type = f.getType();
-            // These fragment types never contain file content
-            return type == ContextFragment.FragmentType.STRING
-                    || type == ContextFragment.FragmentType.TASK
-                    || type == ContextFragment.FragmentType.HISTORY
-                    || type == ContextFragment.FragmentType.BUILD_LOG;
+            if (type == ContextFragment.FragmentType.SKELETON
+                    || type == ContextFragment.FragmentType.CODE
+                    || type == ContextFragment.FragmentType.PROJECT_PATH
+                    || type == ContextFragment.FragmentType.GIT_FILE
+                    || type == ContextFragment.FragmentType.EXTERNAL_PATH
+                    || type == ContextFragment.FragmentType.IMAGE_FILE) {
+                return false; // These types represent file content
+            }
+            
+            // For other types, check the computed files set
+            var filesOpt = f.files().tryGet();
+            // If not yet computed, assume it may have file content (be conservative)
+            if (filesOpt.isEmpty()) {
+                return false; // Not empty - may have files
+            }
+            // If computed, check if the set is empty
+            return filesOpt.get().isEmpty();
         });
     }
 
