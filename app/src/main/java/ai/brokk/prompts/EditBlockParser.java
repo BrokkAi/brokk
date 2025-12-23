@@ -100,6 +100,13 @@ public class EditBlockParser {
                 var searchAtNextNext = (i + 2 < lines.length) && isSearch(lines[i + 2]);
 
                 if (searchAtNext || searchAtNextNext) {
+                    // Strip trailing newline from the last added line if it exists to avoid double spacing
+                    if (!outputLines.isEmpty()) {
+                        String last = outputLines.getLast();
+                        if (last.isEmpty() && outputLines.size() > 1) {
+                            outputLines.removeLast();
+                        }
+                    }
                     outputLines.add("[BRK_BLOCK_" + (blockCounter++) + "]");
                     outputLines.add(lines[i]);
                     i++;

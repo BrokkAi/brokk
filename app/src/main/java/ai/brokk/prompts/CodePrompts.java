@@ -461,36 +461,27 @@ public abstract class CodePrompts {
         return new UserMessage(text);
     }
 
-    /** Generates a message based on parse/apply errors from failed edit blocks */
+    /** Generates a message based on application results of tagged edit blocks. */
     public static String getApplyFailureMessage(List<EditBlock.FailedBlock> failedBlocks, int succeededCount) {
         if (failedBlocks.isEmpty()) {
             return "";
         }
 
-        // Group failed blocks by filename
+        // We assume the failedBlocks provided are a subset of the total blocks sent,
+        // but since we don't have the original total list here, we rely on the commentary
+        // or caller logic to identify which block index failed.
+        // For now, we will use the indices provided within the FailedBlock if available,
+        // or just list the failures.
+        
+        var sb = new StringBuilder();
+        sb.append("<instructions>\n");
+        sb.append("# SEARCH/REPLACE application results\n\n");
+        sb.append("Some blocks failed to apply. Please review the current file state and provide corrected blocks.\n\n");
+        sb.append("</instructions>\n\n");
+
         var failuresByFile = failedBlocks.stream()
-                .filter(fb -> fb.block().rawFileName() != null) // Only include blocks with filenames
+                .filter(fb -> fb.block().rawFileName() != null)
                 .collect(Collectors.groupingBy(fb -> fb.block().rawFileName()));
-
-        int totalFailCount = failedBlocks.size();
-        boolean singularFail = (totalFailCount == 1);
-        var pluralizeFail = singularFail ? "" : "s";
-
-        // Instructions for the LLM
-        String instructions =
-                """
-                        <instructions>
-                        # %d SEARCH/REPLACE block%s failed to match in %d files!
-
-                        Take a look at the CURRENT state of the relevant file%s provided above in the editable Workspace.
-                        If the failed edits listed in the `<failed_blocks>` tags are still needed, please correct them based on the current content.
-                        Remember that SEARCH/REPLACE ignores leading and trailing whitespace, so look for material, non-whitespace mismatches.
-                        If the SEARCH text looks correct, double-check the filename too.
-
-                        Provide corrected SEARCH/REPLACE blocks for the failed edits only.
-                        </instructions>
-                        """
-                        .formatted(totalFailCount, pluralizeFail, failuresByFile.size(), pluralizeFail);
 
         String fileDetails = failuresByFile.entrySet().stream()
                 .map(entry -> {
@@ -512,8 +503,8 @@ public abstract class CodePrompts {
                                         <failed_block reason="%s">
                                         <block>
                                         %s
-                                        %s
                                         </block>
+                                        %s
                                         </failed_block>
                                         """
                                         .formatted(f.reason(), f.block().repr(), commentaryText);
@@ -532,28 +523,9 @@ public abstract class CodePrompts {
                 })
                 .collect(Collectors.joining("\n\n"));
 
-        // Add info about successful blocks, if any
-        String successNote = "";
-        if (succeededCount > 0) {
-            boolean singularSuccess = (succeededCount == 1);
-            var pluralizeSuccess = singularSuccess ? "" : "s";
-            successNote =
-                    """
-                            <note>
-                            The other %d SEARCH/REPLACE block%s applied successfully. Do not re-send them. Just fix the failing blocks detailed above.
-                            </note>
-                            """
-                            .formatted(succeededCount, pluralizeSuccess);
-        }
+        sb.append(fileDetails);
 
-        // Construct the full message for the LLM
-        return """
-                %s
-
-                %s
-                %s
-                """
-                .formatted(instructions, fileDetails, successNote);
+        return sb.toString().trim();
     }
 
     /**
