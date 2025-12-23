@@ -88,8 +88,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private final MaterialButton redoButton;
     private final MaterialButton compressButton;
 
-    private final SplitButton sessionNameLabel;
-    private final MaterialButton newSessionButton;
     private ResetArrowLayerUI arrowLayerUI;
 
     @Nullable
@@ -118,10 +116,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private JPanel activityTabsContainer;
 
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
-    private JPanel outputTabsContainer;
-
-    // Session header panel (exposed so Chrome can reparent in vertical layout)
-    private JPanel sessionHeaderPanel;
+    private JPanel llmOutputContainer;
 
     @Nullable
     private JTextArea captureDescriptionArea;
@@ -230,121 +225,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         this.compressButton = new MaterialButton();
         this.notificationAreaPanel = buildNotificationAreaPanel();
 
-        // Initialize new session button early (used by buildCaptureOutputPanel)
-        this.newSessionButton = new MaterialButton();
-        this.newSessionButton.setToolTipText("Create a new session");
-        this.newSessionButton.addActionListener(e -> {
-            contextManager
-                    .createSessionAsync(ContextManager.DEFAULT_SESSION_NAME)
-                    .thenRun(() -> contextManager.getProject().getMainProject().sessionsListChanged());
-        });
-        // Set the "+" icon asynchronously (keeps EDT responsive for lookups)
-        SwingUtilities.invokeLater(() -> this.newSessionButton.setIcon(Icons.ADD));
-
-        // Session selector split button (dropdown only)
-        this.sessionNameLabel = new SplitButton("");
-        this.sessionNameLabel.setUnifiedHover(true);
-        this.sessionNameLabel.setMenuSupplier(() -> {
-            var popup = new JPopupMenu();
-
-            // Build the sessions list model
-            var model = new DefaultListModel<SessionInfo>();
-            var sessions = contextManager.getProject().getSessionManager().listSessions();
-            sessions.sort(Comparator.comparingLong(SessionInfo::modified).reversed());
-            for (var s : sessions) model.addElement(s);
-
-            var list = new JList<SessionInfo>(model);
-            this.sessionsList = list;
-            int visibleRowCount = Math.min(8, Math.max(3, model.getSize()));
-            list.setVisibleRowCount(visibleRowCount);
-            list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-            list.setCellRenderer(new SessionInfoRenderer());
-            // Prototype for efficient cell sizing - avoids calling renderer on all cells.
-            // Name content doesn't affect width (scroll pane is fixed at 360px), just need non-empty for height.
-            list.setPrototypeCellValue(
-                    new SessionInfo(UUID.randomUUID(), "X", System.currentTimeMillis(), System.currentTimeMillis()));
-
-            // Select current session in the list
-            var currentSessionId = contextManager.getCurrentSessionId();
-            for (int i = 0; i < model.getSize(); i++) {
-                if (model.getElementAt(i).id().equals(currentSessionId)) {
-                    list.setSelectedIndex(i);
-                    break;
-                }
-            }
-
-            // Mouse click: switch session and close popup
-            list.addMouseListener(new MouseAdapter() {
-                @Override
-                public void mouseClicked(MouseEvent e) {
-                    var sel = list.getSelectedValue();
-                    if (sel == null) return;
-                    UUID current = contextManager.getCurrentSessionId();
-                    if (!sel.id().equals(current)) {
-                        contextManager
-                                .switchSessionAsync(sel.id())
-                                .thenRun(() -> updateSessionComboBox())
-                                .exceptionally(ex -> {
-                                    logger.debug("Session switch rejected", ex);
-                                    SwingUtilities.invokeLater(HistoryOutputPanel.this::updateSessionComboBox);
-                                    return null;
-                                });
-                    }
-                    Component c = list;
-                    while (c != null && !(c instanceof JPopupMenu)) {
-                        c = c.getParent();
-                    }
-                    if (c instanceof JPopupMenu popupOwner) {
-                        popupOwner.setVisible(false);
-                    }
-                }
-            });
-
-            // Enter key: switch session and close popup
-            list.addKeyListener(new java.awt.event.KeyAdapter() {
-                @Override
-                public void keyPressed(KeyEvent e) {
-                    if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-                        var sel = list.getSelectedValue();
-                        if (sel == null) return;
-                        UUID current = contextManager.getCurrentSessionId();
-                        if (!sel.id().equals(current)) {
-                            contextManager
-                                    .switchSessionAsync(sel.id())
-                                    .thenRun(() -> updateSessionComboBox())
-                                    .exceptionally(ex -> {
-                                        logger.debug("Session switch rejected", ex);
-                                        SwingUtilities.invokeLater(HistoryOutputPanel.this::updateSessionComboBox);
-                                        return null;
-                                    });
-                        }
-                        Component c = list;
-                        while (c != null && !(c instanceof JPopupMenu)) {
-                            c = c.getParent();
-                        }
-                        if (c instanceof JPopupMenu popupOwner) {
-                            popupOwner.setVisible(false);
-                        }
-                    }
-                }
-            });
-
-            var scroll = new JScrollPane(list);
-            scroll.setBorder(BorderFactory.createEmptyBorder());
-            scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-            int prefWidth = 360;
-            int rowHeight = list.getFont().getSize() + 6;
-            int prefHeight = Math.min(list.getVisibleRowCount() * rowHeight, 8 * rowHeight);
-            int available = getAvailableSpaceBelow(sessionNameLabel);
-            int cappedHeight = Math.min(prefHeight, available);
-            scroll.setPreferredSize(new Dimension(prefWidth, cappedHeight));
-
-            popup.add(scroll);
-            chrome.getThemeManager().registerPopupMenu(popup);
-            return popup;
-        });
-        this.sessionNameLabel.addActionListener(e -> this.sessionNameLabel.showPopupMenuInternal());
-
         var centerPanel = buildCombinedOutputInstructionsPanel(this.llmScrollPane, this.copyButton);
 
         // Initialize notification persistence and load saved notifications
@@ -368,22 +248,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         var activityPanel = buildActivityPanel(this.historyTable, this.undoButton, this.redoButton);
 
-        // Ensure session label under Output is initialized
-        updateSessionComboBox();
-
-        // Create header panel with all controls in a simple horizontal layout
-        this.sessionHeaderPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        sessionHeaderPanel.setOpaque(true);
-        var titledBorder = BorderFactory.createTitledBorder("Session");
-        var paddingBorder = BorderFactory.createEmptyBorder(0, 8, 0, 8);
-        sessionHeaderPanel.setBorder(BorderFactory.createCompoundBorder(titledBorder, paddingBorder));
-
-        sessionHeaderPanel.add(newSessionButton);
-        sessionHeaderPanel.add(new VerticalDivider());
-
-        sessionNameLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
-        sessionHeaderPanel.add(sessionNameLabel);
-
         // Wrap activity panel in a tabbed pane with single "Activity" tab
         activityTabs = new JTabbedPane(JTabbedPane.TOP);
         activityTabs.addTab("Activity", activityPanel);
@@ -393,10 +257,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Create center container with both tab panels
         activityTabsContainer = new JPanel(new BorderLayout(Constants.H_GAP, 0));
         activityTabsContainer.add(centerPanel, BorderLayout.CENTER);
-        activityTabsContainer.add(activityTabs, BorderLayout.EAST);
 
-        // Main layout: header at top, center container in center
-        add(sessionHeaderPanel, BorderLayout.NORTH);
+        // Main layout: activityTabsContainer (containing centerPanel and activityTabs)
         add(activityTabsContainer, BorderLayout.CENTER);
 
         // Set minimum sizes for the main panel
@@ -463,7 +325,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         var centerContainer = new JPanel(new BorderLayout());
         centerContainer.add(outputPanel, BorderLayout.CENTER);
         centerContainer.setMinimumSize(new Dimension(480, 0)); // Minimum width for output area
-        outputTabsContainer = centerContainer;
+        llmOutputContainer = centerContainer;
 
         return centerContainer;
     }
@@ -484,7 +346,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      * It is safe to call from non-EDT threads because this method schedules work via
      * {@link SwingUtilities#invokeLater(Runnable)}.
      */
-    public void updateSessionComboBox() {
+    void updateSessionComboBox(SplitButton label) {
         SwingUtilities.invokeLater(() -> {
             var sessions = contextManager.getProject().getSessionManager().listSessions();
             sessions.sort(Comparator.comparingLong(SessionInfo::modified).reversed());
@@ -503,9 +365,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             }
 
             final String fullName = labelText;
-            sessionNameLabel.setText(fullName);
-            sessionNameLabel.setToolTipText(fullName);
-            sessionNameLabel.revalidate();
+            label.setText(fullName);
+            label.setToolTipText(fullName);
+            label.revalidate();
         });
     }
 
@@ -788,7 +650,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         newSessionFromWorkspaceItem.addActionListener(event -> {
             contextManager
                     .createSessionFromContextAsync(context, ContextManager.DEFAULT_SESSION_NAME)
-                    .thenRun(() -> updateSessionComboBox())
+                    .thenRun(() -> chrome.getBuildPane().updateSessionComboBox())
                     .exceptionally(ex -> {
                         chrome.toolError("Failed to create new session from workspace: " + ex.getMessage());
                         return null;
@@ -1015,20 +877,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return activityTabs;
     }
 
-    public @Nullable JTabbedPane getOutputTabs() {
-        return outputTabs;
-    }
-
     public JPanel getActivityTabsContainer() {
         return activityTabsContainer;
     }
 
-    public JPanel getOutputTabsContainer() {
-        return outputTabsContainer;
-    }
-
-    public JPanel getSessionHeaderPanel() {
-        return sessionHeaderPanel;
+    public JPanel getLlmOutputContainer() {
+        return llmOutputContainer;
     }
 
     /**
@@ -1778,8 +1632,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     // Simple container for notifications
-    private static class VerticalDivider extends JPanel {
-        VerticalDivider() {
+    static class VerticalDivider extends JPanel {
+        public VerticalDivider() {
             setOpaque(false);
             setPreferredSize(new Dimension(2, 32));
             setMinimumSize(new Dimension(2, 32));
@@ -3045,7 +2899,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
     }
 
-    private class SessionInfoRenderer extends JPanel implements ListCellRenderer<SessionInfo> {
+    class SessionInfoRenderer extends JPanel implements ListCellRenderer<SessionInfo> {
         private final JLabel nameLabel = new JLabel();
         private final JLabel timeLabel = new JLabel();
         private final JLabel countLabel = new JLabel();

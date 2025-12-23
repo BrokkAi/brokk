@@ -31,6 +31,10 @@ public class BuildPane extends JPanel implements ThemeAware {
     private final TaskListPanel taskListPanel;
     private final TerminalPanel terminalPanel;
 
+    private final JPanel sessionHeaderPanel;
+    private final ai.brokk.gui.components.SplitButton sessionNameLabel;
+    private final ai.brokk.gui.components.MaterialButton newSessionButton;
+
     private final JSplitPane buildSplitPane;
     private final JTabbedPane buildReviewTabs;
     private PreviewTabbedPane previewTabbedPane;
@@ -56,6 +60,26 @@ public class BuildPane extends JPanel implements ThemeAware {
         this.contextManager = contextManager;
 
         historyOutputPanel = new HistoryOutputPanel(chrome, contextManager);
+
+        // Session header components
+        newSessionButton = new ai.brokk.gui.components.MaterialButton();
+        newSessionButton.setToolTipText("Create a new session");
+        newSessionButton.addActionListener(e -> {
+            contextManager
+                    .createSessionAsync(ContextManager.DEFAULT_SESSION_NAME)
+                    .thenRun(() -> contextManager.getProject().getMainProject().sessionsListChanged());
+        });
+        SwingUtilities.invokeLater(() -> newSessionButton.setIcon(ai.brokk.gui.util.Icons.ADD));
+
+        sessionNameLabel = new ai.brokk.gui.components.SplitButton("");
+        sessionNameLabel.setUnifiedHover(true);
+        sessionNameLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
+        sessionNameLabel.setMenuSupplier(() -> createSessionMenu());
+        sessionNameLabel.addActionListener(e -> sessionNameLabel.showPopupMenuInternal());
+
+        sessionHeaderPanel = createSessionHeader();
+        updateSessionComboBox();
+
         instructionsPanel = new InstructionsPanel(chrome);
         taskListPanel = new TaskListPanel(chrome);
         terminalPanel =
@@ -112,8 +136,72 @@ public class BuildPane extends JPanel implements ThemeAware {
         // Set up tab change listeners (must be after buildReviewTabs is created)
         setupCommandPaneLogic();
 
-        add(historyOutputPanel.getSessionHeaderPanel(), BorderLayout.NORTH);
+        add(sessionHeaderPanel, BorderLayout.NORTH);
         add(buildReviewTabs, BorderLayout.CENTER);
+    }
+
+    private JPanel createSessionHeader() {
+        var header = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        header.setOpaque(true);
+        var titledBorder = BorderFactory.createTitledBorder("Session");
+        var paddingBorder = BorderFactory.createEmptyBorder(0, 8, 0, 8);
+        header.setBorder(BorderFactory.createCompoundBorder(titledBorder, paddingBorder));
+
+        header.add(newSessionButton);
+        header.add(new HistoryOutputPanel.VerticalDivider());
+        header.add(sessionNameLabel);
+        return header;
+    }
+
+    private JPopupMenu createSessionMenu() {
+        var popup = new JPopupMenu();
+        var model = new DefaultListModel<ai.brokk.SessionManager.SessionInfo>();
+        var sessions = contextManager.getProject().getSessionManager().listSessions();
+        sessions.sort(java.util.Comparator.comparingLong(ai.brokk.SessionManager.SessionInfo::modified).reversed());
+        for (var s : sessions) model.addElement(s);
+
+        var list = new JList<ai.brokk.SessionManager.SessionInfo>(model);
+        list.setVisibleRowCount(Math.min(8, Math.max(3, model.getSize())));
+        list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        list.setCellRenderer(historyOutputPanel.new SessionInfoRenderer());
+
+        var currentSessionId = contextManager.getCurrentSessionId();
+        for (int i = 0; i < model.getSize(); i++) {
+            if (model.getElementAt(i).id().equals(currentSessionId)) {
+                list.setSelectedIndex(i);
+                break;
+            }
+        }
+
+        var listener = new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                var sel = list.getSelectedValue();
+                if (sel != null && !sel.id().equals(contextManager.getCurrentSessionId())) {
+                    contextManager.switchSessionAsync(sel.id())
+                            .thenRun(() -> updateSessionComboBox())
+                            .exceptionally(ex -> {
+                                SwingUtilities.invokeLater(() -> updateSessionComboBox());
+                                return null;
+                            });
+                }
+                if (SwingUtilities.getAncestorOfClass(JPopupMenu.class, list) instanceof JPopupMenu p) {
+                    p.setVisible(false);
+                }
+            }
+        };
+        list.addMouseListener(listener);
+
+        var scroll = new JScrollPane(list);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setPreferredSize(new java.awt.Dimension(360, 200));
+        popup.add(scroll);
+        chrome.getThemeManager().registerPopupMenu(popup);
+        return popup;
+    }
+
+    public void updateSessionComboBox() {
+        historyOutputPanel.updateSessionComboBox(sessionNameLabel);
     }
 
     /**
@@ -278,30 +366,27 @@ public class BuildPane extends JPanel implements ThemeAware {
     public void applyVerticalActivityLayout() {
         boolean enabled = GlobalUiSettings.isVerticalActivityLayout();
         var activityTabs = historyOutputPanel.getActivityTabs();
-        var outputTabsContainer = historyOutputPanel.getOutputTabsContainer();
-        outputTabsContainer.setVisible(!enabled);
 
         if (enabled) {
             if (verticalActivityCombinedPanel == null) {
-                var sessionHeader = historyOutputPanel.getSessionHeaderPanel();
                 var leftTopPanel = new JPanel(new BorderLayout());
-                leftTopPanel.add(sessionHeader, BorderLayout.NORTH);
                 leftTopPanel.add(activityTabs, BorderLayout.CENTER);
 
                 var leftSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, leftTopPanel, commandPanel);
                 leftSplit.setResizeWeight(0.4);
 
                 verticalActivityCombinedPanel = new JSplitPane(
-                        JSplitPane.HORIZONTAL_SPLIT, leftSplit, historyOutputPanel.getOutputTabsContainer());
+                        JSplitPane.HORIZONTAL_SPLIT, leftSplit, historyOutputPanel.getLlmOutputContainer());
                 verticalActivityCombinedPanel.setResizeWeight(0.5);
                 historyOutputPanel.applyFixedCaptureBarSizing(true);
             }
             removeAll();
+            add(sessionHeaderPanel, BorderLayout.NORTH);
             add(verticalActivityCombinedPanel, BorderLayout.CENTER);
         } else {
             historyOutputPanel.applyFixedCaptureBarSizing(false);
             removeAll();
-            add(historyOutputPanel.getSessionHeaderPanel(), BorderLayout.NORTH);
+            add(sessionHeaderPanel, BorderLayout.NORTH);
             add(buildReviewTabs, BorderLayout.CENTER);
             verticalActivityCombinedPanel = null;
         }

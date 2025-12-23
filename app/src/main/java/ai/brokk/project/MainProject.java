@@ -2254,7 +2254,7 @@ public final class MainProject extends AbstractProject {
         allChromes.addAll(worktreeChromes);
 
         for (var chrome : allChromes) {
-            SwingUtilities.invokeLater(() -> chrome.getHistoryOutputPanel().updateSessionComboBox());
+            SwingUtilities.invokeLater(() -> chrome.getBuildPane().updateSessionComboBox());
         }
     }
 }
