@@ -462,58 +462,72 @@ public abstract class CodePrompts {
     }
 
     /**
-     * Consolidates the construction of a retry message when SEARCH/REPLACE blocks fail to apply.
+     * Result of building retry messages for apply failures.
+     * Contains both the tagged AI message (to replace the last AI message in history)
+     * and the user message with failure details.
+     */
+    public record ApplyRetryMessages(AiMessage taggedAiMessage, UserMessage retryRequest) {}
+
+    /**
+     * Consolidates the construction of retry messages when SEARCH/REPLACE blocks fail to apply.
      *
      * @param originalAiText The raw text of the AI's previous response to be tagged.
      * @param blockResults The outcome of applying the blocks.
      * @param buildError The current build error, if any.
-     * @return A UserMessage containing diagnostic info and instructions for the LLM.
+     * @return An ApplyRetryMessages containing the tagged AiMessage and retry UserMessage.
      */
-    public static UserMessage buildApplyRetryMessage(
-            @Nullable String originalAiText,
+    public static ApplyRetryMessages buildApplyRetryMessages(
+            String originalAiText,
             List<EditBlock.ApplyResult> blockResults,
             @Nullable String buildError) {
 
+        var failures = blockResults.stream().filter(r -> !r.succeeded()).toList();
+
+        // Build the tagged AI message
+        var taggedText = EditBlockParser.instance.tagBlocks(originalAiText);
+        var taggedAiMessage = new AiMessage(taggedText);
+
+        // Build the user retry message
         var sb = new StringBuilder();
         sb.append("<instructions>\n");
         sb.append("# SEARCH/REPLACE application results\n\n");
 
-        var failures = blockResults.stream().filter(r -> !r.succeeded()).toList();
-        int succeededCount = blockResults.size() - failures.size();
-
         if (failures.isEmpty()) {
             sb.append("All blocks applied successfully.\n");
         } else {
-            sb.append("Some blocks failed to apply. Please review the current file state and provide corrected blocks.\n\n");
-        }
-
-        if (originalAiText != null && !failures.isEmpty()) {
-            sb.append("[HARNESS NOTE: your SEARCH/REPLACE blocks have been tagged so that you can troubleshoot errors.]\n\n");
-            sb.append("For your reference, here is your previous response with markers injected to identify the blocks:\n\n");
-            sb.append("<tagged_response>\n");
-            sb.append(EditBlockParser.instance.tagBlocks(originalAiText));
-            sb.append("\n</tagged_response>\n\n");
+            sb.append("Some blocks failed to apply. Your previous response has been updated with BRK_BLOCK_N markers ");
+            sb.append("to help you identify which blocks failed. Please review the current file state and provide corrected blocks.\n\n");
         }
 
         if (buildError != null && !buildError.isBlank()) {
-            sb.append("\n\nReminder: the build is currently failing; the details are in the conversation history.\n");
+            sb.append("Reminder: the build is currently failing; the details are in the conversation history.\n");
         }
 
         sb.append("</instructions>\n\n");
 
         if (!failures.isEmpty()) {
-            var failuresByFile = failures.stream()
-                    .filter(fb -> fb.block().rawFileName() != null)
-                    .collect(Collectors.groupingBy(fb -> Objects.requireNonNull(fb.block().rawFileName())));
+            // Track original block indices (1-based) for each failure
+            record IndexedFailure(EditBlock.ApplyResult result, int blockIndex) {}
+            var indexedFailures = new ArrayList<IndexedFailure>();
+            for (int i = 0; i < blockResults.size(); i++) {
+                var r = blockResults.get(i);
+                if (!r.succeeded()) {
+                    indexedFailures.add(new IndexedFailure(r, i + 1));
+                }
+            }
+
+            var failuresByFile = indexedFailures.stream()
+                    .filter(f -> f.result().block().rawFileName() != null)
+                    .collect(Collectors.groupingBy(f -> Objects.requireNonNull(f.result().block().rawFileName())));
 
             String fileDetails = failuresByFile.entrySet().stream()
                     .map(entry -> {
                         var filename = entry.getKey();
                         var fileFailures = entry.getValue();
 
-                        String failedBlocksXml = fileFailures.stream()
-                                .map(CodePrompts::formatBlockResult)
-                                .collect(Collectors.joining("\n"));
+                        String failedBlocksList = fileFailures.stream()
+                                .map(f -> formatBlockFailure(f.result(), f.blockIndex()))
+                                .collect(Collectors.joining("\n\n"));
 
                         return """
                                 <target_file name="%s">
@@ -522,7 +536,7 @@ public abstract class CodePrompts {
                                 </failed_blocks>
                                 </target_file>
                                 """
-                                .formatted(filename, failedBlocksXml)
+                                .formatted(filename, failedBlocksList)
                                 .stripIndent();
                     })
                     .collect(Collectors.joining("\n\n"));
@@ -530,29 +544,18 @@ public abstract class CodePrompts {
             sb.append(fileDetails);
         }
 
-        return new UserMessage(sb.toString().trim());
+        return new ApplyRetryMessages(taggedAiMessage, new UserMessage(sb.toString().trim()));
     }
 
-    private static String formatBlockResult(EditBlock.ApplyResult f) {
+    private static String formatBlockFailure(EditBlock.ApplyResult f, int blockIndex) {
         var enriched = enrichSemanticCommentary(f);
-        var commentaryText = enriched.isBlank()
-                ? ""
-                : """
-                <commentary>
-                %s
-                </commentary>
-                """
-                        .formatted(enriched);
-
-        return """
-                <failed_block reason="%s">
-                <block>
-                %s
-                </block>
-                %s
-                </failed_block>
-                """
-                .formatted(f.reason(), f.block().repr(), commentaryText);
+        var blockTag = "BRK_BLOCK_%d".formatted(blockIndex);
+        
+        if (enriched.isBlank()) {
+            return "%s: %s".formatted(blockTag, f.reason());
+        } else {
+            return "%s: %s\n- %s".formatted(blockTag, f.reason(), enriched.replace("\n", "\n- "));
+        }
     }
 
     /**
