@@ -163,8 +163,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         };
     }
 
-    private final List<OutputWindow> activeStreamingWindows = new ArrayList<>();
-
     @Nullable
     private String lastSpinnerMessage = null; // Explicitly initialize
 
@@ -1704,8 +1702,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         applyPresetIfNeeded();
 
         llmStreamArea.append(text, type, isNewMessage, isReasoning);
-        activeStreamingWindows.forEach(
-                window -> window.getMarkdownOutputPanel().append(text, type, isNewMessage, isReasoning));
     }
 
     /**
@@ -1742,7 +1738,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     public void showSpinner(String message) {
         llmStreamArea.showSpinner(message);
         lastSpinnerMessage = message;
-        activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().showSpinner(message));
     }
 
     /**
@@ -1751,7 +1746,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     public void hideSpinner() {
         llmStreamArea.hideSpinner();
         lastSpinnerMessage = null;
-        activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().hideSpinner());
     }
 
     /**
@@ -1803,7 +1797,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     public void setTaskInProgress(boolean inProgress) {
         llmStreamArea.setTaskInProgress(inProgress);
-        activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().setTaskInProgress(inProgress));
     }
 
     /**
@@ -1833,43 +1826,29 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     private void openOutputWindowFromContext(Context context) {
         var taskHistory = context.getTaskHistory();
-        TaskEntry mainTask = null;
-        List<TaskEntry> historyTasks = List.of();
-        if (!taskHistory.isEmpty()) {
-            historyTasks = taskHistory.subList(0, taskHistory.size() - 1);
-            mainTask = taskHistory.getLast();
-        } else {
+        if (taskHistory.isEmpty()) {
             var output = context.getParsedOutput();
             if (output != null) {
-                mainTask = new TaskEntry(-1, output, null);
+                taskHistory = List.of(new TaskEntry(-1, output, null));
             }
         }
-        if (mainTask != null) {
-            String titleHint = context.getAction();
-            new OutputWindow(this, historyTasks, mainTask, titleHint, MainProject.getTheme(), false);
+
+        if (!taskHistory.isEmpty()) {
+            var fragment = new ContextFragments.HistoryFragment(contextManager, taskHistory);
+            chrome.openFragmentPreview(fragment);
         }
     }
 
     private void openOutputWindowStreaming() {
-        // show all = grab all messages, including reasoning for preview window
         List<ChatMessage> currentMessages = llmStreamArea.getRawMessages();
         var tempFragment = new ContextFragments.TaskFragment(contextManager, currentMessages, "Streaming Output...");
-        var history = contextManager.liveContext().getTaskHistory();
-        var mainTask = new TaskEntry(-1, tempFragment, null);
-        String titleHint = lastSpinnerMessage;
-        OutputWindow newStreamingWindow =
-                new OutputWindow(this, history, mainTask, titleHint, MainProject.getTheme(), true);
-        if (lastSpinnerMessage != null) {
-            newStreamingWindow.getMarkdownOutputPanel().showSpinner(lastSpinnerMessage);
-        }
-        activeStreamingWindows.add(newStreamingWindow);
-        newStreamingWindow.addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosed(WindowEvent evt) {
-                activeStreamingWindows.remove(newStreamingWindow);
-            }
-        });
+        var history = new ArrayList<>(contextManager.liveContext().getTaskHistory());
+        history.add(new TaskEntry(-1, tempFragment, null));
+
+        var fragment = new ContextFragments.HistoryFragment(contextManager, history);
+        chrome.openFragmentPreview(fragment);
     }
+
 
     /**
      * Presents a choice to capture output to Workspace or to Task List.
@@ -2007,161 +1986,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 }
             });
         });
-    }
-
-    /**
-     * Inner class representing a detached window for viewing output text
-     */
-    private static class OutputWindow extends JFrame {
-        private final IProject project;
-        private final MarkdownOutputPanel outputPanel;
-
-        /**
-         * Creates a new output window with the given content and optional history.
-         *
-         * @param parentPanel      The parent HistoryOutputPanel
-         * @param history          The conversation tasks to display in the history section (all but the main task)
-         * @param main             The main/last task to display in the live area
-         * @param titleHint        A hint for the window title (e.g., task summary or spinner message)
-         * @param themeName        The theme name (dark, light, or high-contrast)
-         * @param isTaskInProgress Whether the window shows a streaming (in-progress) output
-         */
-        public OutputWindow(
-                HistoryOutputPanel parentPanel,
-                List<TaskEntry> history,
-                TaskEntry main,
-                @Nullable String titleHint,
-                String themeName,
-                boolean isTaskInProgress) {
-            super(determineWindowTitle(titleHint, isTaskInProgress)); // Call superclass constructor first
-
-            // Set icon from Chrome.newFrame
-            try {
-                var iconUrl = Chrome.class.getResource(Brokk.ICON_RESOURCE);
-                if (iconUrl != null) {
-                    var icon = new ImageIcon(iconUrl);
-                    setIconImage(icon.getImage());
-                }
-            } catch (Exception e) {
-                logger.debug("Failed to set OutputWindow icon", e);
-            }
-
-            // Apply macOS full-window-content and title bar styling
-            Chrome.maybeApplyMacFullWindowContent(this);
-            ThemeTitleBarManager.maybeApplyMacTitleBar(this, determineWindowTitle(titleHint, isTaskInProgress));
-
-            this.project = parentPanel.contextManager.getProject(); // Get project reference
-            setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-
-            // Create markdown panel with the text
-            outputPanel = new MarkdownOutputPanel();
-            outputPanel.withContextForLookups(parentPanel.contextManager, parentPanel.chrome);
-            outputPanel.updateTheme(themeName);
-            // Seed main content first, then history
-            outputPanel
-                    .setMainThenHistoryAsync(main, history)
-                    .thenRun(() -> outputPanel.setTaskInProgress(isTaskInProgress));
-
-            // Create toolbar panel with capture button if not task in progress
-            JPanel toolbarPanel = null;
-            if (!isTaskInProgress) {
-                toolbarPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
-                toolbarPanel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 0));
-
-                MaterialButton captureButton = new MaterialButton();
-                SwingUtilities.invokeLater(() -> {
-                    captureButton.setIcon(Icons.CONTENT_CAPTURE);
-                });
-                captureButton.setToolTipText("Capture output to workspace");
-                captureButton.addActionListener(e -> {
-                    parentPanel.presentCaptureChoice();
-                });
-                toolbarPanel.add(captureButton);
-            }
-
-            // Use shared utility method to create searchable content panel with optional toolbar
-            JPanel contentPanel = Chrome.createSearchableContentPanel(List.of(outputPanel), toolbarPanel);
-
-            // Add the content panel to the frame
-            add(contentPanel);
-
-            // Load saved size and position, or use defaults
-            var bounds = project.getOutputWindowBounds();
-            if (bounds.width <= 0 || bounds.height <= 0) {
-                setSize(800, 600); // Default size
-                setLocationRelativeTo(parentPanel); // Center relative to parent
-            } else {
-                setSize(bounds.width, bounds.height);
-                if (bounds.x >= 0 && bounds.y >= 0 && parentPanel.chrome.isPositionOnScreen(bounds.x, bounds.y)) {
-                    setLocation(bounds.x, bounds.y);
-                } else {
-                    setLocationRelativeTo(parentPanel); // Center relative to parent if off-screen
-                }
-            }
-
-            // Add listeners to save position/size on change
-            addComponentListener(new ComponentAdapter() {
-                @Override
-                public void componentResized(ComponentEvent e) {
-                    project.saveOutputWindowBounds(OutputWindow.this);
-                }
-
-                @Override
-                public void componentMoved(ComponentEvent e) {
-                    project.saveOutputWindowBounds(OutputWindow.this);
-                }
-            });
-
-            // Add ESC key binding to close the window
-            var rootPane = getRootPane();
-            var actionMap = rootPane.getActionMap();
-            var inputMap = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
-
-            inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "closeWindow");
-            actionMap.put("closeWindow", new AbstractAction() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    dispose();
-                }
-            });
-
-            // Make window visible
-            setVisible(true);
-        }
-
-        private static String determineWindowTitle(@Nullable String titleHint, boolean isTaskInProgress) {
-            String windowTitle;
-            if (isTaskInProgress) {
-                windowTitle = "Output (In progress)";
-                if (titleHint != null && !titleHint.isBlank()) {
-                    windowTitle = "Output: " + titleHint;
-                    String taskType = null;
-                    if (titleHint.contains(InstructionsPanel.ACTION_CODE)) {
-                        taskType = InstructionsPanel.ACTION_CODE;
-                    } else if (titleHint.contains(InstructionsPanel.ACTION_LUTZ)) {
-                        taskType = InstructionsPanel.ACTION_LUTZ;
-                    } else if (titleHint.contains(InstructionsPanel.ACTION_ASK)) {
-                        taskType = InstructionsPanel.ACTION_ASK;
-                    }
-                    if (taskType != null) {
-                        windowTitle = String.format("Output (%s in progress)", taskType);
-                    }
-                }
-            } else {
-                windowTitle = "Output";
-                if (titleHint != null && !titleHint.isBlank()) {
-                    windowTitle = "Output: " + titleHint;
-                }
-            }
-            return windowTitle;
-        }
-
-        /**
-         * Gets the MarkdownOutputPanel used by this window.
-         */
-        public MarkdownOutputPanel getMarkdownOutputPanel() {
-            return outputPanel;
-        }
     }
 
     /**
