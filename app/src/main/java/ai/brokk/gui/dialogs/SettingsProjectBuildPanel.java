@@ -471,7 +471,7 @@ public class SettingsProjectBuildPanel extends JPanel {
 
         SwingWorker<String, String> worker = new SwingWorker<>() {
             @Override
-            protected String doInBackground() throws InterruptedException {
+            protected String doInBackground() {
                 var root = project.getRoot();
 
                 // Step 1: Build/Lint command
@@ -491,11 +491,14 @@ public class SettingsProjectBuildPanel extends JPanel {
                                 envVars);
                         publish("\nSUCCESS: Build/Lint command completed successfully.\n\n");
                     } catch (Environment.SubprocessException e) {
-                        publish("\nERROR: Build/Lint command failed.\n");
-                        publish(e.getMessage() + "\n");
-                        publish(e.getOutput() + "\n");
-                        return "Build/Lint command failed.";
-                    }
+                            publish("\nERROR: Build/Lint command failed.\n");
+                            publish(e.getMessage() + "\n");
+                            publish(e.getOutput() + "\n");
+                            return "Build/Lint command failed.";
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            return "Verification cancelled.";
+                        }
                 } else {
                     publish("--- Skipping empty Build/Lint Command ---\n\n");
                 }
@@ -521,6 +524,9 @@ public class SettingsProjectBuildPanel extends JPanel {
                         publish(e.getMessage() + "\n");
                         publish(e.getOutput() + "\n");
                         return "Test All command failed.";
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return "Verification cancelled.";
                     }
                 } else {
                     publish("--- Skipping empty Test All Command ---\n\n");
@@ -581,6 +587,9 @@ public class SettingsProjectBuildPanel extends JPanel {
                         publish(e.getMessage() + "\n");
                         publish(e.getOutput() + "\n");
                         return "'Test Some' command is invalid.";
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return "Verification cancelled.";
                     }
                 } else {
                     publish("--- Skipping empty Test Some Command ---\n\n");
