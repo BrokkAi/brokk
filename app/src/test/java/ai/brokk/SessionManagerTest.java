@@ -96,7 +96,7 @@ public class SessionManagerTest {
     void testSaveAndLoadSessionHistory() throws Exception {
         MainProject project = new MainProject(tempDir);
         var sessionManager =
-                new SessionManager(project, project.getMasterRootPathForConfig().resolve(".brokk/sessions"));
+                new SessionManager(project.getMasterRootPathForConfig().resolve(".brokk/sessions"));
         SessionInfo sessionInfo = sessionManager.newSession("History Test Session");
         UUID sessionId = sessionInfo.id();
 
@@ -285,7 +285,7 @@ public class SessionManagerTest {
         // Create a Project instance using the tempDir
         MainProject project = new MainProject(tempDir);
         var sessionManager =
-                new SessionManager(project, project.getMasterRootPathForConfig().resolve(".brokk/sessions"));
+                new SessionManager(project.getMasterRootPathForConfig().resolve(".brokk/sessions"));
 
         // Create first session
         SessionInfo session1Info = sessionManager.newSession("Test Session 1");
@@ -342,7 +342,7 @@ public class SessionManagerTest {
     void testRenameSession() throws Exception {
         MainProject project = new MainProject(tempDir);
         var sessionManager =
-                new SessionManager(project, project.getMasterRootPathForConfig().resolve(".brokk/sessions"));
+                new SessionManager(project.getMasterRootPathForConfig().resolve(".brokk/sessions"));
         SessionInfo initialSession = sessionManager.newSession("Original Name");
 
         sessionManager.renameSession(initialSession.id(), "New Name");
@@ -368,7 +368,7 @@ public class SessionManagerTest {
     void testDeleteSession() throws Exception {
         MainProject project = new MainProject(tempDir);
         var sessionManager =
-                new SessionManager(project, project.getMasterRootPathForConfig().resolve(".brokk/sessions"));
+                new SessionManager(project.getMasterRootPathForConfig().resolve(".brokk/sessions"));
         SessionInfo session1 = sessionManager.newSession("Session 1");
         SessionInfo session2 = sessionManager.newSession("Session 2");
 
@@ -394,7 +394,7 @@ public class SessionManagerTest {
     void testCopySession() throws Exception {
         MainProject project = new MainProject(tempDir);
         var sessionManager =
-                new SessionManager(project, project.getMasterRootPathForConfig().resolve(".brokk/sessions"));
+                new SessionManager(project.getMasterRootPathForConfig().resolve(".brokk/sessions"));
         SessionInfo originalSessionInfo = sessionManager.newSession("Original Session");
         UUID originalId = originalSessionInfo.id();
 
@@ -444,7 +444,7 @@ public class SessionManagerTest {
     void testCountAiResponses_sessionWithKnownAiCount() throws Exception {
         MainProject project = new MainProject(tempDir);
         var sessionManager =
-                new SessionManager(project, project.getMasterRootPathForConfig().resolve(".brokk/sessions"));
+                new SessionManager(project.getMasterRootPathForConfig().resolve(".brokk/sessions"));
         SessionInfo sessionInfo = sessionManager.newSession("AI Count Test Session");
         UUID sessionId = sessionInfo.id();
 
@@ -476,7 +476,7 @@ public class SessionManagerTest {
     void testCountAiResponses_missingSession() throws Exception {
         MainProject project = new MainProject(tempDir);
         var sessionManager =
-                new SessionManager(project, project.getMasterRootPathForConfig().resolve(".brokk/sessions"));
+                new SessionManager(project.getMasterRootPathForConfig().resolve(".brokk/sessions"));
 
         // Use a random UUID that doesn't exist
         UUID nonExistentId = SessionManager.newSessionId();

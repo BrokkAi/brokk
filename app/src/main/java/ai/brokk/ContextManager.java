@@ -177,6 +177,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Publicly exposed flag for the exact TaskScope window
     private final AtomicBoolean taskScopeInProgress = new AtomicBoolean(false);
 
+    private boolean sessionsSyncActive = false;
+
     @Override
     public ExecutorService getBackgroundTasks() {
         return backgroundTasks;
@@ -313,18 +315,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         finalizeSessionActivation(currentSessionId);
         migrateToSessionsV3IfNeeded().thenRun(() -> {
-            if (!project.getRepo().isWorktree() && !MainProject.getBrokkKey().isBlank()) {
-                startPeriodicSessionSync(project.getSessionManager());
+            if (sessionsSyncActive) {
+                startPeriodicSessionSync();
             }
         });
     }
 
-    private void startPeriodicSessionSync(SessionManager sessionManager) {
+    private void startPeriodicSessionSync() {
         logger.debug("Starting periodic session sync every 30 seconds.");
         periodicTasks.scheduleWithFixedDelay(
                 () -> {
                     try {
-                        sessionManager.synchronizeRemoteSessions();
+                        new SessionSynchronizer(project).synchronize();
                         project.getMainProject().sessionsListChanged();
                     } catch (Exception e) {
                         logger.warn("Session sync failed: {}", e.getMessage());
@@ -422,6 +424,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Add ContextManager's file watch listener dynamically
         var fileWatchListener = createFileWatchListener();
         watchService.addListener(fileWatchListener);
+
+        this.sessionsSyncActive = !project.getRepo().isWorktree()
+                && MainProject.getProxySetting() != MainProject.LlmProxySetting.LOCALHOST
+                && !MainProject.getBrokkKey().isBlank();
 
         // Load saved context history or create a new one
         var contextTask =
@@ -1481,7 +1487,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var userActionsFuture = userActions.shutdownAndAwait(awaitMillis);
 
         return CompletableFuture.allOf(contextActionFuture, backgroundFuture, userActionsFuture, periodicTasksFuture)
-                .whenComplete((v, t) -> project.close());
+                .whenComplete((v, t) -> {
+                    if (sessionsSyncActive) {
+                        try {
+                            new SessionSynchronizer(project).synchronize();
+                        } catch (Exception e) {
+                            logger.warn("Failed to synchronize sessions during close: {}", e.getMessage());
+                        }
+                    }
+                    project.close();
+                });
     }
 
     public boolean isLlmTaskInProgress() {

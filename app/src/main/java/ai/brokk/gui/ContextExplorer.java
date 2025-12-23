@@ -2,7 +2,6 @@ package ai.brokk.gui;
 
 import ai.brokk.IContextManager;
 import ai.brokk.SessionManager;
-import ai.brokk.SessionRegistry;
 import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
@@ -70,11 +69,7 @@ public final class ContextExplorer extends JFrame {
         super("Brokk Context Explorer");
         this.sessionsDir = sessionsDir;
         this.contextManager = new MinimalContextManager();
-        this.sessionManager = new SessionManager(contextManager.getProject(), sessionsDir);
-
-        // Inject the session manager into the simple project stub
-        var project = (MinimalContextManager.SimpleProject) contextManager.getProject();
-        project.setSessionManager(this.sessionManager);
+        this.sessionManager = new SessionManager(sessionsDir);
 
         buildUi();
         loadSessions();
@@ -227,7 +222,7 @@ public final class ContextExplorer extends JFrame {
     }
 
     private SessionStats computeStats(SessionManager.SessionInfo info) throws IOException {
-        var ch = sessionManager.loadHistory(info.id(), (ai.brokk.ContextManager) contextManager);
+        var ch = sessionManager.loadHistory(info.id(), contextManager);
         if (ch == null) {
             throw new IOException("Unable to load history for session " + info.name() + " (ID: " + info.id() + ")");
         }
@@ -310,7 +305,7 @@ public final class ContextExplorer extends JFrame {
         new SwingWorker<List<TableRow>, Void>() {
             @Override
             protected List<TableRow> doInBackground() throws Exception {
-                var ch = sessionManager.loadHistory(info.id(), (ai.brokk.ContextManager) contextManager);
+                var ch = sessionManager.loadHistory(info.id(), contextManager);
                 if (ch == null) {
                     throw new IOException(
                             "Unable to load history for session " + info.name() + " (ID: " + info.id() + ")");
@@ -878,14 +873,9 @@ public final class ContextExplorer extends JFrame {
 
         private static final class SimpleProject implements IProject {
             private final Path root;
-            private @Nullable SessionManager sessionManager;
 
             SimpleProject(Path root) {
                 this.root = root;
-            }
-
-            public void setSessionManager(SessionManager sm) {
-                this.sessionManager = sm;
             }
 
             @Override
@@ -896,30 +886,6 @@ public final class ContextExplorer extends JFrame {
             @Override
             public Set<ProjectFile> getAllFiles() {
                 return Set.of();
-            }
-
-            @Override
-            public String getRemoteProjectName() {
-                return root.getFileName().toString();
-            }
-
-            @Override
-            public SessionRegistry getSessionRegistry() {
-                return new SessionRegistry();
-            }
-
-            @Override
-            public void sessionsListChanged() {
-                // nothing to do
-            }
-
-            @Override
-            public SessionManager getSessionManager() {
-                var sm = this.sessionManager;
-                if (sm == null) {
-                    throw new IllegalStateException("SessionManager not initialized");
-                }
-                return sm;
             }
 
             @Override

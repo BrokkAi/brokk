@@ -198,7 +198,7 @@ public final class HeadlessExecutorMain {
 
         // Initialize JobStore and SessionManager
         this.jobStore = new JobStore(workspaceDir.resolve(".brokk").resolve("jobs"));
-        this.sessionManager = new SessionManager(contextManager.getProject(), sessionsDir);
+        this.sessionManager = new SessionManager(sessionsDir);
 
         // Initialize headless context asynchronously to avoid blocking constructor
         var initThread = new Thread(

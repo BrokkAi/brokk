@@ -190,7 +190,7 @@ public final class MainProject extends AbstractProject {
                 this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(LEGACY_STYLE_GUIDE_FILE);
         this.reviewGuidePath = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(REVIEW_GUIDE_FILE);
         var sessionsDir = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(SESSIONS_DIR);
-        this.sessionManager = new SessionManager(this, sessionsDir);
+        this.sessionManager = new SessionManager(sessionsDir);
 
         this.projectProps = new Properties();
 

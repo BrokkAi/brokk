@@ -547,11 +547,11 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             String sharing,
             @JsonProperty("created_at") String createdAt,
             @JsonProperty("updated_at") String updatedAt,
-            @JsonProperty("modified_at") String modifiedAt,
+            @JsonProperty("modified_at") @Nullable String modifiedAt,
             @JsonProperty("deleted_at") @Nullable String deletedAt) {
 
         public long modifiedAtMillis() {
-            return Instant.parse(modifiedAt).toEpochMilli();
+            return modifiedAt != null ? Instant.parse(modifiedAt).toEpochMilli() : 0;
         }
     }
 
