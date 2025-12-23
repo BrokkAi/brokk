@@ -18,6 +18,7 @@ import ai.brokk.prompts.CodePrompts;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.LogDescription;
 import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.P;
@@ -313,6 +314,57 @@ public class ArchitectAgent {
         }
     }
 
+    @Tool(
+            "Set the project's build/test commands (build/lint, test-all, test-some) and excluded directories. Saves to project config. Optionally validates the build/lint command.")
+    public String setBuildDetails(
+            @P("Command to build/lint the project (e.g., 'mvn test', 'gradle test', 'npm test').")
+                    String buildLintCommand,
+            @P("Command to run all tests.") String testAllCommand,
+            @P("Command to run a subset of tests (e.g., a single module/file/class).") String testSomeCommand,
+            @P("Directories to exclude from analysis/build context.") List<String> excludedDirectories) {
+        var details = new BuildAgent.BuildDetails(
+                buildLintCommand,
+                testAllCommand,
+                testSomeCommand,
+                new LinkedHashSet<>(excludedDirectories),
+                java.util.Map.of());
+        cm.getProject().saveBuildDetails(details);
+
+        cm.getIo().showNotification(IConsoleIO.NotificationRole.INFO, "Saved build details.");
+        if (!buildLintCommand.trim().isEmpty()) {
+            return "Saved build details.\n\n" + verifyBuildCommand();
+        }
+        return "Saved build details.";
+    }
+
+    @Tool(
+            "Verify the currently configured build/lint command by executing it and returning bounded output. Uses the project's saved build details and environment variables.")
+    public String verifyBuildCommand() {
+        var project = cm.getProject();
+        var details = project.loadBuildDetails();
+        var buildLintCommand = details.buildLintCommand();
+        if (buildLintCommand.trim().isEmpty()) {
+            return "No build/lint command is configured.";
+        }
+
+        var envVars = details.environmentVariables();
+        var result = BuildVerifier.verify(project, buildLintCommand, envVars);
+
+        var statusLine = result.success()
+                ? "Build command succeeded (exit code " + result.exitCode() + ")."
+                : "Build command failed (exit code " + result.exitCode() + ").";
+
+        var output = result.output().isBlank() ? "(no output)" : result.output();
+
+        return """
+                %s
+
+                Output (last %d lines):
+                %s
+                """
+                .formatted(statusLine, BuildVerifier.MAX_OUTPUT_LINES, output);
+    }
+
     /**
      * A tool that invokes the SearchAgent to perform searches and analysis based on a query. The SearchAgent will
      * decide which specific search/analysis tools to use (e.g., searchSymbols, getFileContents). The results are added
@@ -482,6 +534,8 @@ public class ArchitectAgent {
 
                 // Agent tools
                 allowed.add("callCodeAgent");
+                allowed.add("setBuildDetails");
+                allowed.add("verifyBuildCommand");
 
                 if (this.offerUndoToolNext) {
                     allowed.add("undoLastChanges");
