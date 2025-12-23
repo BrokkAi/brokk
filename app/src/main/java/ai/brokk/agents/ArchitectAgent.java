@@ -986,8 +986,32 @@ public class ArchitectAgent {
         }
 
         // Final user message with the goal and specific instructions for this turn, including workspace warnings
-        messages.add(new UserMessage(
-                ArchitectPrompts.instance.getFinalInstructions(context, goal, workspaceTokenSize, maxInputTokens)));
+        var finalInstructions =
+                ArchitectPrompts.instance.getFinalInstructions(context, goal, workspaceTokenSize, maxInputTokens);
+
+        if (cm.getProject().isEmptyProject()) {
+            finalInstructions +=
+                    """
+
+                    <empty-project-notice>
+                    This project appears to be empty (a new project with no existing source files).
+                    Prefer starting by creating the minimal project structure needed to satisfy the goal, and ensure the Workspace contains the key new files you create.
+                    </empty-project-notice>
+                    """;
+        }
+
+        if (cm.getProject().loadBuildDetails().equals(BuildAgent.BuildDetails.EMPTY)) {
+            finalInstructions +=
+                    """
+
+                    <build-setup>
+                    No build/test commands are configured for this project yet.
+                    If you need to run builds/tests (or want verification after changes), call setBuildDetails(buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories) to configure the project's build/test stack.
+                    </build-setup>
+                    """;
+        }
+
+        messages.add(new UserMessage(finalInstructions));
 
         return messages;
     }
