@@ -4,8 +4,6 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.ContextManager;
 import ai.brokk.gui.components.PreviewTabbedPane;
-import ai.brokk.gui.components.SpinnerIconUtil;
-import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.terminal.TaskListPanel;
 import ai.brokk.gui.terminal.TerminalPanel;
 import ai.brokk.gui.theme.GuiTheme;
@@ -13,14 +11,8 @@ import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
 import javax.swing.*;
-import javax.swing.border.EmptyBorder;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -222,13 +214,11 @@ public class BuildPane extends JPanel implements ThemeAware {
         // previewTabbedPane is now owned by PreviewFrame - don't create a replacement
     }
 
-    public void redockPreview(PreviewTabbedPane sourcePane) {
+    public void redockPreview() {
         if (chrome.getPreviewManager().isPreviewDocked()) return;
 
         chrome.getPreviewManager().setPreviewDocked(true);
         GlobalUiSettings.savePreviewDocked(true);
-
-        this.previewTabbedPane = sourcePane;
 
         // Re-add the Preview tab to BuildPane
         int terminalIdx = buildReviewTabs.indexOfTab("Terminal");
