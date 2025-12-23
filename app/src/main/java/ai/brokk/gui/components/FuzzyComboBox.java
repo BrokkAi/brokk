@@ -3,6 +3,7 @@ package ai.brokk.gui.components;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import javax.swing.*;
@@ -20,7 +21,7 @@ public class FuzzyComboBox<T> extends JPanel {
     private final Function<T, String> displayMapper;
     private final MaterialButton button;
     private @Nullable T selectedItem;
-    private @Nullable Consumer<T> selectionChangeListener;
+    private @Nullable Consumer<@Nullable T> selectionChangeListener;
 
     /**
      * Creates a new FuzzyComboBox with the given items.
@@ -107,9 +108,18 @@ public class FuzzyComboBox<T> extends JPanel {
      * Sets the selected item and updates the button text.
      */
     public void setSelectedItem(@Nullable T item) {
+        setSelectedItemInternal(item, true);
+    }
+
+    /**
+     * Internal method to set selected item with optional listener firing.
+     */
+    private void setSelectedItemInternal(@Nullable T item, boolean fireListener) {
+        T oldItem = this.selectedItem;
         this.selectedItem = item;
         button.setText(item != null ? displayMapper.apply(item) : "");
-        if (selectionChangeListener != null && item != null) {
+
+        if (fireListener && selectionChangeListener != null && !Objects.equals(oldItem, item)) {
             selectionChangeListener.accept(item);
         }
     }
@@ -117,7 +127,7 @@ public class FuzzyComboBox<T> extends JPanel {
     /**
      * Sets a listener that is called when the selected item changes.
      */
-    public void setSelectionChangeListener(@Nullable Consumer<T> listener) {
+    public void setSelectionChangeListener(@Nullable Consumer<@Nullable T> listener) {
         this.selectionChangeListener = listener;
     }
 
@@ -135,15 +145,22 @@ public class FuzzyComboBox<T> extends JPanel {
     public void setItems(List<T> items) {
         assert SwingUtilities.isEventDispatchThread() : "setItems must be called on EDT";
 
+        T oldSelection = this.selectedItem;
         this.allItems = new ArrayList<>(items);
 
         // Preserve selection if valid, otherwise clear and potentially auto-select
         if (selectedItem != null && !allItems.contains(selectedItem)) {
-            setSelectedItem(null);
+            setSelectedItemInternal(null, false);
         }
 
         if (selectedItem == null && !allItems.isEmpty()) {
-            setSelectedItem(allItems.getFirst());
+            setSelectedItemInternal(allItems.getFirst(), false);
+        }
+
+        // Fire listener only if selection actually changed
+        T newSelection = this.selectedItem;
+        if (selectionChangeListener != null && !Objects.equals(oldSelection, newSelection)) {
+            selectionChangeListener.accept(newSelection);
         }
     }
 

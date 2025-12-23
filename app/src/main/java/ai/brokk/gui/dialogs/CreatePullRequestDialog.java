@@ -581,8 +581,8 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                         setupBranchListeners();
 
                         this.flowUpdater.run(); // Update label based on defaults
-                        refreshCommitList(); // Load commits based on defaults, which will also call flowUpdater and update
-                        // button state
+                        refreshCommitList(); // Load commits based on defaults, which will also call flowUpdater and
+                        // update button state
                     } catch (GitAPIException e) {
                         logger.error("Error setting default branch selections", e);
                         updateCommitRelatedUI(
