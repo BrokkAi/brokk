@@ -81,11 +81,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
             refreshCumulativeChangesAsync(state.baselineLabel(), state.baselineMode())
                     .thenAccept(result -> {
-                        SwingUtilities.invokeLater(() -> updateTitleAndTooltipFromResult(result, state.baselineLabel()));
+                        SwingUtilities.invokeLater(
+                                () -> updateTitleAndTooltipFromResult(result, state.baselineLabel()));
                     })
                     .exceptionally(ex -> {
                         logger.warn("Failed to compute cumulative changes for title", ex);
-                        SwingUtilities.invokeLater(() -> tabTitleUpdater.updateTitleAndTooltip("Review", "Failed to compute changes"));
+                        SwingUtilities.invokeLater(
+                                () -> tabTitleUpdater.updateTitleAndTooltip("Review", "Failed to compute changes"));
                         return null;
                     });
         });
@@ -223,9 +225,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     ColorUtil.toHex(minusColor),
                     result.totalDeleted());
 
-            tooltip = String.format("%d files changed, %d insertions, %d deletions%s",
-                    result.filesChanged(), result.totalAdded(), result.totalDeleted(),
-                    baselineSuffix);
+            tooltip = String.format(
+                    "%d files changed, %d insertions, %d deletions%s",
+                    result.filesChanged(), result.totalAdded(), result.totalDeleted(), baselineSuffix);
         }
 
         tabTitleUpdater.updateTitleAndTooltip(title, tooltip);

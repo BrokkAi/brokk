@@ -1,7 +1,5 @@
 package ai.brokk.gui;
 
-import static java.util.Objects.requireNonNull;
-
 import ai.brokk.ContextManager;
 import ai.brokk.gui.components.PreviewTabbedPane;
 import ai.brokk.gui.terminal.TaskListPanel;
@@ -12,7 +10,6 @@ import ai.brokk.gui.util.Icons;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
 import javax.swing.*;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -157,7 +154,8 @@ public class RightPanel extends JPanel implements ThemeAware {
         var popup = new JPopupMenu();
         var model = new DefaultListModel<ai.brokk.SessionManager.SessionInfo>();
         var sessions = contextManager.getProject().getSessionManager().listSessions();
-        sessions.sort(java.util.Comparator.comparingLong(ai.brokk.SessionManager.SessionInfo::modified).reversed());
+        sessions.sort(java.util.Comparator.comparingLong(ai.brokk.SessionManager.SessionInfo::modified)
+                .reversed());
         for (var s : sessions) model.addElement(s);
 
         var list = new JList<ai.brokk.SessionManager.SessionInfo>(model);
@@ -178,7 +176,8 @@ public class RightPanel extends JPanel implements ThemeAware {
             public void mouseClicked(java.awt.event.MouseEvent e) {
                 var sel = list.getSelectedValue();
                 if (sel != null && !sel.id().equals(contextManager.getCurrentSessionId())) {
-                    contextManager.switchSessionAsync(sel.id())
+                    contextManager
+                            .switchSessionAsync(sel.id())
                             .thenRun(() -> updateSessionComboBox())
                             .exceptionally(ex -> {
                                 SwingUtilities.invokeLater(() -> updateSessionComboBox());
