@@ -738,9 +738,14 @@ public class CodeAgent {
             }
             var buildPrompt =
                     """
-                    The build or tests failed.
-                    Please analyze the error message, review the conversation history for previous attempts,
-                    and provide SEARCH/REPLACE blocks to fix all the errors and warnings in service of the original goal.
+                    Please analyze the error message and provide SEARCH/REPLACE blocks to fix all the errors and warnings in service of the original goal.
+                    You should use the conversation history to understand what has been done so far, but
+                    only use the Workspace to generate SEARCH/REPLACE blocks.
+                    
+                    IMPORTANT: If solving the build or failure requires editing files or using APIs you do not have
+                    in your Workspace, do your best to explain the problem but DO NOT provide any edits.
+                    Otherwise, provide the edits as usual.
+
                     <build_output>
                     %s
                     </build_output>
