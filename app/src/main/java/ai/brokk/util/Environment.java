@@ -304,7 +304,12 @@ public class Environment {
                 lines.add(line);
             }
         } catch (IOException e) {
-            logger.error("Error reading stream", e);
+            if (e.getMessage() != null && e.getMessage().contains("Stream closed")) {
+                // Stream closed is expected when process is killed (timeout/interrupt)
+                logger.debug("Stream closed during read (process likely terminated)");
+            } else {
+                logger.warn("Unexpected IO error reading process stream: {}", e.getMessage());
+            }
             // If an error occurs during streaming, consumer has processed what it could.
             // The returned string will contain lines accumulated so far.
         }
