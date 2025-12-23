@@ -473,7 +473,6 @@ public class SettingsProjectBuildPanel extends JPanel {
         SwingWorker<String, String> worker = new SwingWorker<>() {
             @Override
             protected String doInBackground() {
-                var root = project.getRoot();
 
                 // Step 1: Build/Lint command
                 String buildCmd = buildCleanCommandField.getText().trim();
