@@ -1,7 +1,7 @@
 package ai.brokk.testutil;
 
 import ai.brokk.IConsoleIO;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -56,7 +56,7 @@ public class TestConsoleIO implements IConsoleIO {
         }
     }
 
-    public void setLlmOutput(ContextFragment.TaskFragment newOutput) {
+    public void setLlmOutput(ContextFragments.TaskFragment newOutput) {
         finishStreamingAiMessage();
         llmRawMessages.addAll(newOutput.messages());
     }

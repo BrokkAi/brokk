@@ -1,6 +1,7 @@
 package ai.brokk.gui;
 
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.gui.mop.ThemeColors;
 import java.awt.Color;
@@ -46,7 +47,7 @@ public class ChipColorUtils {
         if (fragment.getType() == ContextFragment.FragmentType.HISTORY) {
             return new ClassifiedFragment(fragment, ChipKind.HISTORY);
         }
-        if (fragment instanceof ContextFragment.StringFragment sf
+        if (fragment instanceof ContextFragments.StringFragment sf
                 && SpecialTextType.TASK_LIST
                         .description()
                         .equals(sf.description().renderNowOrNull())) {

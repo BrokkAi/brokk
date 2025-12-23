@@ -80,7 +80,6 @@ public class ToolRegistry {
             Map.entry("dropWorkspaceFragments", "Removing from workspace"),
             Map.entry("recommendContext", "Recommending context"),
             Map.entry("createOrReplaceTaskList", "Creating or replacing task list"),
-            Map.entry("appendTaskList", "Appending to task list"),
             Map.entry("callCodeAgent", "Calling code agent"),
             Map.entry("performedInitialReview", "Performed initial review"));
 

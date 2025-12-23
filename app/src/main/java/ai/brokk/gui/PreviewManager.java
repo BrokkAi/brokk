@@ -7,6 +7,7 @@ import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.dialogs.PreviewFrame;
 import ai.brokk.gui.dialogs.PreviewImagePanel;
 import ai.brokk.gui.dialogs.PreviewTextPanel;
@@ -266,7 +267,7 @@ public class PreviewManager {
             }
         }
         // Try fragment
-        if (fragment instanceof ContextFragment.PathFragment pathFragment) {
+        if (fragment instanceof ContextFragments.PathFragment pathFragment) {
             var bf = pathFragment.file();
             if (bf instanceof ProjectFile pf) {
                 return pf;
@@ -396,11 +397,11 @@ public class PreviewManager {
         try {
             String initialTitle = computeInitialTitle(fragment);
 
-            if (fragment instanceof ContextFragment.OutputFragment of) {
+            if (fragment instanceof ContextFragments.OutputFragment of) {
                 showOutputPreview(of, initialTitle);
             } else if (!fragment.isText()) {
                 showImagePreview(fragment, initialTitle);
-            } else if (fragment instanceof ContextFragment.StringFragment sf) {
+            } else if (fragment instanceof ContextFragments.StringFragment sf) {
                 showStringPreview(sf, initialTitle);
             } else {
                 showAsyncTextPreview(fragment, initialTitle);
@@ -415,7 +416,7 @@ public class PreviewManager {
         return (descNow != null && !descNow.isBlank()) ? "Preview: " + descNow : "Preview: Loading...";
     }
 
-    private void showOutputPreview(ContextFragment.OutputFragment of, String initialTitle) {
+    private void showOutputPreview(ContextFragments.OutputFragment of, String initialTitle) {
         var combinedMessages = new ArrayList<ChatMessage>();
         for (ai.brokk.TaskEntry entry : of.entries()) {
             if (entry.isCompressed()) {
@@ -439,7 +440,7 @@ public class PreviewManager {
     }
 
     private void showImagePreview(ContextFragment fragment, String initialTitle) {
-        if (fragment instanceof ContextFragment.AnonymousImageFragment pif) {
+        if (fragment instanceof ContextFragments.AnonymousImageFragment pif) {
             var imagePanel = new PreviewImagePanel(null);
             showPreviewFrame(initialTitle, imagePanel, pif);
 
@@ -451,14 +452,14 @@ public class PreviewManager {
                         updateTitleIfNeeded(
                                 initialTitle, imagePanel, pif.description().renderNowOrNull());
                     }));
-        } else if (fragment instanceof ContextFragment.ImageFileFragment iff) {
+        } else if (fragment instanceof ContextFragments.ImageFileFragment iff) {
             var imagePanel = new PreviewImagePanel(iff.file());
             showPreviewFrame(initialTitle, imagePanel, iff);
             bindTitleUpdate(iff, imagePanel, initialTitle);
         }
     }
 
-    private void updateImagePanel(ContextFragment.AnonymousImageFragment pif, PreviewImagePanel imagePanel) {
+    private void updateImagePanel(ContextFragments.AnonymousImageFragment pif, PreviewImagePanel imagePanel) {
         var futureBytes = pif.imageBytes();
         if (futureBytes == null) {
             return;
@@ -476,7 +477,7 @@ public class PreviewManager {
         }
     }
 
-    private void showStringPreview(ContextFragment.StringFragment sf, String initialTitle) {
+    private void showStringPreview(ContextFragments.StringFragment sf, String initialTitle) {
         String text = sf.previewText();
         String style = sf.previewSyntaxStyle();
 
@@ -551,7 +552,7 @@ public class PreviewManager {
     }
 
     private String guessInitialStyle(ContextFragment fragment) {
-        if (fragment instanceof ContextFragment.PathFragment pf) {
+        if (fragment instanceof ContextFragments.PathFragment pf) {
             var brokkFile = pf.file();
             if (brokkFile instanceof ProjectFile p) {
                 return p.getSyntaxStyle();
@@ -563,7 +564,7 @@ public class PreviewManager {
     }
 
     private @Nullable ProjectFile extractProjectFile(ContextFragment fragment) {
-        if (fragment instanceof ContextFragment.PathFragment pf && pf.file() instanceof ProjectFile p) {
+        if (fragment instanceof ContextFragments.PathFragment pf && pf.file() instanceof ProjectFile p) {
             return p;
         }
         return null;

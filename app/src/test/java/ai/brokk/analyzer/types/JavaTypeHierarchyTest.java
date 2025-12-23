@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
@@ -43,8 +44,8 @@ public class JavaTypeHierarchyTest {
 
             // Summary fragment should include a clearly delineated direct ancestors section
             var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
-            var frag =
-                    new ContextFragment.SummaryFragment(cm, "XExtendsY", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+            var frag = new ContextFragments.SummaryFragment(
+                    cm, "XExtendsY", ContextFragment.SummaryType.CODEUNIT_SKELETON);
             String txt = frag.text().join();
             assertCodeEquals(
                     """
@@ -90,7 +91,7 @@ public class JavaTypeHierarchyTest {
 
             // Summary fragment should include a clearly delineated direct ancestors section
             var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
-            var frag = new ContextFragment.SummaryFragment(
+            var frag = new ContextFragments.SummaryFragment(
                     cm, "ServiceImpl", ContextFragment.SummaryType.CODEUNIT_SKELETON);
             String txt = frag.text().join();
             assertCodeEquals(
@@ -146,7 +147,7 @@ public class JavaTypeHierarchyTest {
 
             // Summary fragment should include direct ancestors, preserving order
             var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
-            var frag = new ContextFragment.SummaryFragment(
+            var frag = new ContextFragments.SummaryFragment(
                     cm, "ExtendsAndImplements", ContextFragment.SummaryType.CODEUNIT_SKELETON);
             String txt = frag.text().join();
             assertCodeEquals(
@@ -192,7 +193,7 @@ public class JavaTypeHierarchyTest {
 
             // Summary fragment should NOT include a direct ancestors section
             var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
-            var frag = new ContextFragment.SummaryFragment(cm, "Plain", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+            var frag = new ContextFragments.SummaryFragment(cm, "Plain", ContextFragment.SummaryType.CODEUNIT_SKELETON);
             String txt = frag.text().join();
             assertCodeEquals(
                     """

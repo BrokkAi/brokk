@@ -1,10 +1,10 @@
 package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
-import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.gui.ChipColorUtils.ChipKind;
 import ai.brokk.gui.components.MaterialButton;
@@ -13,6 +13,7 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Messages;
+import ai.brokk.util.StyleGuideResolver;
 import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -153,7 +154,7 @@ public class WorkspaceChip extends JPanel {
 
         // Initial label text (may be updated once computed values are ready).
         // Truncate to keep the chip compact so the close button remains visible.
-        if (fragment instanceof ContextFragment.AbstractComputedFragment) {
+        if (fragment instanceof ContextFragments.AbstractComputedFragment) {
             label.setText("Loading...");
         } else if (kind == ChipKind.OTHER) {
             label.setText(truncateForDisplay(capitalizeFirst(safeShortDescription)));
@@ -426,7 +427,7 @@ public class WorkspaceChip extends JPanel {
 
         // Special styling for Task List: dedicated color scheme
         ContextFragment fragment = getPrimaryFragment();
-        if (fragment instanceof ContextFragment.StringFragment sf) {
+        if (fragment instanceof ContextFragments.StringFragment sf) {
             if (SpecialTextType.TASK_LIST.description().equals(sf.description().renderNowOrNull())) {
                 bg = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_BACKGROUND);
                 fg = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_FOREGROUND);
@@ -578,7 +579,7 @@ public class WorkspaceChip extends JPanel {
         }
     }
 
-    private Icon buildCloseIcon(Color chipBackground) {
+    protected Icon buildCloseIcon(Color chipBackground) {
         int targetW = 10;
         int targetH = 10;
 
@@ -711,34 +712,19 @@ public class WorkspaceChip extends JPanel {
         dropOther.getAccessibleContext().setAccessibleName("Drop Others");
 
         var selected = contextManager.selectedContext();
-        if (selected == null) {
-            dropOther.setEnabled(false);
-        } else {
-            var possible = selected.getAllFragmentsInDisplayOrder().stream()
-                    .filter(f -> !Objects.equals(f, fragment))
-                    .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
-                    .toList();
-            dropOther.setEnabled(!possible.isEmpty());
-            dropOther.addActionListener(e -> {
-                if (!ensureMutatingAllowed()) {
-                    return;
-                }
-
-                var toDrop = selected.getAllFragmentsInDisplayOrder().stream()
-                        .filter(f -> !Objects.equals(f, fragment))
+        List<ContextFragment> toDrop = (selected == null)
+                ? List.of()
+                : selected.getAllFragmentsInDisplayOrder().stream()
+                        .filter(f -> !fragments.contains(f))
                         .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
                         .toList();
 
-                if (toDrop.isEmpty()) {
-                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No other non-history fragments to drop");
-                    return;
-                }
-
-                contextManager.submitContextTask(() -> {
-                    contextManager.dropWithHistorySemantics(toDrop);
-                });
-            });
-        }
+        dropOther.setEnabled(!toDrop.isEmpty());
+        dropOther.addActionListener(e -> {
+            if (ensureMutatingAllowed()) {
+                contextManager.submitContextTask(() -> contextManager.dropWithHistorySemantics(toDrop));
+            }
+        });
 
         if (addedAnyAction) {
             menu.addSeparator();
@@ -1313,26 +1299,21 @@ public class WorkspaceChip extends JPanel {
                         : "Drop Invalid Summaries (" + invalidSummaryCount + ")";
                 JMenuItem dropInvalidItem = new JMenuItem(dropInvalidLabel);
                 dropInvalidItem.addActionListener(e -> {
-                    if (!ensureMutatingAllowed()) {
-                        return;
+                    if (ensureMutatingAllowed()) {
+                        invalidSummaries.forEach(metricsCache::remove);
+                        contextManager.submitContextTask(
+                                () -> contextManager.dropWithHistorySemantics(invalidSummaries));
                     }
-                    contextManager.submitContextTask(() -> {
-                        for (var f : invalidSummaries) {
-                            metricsCache.remove(f);
-                        }
-                        contextManager.dropWithHistorySemantics(invalidSummaries);
-                    });
                 });
                 menu.add(dropInvalidItem);
                 menu.addSeparator();
             }
 
-            for (var fragment : summaryFragments) {
-                String labelText = buildIndividualDropLabel(fragment);
-                JMenuItem item = new JMenuItem(labelText);
-                item.addActionListener(e -> dropSingleFragment(fragment));
+            summaryFragments.forEach(f -> {
+                JMenuItem item = new JMenuItem(buildIndividualDropLabel(f));
+                item.addActionListener(e -> dropSingleFragment(f));
                 menu.add(item);
-            }
+            });
 
             chrome.getThemeManager().registerPopupMenu(menu);
             return menu;
@@ -1367,7 +1348,7 @@ public class WorkspaceChip extends JPanel {
                     .map(Map.Entry::getKey)
                     .orElse(SyntaxConstants.SYNTAX_STYLE_NONE);
 
-            var syntheticFragment = new ContextFragment.StringFragment(
+            var syntheticFragment = new ContextFragments.StringFragment(
                     chrome.getContextManager(), combinedText.toString(), title, syntaxStyle);
             chrome.openFragmentPreview(syntheticFragment);
         }
@@ -1384,6 +1365,173 @@ public class WorkspaceChip extends JPanel {
                     logger.error("Failed to drop summary fragments", ex);
                 }
             });
+        }
+    }
+
+    /**
+     * Synthetic, non-droppable chip that represents the merged AGENTS.md style guide.
+     * It is informational only and cannot be removed by the user.
+     *
+     * UI-only: shows system instructions visibility for the project Style Guide. It is not part of the
+     * editable Workspace and will not appear in TokenUsageBar.
+     */
+    public static final class StyleGuideChip extends WorkspaceChip {
+
+        private static final String LABEL_TEXT = "AGENTS.md";
+        private static final String ACCESSIBLE_DESC =
+                "Project style guide (AGENTS.md). Informational; cannot be removed.";
+        private static final String TOOLTIP_HTML = wrapTooltipHtml(
+                "<b>AGENTS.md</b> — informational Style Guide<br/>"
+                        + "It is always applied automatically to prompts.<br/><br/>"
+                        + "<i>This chip cannot be removed.</i>",
+                420);
+
+        public StyleGuideChip(
+                Chrome chrome,
+                ContextManager contextManager,
+                Supplier<Boolean> readOnlySupplier,
+                @Nullable BiConsumer<ContextFragment, Boolean> hoverCallback,
+                @Nullable Consumer<ContextFragment> onRemoveFragment,
+                ContextFragment fragment) {
+            super(
+                    chrome,
+                    contextManager,
+                    readOnlySupplier,
+                    hoverCallback,
+                    onRemoveFragment,
+                    Set.of(fragment),
+                    ChipKind.OTHER);
+
+            setCloseEnabled(false);
+            closeButton.setVisible(false);
+            separator.setVisible(false);
+            label.setText(LABEL_TEXT);
+
+            var ac = label.getAccessibleContext();
+            if (ac != null) {
+                ac.setAccessibleName(LABEL_TEXT);
+                ac.setAccessibleDescription(ACCESSIBLE_DESC);
+            }
+
+            label.setToolTipText(TOOLTIP_HTML);
+            closeButton.setToolTipText("Informational; cannot be removed");
+        }
+
+        @Override
+        public void applyTheme() {
+            // UI-only informational chip showing system instructions visibility; not part of the editable
+            // Workspace and therefore intentionally omitted from TokenUsageBar.
+            Color bg = ThemeColors.getColor(ThemeColors.NOTIF_INFO_BG);
+            Color fg = ThemeColors.getColor(ThemeColors.NOTIF_INFO_FG);
+            Color border = ThemeColors.getColor(ThemeColors.NOTIF_INFO_BORDER);
+
+            setBackground(bg);
+            label.setForeground(fg);
+            borderColor = border;
+
+            int h = Math.max(label.getPreferredSize().height - 6, 10);
+            separator.setBackground(border);
+            separator.setPreferredSize(new Dimension(separator.getPreferredSize().width, h));
+            separator.revalidate();
+            separator.repaint();
+
+            // Ensure icon has sufficient contrast with background and keeps consistent sizing.
+            closeButton.setIcon(buildCloseIcon(bg));
+            updateReadOnlyIcon();
+
+            revalidate();
+            repaint();
+        }
+
+        @Override
+        protected void onCloseClick() {
+            chrome.systemNotify(
+                    "AGENTS.md is informational and cannot be removed.", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+        }
+
+        @Override
+        protected void updateTextAndTooltip(ContextFragment fragment) {
+            if (!Objects.equals(label.getText(), LABEL_TEXT)) {
+                label.setText(LABEL_TEXT);
+            }
+
+            if (!Objects.equals(label.getToolTipText(), TOOLTIP_HTML)) {
+                label.setToolTipText(TOOLTIP_HTML);
+            }
+
+            var ac = label.getAccessibleContext();
+            if (ac != null) {
+                if (!Objects.equals(ac.getAccessibleDescription(), ACCESSIBLE_DESC)) {
+                    ac.setAccessibleDescription(ACCESSIBLE_DESC);
+                }
+            }
+        }
+
+        @Override
+        protected void onPrimaryClick() {
+            var selected = contextManager.selectedContext();
+
+            final List<ProjectFile> candidateFiles;
+            if (selected == null) {
+                candidateFiles = List.of();
+            } else {
+                candidateFiles = selected.getAllFragmentsInDisplayOrder().stream()
+                        .filter(f -> !(f instanceof ContextFragments.SummaryFragment))
+                        .filter(f -> f.getType() != ContextFragment.FragmentType.SKELETON)
+                        .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
+                        .distinct()
+                        .collect(Collectors.toList());
+            }
+
+            contextManager
+                    .submitBackgroundTask("Compute AGENTS.md", () -> {
+                        try {
+                            return StyleGuideResolver.resolve(candidateFiles, contextManager.getProject());
+                        } catch (Throwable t) {
+                            logger.warn("Failed to resolve style guide; using fallback", t);
+                            return contextManager.getProject().getStyleGuide();
+                        }
+                    })
+                    .thenAccept(content -> SwingUtilities.invokeLater(() -> {
+                        var syntheticFragment = new ContextFragments.StringFragment(
+                                chrome.getContextManager(), content, LABEL_TEXT, SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+                        chrome.openFragmentPreview(syntheticFragment);
+                    }));
+        }
+
+        @Override
+        protected @Nullable JPopupMenu createContextMenu() {
+            ContextFragment fragment = getPrimaryFragment();
+            JPopupMenu menu = new JPopupMenu();
+
+            JMenuItem showContentsItem = new JMenuItem("Show Contents");
+            showContentsItem.addActionListener(e -> onPrimaryClick());
+            menu.add(showContentsItem);
+
+            var scenario = new WorkspacePanel.SingleFragment(fragment);
+            var actions = scenario.getActions(chrome.getContextPanel());
+            for (var action : actions) {
+                if (action == null) {
+                    continue;
+                }
+                if (isDropAction(action)) {
+                    continue;
+                }
+                Object nameObj = action.getValue(Action.NAME);
+                if (nameObj instanceof String s) {
+                    if ("Show Contents".equals(s)) {
+                        // Replace default "Show Contents" with our custom item above
+                        continue;
+                    }
+                    if ("Drop".equals(s) || "Drop Others".equals(s)) {
+                        continue;
+                    }
+                }
+                menu.add(action);
+            }
+
+            chrome.getThemeManager().registerPopupMenu(menu);
+            return menu;
         }
     }
 }

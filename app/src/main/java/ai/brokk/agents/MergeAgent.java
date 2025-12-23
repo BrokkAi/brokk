@@ -10,7 +10,7 @@ import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo.ModifiedFile;
@@ -437,7 +437,7 @@ public class MergeAgent {
     }
 
     private void addTextToWorkspace(String title, String text) {
-        var fragment = new ContextFragment.StringFragment(cm, text, title, SyntaxConstants.SYNTAX_STYLE_NONE);
+        var fragment = new ContextFragments.StringFragment(cm, text, title, SyntaxConstants.SYNTAX_STYLE_NONE);
         cm.addFragments(fragment);
     }
 
@@ -733,7 +733,7 @@ public class MergeAgent {
                 .collect(Collectors.toSet());
         var fragmentsToAdd = conflictFiles.stream()
                 .filter(pf -> !existingEditableFiles.contains(pf))
-                .map(pf -> new ContextFragment.ProjectPathFragment(pf, cm))
+                .map(pf -> new ContextFragments.ProjectPathFragment(pf, cm))
                 .toList();
         Context resultingCtx = fragmentsToAdd.isEmpty() ? top : top.addFragments(fragmentsToAdd);
 

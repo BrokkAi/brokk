@@ -5,6 +5,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.ChipColorUtils;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.mop.ThemeColors;
@@ -30,6 +31,8 @@ import org.jetbrains.annotations.Nullable;
 
 public class TokenUsageBar extends JComponent implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(TokenUsageBar.class);
+
+    private final Chrome chrome;
 
     public enum WarningLevel {
         NONE,
@@ -86,6 +89,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     private volatile boolean rateIsTested = false;
 
     public TokenUsageBar(Chrome chrome) {
+        this.chrome = chrome;
         setOpaque(false);
         setMinimumSize(new Dimension(50, 24));
         setPreferredSize(new Dimension(75, 24));
@@ -95,6 +99,20 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
         // Track hover per segment and support left-click to trigger action if provided
         MouseAdapter mouseAdapter = new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger() && isEnabled()) {
+                    showContextMenu(e);
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger() && isEnabled()) {
+                    showContextMenu(e);
+                }
+            }
+
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (!isEnabled() || readOnly) {
@@ -125,7 +143,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
                                 }
                             }
 
-                            var syntheticFragment = new ContextFragment.StringFragment(
+                            var syntheticFragment = new ContextFragments.StringFragment(
                                     chrome.getContextManager(),
                                     combinedText.toString(),
                                     title,
@@ -502,6 +520,14 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     }
 
     /**
+     * Returns the currently hovered segment, or null if none.
+     */
+    @Nullable
+    public Segment getHoveredSegment() {
+        return hoveredSegment;
+    }
+
+    /**
      * Returns the fragments corresponding to the currently hovered segment, or an empty collection
      * if no segment is hovered. Safe to call from any thread; the returned collection is immutable.
      */
@@ -512,6 +538,55 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         }
         // Expose a defensive copy so callers cannot mutate our internal state.
         return List.copyOf(seg.fragments);
+    }
+
+    private void showContextMenu(MouseEvent e) {
+        Segment seg = getHoveredSegment();
+        JPopupMenu menu = new JPopupMenu();
+
+        if (seg != null && !seg.getFragments().isEmpty()) {
+            // Specific segment: show context-aware actions for these fragments
+            List<ContextFragment> hovered = List.copyOf(seg.getFragments());
+
+            JMenuItem dropSelected = new JMenuItem(hovered.size() == 1 ? "Drop" : "Drop (" + hovered.size() + ")");
+            dropSelected.addActionListener(ev -> chrome.getContextManager()
+                    .submitContextTask(() -> chrome.getContextManager().dropWithHistorySemantics(hovered)));
+            menu.add(dropSelected);
+
+            JMenuItem dropOthers = new JMenuItem("Drop Others");
+            dropOthers.addActionListener(ev -> {
+                Context currentCtx = chrome.getContextManager().selectedContext();
+                if (currentCtx == null) return;
+                List<ContextFragment> toDrop = currentCtx.getAllFragmentsInDisplayOrder().stream()
+                        .filter(f -> !hovered.contains(f))
+                        .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
+                        .toList();
+                if (!toDrop.isEmpty()) {
+                    chrome.getContextManager()
+                            .submitContextTask(() -> chrome.getContextManager().dropWithHistorySemantics(toDrop));
+                }
+            });
+            menu.add(dropOthers);
+        } else {
+            // Empty area: show general workspace actions
+            JMenuItem dropAllMenuItem = new JMenuItem("Drop All");
+            dropAllMenuItem.addActionListener(ev -> chrome.getContextPanel()
+                    .performContextActionAsync(ai.brokk.gui.WorkspacePanel.ContextAction.DROP, List.of()));
+            menu.add(dropAllMenuItem);
+
+            JMenuItem copyAllMenuItem = new JMenuItem("Copy All");
+            copyAllMenuItem.addActionListener(ev -> chrome.getContextPanel()
+                    .performContextActionAsync(ai.brokk.gui.WorkspacePanel.ContextAction.COPY, List.of()));
+            menu.add(copyAllMenuItem);
+
+            JMenuItem pasteMenuItem = new JMenuItem("Paste text, images, urls");
+            pasteMenuItem.addActionListener(ev -> chrome.getContextPanel()
+                    .performContextActionAsync(ai.brokk.gui.WorkspacePanel.ContextAction.PASTE, List.of()));
+            menu.add(pasteMenuItem);
+        }
+
+        chrome.getThemeManager().registerPopupMenu(menu);
+        menu.show(this, e.getX(), e.getY());
     }
 
     @Nullable
@@ -966,7 +1041,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         }
     }
 
-    private static class Segment {
+    public static class Segment {
         final int startX;
         final int widthPx;
         final Color bg;
@@ -981,7 +1056,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
             this.isSummaryGroup = isSummaryGroup;
         }
 
-        Set<ContextFragment> getFragments() {
+        public Set<ContextFragment> getFragments() {
             return fragments;
         }
     }

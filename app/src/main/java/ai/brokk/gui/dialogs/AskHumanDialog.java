@@ -1,6 +1,6 @@
 package ai.brokk.gui.dialogs;
 
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.BorderUtils;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
@@ -53,7 +53,7 @@ public final class AskHumanDialog {
             // Question (Markdown)
             var questionPanel = new MarkdownOutputPanel(true);
             questionPanel.withContextForLookups(chrome.getContextManager(), chrome);
-            var fragment = new ContextFragment.TaskFragment(
+            var fragment = new ContextFragments.TaskFragment(
                     chrome.getContextManager(), List.of(new AiMessage(question)), sessionName);
             questionPanel.setText(fragment);
             questionPanel.applyTheme(chrome.getTheme());
@@ -195,7 +195,7 @@ public final class AskHumanDialog {
             // Question (Markdown)
             var questionPanel = new MarkdownOutputPanel(true);
             questionPanel.withContextForLookups(chrome.getContextManager(), chrome);
-            var fragment = new ContextFragment.TaskFragment(
+            var fragment = new ContextFragments.TaskFragment(
                     chrome.getContextManager(), List.of(new AiMessage(question)), sessionName);
             questionPanel.setText(fragment);
             questionPanel.applyTheme(chrome.getTheme());

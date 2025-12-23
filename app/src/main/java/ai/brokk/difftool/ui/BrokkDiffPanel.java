@@ -2,7 +2,7 @@ package ai.brokk.difftool.ui;
 
 import ai.brokk.*;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.difftool.doc.AbstractBufferDocument;
 import ai.brokk.difftool.doc.BufferDocumentIF;
 import ai.brokk.difftool.node.JMDiffNode;
@@ -1028,7 +1028,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                 // Check if this file is already in the current workspace context
                 var editableFilesList = currentContext.fileFragments().toList();
                 boolean inWorkspace = editableFilesList.stream()
-                        .anyMatch(f -> f instanceof ContextFragment.ProjectPathFragment ppf
+                        .anyMatch(f -> f instanceof ContextFragments.ProjectPathFragment ppf
                                 && ppf.file().equals(file));
                 if (!inWorkspace) {
                     externalFiles.add(file);
@@ -1707,7 +1707,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                 }
             }
 
-            var fragment = new ContextFragment.StringFragment(
+            var fragment = new ContextFragments.StringFragment(
                     contextManager, combinedBuilder.toString(), description, syntaxStyle, filesForFragment);
 
             contextManager.submitContextTask(() -> {

@@ -1,5 +1,6 @@
 package ai.brokk.git;
 
+import static ai.brokk.project.FileFilteringService.toUnixPath;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.analyzer.ProjectFile;
@@ -54,6 +55,7 @@ public class GitRepo implements Closeable, IGitRepo {
     private final char @Nullable [] gpgPassPhrase; // if the user has enabled GPG signing by default
     private final Supplier<String> tokenSupplier; // Supplier for GitHub token
     private @Nullable Set<ProjectFile> trackedFilesCache = null;
+    private @Nullable Set<Path> trackedPathsCache = null;
 
     // New field holding remote-related helpers
     private final GitRepoRemote remote;
@@ -253,7 +255,7 @@ public class GitRepo implements Closeable, IGitRepo {
         // We need to make it relative to JGit's working tree root.
         Path workingTreeRoot = repository.getWorkTree().toPath().normalize();
         Path relativePath = workingTreeRoot.relativize(file.absPath());
-        return relativePath.toString().replace('\\', '/');
+        return toUnixPath(relativePath);
     }
 
     /**
@@ -418,6 +420,7 @@ public class GitRepo implements Closeable, IGitRepo {
         // TODO probably we should split ".git changed" apart from "tracked files changed"
         repository.getRefDatabase().refresh();
         trackedFilesCache = null;
+        trackedPathsCache = null;
     }
 
     /** Adds files to staging. */
@@ -531,7 +534,17 @@ public class GitRepo implements Closeable, IGitRepo {
                 .filter(Optional::isPresent)
                 .map(Optional::get)
                 .collect(Collectors.toSet());
+        trackedPathsCache =
+                trackedFilesCache.stream().map(ProjectFile::getRelPath).collect(Collectors.toSet());
         return trackedFilesCache;
+    }
+
+    @Override
+    public synchronized boolean isTracked(Path relativePath) {
+        if (trackedPathsCache == null) {
+            getTrackedFiles(); // populates both caches
+        }
+        return requireNonNull(trackedPathsCache).contains(relativePath);
     }
 
     /** Get the current commit ID (HEAD) */

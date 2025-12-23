@@ -31,7 +31,7 @@ public class UndoRedoRestoreTest {
         var pf = new ProjectFile(tempDir, "sample.txt");
         pf.write("v1");
 
-        var live = new Context(cm).addFragments(List.of(new ContextFragment.ProjectPathFragment(pf, cm)));
+        var live = new Context(cm).addFragments(List.of(new ContextFragments.ProjectPathFragment(pf, cm)));
         live.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
 
         // 2) Build history with the initial snapshot
@@ -39,7 +39,7 @@ public class UndoRedoRestoreTest {
 
         // 3) Push a second snapshot (e.g., adding a virtual fragment) to enable undo
         history.push(ctx -> ctx.addFragments(
-                new ContextFragment.StringFragment(cm, "hello", "desc", SyntaxConstants.SYNTAX_STYLE_NONE)));
+                new ContextFragments.StringFragment(cm, "hello", "desc", SyntaxConstants.SYNTAX_STYLE_NONE)));
 
         // 4) Modify the file externally to a different value
         pf.write("v2");
@@ -74,9 +74,9 @@ public class UndoRedoRestoreTest {
         // Build initial context with mixed fragments
         var live = new Context(cm)
                 .addFragments(List.of(
-                        new ContextFragment.ProjectPathFragment(pf, cm),
-                        new ContextFragment.ExternalPathFragment(new ExternalFile(externalPath), cm),
-                        new ContextFragment.ImageFileFragment(new ExternalFile(imagePath), cm)));
+                        new ContextFragments.ProjectPathFragment(pf, cm),
+                        new ContextFragments.ExternalPathFragment(new ExternalFile(externalPath), cm),
+                        new ContextFragments.ImageFileFragment(new ExternalFile(imagePath), cm)));
         live.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
 
         // Initialize history (snapshot 1)
@@ -84,7 +84,7 @@ public class UndoRedoRestoreTest {
 
         // Push second context with a virtual fragment (snapshot 2)
         history.push(ctx -> ctx.addFragments(
-                new ContextFragment.StringFragment(cm, "hello", "desc", SyntaxConstants.SYNTAX_STYLE_NONE)));
+                new ContextFragments.StringFragment(cm, "hello", "desc", SyntaxConstants.SYNTAX_STYLE_NONE)));
 
         // Mutate on-disk contents after snapshot 2
         pf.write("v2");
@@ -137,9 +137,9 @@ public class UndoRedoRestoreTest {
         // Create initial context with mixed fragments
         var live = new Context(cm)
                 .addFragments(List.of(
-                        new ContextFragment.ProjectPathFragment(pfText, cm),
-                        new ContextFragment.ImageFileFragment(pfImg, cm),
-                        new ContextFragment.ExternalPathFragment(extFile, cm)));
+                        new ContextFragments.ProjectPathFragment(pfText, cm),
+                        new ContextFragments.ImageFileFragment(pfImg, cm),
+                        new ContextFragments.ExternalPathFragment(extFile, cm)));
         live.awaitContextsAreComputed(Duration.ofSeconds(10));
 
         // Build history capturing v1 snapshot
@@ -153,9 +153,9 @@ public class UndoRedoRestoreTest {
         // Push a second context capturing v2 snapshots for project and image files
         history.push(ctx -> ctx.removeAll()
                 .addFragments(List.of(
-                        new ContextFragment.ProjectPathFragment(pfText, cm),
-                        new ContextFragment.ImageFileFragment(pfImg, cm),
-                        new ContextFragment.ExternalPathFragment(extFile, cm))));
+                        new ContextFragments.ProjectPathFragment(pfText, cm),
+                        new ContextFragments.ImageFileFragment(pfImg, cm),
+                        new ContextFragments.ExternalPathFragment(extFile, cm))));
 
         // Mutate again to a different on-disk state (v3)
         pfText.write("v3");

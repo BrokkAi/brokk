@@ -11,6 +11,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
+import ai.brokk.util.Environment;
 import com.jakewharton.disklrucache.DiskLruCache;
 import java.awt.Rectangle;
 import java.io.IOException;
@@ -28,6 +29,8 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 public interface IProject extends AutoCloseable {
+
+    long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
 
     default IGitRepo getRepo() {
         throw new UnsupportedOperationException();
@@ -79,14 +82,12 @@ public interface IProject extends AutoCloseable {
     default void invalidateAllFiles() {}
 
     /**
-     * Checks if a directory is ignored by gitignore rules.
-     * This is used by BuildAgent to identify excluded directories for LLM context.
-     * Uses explicit gitignore validation with isDirectory=true rather than inferring from absence.
+     * Check if a path (file or directory) is ignored by gitignore rules.
      *
-     * @param directoryRelPath Path relative to project root
-     * @return true if the directory is ignored by gitignore rules, false otherwise
+     * @param relPath Path relative to project root
+     * @return true if the path is ignored by gitignore rules, false otherwise
      */
-    default boolean isDirectoryIgnored(Path directoryRelPath) {
+    default boolean isGitignored(Path relPath) {
         return false; // Conservative default: assume not ignored
     }
 
@@ -411,8 +412,44 @@ public interface IProject extends AutoCloseable {
         return Set.of();
     }
 
-    default Set<String> getExcludedDirectories() {
+    /**
+     * Returns the set of exclusion patterns for code intelligence.
+     * Patterns can be simple names (e.g., "node_modules") or globs (e.g., "*.svg").
+     */
+    default Set<String> getExclusionPatterns() {
         return Set.of();
+    }
+
+    /**
+     * Returns exclusion patterns that are simple directory/file names (no wildcards).
+     * Convenience method for callers that need Path-based exclusions.
+     */
+    default Set<String> getExcludedDirectories() {
+        return getExclusionPatterns().stream()
+                .filter(p -> !p.contains("*") && !p.contains("?"))
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * Returns exclusion patterns that contain wildcards (glob patterns).
+     * Convenience method for callers that need only glob-style patterns.
+     */
+    default Set<String> getExcludedGlobPatterns() {
+        return getExclusionPatterns().stream()
+                .filter(p -> p.contains("*") || p.contains("?"))
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * Check if a path (file or directory) is excluded by any pattern.
+     * Implementations should cache compiled patterns for efficiency.
+     *
+     * @param relativePath the relative path to check (e.g., "src/main/java" or "node_modules/foo/bar.js")
+     * @param isDirectory true if the path is a directory (skips Extension pattern checks like *.svg)
+     * @return true if the path is excluded
+     */
+    default boolean isPathExcluded(String relativePath, boolean isDirectory) {
+        return false;
     }
 
     default IConsoleIO getConsoleIO() {
@@ -447,6 +484,14 @@ public interface IProject extends AutoCloseable {
     default CompletableFuture<Void> addLiveDependency(
             String dependencyName, @Nullable IAnalyzerWrapper analyzerWrapper) {
         throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Obtains the user-defined run command timeout if set, or the default value otherwise.
+     * @return the default timeout for how long a shell command may run for.
+     */
+    default long getRunCommandTimeoutSeconds() {
+        return DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
     }
 
     enum CodeAgentTestScope {

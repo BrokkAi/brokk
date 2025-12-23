@@ -9,7 +9,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 
 public class Languages {
@@ -349,9 +348,7 @@ public class Languages {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
-            var excludedDirStrings = project.getExcludedDirectories();
-            var excludedPaths = excludedDirStrings.stream().map(Path::of).collect(Collectors.toSet());
-            return new SqlAnalyzer(project, excludedPaths);
+            return new SqlAnalyzer(project);
         }
 
         @Override

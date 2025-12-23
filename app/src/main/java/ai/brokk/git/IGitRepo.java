@@ -27,6 +27,14 @@ public interface IGitRepo {
 
     Set<ProjectFile> getTrackedFiles();
 
+    /**
+     * Checks if a file is tracked by git.
+     * More efficient than getTrackedFiles().contains(new ProjectFile(...)) for repeated lookups.
+     */
+    default boolean isTracked(Path relativePath) {
+        return false;
+    }
+
     default String diff() throws GitAPIException {
         return "";
     }

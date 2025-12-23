@@ -110,6 +110,9 @@ public final class EditBlockUtils {
      * Scanning for a filename up to 3 lines above the HEAD block index. If none found, fallback to currentFilename if
      * it's not null.
      *
+     * Note: we do NOT coerce filenames from one path to another to match an existing ProjectFile since that could
+     * cause serious problems if the intent is actually to create a new file.
+     *
      * @param lines array of all document lines
      * @param headIndex index where the HEAD marker (<<<<<<< SEARCH) was found
      * @param projectFiles set of valid project files to match against (can be empty)
@@ -138,46 +141,40 @@ public final class EditBlockUtils {
                 candidates.add(possible);
             }
             rawContextLines.add(rawLine);
-            // If not a fence line, stop scanning further upward (keeps prior behavior for fenced blocks)
-            if (!s.startsWith("```")) {
-                break;
-            }
         }
 
-        // (2a) Exact match (including path) in valid ProjectFiles using stripped candidates
+        // (1) Exact match (including path) in valid ProjectFiles using stripped candidates: high confidence
         for (var c : candidates) {
             if (projectFiles.stream().anyMatch(f -> f.toString().equals(c))) {
                 return c;
             }
         }
 
-        // (2a continued) Candidate-to-ProjectFile filename containment (best-effort)
-        var matches = candidates.stream()
-                .flatMap(c -> projectFiles.stream().filter(f -> f.getFileName().contains(c)).findFirst().stream())
-                .map(ProjectFile::toString)
-                .toList();
-        if (matches.size() == 1) {
-            return matches.getFirst();
-        }
-
-        // (2b) Look for unique ProjectFile name occurrence in the RAW, unstripped context lines
+        // (2) Look for unique ProjectFile occurrences in the RAW, unstripped context lines
+        // (handles case of, it gave us a filename but included extra noise in the line)
+        // (also high confidence)
         var rawMatches = rawContextLines.stream()
-                .flatMap(raw -> projectFiles.stream().filter(f -> raw.contains(f.getFileName())))
+                .flatMap(raw -> projectFiles.stream().filter(f -> raw.contains(f.toString())))
                 .distinct()
                 .toList();
         if (rawMatches.size() == 1) {
             return rawMatches.getFirst().toString();
         }
 
-        // If any stripped candidate looks like a path (has an extension), use it verbatim.
+        // (3) If we found multiple project file matches in raw lines, it's ambiguous; don't guess.
+        if (rawMatches.size() > 1) {
+            return null;
+        }
+
+        // (4) If any stripped candidate looks like a path (has an extension and no spaces), use it verbatim
+        // (low confidence but arguably better than nothing)
         for (var c : candidates) {
-            if (c.contains(".")) {
+            if (c.contains(".") && !c.contains(" ")) {
                 return c;
             }
         }
 
-        // Fallback to the first raw candidate, else currentPath
-        if (!candidates.isEmpty()) return candidates.getFirst();
+        // (4) Continue using currentPath if we have it
         return currentPath;
     }
 }

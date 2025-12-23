@@ -7,7 +7,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.ContextFragment.HistoryFragment;
+import ai.brokk.context.ContextFragments.HistoryFragment;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.ActivityTableRenderers;
@@ -71,7 +71,7 @@ public class Context {
      * LLM output or other parsed content, with optional fragment. May be null
      */
     @Nullable
-    final transient ContextFragment.TaskFragment parsedOutput;
+    final transient ContextFragments.TaskFragment parsedOutput;
 
     /**
      * description of the action that created this context, can be a future (like PasteFragment)
@@ -107,7 +107,7 @@ public class Context {
             IContextManager contextManager,
             List<ContextFragment> fragments,
             List<TaskEntry> taskHistory,
-            @Nullable ContextFragment.TaskFragment parsedOutput,
+            @Nullable ContextFragments.TaskFragment parsedOutput,
             Future<String> action,
             @Nullable UUID groupId,
             @Nullable String groupLabel,
@@ -127,7 +127,7 @@ public class Context {
             IContextManager contextManager,
             List<ContextFragment> fragments,
             List<TaskEntry> taskHistory,
-            @Nullable ContextFragment.TaskFragment parsedOutput,
+            @Nullable ContextFragments.TaskFragment parsedOutput,
             Future<String> action) {
         this(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action, null, null, Set.of());
     }
@@ -231,8 +231,8 @@ public class Context {
         // 2. Identify files that are being added as full PATH fragments.
         // These will "kill" any existing SKELETON fragments for the same files.
         var incomingPathFiles = uniqueInputs.stream()
-                .filter(f -> f instanceof ContextFragment.PathFragment)
-                .map(f -> (ContextFragment.PathFragment) f)
+                .filter(f -> f instanceof ContextFragments.PathFragment)
+                .map(f -> (ContextFragments.PathFragment) f)
                 .flatMap(pf -> pf.files().join().stream())
                 .collect(Collectors.toSet());
 
@@ -241,7 +241,7 @@ public class Context {
         //    b) Keep everything else (we will deduplicate against new inputs in the next step).
         var keptExistingFragments = this.fragments.stream()
                 .filter(f -> {
-                    if (f instanceof ContextFragment.SummaryFragment) {
+                    if (f instanceof ContextFragments.SummaryFragment) {
                         var skeletonFiles = f.files().join();
                         // If the skeleton's files overlap with incoming full paths, drop the skeleton.
                         return Collections.disjoint(skeletonFiles, incomingPathFiles);
@@ -345,7 +345,7 @@ public class Context {
      * 2) Compute related files and take up to topK.
      * 3) Return a List of SummaryFragment for the top results.
      */
-    public List<ContextFragment.SummaryFragment> buildAutoContext(int topK) throws InterruptedException {
+    public List<ContextFragments.SummaryFragment> buildAutoContext(int topK) throws InterruptedException {
         IAnalyzer analyzer = contextManager.getAnalyzer();
 
         var relevantFiles = getMostRelevantFiles(topK);
@@ -367,7 +367,7 @@ public class Context {
 
         return targetFqns.stream()
                 .limit(topK)
-                .map(fqn -> new ContextFragment.SummaryFragment(
+                .map(fqn -> new ContextFragments.SummaryFragment(
                         contextManager, fqn, ContextFragment.SummaryType.CODEUNIT_SKELETON))
                 .toList();
     }
@@ -427,11 +427,11 @@ public class Context {
      */
     public Stream<ContextFragment> getEditableFragments() {
         // Helper record for associating a fragment with its mtime for safe sorting and filtering
-        record EditableFileWithMtime(ContextFragment.ProjectPathFragment fragment, long mtime) {}
+        record EditableFileWithMtime(ContextFragments.ProjectPathFragment fragment, long mtime) {}
 
-        Stream<ContextFragment.ProjectPathFragment> sortedProjectFiles = fragments.stream()
-                .filter(ContextFragment.ProjectPathFragment.class::isInstance)
-                .map(ContextFragment.ProjectPathFragment.class::cast)
+        Stream<ContextFragments.ProjectPathFragment> sortedProjectFiles = fragments.stream()
+                .filter(ContextFragments.ProjectPathFragment.class::isInstance)
+                .map(ContextFragments.ProjectPathFragment.class::cast)
                 .map(pf -> {
                     // exists() and mtime() are both a syscall, so we just call the latter and catch errors
                     long mtime;
@@ -452,7 +452,7 @@ public class Context {
                 .map(EditableFileWithMtime::fragment);
 
         Stream<ContextFragment> otherEditable = fragments.stream()
-                .filter(f -> !(f instanceof ContextFragment.ProjectPathFragment)
+                .filter(f -> !(f instanceof ContextFragments.ProjectPathFragment)
                         && f.getType().isEditable());
 
         return Streams.concat(otherEditable, sortedProjectFiles.map(ContextFragment.class::cast))
@@ -555,7 +555,7 @@ public class Context {
     }
 
     public Context addHistoryEntry(
-            TaskEntry taskEntry, @Nullable ContextFragment.TaskFragment parsed, Future<String> action) {
+            TaskEntry taskEntry, @Nullable ContextFragments.TaskFragment parsed, Future<String> action) {
         var newTaskHistory =
                 Streams.concat(taskHistory.stream(), Stream.of(taskEntry)).toList();
         // Do not inherit grouping on derived contexts; grouping is explicit
@@ -642,7 +642,7 @@ public class Context {
         return result;
     }
 
-    public Context withParsedOutput(@Nullable ContextFragment.TaskFragment parsedOutput, Future<String> action) {
+    public Context withParsedOutput(@Nullable ContextFragments.TaskFragment parsedOutput, Future<String> action) {
         // Clear grouping by default on derived contexts
         return new Context(
                 newContextId(),
@@ -656,7 +656,7 @@ public class Context {
                 this.markedReadonlyFragments);
     }
 
-    public Context withParsedOutput(@Nullable ContextFragment.TaskFragment parsedOutput, String action) {
+    public Context withParsedOutput(@Nullable ContextFragments.TaskFragment parsedOutput, String action) {
         // Clear grouping by default on derived contexts
         return new Context(
                 newContextId(),
@@ -702,7 +702,7 @@ public class Context {
             IContextManager cm,
             List<ContextFragment> fragments,
             List<TaskEntry> history,
-            @Nullable ContextFragment.TaskFragment parsed,
+            @Nullable ContextFragments.TaskFragment parsed,
             Future<String> action) {
         return createWithId(id, cm, fragments, history, parsed, action, null, null, Set.of());
     }
@@ -716,7 +716,7 @@ public class Context {
             IContextManager cm,
             List<ContextFragment> fragments,
             List<TaskEntry> history,
-            @Nullable ContextFragment.TaskFragment parsed,
+            @Nullable ContextFragments.TaskFragment parsed,
             Future<String> action,
             @Nullable UUID groupId,
             @Nullable String groupLabel,
@@ -728,7 +728,7 @@ public class Context {
      * Creates a new Context with a modified task history list. This generates a new context state with a new ID and
      * action.
      */
-    public Context withCompressedHistory(List<TaskEntry> newHistory) {
+    public Context withHistory(List<TaskEntry> newHistory) {
         return new Context(
                 newContextId(),
                 contextManager,
@@ -742,7 +742,7 @@ public class Context {
     }
 
     @Nullable
-    public ContextFragment.TaskFragment getParsedOutput() {
+    public ContextFragments.TaskFragment getParsedOutput() {
         return parsedOutput;
     }
 
@@ -814,12 +814,12 @@ public class Context {
 
     // --- SpecialTextType helpers ---
 
-    public Optional<ContextFragment.StringFragment> getSpecial(String description) {
+    public Optional<ContextFragments.StringFragment> getSpecial(String description) {
         // Since special looks for self-freezing fragments, we can reliably use `renderNow`
         return virtualFragments()
-                .filter(f -> f instanceof ContextFragment.AbstractStaticFragment sf
+                .filter(f -> f instanceof ContextFragments.AbstractStaticFragment sf
                         && description.equals(sf.description().renderNowOrNull()))
-                .map(ContextFragment.StringFragment.class::cast)
+                .map(ContextFragments.StringFragment.class::cast)
                 .findFirst();
     }
 
@@ -829,7 +829,7 @@ public class Context {
 
         var idsToDrop = type.singleton()
                 ? virtualFragments()
-                        .filter(f -> f instanceof ContextFragment.AbstractStaticFragment sf
+                        .filter(f -> f instanceof ContextFragments.AbstractStaticFragment sf
                                 && desc.equals(sf.description().renderNowOrNull()))
                         .map(ContextFragment::id)
                         .toList()
@@ -837,7 +837,7 @@ public class Context {
 
         var afterClear = idsToDrop.isEmpty() ? this : removeFragmentsByIds(idsToDrop);
 
-        var sf = new ContextFragment.StringFragment(getContextManager(), content, desc, type.syntaxStyle());
+        var sf = new ContextFragments.StringFragment(getContextManager(), content, desc, type.syntaxStyle());
 
         var newFragments = new ArrayList<>(afterClear.fragments);
         newFragments.add(sf);
@@ -858,7 +858,7 @@ public class Context {
     @Blocking
     public Context updateSpecial(SpecialTextType type, UnaryOperator<String> updater) {
         var current = getSpecial(type.description())
-                .map(ContextFragment.AbstractStaticFragment::text)
+                .map(ContextFragments.AbstractStaticFragment::text)
                 .map(cv -> cv.renderNowOr(""))
                 .orElse("");
         var updated = updater.apply(current);
@@ -918,9 +918,9 @@ public class Context {
         var liveContext = context;
         var workspaceFiles = liveContext
                 .fileFragments()
-                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
-                .map(f -> (ContextFragment.ProjectPathFragment) f)
-                .map(ContextFragment.ProjectPathFragment::file)
+                .filter(f -> f instanceof ContextFragments.ProjectPathFragment)
+                .map(f -> (ContextFragments.ProjectPathFragment) f)
+                .map(ContextFragments.ProjectPathFragment::file)
                 .collect(Collectors.toSet());
 
         var toAdd = new ArrayList<ContextFragment>();
@@ -935,7 +935,7 @@ public class Context {
                 var codeUnit = cuOpt.get();
                 // Skip if the source file is already in workspace as a ProjectPathFragment
                 if (!workspaceFiles.contains(codeUnit.source())) {
-                    toAdd.add(new ContextFragment.CodeFragment(context.contextManager, codeUnit));
+                    toAdd.add(new ContextFragments.CodeFragment(context.contextManager, codeUnit));
                 }
             } else {
                 logger.warn("Could not find definition for class: {}", className);
@@ -962,7 +962,7 @@ public class Context {
             if (name.isBlank()) {
                 continue;
             }
-            toAdd.add(new ContextFragment.SummaryFragment(
+            toAdd.add(new ContextFragments.SummaryFragment(
                     context.contextManager, name, ContextFragment.SummaryType.CODEUNIT_SKELETON));
         }
 
@@ -996,7 +996,7 @@ public class Context {
 
         var toAdd = new ArrayList<ContextFragment>();
         for (String path : resolvedFilePaths) {
-            toAdd.add(new ContextFragment.SummaryFragment(
+            toAdd.add(new ContextFragments.SummaryFragment(
                     context.contextManager, path, ContextFragment.SummaryType.FILE_SKELETONS));
         }
 
@@ -1018,9 +1018,9 @@ public class Context {
         }
 
         var workspaceFiles = context.fileFragments()
-                .filter(f -> f instanceof ContextFragment.ProjectPathFragment)
-                .map(f -> (ContextFragment.ProjectPathFragment) f)
-                .map(ContextFragment.ProjectPathFragment::file)
+                .filter(f -> f instanceof ContextFragments.ProjectPathFragment)
+                .map(f -> (ContextFragments.ProjectPathFragment) f)
+                .map(ContextFragments.ProjectPathFragment::file)
                 .collect(Collectors.toSet());
 
         var toAdd = new ArrayList<ContextFragment>();
@@ -1035,7 +1035,7 @@ public class Context {
                 var codeUnit = cuOpt.get();
                 // Skip if the source file is already in workspace as a ProjectPathFragment
                 if (!workspaceFiles.contains(codeUnit.source())) {
-                    toAdd.add(new ContextFragment.CodeFragment(context.contextManager, codeUnit));
+                    toAdd.add(new ContextFragments.CodeFragment(context.contextManager, codeUnit));
                 }
             } else {
                 logger.warn("Could not find method definition for: {}", methodName);
@@ -1067,7 +1067,7 @@ public class Context {
             return context;
         }
 
-        var fragment = new ContextFragment.StringFragment(
+        var fragment = new ContextFragments.StringFragment(
                 context.contextManager, content, "Content from " + urlString, SyntaxConstants.SYNTAX_STYLE_NONE);
         return context.addFragments(fragment);
     }
@@ -1079,12 +1079,12 @@ public class Context {
     @Blocking
     public String getBuildError() {
         return getBuildFragment()
-                .map(ContextFragment.AbstractStaticFragment::text)
+                .map(ContextFragments.AbstractStaticFragment::text)
                 .map(cv -> cv.renderNowOr(""))
                 .orElse("");
     }
 
-    public Optional<ContextFragment.StringFragment> getBuildFragment() {
+    public Optional<ContextFragments.StringFragment> getBuildFragment() {
         return getSpecial(SpecialTextType.BUILD_RESULTS.description());
     }
 
@@ -1100,7 +1100,7 @@ public class Context {
         var fragmentsToDrop = virtualFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG
                         || (f.getType() == ContextFragment.FragmentType.STRING
-                                && f instanceof ContextFragment.AbstractStaticFragment sf
+                                && f instanceof ContextFragments.AbstractStaticFragment sf
                                 && desc.equals(sf.description().renderNowOrNull())))
                 .toList();
 
@@ -1122,7 +1122,7 @@ public class Context {
     /**
      * Retrieves the Task List fragment if present.
      */
-    public Optional<ContextFragment.StringFragment> getTaskListFragment() {
+    public Optional<ContextFragments.StringFragment> getTaskListFragment() {
         return getSpecial(SpecialTextType.TASK_LIST.description());
     }
 
@@ -1315,7 +1315,7 @@ public class Context {
     public void awaitContextsAreComputed(Duration timeout) throws InterruptedException {
         long deadline = System.currentTimeMillis() + timeout.toMillis();
         for (var fragment : this.allFragments().toList()) {
-            if (fragment instanceof ContextFragment.AbstractComputedFragment cf) {
+            if (fragment instanceof ContextFragments.AbstractComputedFragment cf) {
                 long remainingMillis = deadline - System.currentTimeMillis();
                 if (remainingMillis <= 0) {
                     break; // Timeout exhausted

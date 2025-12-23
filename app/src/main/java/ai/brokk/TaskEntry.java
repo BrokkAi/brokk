@@ -2,7 +2,7 @@ package ai.brokk;
 
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessage;
 import java.util.List;
@@ -23,7 +23,7 @@ import org.jetbrains.annotations.Nullable;
  */
 public record TaskEntry(
         int sequence,
-        @Nullable ContextFragment.TaskFragment log,
+        @Nullable ContextFragments.TaskFragment log,
         @Nullable String summary,
         @Nullable TaskResult.TaskMeta meta) {
 
@@ -34,7 +34,7 @@ public record TaskEntry(
     }
 
     // Backward-compatible overload for existing call-sites (pre-meta)
-    public TaskEntry(int sequence, @Nullable ContextFragment.TaskFragment log, @Nullable String summary) {
+    public TaskEntry(int sequence, @Nullable ContextFragments.TaskFragment log, @Nullable String summary) {
         this(sequence, log, summary, null);
     }
 

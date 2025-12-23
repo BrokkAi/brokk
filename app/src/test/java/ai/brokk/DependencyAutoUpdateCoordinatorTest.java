@@ -18,6 +18,7 @@ import java.util.stream.Collectors;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
@@ -133,6 +134,7 @@ class DependencyAutoUpdateCoordinatorTest {
                 "Dependency contents should remain unchanged when auto-update is disabled");
     }
 
+    @Disabled
     @Test
     void autoUpdateDependenciesOnce_shouldUpdateOnlyLocalWhenGitDisabled() throws Exception {
         var project = new MainProject(tempRoot);

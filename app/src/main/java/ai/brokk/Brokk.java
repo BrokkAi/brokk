@@ -4,7 +4,7 @@ import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.exception.GlobalExceptionHandler;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
@@ -395,7 +395,7 @@ public class Brokk {
                 .addShutdownHook(new Thread(
                         () -> {
                             try {
-                                ContextFragment.shutdownFragmentExecutor();
+                                ContextFragments.shutdownFragmentExecutor();
                             } catch (Throwable t) {
                                 logger.debug("Failed to shutdown fragment executor in shutdown hook", t);
                             }
@@ -948,7 +948,7 @@ public class Brokk {
             // Do NOT remove this project from the persistent "open projects" list.
             logger.info("Last project window ({}) closed. App exiting. It remains MRU.", projectPath);
             try {
-                ContextFragment.shutdownFragmentExecutor();
+                ContextFragments.shutdownFragmentExecutor();
             } catch (Throwable t) {
                 logger.debug("Error during fragment executor shutdown on window close", t);
             }
@@ -1168,7 +1168,7 @@ public class Brokk {
         } finally {
             // Ensure fragment executor is terminated so no lingering threads keep the JVM alive
             try {
-                ContextFragment.shutdownFragmentExecutor();
+                ContextFragments.shutdownFragmentExecutor();
             } catch (Throwable t) {
                 logger.debug("Error during fragment executor shutdown at exit()", t);
             }

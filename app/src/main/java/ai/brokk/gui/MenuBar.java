@@ -7,6 +7,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.Service;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.dialogs.AboutDialog;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.dialogs.BlitzForgeDialog;
@@ -411,7 +412,7 @@ public class MenuBar {
                         }
 
                         var projectRoot = project.getRoot();
-                        List<ContextFragment.PathFragment> fragments = new ArrayList<>();
+                        List<ContextFragments.PathFragment> fragments = new ArrayList<>();
                         for (Path p : pathsToAttach) {
                             BrokkFile bf = Completions.maybeExternalFile(
                                     projectRoot, p.toAbsolutePath().normalize().toString());

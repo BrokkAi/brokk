@@ -15,6 +15,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -40,6 +41,7 @@ public class EditBlockSyntaxTest {
 
     @BeforeEach
     void setupEach() throws IOException {
+        SyntaxAwareConfig.setSyntaxAwareExtensions(Set.of("java"));
         final var testResourcesPath =
                 Path.of("src/test/resources/testcode-java").toAbsolutePath().normalize();
         assertTrue(Files.exists(testResourcesPath), "Test resource directory 'testcode-java' not found.");
@@ -53,9 +55,8 @@ public class EditBlockSyntaxTest {
 
     @AfterEach
     void teardownEach() {
-        if (testProject != null) {
-            testProject.close();
-        }
+        SyntaxAwareConfig.resetSyntaxAwareExtensions();
+        testProject.close();
     }
 
     // ==================== BRK_FUNCTION Tests ====================
@@ -908,9 +909,10 @@ public class EditBlockSyntaxTest {
     }
 
     private List<EditBlock.SearchReplaceBlock> parseBlocks(String response, TestContextManager ctx) {
-        return EditBlockParser.instance
+        var blocks = EditBlockParser.instance
                 .parseEditBlocks(response, ctx.getFilesInContext())
                 .blocks();
+        return new ArrayList<>(blocks);
     }
 
     /**

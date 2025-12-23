@@ -7,18 +7,19 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.git.TestRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.tasks.TaskList;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.File;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jetbrains.annotations.Nullable;
 
@@ -104,7 +105,7 @@ public final class TestContextManager implements IContextManager {
     }
 
     public void addEditableFile(ProjectFile file) {
-        liveContext = liveContext.addFragments(new ContextFragment.ProjectPathFragment(file, this));
+        liveContext = liveContext.addFragments(new ContextFragments.ProjectPathFragment(file, this));
     }
 
     @Override
@@ -188,18 +189,10 @@ public final class TestContextManager implements IContextManager {
         return context.withTaskList(new TaskList.TaskListData(items), "Task list replaced");
     }
 
-    @Override
-    public Context appendTasksToTaskList(Context context, List<String> tasks) {
-        var cleaned =
-                tasks.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
-        if (cleaned.isEmpty()) {
-            return context; // no-op
-        }
-        var existing = new ArrayList<>(context.getTaskListDataOrEmpty().tasks());
-        existing.addAll(
-                cleaned.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList());
-        return context.withTaskList(new TaskList.TaskListData(List.copyOf(existing)), "Task list updated");
-    }
+    private final ExecutorService backgroundTasks = Executors.newCachedThreadPool();
 
-    private String buildFragmentContent = "";
+    @Override
+    public ExecutorService getBackgroundTasks() {
+        return backgroundTasks;
+    }
 }

@@ -106,6 +106,7 @@ dependencies {
     implementation(libs.uuid.creator)
     implementation(libs.mcp.sdk)
     implementation(libs.pcollections)
+    implementation(libs.caffeine)
     // For JSON serialization interfaces (used by CodeUnit)
     api(libs.jackson.annotations)
 

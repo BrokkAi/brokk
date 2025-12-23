@@ -1,12 +1,12 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
-import static ai.brokk.testutil.TestProject.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.IContextManager;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
@@ -272,7 +272,7 @@ public final class CSharpAnalyzerTest {
 
         // Create SkeletonFragment and assert its properties
         // and we want to avoid complex mocking for this CSharpAnalyzer test.
-        var skeletonFragment = new ContextFragment.SummaryFragment(
+        var skeletonFragment = new ContextFragments.SummaryFragment(
                 contextManager, ifaceCU.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON);
 
         // Assert that the skels map (directly from analyzer) contains the interface

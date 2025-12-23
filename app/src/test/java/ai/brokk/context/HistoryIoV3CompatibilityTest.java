@@ -53,19 +53,19 @@ class HistoryIoV3CompatibilityTest {
         // Let fragments materialize
         top.awaitContextsAreComputed(Duration.ofSeconds(10));
 
-        var projectPathFragment = findFragment(top, ContextFragment.ProjectPathFragment.class, f -> f.description()
+        var projectPathFragment = findFragment(top, ContextFragments.ProjectPathFragment.class, f -> f.description()
                 .join()
                 .contains("GitHubAuth.java"));
         assertNotNull(projectPathFragment, "ProjectPathFragment for GitHubAuth.java should be present");
 
         var buildFragment = findFragment(
                 top,
-                ContextFragment.StringFragment.class,
+                ContextFragments.StringFragment.class,
                 f -> "Source code for io.github.jbellis.brokk.Completions.expandPath"
                         .equals(f.description().join()));
         assertNotNull(buildFragment, "Migrated BuildFragment (as StringFragment) should be present");
 
-        var imageFileFragment = findFragment(top, ContextFragment.ImageFileFragment.class, f -> f.description()
+        var imageFileFragment = findFragment(top, ContextFragments.ImageFileFragment.class, f -> f.description()
                 .join()
                 .contains("ai-robot.png"));
         assertNotNull(imageFileFragment, "ImageFileFragment for ai-robot.png should be present");
@@ -161,7 +161,7 @@ class HistoryIoV3CompatibilityTest {
         // Let fragments materialize
         live.awaitContextsAreComputed(Duration.ofSeconds(10));
 
-        var ppf = findFragment(live, ContextFragment.ProjectPathFragment.class, f -> true);
+        var ppf = findFragment(live, ContextFragments.ProjectPathFragment.class, f -> true);
         assertNotNull(ppf, "ProjectPathFragment should be present");
         var description = ppf.description().join();
         var path = String.join(File.separator, List.of("app", "src", "main", "java", "ai", "brokk"));

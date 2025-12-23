@@ -5,8 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.ContextFragment.SkeletonFragmentFormatter;
 import ai.brokk.context.ContextFragment.SummaryType;
+import ai.brokk.context.ContextFragments.SkeletonFragmentFormatter;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;

@@ -4,7 +4,6 @@ import ai.brokk.project.IProject;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -19,7 +18,6 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     final Map<CodeUnit, List<Range>> rangesByCodeUnit; // Made package-private for testing
     private final List<CodeUnit> allDeclarationsList;
     private final Map<String, List<CodeUnit>> definitionsByFqName;
-    private final Set<Path> normalizedExcludedPaths;
     private long lastAnalysisTimeNanos;
 
     // Regex to find "CREATE [OR REPLACE] [TEMPORARY] TABLE|VIEW [IF NOT EXISTS] schema.name"
@@ -29,17 +27,12 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
             "CREATE(?:\\s+OR\\s+REPLACE)?(?:\\s+TEMPORARY)?\\s+(TABLE|VIEW)(?:\\s+IF\\s+NOT\\s+EXISTS)?\\s+([a-zA-Z_0-9]+(?:\\.[a-zA-Z_0-9]+)*)",
             Pattern.CASE_INSENSITIVE);
 
-    public SqlAnalyzer(
-            IProject projectInstance,
-            Set<Path> excludedFiles) { // Renamed parameter to avoid confusion with unused field
+    public SqlAnalyzer(IProject projectInstance) {
         this.project = projectInstance;
         this.declarationsByFile = new HashMap<>();
         this.rangesByCodeUnit = new HashMap<>();
         this.allDeclarationsList = new ArrayList<>();
         this.definitionsByFqName = new HashMap<>();
-        this.normalizedExcludedPaths = excludedFiles.stream()
-                .map(p -> projectInstance.getRoot().resolve(p).toAbsolutePath().normalize())
-                .collect(Collectors.toSet());
         this.lastAnalysisTimeNanos = System.nanoTime();
 
         analyzeSqlFiles();
@@ -263,21 +256,7 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
         }
 
         // Create a new analyzer with the same configuration
-        var updatedAnalyzer = new SqlAnalyzer(
-                project,
-                normalizedExcludedPaths.stream()
-                        .map(p -> {
-                            // Denormalize back to relative path
-                            try {
-                                return project.getRoot().relativize(p);
-                            } catch (IllegalArgumentException e) {
-                                // If not relative to root, use as-is
-                                return p;
-                            }
-                        })
-                        .collect(Collectors.toSet()));
-
-        return updatedAnalyzer;
+        return new SqlAnalyzer(project);
     }
 
     @Override

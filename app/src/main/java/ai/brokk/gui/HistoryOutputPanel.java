@@ -1,13 +1,14 @@
 package ai.brokk.gui;
 
-import static ai.brokk.SessionManager.SessionInfo;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.*;
+import ai.brokk.SessionManager.SessionInfo;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
@@ -603,6 +604,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         contextManager.setSelectedContext(ctx);
                         // setContext is for *previewing* a context without changing selection state in the manager
                         chrome.setContext(ctx);
+
+                        // On-demand diff for selection
+                        var ds = contextManager.getContextHistory().getDiffService();
+                        ds.diff(ctx).thenAccept(d -> SwingUtilities.invokeLater(() -> adjustRowHeightForContext(ctx)));
                     }
                 }
             }
@@ -666,7 +671,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Add table to scroll pane with AutoScroller
         this.historyScrollPane = new JScrollPane(historyTable);
         var layer = new JLayer<>(historyScrollPane, arrowLayerUI);
-        historyScrollPane.getViewport().addChangeListener(e -> layer.repaint());
+        historyScrollPane.getViewport().addChangeListener(e -> {
+            layer.repaint();
+            // Trigger on-demand diffs for the currently visible rows
+            requestVisibleDiffs();
+        });
         historyScrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
         AutoScroller.install(historyScrollPane);
         BorderUtils.addFocusBorder(historyScrollPane, historyTable);
@@ -908,9 +917,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 ctx1.allFragments().forEach(f -> ComputedSubscription.bind(f, historyTable, historyTable::repaint));
             }
 
-            // Warm up diffs centrally via ContextHistory.DiffService
+            // Diff warm-up is deferred; request diffs only for visible rows and current selection.
             var diffService = contextManager.getContextHistory().getDiffService();
-            diffService.warmUp(contexts);
             var descriptors = HistoryGrouping.GroupingBuilder.discoverGroups(contexts, this::isGroupingBoundary);
             latestDescriptors = descriptors;
 
@@ -1009,6 +1017,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     }
                 }
             }
+
+            // Request diffs for visible rows and current selection only.
+            requestVisibleDiffs();
 
             contextManager.getProject().getMainProject().sessionsListChanged();
             var resetEdges = contextManager.getContextHistory().getResetEdges();
@@ -2074,7 +2085,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         pendingHistory = null;
 
         // Set an explicit empty main TaskEntry (new-task placeholder) and display the staged history
-        var emptyMainFragment = new ContextFragment.TaskFragment(contextManager, List.of(), "");
+        var emptyMainFragment = new ContextFragments.TaskFragment(contextManager, List.of(), "");
         var emptyMainTask = new TaskEntry(-1, emptyMainFragment, null);
         llmStreamArea.setMainThenHistoryAsync(emptyMainTask, history);
     }
@@ -2368,7 +2379,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private void openOutputWindowStreaming() {
         // show all = grab all messages, including reasoning for preview window
         List<ChatMessage> currentMessages = llmStreamArea.getRawMessages();
-        var tempFragment = new ContextFragment.TaskFragment(contextManager, currentMessages, "Streaming Output...");
+        var tempFragment = new ContextFragments.TaskFragment(contextManager, currentMessages, "Streaming Output...");
         var history = contextManager.liveContext().getTaskHistory();
         var mainTask = new TaskEntry(-1, tempFragment, null);
         String titleHint = lastSpinnerMessage;
@@ -2444,7 +2455,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     var system = new SystemMessage(
                             """
     You are generating an actionable, incremental task list based on the provided capture. Do not speculate beyond it.
-    You MUST produce tasks via exactly one tool call: createOrReplaceTaskList(explanation: String, tasks: List<String>) or appendTaskList(explanation: String, tasks: List<String>).
+    You MUST produce tasks via exactly one tool call: createOrReplaceTaskList(explanation: String, tasks: List<String>).
                                     Do not output free-form text.
     """);
                     var user = new UserMessage(
@@ -2462,7 +2473,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                     - Avoid external/non-code tasks.
                                     - Include all the relevant details that you see in the capture for each task, but do not embellish or speculate.
 
-                                    Call createOrReplaceTaskList(explanation: String, tasks: List<String>) or appendTaskList(explanation: String, tasks:List<String>) with your final list. Do not include any explanation outside the tool call.
+                                    Call createOrReplaceTaskList(explanation: String, tasks: List<String>) with your final list. Do not include any explanation outside the tool call.
 
         Guidance:
     %s
@@ -2479,11 +2490,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             .build();
 
                     var toolSpecs = new ArrayList<ToolSpecification>();
-                    toolSpecs.addAll(tr.getTools(List.of("createOrReplaceTaskList", "appendTaskList")));
+                    toolSpecs.addAll(tr.getTools(List.of("createOrReplaceTaskList")));
                     if (toolSpecs.isEmpty()) {
-                        chrome.toolError(
-                                "Required tools 'createOrReplaceTaskList' or 'appendTaskList' are not registered.",
-                                "Task List");
+                        chrome.toolError("Required tool 'createOrReplaceTaskList' is not registered.", "Task List");
                         return;
                     }
 
@@ -2498,7 +2507,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
                         assert ai.hasToolExecutionRequests(); // LLM enforces
                         for (var req : ai.toolExecutionRequests()) {
-                            if (!"createOrReplaceTaskList".equals(req.name()) && !"appendTaskList".equals(req.name())) {
+                            if (!"createOrReplaceTaskList".equals(req.name())) {
                                 continue;
                             }
                             var ter = tr.executeTool(req);
@@ -3715,6 +3724,38 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         } catch (IllegalComponentStateException e) {
             // If not yet showing, fall back to a reasonable default
             return 400;
+        }
+    }
+
+    private void requestVisibleDiffs() {
+        if (historyTable.getRowCount() == 0) {
+            return;
+        }
+        var viewport = historyScrollPane.getViewport();
+        if (viewport == null) {
+            return;
+        }
+        var ds = contextManager.getContextHistory().getDiffService();
+        Rectangle viewRect = viewport.getViewRect();
+
+        int first = historyTable.rowAtPoint(new Point(viewRect.x, viewRect.y));
+        if (first < 0) first = 0;
+        int last = historyTable.rowAtPoint(new Point(viewRect.x, viewRect.y + viewRect.height - 1));
+        if (last < 0) last = historyTable.getRowCount() - 1;
+
+        for (int row = first; row <= last; row++) {
+            Object v = historyModel.getValueAt(row, 2);
+            if (v instanceof Context ctx) {
+                ds.diff(ctx).thenAccept(d -> SwingUtilities.invokeLater(() -> adjustRowHeightForContext(ctx)));
+            }
+        }
+
+        int sel = historyTable.getSelectedRow();
+        if (sel >= 0 && sel < historyTable.getRowCount()) {
+            Object sv = historyModel.getValueAt(sel, 2);
+            if (sv instanceof Context sctx) {
+                ds.diff(sctx).thenAccept(d -> SwingUtilities.invokeLater(() -> adjustRowHeightForContext(sctx)));
+            }
         }
     }
 

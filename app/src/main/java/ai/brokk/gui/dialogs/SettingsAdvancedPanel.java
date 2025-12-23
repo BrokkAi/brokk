@@ -1,7 +1,5 @@
 package ai.brokk.gui.dialogs;
 
-import static java.util.Objects.requireNonNull;
-
 import ai.brokk.AbstractService;
 import ai.brokk.Service;
 import ai.brokk.gui.Chrome;
@@ -183,7 +181,8 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         }
 
         Map<ModelProperties.ModelType, AbstractService.ModelConfig> vendorModelMap;
-        vendorModelMap = requireNonNull(ModelProperties.getVendorModels(vendor));
+        var map = ModelProperties.getVendorModels(vendor);
+        vendorModelMap = map == null ? Map.of() : map;
 
         return new AdvancedValues(
                 jvmSettings,
@@ -263,14 +262,22 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         // Vendor preference and Quick/Scan mappings for other models
         String selectedVendor = values.otherModelsVendor();
         String normalizedVendorPref;
+
         if (ModelProperties.DEFAULT_VENDOR.equals(selectedVendor)) {
+            // When Default is selected, clear persisted overrides for internal roles
+            // to allow fall-through to ModelType.defaultConfig() and freeConfig()
+            for (ModelProperties.ModelType type : ModelProperties.ModelType.values()) {
+                if (type != ModelProperties.ModelType.CODE && type != ModelProperties.ModelType.ARCHITECT) {
+                    mainProject.removeModelConfig(type);
+                }
+            }
+
             normalizedVendorPref = "";
         } else {
+            values.vendorModelMap().forEach(mainProject::setModelConfig);
             normalizedVendorPref = selectedVendor.trim();
         }
         MainProject.setOtherModelsVendorPreference(normalizedVendorPref);
-
-        values.vendorModelMap().forEach(mainProject::setModelConfig);
 
         String currentVendorSelection =
                 normalizedVendorPref.isBlank() ? ModelProperties.DEFAULT_VENDOR : normalizedVendorPref;
@@ -362,7 +369,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
     }
 
     private void populateQuickModelsTab(SettingsData data) {
-        var service = chrome.getContextManager().getService();
         var loadedFavorites = data.favoriteModels();
         quickModelsTableModel.setFavorites(loadedFavorites);
 
@@ -409,7 +415,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         boolean foundPrimary = false;
         for (int i = 0; i < primaryModelCombo.getItemCount(); i++) {
             Service.FavoriteModel fm = primaryModelCombo.getItemAt(i);
-            if (fm != null && fm.config().equals(currentPlannerConfig)) {
+            if (fm.config().equals(currentPlannerConfig)) {
                 primaryModelCombo.setSelectedIndex(i);
                 foundPrimary = true;
                 break;
@@ -419,17 +425,9 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             primaryModelCombo.setSelectedIndex(0);
         }
 
-        var availableNames = service.getAvailableModels().keySet();
         var vendors = new ArrayList<String>();
         vendors.add(ModelProperties.DEFAULT_VENDOR);
-        if (availableNames.contains(ModelProperties.HAIKU_4_5)) {
-            vendors.add("Anthropic");
-        }
-        if (availableNames.contains(ModelProperties.GPT_5_NANO)
-                && availableNames.contains(ModelProperties.GPT_5_MINI)) {
-            vendors.add("OpenAI");
-        }
-        vendors.add("Gemini");
+        vendors.addAll(ModelProperties.getAvailableVendors());
 
         otherModelsVendorCombo.setModel(new javax.swing.DefaultComboBoxModel<>(vendors.toArray(new String[0])));
 

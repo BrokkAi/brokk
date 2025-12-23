@@ -8,6 +8,7 @@ import dev.langchain4j.data.message.UserMessage;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -26,7 +27,7 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = new CodeAgent.EditState(
-                List.of(), // pending blocks
+                new LinkedHashSet<>(), // pending blocks
                 0, // parse failures
                 0, // apply failures
                 0, // build failures
@@ -178,7 +179,7 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = new CodeAgent.EditState(
-                List.of(), 0, 0, 0, 1, "", new HashSet<>(Set.of(f1, f2)), new HashMap<>(), new HashMap<>());
+                new LinkedHashSet<>(), 0, 0, 0, 1, "", new HashSet<>(Set.of(f1, f2)), new HashMap<>(), new HashMap<>());
 
         var result = codeAgent.parseJavaPhase(cs, es, null);
         var diags = result.es().javaLintDiagnostics();
@@ -441,7 +442,7 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = new CodeAgent.EditState(
-                List.of(), // pending blocks
+                new LinkedHashSet<>(), // pending blocks
                 0, // parse failures
                 0, // apply failures
                 0, // build failures
@@ -807,6 +808,40 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
         assertTrue(
                 res.step().es().javaLintDiagnostics().isEmpty(),
                 "IncompatibleMethodReference should be ignored: "
+                        + res.step().es().javaLintDiagnostics());
+    }
+
+    // PJ-43: Switch expressions with arrow syntax (issue #2025)
+    // Regression test: JDT 3.43.0 incorrectly reported false positives, fixed in 3.44.0
+    @Test
+    void testParseJavaPhase_switchExpressionArrowSyntax_noFalsePositives() throws IOException {
+        var src =
+                """
+                class SwitchArrow {
+                    enum ObligationType { RESERVATION, CALENDAR_BLOCK, ALLOTMENT_BLOCK, SPLIT_INVENTORY }
+                    record Room(String name) {}
+
+                    void process(ObligationType type, Object obligation, Room room, Object context) {
+                        switch (type) {
+                            case RESERVATION -> saveReservation(obligation, room, context);
+                            case CALENDAR_BLOCK -> saveCalendarBlock(obligation, context);
+                            case ALLOTMENT_BLOCK -> saveAllotmentBlock(obligation, context);
+                            case SPLIT_INVENTORY -> saveSplitInventoryBlock(obligation, context);
+                        }
+                    }
+
+                    void saveReservation(Object o, Room r, Object c) {}
+                    void saveCalendarBlock(Object o, Object c) {}
+                    void saveAllotmentBlock(Object o, Object c) {}
+                    void saveSplitInventoryBlock(Object o, Object c) {}
+                }
+                """;
+        var res = runParseJava("SwitchArrow.java", src);
+
+        // Valid Java switch expression with arrow syntax should not produce any diagnostics
+        assertTrue(
+                res.step().es().javaLintDiagnostics().isEmpty(),
+                "Valid switch arrow syntax should not produce diagnostics: "
                         + res.step().es().javaLintDiagnostics());
     }
 }
