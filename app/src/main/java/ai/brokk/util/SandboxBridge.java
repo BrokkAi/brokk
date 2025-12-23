@@ -25,11 +25,21 @@ public final class SandboxBridge {
     private final Path projectRoot;
     private final boolean allowNetwork;
     private final @Nullable ExecutorConfig executorConfig;
+    private final SandboxManager.CommandRunner commandRunner;
 
     public SandboxBridge(Path projectRoot, boolean allowNetwork, @Nullable ExecutorConfig executorConfig) {
+        this(projectRoot, allowNetwork, executorConfig, SandboxBridge::runCommand);
+    }
+
+    SandboxBridge(
+            Path projectRoot,
+            boolean allowNetwork,
+            @Nullable ExecutorConfig executorConfig,
+            SandboxManager.CommandRunner commandRunner) {
         this.projectRoot = Objects.requireNonNull(projectRoot, "projectRoot").toAbsolutePath().normalize();
         this.allowNetwork = allowNetwork;
         this.executorConfig = executorConfig;
+        this.commandRunner = Objects.requireNonNull(commandRunner, "commandRunner");
     }
 
     public boolean isAvailable() {
@@ -43,12 +53,12 @@ public final class SandboxBridge {
     }
 
     public SandboxManager createSandboxManager() {
-        SandboxManager manager = new SandboxManager(SandboxBridge::runCommand);
+        SandboxManager manager = new SandboxManager(commandRunner);
         manager.initialize(buildSandboxConfig());
         return manager;
     }
 
-    private SandboxConfig buildSandboxConfig() {
+    SandboxConfig buildSandboxConfig() {
         var filesystem = new SandboxConfig.FilesystemConfig(
                 buildDenyReadPatterns(),
                 buildAllowWritePatterns(),
