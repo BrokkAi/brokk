@@ -218,76 +218,7 @@ public class PreviewTabbedPane extends JTabbedPane implements ThemeAware {
             }
         }
     }
-
-    public void clearTracking() {
-        for (ProjectFile file : fileToTabMap.keySet()) {
-            chrome.getPreviewManager().getProjectFileToPreviewWindow().remove(file);
-        }
-        fileToTabMap.clear();
-        tabToFragmentMap.clear();
-    }
-
-    /**
-     * Moves all tabs from the source pane to this pane, preserving titles, custom components,
-     * and tracking metadata.
-     */
-    public void transferTabsFrom(PreviewTabbedPane source) {
-        int sourceCount = source.getTabCount();
-        if (sourceCount == 0) {
-            return;
-        }
-
-        Component selectedInSource = source.getSelectedComponent();
-
-        for (int i = 0; i < sourceCount; i++) {
-            Component comp = source.getComponentAt(i);
-            String title = source.getTitleAt(i);
-            Component tabComponent = source.getTabComponentAt(i);
-
-            // Look up keys in source maps
-            ProjectFile fileKey = null;
-            for (var entry : source.fileToTabMap.entrySet()) {
-                if (entry.getValue() == comp) {
-                    fileKey = entry.getKey();
-                    break;
-                }
-            }
-            ContextFragment fragmentKey = source.tabToFragmentMap.get(comp);
-
-            // Add to this pane
-            addTab(title, comp);
-            int newIndex = getTabCount() - 1;
-            setTabComponentAt(newIndex, tabComponent);
-
-            // Update tracking maps in this pane
-            if (fileKey != null) {
-                fileToTabMap.put(fileKey, comp);
-                chrome.getPreviewManager().getProjectFileToPreviewWindow().put(fileKey, chrome.getFrame());
-            }
-            if (fragmentKey != null) {
-                tabToFragmentMap.put(comp, fragmentKey);
-            }
-
-            // Apply theme if applicable
-            if (comp instanceof ThemeAware themeAware) {
-                themeAware.applyTheme(guiTheme);
-            }
-        }
-
-        // Clean up source
-        source.fileToTabMap.clear();
-        source.tabToFragmentMap.clear();
-        source.removeAll();
-
-        // Restore selection if the component was transferred
-        if (selectedInSource != null) {
-            int newIdx = indexOfComponent(selectedInSource);
-            if (newIdx >= 0) {
-                setSelectedIndex(newIdx);
-            }
-        }
-    }
-
+    
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         this.guiTheme = guiTheme;
