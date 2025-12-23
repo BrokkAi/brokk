@@ -1909,10 +1909,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     return result.withContext(context);
                 })
                 .thenAccept(result -> {
-                    // Auto-run only in Lutz EZ if successful and there are incomplete tasks available
-                    // we can use live context, because Lutz Mode already pushed
-                    boolean isLutzEz = ACTION_LUTZ.equals(action) && !GlobalUiSettings.isAdvancedMode();
-                    if (isLutzEz && hasIncomplete(contextManager.getTaskList())) {
+                    // Auto-run if successful and there are incomplete tasks available
+                    // (we can use live context, because Lutz Mode already pushed)
+                    if (ACTION_LUTZ.equals(action) && hasIncomplete(contextManager.getTaskList())) {
                         SwingUtilities.invokeLater(
                                 () -> chrome.getTaskListPanel().runArchitectOnAll());
                     }
