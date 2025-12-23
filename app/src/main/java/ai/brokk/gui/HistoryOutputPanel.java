@@ -114,9 +114,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
     private JPanel llmOutputContainer;
 
-    @Nullable
-    private JTextArea captureDescriptionArea;
-
     // Capture/notification bar container for fixed sizing in vertical layout
     @Nullable
     private JPanel captureOutputPanel;
@@ -866,16 +863,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Fixed height for capture panel
         panel.setPreferredSize(new Dimension(0, 38));
         panel.setMinimumSize(new Dimension(0, 38));
-
-        // Placeholder area in center - will get all extra space
-        captureDescriptionArea = new JTextArea("");
-        captureDescriptionArea.setEditable(false);
-        captureDescriptionArea.setBackground(panel.getBackground());
-        captureDescriptionArea.setBorder(null);
-        captureDescriptionArea.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
-        captureDescriptionArea.setLineWrap(true);
-        captureDescriptionArea.setWrapStyleWord(true);
-        // notification area now occupies the CENTER; description area removed
 
         // Buttons panel on the left
         var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
