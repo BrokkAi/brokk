@@ -4,20 +4,28 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.prompts.CodePrompts;
-import ai.brokk.prompts.EditBlockParser;
 import dev.langchain4j.data.message.AiMessage;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
-class ContextManagerRedactionTest {
-
-    private final EditBlockParser parser = EditBlockParser.instance;
-
+class CodePromptsRedactionTest {
     private static final String ELIDED_BLOCK_PLACEHOLDER = "[elided SEARCH/REPLACE block]";
 
-    private String createSingleBlockMessage(String filename, String search, String replace) {
+    private String createMinimalMessage(String filename, String search, String replace) {
         return """
-               ```
+               %s
+               <<<<<<< SEARCH
+               %s
+               =======
+               %s
+               >>>>>>> REPLACE
+               """
+                .formatted(filename, search, replace);
+    }
+
+    private String createMarkdownMessage(String filename, String search, String replace) {
+        return """
+               ```java
                %s
                <<<<<<< SEARCH
                %s
@@ -31,7 +39,7 @@ class ContextManagerRedactionTest {
 
     @Test
     void removesBlockOnlyMessages() {
-        String aiText = createSingleBlockMessage("file.txt", "old code", "new code");
+        String aiText = createMinimalMessage("file.txt", "old code", "new code");
         AiMessage originalMessage = new AiMessage(aiText);
 
         Optional<AiMessage> redactedMessage = CodePrompts.redactAiMessage(originalMessage);
@@ -45,7 +53,7 @@ class ContextManagerRedactionTest {
     void insertsPlaceholderIntoMixedMessage() {
         String prefix = "Here is the patch:\n\n";
         String suffix = "\n\nHope that helps!";
-        String block = createSingleBlockMessage("foo.txt", "old", "new");
+        String block = createMinimalMessage("foo.txt", "old", "new");
         String aiText = prefix + block + suffix;
         AiMessage originalMessage = new AiMessage(aiText);
 
@@ -89,9 +97,9 @@ class ContextManagerRedactionTest {
     @Test
     void handlesMultipleBlocksAndTextSegments() {
         String text1 = "First part of the message.\n";
-        String block1 = createSingleBlockMessage("file1.txt", "search1", "replace1");
+        String block1 = createMinimalMessage("file1.txt", "search1", "replace1");
         String text2 = "\nSome intermediate text.\n";
-        String block2 = createSingleBlockMessage("file2.java", "search2", "replace2");
+        String block2 = createMinimalMessage("file2.java", "search2", "replace2");
         String text3 = "\nFinal part.";
 
         String aiText = text1 + block1 + text2 + block2 + text3;
@@ -106,8 +114,8 @@ class ContextManagerRedactionTest {
 
     @Test
     void handlesMessageWithOnlyMultipleBlocks() {
-        String block1 = createSingleBlockMessage("file1.txt", "s1", "r1");
-        String block2 = createSingleBlockMessage("file2.txt", "s2", "r2");
+        String block1 = createMinimalMessage("file1.txt", "s1", "r1");
+        String block2 = createMinimalMessage("file2.txt", "s2", "r2");
         // Note: EditBlockParser adds newlines between blocks implicitly if they are not there,
         // so the redaction will join placeholders.
         String aiText = block1 + "\n" + block2; // Explicit newline for clarity in test
@@ -125,7 +133,7 @@ class ContextManagerRedactionTest {
     @Test
     void handlesMessageEndingWithBlock() {
         String text = "Text before block\n";
-        String block = createSingleBlockMessage("file.end", "end_s", "end_r");
+        String block = createMinimalMessage("file.end", "end_s", "end_r");
         String aiText = text + block;
         AiMessage originalMessage = new AiMessage(aiText);
 
@@ -137,7 +145,7 @@ class ContextManagerRedactionTest {
 
     @Test
     void handlesMessageStartingWithBlock() {
-        String block = createSingleBlockMessage("file.start", "start_s", "start_r");
+        String block = createMinimalMessage("file.start", "start_s", "start_r");
         String text = "\nText after block";
         String aiText = block + text;
         AiMessage originalMessage = new AiMessage(aiText);

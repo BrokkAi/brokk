@@ -110,7 +110,7 @@ class CodeAgentTest {
 
     protected CodeAgent.ConversationState createConversationState(
             List<ChatMessage> taskMessages, UserMessage nextRequest) {
-        return new CodeAgent.ConversationState(new ArrayList<>(taskMessages), nextRequest, taskMessages.size(), "");
+        return new CodeAgent.ConversationState(new ArrayList<>(taskMessages), nextRequest, taskMessages.size(), "Placeholder goal");
     }
 
     private CodeAgent.EditState createEditState(
@@ -603,6 +603,160 @@ class CodeAgentTest {
         assertTrue(sanitized.contains("pkg/mod.py"), "Sanitized traceback should contain relativized path");
     }
 
+    // SRB-1: Generate SRBs from per-turn baseline; verify two-turn baseline behavior
+    @Test
+    void testGenerateSearchReplaceBlocksFromTurn_preservesBaselinePerTurn() throws IOException {
+        var file = cm.toFile("file.txt");
+        file.write("hello world");
+        cm.addEditableFile(file);
+
+        // Turn 1: apply "hello world" -> "goodbye world"
+        var block1 = new EditBlock.SearchReplaceBlock(file.toString(), "hello world", "goodbye world");
+        var es1 = new CodeAgent.EditState(
+                new LinkedHashSet<>(List.of(block1)),
+                0,
+                0,
+                0,
+                0,
+                "",
+                new HashSet<>(),
+                new HashMap<>(),
+                Collections.emptyMap(),
+                false);
+        var res1 = codeAgent.applyPhase(createConversationState(List.of(), new UserMessage("req1")), es1, null);
+        assertInstanceOf(CodeAgent.Step.Continue.class, res1);
+        var es1b = ((CodeAgent.Step.Continue) res1).es();
+
+        // Generate SRBs for turn 1; should be hello -> goodbye
+        var srb1 = es1b.toSearchReplaceBlocks();
+        assertEquals(1, srb1.size());
+        assertEquals("hello world", srb1.getFirst().beforeText().strip());
+        assertEquals("goodbye world", srb1.getFirst().afterText().strip());
+
+        // Turn 2 baseline should be the current contents ("goodbye world")
+        // Prepare next turn state with empty per-turn baseline and a new change: "goodbye world" -> "ciao world"
+        var block2 = new EditBlock.SearchReplaceBlock(file.toString(), "goodbye world", "ciao world");
+        var es2 = new CodeAgent.EditState(
+                new LinkedHashSet<>(List.of(block2)),
+                0,
+                0,
+                0,
+                0,
+                "",
+                new HashSet<>(),
+                new HashMap<>(),
+                Collections.emptyMap(),
+                false);
+        var res2 = codeAgent.applyPhase(createConversationState(List.of(), new UserMessage("req2")), es2, null);
+        assertInstanceOf(CodeAgent.Step.Continue.class, res2);
+        var es2b = ((CodeAgent.Step.Continue) res2).es();
+
+        var srb2 = es2b.toSearchReplaceBlocks();
+        assertEquals(1, srb2.size());
+        assertEquals("goodbye world", srb2.getFirst().beforeText().strip());
+        assertEquals("ciao world", srb2.getFirst().afterText().strip());
+    }
+
+    // SRB-2: Multiple distinct changes in a single turn produce multiple S/R blocks (fine-grained)
+    @Test
+    void testGenerateSearchReplaceBlocksFromTurn_multipleChangesProduceMultipleBlocks() throws IOException {
+        var file = cm.toFile("multi.txt");
+        var original = String.join("\n", List.of("alpha", "keep", "omega")) + "\n";
+        file.write(original);
+        cm.addEditableFile(file);
+
+        // Prepare per-turn baseline manually (simulate what applyPhase would capture)
+        var originalMap = new HashMap<ProjectFile, String>();
+        originalMap.put(file, original);
+        var changedFiles = new HashSet<ProjectFile>();
+        changedFiles.add(file);
+
+        // Modify two separate lines: alpha->ALPHA and omega->OMEGA
+        var revised = String.join("\n", List.of("ALPHA", "keep", "OMEGA")) + "\n";
+        file.write(revised);
+
+        var es = new CodeAgent.EditState(
+                new LinkedHashSet<>(), // pending blocks
+                0,
+                0,
+                0,
+                1, // blocksAppliedWithoutBuild (not relevant for generation)
+                "", // lastBuildError
+                changedFiles,
+                originalMap,
+                Collections.emptyMap(),
+                false);
+
+        var blocks = es.toSearchReplaceBlocks();
+        // Expect two distinct blocks (one per changed line)
+        assertTrue(blocks.size() >= 2, "Expected multiple fine-grained S/R blocks");
+
+        var normalized = blocks.stream()
+                .map(b -> Map.entry(b.beforeText().strip(), b.afterText().strip()))
+                .toList();
+
+        assertTrue(normalized.contains(Map.entry("alpha", "ALPHA")));
+        assertTrue(normalized.contains(Map.entry("omega", "OMEGA")));
+    }
+
+    // SRB-3: Ensure expansion to achieve uniqueness (avoid ambiguous search blocks)
+    @Test
+    void testGenerateSearchReplaceBlocksFromTurn_expandsToUniqueSearchTargets() throws IOException {
+        var file = cm.toFile("unique.txt");
+        var original = String.join("\n", List.of("alpha", "beta", "alpha", "gamma")) + "\n";
+        file.write(original);
+        cm.addEditableFile(file);
+
+        var originalMap = new HashMap<ProjectFile, String>();
+        originalMap.put(file, original);
+        var changedFiles = new HashSet<ProjectFile>();
+        changedFiles.add(file);
+
+        // Change the second "alpha" only
+        var revised = String.join("\n", List.of("alpha", "beta", "ALPHA", "gamma")) + "\n";
+        file.write(revised);
+
+        var es = new CodeAgent.EditState(
+                new LinkedHashSet<>(), 0, 0, 0, 1, "", changedFiles, originalMap, Collections.emptyMap(), false);
+
+        var blocks = es.toSearchReplaceBlocks();
+        assertEquals(1, blocks.size(), "Should produce a single unique block");
+        var before = blocks.getFirst().beforeText();
+        // Ensure we didn't emit a bare "alpha" which would be ambiguous; context should be included
+        assertNotEquals("alpha\n", before, "Search should be expanded with context to be unique");
+        assertTrue(before.contains("beta"), "Expanded context should likely include neighboring lines");
+    }
+
+    // SRB-4: Overlapping expansions should merge into a single block
+    @Test
+    void testGenerateSearchReplaceBlocksFromTurn_mergesOverlappingExpansions() throws IOException {
+        var file = cm.toFile("merge.txt");
+        var original = String.join("\n", List.of("line1", "target", "middle", "target", "line5")) + "\n";
+        file.write(original);
+        cm.addEditableFile(file);
+
+        var originalMap = new HashMap<ProjectFile, String>();
+        originalMap.put(file, original);
+        var changedFiles = new HashSet<ProjectFile>();
+        changedFiles.add(file);
+
+        // Change both 'target' lines
+        var revised = String.join("\n", List.of("line1", "TARGET", "middle", "TARGET", "line5")) + "\n";
+        file.write(revised);
+
+        var es = new CodeAgent.EditState(
+                new LinkedHashSet<>(), 0, 0, 0, 1, "", changedFiles, originalMap, Collections.emptyMap(), false);
+
+        var blocks = es.toSearchReplaceBlocks();
+
+        // Because uniqueness expansion will expand both to include 'middle' neighbor,
+        // overlapping regions should merge into one block.
+        assertEquals(1, blocks.size(), "Overlapping expanded regions should be merged");
+        var b = blocks.getFirst();
+        assertTrue(
+                b.beforeText().contains("target\nmiddle\ntarget"), "Merged before should span both targets and middle");
+        assertTrue(b.afterText().contains("TARGET\nmiddle\nTARGET"), "Merged after should reflect both changes");
+    }
     // TURN-1: replaceCurrentTurnMessages should replace the entire turn, not just last two messages
     @Test
     void testReplaceCurrentTurnMessages_replacesWholeTurn() {
@@ -1248,9 +1402,10 @@ class CodeAgentTest {
 
         // Create ConversationState with original goal
         var cs = new CodeAgent.ConversationState(msgs, null, 0, "my-user-goal");
+        var es = createEditState(List.of(), 0);
 
         // Call the pure compaction method
-        var compactedCs = cs.forBuildRetry(nextRequest);
+        var compactedCs = cs.forBuildRetry(new UserMessage("retry"), es);
 
         // The compacted ConversationState should be [ UserMessage(originalGoal), AiMessage(accumulatedReasoning) ]
         var compactedMessages = compactedCs.taskMessages();
@@ -1259,9 +1414,15 @@ class CodeAgentTest {
         assertEquals("my-user-goal", ((UserMessage) compactedMessages.get(0)).singleText());
         assertInstanceOf(AiMessage.class, compactedMessages.get(1));
 
-        // Both non-blank reasoning segments should be joined
-        String expectedAccumulated = "reason-1\n\nreason-3";
-        assertEquals(expectedAccumulated, ((AiMessage) compactedMessages.get(1)).text());
+        // Both non-blank reasoning segments should be joined and prepended with the harness note
+        String expectedAccumulated = """
+                [HARNESS NOTE: this is a synthetic summary of your explanations of the edits made.
+                 All changes have been merged into the Workspace files you see above.]
+                reason-1
+
+                reason-3
+                """;
+        assertEquals(expectedAccumulated.trim(), ((AiMessage) compactedMessages.get(1)).text().trim());
 
         // Original goal should be preserved
         assertEquals("my-user-goal", compactedCs.originalGoal());

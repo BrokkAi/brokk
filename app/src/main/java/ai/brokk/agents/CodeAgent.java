@@ -1224,9 +1224,22 @@ public class CodeAgent {
          * @return a new ConversationState with compacted messages, or this state unchanged if no AI content
          */
         ConversationState forBuildRetry(UserMessage retryRequest, EditState es) {
-            var srb = es.toSearchReplaceBlocks();
-            var summaryText = "Here are the SEARCH/REPLACE blocks:\n\n"
-                    + srb.stream().map(EditBlock.SearchReplaceBlock::repr).collect(Collectors.joining("\n"));
+            var explanations = taskMessages.stream()
+                    .filter(AiMessage.class::isInstance)
+                    .map(AiMessage.class::cast)
+                    .map(ai -> {
+                        String reasoning = ai.reasoningContent();
+                        return (reasoning != null && !reasoning.isBlank())
+                                ? reasoning
+                                : CodePrompts.redactAiMessage(ai).map(AiMessage::text).orElse("");
+                    })
+                    .filter(seg -> !seg.isBlank())
+                    .collect(Collectors.joining("\n\n"));
+            var summaryText = """
+                    [HARNESS NOTE: this is a synthetic summary of your explanations of the edits made.
+                     All changes have been merged into the Workspace files you see above.]
+                    %s
+                    """.formatted(explanations.isBlank() ? "No explanations provided." : explanations);
 
             var compactedMessages = new ArrayList<ChatMessage>();
             compactedMessages.add(new UserMessage(originalGoal));
