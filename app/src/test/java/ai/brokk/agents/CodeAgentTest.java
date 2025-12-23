@@ -1250,7 +1250,7 @@ class CodeAgentTest {
         var cs = new CodeAgent.ConversationState(msgs, null, 0, "my-user-goal");
 
         // Call the pure compaction method
-        var compactedCs = cs.compactForBuildRetry();
+        var compactedCs = cs.forBuildRetry(nextRequest);
 
         // The compacted ConversationState should be [ UserMessage(originalGoal), AiMessage(accumulatedReasoning) ]
         var compactedMessages = compactedCs.taskMessages();

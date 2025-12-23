@@ -162,6 +162,10 @@ public class CodeAgent {
     @Blocking
     TaskResult runTaskInternal(
             Context initialContext, List<ChatMessage> prologue, String userInput, Set<Option> options) {
+        if (userInput.isBlank()) {
+            throw new IllegalStateException();
+        }
+
         var collectMetrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"));
         // Seed the local Context reference for this task
         context = initialContext;
@@ -748,12 +752,7 @@ public class CodeAgent {
             UserMessage nextRequest = CodePrompts.instance.codeRequest(
                     context, buildPrompt, CodePrompts.instance.codeReminder(contextManager.getService(), model));
             // Compact conversation into a concise summary for the build step
-            var compactedCs = cs.compactForBuildRetry();
-            var newCs = new ConversationState(
-                    compactedCs.taskMessages(),
-                    nextRequest,
-                    compactedCs.taskMessages().size(),
-                    cs.originalGoal());
+            var newCs = cs.forBuildRetry(nextRequest, es);
             var newEs = es.afterBuildFailure(buildError);
             report("Asking LLM to fix build/lint failures");
             return new Step.Retry(newCs, newEs);
@@ -1218,34 +1217,15 @@ public class CodeAgent {
          *
          * @return a new ConversationState with compacted messages, or this state unchanged if no AI content
          */
-        ConversationState compactForBuildRetry() {
-            if (originalGoal.isBlank()) {
-                return this;
-            }
-
-            var segments = new ArrayList<String>();
-            for (ChatMessage m : taskMessages) {
-                if (m instanceof AiMessage ai) {
-                    String seg = ai.reasoningContent();
-                    if (seg == null || seg.isBlank()) {
-                        seg = CodePrompts.redactAiMessage(ai, EditBlockParser.instance)
-                                .map(AiMessage::text)
-                                .orElse("");
-                    }
-                    if (!seg.isBlank()) {
-                        segments.add(seg);
-                    }
-                }
-            }
-
-            if (segments.isEmpty()) {
-                return this;
-            }
+        ConversationState forBuildRetry(UserMessage retryRequest, EditState es) {
+            var srb = es.toSearchReplaceBlocks();
+            var summaryText = "Here are the SEARCH/REPLACE blocks:\n\n"
+                    + srb.stream().map(EditBlock.SearchReplaceBlock::repr).collect(Collectors.joining("\n"));
 
             var compactedMessages = new ArrayList<ChatMessage>();
             compactedMessages.add(new UserMessage(originalGoal));
-            compactedMessages.add(new AiMessage(String.join("\n\n", segments)));
-            return new ConversationState(compactedMessages, nextRequest, compactedMessages.size(), originalGoal);
+            compactedMessages.add(new AiMessage(summaryText));
+            return new ConversationState(compactedMessages, retryRequest, compactedMessages.size(), originalGoal);
         }
 
         /**
