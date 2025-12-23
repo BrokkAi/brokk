@@ -287,8 +287,10 @@ class CodeAgentTest {
         assertEquals(1, retryStep.es().consecutiveApplyFailures());
         assertEquals(0, retryStep.es().blocksAppliedWithoutBuild());
         String nextRequestText = Messages.getText(requireNonNull(retryStep.cs().nextRequest()));
-        // check that the name of the file that failed to apply is mentioned in the retry prompt.
-        assertTrue(nextRequestText.contains(file.getFileName()));
+        // check that the name of the file that failed to apply is mentioned in the retry prompt's target_file tag.
+        assertTrue(
+                nextRequestText.contains("<target_file name=\"" + file.toString() + "\">"),
+                "Retry prompt should contain target_file tag for " + file);
     }
 
     // A-4: applyPhase – mix success & failure
@@ -321,8 +323,14 @@ class CodeAgentTest {
 
         // The retry message should reflect both the success and the failure.
         String nextRequestText = Messages.getText(requireNonNull(retryStep.cs().nextRequest()));
-        // Weaker assertion: just check that the name of the file that failed to apply is mentioned.
-        assertTrue(nextRequestText.contains(file2.getFileName()));
+        // Verify failure is reported for file2
+        assertTrue(
+                nextRequestText.contains("<target_file name=\"" + file2.toString() + "\">"),
+                "Retry prompt should report failure for " + file2);
+        // Verify file1 is NOT reported as a failure (since it succeeded)
+        assertFalse(
+                nextRequestText.contains("<target_file name=\"" + file1.toString() + "\">"),
+                "Retry prompt should NOT report failure for successful " + file1);
 
         // Verify the successful edit was actually made.
         assertEquals("goodbye world", file1.read().orElseThrow().strip());

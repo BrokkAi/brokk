@@ -841,13 +841,12 @@ public class CodeAgent {
                         metrics.applyRetries++;
                     }
 
-                    String lastAiText = null;
-                    if (!cs.taskMessages().isEmpty() && cs.taskMessages().getLast() instanceof AiMessage lastAiMessage) {
-                        lastAiText = lastAiMessage.text();
-                    }
-
+                    String lastAiText = cs.taskMessages().isEmpty() ? null : Messages.getText(cs.taskMessages().getLast());
                     String buildError = es.lastBuildError().isEmpty() ? null : es.lastBuildError();
-                    UserMessage retryRequest = CodePrompts.buildApplyRetryMessage(lastAiText, editResult.blockResults(), buildError);
+
+                    UserMessage retryRequest = CodePrompts.buildApplyRetryMessage(
+                            lastAiText, editResult.blockResults(), buildError);
+
                     csForStep = cs.withNextRequest(retryRequest);
                     esForStep = es.afterApply(
                             nextPendingBlocks,
