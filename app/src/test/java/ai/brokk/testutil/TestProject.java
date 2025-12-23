@@ -24,8 +24,7 @@ public class TestProject implements IProject {
     private final Path root;
     private final Language language;
 
-    private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture =
-            CompletableFuture.completedFuture(BuildAgent.BuildDetails.EMPTY);
+    private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
     private BuildAgent.BuildDetails buildDetails = BuildAgent.BuildDetails.EMPTY;
 
     private IProject.CodeAgentTestScope codeAgentTestScope = IProject.CodeAgentTestScope.WORKSPACE;
@@ -46,9 +45,12 @@ public class TestProject implements IProject {
 
     public void setBuildDetails(BuildAgent.BuildDetails buildDetails) {
         this.buildDetails = buildDetails;
-        if (detailsFuture.isDone()) {
-            detailsFuture = new CompletableFuture<>();
+        if (!detailsFuture.isDone()) {
+            detailsFuture.complete(buildDetails);
+            return;
         }
+
+        detailsFuture = new CompletableFuture<>();
         detailsFuture.complete(buildDetails);
     }
 
