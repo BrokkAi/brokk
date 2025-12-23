@@ -567,9 +567,11 @@ public class Context {
 
             // For other types, check the computed files set
             var filesOpt = f.files().tryGet();
-            // If not yet computed, assume it may have file content (be conservative)
+            // If not yet computed or empty, treat as having no file content
+            // (non-file-content types like STRING, TASK, HISTORY rarely have file refs;
+            // erring on the side of "empty" allows useful context scanning to proceed)
             if (filesOpt.isEmpty()) {
-                return false; // Not empty - may have files
+                return true; // Treat as empty - allow scanning when unsure
             }
             // If computed, check if the set is empty
             return filesOpt.get().isEmpty();
