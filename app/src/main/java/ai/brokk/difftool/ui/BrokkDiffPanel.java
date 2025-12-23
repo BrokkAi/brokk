@@ -1253,7 +1253,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             } else {
                 // Reserved by another thread, show loading and wait (unless skipping loading UI)
                 if (!skipLoadingUI) {
-                    showLoadingForFile(fileIndex);
+                    showLoadingForFile();
                 }
             }
             return;
@@ -1261,7 +1261,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
         // Show loading UI only if not skipping (e.g., during view mode switch)
         if (!skipLoadingUI) {
-            showLoadingForFile(fileIndex);
+            showLoadingForFile();
         }
 
         // Use hybrid approach - sync for small files, async for large files
@@ -1275,10 +1275,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                 fileIndex);
     }
 
-    private void showLoadingForFile(int fileIndex) {
+    private void showLoadingForFile() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-
-        var compInfo = fileComparisons.get(fileIndex);
 
         // Disable all control buttons during loading
         disableAllControlButtons();

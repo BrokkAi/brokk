@@ -3,7 +3,6 @@ package ai.brokk.gui;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.*;
-import ai.brokk.SessionManager.SessionInfo;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -22,14 +21,11 @@ import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.theme.ThemeTitleBarManager;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
-import ai.brokk.project.IProject;
-import ai.brokk.project.MainProject;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.GlobalUiSettings;
 import dev.langchain4j.agent.tool.ToolContext;
-import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
@@ -37,8 +33,6 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.awt.*;
 import java.awt.event.ActionEvent;
-import java.awt.event.ComponentAdapter;
-import java.awt.event.ComponentEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -61,10 +55,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import javax.swing.*;
@@ -163,9 +155,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         };
     }
 
-    @Nullable
-    private String lastSpinnerMessage = null; // Explicitly initialize
-
     // Preset state for staging history before next new message
     private @Nullable List<TaskEntry> pendingHistory = null;
 
@@ -182,13 +171,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     // Viewport preservation flags for group expand/collapse operations
     private boolean suppressScrollOnNextUpdate = false;
     private @Nullable Point pendingViewportPosition = null;
-
-    // Session AI response counts and in-flight loaders
-    private final Map<UUID, Integer> sessionAiResponseCounts = new ConcurrentHashMap<>();
-    private final Set<UUID> sessionCountLoading = ConcurrentHashMap.newKeySet();
-
-    @Nullable
-    private JList<SessionInfo> sessionsList;
 
     /**
      * Constructs a new HistoryOutputPane.
@@ -1737,7 +1719,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      */
     public void showSpinner(String message) {
         llmStreamArea.showSpinner(message);
-        lastSpinnerMessage = message;
     }
 
     /**
@@ -1745,7 +1726,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      */
     public void hideSpinner() {
         llmStreamArea.hideSpinner();
-        lastSpinnerMessage = null;
     }
 
     /**
@@ -1849,7 +1829,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         chrome.openFragmentPreview(fragment);
     }
 
-
     /**
      * Presents a choice to capture output to Workspace or to Task List.
      */
@@ -1893,7 +1872,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 (last.log() != null) ? last.log().text().future() : CompletableFuture.completedFuture(last.summary());
 
         captureTextFuture.thenAccept(captureText -> {
-            if (captureText == null || captureText.isBlank()) {
+            if (captureText.isBlank()) {
                 chrome.systemNotify("No content to capture", "Capture failed", JOptionPane.WARNING_MESSAGE);
                 return;
             }
@@ -1942,8 +1921,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             .register(ws)
                             .build();
 
-                    var toolSpecs = new ArrayList<ToolSpecification>();
-                    toolSpecs.addAll(tr.getTools(List.of("createOrReplaceTaskList")));
+                    var toolSpecs = new ArrayList<>(tr.getTools(List.of("createOrReplaceTaskList")));
                     if (toolSpecs.isEmpty()) {
                         chrome.toolError("Required tool 'createOrReplaceTaskList' is not registered.", "Task List");
                         return;
@@ -2611,33 +2589,5 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private String formatModified(long modifiedMillis) {
         var instant = Instant.ofEpochMilli(modifiedMillis);
         return GitDiffUiUtil.formatRelativeDate(instant, LocalDate.now(ZoneId.systemDefault()));
-    }
-
-    /**
-     * Kicks off a background load of the AI-response count for a single session.
-     * Safe to call repeatedly; concurrent calls are deduped by sessionCountLoading.
-     */
-    private void triggerAiCountLoad(SessionInfo session) {
-        var id = session.id();
-        if (sessionAiResponseCounts.containsKey(id) || !sessionCountLoading.add(id)) {
-            return;
-        }
-
-        Thread.ofPlatform().name("ai-count-" + id).start(() -> {
-            int count = 0;
-            try {
-                var sm = contextManager.getProject().getSessionManager();
-                count = sm.countAiResponses(id);
-            } catch (Throwable t) {
-                logger.warn("Failed to count AI responses for session {}", id, t);
-            }
-            sessionAiResponseCounts.put(id, count);
-            sessionCountLoading.remove(id);
-            SwingUtilities.invokeLater(() -> {
-                if (sessionsList != null) {
-                    sessionsList.repaint();
-                }
-            });
-        });
     }
 }

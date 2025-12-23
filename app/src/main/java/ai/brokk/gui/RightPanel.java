@@ -263,11 +263,7 @@ public class RightPanel extends JPanel implements ThemeAware {
             timeLabel.setText(ai.brokk.gui.util.GitDiffUiUtil.formatRelativeDate(
                     instant, java.time.LocalDate.now(java.time.ZoneId.systemDefault())));
 
-            int cnt = 0;
-            try {
-                cnt = contextManager.getProject().getSessionManager().countAiResponses(value.id());
-            } catch (Exception ignored) {
-            }
+            int cnt = contextManager.getProject().getSessionManager().countAiResponses(value.id());
             countLabel.setText(String.format("%d %s", cnt, cnt == 1 ? "task" : "tasks"));
 
             var bg = isSelected ? list.getSelectionBackground() : list.getBackground();
