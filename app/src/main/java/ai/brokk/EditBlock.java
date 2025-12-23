@@ -68,6 +68,38 @@ public class EditBlock {
         }
     }
 
+    /**
+     * Represents the outcome of applying a single SEARCH/REPLACE block.
+     * Unifies success and failure cases into a single type for cleaner result handling.
+     *
+     * @param block The original search/replace block that was applied
+     * @param file The resolved project file, or null if file resolution failed
+     * @param succeeded True if the block was successfully applied
+     * @param reason The failure reason if succeeded is false, null otherwise
+     * @param commentary Additional context about the failure, null if succeeded or no extra context
+     */
+    public record ApplyResult(
+            SearchReplaceBlock block,
+            @Nullable ProjectFile file,
+            boolean succeeded,
+            @Nullable EditBlockFailureReason reason,
+            @Nullable String commentary) {
+
+        /** Convenience factory for a successful application. */
+        public static ApplyResult success(SearchReplaceBlock block, ProjectFile file) {
+            return new ApplyResult(block, file, true, null, null);
+        }
+
+        /** Convenience factory for a failed application. */
+        public static ApplyResult failure(
+                SearchReplaceBlock block,
+                @Nullable ProjectFile file,
+                EditBlockFailureReason reason,
+                @Nullable String commentary) {
+            return new ApplyResult(block, file, false, reason, commentary);
+        }
+    }
+
     // -- Exceptions for file resolution --
 
     /** Any symbol resolution related failure caused by the filename given by an LLM. */
