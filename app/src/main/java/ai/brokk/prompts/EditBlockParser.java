@@ -81,13 +81,14 @@ public class EditBlockParser {
      * preserved in the returned blocks list.
      */
     /**
-     * Injects [BRK_BLOCK_N] markers (0-indexed) immediately before each SEARCH/REPLACE block
+     * Injects [BRK_BLOCK_N] markers immediately before each SEARCH/REPLACE block
      * in the input text.
+     * @param startingIndex the index of the last block tagged in a previous turn (0 for first turn)
      */
-    public String tagBlocks(String content) {
+    public String tagBlocks(String content, int startingIndex) {
         var result = parse(content, Set.of());
         var output = new StringBuilder();
-        int blockCounter = 1;
+        int blockCounter = startingIndex + 1;
 
         for (var block : result.blocks()) {
             if (block.block() != null) {
@@ -99,6 +100,14 @@ public class EditBlockParser {
         }
 
         return output.toString();
+    }
+
+    /**
+     * Injects [BRK_BLOCK_N] markers (1-indexed) immediately before each SEARCH/REPLACE block
+     * in the input text.
+     */
+    public String tagBlocks(String content) {
+        return tagBlocks(content, 0);
     }
 
     public EditBlock.ExtendedParseResult parse(String content, Set<ProjectFile> projectFiles) {

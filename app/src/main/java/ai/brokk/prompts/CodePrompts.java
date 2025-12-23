@@ -17,7 +17,6 @@ import ai.brokk.context.ViewingPolicy;
 import ai.brokk.util.ImageUtil;
 import ai.brokk.util.Messages;
 import ai.brokk.util.StyleGuideResolver;
-import com.sun.javafx.image.impl.General;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -38,7 +37,6 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.checkerframework.common.returnsreceiver.qual.This;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
@@ -491,9 +489,12 @@ public abstract class CodePrompts {
      * @return An ApplyRetryMessages containing the tagged AiMessage and retry UserMessage.
      */
     public static ApplyRetryMessages buildApplyRetryMessages(
-            String originalAiText, List<EditBlock.ApplyResult> blockResults, String buildError) {
+            String originalAiText, List<EditBlock.ApplyResult> blockResults, String buildError, int startingIndex) {
         var failures = blockResults.stream().filter(r -> !r.succeeded()).toList();
         assert !failures.isEmpty();
+
+        // Remove any existing BRK_BLOCK markers before re-tagging
+        var cleanedText = originalAiText.replaceAll("(?m)^\\s*\\[BRK_BLOCK_\\d+\\]\\s*\\n?", "");
 
         // Build the tagged AI message
         var taggedText =
@@ -502,7 +503,7 @@ public abstract class CodePrompts {
         with BRK_BLOCK_$N markers that will be referenced in the subsequent feedback.]
         %s
         """
-                        .formatted(EditBlockParser.instance.tagBlocks(originalAiText));
+                        .formatted(EditBlockParser.instance.tagBlocks(cleanedText, startingIndex));
         var taggedAiMessage = new AiMessage(taggedText);
 
         // Build the user retry message
@@ -512,13 +513,14 @@ public abstract class CodePrompts {
 
         var successIndices = java.util.stream.IntStream.range(0, blockResults.size())
                 .filter(i -> blockResults.get(i).succeeded())
-                .mapToObj(i -> "BRK_BLOCK_" + (i + 1))
+                .mapToObj(i -> "BRK_BLOCK_" + (startingIndex + i + 1))
                 .toList();
         sb.append("Successful blocks have been merged into the Workspace. You do not need to repeat them. These are:")
                 .append(successIndices.isEmpty() ? "None" : String.join(", ", successIndices))
                 .append("\n\n");
 
-        sb.append("""
+        sb.append(
+                """
                 The other blocks could not be applied. The details follow. Carefully examine the current contents of the corresponding parts of the Workspace, and issue corrected SEARCH/REPLACE blocks if the intended changes are still necessary.
                 """);
 
@@ -528,18 +530,16 @@ public abstract class CodePrompts {
         record IndexedFailure(EditBlock.ApplyResult result, int blockIndex) {}
         var indexedFailures = java.util.stream.IntStream.range(0, blockResults.size())
                 .filter(i -> !blockResults.get(i).succeeded())
-                .mapToObj(i -> new IndexedFailure(blockResults.get(i), i + 1))
+                .mapToObj(i -> new IndexedFailure(blockResults.get(i), startingIndex + i + 1))
                 .toList();
 
         var failuresByFile = indexedFailures.stream()
                 .filter(f -> f.result().block().rawFileName() != null)
                 .collect(Collectors.groupingBy(
                         f -> requireNonNull(f.result().block().rawFileName()),
-                        Collectors.collectingAndThen(
-                                Collectors.toList(),
-                                list -> list.stream()
-                                        .sorted(java.util.Comparator.comparingInt(IndexedFailure::blockIndex))
-                                        .toList())));
+                        Collectors.collectingAndThen(Collectors.toList(), list -> list.stream()
+                                .sorted(java.util.Comparator.comparingInt(IndexedFailure::blockIndex))
+                                .toList())));
 
         String fileDetails = failuresByFile.entrySet().stream()
                 .map(entry -> {
@@ -564,7 +564,8 @@ public abstract class CodePrompts {
         sb.append(fileDetails);
 
         if (!buildError.isBlank() && successIndices.isEmpty()) {
-            sb.append("""
+            sb.append(
+                    """
             <reminder>
               The build is currently failing; the details are in the conversation history.
               If no edits are made, the task will fail. Still, the guidance from earlier

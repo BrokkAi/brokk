@@ -549,6 +549,39 @@ class EditBlockParserTest {
     }
 
     @Test
+    void testTagBlocksWithStartingIndex() {
+        String input =
+                """
+                ```
+                file1.txt
+                <<<<<<< SEARCH
+                old1
+                =======
+                new1
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        String expected =
+                """
+                [BRK_BLOCK_6]
+                ```
+                file1.txt
+                <<<<<<< SEARCH
+                old1
+
+                =======
+                new1
+
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        String actual = EditBlockParser.instance.tagBlocks(input, 5);
+        assertEquals(expected, actual);
+    }
+
+    @Test
     void testTagBlocksWithFencedAndFencelessBlocks() {
         String input =
                 """
@@ -572,7 +605,7 @@ class EditBlockParserTest {
         String expected =
                 """
                 Some intro text.
-                [BRK_BLOCK_0]
+                [BRK_BLOCK_1]
                 ```
                 file1.txt
                 <<<<<<< SEARCH
@@ -584,7 +617,7 @@ class EditBlockParserTest {
                 >>>>>>> REPLACE
                 ```
                 Middle text.
-                [BRK_BLOCK_1]
+                [BRK_BLOCK_2]
                 ```
                 file1.txt
                 <<<<<<< SEARCH
