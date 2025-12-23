@@ -16,6 +16,7 @@ import ai.brokk.context.ViewingPolicy;
 import ai.brokk.util.ImageUtil;
 import ai.brokk.util.Messages;
 import ai.brokk.util.StyleGuideResolver;
+import com.sun.javafx.image.impl.General;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -38,6 +39,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.checkerframework.common.returnsreceiver.qual.This;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
@@ -484,7 +486,11 @@ public abstract class CodePrompts {
         var failures = blockResults.stream().filter(r -> !r.succeeded()).toList();
 
         // Build the tagged AI message
-        var taggedText = EditBlockParser.instance.tagBlocks(originalAiText);
+        var taggedText = """
+        [HARNESS NOTE: some edits in this message failed to apply. Your SEARCH/REPLACE blocks have been tagged 
+        with BRK_BLOCK_$N markers that will be referenced in the subsequent feedback.]
+        %s
+        """.formatted(EditBlockParser.instance.tagBlocks(originalAiText));
         var taggedAiMessage = new AiMessage(taggedText);
 
         // Build the user retry message
@@ -536,8 +542,7 @@ public abstract class CodePrompts {
                                 </failed_blocks>
                                 </target_file>
                                 """
-                                .formatted(filename, failedBlocksList)
-                                .stripIndent();
+                                .formatted(filename, failedBlocksList);
                     })
                     .collect(Collectors.joining("\n\n"));
 
@@ -1108,7 +1113,7 @@ public abstract class CodePrompts {
         When writing REPLACE blocks, do **not** repeat the `BRK_` line.
         The REPLACE block must ALWAYS contain ONLY the valid code (annotations, signature, body) that will overwrite the target.
 
-        # General
+        #General
         Always write elegant, well-encapsulated code that is easy to maintain and use without mistakes.
 
         Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLACE BLOCK*!

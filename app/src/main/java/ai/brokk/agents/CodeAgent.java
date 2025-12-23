@@ -1413,20 +1413,18 @@ public class CodeAgent {
 
             for (var file : sorted) {
                 String original = originals.getOrDefault(file, "");
-                String revised;
-                revised = file.read().orElse("");
-
+                String revised = file.read().orElse("");
                 if (Objects.equals(original, revised)) {
                     continue; // No effective change
                 }
 
                 // New file created this turn
-                if (!originals.containsKey(file)) {
+                if (original.isBlank()) {
                     results.add(new EditBlock.SearchReplaceBlock(file.toString(), "BRK_ENTIRE_FILE", revised));
                     continue;
                 }
 
-                var originalLines = original.isEmpty() ? List.<String>of() : Arrays.asList(original.split("\n", -1));
+                var originalLines = Arrays.asList(original.split("\n", -1));
                 var revisedLines = revised.isEmpty() ? List.<String>of() : Arrays.asList(revised.split("\n", -1));
 
                 try {
