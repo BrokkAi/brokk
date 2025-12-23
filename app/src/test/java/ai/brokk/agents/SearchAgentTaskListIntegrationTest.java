@@ -1,9 +1,9 @@
 package ai.brokk.agents;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Integration tests verifying SearchAgent exposes and references createOrReplaceTaskList
