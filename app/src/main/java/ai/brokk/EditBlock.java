@@ -55,9 +55,24 @@ public class EditBlock {
         IO_ERROR
     }
 
-    public record EditResult(Map<ProjectFile, String> originalContents, List<FailedBlock> failedBlocks) {
+    public record EditResult(Map<ProjectFile, String> originalContents, List<ApplyResult> blockResults) {
         public boolean hadSuccessfulEdits() {
             return !originalContents.isEmpty();
+        }
+
+        /** Returns the list of failures as legacy FailedBlock records for backward compatibility with tests. */
+        public List<FailedBlock> failedBlocks() {
+            return failures().stream()
+                    .map(r -> new FailedBlock(r.block(), Objects.requireNonNull(r.reason()), r.commentary() == null ? "" : r.commentary()))
+                    .toList();
+        }
+
+        public List<ApplyResult> failures() {
+            return blockResults.stream().filter(r -> !r.succeeded()).toList();
+        }
+
+        public List<ApplyResult> successes() {
+            return blockResults.stream().filter(ApplyResult::succeeded).toList();
         }
     }
 
@@ -140,15 +155,14 @@ public class EditBlock {
     public static EditResult apply(Context ctx, IConsoleIO io, Collection<SearchReplaceBlock> blocks)
             throws IOException, InterruptedException {
         IContextManager contextManager = ctx.getContextManager();
-        // Track which blocks succeed or fail during application
-        List<FailedBlock> failed = new ArrayList<>();
-        Map<SearchReplaceBlock, ProjectFile> succeeded = new HashMap<>();
+        // Track results for all blocks in order
+        List<ApplyResult> blockResults = new ArrayList<>();
         // Track original file contents before any changes
         Map<ProjectFile, String> originalContentsThisBatch = new HashMap<>();
 
-        // First pass: resolve files and pre-resolve BRK markers BEFORE any file modifications
+        // Map to store plans for blocks that passed resolution
         record ApplyPlan(ProjectFile file, SearchReplaceBlock block, String effectiveBefore) {}
-        List<ApplyPlan> plans = new ArrayList<>();
+        Map<SearchReplaceBlock, ApplyPlan> plans = new LinkedHashMap<>();
 
         for (var block : blocks) {
             final var rawFileName = block.rawFileName();
@@ -157,7 +171,7 @@ public class EditBlock {
                 file = resolveProjectFile(ctx, rawFileName, block.beforeText.startsWith("BRK_ENTIRE_FILE"));
             } catch (SymbolAmbiguousException | SymbolInvalidException e) {
                 logger.debug("File resolution failed for block [{}]: {}", rawFileName, e.getMessage());
-                failed.add(new FailedBlock(block, EditBlockFailureReason.FILE_NOT_FOUND));
+                blockResults.add(ApplyResult.failure(block, null, EditBlockFailureReason.FILE_NOT_FOUND, null));
                 continue;
             }
 
@@ -176,8 +190,6 @@ public class EditBlock {
                         ? EditBlockFailureReason.NO_MATCH
                         : EditBlockFailureReason.AMBIGUOUS_MATCH;
 
-                // Report NoMatch resolution failures to telemetry with useful context, mirroring CodeAgent prelint
-                // style.
                 if (ex instanceof NoMatchException) {
                     var marker = effectiveBefore.strip();
                     var message = "Failed to resolve BRK snippet in edit block for "
@@ -196,17 +208,23 @@ public class EditBlock {
                                                     .collect(Collectors.joining(", "))));
                 }
 
-                failed.add(new FailedBlock(block, reason, ex.getMessage() == null ? ex.toString() : ex.getMessage()));
+                blockResults.add(ApplyResult.failure(
+                        block, file, reason, ex.getMessage() == null ? ex.toString() : ex.getMessage()));
                 continue;
             }
 
-            plans.add(new ApplyPlan(file, block, effectiveBefore));
+            plans.put(block, new ApplyPlan(file, block, effectiveBefore));
         }
 
-        // Second pass: apply in the original order using the pre-resolved search text
-        for (var plan : plans) {
+        // Second pass: apply blocks in original order
+        for (var block : blocks) {
+            var plan = plans.get(block);
+            if (plan == null) {
+                // Already added to blockResults in first pass as a failure
+                continue;
+            }
+
             var file = plan.file();
-            var block = plan.block();
             var effectiveBefore = plan.effectiveBefore();
 
             try {
@@ -216,11 +234,9 @@ public class EditBlock {
                 }
 
                 replaceInFile(file, effectiveBefore, block.afterText(), ctx);
-                succeeded.put(block, file);
+                blockResults.add(ApplyResult.success(block, file));
             } catch (NoMatchException | AmbiguousMatchException e) {
                 assert originalContentsThisBatch.containsKey(file);
-                // check to see if the new contents are already in the file
-                // by calling replaceMostSimilarChunk without saving the result
                 var originalContent = originalContentsThisBatch.get(file);
                 String commentary;
                 try {
@@ -250,7 +266,7 @@ public class EditBlock {
                 var reason = e instanceof NoMatchException
                         ? EditBlockFailureReason.NO_MATCH
                         : EditBlockFailureReason.AMBIGUOUS_MATCH;
-                failed.add(new FailedBlock(block, reason, commentary));
+                blockResults.add(ApplyResult.failure(block, file, reason, commentary));
             } catch (IOException e) {
                 var msg = "Error applying edit to " + file;
                 logger.error("{}: {}", msg, e.getMessage());
@@ -262,8 +278,13 @@ public class EditBlock {
             }
         }
 
-        originalContentsThisBatch.keySet().retainAll(succeeded.values());
-        return new EditResult(originalContentsThisBatch, failed);
+        Set<ProjectFile> successfulFiles = blockResults.stream()
+                .filter(ApplyResult::succeeded)
+                .map(ApplyResult::file)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        originalContentsThisBatch.keySet().retainAll(successfulFiles);
+        return new EditResult(originalContentsThisBatch, blockResults);
     }
 
     @TestOnly

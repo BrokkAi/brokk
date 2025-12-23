@@ -804,14 +804,14 @@ public class CodeAgent {
             editResult = applyBlocksAndHandleErrors(context, es.pendingBlocks());
 
             int attemptedBlockCount = es.pendingBlocks().size();
-            var failedBlocks = editResult.failedBlocks();
+            var failedResults = editResult.failures();
             if (metrics != null) {
-                metrics.failedEditBlocks += failedBlocks.size();
+                metrics.failedEditBlocks += failedResults.size();
             }
-            int succeededCount = attemptedBlockCount - failedBlocks.size();
+            int succeededCount = attemptedBlockCount - failedResults.size();
             assert succeededCount >= 0
                     : "succeededCount cannot be negative: attempted=%d, failed=%d"
-                            .formatted(attemptedBlockCount, failedBlocks.size());
+                            .formatted(attemptedBlockCount, failedResults.size());
             int newBlocksAppliedWithoutBuild = es.blocksAppliedWithoutBuild() + succeededCount;
             assert newBlocksAppliedWithoutBuild >= 0
                     : "blocksAppliedWithoutBuild cannot be negative: prior=%d, delta=%d"
@@ -819,12 +819,17 @@ public class CodeAgent {
 
             SequencedSet<EditBlock.SearchReplaceBlock> nextPendingBlocks = new LinkedHashSet<>();
 
-            if (!failedBlocks.isEmpty()) { // Some blocks failed the direct apply
+            if (!failedResults.isEmpty()) { // Some blocks failed the direct apply
                 if (succeededCount == 0) { // Total failure for this batch of pendingBlocks
                     updatedConsecutiveApplyFailures++;
                 } else { // Partial success
                     updatedConsecutiveApplyFailures = 0;
                 }
+
+                // Map results to the old FailedBlock format for the failure message builders
+                var failedBlocks = failedResults.stream()
+                        .map(r -> new EditBlock.FailedBlock(r.block(), r.reason(), r.commentary()))
+                        .toList();
 
                 if (updatedConsecutiveApplyFailures >= MAX_APPLY_FAILURES) {
                     var files = failedBlocks.stream()
@@ -848,7 +853,8 @@ public class CodeAgent {
                                 + EditBlockParser.instance.tagBlocks(lastAiMessage.text());
                     }
 
-                    String retryPromptText = CodePrompts.getApplyFailureMessage(failedBlocks, succeededCount, taggedAiResponse);
+                    String retryPromptText =
+                            CodePrompts.getApplyFailureMessage(failedBlocks, succeededCount, taggedAiResponse);
                     
                     if (!es.lastBuildError().isEmpty()) {
                         retryPromptText += "\n\nReminder: the build is currently failing; the details are in the conversation history.";
@@ -861,7 +867,7 @@ public class CodeAgent {
                             updatedConsecutiveApplyFailures,
                             newBlocksAppliedWithoutBuild,
                             editResult.originalContents());
-                    report("Failed to apply %s block(s), asking LLM to retry".formatted(failedBlocks.size()));
+                    report("Failed to apply %s block(s), asking LLM to retry".formatted(failedResults.size()));
                     return new Step.Retry(csForStep, esForStep);
                 }
             } else { // All blocks from es.pendingBlocks() applied successfully
