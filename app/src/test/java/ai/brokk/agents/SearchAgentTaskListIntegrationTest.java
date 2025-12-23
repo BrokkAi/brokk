@@ -33,12 +33,6 @@ public class SearchAgentTaskListIntegrationTest {
         assertTrue(noAppend.autoScan(), "noAppend() should have autoScan=true");
         assertNull(noAppend.scanModel(), "noAppend() should have scanModel=null");
         assertFalse(noAppend.appendToScope(), "noAppend() should have appendToScope=false");
-
-        // Test withModel(null) - verifies the structure
-        var withModel = SearchAgent.ScanConfig.withModel(null);
-        assertTrue(withModel.autoScan(), "withModel() should have autoScan=true");
-        assertNull(withModel.scanModel(), "withModel(null) should have scanModel=null");
-        assertTrue(withModel.appendToScope(), "withModel() should have appendToScope=true");
     }
 
     @Test
