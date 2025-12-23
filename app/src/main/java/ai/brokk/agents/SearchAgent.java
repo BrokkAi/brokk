@@ -1060,7 +1060,7 @@ public class SearchAgent {
      * Performs auto-scan using configured scan model and append behavior.
      * Sets scanAlreadyPerformed to true on success or failure to prevent retries.
      */
-    private void performAutoScan() {
+    private void performAutoScan() throws InterruptedException {
         try {
             StreamingChatModel modelToUse = (scanConfig.scanModel() != null)
                     ? scanConfig.scanModel()
@@ -1069,8 +1069,7 @@ public class SearchAgent {
             scanAlreadyPerformed = true;
         } catch (InterruptedException e) {
             scanAlreadyPerformed = true; // Don't retry
-            Thread.currentThread().interrupt();
-            throw new RuntimeException(e); // Will be caught by execute()
+            throw e; // Propagate naturally
         } catch (Exception e) {
             logger.warn("Auto-scan failed, continuing without scan: {}", e.getMessage());
             scanAlreadyPerformed = true; // Don't retry

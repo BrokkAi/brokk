@@ -555,7 +555,14 @@ public class Context {
      * (PROJECT_PATH, GIT_FILE, EXTERNAL_PATH, IMAGE_FILE, etc.).
      */
     public boolean isFileContentEmpty() {
-        return fragments.stream().allMatch(f -> f.files().renderNowOr(Set.of()).isEmpty());
+        return fragments.stream().allMatch(f -> {
+            var type = f.getType();
+            // These fragment types never contain file content
+            return type == ContextFragment.FragmentType.STRING
+                    || type == ContextFragment.FragmentType.TASK
+                    || type == ContextFragment.FragmentType.HISTORY
+                    || type == ContextFragment.FragmentType.BUILD_LOG;
+        });
     }
 
     public TaskEntry createTaskEntry(TaskResult result) {

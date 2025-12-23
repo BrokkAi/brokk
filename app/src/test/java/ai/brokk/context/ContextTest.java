@@ -361,6 +361,15 @@ class ContextTest {
     }
 
     @Test
+    void testIsFileContentEmpty_withSummaryFragment() {
+        // SummaryFragment is type SKELETON which represents file content
+        var summaryFrag = new ContextFragments.SummaryFragment(
+                contextManager, "com.example.SomeClass", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+        var ctx = new Context(contextManager).addFragments(summaryFrag);
+        assertFalse(ctx.isFileContentEmpty(), "Context with SKELETON fragment should have file content");
+    }
+
+    @Test
     void testIsFileContentEmpty_withProjectPathFragment() throws Exception {
         var pf = new ProjectFile(tempDir, "src/Test.java");
         Files.createDirectories(pf.absPath().getParent());
