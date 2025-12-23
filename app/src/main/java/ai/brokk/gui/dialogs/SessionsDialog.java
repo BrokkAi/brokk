@@ -4,7 +4,6 @@ import static ai.brokk.SessionManager.SessionInfo;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.ContextManager;
-import ai.brokk.SessionRegistry;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.difftool.utils.ColorUtil;
@@ -18,6 +17,7 @@ import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
+import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
@@ -524,6 +524,8 @@ public class SessionsDialog extends BaseThemedDialog {
 
         JPopupMenu popup = new JPopupMenu();
 
+        IProject project = contextManager.getProject();
+
         /* ---------- single-selection items ---------- */
         if (selectedSessions.size() == 1) {
             var sessionInfo = selectedSessions.getFirst();
@@ -533,7 +535,7 @@ public class SessionsDialog extends BaseThemedDialog {
             setActiveItem.addActionListener(
                     ev -> contextManager.switchSessionAsync(sessionInfo.id()).thenRun(() -> {
                         SwingUtilities.invokeLater(this::refreshSessionsTable);
-                        contextManager.getProject().getMainProject().sessionsListChanged();
+                        project.getMainProject().sessionsListChanged();
                     }));
             popup.add(setActiveItem);
             popup.addSeparator();
@@ -554,8 +556,8 @@ public class SessionsDialog extends BaseThemedDialog {
                     JOptionPane.WARNING_MESSAGE);
             if (confirm == JOptionPane.YES_OPTION) {
                 var partitionedSessions = selectedSessions.stream()
-                        .collect(Collectors.partitioningBy(s -> SessionRegistry.isSessionActiveElsewhere(
-                                contextManager.getProject().getRoot(), s.id())));
+                        .collect(Collectors.partitioningBy(
+                                s -> project.getSessionRegistry().isSessionActiveElsewhere(project.getRoot(), s.id())));
                 // partitioning by boolean always returns mappings for both true and false keys
                 var activeSessions = castNonNull(partitionedSessions.get(true));
                 var deletableSessions = castNonNull(partitionedSessions.get(false));

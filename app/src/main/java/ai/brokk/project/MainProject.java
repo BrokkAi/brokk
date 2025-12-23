@@ -68,6 +68,7 @@ public final class MainProject extends AbstractProject {
     private final Path legacyStyleGuidePath;
     private final Path reviewGuidePath;
     private final SessionManager sessionManager;
+    private final SessionRegistry sessionRegistry = new SessionRegistry();
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
 
     @Nullable
@@ -189,7 +190,7 @@ public final class MainProject extends AbstractProject {
                 this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(LEGACY_STYLE_GUIDE_FILE);
         this.reviewGuidePath = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(REVIEW_GUIDE_FILE);
         var sessionsDir = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(SESSIONS_DIR);
-        this.sessionManager = new SessionManager(sessionsDir);
+        this.sessionManager = new SessionManager(this, sessionsDir);
 
         this.projectProps = new Properties();
 
@@ -2164,7 +2165,7 @@ public final class MainProject extends AbstractProject {
                     String sessionIdStr = props.getProperty("lastActiveSession");
                     if (sessionIdStr != null && !sessionIdStr.isBlank()) {
                         UUID sessionId = UUID.fromString(sessionIdStr.trim());
-                        if (SessionRegistry.claim(wtPath, sessionId)) {
+                        if (sessionRegistry.claim(wtPath, sessionId)) {
                             logger.info(
                                     "Reserved session {} for non-open worktree {}", sessionId, wtPath.getFileName());
                         } else {
@@ -2243,17 +2244,25 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public void sessionsListChanged() {
-        var mainChrome = Brokk.findOpenProjectWindow(getRoot());
-        var worktreeChromes = Brokk.getWorktreeChromes(this);
+    public SessionRegistry getSessionRegistry() {
+        return sessionRegistry;
+    }
 
-        var allChromes = new ArrayList<Chrome>();
-        if (mainChrome != null) {
-            allChromes.add(mainChrome);
+    @Override
+    public String getRemoteProjectName() {
+        String result = null;
+        if (hasGit()) {
+            result = getRepo().getRemoteUrl();
         }
-        allChromes.addAll(worktreeChromes);
+        if (result == null) {
+            result = getRoot().getFileName().toString();
+        }
+        return result;
+    }
 
-        for (var chrome : allChromes) {
+    @Override
+    public void sessionsListChanged() {
+        for (var chrome : Brokk.getProjectAndWorktreeChromes(this)) {
             SwingUtilities.invokeLater(() -> chrome.getHistoryOutputPanel().updateSessionComboBox());
         }
     }

@@ -5,6 +5,7 @@ import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IssueProvider;
 import ai.brokk.SessionManager;
+import ai.brokk.SessionRegistry;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ProjectFile;
@@ -358,7 +359,15 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    default SessionRegistry getSessionRegistry() {
+        throw new UnsupportedOperationException();
+    }
+
     default SessionManager getSessionManager() {
+        throw new UnsupportedOperationException();
+    }
+
+    default String getRemoteProjectName() {
         throw new UnsupportedOperationException();
     }
 

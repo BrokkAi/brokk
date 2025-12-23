@@ -1142,6 +1142,9 @@ public class Brokk {
         return mainToWorktreeChromes.getOrDefault(mainProject, List.of());
     }
 
+    /**
+     * Returns all Chrome windows associated with a project (the main project window plus all worktree windows).
+     */
     public static List<Chrome> getProjectAndWorktreeChromes(IProject project) {
         var mainProject = project.getMainProject();
         var allChromes = new ArrayList<Chrome>();
