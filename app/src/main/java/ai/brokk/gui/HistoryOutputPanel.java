@@ -323,47 +323,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return centerContainer;
     }
 
-    // Integrator note: When sessions are created/deleted/renamed externally, call
-    // HistoryOutputPanel.updateSessionComboBox() to keep the compact session label
-    // and popup list synchronized.
-
-    /**
-     * Refresh the compact session label and (if present) the sessions popup list model.
-     *
-     * <p>This method runs on the EDT and updates the right-aligned compact session label,
-     * and, if the session popup list has already been created/opened, swaps in a new
-     * list model showing the current sessions and selects the active session.
-     *
-     * <p>Call this from outside when the active session or the session list has changed
-     * (for example, the SessionManager, SessionsDialog, or other UI components mutate sessions).
-     * It is safe to call from non-EDT threads because this method schedules work via
-     * {@link SwingUtilities#invokeLater(Runnable)}.
-     */
-    void updateSessionComboBox(SplitButton label) {
-        SwingUtilities.invokeLater(() -> {
-            var sessions = contextManager.getProject().getSessionManager().listSessions();
-            sessions.sort(Comparator.comparingLong(SessionInfo::modified).reversed());
-
-            // Update compact label to show the active session name (with ellipsize and tooltip)
-            var currentSessionId = contextManager.getCurrentSessionId();
-            String labelText = "";
-            for (var s : sessions) {
-                if (s.id().equals(currentSessionId)) {
-                    labelText = s.name();
-                    break;
-                }
-            }
-            if (labelText.isBlank()) {
-                labelText = ContextManager.DEFAULT_SESSION_NAME;
-            }
-
-            final String fullName = labelText;
-            label.setText(fullName);
-            label.setToolTipText(fullName);
-            label.revalidate();
-        });
-    }
-
     /**
      * Builds the Activity history panel that shows past contexts
      */
@@ -2872,65 +2831,4 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
     }
 
-    class SessionInfoRenderer extends JPanel implements ListCellRenderer<SessionInfo> {
-        private final JLabel nameLabel = new JLabel();
-        private final JLabel timeLabel = new JLabel();
-        private final JLabel countLabel = new JLabel();
-        private final JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, Constants.H_GAP, 0));
-
-        SessionInfoRenderer() {
-            setLayout(new BorderLayout());
-            setOpaque(true);
-
-            // Remove bold from nameLabel
-            // nameLabel.setFont(nameLabel.getFont().deriveFont(Font.BOLD));
-
-            var baseSize = timeLabel.getFont().getSize2D();
-            timeLabel.setFont(timeLabel.getFont().deriveFont(Math.max(10f, baseSize - 2f)));
-            countLabel.setFont(timeLabel.getFont());
-
-            row2.setOpaque(false);
-            row2.setBorder(new EmptyBorder(0, Constants.H_GAP, 0, 0));
-            row2.add(timeLabel);
-            row2.add(countLabel);
-
-            add(nameLabel, BorderLayout.NORTH);
-            add(row2, BorderLayout.CENTER);
-        }
-
-        @Override
-        public Component getListCellRendererComponent(
-                JList<? extends SessionInfo> list,
-                SessionInfo value,
-                int index,
-                boolean isSelected,
-                boolean cellHasFocus) {
-            if (index == -1) {
-                var label = new JLabel(value.name());
-                label.setOpaque(false);
-                label.setEnabled(list.isEnabled());
-                label.setForeground(list.getForeground());
-                return label;
-            }
-            nameLabel.setText(value.name());
-            timeLabel.setText(formatModified(value.modified()));
-
-            var cnt = sessionAiResponseCounts.get(value.id());
-            if (cnt == null) {
-                triggerAiCountLoad(value);
-            }
-            countLabel.setText(cnt != null ? String.format("%d %s", cnt, cnt == 1 ? "task" : "tasks") : "");
-
-            var bg = isSelected ? list.getSelectionBackground() : list.getBackground();
-            var fg = isSelected ? list.getSelectionForeground() : list.getForeground();
-
-            setBackground(bg);
-            nameLabel.setForeground(fg);
-            timeLabel.setForeground(fg);
-            countLabel.setForeground(fg);
-
-            setEnabled(list.isEnabled());
-            return this;
-        }
-    }
 }

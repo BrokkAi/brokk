@@ -158,7 +158,7 @@ public class RightPanel extends JPanel implements ThemeAware {
         var list = new JList<ai.brokk.SessionManager.SessionInfo>(model);
         list.setVisibleRowCount(Math.min(8, Math.max(3, model.getSize())));
         list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        list.setCellRenderer(historyOutputPanel.new SessionInfoRenderer());
+        list.setCellRenderer(new SessionInfoRenderer());
 
         var currentSessionId = contextManager.getCurrentSessionId();
         for (int i = 0; i < model.getSize(); i++) {
@@ -197,7 +197,91 @@ public class RightPanel extends JPanel implements ThemeAware {
     }
 
     public void updateSessionComboBox() {
-        historyOutputPanel.updateSessionComboBox(sessionNameLabel);
+        SwingUtilities.invokeLater(() -> {
+            var sessions = contextManager.getProject().getSessionManager().listSessions();
+            sessions.sort(java.util.Comparator.comparingLong(ai.brokk.SessionManager.SessionInfo::modified)
+                    .reversed());
+
+            var currentSessionId = contextManager.getCurrentSessionId();
+            String labelText = "";
+            for (var s : sessions) {
+                if (s.id().equals(currentSessionId)) {
+                    labelText = s.name();
+                    break;
+                }
+            }
+            if (labelText.isBlank()) {
+                labelText = ContextManager.DEFAULT_SESSION_NAME;
+            }
+
+            sessionNameLabel.setText(labelText);
+            sessionNameLabel.setToolTipText(labelText);
+            sessionNameLabel.revalidate();
+        });
+    }
+
+    private class SessionInfoRenderer extends JPanel
+            implements ListCellRenderer<ai.brokk.SessionManager.SessionInfo> {
+        private final JLabel nameLabel = new JLabel();
+        private final JLabel timeLabel = new JLabel();
+        private final JLabel countLabel = new JLabel();
+        private final JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, Constants.H_GAP, 0));
+
+        SessionInfoRenderer() {
+            setLayout(new BorderLayout());
+            setOpaque(true);
+
+            var baseSize = timeLabel.getFont().getSize2D();
+            timeLabel.setFont(timeLabel.getFont().deriveFont(Math.max(10f, baseSize - 2f)));
+            countLabel.setFont(timeLabel.getFont());
+
+            row2.setOpaque(false);
+            row2.setBorder(BorderFactory.createEmptyBorder(0, Constants.H_GAP, 0, 0));
+            row2.add(timeLabel);
+            row2.add(countLabel);
+
+            add(nameLabel, BorderLayout.NORTH);
+            add(row2, BorderLayout.CENTER);
+        }
+
+        @Override
+        public Component getListCellRendererComponent(
+                JList<? extends ai.brokk.SessionManager.SessionInfo> list,
+                ai.brokk.SessionManager.SessionInfo value,
+                int index,
+                boolean isSelected,
+                boolean cellHasFocus) {
+            if (index == -1) {
+                var label = new JLabel(value.name());
+                label.setOpaque(false);
+                label.setEnabled(list.isEnabled());
+                label.setForeground(list.getForeground());
+                return label;
+            }
+
+            nameLabel.setText(value.name());
+            var instant = java.time.Instant.ofEpochMilli(value.modified());
+            timeLabel.setText(ai.brokk.gui.util.GitDiffUiUtil.formatRelativeDate(
+                    instant, java.time.LocalDate.now(java.time.ZoneId.systemDefault())));
+
+            int cnt = 0;
+            try {
+                cnt = contextManager.getProject().getSessionManager().countAiResponses(value.id());
+            } catch (Exception ignored) {
+            }
+            countLabel.setText(String.format("%d %s", cnt, cnt == 1 ? "task" : "tasks"));
+
+            var bg = isSelected ? list.getSelectionBackground() : list.getBackground();
+            var fg = isSelected ? list.getSelectionForeground() : list.getForeground();
+
+            setBackground(bg);
+            nameLabel.setForeground(fg);
+            timeLabel.setForeground(fg);
+            countLabel.setForeground(fg);
+
+            setEnabled(list.isEnabled());
+            return this;
+        }
     }
 
     /**

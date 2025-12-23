@@ -1291,9 +1291,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         loadingPanel.add(loadingLabel, BorderLayout.NORTH);
         add(loadingPanel, BorderLayout.CENTER);
 
-        compInfo.getDisplayName();
-        // No-op: filename label removed from toolbar
-
         revalidate();
         repaint();
     }
