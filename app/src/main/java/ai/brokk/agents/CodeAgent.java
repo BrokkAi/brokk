@@ -841,21 +841,13 @@ public class CodeAgent {
                         metrics.applyRetries++;
                     }
 
-                    // Tag the last AI response for troubleshooting (if available)
-                    String taggedAiResponse = "";
+                    String lastAiText = null;
                     if (!cs.taskMessages().isEmpty() && cs.taskMessages().getLast() instanceof AiMessage lastAiMessage) {
-                        taggedAiResponse = "[HARNESS NOTE: your SEARCH/REPLACE blocks have been tagged so that you can troubleshoot errors.]\n\n"
-                                + EditBlockParser.instance.tagBlocks(lastAiMessage.text());
+                        lastAiText = lastAiMessage.text();
                     }
 
-                    String retryPromptText =
-                            CodePrompts.getApplyFailureMessage(failedResults, succeededCount, taggedAiResponse);
-                    
-                    if (!es.lastBuildError().isEmpty()) {
-                        retryPromptText += "\n\nReminder: the build is currently failing; the details are in the conversation history.";
-                    }
-
-                    UserMessage retryRequest = new UserMessage(retryPromptText);
+                    String buildError = es.lastBuildError().isEmpty() ? null : es.lastBuildError();
+                    UserMessage retryRequest = CodePrompts.buildApplyRetryMessage(lastAiText, editResult.blockResults(), buildError);
                     csForStep = cs.withNextRequest(retryRequest);
                     esForStep = es.afterApply(
                             nextPendingBlocks,

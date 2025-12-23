@@ -461,73 +461,98 @@ public abstract class CodePrompts {
         return new UserMessage(text);
     }
 
-    /** Generates a message based on application results of tagged edit blocks. */
-    public static String getApplyFailureMessage(List<EditBlock.ApplyResult> failedBlocks, int succeededCount, String taggedResponse) {
-        if (failedBlocks.isEmpty()) {
-            return "";
-        }
+    /**
+     * Consolidates the construction of a retry message when SEARCH/REPLACE blocks fail to apply.
+     *
+     * @param originalAiText The raw text of the AI's previous response to be tagged.
+     * @param blockResults The outcome of applying the blocks.
+     * @param buildError The current build error, if any.
+     * @return A UserMessage containing diagnostic info and instructions for the LLM.
+     */
+    public static UserMessage buildApplyRetryMessage(
+            @Nullable String originalAiText,
+            List<EditBlock.ApplyResult> blockResults,
+            @Nullable String buildError) {
 
         var sb = new StringBuilder();
         sb.append("<instructions>\n");
         sb.append("# SEARCH/REPLACE application results\n\n");
-        sb.append("Some blocks failed to apply. Please review the current file state and provide corrected blocks.\n\n");
 
-        if (!taggedResponse.isEmpty()) {
+        var failures = blockResults.stream().filter(r -> !r.succeeded()).toList();
+        int succeededCount = blockResults.size() - failures.size();
+
+        if (failures.isEmpty()) {
+            sb.append("All blocks applied successfully.\n");
+        } else {
+            sb.append("Some blocks failed to apply. Please review the current file state and provide corrected blocks.\n\n");
+        }
+
+        if (originalAiText != null && !failures.isEmpty()) {
+            sb.append("[HARNESS NOTE: your SEARCH/REPLACE blocks have been tagged so that you can troubleshoot errors.]\n\n");
             sb.append("For your reference, here is your previous response with markers injected to identify the blocks:\n\n");
             sb.append("<tagged_response>\n");
-            sb.append(taggedResponse);
+            sb.append(EditBlockParser.instance.tagBlocks(originalAiText));
             sb.append("\n</tagged_response>\n\n");
+        }
+
+        if (buildError != null && !buildError.isBlank()) {
+            sb.append("\n\nReminder: the build is currently failing; the details are in the conversation history.\n");
         }
 
         sb.append("</instructions>\n\n");
 
-        var failuresByFile = failedBlocks.stream()
-                .filter(fb -> fb.block().rawFileName() != null)
-                .collect(Collectors.groupingBy(fb -> Objects.requireNonNull(fb.block().rawFileName())));
+        if (!failures.isEmpty()) {
+            var failuresByFile = failures.stream()
+                    .filter(fb -> fb.block().rawFileName() != null)
+                    .collect(Collectors.groupingBy(fb -> Objects.requireNonNull(fb.block().rawFileName())));
 
-        String fileDetails = failuresByFile.entrySet().stream()
-                .map(entry -> {
-                    var filename = entry.getKey();
-                    var fileFailures = entry.getValue();
+            String fileDetails = failuresByFile.entrySet().stream()
+                    .map(entry -> {
+                        var filename = entry.getKey();
+                        var fileFailures = entry.getValue();
 
-                    String failedBlocksXml = fileFailures.stream()
-                            .map(f -> {
-                                var enriched = enrichSemanticCommentary(f);
-                                var commentaryText = enriched.isBlank()
-                                        ? ""
-                                        : """
-                                        <commentary>
-                                        %s
-                                        </commentary>
-                                        """
-                                                .formatted(enriched);
-                                return """
-                                        <failed_block reason="%s">
-                                        <block>
-                                        %s
-                                        </block>
-                                        %s
-                                        </failed_block>
-                                        """
-                                        .formatted(f.reason(), f.block().repr(), commentaryText);
-                            })
-                            .collect(Collectors.joining("\n"));
+                        String failedBlocksXml = fileFailures.stream()
+                                .map(CodePrompts::formatBlockResult)
+                                .collect(Collectors.joining("\n"));
 
-                    return """
-                            <target_file name="%s">
-                            <failed_blocks>
-                            %s
-                            </failed_blocks>
-                            </target_file>
-                            """
-                            .formatted(filename, failedBlocksXml)
-                            .stripIndent();
-                })
-                .collect(Collectors.joining("\n\n"));
+                        return """
+                                <target_file name="%s">
+                                <failed_blocks>
+                                %s
+                                </failed_blocks>
+                                </target_file>
+                                """
+                                .formatted(filename, failedBlocksXml)
+                                .stripIndent();
+                    })
+                    .collect(Collectors.joining("\n\n"));
 
-        sb.append(fileDetails);
+            sb.append(fileDetails);
+        }
 
-        return sb.toString().trim();
+        return new UserMessage(sb.toString().trim());
+    }
+
+    private static String formatBlockResult(EditBlock.ApplyResult f) {
+        var enriched = enrichSemanticCommentary(f);
+        var commentaryText = enriched.isBlank()
+                ? ""
+                : """
+                <commentary>
+                %s
+                </commentary>
+                """
+                        .formatted(enriched);
+
+        return """
+                <failed_block reason="%s">
+                <block>
+                %s
+                </block>
+                %s
+                </failed_block>
+                """
+                .formatted(f.reason(), f.block().repr(), commentaryText);
     }
 
     /**
@@ -572,10 +597,8 @@ public abstract class CodePrompts {
                     hints.add(
                             "- Alternatively, modify only one method at a time by targeting it with a unique line-based SEARCH.");
                 }
-                // For BRK_CLASS ambiguity we don't add extra guidance (not a typical case).
             }
             default -> {
-                // No extra guidance for other reasons
             }
         }
 
