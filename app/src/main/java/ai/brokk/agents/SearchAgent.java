@@ -1063,7 +1063,10 @@ public class SearchAgent {
             scanAlreadyPerformed = true; // Don't retry
             throw e; // Propagate naturally
         } catch (Exception e) {
-            logger.warn("Auto-scan failed, continuing without scan: {}", e.getMessage());
+            logger.warn("Auto-scan failed, continuing without scan", e);
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO,
+                    "Context scan failed: " + e.getMessage() + ". Continuing without initial scan.");
             scanAlreadyPerformed = true; // Don't retry
             // Continue with execute() - non-fatal
         }
