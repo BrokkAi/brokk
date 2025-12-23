@@ -24,7 +24,8 @@ public class TestProject implements IProject {
     private final Path root;
     private final Language language;
 
-    private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
+    private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture =
+            CompletableFuture.completedFuture(BuildAgent.BuildDetails.EMPTY);
     private BuildAgent.BuildDetails buildDetails = BuildAgent.BuildDetails.EMPTY;
 
     private IProject.CodeAgentTestScope codeAgentTestScope = IProject.CodeAgentTestScope.WORKSPACE;
