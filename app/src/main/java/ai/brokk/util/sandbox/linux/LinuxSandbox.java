@@ -33,14 +33,14 @@ public final class LinuxSandbox {
 
         boolean blockUnixSockets = linuxOptions == null || !linuxOptions.allowAllUnixSockets();
 
-        try {
-            String sandboxCommand = command;
+        String sandboxCommand = command;
 
-            if (blockUnixSockets) {
+        if (blockUnixSockets) {
+            try {
                 Path bpfPath = SeccompFilter.extractBpfToTemp();
                 Path applySeccompPath = SeccompFilter.extractApplySeccompToTemp();
 
-                String applySeccompCmd =
+                sandboxCommand =
                         shellQuote(applySeccompPath.toString())
                                 + " "
                                 + shellQuote(bpfPath.toString())
@@ -48,19 +48,17 @@ public final class LinuxSandbox {
                                 + shellQuote(shell)
                                 + " -c "
                                 + shellQuote(command);
-
-                sandboxCommand = applySeccompCmd;
+            } catch (IOException e) {
+                sandboxCommand = command;
             }
-
-            bwrapArgs.add("--");
-            bwrapArgs.add(shell);
-            bwrapArgs.add("-c");
-            bwrapArgs.add(sandboxCommand);
-
-            return "bwrap " + shellQuoteList(bwrapArgs);
-        } catch (IOException e) {
-            throw new IllegalStateException("Failed to prepare Linux sandbox", e);
         }
+
+        bwrapArgs.add("--");
+        bwrapArgs.add(shell);
+        bwrapArgs.add("-c");
+        bwrapArgs.add(sandboxCommand);
+
+        return "bwrap " + shellQuoteList(bwrapArgs);
     }
 
     private static List<String> buildFilesystemArgs(SandboxConfig.FilesystemConfig fsConfig) {

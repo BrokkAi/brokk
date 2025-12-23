@@ -13,7 +13,6 @@ import java.io.InputStreamReader;
 import java.lang.management.ManagementFactory;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -163,70 +162,27 @@ public class Environment {
         String[] shellCommand;
         if (sandbox) {
             if (isWindows()) {
-                throw new UnsupportedOperationException("sandboxing is not supported on Windows");
+                logger.warn("sandboxing requested but is not supported on Windows; running unsandboxed");
+                sandbox = false;
+            }
+        }
+
+        if (sandbox) {
+            String wrapped;
+            try {
+                wrapped =
+                        new SandboxBridge(root, false, executorConfig)
+                                .createSandboxManager()
+                                .wrapWithSandbox(command, "/bin/sh");
+            } catch (RuntimeException e) {
+                logger.warn("sandbox wrapping failed; running unsandboxed: {}", e.getMessage());
+                logger.debug("sandbox wrapping failure details", e);
+                wrapped = command;
+                sandbox = false;
             }
 
-            if (isMacOs()) {
-                // Build a seatbelt policy: read-only everywhere, write only inside root
-                String absPath = root.toAbsolutePath().toString();
-                String writeRule;
-                try {
-                    String realPath = root.toRealPath().toString();
-                    if (realPath.equals(absPath)) {
-                        writeRule = "(allow file-write* (subpath \"" + escapeForSeatbelt(absPath) + "\"))";
-                    } else {
-                        writeRule = "(allow file-write* (subpath \"" + escapeForSeatbelt(absPath) + "\") "
-                                + "(subpath \"" + escapeForSeatbelt(realPath) + "\"))";
-                    }
-                } catch (IOException e) {
-                    // Fallback to only the absolute path if realPath resolution fails
-                    writeRule = "(allow file-write* (subpath \"" + escapeForSeatbelt(absPath) + "\"))";
-                }
-
-                var fullPolicy = READ_ONLY_SEATBELT_POLICY + "\n" + writeRule;
-
-                // Write policy to a temporary file; avoids newline-parsing issues
-                Path policyFile;
-                try {
-                    policyFile = Files.createTempFile("brokk-seatbelt-", ".sb");
-                    Files.writeString(policyFile, fullPolicy, StandardCharsets.UTF_8);
-                } catch (IOException e) {
-                    throw new StartupException("unable to create seatbelt policy file: " + e.getMessage(), "");
-                }
-                policyFile.toFile().deleteOnExit();
-
-                // Phase 2: Support approved custom executors in sandbox mode
-                if (executorConfig != null && ExecutorValidator.isApprovedForSandbox(executorConfig)) {
-                    // Use custom executor with sandbox
-                    String[] executorCommand = executorConfig.buildCommand(command);
-                    String[] sandboxedCommand = new String[executorCommand.length + 4];
-                    sandboxedCommand[0] = "sandbox-exec";
-                    sandboxedCommand[1] = "-f";
-                    sandboxedCommand[2] = policyFile.toString();
-                    sandboxedCommand[3] = "--";
-                    System.arraycopy(executorCommand, 0, sandboxedCommand, 4, executorCommand.length);
-                    shellCommand = sandboxedCommand;
-
-                    logger.info("using custom executor '{}' with sandbox", executorConfig.getDisplayName());
-                } else {
-                    // Fallback to system default with sandbox
-                    shellCommand =
-                            new String[] {"sandbox-exec", "-f", policyFile.toString(), "--", "/bin/sh", "-c", command};
-
-                    if (executorConfig != null) {
-                        logger.info(
-                                "custom executor '{}' not approved for sandbox, using /bin/sh",
-                                executorConfig.getDisplayName());
-                    }
-                }
-                // TODO
-            } else if (isLinux()) {
-                throw new UnsupportedOperationException("sandboxing is not supported yet on Linux");
-            } else {
-                throw new UnsupportedOperationException("sandboxing is not supported on this OS");
-            }
+            shellCommand = new String[] {"/bin/sh", "-c", wrapped};
         } else {
-            // Phase 1: Support custom executors for non-sandboxed execution
             if (executorConfig != null && executorConfig.isValid()) {
                 shellCommand = executorConfig.buildCommand(command);
                 logger.info("using custom executor '{}'", executorConfig.getDisplayName());
@@ -234,7 +190,6 @@ public class Environment {
                 if (executorConfig != null && !executorConfig.isValid()) {
                     logger.warn("invalid custom executor '{}', using system default", executorConfig);
                 }
-                // Fall back to system default
                 shellCommand = isWindows()
                         ? new String[] {"powershell.exe", "-Command", command}
                         : new String[] {"/bin/sh", "-c", command};
@@ -397,86 +352,6 @@ public class Environment {
         return result;
     }
 
-    /**
-     * Seatbelt policy that grants read access everywhere and write access only to explicitly whitelisted roots.
-     * Networking remains blocked.
-     */
-    private static final String READ_ONLY_SEATBELT_POLICY =
-            """
-        (version 1)
-
-        (deny default)
-
-        ; allow read-only file operations
-        (allow file-read*)
-
-        ; allow process creation
-        (allow process-exec)
-        (allow process-fork)
-        (allow signal (target self))
-
-        ; allow writing to /dev/null
-        (allow file-write-data
-          (require-all
-            (path "/dev/null")
-            (vnode-type CHARACTER-DEVICE)))
-
-        ; sysctl whitelist required by the JVM and many Unix tools
-        (allow sysctl-read
-          (sysctl-name "hw.activecpu")
-          (sysctl-name "hw.busfrequency_compat")
-          (sysctl-name "hw.byteorder")
-          (sysctl-name "hw.cacheconfig")
-          (sysctl-name "hw.cachelinesize_compat")
-          (sysctl-name "hw.cpufamily")
-          (sysctl-name "hw.cpufrequency_compat")
-          (sysctl-name "hw.cputype")
-          (sysctl-name "hw.l1dcachesize_compat")
-          (sysctl-name "hw.l1icachesize_compat")
-          (sysctl-name "hw.l2cachesize_compat")
-          (sysctl-name "hw.l3cachesize_compat")
-          (sysctl-name "hw.logicalcpu_max")
-          (sysctl-name "hw.machine")
-          (sysctl-name "hw.ncpu")
-          (sysctl-name "hw.nperflevels")
-          (sysctl-name "hw.optional.arm.FEAT_BF16")
-          (sysctl-name "hw.optional.arm.FEAT_DotProd")
-          (sysctl-name "hw.optional.arm.FEAT_FCMA")
-          (sysctl-name "hw.optional.arm.FEAT_FHM")
-          (sysctl-name "hw.optional.arm.FEAT_FP16")
-          (sysctl-name "hw.optional.arm.FEAT_I8MM")
-          (sysctl-name "hw.optional.arm.FEAT_JSCVT")
-          (sysctl-name "hw.optional.arm.FEAT_LSE")
-          (sysctl-name "hw.optional.arm.FEAT_RDM")
-          (sysctl-name "hw.optional.arm.FEAT_SHA512")
-          (sysctl-name "hw.optional.armv8_2_sha512")
-          (sysctl-name "hw.memsize")
-          (sysctl-name "hw.pagesize")
-          (sysctl-name "hw.packages")
-          (sysctl-name "hw.pagesize_compat")
-          (sysctl-name "hw.physicalcpu_max")
-          (sysctl-name "hw.tbfrequency_compat")
-          (sysctl-name "hw.vectorunit")
-          (sysctl-name "kern.hostname")
-          (sysctl-name "kern.maxfilesperproc")
-          (sysctl-name "kern.osproductversion")
-          (sysctl-name "kern.osrelease")
-          (sysctl-name "kern.ostype")
-          (sysctl-name "kern.osvariant_status")
-          (sysctl-name "kern.osversion")
-          (sysctl-name "kern.secure_kernel")
-          (sysctl-name "kern.usrstack64")
-          (sysctl-name "kern.version")
-          (sysctl-name "sysctl.proc_cputype")
-          (sysctl-name-prefix "hw.perflevel")
-        )
-        """;
-
-    /** Escape a path for inclusion inside a seatbelt policy. */
-    private static String escapeForSeatbelt(String path) {
-        return path.replace("\\", "\\\\").replace("\"", "\\\"");
-    }
-
     private static String formatOutput(String stdout, String stderr) {
         stdout = stdout.trim().replaceAll(ANSI_ESCAPE_PATTERN, "");
         stderr = stderr.trim().replaceAll(ANSI_ESCAPE_PATTERN, "");
@@ -596,17 +471,13 @@ public class Environment {
         if (isWindows()) {
             return false;
         }
-        if (isMacOs()) {
-            if (new File("/usr/bin/sandbox-exec").canExecute()) {
-                return true;
-            }
-            return existsOnPath("sandbox-exec");
-        }
-        if (isLinux()) {
-            // TODO
+
+        try {
+            return new SandboxBridge(Path.of("."), false, null).isAvailable();
+        } catch (RuntimeException e) {
+            logger.debug("Sandbox availability check failed", e);
             return false;
         }
-        return false;
     }
 
     private static boolean existsOnPath(String executable) {
