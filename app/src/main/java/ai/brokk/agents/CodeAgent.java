@@ -1218,16 +1218,8 @@ public class CodeAgent {
          * @return a new ConversationState with compacted messages, or this state unchanged if no AI content
          */
         ConversationState forBuildRetry(UserMessage retryRequest, EditState es) {
-            var thinking = taskMessages.stream()
-                    .filter(AiMessage.class::isInstance)
-                    .map(AiMessage.class::cast)
-                    .map(CodePrompts::redactAiMessage)
-                    .flatMap(Optional::stream)
-                    .map(AiMessage::text)
-                    .collect(Collectors.joining("\n\n"));
-
             var srb = es.toSearchReplaceBlocks();
-            var summaryText = thinking + "\n\n"
+            var summaryText = "Here are the SEARCH/REPLACE blocks:\n\n"
                     + srb.stream().map(EditBlock.SearchReplaceBlock::repr).collect(Collectors.joining("\n"));
 
             var compactedMessages = new ArrayList<ChatMessage>();
