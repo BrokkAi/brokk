@@ -826,17 +826,12 @@ public class CodeAgent {
                     updatedConsecutiveApplyFailures = 0;
                 }
 
-                // Map results to the old FailedBlock format for the failure message builders
-                var failedBlocks = failedResults.stream()
-                        .map(r -> new EditBlock.FailedBlock(r.block(), r.reason(), r.commentary()))
-                        .toList();
-
                 if (updatedConsecutiveApplyFailures >= MAX_APPLY_FAILURES) {
-                    var files = failedBlocks.stream()
+                    var files = failedResults.stream()
                             .map(b -> b.block().rawFileName())
                             .collect(Collectors.joining(","));
                     var detailMsg = "Apply failed %d consecutive times; unable to apply %d blocks to %s"
-                            .formatted(updatedConsecutiveApplyFailures, failedBlocks.size(), files);
+                            .formatted(updatedConsecutiveApplyFailures, failedResults.size(), files);
                     reportComplete(
                             "Apply failed %d consecutive times; aborting.".formatted(updatedConsecutiveApplyFailures));
                     var details = new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, detailMsg);
@@ -854,7 +849,7 @@ public class CodeAgent {
                     }
 
                     String retryPromptText =
-                            CodePrompts.getApplyFailureMessage(failedBlocks, succeededCount, taggedAiResponse);
+                            CodePrompts.getApplyFailureMessage(failedResults, succeededCount, taggedAiResponse);
                     
                     if (!es.lastBuildError().isEmpty()) {
                         retryPromptText += "\n\nReminder: the build is currently failing; the details are in the conversation history.";

@@ -462,7 +462,7 @@ public abstract class CodePrompts {
     }
 
     /** Generates a message based on application results of tagged edit blocks. */
-    public static String getApplyFailureMessage(List<EditBlock.FailedBlock> failedBlocks, int succeededCount, String taggedResponse) {
+    public static String getApplyFailureMessage(List<EditBlock.ApplyResult> failedBlocks, int succeededCount, String taggedResponse) {
         if (failedBlocks.isEmpty()) {
             return "";
         }
@@ -483,7 +483,7 @@ public abstract class CodePrompts {
 
         var failuresByFile = failedBlocks.stream()
                 .filter(fb -> fb.block().rawFileName() != null)
-                .collect(Collectors.groupingBy(fb -> fb.block().rawFileName()));
+                .collect(Collectors.groupingBy(fb -> Objects.requireNonNull(fb.block().rawFileName())));
 
         String fileDetails = failuresByFile.entrySet().stream()
                 .map(entry -> {
@@ -535,8 +535,8 @@ public abstract class CodePrompts {
      * Preserves existing analyzer commentary (which may already include "Did you mean ..." suggestions),
      * and appends actionable guidance depending on failure reason and marker type.
      */
-    private static String enrichSemanticCommentary(EditBlock.FailedBlock f) {
-        var base = f.commentary().trim();
+    private static String enrichSemanticCommentary(EditBlock.ApplyResult f) {
+        var base = f.commentary() == null ? "" : f.commentary().trim();
 
         // Try to detect semantic markers in the original SEARCH block
         var before = f.block().beforeText().strip();

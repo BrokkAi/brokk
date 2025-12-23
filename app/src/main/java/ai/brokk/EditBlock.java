@@ -60,15 +60,12 @@ public class EditBlock {
             return !originalContents.isEmpty();
         }
 
-        /** Returns the list of failures as legacy FailedBlock records for backward compatibility with tests. */
-        public List<FailedBlock> failedBlocks() {
-            return failures().stream()
-                    .map(r -> new FailedBlock(r.block(), Objects.requireNonNull(r.reason()), r.commentary() == null ? "" : r.commentary()))
-                    .toList();
-        }
-
         public List<ApplyResult> failures() {
             return blockResults.stream().filter(r -> !r.succeeded()).toList();
+        }
+
+        public List<ApplyResult> failedBlocks() {
+            return failures();
         }
 
         public List<ApplyResult> successes() {
@@ -76,8 +73,9 @@ public class EditBlock {
         }
     }
 
+    /** @deprecated Use ApplyResult instead. */
+    @Deprecated
     public record FailedBlock(SearchReplaceBlock block, EditBlockFailureReason reason, String commentary) {
-
         public FailedBlock(SearchReplaceBlock block, EditBlockFailureReason reason) {
             this(block, reason, "");
         }
