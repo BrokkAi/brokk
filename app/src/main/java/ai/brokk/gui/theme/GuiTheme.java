@@ -40,7 +40,7 @@ public class GuiTheme {
     private final JFrame frame;
 
     @Nullable
-    private final JScrollPane mainScrollPane;
+    private JScrollPane mainScrollPane;
 
     private final Chrome chrome;
 
@@ -58,6 +58,16 @@ public class GuiTheme {
         this.frame = frame;
         this.mainScrollPane = mainScrollPane;
         this.chrome = chrome;
+    }
+
+    /**
+     * Sets the main scroll pane for LLM output. This is useful for resolving
+     * initialization circular dependencies.
+     *
+     * @param scrollPane The scroll pane to track
+     */
+    public void setMainScrollPane(JScrollPane scrollPane) {
+        this.mainScrollPane = scrollPane;
     }
 
     /**

@@ -933,7 +933,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 .thenRun(() -> {
                     SwingUtilities.invokeLater(() -> {
                         // Switch to Instructions tab in the right tabbed panel
-                        JTabbedPane rightTabs = chrome.getRightTabbedPanel();
+                        JTabbedPane rightTabs = chrome.getCommandPane();
                         int idx = rightTabs.indexOfTab("Instructions");
                         if (idx != -1) {
                             rightTabs.setSelectedIndex(idx);
