@@ -2260,11 +2260,9 @@ public final class MainProject extends AbstractProject {
 
     /**
      * Returns true if this project contains no analyzable source files.
-     * A project is considered "empty" when none of its files have extensions
-     * matching any language in Languages.ALL_LANGUAGES (excluding NONE).
-     *
-     * This intentionally ignores configuration files like AGENTS.md, .brokk/**,
-     * .gitignore, etc. since those don't have analyzable extensions.
+     * Uses file extension matching against supported languages as a heuristic.
+     * This may miss projects using unsupported languages or unconventional extensions,
+     * but errs on the side of not triggering unnecessary build inference.
      */
     @Override
     public boolean isEmptyProject() {
