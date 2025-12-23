@@ -549,6 +549,52 @@ class EditBlockParserTest {
     }
 
     @Test
+    void testTagBlocksWithFencedAndFencelessBlocks() {
+        String input =
+                """
+                Some intro text.
+                ```
+                file1.txt
+                <<<<<<< SEARCH
+                old1
+                =======
+                new1
+                >>>>>>> REPLACE
+                ```
+                Middle text.
+                <<<<<<< SEARCH
+                old2
+                =======
+                new2
+                >>>>>>> REPLACE
+                Final text.""";
+
+        String expected =
+                """
+                Some intro text.
+                [BRK_BLOCK_0]
+                ```
+                file1.txt
+                <<<<<<< SEARCH
+                old1
+                =======
+                new1
+                >>>>>>> REPLACE
+                ```
+                Middle text.
+                [BRK_BLOCK_1]
+                <<<<<<< SEARCH
+                old2
+                =======
+                new2
+                >>>>>>> REPLACE
+                Final text.""";
+
+        String actual = EditBlockParser.instance.tagBlocks(input);
+        assertEquals(expected, actual);
+    }
+
+    @Test
     void testContextManagerRedactionExampleParsesToSingleBlock() {
         // This mirrors the snippet from ContextManagerRedactionTest.java in the goal:
         // a single fenced SEARCH/REPLACE block targeting that file path.
