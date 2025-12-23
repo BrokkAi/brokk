@@ -181,6 +181,7 @@ public abstract class CodePrompts {
                         sb.append('\n');
                     }
                 }
+                // FIXME the "text" part is including the ```java and filename preamble
             }
             String redactedText = sb.toString();
             return redactedText.isBlank() ? Optional.empty() : Optional.of(new AiMessage(redactedText));

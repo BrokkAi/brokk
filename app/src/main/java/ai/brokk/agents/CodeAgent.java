@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -1315,7 +1316,7 @@ public class CodeAgent {
                     0,
                     newBuildError,
                     changedFiles,
-                    Map.of(), // Clear per-turn baseline
+                    originalFileContents,
                     javaLintDiagnostics,
                     true); // Mark that we've attempted a build
         }
@@ -1376,13 +1377,9 @@ public class CodeAgent {
             var results = new LinkedHashSet<EditBlock.SearchReplaceBlock>();
             var originals = originalFileContents();
 
-            // Include both files we have originals for and new files created in this turn
-            var candidates = new HashSet<>(changedFiles());
-            candidates.addAll(originals.keySet());
-
             // Sort for determinism
-            var sorted = candidates.stream()
-                    .sorted(java.util.Comparator.comparing(ProjectFile::toString))
+            var sorted = originals.keySet().stream()
+                    .sorted(Comparator.comparing(ProjectFile::toString))
                     .toList();
 
             for (var file : sorted) {
@@ -1396,7 +1393,7 @@ public class CodeAgent {
 
                 // New file created this turn
                 if (!originals.containsKey(file)) {
-                    results.add(new EditBlock.SearchReplaceBlock(file.toString(), "", revised));
+                    results.add(new EditBlock.SearchReplaceBlock(file.toString(), "BRK_ENTIRE_FILE", revised));
                     continue;
                 }
 
@@ -1456,7 +1453,7 @@ public class CodeAgent {
                             .collect(Collectors.toCollection(ArrayList::new));
 
                     // 3) Merge overlapping/adjacent windows after expansion
-                    windows.sort(java.util.Comparator.comparingInt(w -> w.start));
+                    windows.sort(Comparator.comparingInt(w -> w.start));
                     var merged = new ArrayList<Window>();
                     for (var w : windows) {
                         if (merged.isEmpty()) {
@@ -1478,7 +1475,7 @@ public class CodeAgent {
                                     d.getSource().getPosition(),
                                     d.getSource().size(),
                                     d.getTarget().size() - d.getSource().size()))
-                            .sorted(java.util.Comparator.comparingInt(s -> s.pos()))
+                            .sorted(Comparator.comparingInt(s -> s.pos()))
                             .toList();
 
                     for (var w : merged) {
