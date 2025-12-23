@@ -10,25 +10,15 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Tests for OnboardingOrchestrator.
  * Validates step selection, ordering, and plan generation.
  */
 class OnboardingOrchestratorTest {
-    // Platform-independent absolute path for testing
-    private static final Path TEST_ROOT = assertExistingTestRoot(Path.of(System.getProperty("java.io.tmpdir"), "test"));
-
-    private static Path assertExistingTestRoot(Path preferred) {
-        if (java.nio.file.Files.isDirectory(preferred)) {
-            return preferred;
-        }
-        try {
-            return java.nio.file.Files.createTempDirectory("brokk-test-");
-        } catch (java.io.IOException e) {
-            throw new RuntimeException("Unable to create temp directory for tests", e);
-        }
-    }
+    @TempDir
+    Path tempDir;
 
     /**
      * Minimal test implementation of IProject for testing.
@@ -70,8 +60,8 @@ class OnboardingOrchestratorTest {
     }
 
     /** Builder for creating ProjectState in tests with sensible defaults. */
-    private static class StateBuilder {
-        private TestProject project = new TestProject(TEST_ROOT);
+    private class StateBuilder {
+        private TestProject project = new TestProject(tempDir);
         private boolean agentsMdExists = false;
         private boolean agentsMdHasContent = false;
         private boolean legacyStyleMdExists = false;
@@ -155,7 +145,7 @@ class OnboardingOrchestratorTest {
 
     @Test
     void testFreshProject_AllStepsExceptMigration() {
-        var project = new TestProject(TEST_ROOT);
+        var project = new TestProject(tempDir);
         project.setHasGit(true);
         var state = new StateBuilder().withProject(project).build();
 
@@ -177,7 +167,7 @@ class OnboardingOrchestratorTest {
 
     @Test
     void testLegacyProject_NeedsMigration() {
-        var project = new TestProject(TEST_ROOT);
+        var project = new TestProject(tempDir);
         project.setHasGit(true);
         var state = new StateBuilder().withProject(project).withLegacyStyleMd().build();
 
@@ -229,7 +219,7 @@ class OnboardingOrchestratorTest {
 
     @Test
     void testPostGitStyleRegeneration_Included() {
-        var project = new TestProject(TEST_ROOT);
+        var project = new TestProject(tempDir);
         project.setHasGit(true);
         var state = new StateBuilder()
                 .withProject(project)
@@ -256,7 +246,7 @@ class OnboardingOrchestratorTest {
 
     @Test
     void testPostGitStyleRegeneration_NotIncluded() {
-        var project = new TestProject(TEST_ROOT);
+        var project = new TestProject(tempDir);
         project.setHasGit(true);
         var state = new StateBuilder()
                 .withProject(project)
@@ -305,7 +295,7 @@ class OnboardingOrchestratorTest {
 
     @Test
     void testBuildProjectState_Helper() {
-        var project = new TestProject(TEST_ROOT);
+        var project = new TestProject(tempDir);
         var styleFuture = CompletableFuture.completedFuture("# Style Guide");
         var buildFuture = CompletableFuture.completedFuture(null);
 
@@ -324,7 +314,7 @@ class OnboardingOrchestratorTest {
     @Test
     void testStepDependencies_CorrectOrder() {
         // Create state where all steps are applicable
-        var project = new TestProject(TEST_ROOT);
+        var project = new TestProject(tempDir);
         project.setHasGit(true);
         var state = new StateBuilder()
                 .withProject(project)
@@ -350,7 +340,7 @@ class OnboardingOrchestratorTest {
 
     @Test
     void testBuildDetails_InitiallyEmpty() {
-        var project = new ai.brokk.testutil.TestProject(TEST_ROOT);
+        var project = new ai.brokk.testutil.TestProject(tempDir);
 
         assertFalse(project.hasBuildDetails(), "Fresh project should not have build details");
         assertEquals(BuildAgent.BuildDetails.EMPTY, project.loadBuildDetails());
@@ -358,7 +348,7 @@ class OnboardingOrchestratorTest {
 
     @Test
     void testBuildDetailsPersistence_AfterOnboardingSettingsApplied() {
-        var project = new ai.brokk.testutil.TestProject(TEST_ROOT);
+        var project = new ai.brokk.testutil.TestProject(tempDir);
 
         assertFalse(project.hasBuildDetails(), "Should not have build details initially");
 
