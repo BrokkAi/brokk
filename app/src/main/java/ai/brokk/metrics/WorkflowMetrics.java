@@ -60,40 +60,12 @@ public class WorkflowMetrics {
     }
 
     /**
-     * Create a new workflow metrics collector based on environment.
-     *
-     * <p>Behavior:
-     * <ul>
-     *   <li>GUI mode (non-headless): Enabled by default, writes to logger (unless BRK_COLLECT_METRICS=false)
-     *   <li>CLI/headless mode: Disabled by default, only enabled if BRK_COLLECT_METRICS is set
-     *   <li>BRK_COLLECT_METRICS=json: Enables with JSON output to stderr
-     *   <li>BRK_COLLECT_METRICS=true: Enables with human-readable output to logger
-     *   <li>BRK_COLLECT_METRICS=false: Explicitly disables
-     * </ul>
+     * Create a new workflow metrics collector if BRK_COLLECT_METRICS is enabled,
+     * otherwise returns a no-op instance.
      */
     public static WorkflowMetrics create() {
-        String collectMetrics = System.getenv("BRK_COLLECT_METRICS");
-
-        // Check if explicitly disabled
-        if ("false".equalsIgnoreCase(collectMetrics)) {
-            return new NoOpWorkflowMetrics();
-        }
-
-        // Check if explicitly enabled (json or true)
-        if (collectMetrics != null
-                && ("json".equalsIgnoreCase(collectMetrics) || "true".equalsIgnoreCase(collectMetrics))) {
-            return new WorkflowMetrics();
-        }
-
-        // Default behavior based on GUI vs headless mode
-        boolean isHeadless = java.awt.GraphicsEnvironment.isHeadless();
-        if (!isHeadless) {
-            // GUI mode: enabled by default
-            return new WorkflowMetrics();
-        } else {
-            // CLI/headless mode: disabled by default
-            return new NoOpWorkflowMetrics();
-        }
+        boolean enabled = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"));
+        return enabled ? new WorkflowMetrics() : new NoOpWorkflowMetrics();
     }
 
     /**
@@ -233,80 +205,11 @@ public class WorkflowMetrics {
     }
 
     /**
-     * Generate a concise human-readable summary (1-5 lines) of the workflow metrics.
-     */
-    public String toHumanReadable() {
-        long totalWorkflowMs =
-                Duration.ofNanos(System.nanoTime() - workflowStartNanos).toMillis();
-
-        StringBuilder sb = new StringBuilder();
-        sb.append(String.format(
-                "Workflow Metrics (%s, %.1fs total):",
-                workflowType != null ? workflowType : "unknown", totalWorkflowMs / 1000.0));
-
-        // Sort phases by order they were started (linked hash map preserves insertion order)
-        for (var entry : phases.entrySet()) {
-            String phaseName = entry.getKey();
-            PhaseMetrics phase = entry.getValue();
-
-            sb.append(String.format("\n  %s: %.1fs", phaseName, phase.totalDurationMs / 1000.0));
-
-            // Add key subphases if any (limit to top 3 by duration)
-            if (!phase.subphases.isEmpty()) {
-                var topSubphases = phase.subphases.entrySet().stream()
-                        .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
-                        .limit(3)
-                        .toList();
-
-                sb.append(" (");
-                for (int i = 0; i < topSubphases.size(); i++) {
-                    var sub = topSubphases.get(i);
-                    if (i > 0) sb.append(", ");
-                    sb.append(String.format("%s: %.1fs", sub.getKey(), sub.getValue() / 1000.0));
-                }
-                sb.append(")");
-            }
-
-            // Add counters if any
-            if (!phase.counters.isEmpty()) {
-                sb.append(" [");
-                int count = 0;
-                for (var counter : phase.counters.entrySet()) {
-                    if (count > 0) sb.append(", ");
-                    sb.append(String.format("%s: %d", counter.getKey(), counter.getValue()));
-                    count++;
-                }
-                sb.append("]");
-            }
-        }
-
-        if (finalStopReason != null) {
-            sb.append(String.format("\n  Result: %s", finalStopReason));
-        }
-
-        return sb.toString();
-    }
-
-    /**
-     * Emit metrics in an appropriate format based on environment.
-     *
-     * <p>Output destination:
-     * <ul>
-     *   <li>BRK_COLLECT_METRICS=json: JSON to stderr (for tools/parsing)
-     *   <li>BRK_COLLECT_METRICS=true or GUI mode default: Human-readable to logger
-     * </ul>
+     * Emit metrics to stderr in the standard BRK_WORKFLOW_METRICS format.
      */
     public void emit() {
-        String collectMetrics = System.getenv("BRK_COLLECT_METRICS");
-
-        if ("json".equalsIgnoreCase(collectMetrics)) {
-            // JSON format for tools/parsing - always to stderr
-            String json = toJson();
-            System.err.println("\nBRK_WORKFLOW_METRICS=" + json);
-        } else {
-            // Human-readable format to logger (GUI mode default or BRK_COLLECT_METRICS=true)
-            logger.info("\n{}", toHumanReadable());
-        }
+        String json = toJson();
+        System.err.println("\nBRK_WORKFLOW_METRICS=" + json);
     }
 
     // Helper methods
@@ -414,11 +317,6 @@ public class WorkflowMetrics {
         @Override
         public String toJson() {
             return "{}";
-        }
-
-        @Override
-        public String toHumanReadable() {
-            return "";
         }
 
         @Override
