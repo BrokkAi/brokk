@@ -61,6 +61,9 @@ public interface ContextFragment {
 
         private static final EnumSet<FragmentType> EDITABLE_TYPES = EnumSet.of(PROJECT_PATH, USAGE, CODE);
 
+        private static final EnumSet<FragmentType> FILE_CONTENT_TYPES =
+                EnumSet.of(SKELETON, CODE, PROJECT_PATH, GIT_FILE, EXTERNAL_PATH, IMAGE_FILE);
+
         public boolean isPath() {
             return PATH_TYPES.contains(this);
         }
@@ -71,6 +74,10 @@ public interface ContextFragment {
 
         public boolean isEditable() {
             return EDITABLE_TYPES.contains(this);
+        }
+
+        public boolean isFileContent() {
+            return FILE_CONTENT_TYPES.contains(this);
         }
     }
 

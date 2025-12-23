@@ -561,12 +561,7 @@ public class Context {
         return fragments.stream().allMatch(f -> {
             // Fragment types that inherently represent file-based content should be considered as having files
             var type = f.getType();
-            if (type == ContextFragment.FragmentType.SKELETON
-                    || type == ContextFragment.FragmentType.CODE
-                    || type == ContextFragment.FragmentType.PROJECT_PATH
-                    || type == ContextFragment.FragmentType.GIT_FILE
-                    || type == ContextFragment.FragmentType.EXTERNAL_PATH
-                    || type == ContextFragment.FragmentType.IMAGE_FILE) {
+            if (type.isFileContent()) {
                 return false; // These types represent file content
             }
 
