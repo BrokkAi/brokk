@@ -569,7 +569,7 @@ public class Context {
                     || type == ContextFragment.FragmentType.IMAGE_FILE) {
                 return false; // These types represent file content
             }
-            
+
             // For other types, check the computed files set
             var filesOpt = f.files().tryGet();
             // If not yet computed, assume it may have file content (be conservative)

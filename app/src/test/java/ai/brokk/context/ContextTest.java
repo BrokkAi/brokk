@@ -370,7 +370,8 @@ class ContextTest {
                 contextManager, "com.example.CodeFragmentTarget", ContextFragment.SummaryType.CODEUNIT_SKELETON);
         var ctx = new Context(contextManager).addFragments(summaryFrag);
         // SummaryFragment for an existing class should have files, so isFileContentEmpty() returns false
-        assertFalse(ctx.isFileContentEmpty(), 
+        assertFalse(
+                ctx.isFileContentEmpty(),
                 "Context with SKELETON fragment should be treated as potentially having file content (conservative approach)");
     }
 
