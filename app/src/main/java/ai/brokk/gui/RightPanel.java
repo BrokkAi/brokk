@@ -220,8 +220,7 @@ public class RightPanel extends JPanel implements ThemeAware {
         });
     }
 
-    private class SessionInfoRenderer extends JPanel
-            implements ListCellRenderer<ai.brokk.SessionManager.SessionInfo> {
+    private class SessionInfoRenderer extends JPanel implements ListCellRenderer<ai.brokk.SessionManager.SessionInfo> {
         private final JLabel nameLabel = new JLabel();
         private final JLabel timeLabel = new JLabel();
         private final JLabel countLabel = new JLabel();
