@@ -83,13 +83,13 @@ public final class BuildVerifier {
                     env);
             return new VerificationResult(true, 0, joinLines(lines));
         } catch (Environment.FailureException e) {
-            String combined = boundOutput(String.join("\n", e.getMessage(), e.getOutput()));
+            String output = lines.isEmpty() ? boundOutput(String.join("\n", e.getMessage(), e.getOutput())) : joinLines(lines);
             logger.debug("Command verification failed with exit code {}: {}", e.getExitCode(), e.getMessage());
-            return new VerificationResult(false, e.getExitCode(), combined);
+            return new VerificationResult(false, e.getExitCode(), output);
         } catch (Environment.SubprocessException e) {
-            String combined = boundOutput(String.join("\n", e.getMessage(), e.getOutput()));
+            String output = lines.isEmpty() ? boundOutput(String.join("\n", e.getMessage(), e.getOutput())) : joinLines(lines);
             logger.debug("Command verification errored: {}", e.getMessage());
-            return new VerificationResult(false, -1, combined);
+            return new VerificationResult(false, -1, output);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return new VerificationResult(false, -1, "Interrupted while running command:\n" + joinLines(lines));
