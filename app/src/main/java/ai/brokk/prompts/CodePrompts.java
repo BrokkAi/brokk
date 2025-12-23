@@ -1,5 +1,6 @@
 package ai.brokk.prompts;
 
+import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.AbstractService;
@@ -16,7 +17,6 @@ import ai.brokk.context.ViewingPolicy;
 import ai.brokk.util.ImageUtil;
 import ai.brokk.util.Messages;
 import ai.brokk.util.StyleGuideResolver;
-import com.sun.javafx.image.impl.General;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -31,15 +31,12 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.checkerframework.common.returnsreceiver.qual.This;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
@@ -170,6 +167,18 @@ public abstract class CodePrompts {
      * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
      */
     public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage) {
+        return redactAiMessage(aiMessage, false);
+    }
+
+    /**
+     * Redacts SEARCH/REPLACE blocks from an AiMessage.
+     *
+     * @param aiMessage The AiMessage to process.
+     * @param silent    If true, S/R blocks are removed entirely without placeholder text.
+     *                  If false, they are replaced with "[elided SEARCH/REPLACE block]".
+     * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
+     */
+    public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, boolean silent) {
         var parsedResult = EditBlockParser.instance.parse(aiMessage.text(), Collections.emptySet());
         boolean hasSrBlocks = parsedResult.blocks().stream().anyMatch(b -> b.block() != null);
 
@@ -183,13 +192,14 @@ public abstract class CodePrompts {
             var ob = blocks.get(i);
             if (ob.block() == null) {
                 sb.append(ob.text());
-            } else {
+            } else if (!silent) {
                 sb.append(ELIDED_BLOCK_PLACEHOLDER);
                 if (i + 1 < blocks.size() && blocks.get(i + 1).block() != null) {
                     sb.append('\n');
                 }
             }
         }
+
         String redactedText = sb.toString();
         return redactedText.isBlank() ? Optional.empty() : Optional.of(new AiMessage(redactedText));
     }
@@ -479,18 +489,18 @@ public abstract class CodePrompts {
      * @return An ApplyRetryMessages containing the tagged AiMessage and retry UserMessage.
      */
     public static ApplyRetryMessages buildApplyRetryMessages(
-            String originalAiText,
-            List<EditBlock.ApplyResult> blockResults,
-            @Nullable String buildError) {
+            String originalAiText, List<EditBlock.ApplyResult> blockResults, @Nullable String buildError) {
 
         var failures = blockResults.stream().filter(r -> !r.succeeded()).toList();
 
         // Build the tagged AI message
-        var taggedText = """
-        [HARNESS NOTE: some edits in this message failed to apply. Your SEARCH/REPLACE blocks have been tagged 
+        var taggedText =
+                """
+        [HARNESS NOTE: some edits in this message failed to apply. Your SEARCH/REPLACE blocks have been tagged
         with BRK_BLOCK_$N markers that will be referenced in the subsequent feedback.]
         %s
-        """.formatted(EditBlockParser.instance.tagBlocks(originalAiText));
+        """
+                        .formatted(EditBlockParser.instance.tagBlocks(originalAiText));
         var taggedAiMessage = new AiMessage(taggedText);
 
         // Build the user retry message
@@ -502,7 +512,8 @@ public abstract class CodePrompts {
             sb.append("All blocks applied successfully.\n");
         } else {
             sb.append("Some blocks failed to apply. Your previous response has been updated with BRK_BLOCK_N markers ");
-            sb.append("to help you identify which blocks failed. Please review the current file state and provide corrected blocks.\n\n");
+            sb.append(
+                    "to help you identify which blocks failed. Please review the current file state and provide corrected blocks.\n\n");
         }
 
         if (buildError != null && !buildError.isBlank()) {
@@ -524,7 +535,8 @@ public abstract class CodePrompts {
 
             var failuresByFile = indexedFailures.stream()
                     .filter(f -> f.result().block().rawFileName() != null)
-                    .collect(Collectors.groupingBy(f -> Objects.requireNonNull(f.result().block().rawFileName())));
+                    .collect(Collectors.groupingBy(
+                            f -> requireNonNull(f.result().block().rawFileName())));
 
             String fileDetails = failuresByFile.entrySet().stream()
                     .map(entry -> {
@@ -549,13 +561,14 @@ public abstract class CodePrompts {
             sb.append(fileDetails);
         }
 
-        return new ApplyRetryMessages(taggedAiMessage, new UserMessage(sb.toString().trim()));
+        return new ApplyRetryMessages(
+                taggedAiMessage, new UserMessage(sb.toString().trim()));
     }
 
     private static String formatBlockFailure(EditBlock.ApplyResult f, int blockIndex) {
         var enriched = enrichSemanticCommentary(f);
         var blockTag = "BRK_BLOCK_%d".formatted(blockIndex);
-        
+
         if (enriched.isBlank()) {
             return "%s: %s".formatted(blockTag, f.reason());
         } else {
@@ -583,7 +596,7 @@ public abstract class CodePrompts {
 
         var hints = new ArrayList<String>();
 
-        switch (f.reason()) {
+        switch (requireNonNull(f.reason())) {
             case NO_MATCH -> {
                 if ("CLASS".equals(kind)) {
                     hints.add("- Verify the fully qualified class name (package.ClassName).");
@@ -606,8 +619,7 @@ public abstract class CodePrompts {
                             "- Alternatively, modify only one method at a time by targeting it with a unique line-based SEARCH.");
                 }
             }
-            default -> {
-            }
+            default -> {}
         }
 
         if (hints.isEmpty()) {
@@ -815,7 +827,7 @@ public abstract class CodePrompts {
             } else if (fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE
                     || fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
                 try {
-                    var imageBytesCv = Objects.requireNonNull(fragment.imageBytes(), "Image bytes were null");
+                    var imageBytesCv = requireNonNull(fragment.imageBytes(), "Image bytes were null");
                     var l4jImage = ImageUtil.toL4JImage(ImageUtil.bytesToImage(imageBytesCv.join()));
                     imageList.add(ImageContent.from(l4jImage));
                     textBuilder.append(fragment.format().join()).append("\n\n");
@@ -933,7 +945,6 @@ public abstract class CodePrompts {
     public List<ChatMessage> getHistoryMessages(Context ctx) {
         var taskHistory = ctx.getTaskHistory();
         var messages = new ArrayList<ChatMessage>();
-        EditBlockParser parser = EditBlockParser.instance;
 
         // Merge compressed messages into a single taskhistory message
         var compressed = taskHistory.stream()

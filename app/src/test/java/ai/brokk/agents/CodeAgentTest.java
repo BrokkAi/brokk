@@ -110,7 +110,12 @@ class CodeAgentTest {
 
     protected CodeAgent.ConversationState createConversationState(
             List<ChatMessage> taskMessages, UserMessage nextRequest) {
-        return new CodeAgent.ConversationState(new ArrayList<>(taskMessages), nextRequest, taskMessages.size(), "Placeholder goal");
+        return new CodeAgent.ConversationState(
+                new ArrayList<>(taskMessages),
+                new ArrayList<>(taskMessages),
+                nextRequest,
+                taskMessages.size(),
+                "Placeholder goal");
     }
 
     private CodeAgent.EditState createEditState(
@@ -201,7 +206,9 @@ class CodeAgentTest {
         taskMessages.add(originalRequest);
         taskMessages.add(badAiResponse);
 
-        var cs = new CodeAgent.ConversationState(taskMessages, new UserMessage("placeholder"), taskMessages.size(), "");
+        var rawMessages = new ArrayList<ChatMessage>(taskMessages);
+        var cs = new CodeAgent.ConversationState(
+                rawMessages, taskMessages, new UserMessage("placeholder"), taskMessages.size(), "");
         var es = createEditState(List.of(), 0);
 
         // Act
@@ -779,7 +786,8 @@ class CodeAgentTest {
         msgs.add(new UserMessage("retry prompt"));
         msgs.add(new AiMessage("partial response 2"));
 
-        var cs = new CodeAgent.ConversationState(msgs, new UserMessage("next request"), turnStart, "");
+        var rawMsgs = new ArrayList<ChatMessage>(msgs);
+        var cs = new CodeAgent.ConversationState(rawMsgs, msgs, new UserMessage("next request"), turnStart, "");
         var summary = "Here are the SEARCH/REPLACE blocks:\n\n<summary>";
         var replaced = cs.replaceCurrentTurnMessages(summary);
 
@@ -1409,7 +1417,8 @@ class CodeAgentTest {
         msgs.add(AiMessage.from("ai text 3", "reason-3"));
 
         // Create ConversationState with original goal
-        var cs = new CodeAgent.ConversationState(msgs, null, 0, "my-user-goal");
+        var rawMsgs = new ArrayList<ChatMessage>(msgs);
+        var cs = new CodeAgent.ConversationState(rawMsgs, msgs, null, 0, "my-user-goal");
         var es = createEditState(List.of(), 0);
 
         // Call the pure compaction method
@@ -1423,17 +1432,64 @@ class CodeAgentTest {
         assertInstanceOf(AiMessage.class, compactedMessages.get(1));
 
         // Both non-blank reasoning segments should be joined and prepended with the harness note
-        String expectedAccumulated = """
+        // Note: ai text 1 and ai text 3 are included because they have no S/R blocks and silent redaction keeps them
+        String expectedAccumulated =
+                """
                 [HARNESS NOTE: this is a synthetic summary of your explanations of the edits made.
                  All changes have been merged into the Workspace files you see above.]
                 reason-1
 
                 reason-3
                 """;
-        assertEquals(expectedAccumulated.trim(), ((AiMessage) compactedMessages.get(1)).text().trim());
+        assertEquals(
+                expectedAccumulated.trim(),
+                ((AiMessage) compactedMessages.get(1)).text().trim());
 
         // Original goal should be preserved
         assertEquals("my-user-goal", compactedCs.originalGoal());
+    }
+
+    @Test
+    void testRawMessagesPreservedDuringBuildRetry() {
+        // Prepare a conversation with multiple messages including an AI message with S/R blocks
+        var msgs = new ArrayList<ChatMessage>();
+        msgs.add(new UserMessage("initial request"));
+        msgs.add(new AiMessage(
+                "Here is the edit:\n```\nfile.txt\n<<<<<<< SEARCH\nold\n=======\nnew\n>>>>>>> REPLACE\n```"));
+        msgs.add(new UserMessage("retry prompt"));
+        msgs.add(new AiMessage(
+                "Another edit:\n```\nfile2.txt\n<<<<<<< SEARCH\nfoo\n=======\nbar\n>>>>>>> REPLACE\n```"));
+
+        var rawMsgs = new ArrayList<ChatMessage>(msgs);
+        var taskMsgs = new ArrayList<ChatMessage>(msgs);
+        var cs = new CodeAgent.ConversationState(rawMsgs, taskMsgs, null, 0, "my-goal");
+        var es = createEditState(List.of(), 0);
+
+        // Perform build retry compaction
+        var compacted = cs.forBuildRetry(new UserMessage("fix build"), es);
+
+        // rawMessages should be unchanged (same reference, same content)
+        assertSame(rawMsgs, compacted.rawMessages(), "rawMessages should be the same list reference");
+        assertEquals(4, compacted.rawMessages().size(), "rawMessages should still have all 4 original messages");
+
+        // taskMessages should be compacted to just [goal, summary]
+        assertEquals(2, compacted.taskMessages().size(), "taskMessages should be compacted to 2 messages");
+        assertEquals("my-goal", ((UserMessage) compacted.taskMessages().get(0)).singleText());
+
+        // The summary should NOT contain duplicate HARNESS NOTEs even if called multiple times
+        var summary = ((AiMessage) compacted.taskMessages().get(1)).text();
+        int harnessNoteCount = countOccurrences(summary, "[HARNESS NOTE:");
+        assertEquals(1, harnessNoteCount, "Summary should contain exactly one HARNESS NOTE");
+    }
+
+    private static int countOccurrences(String text, String sub) {
+        int count = 0;
+        int idx = 0;
+        while ((idx = text.indexOf(sub, idx)) != -1) {
+            count++;
+            idx += sub.length();
+        }
+        return count;
     }
 
     @Test

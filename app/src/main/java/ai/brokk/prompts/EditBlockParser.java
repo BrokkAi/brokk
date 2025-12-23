@@ -87,7 +87,7 @@ public class EditBlockParser {
     public String tagBlocks(String content) {
         var result = parse(content, Set.of());
         var output = new StringBuilder();
-        int blockCounter = 0;
+        int blockCounter = 1;
 
         for (var block : result.blocks()) {
             if (block.block() != null) {

@@ -145,7 +145,8 @@ public interface ContextFragment {
     default String formatToc() {
         // Non-blocking best-effort rendering
         return """
-                <fragment-toc description="%s" fragmentid="%s" />""".formatted(description().renderNowOr(""), id());
+                <fragment-toc description="%s" fragmentid="%s" />"""
+                .formatted(description().renderNowOr(""), id());
     }
 
     default boolean isText() {

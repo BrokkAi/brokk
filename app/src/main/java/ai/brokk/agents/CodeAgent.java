@@ -197,7 +197,8 @@ public class CodeAgent {
                 context, userInput.trim(), CodePrompts.instance.codeReminder(contextManager.getService(), model));
 
         // FSM state - include original goal for build-retry compaction
-        var cs = new ConversationState(taskMessages, nextRequest, 0, userInput.trim());
+        var rawMessages = new ArrayList<ChatMessage>();
+        var cs = new ConversationState(rawMessages, taskMessages, nextRequest, 0, userInput.trim());
         var es = new EditState(
                 blocks,
                 0,
@@ -452,7 +453,8 @@ public class CodeAgent {
                 updatedConsecutiveParseFailures++;
 
                 // The bad response is the last message; the user request that caused it is the one before that.
-                // We will remove both, and create a new request that is the original + a reminder.
+                // We will remove both from taskMessages, and create a new request that is the original + a reminder.
+                // Note: rawMessages is never modified, it preserves the full conversation history.
                 cs.taskMessages().removeLast(); // bad AI response
                 var lastRequest = (UserMessage) cs.taskMessages().removeLast(); // original user request
 
@@ -651,9 +653,9 @@ public class CodeAgent {
             report("LLM connection interrupted; parsing partial response and asking to continue.");
         }
 
-        // Append request and AI message to taskMessages
-        cs.taskMessages().add(requireNonNull(cs.nextRequest(), "nextRequest must be non-null when recording request"));
-        cs.taskMessages().add(streamingResultFromLlm.aiMessage());
+        // Append request and AI message to both rawMessages and taskMessages
+        cs.appendMessage(requireNonNull(cs.nextRequest(), "nextRequest must be non-null when recording request"));
+        cs.appendMessage(streamingResultFromLlm.aiMessage());
 
         // Null out nextRequest after use (Task 3)
         var nextCs = cs.withNextRequest(null);
@@ -741,7 +743,7 @@ public class CodeAgent {
                     Please analyze the error message and provide SEARCH/REPLACE blocks to fix all the errors and warnings in service of the original goal.
                     You should use the conversation history to understand what has been done so far, but
                     only use the Workspace to generate SEARCH/REPLACE blocks.
-                    
+
                     IMPORTANT: If solving the build or failure requires editing files or using APIs you do not have
                     in your Workspace, do your best to explain the problem but DO NOT provide any edits.
                     Otherwise, provide the edits as usual.
@@ -841,13 +843,16 @@ public class CodeAgent {
                         metrics.applyRetries++;
                     }
 
-                    String lastAiText = cs.taskMessages().isEmpty() ? "" : Messages.getText(cs.taskMessages().getLast());
+                    String lastAiText = cs.taskMessages().isEmpty()
+                            ? ""
+                            : Messages.getText(cs.taskMessages().getLast());
                     String buildError = es.lastBuildError().isEmpty() ? null : es.lastBuildError();
 
-                    var retryMessages = CodePrompts.buildApplyRetryMessages(
-                            lastAiText, editResult.blockResults(), buildError);
+                    var retryMessages =
+                            CodePrompts.buildApplyRetryMessages(lastAiText, editResult.blockResults(), buildError);
 
-                    // Replace the last AI message with the tagged version
+                    // Replace the last AI message in taskMessages with the tagged version
+                    // Note: rawMessages is not modified - it preserves the original conversation
                     if (!cs.taskMessages().isEmpty() && cs.taskMessages().getLast() instanceof AiMessage) {
                         cs.taskMessages().removeLast();
                         cs.taskMessages().add(retryMessages.taggedAiMessage());
@@ -1216,46 +1221,70 @@ public class CodeAgent {
      * reuse. Callers that need to send a request must {@link Objects#requireNonNull(Object) requireNonNull}
      * it first.
      *
+     * @param rawMessages  the unprocessed conversation messages, never modified after appending
+     * @param taskMessages derived/processed messages for LLM consumption (may be compacted)
      * @param originalGoal the user's original goal/instructions, preserved for build-retry compaction
      */
     record ConversationState(
+            List<ChatMessage> rawMessages,
             List<ChatMessage> taskMessages,
             @Nullable UserMessage nextRequest,
             int turnStartIndex,
             String originalGoal) {
 
+        ConversationState(
+                List<ChatMessage> taskMessages,
+                @Nullable UserMessage nextRequest,
+                int turnStartIndex,
+                String originalGoal) {
+            this(new ArrayList<>(taskMessages), taskMessages, nextRequest, turnStartIndex, originalGoal);
+        }
+
         ConversationState withNextRequest(@Nullable UserMessage request) {
-            return new ConversationState(taskMessages, request, turnStartIndex, originalGoal);
+            return new ConversationState(rawMessages, taskMessages, request, turnStartIndex, originalGoal);
+        }
+
+        /**
+         * Append a message to both rawMessages and taskMessages.
+         */
+        void appendMessage(ChatMessage message) {
+            rawMessages.add(message);
+            taskMessages.add(message);
         }
 
         /**
          * Compact the conversation for build-retry: extract all reasoning/redacted content from AI messages
-         * and return a minimal conversation of [originalGoal, accumulated reasoning].
+         * in rawMessages and return a minimal conversation of [originalGoal, accumulated reasoning].
          *
-         * @return a new ConversationState with compacted messages, or this state unchanged if no AI content
+         * @return a new ConversationState with compacted taskMessages, preserving rawMessages
          */
         ConversationState forBuildRetry(UserMessage retryRequest, EditState es) {
-            var explanations = taskMessages.stream()
+            var explanations = rawMessages.stream()
                     .filter(AiMessage.class::isInstance)
                     .map(AiMessage.class::cast)
                     .map(ai -> {
                         String reasoning = ai.reasoningContent();
                         return (reasoning != null && !reasoning.isBlank())
                                 ? reasoning
-                                : CodePrompts.redactAiMessage(ai).map(AiMessage::text).orElse("");
+                                : CodePrompts.redactAiMessage(ai, true)
+                                        .map(AiMessage::text)
+                                        .orElse("");
                     })
                     .filter(seg -> !seg.isBlank())
                     .collect(Collectors.joining("\n\n"));
-            var summaryText = """
+            var summaryText =
+                    """
                     [HARNESS NOTE: this is a synthetic summary of your explanations of the edits made.
                      All changes have been merged into the Workspace files you see above.]
                     %s
-                    """.formatted(explanations.isBlank() ? "No explanations provided." : explanations);
+                    """
+                            .formatted(explanations.isBlank() ? "No explanations provided." : explanations);
 
             var compactedMessages = new ArrayList<ChatMessage>();
             compactedMessages.add(new UserMessage(originalGoal));
             compactedMessages.add(new AiMessage(summaryText));
-            return new ConversationState(compactedMessages, retryRequest, compactedMessages.size(), originalGoal);
+            return new ConversationState(
+                    rawMessages, compactedMessages, retryRequest, compactedMessages.size(), originalGoal);
         }
 
         /**
@@ -1270,7 +1299,7 @@ public class CodeAgent {
                 logger.warn("Invalid turnStartIndex {}; cannot replace current turn messages safely.", turnStartIndex);
                 // Fall back: just append a synthetic message (should never happen in practice)
                 msgs.add(new AiMessage(summaryText));
-                return new ConversationState(msgs, nextRequest, msgs.size(), originalGoal);
+                return new ConversationState(rawMessages, msgs, nextRequest, msgs.size(), originalGoal);
             }
 
             var startMsg = msgs.get(turnStartIndex);
@@ -1298,7 +1327,7 @@ public class CodeAgent {
             logger.debug("Replaced current turn messages (from index {}) with synthetic summary.", turnStartIndex);
 
             // After replacement, the next turn should start at the end of the current msgs
-            return new ConversationState(msgs, nextRequest, msgs.size(), originalGoal);
+            return new ConversationState(rawMessages, msgs, nextRequest, msgs.size(), originalGoal);
         }
     }
 
