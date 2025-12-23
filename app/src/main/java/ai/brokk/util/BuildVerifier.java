@@ -5,7 +5,6 @@ import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Map;
-import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -58,9 +57,6 @@ public final class BuildVerifier {
             String command,
             @Nullable Map<String, String> extraEnv,
             @Nullable Consumer<String> outputConsumer) {
-        Objects.requireNonNull(project, "project");
-        Objects.requireNonNull(command, "command");
-
         String trimmed = command.trim();
         if (trimmed.isEmpty()) {
             return new VerificationResult(false, -1, "Command is blank.");
@@ -120,7 +116,7 @@ public final class BuildVerifier {
 
     // Private helper to bound output to last MAX_OUTPUT_LINES
     private static String boundOutput(String fullOutput) {
-        if (fullOutput == null || fullOutput.isBlank()) {
+        if (fullOutput.isBlank()) {
             return "";
         }
         String[] split = fullOutput.split("\\R", -1);
