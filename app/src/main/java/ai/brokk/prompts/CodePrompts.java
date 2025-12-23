@@ -170,16 +170,9 @@ public abstract class CodePrompts {
             // Contains S/R blocks, needs redaction
             var blocks = parsedResult.blocks();
             var sb = new StringBuilder();
-            for (int i = 0; i < blocks.size(); i++) {
-                var ob = blocks.get(i);
+            for (EditBlock.OutputBlock ob : blocks) {
                 if (ob.block() == null) { // Plain text part
-                    sb.append(ob.text());
-                } else { // An S/R block
-                    sb.append("[elided SEARCH/REPLACE block]");
-                    // If the next output block is also an S/R block, add a newline
-                    if (i + 1 < blocks.size() && blocks.get(i + 1).block() != null) {
-                        sb.append('\n');
-                    }
+                    sb.append(ob.text()).append("\n");
                 }
             }
             String redactedText = sb.toString();
