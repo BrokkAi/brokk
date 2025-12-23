@@ -541,7 +541,9 @@ public abstract class CodePrompts {
             String fileDetails = failuresByFile.entrySet().stream()
                     .map(entry -> {
                         var filename = entry.getKey();
-                        var fileFailures = entry.getValue();
+                        var fileFailures = entry.getValue().stream()
+                                .sorted(java.util.Comparator.comparingInt(IndexedFailure::blockIndex))
+                                .toList();
 
                         String failedBlocksList = fileFailures.stream()
                                 .map(f -> formatBlockFailure(f.result(), f.blockIndex()))
