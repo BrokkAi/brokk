@@ -121,13 +121,15 @@ public class PreviewFrame extends JFrame implements ThemeAware {
 
     private void handleRedock() {
         chrome.getBuildPane().redockPreview(tabbedPane);
-        // We set tabbedPane to null or a dummy so disposeFrame doesn't clear it
-        this.tabbedPane = new PreviewTabbedPane(chrome, guiTheme, title -> {}, () -> {});
+        // Null out the reference so disposeFrame doesn't affect the now-docked pane
+        this.tabbedPane = null;
         disposeFrame();
     }
 
     private void disposeFrame() {
-        tabbedPane.clearTracking();
+        if (tabbedPane != null) {
+            tabbedPane.clearTracking();
+        }
         chrome.clearPreviewTextFrame();
         dispose();
     }

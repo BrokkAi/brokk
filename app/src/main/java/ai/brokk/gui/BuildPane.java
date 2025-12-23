@@ -219,8 +219,7 @@ public class BuildPane extends JPanel implements ThemeAware {
         }
 
         chrome.getPreviewManager().showPreviewInTabbedFrame("Preview", previewTabbedPane, null);
-        // Replace with a fresh pane for internal tracking while undocked
-        this.previewTabbedPane = new PreviewTabbedPane(chrome, chrome.getTheme(), title -> {}, () -> {});
+        // previewTabbedPane is now owned by PreviewFrame - don't create a replacement
     }
 
     public void redockPreview(PreviewTabbedPane sourcePane) {
