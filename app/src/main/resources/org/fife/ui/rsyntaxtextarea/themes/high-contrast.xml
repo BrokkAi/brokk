@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE RSyntaxTheme SYSTEM "theme.dtd">
+
+<!--
+    High-Contrast theme for Brokk with vibrant colors for accessibility.
+    Aims for WCAG AAA (7:1+) contrast ratios on pure black background.
+    Uses colors from HighContrast.theme.json for important syntax elements.
+    See theme.dtd and org.fife.ui.rsyntaxtextarea.Theme for more information.
+-->
+<RSyntaxTheme version="1.0">
+
+    <!-- Omitting baseFont will use a system-appropriate monospaced. -->
+    <!--<baseFont family="..." size="13"/>-->
+
+    <!--  General editor colors. -->
+    <background color="000000" />
+    <caret color="ffffff" />
+    <selection useFG="false" bg="3333ff" roundedEdges="false" />
+    <currentLineHighlight color="1a1a1a" fade="false" />
+    <marginLine fg="555555" />
+    <markAllHighlight color="ffd333" />
+    <markOccurrencesHighlight color="00eaff" border="false" />
+    <matchedBracket fg="ffffff" bg="3333ff" highlightBoth="false" animate="true" />
+    <hyperlinks fg="1aebff" />
+    <secondaryLanguages>
+        <language index="1" bg="0a0a0a" />
+        <language index="2" bg="0a0a0a" />
+        <language index="3" bg="0a0a0a" />
+    </secondaryLanguages>
+
+    <!-- Gutter styling. -->
+    <gutterBorder color="555555" />
+    <lineNumbers fg="808080" currentFG="ffffff"/>
+    <foldIndicator fg="808080" armedFg="ffffff" iconBg="000000" iconArmedBg="1a1a1a" />
+    <iconRowHeader activeLineRange="1aebff" />
+
+    <!-- Syntax tokens. -->
+    <tokenStyles>
+        <style token="IDENTIFIER" fg="ffffff" />
+        <style token="RESERVED_WORD" fg="00e61f" bold="true" />
+        <style token="RESERVED_WORD_2" fg="00e61f" bold="true" />
+        <style token="ANNOTATION" fg="ffd333" />
+        <style token="COMMENT_DOCUMENTATION" fg="a0a0a0" italic="true" />
+        <style token="COMMENT_EOL" fg="808080" italic="true" />
+        <style token="COMMENT_MULTILINE" fg="808080" italic="true" />
+        <style token="COMMENT_KEYWORD" fg="00eaff" bold="true" />
+        <style token="COMMENT_MARKUP" fg="a0a0a0" />
+        <style token="FUNCTION" fg="00eaff" />
+        <style token="DATA_TYPE" fg="1aebff" bold="true" />
+        <style token="LITERAL_BOOLEAN" fg="00e61f" bold="true" />
+        <style token="LITERAL_NUMBER_DECIMAL_INT" fg="00eaff" />
+        <style token="LITERAL_NUMBER_FLOAT" fg="00eaff" />
+        <style token="LITERAL_NUMBER_HEXADECIMAL" fg="00eaff" />
+        <style token="LITERAL_STRING_DOUBLE_QUOTE" fg="ffd333" />
+        <style token="LITERAL_CHAR" fg="ffd333" />
+        <style token="LITERAL_BACKQUOTE" fg="ffd333" />
+        <style token="MARKUP_TAG_DELIMITER" fg="1aebff" />
+        <style token="MARKUP_TAG_NAME" fg="00e61f" bold="true" />
+        <style token="MARKUP_TAG_ATTRIBUTE" fg="00eaff" />
+        <style token="MARKUP_TAG_ATTRIBUTE_VALUE" fg="ffd333" />
+        <style token="MARKUP_COMMENT" fg="808080" italic="true" />
+        <style token="MARKUP_DTD" fg="00eaff" />
+        <style token="MARKUP_PROCESSING_INSTRUCTION" fg="00eaff" />
+        <style token="MARKUP_CDATA" fg="ffd333" />
+        <style token="MARKUP_CDATA_DELIMITER" fg="00eaff" />
+        <style token="MARKUP_ENTITY_REFERENCE" fg="1aebff" />
+        <style token="OPERATOR" fg="ffffff" />
+        <style token="PREPROCESSOR" fg="00eaff" />
+        <style token="REGEX" fg="ffd333" />
+        <style token="SEPARATOR" fg="ffffff" />
+        <style token="VARIABLE" fg="00eaff" bold="true" />
+        <style token="WHITESPACE" fg="ffffff" />
+
+        <style token="ERROR_IDENTIFIER" fg="ffffff" bg="ff3633" />
+        <style token="ERROR_NUMBER_FORMAT" fg="ffffff" bg="ff3633" />
+        <style token="ERROR_STRING_DOUBLE" fg="ffffff" bg="ff3633" />
+        <style token="ERROR_CHAR" fg="ffffff" bg="ff3633" />
+    </tokenStyles>
+
+</RSyntaxTheme>

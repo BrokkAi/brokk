@@ -17,17 +17,7 @@ type LogLevel = 'ERROR' | 'WARN' | 'INFO' | 'DEBUG';
  * Falls back to browser console if javaBridge is not available
  */
 function routeToJava(level: LogLevel, message: string): void {
-  try {
-    const javaBridge = window.javaBridge;
-    if (javaBridge && typeof javaBridge.jsLog === 'function') {
-      javaBridge.jsLog(level, message);
-      return;
-    }
-  } catch (e) {
-    // If jsLog fails, fall through to console
-  }
-
-  // Fallback to browser console
+  // use plain browser console in browser and interception in JavaFX (MOPWebViewHost.initializeFxPanel)
   switch (level) {
     case 'ERROR':
       console.error(message);
@@ -40,7 +30,7 @@ function routeToJava(level: LogLevel, message: string): void {
       break;
     case 'DEBUG':
     default:
-      console.log(message);
+      console.debug(message);
       break;
   }
 }

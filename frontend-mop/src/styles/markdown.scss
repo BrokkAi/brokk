@@ -37,6 +37,43 @@
   --message-border-ai-reasoning: #8c52c9;
 }
 
+/* Shiki CSS variables for light plus theme */
+.theme-light-plus {
+  --shiki-foreground: #131313;
+  --shiki-background: #ffffff;
+  --shiki-token-constant: #3a7d7e;
+  --shiki-token-string: #d248ae;
+  --shiki-token-comment: #438c2e;
+  --shiki-token-keyword: #3200f9;
+  --shiki-token-parameter: #24292e;
+  --shiki-token-function: #131313;
+  --shiki-token-string-expression: #d248ae;
+  --shiki-token-punctuation: #131313;
+  --shiki-token-link: #3200f9;
+  --code-block-font-weight: 700;
+  --ai-reasoning-header-foreground: #333333;
+  --message-border-ai-reasoning: #8c52c9;
+}
+
+
+/* Shiki CSS variables for high-contrast theme */
+.theme-high-contrast {
+  --shiki-foreground: #ffffff;
+  --shiki-background: #000000;
+  --shiki-token-constant: #00eaff;
+  --shiki-token-string: #ffd333;
+  --shiki-token-comment: #808080;
+  --shiki-token-keyword: #00e61f;
+  --shiki-token-parameter: #ffffff;
+  --shiki-token-function: #00eaff;
+  --shiki-token-string-expression: #ffd333;
+  --shiki-token-punctuation: #ffffff;
+  --shiki-token-link: #1aebff;
+  --code-block-font-weight: initial;
+  --ai-reasoning-header-foreground: #ffffff;
+  --message-border-ai-reasoning: #8c52c9;
+}
+
 h1, h2, h3, h4, h5, h6 {
   margin-top: 18px;
   margin-bottom: 12px;
@@ -147,7 +184,7 @@ li > p {
   cursor: default; /* Remove pointer cursor from entire element */
   contain: style;
   color: var(--link-color-hex); /* Match the base symbol-exists color */
-  font-weight: normal;
+  font-weight: var(--code-block-font-weight);
 }
 
 :not(pre) > code.symbol-exists.partial-match::after {
@@ -186,12 +223,13 @@ li > p {
   text-decoration-color: var(--link-color-hex);
   cursor: pointer; /* Ensure partial match highlights are clickable */
   color: var(--link-color-hex); /* Match exact match color */
-  font-weight: normal; /* Match exact match base font weight */
+  font-weight: var(--code-block-font-weight); /* Match exact match base font weight */
 }
 
 /* Ensure non-highlighted spans have no interactive hover effects but inherit base styling */
 .symbol-non-highlight {
   cursor: default;
+  font-weight: var(--code-block-font-weight);
 }
 
 .symbol-non-highlight:hover {
@@ -213,6 +251,7 @@ li > p {
 pre > code {
   font-size: 0.9em;
   white-space: inherit;
+  font-weight: var(--code-block-font-weight);
 }
 
 pre {
@@ -286,6 +325,23 @@ html.code-wrap-mode .edit-block-body .custom-code-block pre {
   overflow: visible;
 }
 
+/* Remove border and header from code blocks inside edit blocks to avoid double borders */
+.edit-block-wrapper {
+  .edit-block-body .custom-code-block {
+    border: none;
+    border-radius: 0;
+    margin: 0;
+  }
+
+  .edit-block-body .custom-code-header {
+    display: none;
+  }
+
+  .edit-block-body .custom-code-block pre {
+    border-radius: 0;
+  }
+}
+
 /* Fix diff line backgrounds to extend full width in scroll mode */
 html:not(.code-wrap-mode) .edit-block-body .custom-code-block pre code {
   /* Make code container expand to full content width */
@@ -296,14 +352,7 @@ html:not(.code-wrap-mode) .edit-block-body .custom-code-block pre code {
 html:not(.code-wrap-mode) .edit-block-body .custom-code-block pre .diff-line {
   /* Reset diff line styling */
   display: block;
-  padding-left: 0.8em;
-  padding-right: 0.8em;
   position: relative;
-  /* Extend background to full width using negative margins */
-  margin-left: -0.8em;
-  margin-right: -0.8em;
-  padding-left: 1.6em;
-  padding-right: 1.6em;
   /* Force all lines to be same width as code container */
   width: 100%;
   box-sizing: border-box;

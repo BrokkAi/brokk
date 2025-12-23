@@ -35,6 +35,9 @@
     <Logger name="com.github.tjake.jlama" level="warn" additivity="false">
       <AppenderRef ref="RollingFileLogger"/>
     </Logger>
+    <Logger name="com.jediterm" level="info" additivity="false">
+      <AppenderRef ref="RollingFileLogger"/>
+    </Logger>
 
     <!-- Root logger for all other log messages -->
     <Root level="debug">

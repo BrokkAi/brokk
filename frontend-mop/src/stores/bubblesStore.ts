@@ -2,8 +2,10 @@ import {writable} from 'svelte/store';
 import type {BrokkEvent, BubbleState} from '../types';
 import type {ResultMsg} from '../worker/shared';
 import {clearState, pushChunk, parse} from '../worker/worker-bridge';
-import {register, unregister} from '../worker/parseRouter';
+import {register, unregister, isRegistered} from '../worker/parseRouter';
 import { getNextThreadId, threadStore } from './threadStore';
+import { deleteSummaryEntry, getSummaryEntry } from './summaryStore';
+import { hideTransientMessage } from './transientStore';
 
 export const bubblesStore = writable<BubbleState[]>([]);
 
@@ -14,11 +16,17 @@ threadStore.setThreadCollapsed(currentThreadId, false, 'live');
 
 /* ─── main entry from Java bridge ─────────────────────── */
 export function onBrokkEvent(evt: BrokkEvent): void {
-    console.log('Received event in onBrokkEvent:', JSON.stringify(evt));
+    // console.debug('Received event in onBrokkEvent:', evt.type);
     bubblesStore.update(list => {
         switch (evt.type) {
             case 'clear':
                 list.forEach(bubble => unregister(bubble.seq));
+                // Clean up live summary for the current thread before clearing
+                const prevSummaryEntry = getSummaryEntry(currentThreadId);
+                if (prevSummaryEntry && isRegistered(prevSummaryEntry.seq)) {
+                    unregister(prevSummaryEntry.seq);
+                }
+                deleteSummaryEntry(currentThreadId);
                 nextBubbleSeq++;
                 // clear without flushing (hard clear; no next message)
                 clearState(false);
@@ -28,6 +36,7 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                 return [];
 
             case 'chunk': {
+                hideTransientMessage();
                 const lastBubble = list.at(-1);
                 // If the last message was a streaming reasoning bubble and the new one is not,
                 // mark the reasoning as complete, immutably.
@@ -78,18 +87,28 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                     list = [...list.slice(0, -1), bubble];
                 }
 
-                // Register a handler for this bubble's parse results
-                register(bubble.seq, (msg: ResultMsg) => {
-                    bubblesStore.update(l =>
-                        l.map(b => (b.seq === msg.seq ? {...b, hast: msg.tree} : b))
-                    );
-                });
+                // Register a handler for this bubble's parse results (only once per seq)
+                if (!isRegistered(bubble.seq)) {
+                    register(bubble.seq, (msg: ResultMsg) => {
+                        bubblesStore.update(list => {
+                            const i = list.findIndex(b => b.seq === msg.seq);
+                            if (i === -1) return list;
+                            const next = list.slice();
+                            next[i] = { ...next[i], hast: msg.tree };
+                            return next;
+                        });
+                    });
+                }
                 if (isStreaming) {
                     pushChunk(evt.text ?? '', bubble.seq);
                 } else {
                     // first fast pass (to show fast results), then deferred full pass
-                    parse(bubble.markdown, bubble.seq, true);
-                    setTimeout(() => parse(bubble.markdown, bubble.seq), 0);
+                    parse(bubble.markdown, bubble.seq, true, true);
+                    setTimeout(() => {
+                        if (isRegistered(bubble.seq)) {
+                            parse(bubble.markdown, bubble.seq, false, true);
+                        }
+                    }, 20);
                 }
                 return list;
             }
@@ -107,9 +126,13 @@ export function reparseAll(contextId = 'main-context'): void {
             // Re-register a handler for each bubble. This overwrites any existing handler
             // for the same seq, so there is no need to unregister first.
             register(bubble.seq, (msg: ResultMsg) => {
-                bubblesStore.update(l =>
-                    l.map(b => (b.seq === msg.seq ? {...b, hast: msg.tree} : b))
-                );
+                bubblesStore.update(list => {
+                    const i = list.findIndex(b => b.seq === msg.seq);
+                    if (i === -1) return list;
+                    const next = list.slice();
+                    next[i] = { ...next[i], hast: msg.tree };
+                    return next;
+                });
             });
             // Re-parse any bubble that has markdown content and might contain code.
             // skip updating the internal worker buffer, to give the worker the chance to go ahead where it stopped after reparseAll
@@ -142,6 +165,14 @@ function finalizeReasoningBubble(b: BubbleState): BubbleState {
         duration: durationInMs / 1000,
         isCollapsed: true,
     };
+}
+
+/**
+ * Get the current live thread ID.
+ * This is used when processing live summaries that may arrive before bubbles are created.
+ */
+export function getCurrentLiveThreadId(): number {
+    return currentThreadId;
 }
 
 /**
@@ -181,6 +212,13 @@ export function deleteLiveTaskByThreadId(threadId: number): void {
 
         // Unregister parsers for removed bubbles
         toRemove.forEach(b => unregister(b.seq));
+
+        // Clean up live summary for the deleted thread
+        const summaryEntry = getSummaryEntry(threadId);
+        if (summaryEntry && isRegistered(summaryEntry.seq)) {
+            unregister(summaryEntry.seq);
+        }
+        deleteSummaryEntry(threadId);
 
         // If deleting current live thread, reset live state similarly to 'clear'
         if (threadId === currentThreadId) {

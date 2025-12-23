@@ -1,0 +1,65 @@
+# This workflow will build a Java project with Gradle and bundle them as native app installers with jDeploy
+# See https://www.jdeploy.com for more information.
+
+name: jDeploy CI with Gradle
+
+on:
+  push:
+    branches: [ 'master-snapshot', 'jdeploy-test' ]
+  workflow_dispatch:
+
+concurrency:
+  group: jdeploy-release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up JBR 21
+        uses: jansorg/github-actions-jbr-setup/setup_jbr21@main
+
+      - name: Get version from git
+        id: version
+        run: |
+          VERSION=$(git describe --tags --exact-match HEAD 2>/dev/null || git describe --tags --always --dirty=-SNAPSHOT)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Build with Gradle
+        uses: gradle/gradle-build-action@67421db6bd0bf253fb4bd25b31ebb98943c375e1
+        with:
+          arguments: assemble
+
+      - name: Build shadow JAR
+        run: ./gradlew shadowJar
+
+      - name: Download jdeploy-prelaunch.jar
+        run: |
+          PRELAUNCH_VERSION=$(jq -r '.jdeployPrelaunchVersion' package.json)
+          mkdir -p app/build/libs
+          curl -L "https://github.com/shannah/brokk-jdeploy-prelaunch/releases/download/${PRELAUNCH_VERSION}/jdeploy-prelaunch.jar" \
+            -o app/build/libs/jdeploy-prelaunch.jar
+          echo "Downloaded jdeploy-prelaunch.jar version ${PRELAUNCH_VERSION}"
+
+      - name: Get JAR filename
+        id: jar
+        run: |
+          JAR_FILE=$(find app/build/libs -name "brokk-*.jar" | head -1)
+          JAR_NAME=$(basename "$JAR_FILE")
+          echo "jar_file=$JAR_FILE" >> $GITHUB_OUTPUT
+          echo "jar_name=$JAR_NAME" >> $GITHUB_OUTPUT
+          echo "Found JAR: $JAR_NAME"
+
+      - name: Update package.json with JAR name
+        run: |
+          jq '.jdeploy.jar = "${{ steps.jar.outputs.jar_file }}"' package.json > package.tmp.json && mv package.tmp.json package.json
+
+      - name: Build App Installer Bundles
+        uses: shannah/jdeploy@master
+        with:
+          github_token: ${{ github.token }}

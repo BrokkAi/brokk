@@ -21,4 +21,9 @@ public class ServiceImpl implements ServiceInterface {
     public void printVersion() {
         System.out.println("Service version: " + ServiceInterface.getVersion());
     }
+
+    // Added for ambiguity test: a method named 'foo'
+    public void foo() {
+        System.out.println("foo");
+    }
 }

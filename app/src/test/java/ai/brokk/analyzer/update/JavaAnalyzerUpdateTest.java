@@ -1,0 +1,109 @@
+package ai.brokk.analyzer.update;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import ai.brokk.AnalyzerUtil;
+import ai.brokk.analyzer.*;
+import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.JavaAnalyzer;
+import ai.brokk.analyzer.Languages;
+import ai.brokk.testutil.TestProject;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Set;
+import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.io.TempDir;
+
+class JavaAnalyzerUpdateTest {
+
+    @TempDir
+    Path tempDir;
+
+    private TestProject project;
+    private IAnalyzer analyzer;
+
+    @BeforeEach
+    void setUp() throws IOException {
+        // initial Java source
+        new ProjectFile(tempDir, "A.java")
+                .write("""
+        public class A {
+          public int method1() { return 1; }
+        }
+        """);
+
+        project = new TestProject(tempDir, Languages.JAVA);
+        analyzer = new JavaAnalyzer(project);
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (project != null) project.close();
+    }
+
+    @Test
+    void explicitUpdateWithProvidedSet() throws IOException {
+        // verify initial state
+        assertTrue(analyzer.getDefinitions("A.method1").stream().findFirst().isPresent());
+        assertTrue(analyzer.getDefinitions("A.method2").stream().findFirst().isEmpty());
+
+        // mutate source – add method2
+        new ProjectFile(project.getRoot(), "A.java")
+                .write(
+                        """
+        public class A {
+          public int method1() { return 1; }
+          public int method2() { return 2; }
+        }
+        """);
+
+        // before update the analyzer still returns old view
+        assertTrue(analyzer.getDefinitions("A.method2").stream().findFirst().isEmpty());
+
+        // update ONLY this file
+        var maybeFile = AnalyzerUtil.getFileFor(analyzer, "A");
+        assertTrue(maybeFile.isPresent());
+        analyzer = analyzer.update(Set.of(maybeFile.get()));
+
+        // method2 should now be visible
+        assertTrue(analyzer.getDefinitions("A.method2").stream().findFirst().isPresent());
+
+        // change again but don't include file in explicit set
+        new ProjectFile(project.getRoot(), "A.java")
+                .write(
+                        """
+        public class A {
+          public int method1() { return 1; }
+          public int method2() { return 2; }
+          public int method3() { return 3; }
+        }
+        """);
+        // call update with empty set – no change expected
+        analyzer = analyzer.update(Set.of());
+        assertTrue(analyzer.getDefinitions("A.method3").stream().findFirst().isEmpty());
+    }
+
+    @Test
+    void automaticUpdateDetection() throws IOException {
+        // add new method then rely on hash detection
+        new ProjectFile(project.getRoot(), "A.java")
+                .write(
+                        """
+        public class A {
+          public int method1() { return 1; }
+          public int method4() { return 4; }
+        }
+        """);
+        analyzer = analyzer.update(); // no-arg detection
+        assertTrue(analyzer.getDefinitions("A.method4").stream().findFirst().isPresent());
+
+        // delete file – analyzer should drop symbols
+        var maybeFile = AnalyzerUtil.getFileFor(analyzer, "A");
+        assertTrue(maybeFile.isPresent());
+        Files.deleteIfExists(maybeFile.get().absPath());
+
+        analyzer = analyzer.update();
+        assertTrue(analyzer.getDefinitions("A").stream().findFirst().isEmpty());
+    }
+}

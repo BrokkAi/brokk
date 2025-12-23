@@ -1,0 +1,706 @@
+package ai.brokk.gui.theme;
+
+import ai.brokk.Brokk;
+import ai.brokk.gui.Chrome;
+import ai.brokk.gui.SwingUtil;
+import ai.brokk.gui.mop.ThemeColors;
+import ai.brokk.project.MainProject;
+import com.formdev.flatlaf.FlatDarculaLaf;
+import com.formdev.flatlaf.IntelliJTheme;
+import com.formdev.flatlaf.extras.FlatSVGIcon;
+import java.awt.*;
+import java.io.IOException;
+import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.function.Consumer;
+import java.util.jar.JarFile;
+import javax.swing.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
+import org.fife.ui.rsyntaxtextarea.Theme;
+import org.jetbrains.annotations.Nullable;
+
+/** Manages UI theme settings and application across the application. */
+public class GuiTheme {
+    private static final Logger logger = LogManager.getLogger(GuiTheme.class);
+
+    public static final String THEME_DARK = "dark";
+    public static final String THEME_LIGHT = "light";
+    public static final String THEME_HIGH_CONTRAST = "high-contrast";
+    // Independent Dark+ theme with extended Brokk.* palette (gradients, transparency, modern visuals)
+    public static final String THEME_DARK_PLUS = "dark-plus";
+    public static final String THEME_LIGHT_PLUS = "light-plus";
+
+    private final JFrame frame;
+
+    @Nullable
+    private final JScrollPane mainScrollPane;
+
+    private final Chrome chrome;
+
+    // Track registered popup menus that need theme updates
+    private final List<JPopupMenu> popupMenus = new ArrayList<>();
+
+    /**
+     * Creates a new theme manager
+     *
+     * @param frame The main application frame
+     * @param mainScrollPane The main scroll pane for LLM output (can be null)
+     * @param chrome The Chrome instance for UI feedback
+     */
+    public GuiTheme(JFrame frame, @Nullable JScrollPane mainScrollPane, Chrome chrome) {
+        this.frame = frame;
+        this.mainScrollPane = mainScrollPane;
+        this.chrome = chrome;
+    }
+
+    /**
+     * Loads and applies a theme to the Look and Feel.
+     * This static method can be called before any Chrome instances exist,
+     * making it suitable for application startup initialization.
+     *
+     * @param themeName The theme name (dark/light/high-contrast)
+     */
+    public static void setupLookAndFeel(String themeName) {
+        String effectiveTheme = themeName;
+        if (effectiveTheme == null || effectiveTheme.isEmpty()) {
+            logger.warn("Null or empty theme name, defaulting to dark-plus");
+            effectiveTheme = THEME_DARK_PLUS;
+        }
+
+        String themeFile =
+                switch (effectiveTheme) {
+                    case THEME_LIGHT -> "/themes/BrokkLight.theme.json";
+                    case THEME_DARK -> "/themes/BrokkDark.theme.json";
+                    case THEME_HIGH_CONTRAST -> "/themes/HighContrast.theme.json";
+                    case THEME_DARK_PLUS -> "/themes/BrokkDarkPlus.theme.json";
+                    case THEME_LIGHT_PLUS -> "/themes/BrokkLightPlus.theme.json";
+                    default -> {
+                        logger.warn("Unknown theme '{}', defaulting to dark", effectiveTheme);
+                        yield "/themes/BrokkDark.theme.json";
+                    }
+                };
+
+        try (var stream = GuiTheme.class.getResourceAsStream(themeFile)) {
+            if (stream == null) {
+                logger.error("Theme file '{}' not found, falling back to Darcula", themeFile);
+                FlatDarculaLaf.setup();
+            } else {
+                IntelliJTheme.setup(stream);
+            }
+        } catch (IOException e) {
+            logger.error("Failed to load theme from '{}': {}", themeFile, e.getMessage());
+            FlatDarculaLaf.setup();
+        }
+    }
+
+    /**
+     * Applies the current theme to the application
+     *
+     * @param isDark true for dark theme, false for light theme
+     */
+    public void applyTheme(boolean isDark) {
+        // Delegate to the new method with current word wrap setting
+        boolean wordWrap = MainProject.getCodeBlockWrapMode();
+        applyTheme(isDark, wordWrap);
+    }
+
+    public void applyTheme(boolean isDark, boolean wordWrap) {
+        String themeName = getThemeName(isDark);
+        applyTheme(themeName, wordWrap);
+    }
+
+    public void applyTheme(String themeName, boolean wordWrap) {
+        try {
+            // Save preference first so we know the value is stored
+            MainProject.setTheme(themeName);
+
+            // Use the static utility method to load theme JSON and apply to UIManager
+            setupLookAndFeel(themeName);
+
+            // Reload ThemeColors to pick up new UIManager values
+            ThemeColors.reloadColors();
+
+            // Register custom icons for this theme
+            registerCustomIcons(themeName);
+
+            // Apply theme to RSyntaxTextArea components
+            applyThemeAsync(themeName, wordWrap);
+
+            Brokk.getOpenProjectWindows().values().forEach(chrome -> chrome.getTheme()
+                    .applyThemeToChromeComponents());
+
+            // Notify ThemeBorderManager about theme changes so it can install or remove overlays.
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    ThemeBorderManager.getInstance().onThemeChanged();
+                    // Always refresh existing windows to ensure borders are properly added or removed
+                    ThemeBorderManager.getInstance().applyToExistingWindows();
+
+                    // Update title bar styling for all frames using ThemeTitleBarManager
+                    ThemeTitleBarManager.updateAllTitleBars();
+                } catch (Throwable t) {
+                    logger.warn("Failed to notify HighContrastBorderManager: {}", t.getMessage(), t);
+                }
+            });
+        } catch (Exception e) {
+            chrome.toolError("Failed to switch theme: " + e.getMessage());
+        }
+    }
+
+    public void applyThemeToChromeComponents() {
+        // Update the UI
+        SwingUtilities.updateComponentTreeUI(frame);
+
+        // Update title bar styling for macOS frames
+        SwingUtilities.invokeLater(() -> {
+            ThemeTitleBarManager.updateTitleBarStyling(frame);
+        });
+
+        // Update registered popup menus
+        for (JPopupMenu menu : popupMenus) {
+            SwingUtilities.updateComponentTreeUI(menu);
+        }
+
+        // Make sure scroll panes update properly
+        if (mainScrollPane != null) {
+            mainScrollPane.revalidate();
+        }
+
+        // Re-apply primary button styling for buttons that were explicitly styled earlier.
+        // We do this after updateComponentTreeUI so the components re-adopt UIManager colors.
+        SwingUtilities.invokeLater(() -> {
+            Consumer<Component> recurse = new Consumer<Component>() {
+                @Override
+                public void accept(Component c) {
+                    if (c instanceof AbstractButton b) {
+                        Object prop = b.getClientProperty("brokk.primaryButton");
+                        if (Boolean.TRUE.equals(prop)) {
+                            SwingUtil.applyPrimaryButtonStyle(b);
+                        }
+                    }
+                    if (c instanceof Container container) {
+                        for (Component child : container.getComponents()) {
+                            accept(child);
+                        }
+                    }
+                }
+            };
+
+            // Apply to the main frame content
+            recurse.accept(frame.getContentPane());
+
+            // Apply to any displayable dialogs (so buttons in dialogs also re-style)
+            for (Window w : Window.getWindows()) {
+                if (w instanceof JDialog d && d.isDisplayable()) {
+                    recurse.accept(d.getContentPane());
+                }
+            }
+
+            // Apply to tracked popup menus as well
+            for (JPopupMenu menu : popupMenus) {
+                recurse.accept(menu);
+            }
+        });
+    }
+
+    private static String getThemeName(boolean isDark) {
+        return isDark ? THEME_DARK : THEME_LIGHT;
+    }
+
+    /**
+     * Applies the appropriate theme to all RSyntaxTextArea components
+     *
+     * @param themeName "dark", "light", or "high-contrast"
+     * @param wordWrap whether word wrap mode is enabled
+     */
+    private void applyThemeAsync(String themeName, boolean wordWrap) {
+        loadRSyntaxTheme(themeName)
+                .ifPresent(theme ->
+                        // Apply to all RSyntaxTextArea components in open windows
+                        SwingUtilities.invokeLater(() -> {
+                            for (Window window : Window.getWindows()) {
+                                if (window instanceof JFrame win) {
+                                    applyThemeToFrame(win, theme, wordWrap);
+                                }
+                                if (window instanceof JDialog dialog) {
+                                    // Skip dialogs that are not displayable
+                                    if (dialog.isDisplayable()) {
+                                        // 1. ThemeAware dialogs can theme themselves
+                                        if (dialog instanceof ThemeAware aware) {
+                                            aware.applyTheme(this, wordWrap);
+                                        }
+                                        applyThemeToComponent(dialog.getContentPane(), theme, wordWrap);
+                                    }
+                                }
+                            }
+                        }));
+    }
+
+    /**
+     * Loads an RSyntaxTextArea theme.
+     *
+     * @param themeName The theme name (dark, light, or high-contrast)
+     * @return The loaded Theme object, or null if loading fails.
+     */
+    public static Optional<Theme> loadRSyntaxTheme(String themeName) {
+        String themeResource =
+                switch (themeName) {
+                    case THEME_LIGHT, THEME_LIGHT_PLUS -> "/org/fife/ui/rsyntaxtextarea/themes/default.xml";
+                    case THEME_DARK, THEME_DARK_PLUS -> "/org/fife/ui/rsyntaxtextarea/themes/dark.xml";
+                    case THEME_HIGH_CONTRAST -> "/org/fife/ui/rsyntaxtextarea/themes/high-contrast.xml";
+                    default -> {
+                        logger.warn("Unknown theme '{}' for RSyntaxTextArea, defaulting to dark", themeName);
+                        yield "/org/fife/ui/rsyntaxtextarea/themes/dark.xml";
+                    }
+                };
+
+        try (var inputStream = GuiTheme.class.getResourceAsStream(themeResource)) {
+            if (inputStream == null) {
+                logger.error("RSyntaxTextArea theme resource not found: {}", themeResource);
+                return Optional.empty();
+            }
+            var theme = Theme.load(inputStream);
+            applyFlatLafColorsToTheme(theme);
+            return Optional.of(theme);
+        } catch (IOException e) {
+            logger.error(
+                    "Could not load {} RSyntaxTextArea theme from {}: {}", themeName, themeResource, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Overrides editor-chrome colors of an RSyntaxTextArea Theme with colors from FlatLaf UIManager.
+     * Syntax token colors are preserved from the XML theme.
+     */
+    private static void applyFlatLafColorsToTheme(Theme theme) {
+        // Editor background - use Brokk.rsyntax_background or Editor.background
+        var bg = ThemeColors.getColor("rsyntax_background");
+        if (bg == null) bg = UIManager.getColor("Editor.background");
+        if (bg != null) theme.bgColor = bg;
+
+        // Selection colors
+        var selBg = UIManager.getColor("*.selectionBackground");
+        if (selBg != null) theme.selectionBG = selBg;
+
+        var selFg = UIManager.getColor("*.selectionForeground");
+        if (selFg != null) theme.selectionFG = selFg;
+
+        // Caret
+        var caret = UIManager.getColor("TextField.caretForeground");
+        if (caret != null) theme.caretColor = caret;
+
+        // Current line highlight - derive from background
+        if (theme.bgColor != null) {
+            int r = theme.bgColor.getRed();
+            int g = theme.bgColor.getGreen();
+            int b = theme.bgColor.getBlue();
+            int delta = isColorDark(theme.bgColor) ? 15 : -15;
+            theme.currentLineHighlight = new Color(clamp(r + delta), clamp(g + delta), clamp(b + delta));
+        }
+
+        // Gutter styling
+        var panelBg = UIManager.getColor("Panel.background");
+        if (panelBg != null) theme.gutterBackgroundColor = panelBg;
+
+        var borderColor = UIManager.getColor("Component.borderColor");
+        if (borderColor != null) {
+            theme.gutterBorderColor = borderColor;
+            theme.marginLineColor = borderColor;
+        }
+
+        // Line numbers
+        var lineNumColor = UIManager.getColor("*.disabledForeground");
+        if (lineNumColor != null) theme.lineNumberColor = lineNumColor;
+
+        var fg = UIManager.getColor("*.foreground");
+        if (fg != null) theme.currentLineNumberColor = fg;
+    }
+
+    private static boolean isColorDark(Color c) {
+        return (c.getRed() * 0.299 + c.getGreen() * 0.587 + c.getBlue() * 0.114) < 128;
+    }
+
+    private static int clamp(int v) {
+        return Math.max(0, Math.min(255, v));
+    }
+
+    /** Applies the syntax theme to every relevant component contained in the supplied frame. */
+    private void applyThemeToFrame(JFrame frame, Theme theme, boolean wordWrap) {
+        assert SwingUtilities.isEventDispatchThread() : "applyThemeToFrame must be called on EDT";
+        applyThemeToComponent(frame.getContentPane(), theme, wordWrap);
+    }
+
+    /**
+     * Recursive depth-first traversal of the Swing component hierarchy that honours the
+     * {@link ThemeAware} contract.
+     */
+    private void applyThemeToComponent(@Nullable Component component, Theme theme, boolean wordWrap) {
+        assert SwingUtilities.isEventDispatchThread() : "applyThemeToComponent must be called on EDT";
+        if (component == null) {
+            return;
+        }
+
+        switch (component) {
+            // 1. Give ThemeAware components first crack at theming themselves
+            case ThemeAware aware -> aware.applyTheme(this, wordWrap);
+            // 2. Plain RSyntaxTextArea
+            case RSyntaxTextArea area -> theme.apply(area);
+            // 3. Handle the common case of RSyntaxTextArea wrapped in a JScrollPane
+            case JScrollPane scrollPane -> {
+                var viewport = scrollPane.getViewport();
+                if (viewport != null) {
+                    @Nullable Component view = viewport.getView();
+                    applyThemeToComponent(view, theme, wordWrap);
+                }
+            }
+            default -> {}
+        }
+
+        // 4. Recurse into child components (if any)
+        if (component instanceof Container container) {
+            for (Component child : container.getComponents()) {
+                applyThemeToComponent(child, theme, wordWrap);
+            }
+        }
+    }
+
+    /**
+     * Get the current theme identifier (normalized to lowercase).
+     *
+     * @return "light", "dark", or "high-contrast"
+     */
+    public String getCurrentTheme() {
+        return MainProject.getTheme().toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * Get the human-readable display name for the current theme.
+     *
+     * @return "Brokk Light", "Brokk Dark", "Brokk Dark+", "Brokk Light+", or "High Contrast"
+     */
+    public String getCurrentThemeName() {
+        return switch (getCurrentTheme()) {
+            case THEME_LIGHT -> "Brokk Light";
+            case THEME_DARK -> "Brokk Dark";
+            case THEME_DARK_PLUS -> "Brokk Dark+";
+            case THEME_LIGHT_PLUS -> "Brokk Light+";
+            case THEME_HIGH_CONTRAST -> "High Contrast";
+            default -> "Unknown Theme";
+        };
+    }
+
+    /**
+     * Check if the current theme is specifically the high-contrast theme.
+     *
+     * @return true if high-contrast theme is active
+     */
+    public boolean isHighContrastTheme() {
+        return THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
+    }
+
+    /**
+     * Checks if dark color scheme is currently active. This includes the dark theme, dark+ theme, and high-contrast
+     * theme, as all use dark backgrounds. Use this when you need to select dark vs light color palettes.
+     *
+     * @return true if dark theme, dark+ theme, or high contrast theme is active
+     */
+    public boolean isDarkTheme() {
+        String theme = MainProject.getTheme();
+        return THEME_DARK.equalsIgnoreCase(theme)
+                || THEME_DARK_PLUS.equalsIgnoreCase(theme)
+                || THEME_HIGH_CONTRAST.equalsIgnoreCase(theme);
+    }
+
+    /**
+     * Registers a popup menu to receive theme updates
+     *
+     * @param menu The popup menu to register
+     */
+    public void registerPopupMenu(JPopupMenu menu) {
+        if (!popupMenus.contains(menu)) {
+            popupMenus.add(menu);
+
+            // Apply current theme immediately if already initialized
+            SwingUtilities.invokeLater(() -> SwingUtilities.updateComponentTreeUI(menu));
+        }
+    }
+
+    /**
+     * Applies the current RSyntaxTextArea theme to the supplied component.
+     *
+     * @param textArea The text area to apply theme to
+     */
+    public void applyCurrentThemeToComponent(RSyntaxTextArea textArea) {
+        String themeName = MainProject.getTheme();
+        loadRSyntaxTheme(themeName).ifPresent(theme -> SwingUtilities.invokeLater(() -> theme.apply(textArea)));
+    }
+
+    /**
+     * Applies the current RSyntaxTextArea theme to the supplied component while preserving
+     * any explicitly set font size from FontSizeAware components.
+     * Must be called on the EDT.
+     *
+     * @param textArea The text area to apply theme to
+     */
+    public void applyThemePreservingFont(RSyntaxTextArea textArea) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
+        // Save current font if component has explicit font size
+        float currentFontSize = -1;
+        if (textArea instanceof FontSizeAware fsAware && fsAware.hasExplicitFontSize()) {
+            currentFontSize = fsAware.getExplicitFontSize();
+        }
+
+        // Apply theme and restore font synchronously
+        String themeName = MainProject.getTheme();
+        final float fontSize = currentFontSize;
+        loadRSyntaxTheme(themeName).ifPresent(theme -> {
+            // Apply theme (which will override font)
+            theme.apply(textArea);
+
+            // Immediately restore font size if it was explicitly set
+            if (fontSize > 0) {
+                Font themeFont = textArea.getFont();
+                if (themeFont != null) {
+                    textArea.setFont(themeFont.deriveFont(fontSize));
+                }
+            }
+        });
+    }
+
+    /**
+     * Updates component tree UI while preserving explicit font sizes in FontSizeAware components.
+     *
+     * @param container The container to update
+     */
+    public void updateComponentTreeUIPreservingFonts(Container container) {
+        // Collect font sizes from FontSizeAware components before update
+        java.util.Map<Component, Float> fontMap = new java.util.HashMap<>();
+        collectExplicitFonts(container, fontMap);
+
+        // Update UI
+        SwingUtilities.updateComponentTreeUI(container);
+
+        // Restore explicit fonts
+        SwingUtilities.invokeLater(() -> restoreExplicitFonts(fontMap));
+    }
+
+    /**
+     * Recursively collects explicit font sizes from FontSizeAware components.
+     */
+    private void collectExplicitFonts(Container container, java.util.Map<Component, Float> fontMap) {
+        for (Component comp : container.getComponents()) {
+            if (comp instanceof FontSizeAware fsAware && fsAware.hasExplicitFontSize()) {
+                float fontSize = fsAware.getExplicitFontSize();
+                fontMap.put(comp, fontSize);
+            }
+            if (comp instanceof Container c) {
+                collectExplicitFonts(c, fontMap);
+            }
+        }
+    }
+
+    /**
+     * Restores explicit font sizes to components.
+     */
+    private void restoreExplicitFonts(java.util.Map<Component, Float> fontMap) {
+        fontMap.forEach((comp, fontSize) -> {
+            if (comp instanceof RSyntaxTextArea textArea) {
+                Font currentFont = textArea.getFont();
+                if (currentFont != null) {
+                    Font preservedFont = currentFont.deriveFont(fontSize);
+                    textArea.setFont(preservedFont);
+                }
+            }
+        });
+    }
+
+    /**
+     * Registers custom icons for the application based on the current theme
+     *
+     * @param themeName the theme name ("dark", "light", "light-plus", or "dark-plus")
+     */
+    private void registerCustomIcons(String themeName) {
+        String iconBase = getIconDirectoryForTheme(themeName);
+        String fallbackBase = getIconFallbackDirectoryForTheme(themeName);
+
+        try {
+            // Try to discover icons from the primary theme resource directory
+            var iconUrl = GuiTheme.class.getResource(iconBase);
+            if (iconUrl != null) {
+                var iconFiles = discoverIconFiles(iconUrl, iconBase);
+                for (String iconFile : iconFiles) {
+                    // Extract filename without extension for the key
+                    String filename = iconFile.substring(iconFile.lastIndexOf('/') + 1);
+                    int dotIndex = filename.lastIndexOf('.');
+                    String keyName = (dotIndex == -1) ? filename : filename.substring(0, dotIndex);
+                    String iconKey = "Brokk." + keyName;
+
+                    registerIcon(iconKey, iconFile);
+                }
+                logger.debug("Registered {} custom icons for {} theme from {}", iconFiles.size(), themeName, iconBase);
+            } else {
+                logger.warn("Icon directory not found: {}", iconBase);
+            }
+
+            // Register fallback icons if applicable (e.g., light-plus falls back to light)
+            if (fallbackBase != null) {
+                var fallbackUrl = GuiTheme.class.getResource(fallbackBase);
+                if (fallbackUrl != null) {
+                    var fallbackFiles = discoverIconFiles(fallbackUrl, fallbackBase);
+                    for (String iconFile : fallbackFiles) {
+                        String filename = iconFile.substring(iconFile.lastIndexOf('/') + 1);
+                        int dotIndex = filename.lastIndexOf('.');
+                        String keyName = (dotIndex == -1) ? filename : filename.substring(0, dotIndex);
+                        String iconKey = "Brokk." + keyName;
+
+                        // Only register if not already registered from primary directory
+                        if (UIManager.get(iconKey) == null) {
+                            registerIcon(iconKey, iconFile);
+                        }
+                    }
+                    logger.debug("Registered fallback icons for {} theme from {}", themeName, fallbackBase);
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to discover icons for theme {}: {}", themeName, e.getMessage());
+        }
+    }
+
+    /**
+     * Gets the primary icon directory for the given theme name
+     *
+     * @param themeName the theme name
+     * @return the icon directory path
+     */
+    private String getIconDirectoryForTheme(String themeName) {
+        return switch (themeName.toLowerCase(Locale.ROOT)) {
+            case THEME_DARK, THEME_HIGH_CONTRAST -> "/icons/dark/";
+            case THEME_LIGHT_PLUS -> "/icons/light-plus/";
+            case THEME_LIGHT -> "/icons/light/";
+            case THEME_DARK_PLUS -> "/icons/dark/";
+            default -> "/icons/light/";
+        };
+    }
+
+    /**
+     * Gets the fallback icon directory for the given theme name (or null if no fallback)
+     *
+     * @param themeName the theme name
+     * @return the fallback icon directory path, or null if no fallback
+     */
+    private @Nullable String getIconFallbackDirectoryForTheme(String themeName) {
+        return switch (themeName.toLowerCase(Locale.ROOT)) {
+            case THEME_LIGHT_PLUS -> "/icons/light/";
+            default -> null;
+        };
+    }
+
+    /**
+     * Discovers PNG and GIF icon files from a resource directory
+     *
+     * @param directoryUrl The URL of the directory resource
+     * @param iconBase The base path for constructing resource paths
+     * @return List of resource paths to icon files
+     */
+    private List<String> discoverIconFiles(URL directoryUrl, String iconBase) {
+        var iconFiles = new ArrayList<String>();
+
+        try {
+            String protocol = directoryUrl.getProtocol();
+            if (protocol == null) {
+                logger.warn("URL has no protocol: {}", directoryUrl);
+                return iconFiles;
+            }
+
+            if ("file".equals(protocol)) {
+                // Running from file system (development)
+                var dirPath = Paths.get(directoryUrl.toURI());
+                try (var stream = Files.list(dirPath)) {
+                    stream.filter(path -> {
+                                var fileNamePath = path.getFileName();
+                                if (fileNamePath == null) {
+                                    return false;
+                                }
+                                String name = fileNamePath.toString().toLowerCase(Locale.ROOT);
+                                return name.endsWith(".png") || name.endsWith(".gif") || name.endsWith(".svg");
+                            })
+                            .forEach(path -> {
+                                String filename = path.getFileName().toString();
+                                iconFiles.add(iconBase + filename);
+                            });
+                }
+            } else if ("jar".equals(protocol)) {
+                // Running from JAR file
+                String jarPath = directoryUrl.getPath();
+                if (jarPath == null) {
+                    logger.warn("JAR URL has no path: {}", directoryUrl);
+                    return iconFiles;
+                }
+                var exclamationIndex = jarPath.indexOf('!');
+                if (exclamationIndex >= 0) {
+                    var jarFileUrl = jarPath.substring(5, exclamationIndex); // Remove "file:"
+                    var entryPath = jarPath.substring(exclamationIndex + 2); // Remove "!/"
+
+                    // Decode URL encoding (e.g., %20 -> space) to handle paths with spaces
+                    // Use URI to properly decode file paths (handles %20, etc. correctly)
+                    var jarFile = new java.net.URI(jarFileUrl).getPath();
+
+                    try (var jar = new JarFile(jarFile)) {
+                        var entries = jar.entries();
+                        while (entries.hasMoreElements()) {
+                            var entry = entries.nextElement();
+                            String entryName = entry.getName();
+                            if (entryName.startsWith(entryPath) && !entry.isDirectory()) {
+                                var filename = entryName
+                                        .substring(entryName.lastIndexOf('/') + 1)
+                                        .toLowerCase(Locale.ROOT);
+                                if (filename.endsWith(".png")
+                                        || filename.endsWith(".gif")
+                                        || filename.endsWith(".svg")) {
+                                    iconFiles.add("/" + entryName);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Error scanning icon directory {}: {}", directoryUrl, e.getMessage());
+        }
+
+        return iconFiles;
+    }
+
+    /**
+     * Registers a single icon in the UIManager
+     *
+     * @param key The UIManager key for the icon
+     * @param resourcePath The resource path to the icon file
+     */
+    private static void registerIcon(String key, String resourcePath) {
+        URL url = GuiTheme.class.getResource(resourcePath);
+        if (url == null) {
+            logger.warn("Icon resource {} not found for key {}", resourcePath, key);
+            return;
+        }
+
+        Icon icon;
+        String lower = resourcePath.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".svg")) {
+            // FlatLaf can render SVG natively
+            icon = new FlatSVGIcon(url);
+        } else {
+            icon = new ImageIcon(url);
+        }
+        UIManager.put(key, icon);
+    }
+}

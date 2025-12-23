@@ -10,6 +10,7 @@ import {tokenizeTail} from './tokenizer/tail-tokenizer';
 import {makeSafeFx} from './util';
 import {makeTokenizeHeader} from './tokenizer/header';
 import {tokenizeGitDiff} from './tokenizer/git-diff-parser';
+import { looksLikeFilePath } from '../filePathDetection';
 
 // ---------------------------------------------------------------------------
 // 1.  Orchestrator for edit block parsing
@@ -41,6 +42,22 @@ export const tokenizeFencedEditBlock: Tokenizer = function (effects, ok, nok) {
     // Use strict header tokenizer for unfenced blocks to ensure complete header
     const tokenizeHeader = makeTokenizeHeader({ strict: false });
 
+    // Probe the rest of the opening-fence line (without committing) to classify as path vs language token.
+    const tokenizeInfoLineProbe: Tokenizer = function (effects, ok, nok) {
+        const ctx2 = this as any;
+        let buf = '';
+
+        return function probe(code: Code): State {
+            if (code === codes.eof || markdownLineEnding(code)) {
+                ctx2._editBlockInfoProbe = buf.trim();
+                return ok(code);
+            }
+            // accumulate but do not emit tokens during probe
+            effects.consume(code);
+            buf += String.fromCharCode(code);
+            return probe;
+        };
+    };
 
     return start;
 
@@ -74,7 +91,56 @@ export const tokenizeFencedEditBlock: Tokenizer = function (effects, ok, nok) {
             )(code);
         }
 
-        //Filename is optional, so we need to check for the header first
+        // If the header starts immediately after the fence on the same line.
+        if (code === codes.lessThan) {
+            return effects.attempt(
+                { tokenize: tokenizeHeader, concrete: true },
+                afterHeader,
+                fx.nok
+            )(code);
+        }
+
+        // Otherwise, classify the rest of this line: inline filename vs language token.
+        return effects.check(
+            { tokenize: tokenizeInfoLineProbe, concrete: true },
+            afterInfoProbe,
+            fx.nok
+        )(code);
+    }
+
+    function afterInfoProbe(code: Code): State {
+        const info = ((ctx as any)._editBlockInfoProbe ?? '').trim();
+
+        // If it looks like a file path, parse it as an inline filename (existing behavior).
+        if (info.length > 0 && looksLikeFilePath(info)) {
+            return parseFilename(code);
+        }
+
+        // Otherwise: treat as language token; consume the line and continue on the next line.
+        return consumeInfoLine(code);
+    }
+
+    function consumeInfoLine(code: Code): State {
+        if (code === codes.eof) {
+            return done(code);
+        }
+        if (markdownLineEnding(code)) {
+            // consume the EOL and move to the next line
+            fx.enter('chunk');
+            fx.consume(code);
+            fx.exit('chunk');
+            return afterInfoLine;
+        }
+        // consume characters on the info line
+        fx.consume(code);
+        return consumeInfoLine;
+    }
+
+    function afterInfoLine(code: Code): State {
+        const next = eatEndLineAndCheckEof(code, afterInfoLine);
+        if (next) return next;
+
+        // Try header first; if not present, allow a next-line filename.
         return effects.check(
             { tokenize: tokenizeHeader, concrete: true },
             parseHeader,
@@ -130,9 +196,10 @@ export const tokenizeFencedEditBlock: Tokenizer = function (effects, ok, nok) {
             return afterGitDiffBracket;
         }
 
+        // If fence closes after git-diff, mark as complete on success
         return effects.attempt(
             { tokenize: tokenizeFenceClose, concrete: true },
-            done,
+            doneComplete,
             fx.nok
         )(code);
     }
@@ -145,23 +212,44 @@ export const tokenizeFencedEditBlock: Tokenizer = function (effects, ok, nok) {
         if (code === codes.graveAccent) {
             return effects.attempt(
                 { tokenize: tokenizeFenceClose, concrete: true },
-                done, // After successful fence close, we're done
-                done  // If fence close fails, we're still done (malformed but we'll accept it)
+                doneComplete,  // After successful fence close, we're done
+                doneComplete   // If fence close fails, we're still done (malformed but we'll accept it) but mark complete
             )(code);
         }
 
-        return done(code);
+        // If there are no backticks after ], treat it as complete git-diff block
+        return doneComplete(code);
     }
 
 
     function afterBody(code: Code): State {
         const next = eatEndLineAndCheckEof(code, afterBody)
         if (next) return next;
+        // Always attempt to close the fence, but completion depends on tailSeen in body
         return effects.attempt(
             { tokenize: tokenizeFenceClose, concrete: true },
-            done,
+            doneMaybeComplete,
             fx.nok
         )(code);
+    }
+
+    function markComplete(): void {
+        fx.enter('editBlockComplete');
+        fx.exit('editBlockComplete');
+    }
+
+    function doneMaybeComplete(code: Code): State {
+        // Only mark structural completion for SEARCH/REPLACE when the tail was actually consumed.
+        if ((ctx as any)._editBlockCompleted === true) {
+            markComplete();
+        }
+        return done(code);
+    }
+
+    function doneComplete(code: Code): State {
+        // Mark structural completion (used for git-diff fenced cases)
+        markComplete();
+        return done(code);
     }
 
     function done(code: Code): State {

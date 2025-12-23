@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html class="theme-light">
+<html class="theme-dark">
 <head>
     <meta charset="utf-8">
     <title>Brokk MOP - Dev Mode</title>
@@ -24,9 +24,8 @@
     <button onclick="streamEdit()">Stream "Edit"</button>
     <button onclick="showAskMd()">Show "ask" MD</button>
     <button onclick="showEditMd()">Show "edit" MD</button>
-    <button onclick="window.brokk.setTheme(!document.querySelector('html').classList.contains('theme-dark'))">Toggle
-        Theme
-    </button>
+    <button onclick="cycleTheme()">Cycle Theme</button>
+    <span id="current-theme-display" style="margin-left:6px; color:#666;">(dark)</span>
     <button onclick="window.brokk.clear()">Clear Log</button>
     <button onclick="window.brokk.showSpinner('Testing spinner...'); window.brokk.hideSpinner">
         Test Spinner
@@ -34,9 +33,6 @@
     <button onclick="window.brokk.hideSpinner()">Hide Spinner</button>
     <button id="toggle-wrap-btn" onclick="toggleCodeWrap()">Toggle Code Wrap</button>
     <span id="wrap-mode-status" style="margin-left:6px; color:#666;">(scroll)</span>
-    <br>
-    <button onclick="window.brokk.setTheme(false, false, true)">Test Java SetTheme (Light + Wrap)</button>
-    <button onclick="window.brokk.setTheme(true, false, false)">Test Java SetTheme (Dark + Scroll)</button>
     <button onclick="showAllCodeblockCases()">Show All Code Block Cases</button>
     <h3>Search Tools</h3>
     <input type="text" id="search-query-input" placeholder="Search query" style="width: 200px; margin-right: 5px;">
@@ -307,22 +303,30 @@ Both approaches:
 `;
 
     function streamAsk() {
-        let index = 0;
+        try {
+            window.brokk.showTransientMessage('Thinking...');
+        } catch (e) {
+            // ignore if bridge not ready yet
+        }
 
-        const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
-        const interval = setInterval(() => {
-            if (index < chunks.length) {
-                simulateEvent('chunk', {text: chunks[index], msgType: 'AI', streaming: true, reasoning: false});
-                index++;
-            } else {
-                clearInterval(interval);
-                simulateEvent('chunk', {text: "Ask command complete!", msgType: 'CUSTOM', streaming: true, isNew: false, reasoning: false});
-            }
-        }, 10);
+        // Start streaming after 3s; first chunk will auto-hide the transient message
+        setTimeout(() => {
+            let index = 0;
+            const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
+            const interval = setInterval(() => {
+                if (index < chunks.length) {
+                    simulateEvent('chunk', {text: chunks[index], msgType: 'AI', streaming: true, reasoning: false});
+                    index++;
+                } else {
+                    clearInterval(interval);
+                    simulateEvent('chunk', {text: "Ask command complete!", msgType: 'CUSTOM', streaming: true, isNew: false, reasoning: false});
+                }
+            }, 10);
+        }, 3000);
     }
 
     function showAskMd() {
-        simulateEvent('history-task', {compressed: false, summary: "", messages: [{msgType: 'USER', text: contentUser}, {msgType: 'AI', text: contentAi}]})
+        simulateEvent('history-task', {compressed: true, summary: "This is a nice **summary**", messages: [{msgType: 'USER', text: contentUser}, {msgType: 'AI', text: contentAi}]})
         simulateEvent('history-task', {compressed: false, summary: "", messages: [{msgType: 'USER', text: "Implement the changes like described"}, {msgType: 'AI', text: ai}]})
         simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false, reasoning: false})
         simulateEvent('chunk', {text: "Just a little bit of reasoning...\nNow I am finished!", msgType: 'AI', streaming: false, reasoning: true})
@@ -1091,6 +1095,64 @@ Symbols get the \`.symbol-exists\` CSS class which adds:
         getSearchStateAndDisplay();
         updateSymbolCount();
     })();
+
+// ----- Theme helpers ---------------------------------------------------------
+
+function getCurrentTheme() {
+    const html = document.documentElement;
+    if (html.classList.contains('theme-light-plus')) return 'light-plus';
+    if (html.classList.contains('theme-light')) return 'light';
+    if (html.classList.contains('theme-dark-plus')) return 'dark-plus';
+    if (html.classList.contains('theme-high-contrast')) return 'high-contrast';
+    return 'dark'; // default
+}
+
+function setTheme(themeName) {
+    const html = document.documentElement;
+    // Remove all theme classes first
+    html.classList.remove('theme-light', 'theme-dark', 'theme-high-contrast', 'theme-dark-plus', 'theme-light-plus');
+
+    // Apply appropriate classes based on theme name
+    if (themeName === 'light') {
+        html.classList.add('theme-light');
+    } else if (themeName === 'dark') {
+        html.classList.add('theme-dark');
+    } else if (themeName === 'dark-plus') {
+        html.classList.add('theme-dark');
+        html.classList.add('theme-dark-plus');
+    } else if (themeName === 'light-plus') {
+        html.classList.add('theme-light');
+        html.classList.add('theme-light-plus');
+    } else if (themeName === 'high-contrast') {
+        html.classList.add('theme-high-contrast');
+    } else {
+        html.classList.add('theme-dark'); // fallback
+    }
+
+    // Update display
+    const display = document.getElementById('current-theme-display');
+    if (display) {
+        display.textContent = '(' + themeName + ')';
+    }
+
+    console.log('[Dev] Theme set to:', themeName);
+}
+
+function cycleTheme() {
+    const themes = ['dark', 'dark-plus', 'light', 'light-plus', 'high-contrast'];
+    const current = getCurrentTheme();
+    const currentIndex = themes.indexOf(current);
+    const nextIndex = (currentIndex + 1) % themes.length;
+    setTheme(themes[nextIndex]);
+}
+
+// Initialize theme display on load
+(function() {
+    const display = document.getElementById('current-theme-display');
+    if (display) {
+        display.textContent = '(' + getCurrentTheme() + ')';
+    }
+})();
 
 // ----- Code wrap helpers and demo ---------------------------------------------------------
 

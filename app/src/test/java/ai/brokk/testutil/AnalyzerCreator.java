@@ -1,0 +1,28 @@
+package ai.brokk.testutil;
+
+import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.TreeSitterAnalyzer;
+import ai.brokk.project.IProject;
+
+public class AnalyzerCreator {
+
+    /**
+     * Creates the TreeSitterAnalyzer for the given project if one supports the project language.
+     *
+     * @param project the project to instantiate a TreeSitter analyzer for.
+     * @return the corresponding TreeSitterAnalyzer.
+     * @throws NoSupportedAnalyzerForTestProjectException if the detected language does not create an analyzer extending {@link TreeSitterAnalyzer}
+     */
+    public static TreeSitterAnalyzer createTreeSitterAnalyzer(IProject project) {
+        var language = project.getBuildLanguage();
+        var analyzer = language.createAnalyzer(project);
+        return (TreeSitterAnalyzer) analyzer.subAnalyzer(language)
+                .orElseThrow(() -> new NoSupportedAnalyzerForTestProjectException(language));
+    }
+
+    static class NoSupportedAnalyzerForTestProjectException extends RuntimeException {
+        public NoSupportedAnalyzerForTestProjectException(Language language) {
+            super("Analyzer not supported for the given project! Detected language is: " + language.name());
+        }
+    }
+}
