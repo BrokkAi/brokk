@@ -846,7 +846,7 @@ public class CodeAgent {
                     String lastAiText = cs.taskMessages().isEmpty()
                             ? ""
                             : Messages.getText(cs.taskMessages().getLast());
-                    String buildError = es.lastBuildError().isEmpty() ? null : es.lastBuildError();
+                    String buildError = es.lastBuildError();
 
                     var retryMessages =
                             CodePrompts.buildApplyRetryMessages(lastAiText, editResult.blockResults(), buildError);

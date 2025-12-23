@@ -17,6 +17,7 @@ import ai.brokk.context.ViewingPolicy;
 import ai.brokk.util.ImageUtil;
 import ai.brokk.util.Messages;
 import ai.brokk.util.StyleGuideResolver;
+import com.sun.javafx.image.impl.General;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -37,6 +38,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.checkerframework.common.returnsreceiver.qual.This;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
@@ -489,7 +491,7 @@ public abstract class CodePrompts {
      * @return An ApplyRetryMessages containing the tagged AiMessage and retry UserMessage.
      */
     public static ApplyRetryMessages buildApplyRetryMessages(
-            String originalAiText, List<EditBlock.ApplyResult> blockResults, @Nullable String buildError) {
+            String originalAiText, List<EditBlock.ApplyResult> blockResults, String buildError) {
         var failures = blockResults.stream().filter(r -> !r.succeeded()).toList();
         assert !failures.isEmpty();
 
@@ -508,34 +510,41 @@ public abstract class CodePrompts {
         sb.append("<instructions>\n");
         sb.append("# SEARCH/REPLACE application results\n\n");
 
+        var successIndices = java.util.stream.IntStream.range(0, blockResults.size())
+                .filter(i -> blockResults.get(i).succeeded())
+                .mapToObj(i -> "BRK_BLOCK_" + (i + 1))
+                .toList();
+        sb.append("Successful blocks have been merged into the Workspace. You do not need to repeat them. These are:")
+                .append(successIndices.isEmpty() ? "None" : String.join(", ", successIndices))
+                .append("\n\n");
+
         sb.append("""
-                  Some blocks failed to apply. Your previous response has been updated with BRK_BLOCK_N markers
-                  to help you identify which blocks failed. Please review the current file state and provide corrected blocks.
-                  """);
+                The other blocks could not be applied. The details follow. Carefully examine the current contents of the corresponding parts of the Workspace, and issue corrected SEARCH/REPLACE blocks if the intended changes are still necessary.
+                """);
 
         sb.append("</instructions>\n\n");
 
         // Track original block indices (1-based) for each failure
         record IndexedFailure(EditBlock.ApplyResult result, int blockIndex) {}
-        var indexedFailures = new ArrayList<IndexedFailure>();
-        for (int i = 0; i < blockResults.size(); i++) {
-            var r = blockResults.get(i);
-            if (!r.succeeded()) {
-                indexedFailures.add(new IndexedFailure(r, i + 1));
-            }
-        }
+        var indexedFailures = java.util.stream.IntStream.range(0, blockResults.size())
+                .filter(i -> !blockResults.get(i).succeeded())
+                .mapToObj(i -> new IndexedFailure(blockResults.get(i), i + 1))
+                .toList();
 
         var failuresByFile = indexedFailures.stream()
                 .filter(f -> f.result().block().rawFileName() != null)
                 .collect(Collectors.groupingBy(
-                        f -> requireNonNull(f.result().block().rawFileName())));
+                        f -> requireNonNull(f.result().block().rawFileName()),
+                        Collectors.collectingAndThen(
+                                Collectors.toList(),
+                                list -> list.stream()
+                                        .sorted(java.util.Comparator.comparingInt(IndexedFailure::blockIndex))
+                                        .toList())));
 
         String fileDetails = failuresByFile.entrySet().stream()
                 .map(entry -> {
                     var filename = entry.getKey();
-                    var fileFailures = entry.getValue().stream()
-                            .sorted(java.util.Comparator.comparingInt(IndexedFailure::blockIndex))
-                            .toList();
+                    var fileFailures = entry.getValue();
 
                     String failedBlocksList = fileFailures.stream()
                             .map(f -> formatBlockFailure(f.result(), f.blockIndex()))
@@ -554,10 +563,16 @@ public abstract class CodePrompts {
 
         sb.append(fileDetails);
 
-        if (buildError != null && !buildError.isBlank()) {
-            sb.append("<reminder>The build is currently failing; the details are in the conversation history.</reminder>\n");
+        if (!buildError.isBlank() && successIndices.isEmpty()) {
+            sb.append("""
+            <reminder>
+              The build is currently failing; the details are in the conversation history.
+              If no edits are made, the task will fail. Still, the guidance from earlier
+              applies: better to fail fast than guess if you do not have the correct files
+              or APIs in the Workspace to solve the problem accurately.
+            </reminder>
+            """);
         }
-
 
         return new ApplyRetryMessages(
                 taggedAiMessage, new UserMessage(sb.toString().trim()));
