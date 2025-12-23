@@ -24,8 +24,16 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import java.awt.*;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -149,6 +157,8 @@ public abstract class CodePrompts {
         return MARKDOWN_REMINDER;
     }
 
+    private static final String ELIDED_BLOCK_PLACEHOLDER = "[elided SEARCH/REPLACE block]";
+
     /**
      * Redacts SEARCH/REPLACE blocks from an AiMessage. If the message contains S/R blocks, they are replaced with
      * "[elided SEARCH/REPLACE block]". If the message does not contain S/R blocks, or if the redacted text is blank,
@@ -158,34 +168,28 @@ public abstract class CodePrompts {
      * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
      */
     public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage) {
-        // Pass an empty set for trackedFiles as it's not needed for redaction.
         var parsedResult = EditBlockParser.instance.parse(aiMessage.text(), Collections.emptySet());
-        // Check if there are actual S/R block objects, not just text parts
         boolean hasSrBlocks = parsedResult.blocks().stream().anyMatch(b -> b.block() != null);
 
         if (!hasSrBlocks) {
-            // No S/R blocks, return message as is (if not blank)
             return aiMessage.text().isBlank() ? Optional.empty() : Optional.of(aiMessage);
-        } else {
-            // Contains S/R blocks, needs redaction
-            var blocks = parsedResult.blocks();
-            var sb = new StringBuilder();
-            for (int i = 0; i < blocks.size(); i++) {
-                var ob = blocks.get(i);
-                if (ob.block() == null) { // Plain text part
-                    sb.append(ob.text());
-                } else { // An S/R block
-                    sb.append("[elided SEARCH/REPLACE block]");
-                    // If the next output block is also an S/R block, add a newline
-                    if (i + 1 < blocks.size() && blocks.get(i + 1).block() != null) {
-                        sb.append('\n');
-                    }
-                }
-                // FIXME the "text" part is including the ```java and filename preamble
-            }
-            String redactedText = sb.toString();
-            return redactedText.isBlank() ? Optional.empty() : Optional.of(new AiMessage(redactedText));
         }
+
+        var blocks = parsedResult.blocks();
+        var sb = new StringBuilder();
+        for (int i = 0; i < blocks.size(); i++) {
+            var ob = blocks.get(i);
+            if (ob.block() == null) {
+                sb.append(ob.text());
+            } else {
+                sb.append(ELIDED_BLOCK_PLACEHOLDER);
+                if (i + 1 < blocks.size() && blocks.get(i + 1).block() != null) {
+                    sb.append('\n');
+                }
+            }
+        }
+        String redactedText = sb.toString();
+        return redactedText.isBlank() ? Optional.empty() : Optional.of(new AiMessage(redactedText));
     }
 
     public final List<ChatMessage> collectCodeMessages(
@@ -284,7 +288,7 @@ public abstract class CodePrompts {
     }
 
     // New goal-aware overload. If goal is non-blank, append a <goal>...</goal> block after <style_guide>.
-    public SystemMessage systemMessage(Context ctx, String reminder, @org.jetbrains.annotations.Nullable String goal) {
+    public SystemMessage systemMessage(Context ctx, String reminder, @Nullable String goal) {
         var styleGuide = StyleGuideResolver.resolve(ctx, ctx.getContextManager().getProject());
 
         final String text;

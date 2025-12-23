@@ -37,32 +37,33 @@ class CodePromptsRedactionTest {
                 .formatted(filename, search, replace);
     }
 
+    private void assertRedaction(String aiText, String expectedText) {
+        AiMessage originalMessage = new AiMessage(aiText);
+        Optional<AiMessage> redactedResult = CodePrompts.redactAiMessage(originalMessage);
+
+        assertTrue(redactedResult.isPresent(), "Message should be present after redaction.");
+        assertEquals(expectedText, redactedResult.get().text(), "Redaction mismatch.");
+    }
+
     @Test
     void removesBlockOnlyMessages() {
-        String aiText = createMinimalMessage("file.txt", "old code", "new code");
-        AiMessage originalMessage = new AiMessage(aiText);
+        String minimal = createMinimalMessage("file.txt", "old code", "new code");
+        assertRedaction(minimal, ELIDED_BLOCK_PLACEHOLDER);
 
-        Optional<AiMessage> redactedMessage = CodePrompts.redactAiMessage(originalMessage);
-
-        assertTrue(redactedMessage.isPresent(), "Message with only S/R block should NOT be removed.");
-        assertEquals(
-                ELIDED_BLOCK_PLACEHOLDER, redactedMessage.get().text(), "Message content should be the placeholder.");
+        String markdown = createMarkdownMessage("file.txt", "old code", "new code");
+        assertRedaction(markdown, ELIDED_BLOCK_PLACEHOLDER);
     }
 
     @Test
     void insertsPlaceholderIntoMixedMessage() {
         String prefix = "Here is the patch:\n\n";
         String suffix = "\n\nHope that helps!";
-        String block = createMinimalMessage("foo.txt", "old", "new");
-        String aiText = prefix + block + suffix;
-        AiMessage originalMessage = new AiMessage(aiText);
 
-        Optional<AiMessage> redactedResult = CodePrompts.redactAiMessage(originalMessage);
+        String minimal = prefix + createMinimalMessage("foo.txt", "old", "new") + suffix;
+        assertRedaction(minimal, prefix + ELIDED_BLOCK_PLACEHOLDER + suffix);
 
-        assertTrue(redactedResult.isPresent(), "Message should be present after redaction.");
-        AiMessage redactedMessage = redactedResult.get();
-        String expectedText = prefix + ELIDED_BLOCK_PLACEHOLDER + suffix;
-        assertEquals(expectedText, redactedMessage.text(), "S/R block should be replaced by placeholder.");
+        String markdown = prefix + createMarkdownMessage("foo.txt", "old", "new") + suffix;
+        assertRedaction(markdown, prefix + ELIDED_BLOCK_PLACEHOLDER + suffix);
     }
 
     @Test
@@ -97,62 +98,45 @@ class CodePromptsRedactionTest {
     @Test
     void handlesMultipleBlocksAndTextSegments() {
         String text1 = "First part of the message.\n";
-        String block1 = createMinimalMessage("file1.txt", "search1", "replace1");
         String text2 = "\nSome intermediate text.\n";
-        String block2 = createMinimalMessage("file2.java", "search2", "replace2");
         String text3 = "\nFinal part.";
+        String expected = text1 + ELIDED_BLOCK_PLACEHOLDER + text2 + ELIDED_BLOCK_PLACEHOLDER + text3;
 
-        String aiText = text1 + block1 + text2 + block2 + text3;
-        AiMessage originalMessage = new AiMessage(aiText);
+        String minimal = text1 + createMinimalMessage("file1.txt", "s1", "r1") + text2
+                + createMinimalMessage("file2.java", "s2", "r2") + text3;
+        assertRedaction(minimal, expected);
 
-        Optional<AiMessage> redactedResult = CodePrompts.redactAiMessage(originalMessage);
-
-        assertTrue(redactedResult.isPresent(), "Message should be present after redaction.");
-        String expectedText = text1 + ELIDED_BLOCK_PLACEHOLDER + text2 + ELIDED_BLOCK_PLACEHOLDER + text3;
-        assertEquals(expectedText, redactedResult.get().text(), "All S/R blocks should be replaced by placeholders.");
+        String markdown = text1 + createMarkdownMessage("file1.txt", "s1", "r1") + text2
+                + createMarkdownMessage("file2.java", "s2", "r2") + text3;
+        assertRedaction(markdown, expected);
     }
 
     @Test
     void handlesMessageWithOnlyMultipleBlocks() {
-        String block1 = createMinimalMessage("file1.txt", "s1", "r1");
-        String block2 = createMinimalMessage("file2.txt", "s2", "r2");
-        // Note: EditBlockParser adds newlines between blocks implicitly if they are not there,
-        // so the redaction will join placeholders.
-        String aiText = block1 + "\n" + block2; // Explicit newline for clarity in test
-        AiMessage originalMessage = new AiMessage(aiText);
+        String expected = ELIDED_BLOCK_PLACEHOLDER + "\n" + ELIDED_BLOCK_PLACEHOLDER;
 
-        Optional<AiMessage> redactedResult = CodePrompts.redactAiMessage(originalMessage);
+        String minimal = createMinimalMessage("file1.txt", "s1", "r1") + "\n"
+                + createMinimalMessage("file2.txt", "s2", "r2");
+        assertRedaction(minimal, expected);
 
-        assertTrue(
-                redactedResult.isPresent(),
-                "Message composed of only S/R blocks but resulting in non-blank placeholder text should be present.");
-        String expectedText = ELIDED_BLOCK_PLACEHOLDER + "\n" + ELIDED_BLOCK_PLACEHOLDER;
-        assertEquals(expectedText, redactedResult.get().text());
+        String markdown = createMarkdownMessage("file1.txt", "s1", "r1") + "\n"
+                + createMarkdownMessage("file2.txt", "s2", "r2");
+        assertRedaction(markdown, expected);
     }
 
     @Test
     void handlesMessageEndingWithBlock() {
         String text = "Text before block\n";
-        String block = createMinimalMessage("file.end", "end_s", "end_r");
-        String aiText = text + block;
-        AiMessage originalMessage = new AiMessage(aiText);
 
-        Optional<AiMessage> redactedResult = CodePrompts.redactAiMessage(originalMessage);
-
-        assertTrue(redactedResult.isPresent());
-        assertEquals(text + ELIDED_BLOCK_PLACEHOLDER, redactedResult.get().text());
+        assertRedaction(text + createMinimalMessage("file.end", "s", "r"), text + ELIDED_BLOCK_PLACEHOLDER);
+        assertRedaction(text + createMarkdownMessage("file.end", "s", "r"), text + ELIDED_BLOCK_PLACEHOLDER);
     }
 
     @Test
     void handlesMessageStartingWithBlock() {
-        String block = createMinimalMessage("file.start", "start_s", "start_r");
         String text = "\nText after block";
-        String aiText = block + text;
-        AiMessage originalMessage = new AiMessage(aiText);
 
-        Optional<AiMessage> redactedResult = CodePrompts.redactAiMessage(originalMessage);
-
-        assertTrue(redactedResult.isPresent());
-        assertEquals(ELIDED_BLOCK_PLACEHOLDER + text, redactedResult.get().text());
+        assertRedaction(createMinimalMessage("file.start", "s", "r") + text, ELIDED_BLOCK_PLACEHOLDER + text);
+        assertRedaction(createMarkdownMessage("file.start", "s", "r") + text, ELIDED_BLOCK_PLACEHOLDER + text);
     }
 }

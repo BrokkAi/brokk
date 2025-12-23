@@ -450,6 +450,105 @@ class EditBlockParserTest {
     }
 
     @Test
+    void testParserStripsFilenamePreambleFromPlainText() {
+        String input =
+                """
+                Here is some introductory text.
+                file.txt
+                <<<<<<< SEARCH
+                old content
+                =======
+                new content
+                >>>>>>> REPLACE
+                """;
+        var result = EditBlockParser.instance.parse(input, Set.of()).blocks();
+
+        assertEquals(2, result.size(), "Should have one plain text block and one edit block");
+
+        // Plain text should NOT include the filename line
+        var plainBlock = result.get(0);
+        assertNotNull(plainBlock.text());
+        assertEquals("Here is some introductory text.\n", plainBlock.text());
+        assertFalse(plainBlock.text().contains("file.txt"), "Filename should be stripped from plain text");
+
+        // Edit block should have the filename
+        var editBlock = result.get(1);
+        assertNotNull(editBlock.block());
+        assertEquals("file.txt", editBlock.block().rawFileName());
+    }
+
+    @Test
+    void testParserStripsFenceAndFilenamePreambleFromPlainText() {
+        String input =
+                """
+                Here is some introductory text.
+                ```
+                file.txt
+                <<<<<<< SEARCH
+                old content
+                =======
+                new content
+                >>>>>>> REPLACE
+                ```
+                """;
+        var result = EditBlockParser.instance.parse(input, Set.of()).blocks();
+
+        assertEquals(2, result.size(), "Should have one plain text block and one edit block");
+
+        // Plain text should NOT include the fence or filename lines
+        var plainBlock = result.get(0);
+        assertNotNull(plainBlock.text());
+        assertEquals("Here is some introductory text.\n", plainBlock.text());
+        assertFalse(plainBlock.text().contains("```"), "Fence should be stripped from plain text");
+        assertFalse(plainBlock.text().contains("file.txt"), "Filename should be stripped from plain text");
+
+        // Edit block should have the filename
+        var editBlock = result.get(1);
+        assertNotNull(editBlock.block());
+        assertEquals("file.txt", editBlock.block().rawFileName());
+    }
+
+    @Test
+    void testParserHandlesMultipleBlocksWithPreambleStripping() {
+        String input =
+                """
+                First part of the message.
+                file1.txt
+                <<<<<<< SEARCH
+                s1
+                =======
+                r1
+                >>>>>>> REPLACE
+                Some intermediate text.
+                file2.java
+                <<<<<<< SEARCH
+                s2
+                =======
+                r2
+                >>>>>>> REPLACE
+                Final part.""";
+        var result = EditBlockParser.instance.parse(input, Set.of()).blocks();
+
+        assertEquals(5, result.size(), "Should have 3 plain text blocks and 2 edit blocks");
+
+        // First plain text
+        assertEquals("First part of the message.\n", result.get(0).text());
+
+        // First edit block
+        assertEquals("file1.txt", result.get(1).block().rawFileName());
+
+        // Middle plain text - should not contain filename
+        assertEquals("Some intermediate text.\n", result.get(2).text());
+        assertFalse(result.get(2).text().contains("file2.java"));
+
+        // Second edit block
+        assertEquals("file2.java", result.get(3).block().rawFileName());
+
+        // Final plain text
+        assertEquals("Final part.", result.get(4).text());
+    }
+
+    @Test
     void testContextManagerRedactionExampleParsesToSingleBlock() {
         // This mirrors the snippet from ContextManagerRedactionTest.java in the goal:
         // a single fenced SEARCH/REPLACE block targeting that file path.
