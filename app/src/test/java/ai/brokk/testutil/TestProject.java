@@ -179,8 +179,6 @@ public class TestProject implements IProject {
                 .flatMap(lang -> lang.getExtensions().stream())
                 .collect(Collectors.toSet());
 
-        return getAllFiles().stream()
-                .map(ProjectFile::extension)
-                .noneMatch(analyzableExtensions::contains);
+        return getAllFiles().stream().map(ProjectFile::extension).noneMatch(analyzableExtensions::contains);
     }
 }

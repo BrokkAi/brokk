@@ -282,8 +282,6 @@ public final class WorktreeProject extends AbstractProject {
                 .flatMap(lang -> lang.getExtensions().stream())
                 .collect(Collectors.toSet());
 
-        return getAllFiles().stream()
-                .map(ProjectFile::extension)
-                .noneMatch(analyzableExtensions::contains);
+        return getAllFiles().stream().map(ProjectFile::extension).noneMatch(analyzableExtensions::contains);
     }
 }

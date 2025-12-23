@@ -17,8 +17,7 @@ import org.junit.jupiter.api.Test;
  */
 class OnboardingOrchestratorTest {
     // Platform-independent absolute path for testing
-    private static final Path TEST_ROOT =
-            assertExistingTestRoot(Path.of(System.getProperty("java.io.tmpdir"), "test"));
+    private static final Path TEST_ROOT = assertExistingTestRoot(Path.of(System.getProperty("java.io.tmpdir"), "test"));
 
     private static Path assertExistingTestRoot(Path preferred) {
         if (java.nio.file.Files.isDirectory(preferred)) {

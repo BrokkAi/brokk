@@ -2266,14 +2266,13 @@ public final class MainProject extends AbstractProject {
      * This intentionally ignores configuration files like AGENTS.md, .brokk/**,
      * .gitignore, etc. since those don't have analyzable extensions.
      */
+    @Override
     public boolean isEmptyProject() {
         Set<String> analyzableExtensions = Languages.ALL_LANGUAGES.stream()
                 .filter(lang -> lang != Languages.NONE)
                 .flatMap(lang -> lang.getExtensions().stream())
                 .collect(Collectors.toSet());
 
-        return getAllFiles().stream()
-                .map(ProjectFile::extension)
-                .noneMatch(analyzableExtensions::contains);
+        return getAllFiles().stream().map(ProjectFile::extension).noneMatch(analyzableExtensions::contains);
     }
 }

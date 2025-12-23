@@ -481,7 +481,8 @@ public class SettingsProjectBuildPanel extends JPanel {
                     publish("--- Verifying Build/Lint Command ---\n");
                     publish("$ " + buildCmd + "\n");
                     var envVars = computeEnvFromUi();
-                    var result = BuildVerifier.verifyStreaming(project, buildCmd, envVars, line -> publish(line + "\n"));
+                    var result =
+                            BuildVerifier.verifyStreaming(project, buildCmd, envVars, line -> publish(line + "\n"));
                     if (result.success()) {
                         publish("\nSUCCESS: Build/Lint command completed successfully.\n\n");
                     } else {

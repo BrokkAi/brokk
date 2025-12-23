@@ -1,5 +1,7 @@
 package ai.brokk.util;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import ai.brokk.project.IProject;
 import java.nio.file.Path;
 import java.util.Map;
@@ -8,8 +10,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 class BuildVerifierTest {
 

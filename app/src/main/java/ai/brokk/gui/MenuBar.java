@@ -176,7 +176,8 @@ public class MenuBar {
                 SwingUtilities.invokeLater(
                         () -> new Brokk.OpenProjectBuilder(projectPath).open().exceptionally(ex -> {
                             chrome.toolError(
-                                    "Failed to open project: " + (ex.getMessage() == null ? ex.toString() : ex.getMessage()),
+                                    "Failed to open project: "
+                                            + (ex.getMessage() == null ? ex.toString() : ex.getMessage()),
                                     "New Project");
                             return false;
                         }));
