@@ -18,10 +18,22 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class EditBlockTest {
+    @BeforeEach
+    void setupEach() {
+        SyntaxAwareConfig.setSyntaxAwareExtensions(Set.of("java"));
+    }
+
+    @AfterEach
+    void teardownEach() {
+        SyntaxAwareConfig.resetSyntaxAwareExtensions();
+    }
+
     @Test
     void testParseEditBlocksSimple() {
         String edit =
@@ -334,14 +346,6 @@ class EditBlockTest {
         var result = EditBlockParser.instance.parseEditBlocks(edit, ctx.getFilesInContext());
         assertEquals(1, result.blocks().size());
         assertNull(result.blocks().getFirst().rawFileName());
-    }
-
-    /** Test detection of a possible "mangled" or fuzzy filename match. */
-    @Test
-    void testResolveFilenameIgnoreCase(@TempDir Path tempDir) throws EditBlock.SymbolResolutionException {
-        TestContextManager cm = new TestContextManager(tempDir, Set.of("foo.txt"));
-        var f = EditBlock.resolveProjectFile(cm.liveContext(), "fOo.TXt");
-        assertEquals("foo.txt", f.getFileName());
     }
 
     @Test
@@ -669,7 +673,7 @@ class EditBlockTest {
 
         TestContextManager cm = new TestContextManager(tempDir, Set.of("src%sfoo.txt".formatted(sep)));
 
-        ProjectFile pf = EditBlock.resolveProjectFile(cm.liveContext(), "%ssrc%sfoo.txt".formatted(sep, sep));
+        ProjectFile pf = EditBlock.resolveProjectFile(cm.liveContext(), "%ssrc%sfoo.txt".formatted(sep, sep), false);
         assertEquals("foo.txt", pf.getFileName());
         assertEquals(filePath, pf.absPath());
     }
@@ -680,7 +684,79 @@ class EditBlockTest {
         TestContextManager cm = new TestContextManager(tempDir, Set.of());
         assertThrows(
                 EditBlock.SymbolInvalidException.class,
-                () -> EditBlock.resolveProjectFile(cm.liveContext(), "%ssrc%sfoo.txt".formatted(sep, sep)));
+                () -> EditBlock.resolveProjectFile(cm.liveContext(), "%ssrc%sfoo.txt".formatted(sep, sep), false));
+    }
+
+    @Test
+    void testResolveFilenameBasics(@TempDir Path tempDir) throws Exception {
+        // Create the file so Context metadata lookups don't fail/log exceptions
+        Path fooPath = tempDir.resolve("src/Foo.java");
+        Files.createDirectories(fooPath.getParent());
+        Files.writeString(fooPath, "content");
+
+        TestContextManager cm = new TestContextManager(tempDir, Set.of("src/Foo.java"));
+        var ctx = cm.liveContext();
+
+        // 1. Comment stripping
+        assertEquals(
+                "Foo.java",
+                EditBlock.resolveProjectFile(ctx, "// src/Foo.java", false).getFileName());
+        assertEquals(
+                "Foo.java",
+                EditBlock.resolveProjectFile(ctx, "# src/Foo.java", false).getFileName());
+        // Test leading slash stripping (often used by LLMs as a project-root relative indicator)
+        assertEquals(
+                "Foo.java",
+                EditBlock.resolveProjectFile(ctx, "src/Foo.java", false).getFileName());
+
+        // 2. Blank/Null handling
+        assertThrows(EditBlock.SymbolInvalidException.class, () -> EditBlock.resolveProjectFile(ctx, null, false));
+        assertThrows(EditBlock.SymbolInvalidException.class, () -> EditBlock.resolveProjectFile(ctx, "", false));
+        assertThrows(EditBlock.SymbolInvalidException.class, () -> EditBlock.resolveProjectFile(ctx, "   ", false));
+
+        // 3. maybeNewFile flag
+        // Should return the file regardless of existence if maybeNewFile is true
+        var nonExistent = EditBlock.resolveProjectFile(ctx, "New.java", true);
+        assertEquals("New.java", nonExistent.getFileName());
+        assertFalse(nonExistent.exists());
+
+        // 4. Case where file doesn't exist and maybeNewFile is false, and not in context
+        // It still returns the ProjectFile (it's up to the app to handle non-existence later)
+        var missing = EditBlock.resolveProjectFile(ctx, "Missing.java", false);
+        assertEquals("Missing.java", missing.getFileName());
+    }
+
+    @Test
+    void testResolveFilenameFromContextFragments(@TempDir Path tempDir) throws Exception {
+        // Setup: One file exists on disk, another is "editable" (in fragments) but maybe doesn't exist yet
+        Path existingPath = tempDir.resolve("src/Existing.java");
+        Files.createDirectories(existingPath.getParent());
+        Files.writeString(existingPath, "public class Existing {}");
+
+        // We simulate a context where "MissingInDir.java" is an editable file
+        TestContextManager cm = new TestContextManager(tempDir, Set.of("src/Existing.java", "other/MissingInDir.java"));
+        var ctx = cm.liveContext();
+
+        // Match existing file by partial name
+        assertEquals(
+                existingPath,
+                EditBlock.resolveProjectFile(ctx, "Existing.java", false).absPath());
+
+        // Match non-existent file that is present in editable fragments
+        assertEquals(
+                "MissingInDir.java",
+                EditBlock.resolveProjectFile(ctx, "MissingInDir.java", false).getFileName());
+
+        // Ambiguous match in fragments should throw
+        Path dupDir = tempDir.resolve("dup");
+        Files.createDirectories(dupDir);
+        Files.writeString(dupDir.resolve("Existing.java"), "another one");
+
+        TestContextManager cmAmbiguous =
+                new TestContextManager(tempDir, Set.of("src/Existing.java", "dup/Existing.java"));
+        assertThrows(
+                EditBlock.SymbolAmbiguousException.class,
+                () -> EditBlock.resolveProjectFile(cmAmbiguous.liveContext(), "Existing.java", false));
     }
 
     @Test
@@ -711,8 +787,8 @@ class EditBlockTest {
                         "app/src/main/java/ai/brokk/util/IndentUtil.java",
                         "app/src/test/java/ai/brokk/util/IndentUtil.java"));
 
-        var resolved =
-                EditBlock.resolveProjectFile(ctx.liveContext(), "app/src/test/java/ai/brokk/util/IndentUtil.java");
+        var resolved = EditBlock.resolveProjectFile(
+                ctx.liveContext(), "app/src/test/java/ai/brokk/util/IndentUtil.java", false);
         assertEquals(testUtilDir.resolve("IndentUtil.java"), resolved.absPath());
     }
 
@@ -750,6 +826,32 @@ class EditBlockTest {
 
         // And no failures
         assertTrue(result.failedBlocks().isEmpty(), "No failures expected");
+    }
+
+    @Test
+    void testResolveAmbiguousBasenameThrowsException(@TempDir Path tempDir) throws Exception {
+        Path dir1 = tempDir.resolve("alpha");
+        Path dir2 = tempDir.resolve("beta");
+        Files.createDirectories(dir1);
+        Files.createDirectories(dir2);
+
+        Path file1 = dir1.resolve("Common.java");
+        Path file2 = dir2.resolve("Common.java");
+        Files.writeString(file1, "one");
+        Files.writeString(file2, "two");
+
+        // We simulate these being in the editable fragments
+        TestContextManager cm = new TestContextManager(tempDir, Set.of("alpha/Common.java", "beta/Common.java"));
+        var ctx = cm.liveContext();
+
+        // Providing just "Common.java" when two matching files exist in context should be ambiguous
+        assertThrows(
+                EditBlock.SymbolAmbiguousException.class,
+                () -> EditBlock.resolveProjectFile(ctx, "Common.java", false));
+
+        // Providing enough path to disambiguate should work
+        var resolved = EditBlock.resolveProjectFile(ctx, "alpha/Common.java", false);
+        assertEquals(file1, resolved.absPath());
     }
 
     // ----------------------------------------------------

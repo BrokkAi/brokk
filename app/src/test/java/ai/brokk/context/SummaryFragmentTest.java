@@ -6,8 +6,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.ContextFragment.SummaryFragment;
 import ai.brokk.context.ContextFragment.SummaryType;
+import ai.brokk.context.ContextFragments.SummaryFragment;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;

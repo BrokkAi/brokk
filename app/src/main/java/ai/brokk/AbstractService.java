@@ -456,10 +456,6 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         return builder.build();
     }
 
-    public @Nullable StreamingChatModel getModel(String modelName) {
-        return getModel(new ModelConfig(modelName, ReasoningLevel.DEFAULT));
-    }
-
     public @Nullable StreamingChatModel getModel(ModelConfig config) {
         return getModel(config, null);
     }

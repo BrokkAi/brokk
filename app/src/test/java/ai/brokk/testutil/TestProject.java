@@ -25,6 +25,7 @@ public class TestProject implements IProject {
     private BuildAgent.BuildDetails buildDetails = BuildAgent.BuildDetails.EMPTY;
     private IProject.CodeAgentTestScope codeAgentTestScope = IProject.CodeAgentTestScope.WORKSPACE;
     private String styleGuide = "";
+    private Set<String> exclusionPatterns = Set.of();
     private boolean hasGit = false;
 
     public TestProject(Path root) {
@@ -69,6 +70,15 @@ public class TestProject implements IProject {
 
     public void setStyleGuide(String styleGuide) {
         this.styleGuide = styleGuide;
+    }
+
+    public void setExclusionPatterns(Set<String> patterns) {
+        this.exclusionPatterns = patterns;
+    }
+
+    @Override
+    public Set<String> getExclusionPatterns() {
+        return exclusionPatterns;
     }
 
     public void setHasGit(boolean hasGit) {

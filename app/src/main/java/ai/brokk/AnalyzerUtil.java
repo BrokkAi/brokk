@@ -8,6 +8,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -216,15 +217,15 @@ public class AnalyzerUtil {
     /**
      * Builds a fragment for a single file selection.
      *
-     * <p>When {@code summarize} is true, a {@link ContextFragment.SummaryFragment} is returned with
+     * <p>When {@code summarize} is true, a {@link ContextFragments.SummaryFragment} is returned with
      * {@link ContextFragment.SummaryType#FILE_SKELETONS}. Otherwise returns a
-     * {@link ContextFragment.ProjectPathFragment}.
+     * {@link ContextFragments.ProjectPathFragment}.
      *
      * @param cm the context manager used to resolve the {@link ProjectFile} and construct fragments
      * @param input a project-relative path (normalized internally); blank or non-project paths yield empty
-     * @param summarize whether to create a summary ({@link ContextFragment.SummaryFragment}) instead of a file fragment
-     * @return an Optional containing either {@link ContextFragment.ProjectPathFragment} or
-     *         {@link ContextFragment.SummaryFragment}; empty if the file is not part of the project
+     * @param summarize whether to create a summary ({@link ContextFragments.SummaryFragment}) instead of a file fragment
+     * @return an Optional containing either {@link ContextFragments.ProjectPathFragment} or
+     *         {@link ContextFragments.SummaryFragment}; empty if the file is not part of the project
      */
     public static Optional<ContextFragment> selectFileFragment(IContextManager cm, String input, boolean summarize) {
         ProjectFile chosen = cm.toFile(input);
@@ -233,23 +234,23 @@ public class AnalyzerUtil {
         }
 
         ContextFragment frag = summarize
-                ? new ContextFragment.SummaryFragment(
+                ? new ContextFragments.SummaryFragment(
                         cm, chosen.getRelPath().toString(), ContextFragment.SummaryType.FILE_SKELETONS)
-                : new ContextFragment.ProjectPathFragment(chosen, cm);
+                : new ContextFragments.ProjectPathFragment(chosen, cm);
         return Optional.of(frag);
     }
 
     /**
      * Builds fragments for a folder selection.
      *
-     * <p>When {@code summarize} is true, a {@link ContextFragment.SummaryFragment} is created per file with
+     * <p>When {@code summarize} is true, a {@link ContextFragments.SummaryFragment} is created per file with
      * {@link ContextFragment.SummaryType#FILE_SKELETONS}. Otherwise returns a
-     * {@link ContextFragment.ProjectPathFragment} per file.
+     * {@link ContextFragments.ProjectPathFragment} per file.
      *
      * @param cm the context manager used to resolve files and construct fragments
      * @param input a project-relative folder path (various separators and leading/trailing slashes are normalized)
      * @param includeSubfolders if true, include files in subdirectories; otherwise only direct children are included
-     * @param summarize whether to return summary fragments ({@link ContextFragment.SummaryFragment}) instead of file fragments
+     * @param summarize whether to return summary fragments ({@link ContextFragments.SummaryFragment}) instead of file fragments
      * @return an ordered Set of fragments (one per file) or an empty set if no files matched
      */
     public static Set<ContextFragment> selectFolderFragments(
@@ -286,13 +287,13 @@ public class AnalyzerUtil {
 
         if (summarize) {
             return selected.stream()
-                    .map(pf -> (ContextFragment) new ContextFragment.SummaryFragment(
+                    .map(pf -> (ContextFragment) new ContextFragments.SummaryFragment(
                             cm, pf.getRelPath().toString(), ContextFragment.SummaryType.FILE_SKELETONS))
                     .collect(Collectors.toCollection(LinkedHashSet::new));
         }
 
         return selected.stream()
-                .map(pf -> (ContextFragment) new ContextFragment.ProjectPathFragment(pf, cm))
+                .map(pf -> (ContextFragment) new ContextFragments.ProjectPathFragment(pf, cm))
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
@@ -306,14 +307,14 @@ public class AnalyzerUtil {
      *   <li>Fallback scan of all declarations for matching short or fully qualified name</li>
      * </ol>
      *
-     * <p>When {@code summarize} is true, returns a {@link ContextFragment.SummaryFragment} with
-     * {@link ContextFragment.SummaryType#CODEUNIT_SKELETON}; otherwise returns a {@link ContextFragment.CodeFragment}.
+     * <p>When {@code summarize} is true, returns a {@link ContextFragments.SummaryFragment} with
+     * {@link ContextFragment.SummaryType#CODEUNIT_SKELETON}; otherwise returns a {@link ContextFragments.CodeFragment}.
      *
      * @param analyzer the analyzer used to resolve definitions; if null, returns empty
      * @param cm the context manager used to construct fragments
      * @param input a class name (short or fully qualified)
-     * @param summarize whether to return a summary ({@link ContextFragment.SummaryFragment}) instead of a code fragment
-     * @return an Optional containing {@link ContextFragment.CodeFragment} or {@link ContextFragment.SummaryFragment};
+     * @param summarize whether to return a summary ({@link ContextFragments.SummaryFragment}) instead of a code fragment
+     * @return an Optional containing {@link ContextFragments.CodeFragment} or {@link ContextFragments.SummaryFragment};
      *         empty if no matching class is found
      */
     public static Optional<ContextFragment> selectClassFragment(
@@ -343,8 +344,8 @@ public class AnalyzerUtil {
 
         CodeUnit cu = opt.get();
         ContextFragment frag = summarize
-                ? new ContextFragment.SummaryFragment(cm, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON)
-                : new ContextFragment.CodeFragment(cm, cu);
+                ? new ContextFragments.SummaryFragment(cm, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON)
+                : new ContextFragments.CodeFragment(cm, cu);
         return Optional.of(frag);
     }
 
@@ -360,14 +361,14 @@ public class AnalyzerUtil {
      *   <li>Fallback scan of members of all classes</li>
      * </ol>
      *
-     * <p>When {@code summarize} is true, returns a {@link ContextFragment.SummaryFragment} with
-     * {@link ContextFragment.SummaryType#CODEUNIT_SKELETON}; otherwise returns a {@link ContextFragment.CodeFragment}.
+     * <p>When {@code summarize} is true, returns a {@link ContextFragments.SummaryFragment} with
+     * {@link ContextFragment.SummaryType#CODEUNIT_SKELETON}; otherwise returns a {@link ContextFragments.CodeFragment}.
      *
      * @param analyzer the analyzer used to resolve definitions; if null, returns empty
      * @param cm the context manager used to construct fragments
      * @param input a method name (short or fully qualified)
-     * @param summarize whether to return a summary ({@link ContextFragment.SummaryFragment}) instead of a code fragment
-     * @return an Optional containing {@link ContextFragment.CodeFragment} or {@link ContextFragment.SummaryFragment};
+     * @param summarize whether to return a summary ({@link ContextFragments.SummaryFragment}) instead of a code fragment
+     * @return an Optional containing {@link ContextFragments.CodeFragment} or {@link ContextFragments.SummaryFragment};
      *         empty if no matching method is found
      */
     public static Optional<ContextFragment> selectMethodFragment(
@@ -422,8 +423,8 @@ public class AnalyzerUtil {
 
         CodeUnit cu = opt.get();
         ContextFragment frag = summarize
-                ? new ContextFragment.SummaryFragment(cm, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON)
-                : new ContextFragment.CodeFragment(cm, cu);
+                ? new ContextFragments.SummaryFragment(cm, cu.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON)
+                : new ContextFragments.CodeFragment(cm, cu);
         return Optional.of(frag);
     }
 
@@ -431,17 +432,17 @@ public class AnalyzerUtil {
      * Builds a fragment for a usage selection.
      *
      * <p>If the input resolves to a method and {@code summarize} is true, returns a
-     * {@link ContextFragment.CallGraphFragment} showing callees at depth 1. Otherwise returns a
-     * {@link ContextFragment.UsageFragment}. If no symbol can be resolved, a {@link ContextFragment.UsageFragment}
+     * {@link ContextFragments.CallGraphFragment} showing callees at depth 1. Otherwise returns a
+     * {@link ContextFragments.UsageFragment}. If no symbol can be resolved, a {@link ContextFragments.UsageFragment}
      * is still created using the raw input.
      *
      * @param analyzer the analyzer used to resolve the target symbol; if null, returns empty
      * @param cm the context manager used to construct fragments
      * @param input a symbol identifier (short or fully qualified); blank yields empty
-     * @param includeTestFiles whether to include tests when building the {@link ContextFragment.UsageFragment}
-     * @param summarize whether to return a {@link ContextFragment.CallGraphFragment} for a method target
-     * @return an Optional containing {@link ContextFragment.CallGraphFragment} (for summarize+method) or
-     *         {@link ContextFragment.UsageFragment}; empty if analyzer is null or input is blank
+     * @param includeTestFiles whether to include tests when building the {@link ContextFragments.UsageFragment}
+     * @param summarize whether to return a {@link ContextFragments.CallGraphFragment} for a method target
+     * @return an Optional containing {@link ContextFragments.CallGraphFragment} (for summarize+method) or
+     *         {@link ContextFragments.UsageFragment}; empty if analyzer is null or input is blank
      */
     public static Optional<ContextFragment> selectUsageFragment(
             IAnalyzer analyzer, IContextManager cm, String input, boolean includeTestFiles, boolean summarize) {
@@ -458,11 +459,11 @@ public class AnalyzerUtil {
 
         if (summarize && any.isPresent() && any.get().isFunction()) {
             var methodFqn = any.get().fqName();
-            return Optional.of(new ContextFragment.CallGraphFragment(cm, methodFqn, 1, false));
+            return Optional.of(new ContextFragments.CallGraphFragment(cm, methodFqn, 1, false));
         }
 
         var target = any.map(CodeUnit::fqName).orElse(input);
-        return Optional.of(new ContextFragment.UsageFragment(cm, target, includeTestFiles));
+        return Optional.of(new ContextFragments.UsageFragment(cm, target, includeTestFiles));
     }
 
     public record CodeWithSource(String code, CodeUnit source) {

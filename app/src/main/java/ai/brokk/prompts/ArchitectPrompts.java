@@ -1,6 +1,5 @@
 package ai.brokk.prompts;
 
-import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
@@ -30,30 +29,12 @@ public abstract class ArchitectPrompts extends CodePrompts {
     @Override
     @Blocking
     public SystemMessage systemMessage(IContextManager cm, String reminder) {
-        var workspaceSummary = formatWorkspaceToc(cm.liveContext());
-        var styleGuide = resolveAggregatedStyleGuide(cm, cm.liveContext());
-
-        var text =
-                """
-          <instructions>
-          %s
-          </instructions>
-          <workspace-toc>
-          %s
-          </workspace-toc>
-          <style_guide>
-          %s
-          </style_guide>
-          """
-                        .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
-                        .trim();
-        return new SystemMessage(text);
+        return systemMessage(cm, cm.liveContext(), reminder);
     }
 
     @Override
     @Blocking
     public SystemMessage systemMessage(IContextManager cm, Context ctx, String reminder) {
-        var workspaceSummary = formatWorkspaceToc(ctx);
         var styleGuide = resolveAggregatedStyleGuide(cm, ctx);
 
         var text =
@@ -61,14 +42,11 @@ public abstract class ArchitectPrompts extends CodePrompts {
           <instructions>
           %s
           </instructions>
-          <workspace-toc>
-          %s
-          </workspace-toc>
           <style_guide>
           %s
           </style_guide>
           """
-                        .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
+                        .formatted(systemIntro(reminder), styleGuide)
                         .trim();
         return new SystemMessage(text);
     }
@@ -172,7 +150,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
         """;
     }
 
-    public String getFinalInstructions(ContextManager cm, String goal, int workspaceTokenSize, int maxInputTokens) {
+    public String getFinalInstructions(Context ctx, String goal, int workspaceTokenSize, int maxInputTokens) {
         String workspaceWarning = "";
         if (maxInputTokens > 0) {
             double criticalLimit = WORKSPACE_CRITICAL_THRESHOLD * maxInputTokens;
@@ -241,7 +219,11 @@ public abstract class ArchitectPrompts extends CodePrompts {
 
             %s
             """
-                .formatted(goal, formatWorkspaceToc(cm.liveContext()), workspaceWarning);
+                .formatted(goal, formatWorkspaceToc(ctx), workspaceWarning);
+    }
+
+    public static String instructionsMarker() {
+        return "Please decide the next tool action(s) to make progress towards resolving the goal.";
     }
 
     /**

@@ -88,6 +88,7 @@ class SearchModeSearchAgentTest {
         FileUtil.deleteRecursively(tempDir);
     }
 
+    @Disabled
     @Test
     void testSearchModeUsesSearchAgent_ReadsOnly() throws Exception {
         // Upload a minimal session

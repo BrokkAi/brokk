@@ -46,7 +46,7 @@ public class UsageFragmentDecodeTest {
                     </methods>
                     """;
 
-            var frag = new ContextFragment.UsageFragment("42", cm, "p1.A.m1", true, frozen);
+            var frag = new ContextFragments.UsageFragment("42", cm, "p1.A.m1", true, frozen);
 
             var files = frag.files().join();
             var sources = frag.sources().join();
@@ -96,7 +96,7 @@ public class UsageFragmentDecodeTest {
                     </methods>
                     """;
 
-            var frag = new ContextFragment.UsageFragment("99", cm, "whatever.Symbol", true, frozen);
+            var frag = new ContextFragments.UsageFragment("99", cm, "whatever.Symbol", true, frozen);
 
             assertTrue(frag.files().join().isEmpty(), "files should be empty for malformed/missing attributes");
             assertTrue(frag.sources().join().isEmpty(), "sources should be empty for malformed/missing attributes");
@@ -131,7 +131,7 @@ public class UsageFragmentDecodeTest {
                     </methods>
                     """;
 
-            var frag = new ContextFragment.UsageFragment("100", cm, "p1.A.m1", true, frozen);
+            var frag = new ContextFragments.UsageFragment("100", cm, "p1.A.m1", true, frozen);
 
             var files = frag.files().join();
             var sources = frag.sources().join();

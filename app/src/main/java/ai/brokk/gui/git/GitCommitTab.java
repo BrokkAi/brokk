@@ -4,7 +4,7 @@ import ai.brokk.*;
 import ai.brokk.agents.ConflictInspector;
 import ai.brokk.agents.MergeAgent;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
@@ -730,11 +730,11 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                         .liveContext()
                         .fileFragments()
                         .filter(f ->
-                                f instanceof ContextFragment.ProjectPathFragment ppf && newFiles.contains(ppf.file()))
+                                f instanceof ContextFragments.ProjectPathFragment ppf && newFiles.contains(ppf.file()))
                         .toList();
                 var deletedFilesInfo = fragmentsForNewFiles.stream()
                         .map(f -> {
-                            var ppf = (ContextFragment.ProjectPathFragment) f;
+                            var ppf = (ContextFragments.ProjectPathFragment) f;
                             try {
                                 ProjectFile pf = ppf.file();
                                 return new ContextHistory.DeletedFile(
@@ -787,7 +787,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                     var fragmentsToDrop = contextManager
                             .liveContext()
                             .fileFragments()
-                            .filter(f -> f instanceof ContextFragment.ProjectPathFragment ppf
+                            .filter(f -> f instanceof ContextFragments.ProjectPathFragment ppf
                                     && otherFilesToDrop.contains(ppf.file()))
                             .toList();
                     if (!fragmentsToDrop.isEmpty()) {

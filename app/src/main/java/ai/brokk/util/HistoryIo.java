@@ -7,6 +7,7 @@ import ai.brokk.context.ContentDtos.DiffContentMetadataDto;
 import ai.brokk.context.ContentDtos.FullContentMetadataDto;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.DtoMapper;
 import ai.brokk.context.FragmentDtos.*;
@@ -256,7 +257,7 @@ public final class HistoryIo {
                 })
                 .filter(Objects::nonNull)
                 .max(Integer::compareTo)
-                .ifPresent(maxId -> ContextFragment.setMinimumId(maxId + 1));
+                .ifPresent(maxId -> ContextFragments.setMinimumId(maxId + 1));
 
         var contexts = new ArrayList<Context>();
         for (String line : compactContextDtoLines) {
@@ -293,7 +294,7 @@ public final class HistoryIo {
         var collectedVirtualDtos = new HashMap<String, VirtualFragmentDto>();
         var collectedTaskDtos = new HashMap<String, TaskFragmentDto>();
         var imageDomainFragments = new HashSet<ContextFragment.ImageFragment>();
-        var pastedImageFragments = new HashSet<ContextFragment.AnonymousImageFragment>();
+        var pastedImageFragments = new HashSet<ContextFragments.AnonymousImageFragment>();
 
         for (Context ctx : ch.getHistory()) {
             ctx.fileFragments().forEach(fragment -> {
@@ -302,21 +303,21 @@ public final class HistoryIo {
                 }
             });
             ctx.virtualFragments().forEach(vf -> {
-                if (vf instanceof ContextFragment.TaskFragment taskFragment) {
+                if (vf instanceof ContextFragments.TaskFragment taskFragment) {
                     if (!collectedTaskDtos.containsKey(taskFragment.id())) {
                         collectedTaskDtos.put(taskFragment.id(), DtoMapper.toTaskFragmentDto(taskFragment, writer));
                     }
                 } else if (!collectedVirtualDtos.containsKey(vf.id())) {
                     collectedVirtualDtos.put(vf.id(), DtoMapper.toVirtualFragmentDto(vf, writer));
                     if (vf instanceof ContextFragment.ImageFragment ff && !ff.isText()) {
-                        if (vf instanceof ContextFragment.AnonymousImageFragment aif) {
+                        if (vf instanceof ContextFragments.AnonymousImageFragment aif) {
                             pastedImageFragments.add(aif);
                         } else {
                             imageDomainFragments.add(ff);
                         }
                     }
 
-                    if (vf instanceof ContextFragment.HistoryFragment hf) {
+                    if (vf instanceof ContextFragments.HistoryFragment hf) {
                         hf.entries().stream()
                                 .map(TaskEntry::log)
                                 .filter(Objects::nonNull)
