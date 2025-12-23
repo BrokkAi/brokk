@@ -50,7 +50,6 @@ public class ArchitectAgent {
     private static final Logger logger = LogManager.getLogger(ArchitectAgent.class);
 
     private final IConsoleIO io;
-    private final ai.brokk.metrics.WorkflowMetrics workflowMetrics;
 
     // Lock to ensure only one SearchAgent streams output at a time during parallel execution
     private final AtomicBoolean searchAgentEchoInUse = new AtomicBoolean(false);
@@ -105,15 +104,6 @@ public class ArchitectAgent {
         this.io = contextManager.getIo();
         this.scope = scope;
         this.context = contextManager.liveContext();
-        this.workflowMetrics = ai.brokk.metrics.WorkflowMetrics.create();
-        this.workflowMetrics.setWorkflowType("architect");
-    }
-
-    /**
-     * Get the workflow metrics collector for this agent.
-     */
-    public ai.brokk.metrics.WorkflowMetrics getWorkflowMetrics() {
-        return workflowMetrics;
     }
 
     /**

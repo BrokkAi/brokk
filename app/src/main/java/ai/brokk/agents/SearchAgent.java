@@ -145,7 +145,6 @@ public class SearchAgent {
     private final Objective objective;
     private final List<McpPrompts.McpTool> mcpTools;
     private final SearchMetrics metrics;
-    private final ai.brokk.metrics.WorkflowMetrics workflowMetrics;
     private final ScanConfig scanConfig;
     private boolean scanAlreadyPerformed = false;
 
@@ -197,7 +196,6 @@ public class SearchAgent {
         this.metrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))
                 ? SearchMetrics.tracking()
                 : SearchMetrics.noOp();
-        this.workflowMetrics = ai.brokk.metrics.WorkflowMetrics.create();
 
         var mcpConfig = cm.getProject().getMcpConfig();
         List<McpPrompts.McpTool> tools = new ArrayList<>();
@@ -977,41 +975,29 @@ public class SearchAgent {
      */
     @Blocking
     public Context scanInitialContext(StreamingChatModel model, boolean appendToScope) throws InterruptedException {
-        workflowMetrics.startSubphase("context_scan_total");
-
         // Prune initial workspace when not empty
-        workflowMetrics.startSubphase("initial_pruning");
         performInitialPruningTurn(model);
-        workflowMetrics.endSubphase("initial_pruning");
 
         Set<ProjectFile> filesBeforeScan = getWorkspaceFileSet();
 
         var contextAgent = new ContextAgent(cm, model, goal, this.io);
         io.llmOutput("\n**Brokk Context Engine** analyzing repository context…\n", ChatMessageType.AI, true, false);
 
-        workflowMetrics.startSubphase("context_agent_llm");
         var recommendation = contextAgent.getRecommendations(context);
-        workflowMetrics.endSubphase("context_agent_llm");
-
         var md = recommendation.metadata();
-        workflowMetrics.recordTokenUsage("context_scan", md);
         var meta = new TaskResult.TaskMeta(TaskResult.Type.CONTEXT, Service.ModelConfig.from(model, cm.getService()));
 
         if (!recommendation.success() || recommendation.fragments().isEmpty()) {
             io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.AI);
             var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
             metrics.recordContextScan(0, false, Set.of(), md);
-            workflowMetrics.incrementCounter("files_added_from_scan", 0);
             if (appendToScope) {
                 context = scope.append(contextAgentResult);
             } else {
                 context = contextAgentResult.context();
             }
-            workflowMetrics.endSubphase("context_scan_total");
             return context;
         }
-
-        workflowMetrics.startSubphase("workspace_modification");
         var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
         // use `this.model` (search model) not `model` (scan model) here
         int finalBudget = cm.getService().getMaxInputTokens(this.model) / 2 - Messages.getApproximateTokens(context);
@@ -1034,7 +1020,6 @@ public class SearchAgent {
                     "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.\n",
                     ChatMessageType.AI);
         }
-        workflowMetrics.endSubphase("workspace_modification");
 
         // create a history entry and return it
         var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
@@ -1044,21 +1029,12 @@ public class SearchAgent {
         Set<ProjectFile> filesAdded = new HashSet<>(filesAfterScan);
         filesAdded.removeAll(filesBeforeScan);
         metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
-        workflowMetrics.incrementCounter("files_added_from_scan", filesAdded.size());
         if (appendToScope) {
             context = scope.append(contextAgentResult);
         } else {
             context = contextAgentResult.context();
         }
-        workflowMetrics.endSubphase("context_scan_total");
         return context;
-    }
-
-    /**
-     * Get the workflow metrics collector for this agent.
-     */
-    public ai.brokk.metrics.WorkflowMetrics getWorkflowMetrics() {
-        return workflowMetrics;
     }
 
     /**
