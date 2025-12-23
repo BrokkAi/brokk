@@ -65,6 +65,18 @@ public interface IProject extends AutoCloseable {
     }
 
     /**
+     * Returns true if this project contains no analyzable source files.
+     * A project is considered "empty" when none of its files have extensions
+     * matching any language in Languages.ALL_LANGUAGES (excluding NONE).
+     *
+     * This intentionally ignores configuration files like AGENTS.md, .brokk/**,
+     * .gitignore, etc. since those don't have analyzable extensions.
+     */
+    default boolean isEmptyProject() {
+        return false;
+    }
+
+    /**
      * Gets all analyzable files for the given language after gitignore and baseline filtering.
      * This method returns files that should be analyzed by the language-specific analyzer,
      * excluding files that are ignored by .gitignore or baseline exclusions.

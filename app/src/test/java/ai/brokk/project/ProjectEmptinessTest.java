@@ -3,6 +3,7 @@ package ai.brokk.project;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.project.IProject;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -133,5 +134,23 @@ class ProjectEmptinessTest {
 
         var project = new TestProject(tempDir);
         assertFalse(project.isEmptyProject(), "Directory with a .rs file should NOT be considered empty");
+    }
+
+    @Test
+    void isEmptyProject_interfaceDefaultReturnsFalse() {
+        IProject minimalProject = new IProject() {
+            @Override
+            public Path getRoot() {
+                return Path.of("/tmp");
+            }
+
+            @Override
+            public Path getMasterRootPathForConfig() {
+                return Path.of("/tmp");
+            }
+        };
+        assertFalse(
+                minimalProject.isEmptyProject(),
+                "IProject default implementation should return false (assume not empty)");
     }
 }
