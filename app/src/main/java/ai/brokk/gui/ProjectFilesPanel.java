@@ -13,10 +13,8 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
-import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.swing.*;
@@ -49,6 +47,7 @@ public class ProjectFilesPanel extends JPanel {
     private JSplitPane contentSplitPane;
     private boolean dependenciesVisible = false;
     private final DeferredUpdateHelper deferredUpdateHelper;
+    private @Nullable Timer searchDebounceTimer;
 
     public ProjectFilesPanel(Chrome chrome, ContextManager contextManager, DependenciesPanel dependenciesPanel) {
         super(new BorderLayout(Constants.H_GAP, Constants.V_GAP));
@@ -219,51 +218,56 @@ public class ProjectFilesPanel extends JPanel {
             }
 
             private void handleTextChange() {
-                SwingUtilities.invokeLater(() -> {
-                    String currentText = searchField.getText();
-                    if (currentText.trim().isEmpty()) {
-                        return;
-                    }
+                // Debounce: restart timer on each keystroke, expand only after 300ms of no typing
+                if (searchDebounceTimer != null) {
+                    searchDebounceTimer.stop();
+                }
+                searchDebounceTimer = new Timer(300, evt -> expandToSingleMatch());
+                searchDebounceTimer.setRepeats(false);
+                searchDebounceTimer.start();
+            }
 
-                    String typedLower = currentText.toLowerCase(Locale.ROOT);
-                    Set<ProjectFile> trackedFiles = project.getRepo().getTrackedFiles();
+            private void expandToSingleMatch() {
+                String currentText = searchField.getText();
+                if (currentText.trim().isEmpty()) {
+                    return;
+                }
 
-                    List<ProjectFile> matches = trackedFiles.stream()
-                            .filter(pf -> {
-                                String pathStrLower = pf.getRelPath().toString().toLowerCase(Locale.ROOT);
-                                String fileNameLower = pf.getFileName().toLowerCase(Locale.ROOT);
+                String typedLower = currentText.toLowerCase(java.util.Locale.ROOT);
+                Set<ProjectFile> trackedFiles = project.getRepo().getTrackedFiles();
 
-                                if (typedLower.contains("/") || typedLower.contains("\\")) {
-                                    // If typed text has path separators, treat it as a path prefix match
-                                    return pathStrLower.startsWith(typedLower);
-                                } else {
-                                    // If no path separators, check if it's part of the filename
-                                    if (fileNameLower.contains(typedLower)) {
+                List<ProjectFile> matches = trackedFiles.stream()
+                        .filter(pf -> {
+                            String pathStrLower = pf.getRelPath().toString().toLowerCase(java.util.Locale.ROOT);
+                            String fileNameLower = pf.getFileName().toLowerCase(java.util.Locale.ROOT);
+
+                            if (typedLower.contains("/") || typedLower.contains("\\")) {
+                                return pathStrLower.startsWith(typedLower);
+                            } else {
+                                if (fileNameLower.contains(typedLower)) {
+                                    return true;
+                                }
+                                java.nio.file.Path currentParent =
+                                        pf.getRelPath().getParent();
+                                while (currentParent != null) {
+                                    if (currentParent
+                                            .getFileName()
+                                            .toString()
+                                            .toLowerCase(java.util.Locale.ROOT)
+                                            .contains(typedLower)) {
                                         return true;
                                     }
-                                    // Or if it's part of any directory name in the path
-                                    Path currentParent = pf.getRelPath().getParent();
-                                    while (currentParent != null) {
-                                        if (currentParent
-                                                .getFileName()
-                                                .toString()
-                                                .toLowerCase(Locale.ROOT)
-                                                .contains(typedLower)) {
-                                            return true;
-                                        }
-                                        currentParent = currentParent.getParent();
-                                    }
-                                    return false;
+                                    currentParent = currentParent.getParent();
                                 }
-                            })
-                            .toList();
+                                return false;
+                            }
+                        })
+                        .toList();
 
-                    if (matches.size() == 1) {
-                        projectTree.selectAndExpandToFile(matches.getFirst());
-                        // Keep focus on search field for continued typing/searching
-                        SwingUtilities.invokeLater(() -> searchField.requestFocusInWindow());
-                    }
-                });
+                if (matches.size() == 1) {
+                    projectTree.selectAndExpandToFile(matches.getFirst());
+                    SwingUtilities.invokeLater(() -> searchField.requestFocusInWindow());
+                }
             }
         });
     }

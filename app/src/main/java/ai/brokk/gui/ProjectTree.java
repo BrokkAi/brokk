@@ -59,6 +59,9 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
     @Nullable
     private JPopupMenu currentContextMenu;
 
+    @Nullable
+    private Timer refreshDebounceTimer;
+
     public ProjectTree(IProject project, ContextManager contextManager, Chrome chrome) {
         this.project = project;
         this.contextManager = contextManager;
@@ -573,13 +576,17 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
     }
 
     private void loadChildrenForNode(DefaultMutableTreeNode node) {
+        loadChildrenForNodeAsync(node);
+    }
+
+    private CompletableFuture<Void> loadChildrenForNodeAsync(DefaultMutableTreeNode node) {
         if (!(node.getUserObject() instanceof ProjectTreeNode treeNode)) {
-            return;
+            return CompletableFuture.completedFuture(null);
         }
 
         // If already loaded, nothing to do.
         if (treeNode.isChildrenLoaded()) {
-            return;
+            return CompletableFuture.completedFuture(null);
         }
 
         // Ensure there's a visible "Loading..." placeholder while background work runs.
@@ -590,11 +597,12 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
 
         File directory = treeNode.getFile();
         if (!directory.isDirectory()) {
-            return;
+            return CompletableFuture.completedFuture(null);
         }
 
         // Capture the directory reference to validate the node hasn't changed by the time the worker completes.
         final File expectedDirectory = directory;
+        var result = new CompletableFuture<Void>();
 
         // Perform expensive filesystem operations off the EDT.
         CompletableFuture.supplyAsync(() -> {
@@ -619,9 +627,11 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                         try {
                             // Validate node still represents the same directory and is present in tree.
                             if (!(node.getUserObject() instanceof ProjectTreeNode currentTreeNode)) {
+                                result.complete(null);
                                 return;
                             }
                             if (!currentTreeNode.getFile().equals(expectedDirectory)) {
+                                result.complete(null);
                                 return;
                             }
 
@@ -645,18 +655,23 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
 
                             // Attempt to auto-expand single-directory chains as before.
                             expandSingleDirectoryChildren(node);
+                            result.complete(null);
                         } catch (Exception ex) {
                             logger.error("Error applying loaded children to tree node", ex);
                             SwingUtilities.invokeLater(
                                     () -> chrome.toolError("Failed to update project tree: " + ex.getMessage()));
+                            result.completeExceptionally(ex);
                         }
                     });
                 })
                 .exceptionally(ex -> {
                     logger.error("Error loading directory contents async for: " + expectedDirectory, ex);
                     SwingUtilities.invokeLater(() -> chrome.toolError("Failed to read directory: " + ex.getMessage()));
+                    result.completeExceptionally(ex);
                     return null;
                 });
+
+        return result;
     }
 
     private void expandSingleDirectoryChildren(DefaultMutableTreeNode parentNode) {
@@ -717,90 +732,117 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
 
     @Override
     public void onTrackedFilesChanged() {
+        // Debounce rapid calls - only refresh after 100ms of no new calls
         SwingUtilities.invokeLater(() -> {
-            logger.trace("FileSystem change detected, refreshing ProjectTree.");
-
-            DefaultMutableTreeNode root = (DefaultMutableTreeNode) getModel().getRoot();
-
-            // Preserve current selection & expansion state
-            List<ProjectFile> previouslySelectedFiles = getSelectedProjectFiles();
-            List<Path> previouslyExpandedDirPaths = new ArrayList<>();
-            if (root != null) {
-                collectExpandedDirectoryPathsRecursive(root, previouslyExpandedDirPaths);
+            if (refreshDebounceTimer != null) {
+                refreshDebounceTimer.stop();
             }
-
-            // Invalidate all loaded children data
-            if (root != null && root.getUserObject() instanceof ProjectTreeNode ptn) {
-                ptn.setChildrenLoaded(false);
-            }
-            if (root != null) {
-                invalidateAllChildrenRecursively(root);
-                // Refresh the root node's children
-                root.removeAllChildren();
-                root.add(new DefaultMutableTreeNode(LOADING_PLACEHOLDER));
-                ((DefaultTreeModel) getModel()).nodeStructureChanged(root);
-                loadChildrenForNode(root); // This starts the loading process and initial auto-expansion
-            }
-
-            // After initial load and auto-expansion, restore other expansions
-            for (Path expandedDirPath : previouslyExpandedDirPaths) {
-                // Skip trying to "expand" the root path itself if it's represented as an empty path,
-                // as its children are loaded by loadChildrenForNode(root).
-                if (expandedDirPath.getNameCount() == 0) continue;
-
-                DefaultMutableTreeNode nodeToExpand = findAndExpandNode(root, expandedDirPath, 0);
-                if (nodeToExpand != null) {
-                    TreePath pathToExpand = new TreePath(nodeToExpand.getPath());
-                    if (!isExpanded(pathToExpand)) { // Check if findAndExpandNode already did it
-                        expandPath(pathToExpand);
-                    }
-                } else {
-                    logger.trace("Could not find previously expanded directory to re-expand: {}", expandedDirPath);
-                }
-            }
-
-            // Restore selections
-            if (!previouslySelectedFiles.isEmpty()) {
-                List<TreePath> pathsToSelect = new ArrayList<>();
-                for (ProjectFile pf : previouslySelectedFiles) {
-                    if (pf.exists()) { // Check if file still exists
-                        // findAndExpandNode will expand the path to the file if needed.
-                        DefaultMutableTreeNode nodeToSelect = findAndExpandNode(root, pf.getRelPath(), 0);
-                        if (nodeToSelect != null) {
-                            pathsToSelect.add(new TreePath(nodeToSelect.getPath()));
-                        } else {
-                            logger.trace("Could not find previously selected file to re-select: {}", pf.getRelPath());
-                        }
-                    }
-                }
-
-                if (!pathsToSelect.isEmpty()) {
-                    setSelectionPaths(pathsToSelect.toArray(new TreePath[0]));
-                    // Try to scroll to the lead selection path if available, otherwise to the first selected path.
-                    TreePath leadPath = getLeadSelectionPath();
-                    if (leadPath != null) {
-                        scrollPathToVisible(leadPath);
-                    } else if (!pathsToSelect.isEmpty()) {
-                        scrollPathToVisible(pathsToSelect.get(0));
-                    }
-                }
-            }
-            logger.trace("ProjectTree refresh complete.");
+            refreshDebounceTimer = new Timer(100, evt -> performRefresh());
+            refreshDebounceTimer.setRepeats(false);
+            refreshDebounceTimer.start();
         });
+    }
+
+    private void performRefresh() {
+        logger.trace("FileSystem change detected, refreshing ProjectTree.");
+
+        var root = (DefaultMutableTreeNode) getModel().getRoot();
+
+        // Preserve current selection & expansion state
+        List<ProjectFile> previouslySelectedFiles = getSelectedProjectFiles();
+        List<Path> previouslyExpandedDirPaths = new ArrayList<>();
+        if (root != null) {
+            collectExpandedDirectoryPathsRecursive(root, previouslyExpandedDirPaths);
+        }
+
+        // Invalidate all loaded children data
+        if (root != null && root.getUserObject() instanceof ProjectTreeNode ptn) {
+            ptn.setChildrenLoaded(false);
+        }
+        if (root == null) {
+            return;
+        }
+
+        invalidateAllChildrenRecursively(root);
+        root.removeAllChildren();
+        root.add(new DefaultMutableTreeNode(LOADING_PLACEHOLDER));
+        ((DefaultTreeModel) getModel()).nodeStructureChanged(root);
+
+        // Load root children async, then restore expansions and selections
+        final var rootRef = root;
+        loadChildrenForNodeAsync(root)
+                .thenCompose(ignored -> {
+                    // Restore expanded directories
+                    var expansionFutures = previouslyExpandedDirPaths.stream()
+                            .filter(p -> p.getNameCount() > 0)
+                            .map(expandedDirPath -> findAndExpandNodeAsync(rootRef, expandedDirPath, 0)
+                                    .thenAccept(nodeToExpand -> {
+                                        if (nodeToExpand != null) {
+                                            SwingUtilities.invokeLater(() -> {
+                                                TreePath pathToExpand = new TreePath(nodeToExpand.getPath());
+                                                if (!isExpanded(pathToExpand)) {
+                                                    expandPath(pathToExpand);
+                                                }
+                                            });
+                                        } else {
+                                            logger.trace(
+                                                    "Could not find previously expanded directory: {}",
+                                                    expandedDirPath);
+                                        }
+                                    }))
+                            .toArray(CompletableFuture[]::new);
+                    return CompletableFuture.allOf(expansionFutures);
+                })
+                .thenCompose(ignored -> {
+                    // Restore selections
+                    if (previouslySelectedFiles.isEmpty()) {
+                        return CompletableFuture.completedFuture(null);
+                    }
+                    var selectionFutures = previouslySelectedFiles.stream()
+                            .filter(ProjectFile::exists)
+                            .map(pf -> findAndExpandNodeAsync(rootRef, pf.getRelPath(), 0))
+                            .toArray(CompletableFuture[]::new);
+                    return CompletableFuture.allOf(selectionFutures).thenAccept(v -> {
+                        SwingUtilities.invokeLater(() -> {
+                            var pathsToSelect = new ArrayList<TreePath>();
+                            for (ProjectFile pf : previouslySelectedFiles) {
+                                if (!pf.exists()) continue;
+                                var nodeToSelect = findAndExpandNode(rootRef, pf.getRelPath(), 0);
+                                if (nodeToSelect != null) {
+                                    pathsToSelect.add(new TreePath(nodeToSelect.getPath()));
+                                } else {
+                                    logger.trace("Could not find previously selected file: {}", pf.getRelPath());
+                                }
+                            }
+                            if (!pathsToSelect.isEmpty()) {
+                                setSelectionPaths(pathsToSelect.toArray(new TreePath[0]));
+                                TreePath leadPath = getLeadSelectionPath();
+                                if (leadPath != null) {
+                                    scrollPathToVisible(leadPath);
+                                } else {
+                                    scrollPathToVisible(pathsToSelect.getFirst());
+                                }
+                            }
+                            logger.trace("ProjectTree refresh complete.");
+                        });
+                    });
+                });
     }
 
     public void selectAndExpandToFile(ProjectFile targetFile) {
         SwingUtilities.invokeLater(() -> {
-            DefaultMutableTreeNode root = (DefaultMutableTreeNode) getModel().getRoot();
+            var root = (DefaultMutableTreeNode) getModel().getRoot();
             Path relativePath = targetFile.getRelPath();
-            DefaultMutableTreeNode targetNode = findAndExpandNode(root, relativePath, 0);
-            if (targetNode != null) {
-                TreePath treePath = new TreePath(targetNode.getPath());
-                setSelectionPath(treePath);
-                scrollPathToVisible(treePath);
-            } else {
-                logger.warn("Could not find or expand to file in tree: " + targetFile.getRelPath());
-            }
+            findAndExpandNodeAsync(root, relativePath, 0)
+                    .thenAccept(targetNode -> SwingUtilities.invokeLater(() -> {
+                        if (targetNode != null) {
+                            TreePath treePath = new TreePath(targetNode.getPath());
+                            setSelectionPath(treePath);
+                            scrollPathToVisible(treePath);
+                        } else {
+                            logger.warn("Could not find or expand to file in tree: " + targetFile.getRelPath());
+                        }
+                    }));
         });
     }
 
@@ -869,6 +911,73 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             }
         }
         return null; // Child component not found
+    }
+
+    private CompletableFuture<@Nullable DefaultMutableTreeNode> findAndExpandNodeAsync(
+            DefaultMutableTreeNode currentNode, Path relativePath, int depth) {
+
+        // Ensure current node's children are loaded if it's a directory and not yet loaded
+        CompletableFuture<Void> loadFuture;
+        if (currentNode.getUserObject() instanceof ProjectTreeNode currentPtn
+                && currentPtn.getFile().isDirectory()) {
+            if (!currentPtn.isChildrenLoaded()
+                    && currentNode.getChildCount() > 0
+                    && LOADING_PLACEHOLDER.equals(((DefaultMutableTreeNode) currentNode.getFirstChild())
+                            .getUserObject()
+                            .toString())) {
+                loadFuture = loadChildrenForNodeAsync(currentNode);
+            } else {
+                loadFuture = CompletableFuture.completedFuture(null);
+            }
+        } else {
+            loadFuture = CompletableFuture.completedFuture(null);
+        }
+
+        return loadFuture.thenCompose(ignored -> {
+            if (depth == relativePath.getNameCount()) {
+                // Base case: We've traversed all path components.
+                if (currentNode.getUserObject() instanceof ProjectTreeNode ptn) {
+                    if (ptn.getFile()
+                            .getName()
+                            .equals(relativePath.getFileName().toString())) {
+                        return CompletableFuture.completedFuture(currentNode);
+                    }
+                }
+                if (currentNode.getUserObject() instanceof ProjectTreeNode ptn
+                        && ptn.getFile().isDirectory()
+                        && depth > 0
+                        && ptn.getFile()
+                                .getName()
+                                .equals(relativePath.getName(depth - 1).toString())) {
+                    return CompletableFuture.completedFuture(currentNode);
+                }
+                return CompletableFuture.completedFuture(null);
+            }
+
+            if (!(currentNode.getUserObject() instanceof ProjectTreeNode currentPtn
+                    && currentPtn.getFile().isDirectory())) {
+                return CompletableFuture.completedFuture(null);
+            }
+
+            String targetComponentName = relativePath.getName(depth).toString();
+            Enumeration<?> children = currentNode.children();
+            while (children.hasMoreElements()) {
+                var childNode = (DefaultMutableTreeNode) children.nextElement();
+                if (childNode.getUserObject() instanceof ProjectTreeNode childPtn
+                        && childPtn.getFile().getName().equals(targetComponentName)) {
+
+                    if (childPtn.getFile().isDirectory()) {
+                        TreePath childPath = new TreePath(childNode.getPath());
+                        if (!isExpanded(childPath)) {
+                            expandPath(childPath);
+                        }
+                    }
+                    // Recurse asynchronously
+                    return findAndExpandNodeAsync(childNode, relativePath, depth + 1);
+                }
+            }
+            return CompletableFuture.completedFuture(null);
+        });
     }
 
     private List<ProjectFile> getSelectedProjectFiles() {
