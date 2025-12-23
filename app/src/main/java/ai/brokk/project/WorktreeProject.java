@@ -5,8 +5,6 @@ import ai.brokk.IssueProvider;
 import ai.brokk.SessionManager;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
-import ai.brokk.analyzer.Languages;
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.MainProject.DataRetentionPolicy;
 import com.jakewharton.disklrucache.DiskLruCache;
@@ -272,5 +270,4 @@ public final class WorktreeProject extends AbstractProject {
     public void setModelConfig(ModelProperties.ModelType modelType, AbstractService.ModelConfig config) {
         parent.setModelConfig(modelType, config);
     }
-
 }

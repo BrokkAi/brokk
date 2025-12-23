@@ -2257,5 +2257,4 @@ public final class MainProject extends AbstractProject {
             SwingUtilities.invokeLater(() -> chrome.getHistoryOutputPanel().updateSessionComboBox());
         }
     }
-
 }
