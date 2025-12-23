@@ -558,46 +558,48 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
             return;
         }
 
-        try {
-            var localBranches = gitRepo.listLocalBranches();
-            var remoteBranches = gitRepo.listRemoteBranches();
+        CompletableFuture.runAsync(() -> {
+            try {
+                var localBranches = gitRepo.listLocalBranches();
+                var remoteBranches = gitRepo.listRemoteBranches();
 
-            var targetBranches = getTargetBranches(remoteBranches);
-            var sourceBranches = getSourceBranches(localBranches, remoteBranches);
+                var targetBranches = getTargetBranches(remoteBranches);
+                var sourceBranches = getSourceBranches(localBranches, remoteBranches);
 
-            SwingUtilities.invokeLater(() -> {
-                populateBranchDropdowns(targetBranches, sourceBranches);
-                try {
-                    setDefaultBranchSelections(gitRepo, targetBranches, sourceBranches, localBranches);
+                SwingUtil.runOnEdt(() -> {
+                    populateBranchDropdowns(targetBranches, sourceBranches);
+                    try {
+                        setDefaultBranchSelections(gitRepo, targetBranches, sourceBranches, localBranches);
 
-                    // If caller asked for a specific source branch, honour it *after*
-                    // defaults have been applied (so this wins).
-                    if (preselectedSourceBranch != null && sourceBranches.contains(preselectedSourceBranch)) {
-                        sourceBranchComboBox.setSelectedItem(preselectedSourceBranch);
+                        // If caller asked for a specific source branch, honour it *after*
+                        // defaults have been applied (so this wins).
+                        if (preselectedSourceBranch != null && sourceBranches.contains(preselectedSourceBranch)) {
+                            sourceBranchComboBox.setSelectedItem(preselectedSourceBranch);
+                        }
+
+                        // Set up listeners AFTER default items are selected to avoid premature firing during setItems()
+                        setupBranchListeners();
+
+                        this.flowUpdater.run(); // Update label based on defaults
+                        refreshCommitList(); // Load commits based on defaults, which will also call flowUpdater and update
+                        // button state
+                    } catch (GitAPIException e) {
+                        logger.error("Error setting default branch selections", e);
+                        updateCommitRelatedUI(
+                                Collections.emptyList(), Collections.emptyList(), "Error setting default branches");
                     }
-
-                    // Set up listeners AFTER default items are selected to avoid premature firing during setItems()
-                    setupBranchListeners();
-
-                    this.flowUpdater.run(); // Update label based on defaults
-                    refreshCommitList(); // Load commits based on defaults, which will also call flowUpdater and update
-                    // button state
-                } catch (GitAPIException e) {
-                    logger.error("Error setting default branch selections", e);
-                    updateCommitRelatedUI(
-                            Collections.emptyList(), Collections.emptyList(), "Error setting default branches");
-                }
-            });
-        } catch (GitAPIException e) {
-            logger.error("Error loading branches for PR dialog", e);
-            SwingUtilities.invokeLater(() -> {
-                targetBranchComboBox.setItems(List.of("(Error loading branches)"));
-                sourceBranchComboBox.setItems(List.of("(Error loading branches)"));
-                targetBranchComboBox.setEnabled(false);
-                sourceBranchComboBox.setEnabled(false);
-                updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), "Error loading branches");
-            });
-        }
+                });
+            } catch (GitAPIException e) {
+                logger.error("Error loading branches for PR dialog", e);
+                SwingUtil.runOnEdt(() -> {
+                    targetBranchComboBox.setItems(List.of("(Error loading branches)"));
+                    sourceBranchComboBox.setItems(List.of("(Error loading branches)"));
+                    targetBranchComboBox.setEnabled(false);
+                    sourceBranchComboBox.setEnabled(false);
+                    updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), "Error loading branches");
+                });
+            }
+        });
     }
 
     private List<String> getTargetBranches(List<String> remoteBranches) {
