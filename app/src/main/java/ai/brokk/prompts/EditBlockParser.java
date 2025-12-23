@@ -85,70 +85,20 @@ public class EditBlockParser {
      * in the input text.
      */
     public String tagBlocks(String content) {
-        var lines = content.split("\n", -1);
-        var outputLines = new ArrayList<String>();
+        var result = parse(content, Set.of());
+        var output = new StringBuilder();
         int blockCounter = 0;
-        int i = 0;
 
-        while (i < lines.length) {
-            var line = lines[i];
-            var trimmed = line.trim();
-            boolean blockStarted = false;
-
-            // 1) Check for fenced block start
-            if (isFence(trimmed)) {
-                var searchAtNext = (i + 1 < lines.length) && isSearch(lines[i + 1]);
-                var searchAtNextNext = (i + 2 < lines.length) && isSearch(lines[i + 2]);
-
-                if (searchAtNext || searchAtNextNext) {
-                    outputLines.add("[BRK_BLOCK_" + (blockCounter++) + "]");
-                    outputLines.add(line);
-                    i++;
-                    blockStarted = true;
-
-                    // Consume until we find the closing fence or the end of content
-                    while (i < lines.length) {
-                        var blockLine = lines[i];
-                        outputLines.add(blockLine);
-                        if (isReplace(blockLine)) {
-                            i++;
-                            // Optional closing fence
-                            if (i < lines.length && isFence(lines[i].trim())) {
-                                outputLines.add(lines[i]);
-                                i++;
-                            }
-                            break;
-                        }
-                        i++;
-                    }
-                }
-            }
-            // 2) Check for fence-less block start
-            else if (isSearch(trimmed)) {
-                outputLines.add("[BRK_BLOCK_" + (blockCounter++) + "]");
-                outputLines.add(line);
-                i++;
-                blockStarted = true;
-
-                // Consume until we find the closing marker
-                while (i < lines.length) {
-                    var blockLine = lines[i];
-                    outputLines.add(blockLine);
-                    if (isReplace(blockLine)) {
-                        i++;
-                        break;
-                    }
-                    i++;
-                }
-            }
-
-            if (!blockStarted && i < lines.length) {
-                outputLines.add(line);
-                i++;
+        for (var block : result.blocks()) {
+            if (block.block() != null) {
+                output.append("[BRK_BLOCK_").append(blockCounter++).append("]\n");
+                output.append(block.block().repr());
+            } else if (block.text() != null) {
+                output.append(block.text());
             }
         }
 
-        return String.join("\n", outputLines);
+        return output.toString();
     }
 
     public EditBlock.ExtendedParseResult parse(String content, Set<ProjectFile> projectFiles) {

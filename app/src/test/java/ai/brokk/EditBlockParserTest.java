@@ -577,17 +577,24 @@ class EditBlockParserTest {
                 file1.txt
                 <<<<<<< SEARCH
                 old1
+
                 =======
                 new1
+
                 >>>>>>> REPLACE
                 ```
                 Middle text.
                 [BRK_BLOCK_1]
+                ```
+                file1.txt
                 <<<<<<< SEARCH
                 old2
+
                 =======
                 new2
+
                 >>>>>>> REPLACE
+                ```
                 Final text.""";
 
         String actual = EditBlockParser.instance.tagBlocks(input);
