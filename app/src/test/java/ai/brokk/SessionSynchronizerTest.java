@@ -15,6 +15,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -98,9 +100,7 @@ class SessionSynchronizerTest {
     void setup() throws IOException {
         Path projectDir = tempDir.resolve("project");
         Files.createDirectories(projectDir);
-        // Using MainProject directly to access configuration setters
-        MainProject mainProject = new MainProject(projectDir);
-        project = mainProject;
+        project = new MainProject(projectDir);
 
         sessionManager = project.getSessionManager();
         sessionsDir = sessionManager.getSessionsDir();
@@ -108,14 +108,15 @@ class SessionSynchronizerTest {
 
         syncCallbacks = new FakeSyncCallbacks();
         synchronizer = new SessionSynchronizer(project, syncCallbacks);
+    }
 
-        MainProject.setBrokkKey("test-key-123");
-        // Ensure the remote project name is set so synchronization isn't skipped
-        mainProject.setUiFilterProperty("remoteProjectName", "test-remote-repo");
+    @AfterEach
+    public void tearDown() {
+        project.close();
     }
 
     @Test
-    void testUploadLocalOnlySession() throws IOException {
+    void testUploadLocalOnlySession() {
         String name = "Local Session";
         SessionInfo info = sessionManager.newSession(name);
         sessionManager
