@@ -111,7 +111,7 @@ public class Chrome
     private JLabel backgroundStatusLabel;
     private final JPanel mainPanel;
 
-    private final BuildPane buildPane;
+    private final RightPanel rightPanel;
     private final ToolsPane toolsPane;
     private final JSplitPane leftVerticalSplitPane; // Left: tabs (top) + file history (bottom)
     private final JTabbedPane fileHistoryPane; // Bottom area for file history
@@ -171,9 +171,9 @@ public class Chrome
         initializeThemeManager();
 
         // Create encapsulated build stack
-        buildPane = new BuildPane(this, contextManager);
+        rightPanel = new RightPanel(this, contextManager);
         // Wire up the scroll pane now that buildPane exists
-        themeManager.setMainScrollPane(buildPane.getHistoryOutputPanel().getLlmScrollPane());
+        themeManager.setMainScrollPane(rightPanel.getHistoryOutputPanel().getLlmScrollPane());
 
         // Bottom Area: Context/Git + Status
         this.mainPanel = new JPanel(new BorderLayout());
@@ -266,10 +266,10 @@ public class Chrome
         leftVerticalSplitPane.setDividerSize(0); // hide divider when no history is shown
 
         horizontalSplitPane.setLeftComponent(leftVerticalSplitPane);
-        horizontalSplitPane.setRightComponent(buildPane);
+        horizontalSplitPane.setRightComponent(rightPanel);
         // Let the left side drive the minimum width for the whole sidebar region
         // Ensure the right stack can shrink enough so the sidebar can grow
-        buildPane.setMinimumSize(new Dimension(200, 0));
+        rightPanel.setMinimumSize(new Dimension(200, 0));
         // Left panel keeps its preferred width; right panel takes the remaining space
         horizontalSplitPane.setResizeWeight(0.0);
         int tempDividerLocation = 300; // Reasonable default that will be recalculated
@@ -300,22 +300,22 @@ public class Chrome
 
         // Set up focus traversal with individual components for granular navigation
         var focusOrder = List.<Component>of(
-                buildPane.getInstructionsPanel().getInstructionsArea(),
-                buildPane.getInstructionsPanel().getModelSelectorComponent(),
-                buildPane.getInstructionsPanel().getMicButton(),
-                buildPane.getInstructionsPanel().getWandButton(),
-                buildPane.getInstructionsPanel().getHistoryDropdown(),
-                buildPane.getTaskListPanel().getGoStopButton(),
-                buildPane.getTaskListPanel().getTaskInput(),
-                buildPane.getTaskListPanel().getTaskList(),
+                rightPanel.getInstructionsPanel().getInstructionsArea(),
+                rightPanel.getInstructionsPanel().getModelSelectorComponent(),
+                rightPanel.getInstructionsPanel().getMicButton(),
+                rightPanel.getInstructionsPanel().getWandButton(),
+                rightPanel.getInstructionsPanel().getHistoryDropdown(),
+                rightPanel.getTaskListPanel().getGoStopButton(),
+                rightPanel.getTaskListPanel().getTaskInput(),
+                rightPanel.getTaskListPanel().getTaskList(),
                 projectFilesPanel.getSearchField(),
                 projectFilesPanel.getRefreshButton(),
                 projectFilesPanel.getProjectTree(),
                 dependenciesPanel.getDependencyTable(),
                 dependenciesPanel.getAddButton(),
                 dependenciesPanel.getRemoveButton(),
-                buildPane.getHistoryOutputPanel().getHistoryTable(),
-                buildPane.getHistoryOutputPanel().getLlmStreamArea());
+                rightPanel.getHistoryOutputPanel().getHistoryTable(),
+                rightPanel.getHistoryOutputPanel().getLlmStreamArea());
         frame.setFocusTraversalPolicy(new ChromeFocusTraversalPolicy(focusOrder));
         frame.setFocusCycleRoot(true);
         frame.setFocusTraversalPolicyProvider(true);
@@ -331,7 +331,7 @@ public class Chrome
         // Apply Advanced Mode visibility at startup so default (easy mode) hides advanced UI
         try {
             applyAdvancedModeVisibility();
-            buildPane.getInstructionsPanel().applyAdvancedModeForInstructions(GlobalUiSettings.isAdvancedMode());
+            rightPanel.getInstructionsPanel().applyAdvancedModeForInstructions(GlobalUiSettings.isAdvancedMode());
         } catch (Exception ex) {
             logger.debug("applyAdvancedModeVisibility at startup failed (non-fatal)", ex);
         }
@@ -397,7 +397,7 @@ public class Chrome
         activeContext = ctx;
         SwingUtilities.invokeLater(() -> {
             workspacePanel.populateContextTable(ctx);
-            buildPane.getTaskListPanel().contextChanged(ctx);
+            rightPanel.getTaskListPanel().contextChanged(ctx);
             // Determine if the current context (ctx) is the latest one in the history
             boolean isEditable;
             Context latestContext = contextManager.getContextHistory().liveContext();
@@ -405,20 +405,20 @@ public class Chrome
             // workspacePanel is a final field initialized in the constructor, so it won't be null here.
             workspacePanel.setWorkspaceEditable(isEditable);
             // Toggle read-only state for InstructionsPanel UI (chips + token bar)
-            buildPane.getInstructionsPanel().setContextReadOnly(!isEditable);
+            rightPanel.getInstructionsPanel().setContextReadOnly(!isEditable);
             // Also update instructions panel (token bar/chips) to reflect the selected context and read-only state
-            buildPane.getInstructionsPanel().contextChanged(ctx);
+            rightPanel.getInstructionsPanel().contextChanged(ctx);
 
             // only update the MOP when no task is in progress
             // otherwise the TaskScope.append() will take care of it
             if (updateOutput) {
                 var taskHistory = ctx.getTaskHistory();
                 if (taskHistory.isEmpty()) {
-                    buildPane.getHistoryOutputPanel().clearLlmOutput();
+                    rightPanel.getHistoryOutputPanel().clearLlmOutput();
                 } else {
                     var historyTasks = taskHistory.subList(0, taskHistory.size() - 1);
                     var mainTask = taskHistory.getLast();
-                    buildPane.getHistoryOutputPanel().setLlmAndHistoryOutput(historyTasks, mainTask);
+                    rightPanel.getHistoryOutputPanel().setLlmAndHistoryOutput(historyTasks, mainTask);
                 }
             }
 
@@ -456,7 +456,7 @@ public class Chrome
     @Override
     public List<ChatMessage> getLlmRawMessages() {
         if (SwingUtilities.isEventDispatchThread()) {
-            return buildPane.getHistoryOutputPanel().getLlmRawMessages();
+            return rightPanel.getHistoryOutputPanel().getLlmRawMessages();
         }
 
         while (true) {
@@ -464,7 +464,7 @@ public class Chrome
                 SwingUtilities.invokeAndWait(() -> {});
                 final CompletableFuture<List<ChatMessage>> future = new CompletableFuture<>();
                 SwingUtilities.invokeAndWait(
-                        () -> future.complete(buildPane.getHistoryOutputPanel().getLlmRawMessages()));
+                        () -> future.complete(rightPanel.getHistoryOutputPanel().getLlmRawMessages()));
                 return future.get();
             } catch (InterruptedException e) {
                 // retry
@@ -480,15 +480,15 @@ public class Chrome
      * Retrieves the current text from the command input.
      */
     public String getInputText() {
-        return buildPane.getInstructionsPanel().getInstructions();
+        return rightPanel.getInstructionsPanel().getInstructions();
     }
 
     @Override
     public void disableActionButtons() {
         SwingUtil.runOnEdt(() -> {
             disableHistoryPanel();
-            buildPane.getInstructionsPanel().disableButtons();
-            buildPane.getTaskListPanel().disablePlay();
+            rightPanel.getInstructionsPanel().disableButtons();
+            rightPanel.getTaskListPanel().disablePlay();
             if (toolsPane.getGitCommitTab() != null) {
                 toolsPane.getGitCommitTab().disableButtons();
             }
@@ -499,8 +499,8 @@ public class Chrome
     @Override
     public void enableActionButtons() {
         SwingUtil.runOnEdt(() -> {
-            buildPane.getInstructionsPanel().enableButtons();
-            buildPane.getTaskListPanel().enablePlay();
+            rightPanel.getInstructionsPanel().enableButtons();
+            rightPanel.getTaskListPanel().enablePlay();
             if (toolsPane.getGitCommitTab() != null) {
                 toolsPane.getGitCommitTab().enableButtons();
             }
@@ -581,7 +581,7 @@ public class Chrome
         projectFilesPanel.requestUpdate();
 
         // Ensure the Changes tab reflects the current repo/branch state
-        buildPane.requestReviewUpdate();
+        rightPanel.requestReviewUpdate();
 
         logger.trace("updateGitRepo: finished");
     }
@@ -655,7 +655,7 @@ public class Chrome
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         // Bind directly to instructions area instead of globally to avoid interfering with other components
-        var ip = buildPane.getInstructionsPanel();
+        var ip = rightPanel.getInstructionsPanel();
         ip.getInstructionsArea().getInputMap(JComponent.WHEN_FOCUSED).put(submitKeyStroke, "submitAction");
         ip.getInstructionsArea().getActionMap().put("submitAction", new AbstractAction() {
             @Override
@@ -832,7 +832,7 @@ public class Chrome
             @Override
             public void actionPerformed(ActionEvent e) {
                 // Terminal drawer removed; instead, switch to the Terminal tab if present.
-                SwingUtilities.invokeLater(buildPane::selectTerminalTab);
+                SwingUtilities.invokeLater(rightPanel::selectTerminalTab);
             }
         });
 
@@ -845,7 +845,7 @@ public class Chrome
         rootPane.getActionMap().put("switchToTerminalTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                SwingUtilities.invokeLater(buildPane::selectTerminalTab);
+                SwingUtilities.invokeLater(rightPanel::selectTerminalTab);
             }
         });
 
@@ -858,7 +858,7 @@ public class Chrome
         rootPane.getActionMap().put("switchToTasksTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                SwingUtilities.invokeLater(buildPane::selectTasksTab);
+                SwingUtilities.invokeLater(rightPanel::selectTasksTab);
             }
         });
 
@@ -912,7 +912,7 @@ public class Chrome
             @Override
             public void actionPerformed(ActionEvent e) {
                 // Use MOP webview zoom for global zoom functionality
-                buildPane.getHistoryOutputPanel().getLlmStreamArea().zoomIn();
+                rightPanel.getHistoryOutputPanel().getLlmStreamArea().zoomIn();
             }
         });
 
@@ -920,7 +920,7 @@ public class Chrome
             @Override
             public void actionPerformed(ActionEvent e) {
                 // Use MOP webview zoom for global zoom functionality
-                buildPane.getHistoryOutputPanel().getLlmStreamArea().zoomOut();
+                rightPanel.getHistoryOutputPanel().getLlmStreamArea().zoomOut();
             }
         });
 
@@ -928,7 +928,7 @@ public class Chrome
             @Override
             public void actionPerformed(ActionEvent e) {
                 // Use MOP webview zoom for global zoom functionality
-                buildPane.getHistoryOutputPanel().getLlmStreamArea().resetZoom();
+                rightPanel.getHistoryOutputPanel().getLlmStreamArea().resetZoom();
             }
         });
     }
@@ -963,26 +963,26 @@ public class Chrome
     @Override
     public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
         if (SwingUtilities.isEventDispatchThread()) {
-            buildPane.getHistoryOutputPanel().appendLlmOutput(token, type, isNewMessage, isReasoning);
+            rightPanel.getHistoryOutputPanel().appendLlmOutput(token, type, isNewMessage, isReasoning);
         } else {
             SwingUtilities.invokeLater(
-                    () -> buildPane.getHistoryOutputPanel().appendLlmOutput(token, type, isNewMessage, isReasoning));
+                    () -> rightPanel.getHistoryOutputPanel().appendLlmOutput(token, type, isNewMessage, isReasoning));
         }
     }
 
     @Override
     public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry main) {
-        SwingUtilities.invokeLater(() -> buildPane.getHistoryOutputPanel().setLlmAndHistoryOutput(history, main));
+        SwingUtilities.invokeLater(() -> rightPanel.getHistoryOutputPanel().setLlmAndHistoryOutput(history, main));
     }
 
     @Override
     public void prepareOutputForNextStream(List<TaskEntry> history) {
         if (SwingUtilities.isEventDispatchThread()) {
-            buildPane.getHistoryOutputPanel().prepareOutputForNextStream(history);
+            rightPanel.getHistoryOutputPanel().prepareOutputForNextStream(history);
         } else {
             try {
                 SwingUtilities.invokeAndWait(
-                        () -> buildPane.getHistoryOutputPanel().prepareOutputForNextStream(history));
+                        () -> rightPanel.getHistoryOutputPanel().prepareOutputForNextStream(history));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             } catch (InvocationTargetException e) {
@@ -1059,9 +1059,9 @@ public class Chrome
 
             // Update lastRelevantFocusOwner only if the new focus owner is one of our primary targets
             if (newFocusOwner != null) {
-                var hop = buildPane.getHistoryOutputPanel();
+                var hop = rightPanel.getHistoryOutputPanel();
                 if (hop.getHistoryTable() != null) {
-                    if (newFocusOwner == buildPane.getInstructionsPanel().getInstructionsArea()
+                    if (newFocusOwner == rightPanel.getInstructionsPanel().getInstructionsArea()
                             || SwingUtilities.isDescendingFrom(newFocusOwner, workspacePanel)
                             || SwingUtilities.isDescendingFrom(newFocusOwner, hop.getHistoryTable())
                             || SwingUtilities.isDescendingFrom(newFocusOwner, hop.getLlmStreamArea())) {
@@ -1087,7 +1087,7 @@ public class Chrome
             globalPasteAction.updateEnabledState();
             globalToggleMicAction.updateEnabledState();
 
-            buildPane.getHistoryOutputPanel().updateUndoRedoButtonStates();
+            rightPanel.getHistoryOutputPanel().updateUndoRedoButtonStates();
             setContext(newCtx);
             updateContextHistoryTable(newCtx);
         });
@@ -1095,7 +1095,7 @@ public class Chrome
 
     @Override
     public void onTrackedFileChange() {
-        buildPane.requestReviewUpdate();
+        rightPanel.requestReviewUpdate();
     }
 
     /**
@@ -1114,7 +1114,7 @@ public class Chrome
     /**
      * Called by PreviewTextFrame when it's being disposed to clear our reference.
      */
-    public void clearPreviewTextFrame() {
+    public void clearPreviewFrame() {
         previewManager.clearPreviewTextFrame();
     }
 
@@ -1327,7 +1327,7 @@ public class Chrome
         frame.validate();
 
         // NOW calculate vertical split pane dividers with proper component heights
-        buildPane.restoreDividerLocation();
+        rightPanel.restoreDividerLocation();
 
         // Restore drawer states from global settings
         restoreDrawersFromGlobalSettings();
@@ -1405,7 +1405,7 @@ public class Chrome
 
     @Override
     public void updateContextHistoryTable(@Nullable Context contextToSelect) {
-        buildPane.getHistoryOutputPanel().updateHistoryTable(contextToSelect);
+        rightPanel.getHistoryOutputPanel().updateHistoryTable(contextToSelect);
     }
 
     public boolean isPositionOnScreen(int x, int y) {
@@ -1420,7 +1420,7 @@ public class Chrome
     }
 
     public void updateCaptureButtons() {
-        var hop = buildPane.getHistoryOutputPanel();
+        var hop = rightPanel.getHistoryOutputPanel();
         var messageSize = hop.getLlmRawMessages().size();
         SwingUtilities.invokeLater(() -> {
             var enabled = messageSize > 0 || hop.hasDisplayableOutput();
@@ -1441,36 +1441,36 @@ public class Chrome
      */
     @Override
     public void showOutputSpinner(String message) {
-        SwingUtilities.invokeLater(() -> buildPane.getHistoryOutputPanel().showSpinner(message));
+        SwingUtilities.invokeLater(() -> rightPanel.getHistoryOutputPanel().showSpinner(message));
     }
 
     @Override
     public void hideOutputSpinner() {
-        SwingUtilities.invokeLater(buildPane.getHistoryOutputPanel()::hideSpinner);
+        SwingUtilities.invokeLater(rightPanel.getHistoryOutputPanel()::hideSpinner);
     }
 
     @Override
     public void showSessionSwitchSpinner() {
-        SwingUtilities.invokeLater(buildPane.getHistoryOutputPanel()::showSessionSwitchSpinner);
+        SwingUtilities.invokeLater(rightPanel.getHistoryOutputPanel()::showSessionSwitchSpinner);
     }
 
     @Override
     public void hideSessionSwitchSpinner() {
-        SwingUtilities.invokeLater(buildPane.getHistoryOutputPanel()::hideSessionSwitchSpinner);
+        SwingUtilities.invokeLater(rightPanel.getHistoryOutputPanel()::hideSessionSwitchSpinner);
     }
 
     @Override
     public void showTransientMessage(String message) {
-        SwingUtilities.invokeLater(() -> buildPane.getHistoryOutputPanel().showTransientMessage(message));
+        SwingUtilities.invokeLater(() -> rightPanel.getHistoryOutputPanel().showTransientMessage(message));
     }
 
     @Override
     public void hideTransientMessage() {
-        SwingUtilities.invokeLater(buildPane.getHistoryOutputPanel()::hideTransientMessage);
+        SwingUtilities.invokeLater(rightPanel.getHistoryOutputPanel()::hideTransientMessage);
     }
 
     public void focusInput() {
-        SwingUtilities.invokeLater(buildPane.getInstructionsPanel()::requestCommandInputFocus);
+        SwingUtilities.invokeLater(rightPanel.getInstructionsPanel()::requestCommandInputFocus);
     }
 
     @Override
@@ -1639,11 +1639,11 @@ public class Chrome
 
     @Override
     public InstructionsPanel getInstructionsPanel() {
-        return buildPane.getInstructionsPanel();
+        return rightPanel.getInstructionsPanel();
     }
 
     public TaskListPanel getTaskListPanel() {
-        return buildPane.getTaskListPanel();
+        return rightPanel.getTaskListPanel();
     }
 
     public WorkspacePanel getContextPanel() {
@@ -1651,11 +1651,11 @@ public class Chrome
     }
 
     public HistoryOutputPanel getHistoryOutputPanel() {
-        return buildPane.getHistoryOutputPanel();
+        return rightPanel.getHistoryOutputPanel();
     }
 
     public JTabbedPane getCommandPane() {
-        return buildPane.getCommandPane();
+        return rightPanel.getCommandPane();
     }
 
     public void updateTerminalFontSize() {}
@@ -1668,21 +1668,21 @@ public class Chrome
      */
     public void applyAdvancedModeVisibility() {
         SwingUtilities.invokeLater(() -> {
-            buildPane.applyAdvancedModeVisibility();
+            rightPanel.applyAdvancedModeVisibility();
             toolsPane.applyAdvancedModeVisibility();
             updateGitTabBadge(getModifiedFiles().size());
             refreshKeybindings();
         });
     }
 
-    public BuildPane getBuildPane() {
-        return buildPane;
+    public RightPanel getRightPanel() {
+        return rightPanel;
     }
 
     public void applyVerticalActivityLayout() {
         SwingUtilities.invokeLater(() -> {
-            buildPane.applyVerticalActivityLayout();
-            horizontalSplitPane.setRightComponent(buildPane);
+            rightPanel.applyVerticalActivityLayout();
+            horizontalSplitPane.setRightComponent(rightPanel);
             frame.revalidate();
             frame.repaint();
         });
@@ -1912,7 +1912,7 @@ public class Chrome
         if (focusOwner == null) return false;
         // Check if focus is within ContextPanel or HistoryOutputPanel's historyTable
         boolean inContextPanel = SwingUtilities.isDescendingFrom(focusOwner, workspacePanel);
-        var hop = buildPane.getHistoryOutputPanel();
+        var hop = rightPanel.getHistoryOutputPanel();
         boolean inHistoryTable =
                 hop.getHistoryTable() != null && SwingUtilities.isDescendingFrom(focusOwner, hop.getHistoryTable());
         return inContextPanel || inHistoryTable;
@@ -1930,7 +1930,7 @@ public class Chrome
 
         @Override
         public void actionPerformed(ActionEvent e) {
-            var ip = buildPane.getInstructionsPanel();
+            var ip = rightPanel.getInstructionsPanel();
             if (lastRelevantFocusOwner == ip.getInstructionsArea()) {
                 if (ip.getCommandInputUndoManager().canUndo()) {
                     ip.getCommandInputUndoManager().undo();
@@ -1946,7 +1946,7 @@ public class Chrome
         }
 
         public void updateEnabledState() {
-            var ip = buildPane.getInstructionsPanel();
+            var ip = rightPanel.getInstructionsPanel();
             boolean canUndoNow = false;
             if (lastRelevantFocusOwner == ip.getInstructionsArea()) {
                 canUndoNow = ip.getCommandInputUndoManager().canUndo();
@@ -1967,7 +1967,7 @@ public class Chrome
 
         @Override
         public void actionPerformed(ActionEvent e) {
-            var ip = buildPane.getInstructionsPanel();
+            var ip = rightPanel.getInstructionsPanel();
             if (lastRelevantFocusOwner == ip.getInstructionsArea()) {
                 if (ip.getCommandInputUndoManager().canRedo()) {
                     ip.getCommandInputUndoManager().redo();
@@ -1983,7 +1983,7 @@ public class Chrome
         }
 
         public void updateEnabledState() {
-            var ip = buildPane.getInstructionsPanel();
+            var ip = rightPanel.getInstructionsPanel();
             boolean canRedoNow = false;
             if (lastRelevantFocusOwner == ip.getInstructionsArea()) {
                 canRedoNow = ip.getCommandInputUndoManager().canRedo();
@@ -2008,8 +2008,8 @@ public class Chrome
             if (lastRelevantFocusOwner == null) {
                 return;
             }
-            var ip = buildPane.getInstructionsPanel();
-            var hop = buildPane.getHistoryOutputPanel();
+            var ip = rightPanel.getInstructionsPanel();
+            var hop = rightPanel.getHistoryOutputPanel();
             if (lastRelevantFocusOwner == ip.getInstructionsArea()) {
                 ip.getInstructionsArea().copy();
             } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, hop.getLlmStreamArea())) {
@@ -2033,8 +2033,8 @@ public class Chrome
                 return;
             }
 
-            var ip = buildPane.getInstructionsPanel();
-            var hop = buildPane.getHistoryOutputPanel();
+            var ip = rightPanel.getInstructionsPanel();
+            var hop = rightPanel.getHistoryOutputPanel();
 
             // Instructions area: enable if there's either a selection or any text
             if (focusOwner == ip.getInstructionsArea()) {
@@ -2150,7 +2150,7 @@ public class Chrome
                 return;
             }
 
-            var ip = buildPane.getInstructionsPanel();
+            var ip = rightPanel.getInstructionsPanel();
             if (lastRelevantFocusOwner == ip.getInstructionsArea()) {
                 ip.getInstructionsArea().paste();
             } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, workspacePanel)) {
@@ -2167,7 +2167,7 @@ public class Chrome
         }
 
         public void updateEnabledState() {
-            var ip = buildPane.getInstructionsPanel();
+            var ip = rightPanel.getInstructionsPanel();
             boolean canPasteNow = false;
             if (lastRelevantFocusOwner == null) {
                 // leave it false
@@ -2191,14 +2191,14 @@ public class Chrome
 
         @Override
         public void actionPerformed(ActionEvent e) {
-            VoiceInputButton micButton = buildPane.getInstructionsPanel().getVoiceInputButton();
+            VoiceInputButton micButton = rightPanel.getInstructionsPanel().getVoiceInputButton();
             if (micButton.isEnabled()) {
                 micButton.doClick();
             }
         }
 
         public void updateEnabledState() {
-            VoiceInputButton micButton = buildPane.getInstructionsPanel().getVoiceInputButton();
+            VoiceInputButton micButton = rightPanel.getInstructionsPanel().getVoiceInputButton();
             boolean canToggleMic = micButton.isEnabled();
             setEnabled(canToggleMic);
         }
@@ -2269,7 +2269,7 @@ public class Chrome
      */
     @Override
     public void disableHistoryPanel() {
-        buildPane.getHistoryOutputPanel().disableHistory();
+        rightPanel.getHistoryOutputPanel().disableHistory();
     }
 
     /**
@@ -2277,7 +2277,7 @@ public class Chrome
      */
     @Override
     public void enableHistoryPanel() {
-        buildPane.getHistoryOutputPanel().enableHistory();
+        rightPanel.getHistoryOutputPanel().enableHistory();
     }
 
     /**
@@ -2286,7 +2286,7 @@ public class Chrome
     @Override
     public void setTaskInProgress(boolean taskInProgress) {
         SwingUtilities.invokeLater(() -> {
-            buildPane.getHistoryOutputPanel().setTaskInProgress(taskInProgress);
+            rightPanel.getHistoryOutputPanel().setTaskInProgress(taskInProgress);
         });
     }
 
@@ -2327,7 +2327,7 @@ public class Chrome
                 };
         if (!allowed) return;
 
-        SwingUtilities.invokeLater(() -> buildPane.getHistoryOutputPanel().showNotification(role, message));
+        SwingUtilities.invokeLater(() -> rightPanel.getHistoryOutputPanel().showNotification(role, message));
     }
 
     /**
@@ -2422,7 +2422,7 @@ public class Chrome
 
     public void refreshBranchUi(@Nullable String branchName) {
         SwingUtilities.invokeLater(() -> {
-            buildPane.setBranchLabel(branchName);
+            rightPanel.setBranchLabel(branchName);
             projectFilesPanel.updateBorderTitle();
         });
     }
@@ -2650,9 +2650,9 @@ public class Chrome
             return false;
         }
 
-        var ip = buildPane.getInstructionsPanel();
-        var tlp = buildPane.getTaskListPanel();
-        var hop = buildPane.getHistoryOutputPanel();
+        var ip = rightPanel.getInstructionsPanel();
+        var tlp = rightPanel.getTaskListPanel();
+        var hop = rightPanel.getHistoryOutputPanel();
 
         // Check if component is one of our main navigable components
         return component == ip.getInstructionsArea()

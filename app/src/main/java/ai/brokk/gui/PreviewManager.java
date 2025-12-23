@@ -96,7 +96,7 @@ public class PreviewManager {
     public void setPreviewDocked(boolean docked) {
         if (this.isPreviewDocked == docked) return;
         this.isPreviewDocked = docked;
-        chrome.getBuildPane().setPreviewDocked(docked);
+        chrome.getRightPanel().setPreviewDocked(docked);
     }
 
     // Shared frame for all PreviewTextPanel tabs
@@ -227,13 +227,13 @@ public class PreviewManager {
             ProjectFile file = extractFileKey(panel, fragment);
 
             if (isPreviewDocked) {
-                BuildPane buildPane = chrome.getBuildPane();
-                var previewTabs = buildPane.getPreviewTabbedPane();
+                RightPanel rightPanel = chrome.getRightPanel();
+                var previewTabs = rightPanel.getPreviewTabbedPane();
                 previewTabs.addOrSelectTab(title, panel, file, fragment);
                 if (file != null) {
                     projectFileToPreviewWindow.put(file, chrome.getFrame());
                 }
-                buildPane.selectPreviewTab();
+                rightPanel.selectPreviewTab();
                 return;
             }
 
@@ -347,16 +347,16 @@ public class PreviewManager {
             }
 
             // 2. Check for existing tab in the BuildPane or PreviewFrame
-            BuildPane buildPane = chrome.getBuildPane();
-            PreviewTabbedPane tabs = buildPane.getPreviewTabbedPane();
+            RightPanel rightPanel = chrome.getRightPanel();
+            PreviewTabbedPane tabs = rightPanel.getPreviewTabbedPane();
 
             BrokkDiffPanel existing = findExistingDiffTab(tabs, leftSources, rightSources);
             if (existing != null) {
                 int index = tabs.indexOfComponent(existing);
                 if (index >= 0) {
                     tabs.setSelectedIndex(index);
-                    if (tabs == buildPane.getPreviewTabbedPane()) {
-                        buildPane.selectPreviewTab();
+                    if (tabs == rightPanel.getPreviewTabbedPane()) {
+                        rightPanel.selectPreviewTab();
                     }
                     return;
                 }
@@ -444,8 +444,8 @@ public class PreviewManager {
 
                 // If it's in the main frame, refresh the BuildPane's preview tabs
                 if (previewFrame == chrome.getFrame()) {
-                    BuildPane buildPane = chrome.getBuildPane();
-                    buildPane.getPreviewTabbedPane().refreshTabsForFile(file);
+                    RightPanel rightPanel = chrome.getRightPanel();
+                    rightPanel.getPreviewTabbedPane().refreshTabsForFile(file);
                     continue;
                 }
 
@@ -747,8 +747,8 @@ public class PreviewManager {
     private void replaceTabContent(JComponent oldComponent, JComponent newComponent, String title) {
         SwingUtilities.invokeLater(() -> {
             // Check BuildPane first
-            BuildPane buildPane = chrome.getBuildPane();
-            buildPane.getPreviewTabbedPane().replaceTabComponent(oldComponent, newComponent, title);
+            RightPanel rightPanel = chrome.getRightPanel();
+            rightPanel.getPreviewTabbedPane().replaceTabComponent(oldComponent, newComponent, title);
         });
     }
 
@@ -759,8 +759,8 @@ public class PreviewManager {
         SwingUtilities.invokeLater(() -> {
             try {
                 // Check BuildPane first
-                BuildPane buildPane = chrome.getBuildPane();
-                buildPane.getPreviewTabbedPane().updateTabTitle(contentComponent, newTitle);
+                RightPanel rightPanel = chrome.getRightPanel();
+                rightPanel.getPreviewTabbedPane().updateTabTitle(contentComponent, newTitle);
             } catch (Exception ex) {
                 logger.debug("Unable to update preview window title", ex);
             }

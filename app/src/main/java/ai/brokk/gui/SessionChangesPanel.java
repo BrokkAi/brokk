@@ -119,7 +119,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             defaultBranch = "main";
         }
 
-        if (BuildPane.isLikelyCommitHash(currentBranch)) {
+        if (RightPanel.isLikelyCommitHash(currentBranch)) {
             baselineMode = BaselineMode.DETACHED;
             baselineLabel = "detached HEAD";
         } else if (!currentBranch.equals(defaultBranch)) {
@@ -343,7 +343,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         dialog.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosed(WindowEvent e) {
-                chrome.getBuildPane().requestReviewUpdate();
+                chrome.getRightPanel().requestReviewUpdate();
                 var tab = chrome.getGitCommitTab();
                 if (tab != null) tab.requestUpdate();
             }
@@ -359,7 +359,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 new GitWorkflow(contextManager).pull(branch);
                 SwingUtilities.invokeLater(() -> {
                     chrome.hideOutputSpinner();
-                    chrome.getBuildPane().requestReviewUpdate();
+                    chrome.getRightPanel().requestReviewUpdate();
                     chrome.updateGitRepo();
                 });
             } catch (Exception e) {
@@ -380,7 +380,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 new GitWorkflow(contextManager).push(branch);
                 SwingUtilities.invokeLater(() -> {
                     chrome.hideOutputSpinner();
-                    chrome.getBuildPane().requestReviewUpdate();
+                    chrome.getRightPanel().requestReviewUpdate();
                     chrome.updateGitRepo();
                 });
             } catch (Exception e) {

@@ -650,7 +650,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         newSessionFromWorkspaceItem.addActionListener(event -> {
             contextManager
                     .createSessionFromContextAsync(context, ContextManager.DEFAULT_SESSION_NAME)
-                    .thenRun(() -> chrome.getBuildPane().updateSessionComboBox())
+                    .thenRun(() -> chrome.getRightPanel().updateSessionComboBox())
                     .exceptionally(ex -> {
                         chrome.toolError("Failed to create new session from workspace: " + ex.getMessage());
                         return null;

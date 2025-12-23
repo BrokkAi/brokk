@@ -21,8 +21,8 @@ import org.jetbrains.annotations.Nullable;
  * Encapsulates the right-side UI stack: Output (History), Instructions, Tasks, and Terminal.
  * Manages the "Build" vs "Review" tabs and the vertical layout transformations.
  */
-public class BuildPane extends JPanel implements ThemeAware {
-    private static final Logger logger = LogManager.getLogger(BuildPane.class);
+public class RightPanel extends JPanel implements ThemeAware {
+    private static final Logger logger = LogManager.getLogger(RightPanel.class);
     private static final double DEFAULT_OUTPUT_MAIN_SPLIT = 0.4;
 
     private final Chrome chrome;
@@ -54,7 +54,7 @@ public class BuildPane extends JPanel implements ThemeAware {
 
     private final ContextManager contextManager;
 
-    public BuildPane(Chrome chrome, ContextManager contextManager) {
+    public RightPanel(Chrome chrome, ContextManager contextManager) {
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
