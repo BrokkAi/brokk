@@ -6,6 +6,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -32,7 +33,7 @@ public final class BuildVerifier {
     private BuildVerifier() {}
 
     /**
-     * Verify a build command by executing it.
+     * Verify a build command by executing it, capturing bounded output.
      *
      * @param project the project context (used for executor config and root path)
      * @param command the shell command to execute
@@ -40,6 +41,23 @@ public final class BuildVerifier {
      * @return VerificationResult with success status, exit code, and bounded output
      */
     public static VerificationResult verify(IProject project, String command, @Nullable Map<String, String> extraEnv) {
+        return verifyStreaming(project, command, extraEnv, null);
+    }
+
+    /**
+     * Verify a build command by executing it, streaming output line-by-line while also capturing bounded output.
+     *
+     * @param project the project context (used for executor config and root path)
+     * @param command the shell command to execute
+     * @param extraEnv optional additional environment variables (may be null or empty)
+     * @param outputConsumer optional consumer that receives each output line as it is produced
+     * @return VerificationResult with success status, exit code, and bounded output
+     */
+    public static VerificationResult verifyStreaming(
+            IProject project,
+            String command,
+            @Nullable Map<String, String> extraEnv,
+            @Nullable Consumer<String> outputConsumer) {
         Objects.requireNonNull(project, "project");
         Objects.requireNonNull(command, "command");
 
@@ -58,15 +76,20 @@ public final class BuildVerifier {
             Environment.instance.runShellCommand(
                     trimmed,
                     root,
-                    line -> appendBounded(lines, line),
+                    line -> {
+                        appendBounded(lines, line);
+                        if (outputConsumer != null) {
+                            outputConsumer.accept(line);
+                        }
+                    },
                     Environment.DEFAULT_TIMEOUT,
                     execCfg,
                     env);
             return new VerificationResult(true, 0, joinLines(lines));
         } catch (Environment.FailureException e) {
-            String bounded = boundOutput(e.getOutput());
+            String combined = boundOutput(String.join("\n", e.getMessage(), e.getOutput()));
             logger.debug("Command verification failed with exit code {}: {}", e.getExitCode(), e.getMessage());
-            return new VerificationResult(false, e.getExitCode(), bounded);
+            return new VerificationResult(false, e.getExitCode(), combined);
         } catch (Environment.SubprocessException e) {
             String combined = boundOutput(String.join("\n", e.getMessage(), e.getOutput()));
             logger.debug("Command verification errored: {}", e.getMessage());

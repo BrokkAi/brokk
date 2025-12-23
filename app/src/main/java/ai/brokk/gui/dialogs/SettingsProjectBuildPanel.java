@@ -9,6 +9,7 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
 import ai.brokk.util.ExecutorConfig;
 import ai.brokk.util.ExecutorValidator;
@@ -479,26 +480,15 @@ public class SettingsProjectBuildPanel extends JPanel {
                 if (!buildCmd.isEmpty()) {
                     publish("--- Verifying Build/Lint Command ---\n");
                     publish("$ " + buildCmd + "\n");
-                    try {
-                        var execCfg = ExecutorConfig.fromProject(project);
-                        var envVars = computeEnvFromUi();
-                        Environment.instance.runShellCommand(
-                                buildCmd,
-                                root,
-                                line -> publish(line + "\n"),
-                                Environment.DEFAULT_TIMEOUT,
-                                execCfg,
-                                envVars);
+                    var envVars = computeEnvFromUi();
+                    var result = BuildVerifier.verifyStreaming(project, buildCmd, envVars, line -> publish(line + "\n"));
+                    if (result.success()) {
                         publish("\nSUCCESS: Build/Lint command completed successfully.\n\n");
-                    } catch (Environment.SubprocessException e) {
-                            publish("\nERROR: Build/Lint command failed.\n");
-                            publish(e.getMessage() + "\n");
-                            publish(e.getOutput() + "\n");
-                            return "Build/Lint command failed.";
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            return "Verification cancelled.";
-                        }
+                    } else {
+                        publish("\nERROR: Build/Lint command failed.\n");
+                        publish(result.output() + "\n");
+                        return "Build/Lint command failed.";
+                    }
                 } else {
                     publish("--- Skipping empty Build/Lint Command ---\n\n");
                 }
@@ -508,25 +498,15 @@ public class SettingsProjectBuildPanel extends JPanel {
                 if (!testAllCmd.isEmpty()) {
                     publish("--- Verifying Test All Command ---\n");
                     publish("$ " + testAllCmd + "\n");
-                    try {
-                        var execCfg = ExecutorConfig.fromProject(project);
-                        var envVars = computeEnvFromUi();
-                        Environment.instance.runShellCommand(
-                                testAllCmd,
-                                root,
-                                line -> publish(line + "\n"),
-                                Environment.DEFAULT_TIMEOUT,
-                                execCfg,
-                                envVars);
+                    var envVars = computeEnvFromUi();
+                    var result =
+                            BuildVerifier.verifyStreaming(project, testAllCmd, envVars, line -> publish(line + "\n"));
+                    if (result.success()) {
                         publish("\nSUCCESS: Test All command completed successfully.\n\n");
-                    } catch (Environment.SubprocessException e) {
+                    } else {
                         publish("\nERROR: Test All command failed.\n");
-                        publish(e.getMessage() + "\n");
-                        publish(e.getOutput() + "\n");
+                        publish(result.output() + "\n");
                         return "Test All command failed.";
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        return "Verification cancelled.";
                     }
                 } else {
                     publish("--- Skipping empty Test All Command ---\n\n");
@@ -564,32 +544,21 @@ public class SettingsProjectBuildPanel extends JPanel {
                     }
 
                     publish("$ " + interpolatedCmd + "\n");
-                    try {
-                        var execCfg = ExecutorConfig.fromProject(project);
-                        var envVars = computeEnvFromUi();
-                        Environment.instance.runShellCommand(
-                                interpolatedCmd,
-                                root,
-                                line -> publish(line + "\n"),
-                                Environment.DEFAULT_TIMEOUT,
-                                execCfg,
-                                envVars);
+                    var envVars = computeEnvFromUi();
+                    var result = BuildVerifier.verifyStreaming(
+                            project, interpolatedCmd, envVars, line -> publish(line + "\n"));
+                    if (result.success()) {
                         publish(
                                 "\nSUCCESS: 'Test Some' command executed without errors (this is unexpected for a placeholder test).\n\n");
-                    } catch (Environment.FailureException e) {
+                    } else if (result.exitCode() >= 0) {
                         publish(
                                 "\nSUCCESS: 'Test Some' command executed and failed as expected for a placeholder test.\n");
                         publish("This confirms the command and template syntax are valid.\n\n");
-                        // This is the expected success path.
-                    } catch (Environment.SubprocessException e) {
+                    } else {
                         publish("\nERROR: 'Test Some' command failed to execute.\n");
                         publish("This may indicate an invalid executable or a syntax error in the command.\n");
-                        publish(e.getMessage() + "\n");
-                        publish(e.getOutput() + "\n");
+                        publish(result.output() + "\n");
                         return "'Test Some' command is invalid.";
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        return "Verification cancelled.";
                     }
                 } else {
                     publish("--- Skipping empty Test Some Command ---\n\n");
