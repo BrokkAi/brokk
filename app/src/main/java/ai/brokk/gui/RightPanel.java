@@ -380,14 +380,26 @@ public class RightPanel extends JPanel implements ThemeAware {
                 verticalActivityCombinedPanel.setResizeWeight(0.5);
                 historyOutputPanel.applyFixedCaptureBarSizing(true);
             }
-            removeAll();
-            add(sessionHeaderPanel, BorderLayout.NORTH);
-            add(verticalActivityCombinedPanel, BorderLayout.CENTER);
+
+            int buildIdx = buildReviewTabs.indexOfTab("Build");
+            if (buildIdx != -1) {
+                buildReviewTabs.setComponentAt(buildIdx, verticalActivityCombinedPanel);
+            }
         } else {
             historyOutputPanel.applyFixedCaptureBarSizing(false);
-            removeAll();
-            add(sessionHeaderPanel, BorderLayout.NORTH);
-            add(buildReviewTabs, BorderLayout.CENTER);
+
+            // Restore original buildSplitPane structure
+            var activityTabsContainer = historyOutputPanel.getActivityTabsContainer();
+            activityTabsContainer.removeAll();
+            activityTabsContainer.add(historyOutputPanel.getLlmOutputContainer(), BorderLayout.CENTER);
+
+            buildSplitPane.setTopComponent(historyOutputPanel);
+            buildSplitPane.setBottomComponent(commandPanel);
+
+            int buildIdx = buildReviewTabs.indexOfTab("Build");
+            if (buildIdx != -1) {
+                buildReviewTabs.setComponentAt(buildIdx, buildSplitPane);
+            }
             verticalActivityCombinedPanel = null;
         }
         revalidate();
