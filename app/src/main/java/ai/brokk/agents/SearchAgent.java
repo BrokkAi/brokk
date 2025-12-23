@@ -280,12 +280,6 @@ public class SearchAgent {
     }
 
     private TaskResult executeInternal() throws InterruptedException {
-        // Auto-scan upfront if workspace has no file content
-        if (shouldAutomaticallyScan()) {
-            logger.info("Auto-scanning: workspace has no file content");
-            performAutoScan(); // Throws InterruptedException if interrupted
-        }
-
         // Create a per-turn WorkspaceTools instance bound to the agent-local Context
         var wst = new WorkspaceTools(context);
         var tr = cm.getToolRegistry().builder().register(wst).register(this).build();
