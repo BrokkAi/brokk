@@ -273,16 +273,4 @@ public final class WorktreeProject extends AbstractProject {
         parent.setModelConfig(modelType, config);
     }
 
-    /**
-     * Returns true if this worktree contains no analyzable source files.
-     */
-    @Override
-    public boolean isEmptyProject() {
-        Set<String> analyzableExtensions = Languages.ALL_LANGUAGES.stream()
-                .filter(lang -> lang != Languages.NONE)
-                .flatMap(lang -> lang.getExtensions().stream())
-                .collect(Collectors.toSet());
-
-        return getAllFiles().stream().map(ProjectFile::extension).noneMatch(analyzableExtensions::contains);
-    }
 }

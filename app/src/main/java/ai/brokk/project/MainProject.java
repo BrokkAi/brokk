@@ -2258,19 +2258,4 @@ public final class MainProject extends AbstractProject {
         }
     }
 
-    /**
-     * Returns true if this project contains no analyzable source files.
-     * Uses file extension matching against supported languages as a heuristic.
-     * This may miss projects using unsupported languages or unconventional extensions,
-     * but errs on the side of not triggering unnecessary build inference.
-     */
-    @Override
-    public boolean isEmptyProject() {
-        Set<String> analyzableExtensions = Languages.ALL_LANGUAGES.stream()
-                .filter(lang -> lang != Languages.NONE)
-                .flatMap(lang -> lang.getExtensions().stream())
-                .collect(Collectors.toSet());
-
-        return getAllFiles().stream().map(ProjectFile::extension).noneMatch(analyzableExtensions::contains);
-    }
 }
