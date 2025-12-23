@@ -256,7 +256,7 @@ public class SessionManager implements AutoCloseable {
      *
      * <p>This runs synchronously; intended to be invoked from a background task.
      */
-    public QuarantineReport quarantineUnreadableSessions(ContextManager contextManager) {
+    public QuarantineReport quarantineUnreadableSessions(IContextManager contextManager) {
         int moved = 0;
         var quarantinedIds = new HashSet<UUID>();
         var quarantinedNoUuid = new ArrayList<String>();
@@ -744,8 +744,8 @@ public class SessionManager implements AutoCloseable {
     public void close() {
         sessionExecutor.shutdown();
         try {
-            if (!sessionExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                logger.warn("Session IO tasks did not finish in 5 seconds, forcing shutdown.");
+            if (!sessionExecutor.awaitTermination(30, TimeUnit.SECONDS)) {
+                logger.warn("Session IO tasks did not finish in 30 seconds, forcing shutdown.");
                 sessionExecutor.shutdownNow();
             }
         } catch (InterruptedException e) {
