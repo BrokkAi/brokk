@@ -322,12 +322,13 @@ public class ArchitectAgent {
             @P("Command to run all tests.") String testAllCommand,
             @P("Command to run a subset of tests (e.g., a single module/file/class).") String testSomeCommand,
             @P("Directories to exclude from analysis/build context.") List<String> excludedDirectories) {
+        var existingDetails = cm.getProject().loadBuildDetails();
         var details = new BuildAgent.BuildDetails(
                 buildLintCommand,
                 testAllCommand,
                 testSomeCommand,
                 new LinkedHashSet<>(excludedDirectories),
-                java.util.Map.of());
+                existingDetails.environmentVariables());
         cm.getProject().saveBuildDetails(details);
 
         cm.getIo().showNotification(IConsoleIO.NotificationRole.INFO, "Saved build details.");
