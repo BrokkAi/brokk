@@ -471,6 +471,7 @@ public class RightPanel extends JPanel implements ThemeAware {
             var activityTabsContainer = historyOutputPanel.getActivityTabsContainer();
             activityTabsContainer.removeAll();
             activityTabsContainer.add(historyOutputPanel.getLlmOutputContainer(), BorderLayout.CENTER);
+            activityTabsContainer.add(historyOutputPanel.getActivityTabs(), BorderLayout.EAST);
 
             buildSplitPane.setTopComponent(historyOutputPanel);
             buildSplitPane.setBottomComponent(commandPanel);
