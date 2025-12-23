@@ -1823,7 +1823,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     }
                     builder.addComparison(leftSource, rightSource);
                 }
-                SwingUtilities.invokeLater(() -> builder.build().showInFrame(PrTitleFormatter.formatDiffTitle(pr)));
+                SwingUtilities.invokeLater(() ->
+                        builder.build().showInTab(chrome.getPreviewManager(), PrTitleFormatter.formatDiffTitle(pr)));
 
             } catch (Exception ex) {
                 logger.error("Error opening PR diff viewer for PR #{}", pr.getNumber(), ex);

@@ -1404,7 +1404,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
      *
      * <p>Note: Parameters are non-null by default in this codebase (NullAway).
      */
-    @Blocking
     private static String contextDescription(Collection<? extends ContextFragment> fragments) {
         int count = fragments.size();
         if (count == 0) {
@@ -1413,7 +1412,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (count <= 2) {
             return fragments.stream()
                     .map(ContextFragment::shortDescription)
-                    .map(ComputedValue::join)
+                    .map(cv -> cv.renderNowOr("<pending>"))
                     .collect(Collectors.joining(", "));
         }
         return count + " fragments";
