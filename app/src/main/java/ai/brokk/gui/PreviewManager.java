@@ -279,7 +279,7 @@ public class PreviewManager {
                 ? existingPane
                 : new PreviewTabbedPane(chrome, chrome.getTheme(), title -> {}, () -> {});
 
-        previewFrame = new PreviewFrame(chrome, chrome.getTheme(), pane);
+        previewFrame = new PreviewFrame(chrome, pane);
         var frame = previewFrame;
 
         var project = cm.getProject();

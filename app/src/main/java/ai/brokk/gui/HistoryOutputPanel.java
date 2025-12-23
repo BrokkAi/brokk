@@ -108,10 +108,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
     private JTabbedPane activityTabs;
 
-    // Output tabs
-    @Nullable
-    private JTabbedPane outputTabs;
-
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
     private JPanel activityTabsContainer;
 
@@ -317,9 +313,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         outputPanel.add(llmScrollPane, BorderLayout.CENTER);
         outputPanel.add(capturePanel, BorderLayout.SOUTH); // Add capture panel below LLM output
-
-        // outputTabs is now null as we are moving Review to the top-level Chrome tabs
-        this.outputTabs = null;
 
         // Container for the output area
         var centerContainer = new JPanel(new BorderLayout());
@@ -2798,26 +2791,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         suppressScrollOnNextUpdate = true;
 
         updateHistoryTable(null);
-    }
-
-    // Adapted from BranchSelectorButton#getAvailableSpaceBelow:
-    // Compute vertical space available below the given anchor within the current screen,
-    // accounting for taskbar/dock insets. If the component is not yet showing, fall back to 400.
-    private int getAvailableSpaceBelow(Component anchor) {
-        try {
-            Point screenLoc = anchor.getLocationOnScreen();
-            GraphicsConfiguration gc = anchor.getGraphicsConfiguration();
-            Rectangle screenBounds = (gc != null)
-                    ? gc.getBounds()
-                    : new Rectangle(Toolkit.getDefaultToolkit().getScreenSize());
-            Insets insets = (gc != null) ? Toolkit.getDefaultToolkit().getScreenInsets(gc) : new Insets(0, 0, 0, 0);
-            int bottomEdge = screenBounds.y + screenBounds.height - insets.bottom;
-            int anchorBottom = screenLoc.y + anchor.getHeight();
-            return Math.max(0, bottomEdge - anchorBottom);
-        } catch (IllegalComponentStateException e) {
-            // If not yet showing, fall back to a reasonable default
-            return 400;
-        }
     }
 
     private void requestVisibleDiffs() {

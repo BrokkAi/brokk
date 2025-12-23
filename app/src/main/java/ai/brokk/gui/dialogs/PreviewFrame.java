@@ -23,11 +23,6 @@ import org.jetbrains.annotations.Nullable;
 public class PreviewFrame extends JFrame implements ThemeAware {
     private PreviewTabbedPane tabbedPane;
     private final Chrome chrome;
-    private GuiTheme guiTheme;
-
-    public PreviewTabbedPane getTabbedPane() {
-        return tabbedPane;
-    }
 
     public void setTabbedPane(PreviewTabbedPane newPane) {
         mainContent.remove(this.tabbedPane);
@@ -39,10 +34,9 @@ public class PreviewFrame extends JFrame implements ThemeAware {
 
     private final JPanel mainContent;
 
-    public PreviewFrame(Chrome chrome, GuiTheme guiTheme, PreviewTabbedPane initialPane) {
+    public PreviewFrame(Chrome chrome, PreviewTabbedPane initialPane) {
         super("Preview");
         this.chrome = chrome;
-        this.guiTheme = guiTheme;
         this.tabbedPane = initialPane;
 
         // Apply icon, macOS full-window-content, and title bar
@@ -134,7 +128,6 @@ public class PreviewFrame extends JFrame implements ThemeAware {
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
-        this.guiTheme = guiTheme;
         // Apply theme to all tabs
         for (int i = 0; i < tabbedPane.getTabCount(); i++) {
             Component comp = tabbedPane.getComponentAt(i);

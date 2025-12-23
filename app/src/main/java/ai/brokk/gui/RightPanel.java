@@ -10,8 +10,6 @@ import ai.brokk.gui.util.Icons;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
 import javax.swing.*;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -19,7 +17,6 @@ import org.jetbrains.annotations.Nullable;
  * Manages the "Build" vs "Review" tabs and the vertical layout transformations.
  */
 public class RightPanel extends JPanel implements ThemeAware {
-    private static final Logger logger = LogManager.getLogger(RightPanel.class);
     private static final double DEFAULT_OUTPUT_MAIN_SPLIT = 0.4;
 
     private final Chrome chrome;
