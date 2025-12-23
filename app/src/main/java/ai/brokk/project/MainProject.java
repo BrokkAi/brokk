@@ -2263,7 +2263,7 @@ public final class MainProject extends AbstractProject {
     @Override
     public void sessionsListChanged() {
         for (var chrome : Brokk.getProjectAndWorktreeChromes(this)) {
-            SwingUtilities.invokeLater(() -> chrome.getHistoryOutputPanel().updateSessionComboBox());
+            SwingUtilities.invokeLater(() -> chrome.getRightPanel().updateSessionComboBox());
         }
     }
 }
