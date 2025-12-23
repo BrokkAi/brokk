@@ -218,7 +218,7 @@ public class PreviewTabbedPane extends JTabbedPane implements ThemeAware {
             }
         }
     }
-    
+
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         this.guiTheme = guiTheme;

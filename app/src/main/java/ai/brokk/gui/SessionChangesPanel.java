@@ -69,28 +69,28 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     /**
      * Refreshes just the tab title and tooltip based on current Git state.
-     * This happens immediately on the EDT and triggers a background task for counts.
+     * This runs asynchronously to avoid blocking the EDT with Git operations.
      */
-    public void refreshTitleOnly() {
-        SwingUtil.runOnEdt(() -> {
-            var state = resolveBaselineState();
-            if (state == null) return;
-
-            // Set loading state while background task runs
+    public void refreshTitleAsync() {
+        SwingUtilities.invokeLater(() -> {
             tabTitleUpdater.updateTitleAndTooltip("Review (...)", "Computing branch-based changes...");
-
-            refreshCumulativeChangesAsync(state.baselineLabel(), state.baselineMode())
-                    .thenAccept(result -> {
-                        SwingUtilities.invokeLater(
-                                () -> updateTitleAndTooltipFromResult(result, state.baselineLabel()));
-                    })
-                    .exceptionally(ex -> {
-                        logger.warn("Failed to compute cumulative changes for title", ex);
-                        SwingUtilities.invokeLater(
-                                () -> tabTitleUpdater.updateTitleAndTooltip("Review", "Failed to compute changes"));
-                        return null;
-                    });
         });
+
+        contextManager
+                .submitBackgroundTask("Refreshing review title", () -> {
+                    var state = resolveBaselineState();
+                    if (state == null) return null;
+
+                    var result = computeCumulativeChanges(state.baselineLabel(), state.baselineMode());
+                    SwingUtilities.invokeLater(() -> updateTitleAndTooltipFromResult(result, state.baselineLabel()));
+                    return null;
+                })
+                .exceptionally(ex -> {
+                    logger.warn("Failed to refresh title async", ex);
+                    SwingUtilities.invokeLater(
+                            () -> tabTitleUpdater.updateTitleAndTooltip("Review", "Failed to compute changes"));
+                    return null;
+                });
     }
 
     private record BaselineState(BaselineMode baselineMode, String baselineLabel) {}
@@ -173,36 +173,39 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
     }
 
+    private DiffService.CumulativeChanges computeCumulativeChanges(String baselineLabel, BaselineMode baselineMode)
+            throws Exception {
+        var repo = contextManager.getProject().getRepo();
+
+        String leftRef;
+        String rightRef = "HEAD";
+
+        if (baselineMode == BaselineMode.DETACHED) {
+            // For detached HEAD, compare against empty (show all changes in current commit)
+            leftRef = rightRef + "^";
+        } else if (baselineMode == BaselineMode.NON_DEFAULT_BRANCH) {
+            // Compare current branch against default branch
+            leftRef = baselineLabel;
+        } else if (baselineMode == BaselineMode.DEFAULT_WITH_UPSTREAM) {
+            // Compare local default against remote
+            leftRef = baselineLabel;
+        } else {
+            // DEFAULT_LOCAL_ONLY - no meaningful comparison
+            return new DiffService.CumulativeChanges(0, 0, 0, java.util.List.of());
+        }
+
+        var modifiedFiles = repo.listFilesChangedBetweenCommits(rightRef, leftRef);
+        var modifiedSet = new java.util.HashSet<>(modifiedFiles.stream()
+                .map(mf -> new ai.brokk.git.IGitRepo.ModifiedFile(mf.file(), mf.status()))
+                .toList());
+
+        return DiffService.summarizeDiff(repo, leftRef, rightRef, modifiedSet);
+    }
+
     private CompletableFuture<DiffService.CumulativeChanges> refreshCumulativeChangesAsync(
             String baselineLabel, BaselineMode baselineMode) {
-
-        return contextManager.submitBackgroundTask("Computing review changes", () -> {
-            var repo = contextManager.getProject().getRepo();
-
-            String leftRef;
-            String rightRef = "HEAD";
-
-            if (baselineMode == BaselineMode.DETACHED) {
-                // For detached HEAD, compare against empty (show all changes in current commit)
-                leftRef = rightRef + "^";
-            } else if (baselineMode == BaselineMode.NON_DEFAULT_BRANCH) {
-                // Compare current branch against default branch
-                leftRef = baselineLabel;
-            } else if (baselineMode == BaselineMode.DEFAULT_WITH_UPSTREAM) {
-                // Compare local default against remote
-                leftRef = baselineLabel;
-            } else {
-                // DEFAULT_LOCAL_ONLY - no meaningful comparison
-                return new DiffService.CumulativeChanges(0, 0, 0, java.util.List.of());
-            }
-
-            var modifiedFiles = repo.listFilesChangedBetweenCommits(rightRef, leftRef);
-            var modifiedSet = new java.util.HashSet<>(modifiedFiles.stream()
-                    .map(mf -> new ai.brokk.git.IGitRepo.ModifiedFile(mf.file(), mf.status()))
-                    .toList());
-
-            return DiffService.summarizeDiff(repo, leftRef, rightRef, modifiedSet);
-        });
+        return contextManager.submitBackgroundTask(
+                "Computing review changes", () -> computeCumulativeChanges(baselineLabel, baselineMode));
     }
 
     private void updateTitleAndTooltipFromResult(DiffService.CumulativeChanges result, String baselineLabel) {

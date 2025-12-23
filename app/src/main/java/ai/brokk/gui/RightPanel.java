@@ -516,7 +516,7 @@ public class RightPanel extends JPanel implements ThemeAware {
     }
 
     public void requestReviewUpdate() {
-        sessionChangesPanel.refreshTitleOnly();
+        sessionChangesPanel.refreshTitleAsync();
         sessionChangesPanel.requestUpdate();
     }
 
