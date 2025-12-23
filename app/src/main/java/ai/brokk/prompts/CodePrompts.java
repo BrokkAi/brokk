@@ -462,21 +462,23 @@ public abstract class CodePrompts {
     }
 
     /** Generates a message based on application results of tagged edit blocks. */
-    public static String getApplyFailureMessage(List<EditBlock.FailedBlock> failedBlocks, int succeededCount) {
+    public static String getApplyFailureMessage(List<EditBlock.FailedBlock> failedBlocks, int succeededCount, String taggedResponse) {
         if (failedBlocks.isEmpty()) {
             return "";
         }
 
-        // We assume the failedBlocks provided are a subset of the total blocks sent,
-        // but since we don't have the original total list here, we rely on the commentary
-        // or caller logic to identify which block index failed.
-        // For now, we will use the indices provided within the FailedBlock if available,
-        // or just list the failures.
-        
         var sb = new StringBuilder();
         sb.append("<instructions>\n");
         sb.append("# SEARCH/REPLACE application results\n\n");
         sb.append("Some blocks failed to apply. Please review the current file state and provide corrected blocks.\n\n");
+
+        if (!taggedResponse.isEmpty()) {
+            sb.append("For your reference, here is your previous response with markers injected to identify the blocks:\n\n");
+            sb.append("<tagged_response>\n");
+            sb.append(taggedResponse);
+            sb.append("\n</tagged_response>\n\n");
+        }
+
         sb.append("</instructions>\n\n");
 
         var failuresByFile = failedBlocks.stream()

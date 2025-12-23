@@ -91,7 +91,8 @@ public class EditBlockParser {
         int i = 0;
 
         while (i < lines.length) {
-            var trimmed = lines[i].trim();
+            var line = lines[i];
+            var trimmed = line.trim();
             boolean blockStarted = false;
 
             // 1) Check for fenced block start
@@ -100,23 +101,16 @@ public class EditBlockParser {
                 var searchAtNextNext = (i + 2 < lines.length) && isSearch(lines[i + 2]);
 
                 if (searchAtNext || searchAtNextNext) {
-                    // Strip trailing newline from the last added line if it exists to avoid double spacing
-                    if (!outputLines.isEmpty()) {
-                        String last = outputLines.getLast();
-                        if (last.isEmpty() && outputLines.size() > 1) {
-                            outputLines.removeLast();
-                        }
-                    }
                     outputLines.add("[BRK_BLOCK_" + (blockCounter++) + "]");
-                    outputLines.add(lines[i]);
+                    outputLines.add(line);
                     i++;
                     blockStarted = true;
 
                     // Consume until we find the closing fence or the end of content
-                    // (similar to how parse() moves through the block)
                     while (i < lines.length) {
-                        outputLines.add(lines[i]);
-                        if (isReplace(lines[i])) {
+                        var blockLine = lines[i];
+                        outputLines.add(blockLine);
+                        if (isReplace(blockLine)) {
                             i++;
                             // Optional closing fence
                             if (i < lines.length && isFence(lines[i].trim())) {
@@ -132,14 +126,15 @@ public class EditBlockParser {
             // 2) Check for fence-less block start
             else if (isSearch(trimmed)) {
                 outputLines.add("[BRK_BLOCK_" + (blockCounter++) + "]");
-                outputLines.add(lines[i]);
+                outputLines.add(line);
                 i++;
                 blockStarted = true;
-                
+
                 // Consume until we find the closing marker
                 while (i < lines.length) {
-                    outputLines.add(lines[i]);
-                    if (isReplace(lines[i])) {
+                    var blockLine = lines[i];
+                    outputLines.add(blockLine);
+                    if (isReplace(blockLine)) {
                         i++;
                         break;
                     }
@@ -148,7 +143,7 @@ public class EditBlockParser {
             }
 
             if (!blockStarted && i < lines.length) {
-                outputLines.add(lines[i]);
+                outputLines.add(line);
                 i++;
             }
         }
