@@ -167,7 +167,7 @@ public class SearchAgent {
      * @param model the LLM model to use
      * @param objective the search objective
      * @param scope the task scope for history recording
-     * @param io the IConsoleIO instance for output (null defaults to cm.getIo())
+     * @param io the IConsoleIO instance for output
      * @param scanConfig configuration for automatic context scanning
      */
     public SearchAgent(
