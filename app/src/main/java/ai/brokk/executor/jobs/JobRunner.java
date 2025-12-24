@@ -337,59 +337,15 @@ public final class JobRunner {
                                         try (var scope = cm.beginTask(spec.taskInput(), false)) {
                                             var context = cm.liveContext();
 
-                                            // Construct SearchAgent only for potential pre-scan usage (no execute).
-                                            var searchAgent = new SearchAgent(
-                                                    context,
-                                                    spec.taskInput(),
-                                                    Objects.requireNonNull(
-                                                            askPlannerModel, "plannerModel required for ASK jobs"),
-                                                    SearchAgent.Objective.ANSWER_ONLY,
-                                                    scope);
-
                                             // Optional pre-scan: resolve scan model similarly to SEARCH mode.
-                                            if (spec.preScan()) {
-                                                String rawScanModel = spec.scanModel();
-                                                String trimmedScanModel =
-                                                        rawScanModel == null ? "" : rawScanModel.trim();
+                                            // FIXME support scanning?
+                                            // Old code using SearchAgent did not update context so it was a no-op
+                                            // If desired, rebuild using direct access to ContextAgent; BrokkCli has
+                                            // an example
 
-                                                // Emit deterministic start NOTIFICATION so headless clients/tests
-                                                // can observe the pre-scan start.
-                                                try {
-                                                    store.appendEvent(
-                                                            jobId,
-                                                            JobEvent.of(
-                                                                    "NOTIFICATION",
-                                                                    "Brokk Context Engine: analyzing repository context..."));
-                                                } catch (IOException ioe) {
-                                                    logger.warn(
-                                                            "Failed to append pre-scan start notification event for job {}: {}",
-                                                            jobId,
-                                                            ioe.getMessage(),
-                                                            ioe);
-                                                }
-
-                                                // FIXME support scanning?
-                                                // Old code using SearchAgent did not update context so it was a no-op
-                                                // If desired, rebuild using direct access to ContextAgent; BrokkCli has
-                                                // an example
-
-                                                // Emit deterministic completion NOTIFICATION so headless
-                                                // clients/tests can reliably observe that the Context Engine
-                                                // pre-scan phase finished.
-                                                try {
-                                                    store.appendEvent(
-                                                            jobId,
-                                                            JobEvent.of(
-                                                                    "NOTIFICATION",
-                                                                    "Brokk Context Engine: complete — contextual insights added to Workspace."));
-                                                } catch (IOException ioe) {
-                                                    logger.warn(
-                                                            "Failed to append pre-scan completion event for job {}: {}",
-                                                            jobId,
-                                                            ioe.getMessage(),
-                                                            ioe);
-                                                }
-                                            }
+                                            // Emit deterministic completion NOTIFICATION so headless
+                                            // clients/tests can reliably observe that the Context Engine
+                                            // pre-scan phase finished.
 
                                             try {
                                                 // Use helper that builds a workspace-only prompt and calls the
