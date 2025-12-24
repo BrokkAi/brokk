@@ -61,6 +61,6 @@ public record SandboxConfig(FilesystemConfig filesystem, LinuxOptions linuxOptio
     }
 
     public static SandboxConfig empty() {
-        return new SandboxConfig(FilesystemConfig.empty(), null);
+        return new SandboxConfig(FilesystemConfig.empty(), LinuxOptions.defaults());
     }
 }

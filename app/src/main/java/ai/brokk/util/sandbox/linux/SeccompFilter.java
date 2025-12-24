@@ -8,6 +8,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.PosixFilePermission;
 import java.util.Locale;
 import java.util.Set;
+import org.jetbrains.annotations.Nullable;
 
 public final class SeccompFilter {
 
@@ -22,7 +23,7 @@ public final class SeccompFilter {
         return mapArchitecture(arch);
     }
 
-    public static String mapArchitecture(String arch) {
+    public static @Nullable String mapArchitecture(@Nullable String arch) {
         if (arch == null) {
             return null;
         }
@@ -36,7 +37,7 @@ public final class SeccompFilter {
         return null;
     }
 
-    public static String getBpfResourcePath() {
+    public static @Nullable String getBpfResourcePath() {
         String arch = getVendorArchitecture();
         if (arch == null) {
             return null;
@@ -44,7 +45,7 @@ public final class SeccompFilter {
         return RESOURCE_BASE + arch + "/" + BPF_FILENAME;
     }
 
-    public static String getApplySeccompResourcePath() {
+    public static @Nullable String getApplySeccompResourcePath() {
         String arch = getVendorArchitecture();
         if (arch == null) {
             return null;
@@ -108,6 +109,7 @@ public final class SeccompFilter {
                 perms.add(PosixFilePermission.OTHERS_EXECUTE);
                 Files.setPosixFilePermissions(binaryPath, perms);
             } catch (UnsupportedOperationException e) {
+                // Some filesystems (e.g. non-POSIX) do not support POSIX permissions; executable bit may already be set.
             }
 
             return binaryPath;
