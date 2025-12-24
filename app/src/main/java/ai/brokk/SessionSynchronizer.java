@@ -9,10 +9,13 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import javax.swing.JOptionPane;
@@ -97,10 +100,11 @@ class SessionSynchronizer {
             List<RemoteSessionMeta> remoteMetas = syncCallbacks.listRemoteSessions(remoteProject);
             Files.createDirectories(sessionsDir);
 
-            Map<UUID, RemoteSessionMeta> remoteSessionsMap = remoteMetas.stream()
-                    .collect(Collectors.toMap(meta -> UUID.fromString(meta.id()), meta -> meta, (a, b) -> a));
+            Map<UUID, RemoteSessionMeta> remoteSessionsMap =
+                    remoteMetas.stream().collect(Collectors.toMap(RemoteSessionMeta::uuid, meta -> meta, (a, b) -> a));
 
             // 1. Process tombstones (local deletions that need to go to remote)
+            Set<UUID> tombstoneDeletedIds = new HashSet<>();
             try (var stream = Files.list(sessionsDir)) {
                 List<Path> tombstones = stream.filter(path -> path.toString().endsWith(".tombstone"))
                         .toList();
@@ -118,6 +122,7 @@ class SessionSynchronizer {
                                     .submit(id.toString(), () -> {
                                         try {
                                             syncCallbacks.deleteRemoteSession(id);
+                                            tombstoneDeletedIds.add(id);
                                             logger.debug("Deleted session {} from remote via tombstone", id);
                                         } catch (IOException e) {
                                             logger.warn(
@@ -136,9 +141,15 @@ class SessionSynchronizer {
             // 2. Bidirectional sync
             Map<UUID, SessionInfo> localSessions = new HashMap<>(sessionManager.getSessionsCache());
 
-            for (var entry : remoteSessionsMap.entrySet()) {
-                UUID id = entry.getKey();
-                RemoteSessionMeta remoteMeta = entry.getValue();
+            // Fetch latest changes first and filter out sessions handled by tombstones
+            List<RemoteSessionMeta> syncableRemoteMetas = remoteMetas.stream()
+                    .filter(meta -> !tombstoneDeletedIds.contains(meta.uuid()))
+                    .sorted(Comparator.comparingLong(RemoteSessionMeta::modifiedAtMillis)
+                            .reversed())
+                    .toList();
+
+            for (RemoteSessionMeta remoteMeta : syncableRemoteMetas) {
+                UUID id = remoteMeta.uuid();
                 SessionInfo localInfo = localSessions.get(id);
 
                 // Find if this session is currently active in any Chrome/ContextManager

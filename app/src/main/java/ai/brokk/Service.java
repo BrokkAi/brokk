@@ -553,6 +553,10 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         public long modifiedAtMillis() {
             return modifiedAt != null ? Instant.parse(modifiedAt).toEpochMilli() : 0;
         }
+
+        public UUID uuid() {
+            return UUID.fromString(id);
+        }
     }
 
     // Separate mapper configured to ignore unknown properties
