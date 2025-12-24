@@ -11,9 +11,7 @@ import ai.brokk.gui.theme.ThemeAware;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
@@ -39,8 +37,12 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
     private final CardLayout cardLayout;
     private int cardCounter = 0;
 
-    private record TabEntry(String title, JComponent component, @Nullable ProjectFile fileKey,
-                            @Nullable ContextFragment fragmentKey, String cardName) {}
+    private record TabEntry(
+            String title,
+            JComponent component,
+            @Nullable ProjectFile fileKey,
+            @Nullable ContextFragment fragmentKey,
+            String cardName) {}
 
     public PreviewTabbedPane(
             Chrome chrome, GuiTheme guiTheme, Consumer<String> titleChangedCallback, Runnable emptyCallback) {
@@ -58,6 +60,7 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
         tabList = new JList<>(listModel);
         tabList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         tabList.setCellRenderer(new TabCellRenderer());
+        tabList.setFixedCellWidth(200);
         tabList.addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 updateSelection();
@@ -87,6 +90,7 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
         var listScrollPane = new JScrollPane(tabList);
         listScrollPane.setPreferredSize(new Dimension(200, 0));
         listScrollPane.setBorder(BorderFactory.createEmptyBorder());
+        listScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
 
         add(contentPanel, BorderLayout.CENTER);
         add(listScrollPane, BorderLayout.EAST);
@@ -170,8 +174,11 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
     }
 
     private boolean tryReplaceOrSelectTab(
-            int index, JComponent panel, String tabTitle,
-            @Nullable ProjectFile fileKey, @Nullable ContextFragment fragmentKey) {
+            int index,
+            JComponent panel,
+            String tabTitle,
+            @Nullable ProjectFile fileKey,
+            @Nullable ContextFragment fragmentKey) {
         var oldEntry = listModel.get(index);
         if (oldEntry.component() instanceof PreviewTextPanel existingPanel && !existingPanel.confirmClose()) {
             tabList.setSelectedIndex(index);
@@ -229,8 +236,8 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
         if (index >= 0) {
             String tabTitle = newTitle.startsWith("Preview: ") ? newTitle.substring(9) : newTitle;
             var oldEntry = listModel.get(index);
-            var newEntry = new TabEntry(tabTitle, oldEntry.component(), oldEntry.fileKey(),
-                                        oldEntry.fragmentKey(), oldEntry.cardName());
+            var newEntry = new TabEntry(
+                    tabTitle, oldEntry.component(), oldEntry.fileKey(), oldEntry.fragmentKey(), oldEntry.cardName());
             listModel.set(index, newEntry);
         }
     }
@@ -319,9 +326,15 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
     }
 
     /**
-     * Custom cell renderer for left-aligned tab entries with close button
+     * Custom cell renderer for left-aligned tab entries with close button.
+     * Truncates long file names with ellipsis.
      */
     private class TabCellRenderer extends JPanel implements ListCellRenderer<TabEntry> {
+        private static final int FIXED_WIDTH = 200;
+        private static final int DIRTY_WIDTH = 16;
+        private static final int CLOSE_WIDTH = 20;
+        private static final int PADDING = 8 + 4 + 4 + 8; // left border + gaps + right border
+
         private final JLabel dirtyLabel = new JLabel();
         private final JLabel titleLabel = new JLabel();
         private final JLabel closeLabel = new JLabel("x");
@@ -331,7 +344,7 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
             setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 4));
 
             // Dirty indicator on the left
-            dirtyLabel.setPreferredSize(new Dimension(16, 16));
+            dirtyLabel.setPreferredSize(new Dimension(DIRTY_WIDTH, 16));
             add(dirtyLabel, BorderLayout.WEST);
 
             titleLabel.setHorizontalAlignment(SwingConstants.LEFT);
@@ -339,15 +352,17 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
 
             closeLabel.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
             closeLabel.setHorizontalAlignment(SwingConstants.CENTER);
-            closeLabel.setPreferredSize(new Dimension(20, 20));
+            closeLabel.setPreferredSize(new Dimension(CLOSE_WIDTH, 20));
             add(closeLabel, BorderLayout.EAST);
         }
 
         @Override
         public Component getListCellRendererComponent(
-                JList<? extends TabEntry> list, TabEntry value, int index,
-                boolean isSelected, boolean cellHasFocus) {
-            titleLabel.setText(value.title());
+                JList<? extends TabEntry> list, TabEntry value, int index, boolean isSelected, boolean cellHasFocus) {
+            // Truncate title if needed
+            int availableWidth = FIXED_WIDTH - DIRTY_WIDTH - CLOSE_WIDTH - PADDING;
+            titleLabel.setText(
+                    truncateText(value.title(), titleLabel.getFontMetrics(titleLabel.getFont()), availableWidth));
 
             // Check for unsaved changes and set icon
             boolean dirty = value.component() instanceof PreviewTextPanel ptp && ptp.hasUnsavedChanges();
@@ -366,6 +381,19 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
 
             setOpaque(true);
             return this;
+        }
+
+        private String truncateText(String text, FontMetrics fm, int maxWidth) {
+            if (fm.stringWidth(text) <= maxWidth) {
+                return text;
+            }
+            String ellipsis = "...";
+            int ellipsisWidth = fm.stringWidth(ellipsis);
+            int len = text.length();
+            while (len > 0 && fm.stringWidth(text.substring(0, len)) + ellipsisWidth > maxWidth) {
+                len--;
+            }
+            return len > 0 ? text.substring(0, len) + ellipsis : ellipsis;
         }
 
         private Icon createDirtyIcon() {
