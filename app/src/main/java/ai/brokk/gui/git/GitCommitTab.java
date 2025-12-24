@@ -14,7 +14,6 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.CommitDialog;
 import ai.brokk.gui.Constants;
 import ai.brokk.gui.DeferredUpdateHelper;
-import ai.brokk.gui.DiffWindowManager;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.ResponsiveButtonPanel;
@@ -650,37 +649,10 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 }
 
                 SwingUtilities.invokeLater(() -> {
-                    // Create normalized sources for window raising check (use all files in consistent order)
-                    var normalizedFiles = allFiles.stream()
-                            .sorted((f1, f2) -> f1.getFileName().compareToIgnoreCase(f2.getFileName()))
-                            .toList();
-
-                    var leftSources = new ArrayList<BufferSource>();
-                    var rightSources = new ArrayList<BufferSource>();
-
-                    for (var file : normalizedFiles) {
-                        var rightSource = new BufferSource.FileSource(file);
-                        String headContent = "";
-                        try {
-                            var repo = contextManager.getProject().getRepo();
-                            headContent = repo.getFileContent("HEAD", file);
-                        } catch (Exception ex) {
-                            headContent = "";
-                        }
-                        var leftSource = new BufferSource.StringSource(headContent, "HEAD", file.toString(), "HEAD");
-                        leftSources.add(leftSource);
-                        rightSources.add(rightSource);
-                    }
-
-                    // Check if we already have a window showing this diff
-                    if (DiffWindowManager.tryRaiseExistingWindow(leftSources, rightSources)) {
-                        return; // Existing window raised, don't create new one
-                    }
-
                     // Callers must not enforce unified/side-by-side globally; BrokkDiffPanel reads and persists the
-                    // user's choice when they toggle view (Fixes #1679)
-                    var panel = builder.build();
-                    panel.showInFrame("Uncommitted Changes Diff");
+                    // user's choice when they toggle view (Fixes #1679).
+                    // Delegation to showInTab handles window raising/deduplication.
+                    builder.build().showInTab(chrome.getPreviewManager(), "Uncommitted Changes Diff");
                 });
             } catch (Exception ex) {
                 chrome.toolError("Error opening diff for all uncommitted files: " + ex.getMessage());

@@ -574,15 +574,15 @@ public class MenuBar {
                 var projectFilesItem = new JMenuItem("Project Files");
                 projectFilesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
                 projectFilesItem.addActionListener(actionEvent -> {
-                    chrome.getLeftTabbedPanel().setSelectedIndex(0);
+                    chrome.getToolsPane().setSelectedIndex(0);
                 });
                 windowMenu.add(projectFilesItem);
 
                 var testsItem = new JMenuItem("Tests");
                 testsItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
                 testsItem.addActionListener(actionEvent -> {
-                    var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getTestRunnerPanel());
-                    if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                    var idx = chrome.getToolsPane().indexOfComponent(chrome.getTestRunnerPanel());
+                    if (idx != -1) chrome.getToolsPane().setSelectedIndex(idx);
                 });
                 windowMenu.add(testsItem);
 
@@ -593,8 +593,8 @@ public class MenuBar {
                     var changesItem = new JMenuItem("Changes");
                     changesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
                     changesItem.addActionListener(actionEvent -> {
-                        var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getGitCommitTab());
-                        if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                        var idx = chrome.getToolsPane().indexOfComponent(chrome.getGitCommitTab());
+                        if (idx != -1) chrome.getToolsPane().setSelectedIndex(idx);
                     });
                     windowMenu.add(changesItem);
 
@@ -603,8 +603,8 @@ public class MenuBar {
                     logItem.addActionListener(actionEvent -> {
                         var gitLogTab = chrome.getGitLogTab();
                         if (gitLogTab != null) {
-                            var idx = chrome.getLeftTabbedPanel().indexOfComponent(gitLogTab);
-                            if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                            var idx = chrome.getToolsPane().indexOfComponent(gitLogTab);
+                            if (idx != -1) chrome.getToolsPane().setSelectedIndex(idx);
                         }
                     });
                     windowMenu.add(logItem);
@@ -614,8 +614,8 @@ public class MenuBar {
                     worktreesItem.addActionListener(actionEvent -> {
                         var gitWorktreeTab = chrome.getGitWorktreeTab();
                         if (gitWorktreeTab != null) {
-                            var idx = chrome.getLeftTabbedPanel().indexOfComponent(gitWorktreeTab);
-                            if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                            var idx = chrome.getToolsPane().indexOfComponent(gitWorktreeTab);
+                            if (idx != -1) chrome.getToolsPane().setSelectedIndex(idx);
                         }
                     });
                     windowMenu.add(worktreesItem);
@@ -627,8 +627,8 @@ public class MenuBar {
                         var pullRequestsItem = new JMenuItem("Pull Requests");
                         pullRequestsItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
                         pullRequestsItem.addActionListener(actionEvent -> {
-                            var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getPullRequestsPanel());
-                            if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                            var idx = chrome.getToolsPane().indexOfComponent(chrome.getPullRequestsPanel());
+                            if (idx != -1) chrome.getToolsPane().setSelectedIndex(idx);
                         });
                         windowMenu.add(pullRequestsItem);
                     }
@@ -638,8 +638,8 @@ public class MenuBar {
                         var issuesItem = new JMenuItem("Issues");
                         issuesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
                         issuesItem.addActionListener(actionEvent -> {
-                            var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getIssuesPanel());
-                            if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                            var idx = chrome.getToolsPane().indexOfComponent(chrome.getIssuesPanel());
+                            if (idx != -1) chrome.getToolsPane().setSelectedIndex(idx);
                         });
                         windowMenu.add(issuesItem);
                     }

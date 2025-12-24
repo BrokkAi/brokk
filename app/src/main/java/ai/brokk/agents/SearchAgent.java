@@ -718,6 +718,7 @@ public class SearchAgent {
         names.add("searchFilenames");
         names.add("getFileContents");
         names.add("getFileSummaries");
+        names.add("skimDirectory");
 
         // Workspace curation
         names.add("addFilesToWorkspace");
@@ -827,7 +828,7 @@ public class SearchAgent {
                     "searchFilenames",
                     "searchGitCommitMessages" -> 6;
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 7;
-            case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries" -> 8;
+            case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "skimDirectory" -> 8;
 
             case "callCodeAgent" -> 99;
             case "createOrReplaceTaskList" -> 100;
