@@ -479,18 +479,6 @@ public class Environment {
         }
     }
 
-    private static boolean existsOnPath(String executable) {
-        var path = System.getenv("PATH");
-        if (path != null) {
-            for (var dir : Splitter.on(File.pathSeparatorChar).split(path)) {
-                if (new File(dir, executable).canExecute()) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
     /**
      * Computes an adaptive concurrency cap for I/O virtual-thread pools based on system file descriptor limits. Falls
      * back to a conservative CPU-bounded value when limits are unavailable. You can override the computed value via the

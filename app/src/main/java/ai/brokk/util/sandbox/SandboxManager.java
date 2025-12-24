@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import org.jetbrains.annotations.Nullable;
 
 public final class SandboxManager {
 
@@ -17,7 +18,7 @@ public final class SandboxManager {
 
     private final CommandRunner commandRunner;
     private final String osName;
-    private SandboxConfig config;
+    private @Nullable SandboxConfig config;
 
     public SandboxManager(CommandRunner commandRunner) {
         this(commandRunner, System.getProperty("os.name", ""));

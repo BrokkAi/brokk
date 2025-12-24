@@ -70,13 +70,6 @@ public final class SandboxUtils {
         if (normalizedOriginal.startsWith("/var/") && normalizedResolved.equals("/private" + normalizedOriginal)) {
             return false;
         }
-        if (normalizedOriginal.startsWith("/private/tmp/") && normalizedResolved.equals(normalizedOriginal)) {
-            return false;
-        }
-        if (normalizedOriginal.startsWith("/private/var/") && normalizedResolved.equals(normalizedOriginal)) {
-            return false;
-        }
-
         if ("/".equals(normalizedResolved)) {
             return true;
         }
@@ -106,9 +99,8 @@ public final class SandboxUtils {
                 !canonicalOriginal.equals(normalizedOriginal) && normalizedResolved.startsWith(canonicalOriginal + "/");
         boolean resolvedIsCanonical =
                 !canonicalOriginal.equals(normalizedOriginal) && normalizedResolved.equals(canonicalOriginal);
-        boolean resolvedIsSame = normalizedResolved.equals(normalizedOriginal);
 
-        if (!resolvedIsSame && !resolvedIsCanonical && !resolvedStartsWithOriginal && !resolvedStartsWithCanonical) {
+        if (!resolvedIsCanonical && !resolvedStartsWithOriginal && !resolvedStartsWithCanonical) {
             return true;
         }
 
@@ -147,6 +139,7 @@ public final class SandboxUtils {
                             return resolvedBaseDirStr + patternSuffix;
                         }
                     } catch (IOException | RuntimeException ignored) {
+                        // Resolution failures are expected (missing paths, permissions, etc.); fall back to original.
                     }
                 }
             }
@@ -160,6 +153,7 @@ public final class SandboxUtils {
                 normalizedPath = realStr;
             }
         } catch (IOException | RuntimeException ignored) {
+            // Resolution failures are expected (missing paths, permissions, etc.); fall back to normalized path.
         }
 
         return normalizedPath;
