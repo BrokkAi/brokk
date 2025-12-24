@@ -427,6 +427,16 @@ public class ToolsPane extends JPanel implements ThemeAware {
         return lastExpandedSidebarLocation;
     }
 
+    /**
+     * Programmatically selects the Tests tab and expands the sidebar if it is collapsed.
+     */
+    public void selectTestsTab() {
+        int testsTabIdx = toolsPane.indexOfComponent(testRunnerPanel);
+        if (testsTabIdx != -1) {
+            handleTabToggle(testsTabIdx);
+        }
+    }
+
     public JTabbedPane getToolsPane() {
         return toolsPane;
     }
