@@ -36,8 +36,20 @@ public class Environment {
     private static final Logger logger = LogManager.getLogger(Environment.class);
     public static final Environment instance = new Environment();
 
-    /** Default timeout for generic shell commands. */
-    public static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(2);
+    /** Default timeout for generic shell commands. Overridable via BRK_BUILD_TIMEOUT_SECONDS. */
+    public static final Duration DEFAULT_TIMEOUT = resolveDefaultTimeout();
+
+    private static Duration resolveDefaultTimeout() {
+        String override = System.getenv("BRK_BUILD_TIMEOUT_SECONDS");
+        if (override != null) {
+            try {
+                return Duration.ofSeconds(Long.parseLong(override));
+            } catch (NumberFormatException e) {
+                logger.warn("Invalid BRK_BUILD_TIMEOUT_SECONDS value: '{}'. Using fallback.", override);
+            }
+        }
+        return Duration.ofMinutes(2);
+    }
 
     /** Timeout for fast git commands (status, branch, etc.). */
     public static final Duration GIT_TIMEOUT = Duration.ofSeconds(10);
