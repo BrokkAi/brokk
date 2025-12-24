@@ -549,6 +549,14 @@ public class Context {
         return fragments.isEmpty() && taskHistory.isEmpty();
     }
 
+    /**
+     * Returns true if the workspace contains no file content.
+     */
+    @Blocking
+    public boolean isFileContentEmpty() {
+        return fragments.stream().allMatch(f -> f.files().join().isEmpty());
+    }
+
     public TaskEntry createTaskEntry(TaskResult result) {
         int nextSequence = taskHistory.isEmpty() ? 1 : taskHistory.getLast().sequence() + 1;
         return TaskEntry.fromSession(nextSequence, result);

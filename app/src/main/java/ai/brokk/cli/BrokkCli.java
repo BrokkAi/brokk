@@ -411,11 +411,18 @@ public final class BrokkCli implements Callable<Integer> {
 
             try (var scope = cm.beginTask(searchWorkspace, false)) {
                 var searchModel = taskModelOverride == null ? cm.getService().getScanModel() : taskModelOverride;
+                // Honor --disable-context-scan flag via ScanConfig
+                var scanConfig = disableContextScan
+                        ? SearchAgent.ScanConfig.disabled()
+                        : SearchAgent.ScanConfig.withModel(searchModel);
                 var agent = new SearchAgent(
-                        cm.liveContext(), searchWorkspace, searchModel, SearchAgent.Objective.WORKSPACE_ONLY, scope);
-                if (!disableContextScan) {
-                    agent.scanInitialContext(searchModel);
-                }
+                        cm.liveContext(),
+                        searchWorkspace,
+                        searchModel,
+                        SearchAgent.Objective.WORKSPACE_ONLY,
+                        scope,
+                        cm.getIo(),
+                        scanConfig);
                 searchResult = agent.execute();
                 scope.append(searchResult);
                 success = searchResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS;
@@ -669,13 +676,13 @@ public final class BrokkCli implements Callable<Integer> {
                         System.err.println("Error: --search-answer requires --planmodel to be specified.");
                         return 1;
                     }
+                    // SearchAgent now handles scanning internally via execute()
                     var agent = new SearchAgent(
                             cm.liveContext(),
                             requireNonNull(searchAnswerPrompt),
                             planModel,
                             SearchAgent.Objective.ANSWER_ONLY,
                             scope);
-                    agent.scanInitialContext();
                     result = agent.execute();
                     context = scope.append(result);
                 } else if (build) {
@@ -720,13 +727,13 @@ public final class BrokkCli implements Callable<Integer> {
                         System.err.println("Error: --lutz requires --codemodel to be specified.");
                         return 1;
                     }
+                    // SearchAgent now handles scanning internally via execute()
                     var agent = new SearchAgent(
                             cm.liveContext(),
                             requireNonNull(lutzPrompt),
                             planModel,
                             SearchAgent.Objective.TASKS_ONLY,
                             scope);
-                    agent.scanInitialContext();
                     result = agent.execute();
                     context = scope.append(result);
 
