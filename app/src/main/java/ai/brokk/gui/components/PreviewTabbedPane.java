@@ -14,7 +14,9 @@ import java.awt.event.MouseEvent;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
@@ -312,27 +314,41 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
         tabList.repaint();
     }
 
-    // Compatibility methods for code that expects JTabbedPane
-    public int getTabCount() {
-        return listModel.size();
-    }
-
-    public Component getComponentAt(int index) {
-        return listModel.get(index).component();
-    }
-
-    public int indexOfComponent(Component comp) {
-        return findIndexByComponent(comp);
-    }
-
-    public void setSelectedIndex(int index) {
-        if (index >= 0 && index < listModel.size()) {
-            tabList.setSelectedIndex(index);
+    /**
+     * Finds the first tab component matching the predicate.
+     */
+    public Optional<Component> findTab(Predicate<Component> predicate) {
+        for (int i = 0; i < listModel.size(); i++) {
+            var comp = listModel.get(i).component();
+            if (predicate.test(comp)) {
+                return Optional.of(comp);
+            }
         }
+        return Optional.empty();
     }
 
-    public int getSelectedIndex() {
-        return tabList.getSelectedIndex();
+    /**
+     * Selects the tab containing the given component.
+     * @return true if the component was found and selected
+     */
+    public boolean selectTab(Component comp) {
+        int index = findIndexByComponent(comp);
+        if (index >= 0) {
+            tabList.setSelectedIndex(index);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Closes the currently selected tab.
+     */
+    public void closeSelectedTab() {
+        int selectedIndex = tabList.getSelectedIndex();
+        if (selectedIndex >= 0) {
+            var entry = listModel.get(selectedIndex);
+            closeTab(entry.component(), entry.fileKey());
+        }
     }
 
     /**
