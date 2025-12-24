@@ -301,7 +301,7 @@ public class Environment {
 
         if (exitCode != 0) {
             throw new FailureException(
-                    "process '%s' signalled error code %d".formatted(command, exitCode), combinedOutput, exitCode);
+                    "process '%s' signaled error code %d".formatted(command, exitCode), combinedOutput, exitCode);
         }
 
         return combinedOutput;

@@ -27,7 +27,6 @@ import java.util.*;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -193,14 +192,6 @@ public class Context {
 
     public static UUID newContextId() {
         return UuidCreator.getTimeOrderedEpoch();
-    }
-
-    public String getEditableToc() {
-        return getEditableFragments().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
-    }
-
-    public String getReadOnlyToc() {
-        return getReadonlyFragments().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
     }
 
     /**
@@ -423,40 +414,14 @@ public class Context {
     }
 
     /**
-     * Returns file fragments and editable virtual fragments (usage), ordered with most-recently-modified last
+     * Returns editable fragments. Virtual (non-path) editable fragments (e.g. Code, Usage)
+     * are returned before path-based fragments (e.g. ProjectPath).
      */
     public Stream<ContextFragment> getEditableFragments() {
-        // Helper record for associating a fragment with its mtime for safe sorting and filtering
-        record EditableFileWithMtime(ContextFragments.ProjectPathFragment fragment, long mtime) {}
-
-        Stream<ContextFragments.ProjectPathFragment> sortedProjectFiles = fragments.stream()
-                .filter(ContextFragments.ProjectPathFragment.class::isInstance)
-                .map(ContextFragments.ProjectPathFragment.class::cast)
-                .map(pf -> {
-                    // exists() and mtime() are both a syscall, so we just call the latter and catch errors
-                    long mtime;
-                    try {
-                        mtime = pf.file().mtime();
-                    } catch (IOException e) {
-                        // this is expected to happen when deserializing old Sessions so we leave it at debug
-                        logger.debug(
-                                "Could not get mtime for editable file [{}], it will be excluded from ordered editable fragments.",
-                                pf.shortDescription().renderNowOr(toString()),
-                                e);
-                        // sort does-not-exist to the end of the list (it may be more likely to be edited)
-                        return new EditableFileWithMtime(pf, Long.MAX_VALUE);
-                    }
-                    return new EditableFileWithMtime(pf, mtime);
-                })
-                .sorted(Comparator.comparingLong(EditableFileWithMtime::mtime))
-                .map(EditableFileWithMtime::fragment);
-
-        Stream<ContextFragment> otherEditable = fragments.stream()
-                .filter(f -> !(f instanceof ContextFragments.ProjectPathFragment)
-                        && f.getType().isEditable());
-
-        return Streams.concat(otherEditable, sortedProjectFiles.map(ContextFragment.class::cast))
-                .filter(cf -> !markedReadonlyFragments.contains(cf));
+        return fragments.stream()
+                .filter(cf -> cf.getType().isEditable())
+                .filter(cf -> !markedReadonlyFragments.contains(cf))
+                .sorted(Comparator.comparing(f -> f.getType().isPath()));
     }
 
     public Stream<ContextFragment> allFragments() {

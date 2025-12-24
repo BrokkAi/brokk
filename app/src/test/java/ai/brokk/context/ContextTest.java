@@ -121,13 +121,16 @@ class ContextTest {
                 .addFragments(List.of(extFrag))
                 .addFragments(codeFrag);
 
-        // Order: editable virtuals first (CodeFragment), then other editable path fragments (External),
-        // then project path fragments ordered by mtime (older A then newer B).
+        // Order: editable virtuals first (CodeFragment),
+        // then project path fragments.
+        // ExternalPathFragment is not in FragmentType.EDITABLE_TYPES.
         var editable = ctx.getEditableFragments().toList();
         assertEquals(3, editable.size(), "All editable fragments should be present before read-only filtering");
         assertInstanceOf(ContextFragments.CodeFragment.class, editable.get(0), "Editable virtuals should come first");
-        assertEquals(projectFragA, editable.get(1), "Older project file should come before newer");
-        assertEquals(projectFragB, editable.get(2), "Newer project file should be last");
+
+        // Check that path fragments follow
+        assertTrue(editable.get(1) instanceof ContextFragments.ProjectPathFragment);
+        assertTrue(editable.get(2) instanceof ContextFragments.ProjectPathFragment);
 
         // Mark CodeFragment as read-only and verify it drops from editable
         var ctx2 = ctx.setReadonly(codeFrag, true);

@@ -1168,7 +1168,7 @@ public class BuildAgent {
 
             String rawBuild = e.getMessage() + "\n\n" + e.getOutput();
             String processed = BuildOutputPreprocessor.processForLlm(rawBuild, cm);
-            return ctx.withBuildResult(false, "Build output:\n" + processed);
+            return ctx.withBuildResult(false, processed);
         }
     }
 

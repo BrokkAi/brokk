@@ -1,55 +1,15 @@
 package ai.brokk.prompts;
 
-import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.util.StyleGuideResolver;
-import dev.langchain4j.data.message.SystemMessage;
 import java.util.Comparator;
 import java.util.Map;
 import java.util.stream.Collectors;
-import org.jetbrains.annotations.Blocking;
 
 public abstract class ArchitectPrompts extends CodePrompts {
     public static final ArchitectPrompts instance = new ArchitectPrompts() {};
     public static final double WORKSPACE_WARNING_THRESHOLD = 0.5;
     public static final double WORKSPACE_CRITICAL_THRESHOLD = 0.9;
-
-    @Blocking
-    private static String resolveAggregatedStyleGuide(IContextManager cm, Context ctx) {
-        // Collect project-backed files from current context (nearest-first resolution uses parent dirs).
-        var projectFiles =
-                ctx.fileFragments().flatMap(cf -> cf.files().join().stream()).toList();
-
-        // Resolve composite style guide from AGENTS.md files nearest to current context files;
-        // falls back to project root guide internally.
-        return StyleGuideResolver.resolve(projectFiles, cm.getProject());
-    }
-
-    @Override
-    @Blocking
-    public SystemMessage systemMessage(IContextManager cm, String reminder) {
-        return systemMessage(cm, cm.liveContext(), reminder);
-    }
-
-    @Override
-    @Blocking
-    public SystemMessage systemMessage(IContextManager cm, Context ctx, String reminder) {
-        var styleGuide = resolveAggregatedStyleGuide(cm, ctx);
-
-        var text =
-                """
-          <instructions>
-          %s
-          </instructions>
-          <style_guide>
-          %s
-          </style_guide>
-          """
-                        .formatted(systemIntro(reminder), styleGuide)
-                        .trim();
-        return new SystemMessage(text);
-    }
 
     @Override
     public String systemIntro(String reminder) {
@@ -197,7 +157,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
             %s
             </goal>
 
-            Please decide the next tool action(s) to make progress towards resolving the goal.
+            %s
 
             You MUST think carefully before each function call, and reflect extensively on the outcomes of the previous function calls.
             DO NOT do this entire process by making function calls only, as this can impair your ability to solve the problem and think insightfully.
@@ -219,7 +179,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
 
             %s
             """
-                .formatted(goal, formatWorkspaceToc(ctx), workspaceWarning);
+                .formatted(goal, instructionsMarker(), WorkspacePrompts.formatToc(ctx), workspaceWarning);
     }
 
     public static String instructionsMarker() {
