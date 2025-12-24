@@ -15,9 +15,7 @@ public abstract class CopyExternalPrompts extends CodePrompts {
 
     public List<ChatMessage> collectMessages(ContextManager cm) throws InterruptedException {
         // omits edit instructions and examples
-        return Streams.concat(
-                        Stream.of(systemMessage(cm.liveContext(), CodePrompts.LAZY_REMINDER)),
-                        collectMessagesInternal(cm).stream())
+        return Streams.concat(Stream.of(systemMessage(CodePrompts.LAZY_REMINDER)), collectMessagesInternal(cm).stream())
                 .toList();
     }
 

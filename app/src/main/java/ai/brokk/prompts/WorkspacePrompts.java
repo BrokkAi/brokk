@@ -142,29 +142,35 @@ public final class WorkspacePrompts {
 
     /**
      * All fragments in the order they were added ({@code ctx.allFragments()}), wrapped in a single
-     * {@code <workspace>} block.
+     * {@code <workspace>} block, with the style guide from the context.
      */
     public static List<ChatMessage> getMessagesInAddedOrder(Context ctx, ViewingPolicy viewingPolicy) {
         var allFragments = ctx.allFragments().toList();
-        if (allFragments.isEmpty()) {
+        var styleGuide = ctx.getContextManager().getProject().getStyleGuide();
+
+        if (allFragments.isEmpty() && styleGuide.isBlank()) {
             return List.of();
         }
 
         var rendered = formatWithPolicy(allFragments, viewingPolicy);
-        if (rendered.text.isEmpty() && rendered.images.isEmpty()) {
+        if (rendered.text.isEmpty() && rendered.images.isEmpty() && styleGuide.isBlank()) {
             return List.of();
         }
 
         var allContents = new ArrayList<Content>();
-        var workspaceText =
-                """
-                           <workspace>
-                           %s
-                           </workspace>
-                           """
-                        .formatted(rendered.text);
+        var workspaceBuilder = new StringBuilder();
 
-        allContents.add(new TextContent(workspaceText));
+        if (!styleGuide.isBlank()) {
+            workspaceBuilder.append("<style_guide>\n");
+            workspaceBuilder.append(styleGuide.trim());
+            workspaceBuilder.append("\n</style_guide>\n\n");
+        }
+
+        workspaceBuilder.append("<workspace>\n");
+        workspaceBuilder.append(rendered.text);
+        workspaceBuilder.append("\n</workspace>");
+
+        allContents.add(new TextContent(workspaceBuilder.toString()));
         allContents.addAll(rendered.images);
 
         var workspaceUserMessage = UserMessage.from(allContents);
@@ -174,9 +180,11 @@ public final class WorkspacePrompts {
     /**
      * Generic combined workspace: readonly + editable(all) + build status, wrapped in a single
      * {@code <workspace>} block.
+     *
+     * @param ctx                       current context
+     * @param viewingPolicy             viewing policy (controls StringFragment visibility)
      */
     public static List<ChatMessage> getMessagesGroupedByMutability(Context ctx, ViewingPolicy viewingPolicy) {
-        // Public entry point keeps the original behavior: show build status in workspace.
         return getMessagesGroupedByMutability(ctx, viewingPolicy, true);
     }
 
@@ -195,7 +203,9 @@ public final class WorkspacePrompts {
         var readOnlyMessages = buildReadOnlyForContents(ctx, viewingPolicy, showBuildStatusInWorkspace);
         var editableMessages = buildEditableAll(ctx, showBuildStatusInWorkspace);
 
-        if (readOnlyMessages.isEmpty() && editableMessages.isEmpty()) {
+        var styleGuide = ctx.getContextManager().getProject().getStyleGuide();
+
+        if (readOnlyMessages.isEmpty() && editableMessages.isEmpty() && styleGuide.isBlank()) {
             return List.of();
         }
 
@@ -238,16 +248,17 @@ public final class WorkspacePrompts {
             }
         }
 
-        var workspaceText =
-                """
-                           <workspace>
-                           %s
-                           </workspace>
-                           """
-                        .formatted(combinedText.toString().trim());
+        var workspaceBuilder = new StringBuilder();
+        if (!styleGuide.isBlank()) {
+            workspaceBuilder.append("<style_guide>\n");
+            workspaceBuilder.append(styleGuide.trim());
+            workspaceBuilder.append("\n</style_guide>\n\n");
+        }
+        workspaceBuilder.append("<workspace>\n");
+        workspaceBuilder.append(combinedText.toString().trim());
+        workspaceBuilder.append("\n</workspace>");
 
-        // Insert workspace text as the first content element
-        allContents.addFirst(new TextContent(workspaceText));
+        allContents.addFirst(new TextContent(workspaceBuilder.toString()));
 
         var workspaceUserMessage = UserMessage.from(allContents);
         return List.of(workspaceUserMessage, new AiMessage("Thank you for providing these Workspace contents."));
@@ -264,8 +275,6 @@ public final class WorkspacePrompts {
      */
     public static CodeAgentMessages getMessagesForCodeAgent(
             Context ctx, ViewingPolicy viewingPolicy, boolean showBuildStatusInWorkspace) {
-        // For CodeAgent, the workspace includes build status only if showBuildStatusInWorkspace is true.
-        // The detailed build output is also available separately in buildFailure for inline display.
         var workspace = getMessagesGroupedByMutability(ctx, viewingPolicy, showBuildStatusInWorkspace);
         var buildFailure = ctx.getBuildFragment().map(f -> f.format().join()).orElse(null);
         return new CodeAgentMessages(workspace, buildFailure);

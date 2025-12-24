@@ -16,7 +16,6 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ViewingPolicy;
 import ai.brokk.util.ImageUtil;
 import ai.brokk.util.Messages;
-import ai.brokk.util.StyleGuideResolver;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -215,8 +214,7 @@ public abstract class CodePrompts {
         var reminder = codeReminder(cm.getService(), model);
         var codeAgentWorkspace = WorkspacePrompts.getMessagesForCodeAgent(ctx, viewingPolicy, includeBuildStatus);
 
-        // Use goal-aware system message
-        messages.add(systemMessage(ctx, reminder, goal));
+        messages.add(systemMessage(reminder, goal));
         messages.addAll(getHistoryMessages(ctx));
         messages.addAll(prologue);
         messages.addAll(codeAgentWorkspace.workspace());
@@ -236,70 +234,32 @@ public abstract class CodePrompts {
         return messages;
     }
 
-    public final List<ChatMessage> getSingleFileAskMessages(
-            IContextManager cm, ProjectFile file, List<ChatMessage> readOnlyMessages, String question) {
-        var messages = new ArrayList<ChatMessage>();
-
-        var systemPrompt =
-                """
-                        <instructions>
-                        %s
-                        </instructions>
-                        <style_guide>
-                        %s
-                        </style_guide>
-                        """
-                        .stripIndent()
-                        .formatted(systemIntro(""), cm.getProject().getStyleGuide())
-                        .trim();
-        messages.add(new SystemMessage(systemPrompt));
-
-        messages.addAll(readOnlyMessages);
-
-        String fileContent =
-                """
-                        <file path="%s">
-                        %s
-                        </file>
-                        """
-                        .stripIndent()
-                        .formatted(file.toString(), file.read().orElseThrow());
-        messages.add(new UserMessage(fileContent));
-        messages.add(new AiMessage("Thank you for the file."));
-
-        messages.add(askRequest(question));
-
-        return messages;
-    }
-
     /**
      * Collects chat messages for an "ask" request, using the ASK viewing policy.
      * <p>
      * This method no longer takes a {@code model} parameter. Instead, it sets the viewing policy
      * to {@code ViewingPolicy(TaskResult.Type.ASK)}, which determines what workspace contents are shown.
      *
-     * @param cm    The context manager for the current project/session.
+     * @param ctx   The context manager for the current project/session.
      * @param input The user's question or request.
      * @return A list of chat messages representing the system prompt, workspace contents, history, and the user's request.
      * @throws InterruptedException if interrupted while collecting messages.
      */
-    public final List<ChatMessage> collectAskMessages(IContextManager cm, String input) throws InterruptedException {
+    public final List<ChatMessage> collectAskMessages(Context ctx, String input) throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
 
         var viewingPolicy = new ViewingPolicy(TaskResult.Type.ASK);
         String reminder = askReminder();
-        messages.add(systemMessage(cm.liveContext(), reminder));
-        messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(cm.liveContext(), viewingPolicy));
-        messages.addAll(getHistoryMessages(cm.liveContext()));
+        messages.add(systemMessage(reminder, null));
+        messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(ctx, viewingPolicy));
+        messages.addAll(getHistoryMessages(ctx));
         messages.add(askRequest(input));
 
         return messages;
     }
 
-    // New goal-aware overload. If goal is non-blank, append a <goal>...</goal> block after <style_guide>.
-    public SystemMessage systemMessage(Context ctx, String reminder, @Nullable String goal) {
-        var styleGuide = StyleGuideResolver.resolve(ctx, ctx.getContextManager().getProject());
-
+    @Blocking
+    public SystemMessage systemMessage(String reminder, @Nullable String goal) {
         final String text;
         if (goal == null || goal.isBlank()) {
             text =
@@ -307,11 +267,8 @@ public abstract class CodePrompts {
                             <instructions>
                             %s
                             </instructions>
-                            <style_guide>
-                            %s
-                            </style_guide>
                             """
-                            .formatted(systemIntro(reminder), styleGuide)
+                            .formatted(systemIntro(reminder))
                             .trim();
         } else {
             text =
@@ -319,14 +276,11 @@ public abstract class CodePrompts {
                             <instructions>
                             %s
                             </instructions>
-                            <style_guide>
-                            %s
-                            </style_guide>
                             <goal>
                             %s
                             </goal>
                             """
-                            .formatted(systemIntro(reminder), styleGuide, goal)
+                            .formatted(systemIntro(reminder), goal)
                             .trim();
         }
 
@@ -334,59 +288,8 @@ public abstract class CodePrompts {
     }
 
     @Blocking
-    protected SystemMessage systemMessage(IContextManager cm, Context ctx, String reminder) {
-        // Collect project-backed files from current context (nearest-first resolution uses parent dirs).
-        var projectFiles =
-                ctx.fileFragments().flatMap(cf -> cf.files().join().stream()).toList();
-
-        // Resolve composite style guide from AGENTS.md files nearest to current context files.
-        var styleGuide = StyleGuideResolver.resolve(projectFiles, cm.getProject());
-
-        var text =
-                """
-                        <instructions>
-                        %s
-                        </instructions>
-                        <style_guide>
-                        %s
-                        </style_guide>
-                        """
-                        .formatted(systemIntro(reminder), styleGuide)
-                        .stripIndent()
-                        .trim();
-
-        return new SystemMessage(text);
-    }
-
-    // Backwards-compatible helper kept for existing call sites that don't supply a goal.
-    public SystemMessage systemMessage(Context ctx, String reminder) {
-        return systemMessage(ctx, reminder, null);
-    }
-
-    @Blocking
-    protected SystemMessage systemMessage(IContextManager cm, String reminder) {
-        // Resolve composite style guide from AGENTS.md files nearest to files in the top context.
-        var projectFiles = cm.liveContext()
-                .fileFragments()
-                .flatMap(cf -> cf.files().join().stream())
-                .collect(Collectors.toList());
-
-        var styleGuide = StyleGuideResolver.resolve(projectFiles, cm.getProject());
-
-        var text =
-                """
-                        <instructions>
-                        %s
-                        </instructions>
-                        <style_guide>
-                        %s
-                        </style_guide>
-                        """
-                        .formatted(systemIntro(reminder), styleGuide)
-                        .stripIndent()
-                        .trim();
-
-        return new SystemMessage(text);
+    protected SystemMessage systemMessage(String reminder) {
+        return systemMessage(reminder, null);
     }
 
     public String systemIntro(String reminder) {

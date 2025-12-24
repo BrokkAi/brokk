@@ -731,7 +731,7 @@ public final class JobRunner {
 
         List<ChatMessage> messages;
         try {
-            messages = CodePrompts.instance.collectAskMessages(cm, question);
+            messages = CodePrompts.instance.collectAskMessages(cm.liveContext(), question);
         } catch (InterruptedException e) {
             return new TaskResult(
                     cm,

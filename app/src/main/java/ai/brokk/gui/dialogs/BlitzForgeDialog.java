@@ -4,6 +4,7 @@ import static ai.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.Service;
+import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.BlitzForge;
@@ -1597,6 +1598,8 @@ public class BlitzForgeDialog extends BaseThemedDialog {
             var dialogIo = progressDialog.getConsoleIO(file);
             String errorMessage = null;
 
+            TaskResult tr = null;
+            var initialContext = cm.liveContext();
             List<ChatMessage> readOnlyMessages = new ArrayList<>();
             try {
                 if (fIncludeWorkspace) {
@@ -1657,6 +1660,22 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     }
                     readOnlyMessages.add(new UserMessage(commandOutputText));
                 }
+
+                // Run the task
+                if (engineAction == Action.ASK) {
+                    var ctx = new Context(cm)
+                            .withHistory(List.of(TaskEntry.from(cm, readOnlyMessages)))
+                            .addFragments(cm.toPathFragments(List.of(file)));
+                    var messages = CodePrompts.instance.collectAskMessages(ctx, instructions);
+                    var llm = cm.getLlm(model, "Ask", true);
+                    var meta = new TaskResult.TaskMeta(
+                            TaskResult.Type.ASK, Service.ModelConfig.from(model, cm.getService()));
+                    llm.setOutput(dialogIo);
+                    tr = InstructionsPanel.executeAskCommand(llm, messages, cm, instructions, meta);
+                } else {
+                    var agent = new CodeAgent(cm, model, dialogIo);
+                    tr = agent.execute(file, instructions, readOnlyMessages);
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 errorMessage = "Interrupted during message preparation.";
@@ -1669,21 +1688,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                 return new BlitzForge.FileResult(file, false, errorMessage, "");
             }
 
-            // Run the task
-            var initialContext = cm.liveContext();
-            TaskResult tr;
-            if (engineAction == Action.ASK) {
-                var messages = CodePrompts.instance.getSingleFileAskMessages(cm, file, readOnlyMessages, instructions);
-                var llm = cm.getLlm(model, "Ask", true);
-                var meta =
-                        new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, cm.getService()));
-                llm.setOutput(dialogIo);
-                tr = InstructionsPanel.executeAskCommand(llm, messages, cm, instructions, meta);
-            } else {
-                var agent = new CodeAgent(cm, model, dialogIo);
-                tr = agent.execute(file, instructions, readOnlyMessages);
-            }
-
+            requireNonNull(tr);
             if (tr.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
                 Thread.currentThread().interrupt();
                 errorMessage = "Processing interrupted.";
