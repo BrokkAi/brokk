@@ -53,7 +53,7 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
                 Set.of(), // changedFiles
                 Map.of(), // originalFileContents
                 Map.of(), // javaLintDiagnostics
-                false);
+                false, false);
 
         // Ensure Java-only editable workspace to satisfy BRK_* guard
         var cm = codeAgent.contextManager;
@@ -116,7 +116,7 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
                         .stripIndent());
 
         var cs = new CodeAgent.ConversationState(new ArrayList<>(), null, 0, "");
-        var es = new CodeAgent.EditState(0, 0, 0, 0, 0, "", Set.of(), Map.of(), Map.of(), false);
+        var es = new CodeAgent.EditState(0, 0, 0, 0, 0, "", Set.of(), Map.of(), Map.of(), false, false);
 
         // parsePhase
         var parseStep = codeAgent.parsePhase(cs, es, llmText, EditBlockParser.instance, null);

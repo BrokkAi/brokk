@@ -35,6 +35,7 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
                 new HashSet<>(Set.of(javaFile)), // changedFiles includes the Java file
                 new HashMap<>(), // originalFileContents
                 new HashMap<>(), // javaLintDiagnostics
+                false,
                 false);
         var step = codeAgent.parseJavaPhase(cs, es, null);
         return new JavaParseResult(javaFile, step);
@@ -178,7 +179,7 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = new CodeAgent.EditState(
-                0, 0, 0, 1, 0, "", new HashSet<>(Set.of(f1, f2)), new HashMap<>(), new HashMap<>(), false);
+                0, 0, 0, 1, 0, "", new HashSet<>(Set.of(f1, f2)), new HashMap<>(), new HashMap<>(), false, false);
 
         var result = codeAgent.parseJavaPhase(cs, es, null);
         var diags = result.es().javaLintDiagnostics();
@@ -450,6 +451,7 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
                 new HashSet<>(Set.of(javaFile)), // changedFiles includes the Java file
                 new HashMap<>(), // originalFileContents
                 new HashMap<>(), // javaLintDiagnostics
+                false,
                 false);
         var step = codeAgent.parseJavaPhase(cs, es, null);
 
