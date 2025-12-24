@@ -18,7 +18,7 @@ public final class SeccompFilter {
 
     private SeccompFilter() {}
 
-    public static String getVendorArchitecture() {
+    public static @Nullable String getVendorArchitecture() {
         String arch = System.getProperty("os.arch");
         return mapArchitecture(arch);
     }
