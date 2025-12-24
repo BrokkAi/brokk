@@ -1004,10 +1004,7 @@ public class SearchAgent {
      * Tool names must match those in calculateAllowedToolNames().
      */
     private boolean isSearchTool(String toolName) {
-        return toolName.startsWith("search")
-                || // searchSymbols, searchSubstrings, searchFilenames, searchGitCommitMessages
-                toolName.equals("getUsages")
-                || toolName.equals("getSymbolLocations");
+        return toolName.startsWith("search");
     }
 
     @Blocking
