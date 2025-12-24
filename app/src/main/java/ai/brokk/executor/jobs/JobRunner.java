@@ -368,64 +368,10 @@ public final class JobRunner {
                                                             ioe);
                                                 }
 
-                                                StreamingChatModel scanModelToUse = null;
-                                                try {
-                                                    scanModelToUse = !trimmedScanModel.isEmpty()
-                                                            ? resolveModelOrThrow(trimmedScanModel)
-                                                            : cm.getService().getScanModel();
-                                                } catch (IllegalArgumentException iae) {
-                                                    // resolveModelOrThrow may throw; log and continue without
-                                                    // failing job.
-                                                    logger.warn(
-                                                            "Pre-scan model unavailable for job {}: {}",
-                                                            jobId,
-                                                            iae.getMessage());
-                                                    scanModelToUse = null;
-                                                } catch (Exception e) {
-                                                    logger.warn(
-                                                            "Unexpected error during pre-scan model resolution for job {}: {}",
-                                                            jobId,
-                                                            e.getMessage(),
-                                                            e);
-                                                    scanModelToUse = null;
-                                                }
-
-                                                if (scanModelToUse == null) {
-                                                    // No scan model available; log and skip pre-scan but still emit
-                                                    // completion below.
-                                                    logger.warn(
-                                                            "ASK pre-scan requested but no scan model is available (spec.scanModel='{}'). Skipping pre-scan for job {}.",
-                                                            trimmedScanModel,
-                                                            jobId);
-                                                } else {
-                                                    // Attempt the pre-scan, but do not allow failures to abort the
-                                                    // job.
-                                                    try {
-                                                        searchAgent.scanInitialContext(scanModelToUse);
-                                                    } catch (InterruptedException ie) {
-                                                        // Preserve interruption status but continue with the job.
-                                                        Thread.currentThread().interrupt();
-                                                        logger.warn(
-                                                                "Pre-scan interrupted for job {}: {}",
-                                                                jobId,
-                                                                ie.getMessage(),
-                                                                ie);
-                                                    } catch (IllegalArgumentException iae) {
-                                                        // Model resolution or argument problems: log and continue.
-                                                        logger.warn(
-                                                                "Pre-scan skipped due to model error for job {}: {}",
-                                                                jobId,
-                                                                iae.getMessage());
-                                                    } catch (Exception ex) {
-                                                        // Any other exception during pre-scan should not fail the
-                                                        // job.
-                                                        logger.warn(
-                                                                "Pre-scan failed for job {}: {}",
-                                                                jobId,
-                                                                ex.getMessage(),
-                                                                ex);
-                                                    }
-                                                }
+                                                // FIXME support scanning?
+                                                // Old code using SearchAgent did not update context so it was a no-op
+                                                // If desired, rebuild using direct access to ContextAgent; BrokkCli has
+                                                // an example
 
                                                 // Emit deterministic completion NOTIFICATION so headless
                                                 // clients/tests can reliably observe that the Context Engine
