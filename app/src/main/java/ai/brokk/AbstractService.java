@@ -7,6 +7,7 @@ import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.project.ModelProperties.ModelType;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
 import dev.langchain4j.agent.tool.ToolSpecification;
@@ -138,25 +139,12 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
                     + outputTokens * band.outputCostPerToken();
         }
 
-        public double getCostFor(long uncachedInputTokens, long cachedTokens, long outputTokens, ProcessingTier tier) {
-            return getCostFor(uncachedInputTokens, cachedTokens, outputTokens) * tier.getCostMultiplier();
-        }
     }
 
     public enum ProcessingTier {
-        DEFAULT(1.0),
-        PRIORITY(2.0),
-        FLEX(0.5);
-
-        private final double costMultiplier;
-
-        ProcessingTier(double costMultiplier) {
-            this.costMultiplier = costMultiplier;
-        }
-
-        public double getCostMultiplier() {
-            return costMultiplier;
-        }
+        DEFAULT,
+        PRIORITY,
+        FLEX;
 
         @Override
         public String toString() {
@@ -179,6 +167,37 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         /** Returns the API string value, or null for DEFAULT (no tier override). */
         public @Nullable String toApiString() {
             return this == DEFAULT ? null : name().toLowerCase(Locale.ROOT);
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record TierPricing(double input_cost_per_token,
+                              double output_cost_per_token,
+                              double cache_read_input_token_cost) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record PricingTiers(@Nullable TierPricing standard,
+                               @Nullable TierPricing priority,
+                               @Nullable TierPricing flex,
+                               @Nullable TierPricing batch) {
+        public boolean supportsPriority() {
+            return priority != null;
+        }
+
+        public boolean supportsFlex() {
+            return flex != null;
+        }
+
+        public boolean supportsBatch() {
+            return batch != null;
+        }
+
+        public @Nullable TierPricing getTierPricing(ProcessingTier tier) {
+            return switch (tier) {
+                case PRIORITY -> priority;
+                case FLEX -> flex;
+                case DEFAULT -> standard;
+            };
         }
     }
 
@@ -284,6 +303,27 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         }
     }
 
+    public ModelPricing getModelPricing(String modelName, ProcessingTier tier) {
+        var location = modelLocations.get(modelName);
+        if (location == null) {
+            return new ModelPricing(List.of());
+        }
+        var info = getModelInfo(location);
+        var pricingTiers = info.get("pricing_tiers");
+
+        if (pricingTiers instanceof PricingTiers pt) {
+            var tp = pt.getTierPricing(tier);
+            if (tp != null) {
+                var band = new PriceBand(0, Long.MAX_VALUE,
+                                         tp.input_cost_per_token(),
+                                         tp.cache_read_input_token_cost(),
+                                         tp.output_cost_per_token());
+                return new ModelPricing(List.of(band));
+            }
+        }
+        return getModelPricing(modelName);
+    }
+
     /**
      * Estimates the cost for a request given the model config and input token count.
      * Assumes output is min(4000, inputTokens/2), plus 1000 for reasoning models.
@@ -300,12 +340,12 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
      * Estimates the cost for a request with explicit output token count.
      */
     public CostEstimate estimateCost(ModelConfig config, long inputTokens, long outputTokens) {
-        var pricing = getModelPricing(config.name());
+        var pricing = getModelPricing(config.name(), config.tier());
         if (pricing.bands().isEmpty()) {
             return new CostEstimate(0, "");
         }
 
-        double cost = pricing.getCostFor(inputTokens, 0, outputTokens, config.tier());
+        double cost = pricing.getCostFor(inputTokens, 0, outputTokens);
 
         if (isFreeTier(config.name())) {
             return new CostEstimate(0, "$0.00 (Free Tier)");
@@ -416,10 +456,11 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             return false;
         }
         var info = getModelInfo(location);
-        if (!info.containsKey("supports_processing_tier")) {
+        var pricingTiers = info.get("pricing_tiers");
+        if (!(pricingTiers instanceof PricingTiers pt)) {
             return false;
         }
-        return (Boolean) info.get("supports_processing_tier");
+        return pt.supportsPriority();
     }
 
     public boolean supportsReasoningDisable(String modelName) {

@@ -1469,7 +1469,8 @@ public class Llm {
                     logger.debug("Cost notifications disabled by user settings");
                     return;
                 }
-                var pricing = service.getModelPricing(modelName);
+                var tier = Service.getProcessingTier(model);
+                var pricing = service.getModelPricing(modelName, tier);
 
                 int input = usage.inputTokens();
                 int cached = usage.cachedInputTokens();
@@ -1484,8 +1485,7 @@ public class Llm {
                 if (pricing.bands().isEmpty()) {
                     message = "Cost unknown for %s (%s)".formatted(modelName, tokenSummary);
                 } else {
-                    var tier = Service.getProcessingTier(model);
-                    double cost = pricing.getCostFor(uncached, cached, output, tier);
+                    double cost = pricing.getCostFor(uncached, cached, output);
                     DecimalFormat df = (DecimalFormat) NumberFormat.getNumberInstance(Locale.US);
                     df.applyPattern("#,##0.0000");
                     String costStr = df.format(cost);
