@@ -75,10 +75,6 @@ public interface ContextFragment {
         public boolean isEditable() {
             return EDITABLE_TYPES.contains(this);
         }
-
-        public boolean isFileContent() {
-            return FILE_CONTENT_TYPES.contains(this);
-        }
     }
 
     static String describe(Collection<ContextFragment> fragments) {

@@ -551,31 +551,10 @@ public class Context {
 
     /**
      * Returns true if the workspace contains no file content.
-     * Fragments may exist (STRING, TASK, HISTORY, etc.) but no actual file-based fragments
-     * (PROJECT_PATH, GIT_FILE, EXTERNAL_PATH, IMAGE_FILE, etc.).
-     *
-     * Uses a conservative approach: treats file-based fragment types (SKELETON, CODE, etc.)
-     * as potentially having content even if their computed files set is currently empty or uncomputed.
      */
+    @Blocking
     public boolean isFileContentEmpty() {
-        return fragments.stream().allMatch(f -> {
-            // Fragment types that inherently represent file-based content should be considered as having files
-            var type = f.getType();
-            if (type.isFileContent()) {
-                return false; // These types represent file content
-            }
-
-            // For other types, check the computed files set
-            var filesOpt = f.files().tryGet();
-            // If not yet computed or empty, treat as having no file content
-            // (non-file-content types like STRING, TASK, HISTORY rarely have file refs;
-            // erring on the side of "empty" allows useful context scanning to proceed)
-            if (filesOpt.isEmpty()) {
-                return true; // Treat as empty - allow scanning when unsure
-            }
-            // If computed, check if the set is empty
-            return filesOpt.get().isEmpty();
-        });
+        return fragments.stream().allMatch(f -> f.files().join().isEmpty());
     }
 
     public TaskEntry createTaskEntry(TaskResult result) {
