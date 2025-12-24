@@ -347,8 +347,8 @@ public final class JobRunner {
                                             try {
                                                 // Use helper that builds a workspace-only prompt and calls the
                                                 // planner model.
-                                                TaskResult askResult =
-                                                        askUsingPlannerModel(askPlannerModel, spec.taskInput());
+                                                TaskResult askResult = askUsingPlannerModel(
+                                                        Objects.requireNonNull(askPlannerModel), spec.taskInput());
                                                 scope.append(askResult);
                                             } catch (Throwable t) {
                                                 // Do not allow a planner-model failure to abort the entire job.
