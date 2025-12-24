@@ -167,18 +167,18 @@ public abstract class CodePrompts {
      * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
      */
     public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage) {
-        return redactAiMessage(aiMessage, false);
+        return redactAiMessage(aiMessage, true);
     }
 
     /**
      * Redacts SEARCH/REPLACE blocks from an AiMessage.
      *
      * @param aiMessage The AiMessage to process.
-     * @param silent    If true, S/R blocks are removed entirely without placeholder text.
-     *                  If false, they are replaced with "[elided SEARCH/REPLACE block]".
+     * @param leaveMarker If true, S/R blocks are replaced with "[elided SEARCH/REPLACE block]".
+     *                  If false, they are removed entirely.
      * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
      */
-    public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, boolean silent) {
+    public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, boolean leaveMarker) {
         var parsedResult = EditBlockParser.instance.parse(aiMessage.text(), Collections.emptySet());
         boolean hasSrBlocks = parsedResult.blocks().stream().anyMatch(b -> b.block() != null);
 
@@ -192,7 +192,7 @@ public abstract class CodePrompts {
             var ob = blocks.get(i);
             if (ob.block() == null) {
                 sb.append(ob.text());
-            } else if (!silent) {
+            } else if (leaveMarker) {
                 sb.append(ELIDED_BLOCK_PLACEHOLDER);
                 if (i + 1 < blocks.size() && blocks.get(i + 1).block() != null) {
                     sb.append('\n');

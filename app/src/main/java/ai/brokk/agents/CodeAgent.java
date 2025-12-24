@@ -184,7 +184,7 @@ public class CodeAgent {
         // Retry-loop state tracking
         int applyFailures = 0;
         int blocksAppliedWithoutBuild = 0;
-        int totalBlocksApplied = 0;
+        int totalBlocksParsed = 0;
 
         SequencedSet<EditBlock.SearchReplaceBlock> blocks = new LinkedHashSet<>();
         Map<ProjectFile, String> originalFileContents = new HashMap<>();
@@ -206,7 +206,7 @@ public class CodeAgent {
                 applyFailures,
                 0,
                 blocksAppliedWithoutBuild,
-                totalBlocksApplied,
+                totalBlocksParsed,
                 "",
                 changedFiles,
                 originalFileContents,
@@ -240,7 +240,6 @@ public class CodeAgent {
             StreamingResult streamingResult;
             try {
                 var viewingPolicy = new ViewingPolicy(TaskResult.Type.CODE);
-                boolean showBuildStatusInWorkspace = !es.showBuildError();
                 var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(
                         model,
                         context,
@@ -249,7 +248,7 @@ public class CodeAgent {
                         requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
                         viewingPolicy,
                         userInput.trim(),
-                        showBuildStatusInWorkspace);
+                        es.showBuildError());
                 var llmStartNanos = System.nanoTime();
                 streamingResult = coder.sendRequest(allMessagesForLlm);
                 if (metrics != null) {
@@ -441,8 +440,9 @@ public class CodeAgent {
         var parseResult =
                 parser.parseEditBlocks(llmText, contextManager.getRepo().getTrackedFiles());
         var newlyParsedBlocks = parseResult.blocks();
+        int newlyParsedCount = newlyParsedBlocks.size();
         if (metrics != null) {
-            metrics.totalEditBlocks += newlyParsedBlocks.size();
+            metrics.totalEditBlocks += newlyParsedCount;
         }
 
         // Handle explicit parse errors from the parser
@@ -471,7 +471,7 @@ public class CodeAgent {
                 messageForRetry = new UserMessage(getContinueFromLastBlockPrompt(newlyParsedBlocks.getLast()));
                 consoleLogForRetry =
                         "Malformed or incomplete response after %d blocks parsed; asking LLM to continue/fix"
-                                .formatted(newlyParsedBlocks.size());
+                                .formatted(newlyParsedCount);
             }
 
             if (updatedConsecutiveParseFailures > MAX_PARSE_ATTEMPTS) {
@@ -484,7 +484,7 @@ public class CodeAgent {
             // Add any newly parsed blocks before the error to the pending set for the next apply phase
             var nextPending = new LinkedHashSet<>(es.pendingBlocks());
             nextPending.addAll(newlyParsedBlocks);
-            var nextEs = es.withPendingBlocks(nextPending, updatedConsecutiveParseFailures);
+            var nextEs = es.withPendingBlocks(nextPending, updatedConsecutiveParseFailures, newlyParsedCount);
             report(consoleLogForRetry);
             return new Step.Retry(nextCs, nextEs);
         }
@@ -513,16 +513,16 @@ public class CodeAgent {
             } else {
                 messageForRetry = new UserMessage(getContinueFromLastBlockPrompt(newlyParsedBlocks.getLast()));
                 consoleLogForRetry = "LLM indicated response was partial after %d clean blocks; asking to continue"
-                        .formatted(newlyParsedBlocks.size());
+                        .formatted(newlyParsedCount);
             }
             var nextCs = cs.withNextRequest(messageForRetry);
-            var nextEs = es.withPendingBlocks(mutablePendingBlocks, updatedConsecutiveParseFailures);
+            var nextEs = es.withPendingBlocks(mutablePendingBlocks, updatedConsecutiveParseFailures, newlyParsedCount);
             report(consoleLogForRetry);
             return new Step.Retry(nextCs, nextEs);
         }
 
         // No parse error, not a partial response. This is a successful, complete segment.
-        var nextEs = es.withPendingBlocks(mutablePendingBlocks, updatedConsecutiveParseFailures);
+        var nextEs = es.withPendingBlocks(mutablePendingBlocks, updatedConsecutiveParseFailures, newlyParsedCount);
         return new Step.Continue(cs, nextEs);
     }
 
@@ -817,7 +817,6 @@ public class CodeAgent {
                     : "succeededCount cannot be negative: attempted=%d, failed=%d"
                             .formatted(attemptedBlockCount, failedResults.size());
             int newBlocksAppliedWithoutBuild = es.blocksAppliedWithoutBuild() + succeededCount;
-            int newTotalBlocksApplied = es.totalBlocksApplied() + succeededCount;
             assert newBlocksAppliedWithoutBuild >= 0
                     : "blocksAppliedWithoutBuild cannot be negative: prior=%d, delta=%d"
                             .formatted(es.blocksAppliedWithoutBuild(), succeededCount);
@@ -851,8 +850,10 @@ public class CodeAgent {
                             : Messages.getText(cs.taskMessages().getLast());
                     String buildError = es.lastBuildError();
 
+                    // Retrieve the base index for the blocks parsed in this response
+                    int turnParsedBase = es.totalBlocksParsed() - attemptedBlockCount;
                     var retryMessages = CodePrompts.buildApplyRetryMessages(
-                            lastAiText, editResult.blockResults(), buildError, es.totalBlocksApplied());
+                            lastAiText, editResult.blockResults(), buildError, turnParsedBase);
 
                     // Replace the last AI message in taskMessages with the tagged version
                     // Note: rawMessages is not modified - it preserves the original conversation
@@ -866,7 +867,6 @@ public class CodeAgent {
                             nextPendingBlocks,
                             updatedConsecutiveApplyFailures,
                             newBlocksAppliedWithoutBuild,
-                            newTotalBlocksApplied,
                             editResult.originalContents());
                     report("Failed to apply %s block(s), asking LLM to retry".formatted(failedResults.size()));
                     return new Step.Retry(csForStep, esForStep);
@@ -880,7 +880,6 @@ public class CodeAgent {
                         nextPendingBlocks,
                         updatedConsecutiveApplyFailures,
                         newBlocksAppliedWithoutBuild,
-                        newTotalBlocksApplied,
                         editResult.originalContents());
                 return new Step.Continue(csForStep, esForStep);
             }
@@ -1267,14 +1266,9 @@ public class CodeAgent {
             var explanations = rawMessages.stream()
                     .filter(AiMessage.class::isInstance)
                     .map(AiMessage.class::cast)
-                    .map(ai -> {
-                        String reasoning = ai.reasoningContent();
-                        return (reasoning != null && !reasoning.isBlank())
-                                ? reasoning
-                                : CodePrompts.redactAiMessage(ai, true)
-                                        .map(AiMessage::text)
-                                        .orElse("");
-                    })
+                    .map(ai -> CodePrompts.redactAiMessage(ai, false)
+                            .map(AiMessage::text)
+                            .orElse(""))
                     .filter(seg -> !seg.isBlank())
                     .collect(Collectors.joining("\n\n"));
             var summaryText =
@@ -1345,7 +1339,7 @@ public class CodeAgent {
             int consecutiveApplyFailures,
             int consecutiveBuildFailures,
             int blocksAppliedWithoutBuild,
-            int totalBlocksApplied,
+            int totalBlocksParsed,
             String lastBuildError,
             Set<ProjectFile> changedFiles,
             Map<ProjectFile, String> originalFileContents,
@@ -1378,14 +1372,15 @@ public class CodeAgent {
         }
 
         /** Returns a new WorkspaceState with updated pending blocks and parse failures. */
-        EditState withPendingBlocks(SequencedSet<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures) {
+        EditState withPendingBlocks(
+                SequencedSet<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures, int newParsedCount) {
             return new EditState(
                     newPendingBlocks,
                     newParseFailures,
                     consecutiveApplyFailures,
                     consecutiveBuildFailures,
                     blocksAppliedWithoutBuild,
-                    totalBlocksApplied,
+                    totalBlocksParsed + newParsedCount,
                     lastBuildError,
                     changedFiles,
                     originalFileContents,
@@ -1404,7 +1399,7 @@ public class CodeAgent {
                     consecutiveApplyFailures,
                     consecutiveBuildFailures + 1,
                     0,
-                    totalBlocksApplied,
+                    totalBlocksParsed,
                     newBuildError,
                     changedFiles,
                     originalFileContents,
@@ -1417,7 +1412,6 @@ public class CodeAgent {
                 SequencedSet<EditBlock.SearchReplaceBlock> newPendingBlocks,
                 int newApplyFailures,
                 int newBlocksApplied,
-                int newTotalBlocksApplied,
                 Map<ProjectFile, String> newOriginalContents) {
             // Merge affected files from this apply into the running changedFiles set.
             var mergedChangedFiles = new HashSet<>(changedFiles);
@@ -1435,7 +1429,7 @@ public class CodeAgent {
                     newApplyFailures,
                     consecutiveBuildFailures,
                     newBlocksApplied,
-                    newTotalBlocksApplied,
+                    totalBlocksParsed,
                     lastBuildError,
                     Collections.unmodifiableSet(mergedChangedFiles),
                     Collections.unmodifiableMap(mergedOriginals),
@@ -1450,7 +1444,7 @@ public class CodeAgent {
                     consecutiveApplyFailures,
                     consecutiveBuildFailures,
                     blocksAppliedWithoutBuild,
-                    totalBlocksApplied,
+                    totalBlocksParsed,
                     lastBuildError,
                     changedFiles,
                     originalFileContents,

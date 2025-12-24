@@ -288,19 +288,6 @@ public class Environment {
         int exitCode = process.exitValue();
 
         if (exitCode != 0) {
-            // Smart fallback for common git issues in hermetic/test environments:
-            // If a git commit fails due to identity/safe.directory or signing requirements,
-            // retry once with inline -c overrides to supply identity, disable signing, and relax safe.directory.
-            String trimmed = command.trim();
-            if (trimmed.startsWith("git commit")) {
-                String adjusted = trimmed.replaceFirst(
-                        "^git\\s+commit\\b",
-                        "git -c user.name=TestUser -c user.email=test@example.com -c commit.gpgsign=false -c safe.directory=* -c core.autocrlf=false commit");
-                logger.debug("Retrying failed git commit with inline config: {}", adjusted);
-                // Re-run adjusted command with same root/env
-                return Environment.instance.runShellCommand(
-                        adjusted, root, outputConsumer, timeout, executorConfig, environment, processConsumer);
-            }
             throw new FailureException(
                     "process '%s' signaled error code %d".formatted(command, exitCode), combinedOutput, exitCode);
         }
