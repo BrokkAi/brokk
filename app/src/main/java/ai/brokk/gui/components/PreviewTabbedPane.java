@@ -90,6 +90,11 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
 
         add(contentPanel, BorderLayout.CENTER);
         add(listScrollPane, BorderLayout.EAST);
+
+        // Timer to refresh dirty indicators
+        var refreshTimer = new Timer(500, e -> tabList.repaint());
+        refreshTimer.setRepeats(true);
+        refreshTimer.start();
     }
 
     private void updateSelection() {
@@ -283,6 +288,13 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
         return fileToTabMap;
     }
 
+    /**
+     * Refreshes the tab list display (e.g., to update dirty indicators).
+     */
+    public void refreshTabList() {
+        tabList.repaint();
+    }
+
     // Compatibility methods for code that expects JTabbedPane
     public int getTabCount() {
         return listModel.size();
@@ -310,12 +322,17 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
      * Custom cell renderer for left-aligned tab entries with close button
      */
     private class TabCellRenderer extends JPanel implements ListCellRenderer<TabEntry> {
+        private final JLabel dirtyLabel = new JLabel();
         private final JLabel titleLabel = new JLabel();
-        private final JLabel closeLabel = new JLabel("×");
+        private final JLabel closeLabel = new JLabel("x");
 
         TabCellRenderer() {
             setLayout(new BorderLayout(4, 0));
             setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 4));
+
+            // Dirty indicator on the left
+            dirtyLabel.setPreferredSize(new Dimension(16, 16));
+            add(dirtyLabel, BorderLayout.WEST);
 
             titleLabel.setHorizontalAlignment(SwingConstants.LEFT);
             add(titleLabel, BorderLayout.CENTER);
@@ -332,6 +349,11 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
                 boolean isSelected, boolean cellHasFocus) {
             titleLabel.setText(value.title());
 
+            // Check for unsaved changes and set icon
+            boolean dirty = value.component() instanceof PreviewTextPanel ptp && ptp.hasUnsavedChanges();
+            dirtyLabel.setIcon(dirty ? createDirtyIcon() : null);
+            dirtyLabel.setText("");
+
             if (isSelected) {
                 setBackground(list.getSelectionBackground());
                 titleLabel.setForeground(list.getSelectionForeground());
@@ -344,6 +366,39 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
 
             setOpaque(true);
             return this;
+        }
+
+        private Icon createDirtyIcon() {
+            return new Icon() {
+                @Override
+                public void paintIcon(Component c, Graphics g, int x, int y) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+                    // Small red asterisk (same as FileTreePanel.createDirtyStatusIcon)
+                    int cx = x + 8;
+                    int cy = y + 8;
+                    int arm = 3;
+
+                    g2.setColor(Color.RED);
+                    g2.drawLine(cx - arm, cy, cx + arm, cy);
+                    g2.drawLine(cx, cy - arm, cx, cy + arm);
+                    g2.drawLine(cx - arm, cy - arm, cx + arm, cy + arm);
+                    g2.drawLine(cx - arm, cy + arm, cx + arm, cy - arm);
+
+                    g2.dispose();
+                }
+
+                @Override
+                public int getIconWidth() {
+                    return 16;
+                }
+
+                @Override
+                public int getIconHeight() {
+                    return 16;
+                }
+            };
         }
     }
 }
