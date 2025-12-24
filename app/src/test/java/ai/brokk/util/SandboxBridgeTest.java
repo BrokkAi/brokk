@@ -18,8 +18,9 @@ public class SandboxBridgeTest {
         SandboxConfig config = bridge.buildSandboxConfig();
 
         Assertions.assertNotNull(config.filesystem());
-        Assertions.assertTrue(
-                config.filesystem().allowWrite().contains(tempDir.toAbsolutePath().normalize().toString()));
+        Assertions.assertTrue(config.filesystem()
+                .allowWrite()
+                .contains(tempDir.toAbsolutePath().normalize().toString()));
     }
 
     @Test
@@ -46,8 +47,7 @@ public class SandboxBridgeTest {
 
     @Test
     void testIsAvailableReturnsFalseWhenDependenciesMissing(@TempDir Path tempDir) {
-        SandboxManager.CommandRunner runner =
-                command -> new SandboxManager.CommandResult(1, "", "");
+        SandboxManager.CommandRunner runner = command -> new SandboxManager.CommandResult(1, "", "");
 
         SandboxBridge bridge = new SandboxBridge(tempDir, false, null, runner);
 
@@ -56,8 +56,7 @@ public class SandboxBridgeTest {
 
     @Test
     void testIsAvailableReturnsTrueWhenDependenciesPresent(@TempDir Path tempDir) {
-        SandboxManager.CommandRunner runner =
-                command -> new SandboxManager.CommandResult(0, "", "");
+        SandboxManager.CommandRunner runner = command -> new SandboxManager.CommandResult(0, "", "");
 
         SandboxBridge bridge = new SandboxBridge(tempDir, false, null, runner);
 

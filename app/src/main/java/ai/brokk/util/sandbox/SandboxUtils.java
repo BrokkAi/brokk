@@ -3,7 +3,6 @@ package ai.brokk.util.sandbox;
 import java.io.IOException;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
-import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -135,10 +134,9 @@ public final class SandboxUtils {
         if (containsGlobChars(normalizedPath)) {
             String staticPrefix = extractStaticPrefix(normalizedPath);
             if (!staticPrefix.isEmpty() && !"/".equals(staticPrefix)) {
-                String baseDir =
-                        staticPrefix.endsWith("/")
-                                ? staticPrefix.substring(0, staticPrefix.length() - 1)
-                                : safeDirname(staticPrefix);
+                String baseDir = staticPrefix.endsWith("/")
+                        ? staticPrefix.substring(0, staticPrefix.length() - 1)
+                        : safeDirname(staticPrefix);
 
                 if (!baseDir.isEmpty()) {
                     try {

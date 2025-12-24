@@ -72,18 +72,15 @@ public final class SandboxManager {
         return switch (platform) {
             case "macos" -> MacosSandbox.wrapCommand(command, fsConfig, allowGitConfig, binShell);
             case "linux" -> LinuxSandbox.wrapCommand(command, fsConfig, config.linuxOptions(), binShell);
-            default -> throw new IllegalStateException("Sandbox configuration is not supported on platform: " + platform);
+            default ->
+                throw new IllegalStateException("Sandbox configuration is not supported on platform: " + platform);
         };
     }
 
     private boolean hasCommand(String commandName) {
         try {
-            CommandResult r =
-                    commandRunner.run(
-                            List.of(
-                                    "sh",
-                                    "-lc",
-                                    "command -v " + shellEscape(commandName) + " >/dev/null 2>&1"));
+            CommandResult r = commandRunner.run(
+                    List.of("sh", "-lc", "command -v " + shellEscape(commandName) + " >/dev/null 2>&1"));
             return r.exitCode() == 0;
         } catch (IOException | InterruptedException e) {
             if (e instanceof InterruptedException) {

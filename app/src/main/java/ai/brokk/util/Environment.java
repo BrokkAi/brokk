@@ -170,10 +170,9 @@ public class Environment {
         if (sandbox) {
             String wrapped;
             try {
-                wrapped =
-                        new SandboxBridge(root, false, executorConfig)
-                                .createSandboxManager()
-                                .wrapWithSandbox(command, "/bin/sh");
+                wrapped = new SandboxBridge(root, false, executorConfig)
+                        .createSandboxManager()
+                        .wrapWithSandbox(command, "/bin/sh");
             } catch (RuntimeException e) {
                 logger.warn("sandbox wrapping failed; running unsandboxed: {}", e.getMessage());
                 logger.debug("sandbox wrapping failure details", e);
