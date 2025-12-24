@@ -139,12 +139,6 @@ public class ContextFragments {
     public sealed interface PathFragment extends ContextFragment
             permits ProjectPathFragment, GitFileFragment, ExternalPathFragment, ImageFileFragment {
         BrokkFile file();
-
-        @Override
-        default boolean hasSameSource(ContextFragment other) {
-            if (!(other instanceof PathFragment op)) return false;
-            return this.file().absPath().normalize().equals(op.file().absPath().normalize());
-        }
     }
 
     public interface OutputFragment {
@@ -498,11 +492,6 @@ public class ContextFragments {
         }
 
         @Override
-        public boolean hasSameSource(ContextFragment other) {
-            return PathFragment.super.hasSameSource(other);
-        }
-
-        @Override
         public String toString() {
             return "ProjectPathFragment('%s')".formatted(description().renderNowOr(file.toString()));
         }
@@ -614,7 +603,8 @@ public class ContextFragments {
         }
     }
 
-    public static final class ExternalPathFragment extends AbstractComputedFragment implements PathFragment {
+    public static final class ExternalPathFragment extends AbstractComputedFragment
+            implements PathFragment, ContextFragment.DynamicIdentity {
         private final ExternalFile file;
 
         public ExternalPathFragment(ExternalFile file, IContextManager contextManager) {
@@ -671,6 +661,11 @@ public class ContextFragments {
         }
 
         @Override
+        public String repr() {
+            return "ExternalFile('%s')".formatted(file.toString());
+        }
+
+        @Override
         protected String formatTemplate(FragmentSnapshot s) {
             return """
                     <file path="%s" fragmentid="%s">
@@ -685,15 +680,10 @@ public class ContextFragments {
             return new ExternalPathFragment(
                     file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
         }
-
-        @Override
-        public boolean hasSameSource(ContextFragment other) {
-            return PathFragment.super.hasSameSource(other);
-        }
     }
 
     public static final class ImageFileFragment extends AbstractComputedFragment
-            implements PathFragment, ContextFragment.ImageFragment {
+            implements PathFragment, ContextFragment.ImageFragment, ContextFragment.DynamicIdentity {
         private final BrokkFile file;
 
         public ImageFileFragment(BrokkFile file, IContextManager contextManager) {
@@ -805,6 +795,11 @@ public class ContextFragments {
         }
 
         @Override
+        public String repr() {
+            return "ImageFile('%s')".formatted(file.toString());
+        }
+
+        @Override
         protected String formatTemplate(FragmentSnapshot s) {
             return """
                     <file path="%s" fragmentid="%s">
@@ -818,11 +813,6 @@ public class ContextFragments {
         public ContextFragment refreshCopy() {
             return new ImageFileFragment(
                     file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
-        }
-
-        @Override
-        public boolean hasSameSource(ContextFragment other) {
-            return PathFragment.super.hasSameSource(other);
         }
 
         @Override

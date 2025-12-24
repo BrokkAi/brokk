@@ -1015,20 +1015,6 @@ class FragmentEqualityTest {
     @Nested
     class CrossTypeEqualityTest {
         @Test
-        void testProjectPathVsExternalPath() throws IOException {
-            var projectFile = new ProjectFile(tempDir, "src/File.java");
-            Files.createDirectories(projectFile.absPath().getParent());
-            Files.writeString(projectFile.absPath(), "content");
-            var externalFile = new ExternalFile(projectFile.absPath());
-
-            var ppf = new ContextFragments.ProjectPathFragment(projectFile, contextManager);
-            var epf = new ContextFragments.ExternalPathFragment(externalFile, contextManager);
-
-            // Both refer to the same absolute path, so hasSameSource should return true
-            assertTrue(ppf.hasSameSource(epf));
-        }
-
-        @Test
         void testStringVsCodeFragment() {
             var sf = new ContextFragments.StringFragment(
                     contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
