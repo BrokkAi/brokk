@@ -29,6 +29,7 @@ public class EditBlockParser {
         var editBlocks = all.blocks().stream()
                 .map(EditBlock.OutputBlock::block)
                 .filter(Objects::nonNull)
+                .filter(b -> !Objects.equals(b.beforeText(), b.afterText()))
                 .collect(Collectors.toCollection(LinkedHashSet::new));
 
         if (!editBlocks.isEmpty() || all.parseError() != null) {
@@ -94,6 +95,12 @@ public class EditBlockParser {
         for (var block : result.blocks()) {
             if (block.block() != null) {
                 var srb = block.block();
+                if (Objects.equals(srb.beforeText(), srb.afterText())) {
+                    output.append(
+                            "[HARNESS NOTE: redundant block skipped; REPLACE text is identical to SEARCH text]\n");
+                    continue;
+                }
+
                 var existingIndex = seenBlocks.get(srb);
                 if (existingIndex == null) {
                     int currentIndex = blockCounter++;

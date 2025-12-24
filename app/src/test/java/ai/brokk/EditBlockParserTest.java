@@ -635,6 +635,26 @@ class EditBlockParserTest {
     }
 
     @Test
+    void testTagBlocksWithNoOpBlocks() {
+        String input =
+                """
+                ```
+                file1.txt
+                <<<<<<< SEARCH
+                same
+                =======
+                same
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        String expected = "[HARNESS NOTE: redundant block skipped; REPLACE text is identical to SEARCH text]\n";
+
+        String actual = EditBlockParser.instance.tagBlocks(input);
+        ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals(expected, actual);
+    }
+
+    @Test
     void testTagBlocksWithRedundantBlocks() {
         String input =
                 """
