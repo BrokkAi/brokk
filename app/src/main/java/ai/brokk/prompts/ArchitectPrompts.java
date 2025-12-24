@@ -2,36 +2,14 @@ package ai.brokk.prompts;
 
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.util.StyleGuideResolver;
-import dev.langchain4j.data.message.SystemMessage;
 import java.util.Comparator;
 import java.util.Map;
 import java.util.stream.Collectors;
-import org.jetbrains.annotations.Blocking;
 
 public abstract class ArchitectPrompts extends CodePrompts {
     public static final ArchitectPrompts instance = new ArchitectPrompts() {};
     public static final double WORKSPACE_WARNING_THRESHOLD = 0.5;
     public static final double WORKSPACE_CRITICAL_THRESHOLD = 0.9;
-
-    @Override
-    @Blocking
-    public SystemMessage systemMessage(Context ctx, String reminder) {
-        var styleGuide = StyleGuideResolver.resolve(ctx, ctx.getContextManager().getProject());
-
-        var text =
-                """
-          <instructions>
-          %s
-          </instructions>
-          <style_guide>
-          %s
-          </style_guide>
-          """
-                        .formatted(systemIntro(reminder), styleGuide)
-                        .trim();
-        return new SystemMessage(text);
-    }
 
     @Override
     public String systemIntro(String reminder) {

@@ -155,7 +155,7 @@ class CodePromptsRedactionTest {
         String minimal = prefix + createMinimalMessage("foo.txt", "old", "new") + suffix;
         AiMessage originalMessage = new AiMessage(minimal);
 
-        Optional<AiMessage> silentResult = CodePrompts.redactAiMessage(originalMessage, true);
+        Optional<AiMessage> silentResult = CodePrompts.redactAiMessage(originalMessage, false);
 
         assertTrue(silentResult.isPresent(), "Message should be present after silent redaction.");
         String silentText = silentResult.get().text();
@@ -169,7 +169,7 @@ class CodePromptsRedactionTest {
         String minimal = createMinimalMessage("file.txt", "old code", "new code");
         AiMessage originalMessage = new AiMessage(minimal);
 
-        Optional<AiMessage> silentResult = CodePrompts.redactAiMessage(originalMessage, true);
+        Optional<AiMessage> silentResult = CodePrompts.redactAiMessage(originalMessage, false);
 
         assertTrue(silentResult.isEmpty(), "Silent redaction of block-only message should return empty");
     }
@@ -187,7 +187,7 @@ class CodePromptsRedactionTest {
                 + text3;
         AiMessage originalMessage = new AiMessage(message);
 
-        Optional<AiMessage> silentResult = CodePrompts.redactAiMessage(originalMessage, true);
+        Optional<AiMessage> silentResult = CodePrompts.redactAiMessage(originalMessage, false);
 
         assertTrue(silentResult.isPresent());
         String silentText = silentResult.get().text();

@@ -1431,15 +1431,15 @@ class CodeAgentTest {
         assertEquals("my-user-goal", ((UserMessage) compactedMessages.get(0)).singleText());
         assertInstanceOf(AiMessage.class, compactedMessages.get(1));
 
-        // Both non-blank reasoning segments should be joined and prepended with the harness note
+        // Both non-blank AI text segments should be joined and prepended with the harness note
         // Note: ai text 1 and ai text 3 are included because they have no S/R blocks and silent redaction keeps them
         String expectedAccumulated =
                 """
                 [HARNESS NOTE: this is a synthetic summary of your explanations of the edits made.
                  All changes have been merged into the Workspace files you see above.]
-                reason-1
+                ai text 1
 
-                reason-3
+                ai text 3
                 """;
         assertEquals(
                 expectedAccumulated.trim(),
