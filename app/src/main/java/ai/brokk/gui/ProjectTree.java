@@ -194,9 +194,12 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                 if (node.getUserObject() instanceof ProjectTreeNode treeNode) {
                     File f = treeNode.getFile();
                     if (f.isDirectory()) {
-                        targetFiles = collectProjectFilesUnderDirectory(f);
-                        bulk = true; // Directory context: show "All" actions
-                        targetDirectoryFile = f;
+                        // Collect directory contents async to avoid EDT I/O
+                        final int menuX = e.getX(), menuY = e.getY();
+                        CompletableFuture.supplyAsync(() -> collectProjectFilesUnderDirectory(f))
+                                .thenAccept(files -> SwingUtilities.invokeLater(
+                                        () -> prepareAndShowContextMenu(menuX, menuY, files, true, f)));
+                        return;
                     } else if (f.isFile()) {
                         var selectedFiles = getSelectedProjectFiles();
                         if (!selectedFiles.isEmpty()) {
@@ -624,6 +627,17 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                     return Arrays.asList(children);
                 })
                 .thenAccept(childrenList -> {
+                    // Pre-create nodes and warm caches OFF EDT (thenAccept runs on ForkJoinPool)
+                    var preCreatedNodes = new ArrayList<ProjectTreeNode>(childrenList.size());
+                    for (File child : childrenList) {
+                        var ptn = new ProjectTreeNode(child, false);
+                        // Pre-warm coloring cache while still off EDT
+                        ptn.isExcluded();
+                        ptn.isGitignored();
+                        ptn.isTracked();
+                        preCreatedNodes.add(ptn);
+                    }
+
                     // Apply changes to the Swing model on the EDT.
                     SwingUtilities.invokeLater(() -> {
                         try {
@@ -640,11 +654,10 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                             // Clear placeholder(s) and populate children.
                             node.removeAllChildren();
 
-                            for (File child : childrenList) {
-                                ProjectTreeNode childTreeNode = new ProjectTreeNode(child, false);
+                            for (ProjectTreeNode childTreeNode : preCreatedNodes) {
                                 DefaultMutableTreeNode childNode = new DefaultMutableTreeNode(childTreeNode);
 
-                                if (child.isDirectory()) {
+                                if (childTreeNode.isDirectory()) {
                                     // Keep placeholder for directories for lazy loading.
                                     childNode.add(new DefaultMutableTreeNode(LOADING_PLACEHOLDER));
                                 }
@@ -885,7 +898,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                         for (File child : children) {
                             var childTreeNode = new ProjectTreeNode(child, false);
                             var childNode = new DefaultMutableTreeNode(childTreeNode);
-                            if (child.isDirectory()) {
+                            if (childTreeNode.isDirectory()) {
                                 childNode.add(new DefaultMutableTreeNode(LOADING_PLACEHOLDER));
                             }
                             currentNode.add(childNode);
@@ -1310,19 +1323,25 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
     /** Node wrapper for file information and loading state, with cached coloring state */
     private class ProjectTreeNode {
         private final File file;
+        private final boolean isDirectory; // Cached at construction to avoid repeated syscalls
         private boolean childrenLoaded;
-        // Cached coloring state (computed lazily on first render)
+        // Cached coloring state (computed lazily, but can be pre-warmed off EDT)
         private Boolean cachedIsExcluded;
         private Boolean cachedIsGitignored;
         private Boolean cachedIsTracked;
 
         public ProjectTreeNode(File file, boolean childrenLoaded) {
             this.file = file;
+            this.isDirectory = file.isDirectory(); // Cache once at construction
             this.childrenLoaded = childrenLoaded;
         }
 
         public File getFile() {
             return file;
+        }
+
+        public boolean isDirectory() {
+            return isDirectory;
         }
 
         public boolean isChildrenLoaded() {
@@ -1337,7 +1356,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         public boolean isExcluded() {
             if (cachedIsExcluded == null) {
                 Path relativePath = project.getRoot().relativize(file.toPath());
-                cachedIsExcluded = project.isPathExcluded(relativePath.toString(), file.isDirectory());
+                cachedIsExcluded = project.isPathExcluded(relativePath.toString(), isDirectory);
             }
             return cachedIsExcluded;
         }
@@ -1354,7 +1373,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         /** Returns cached tracked state, computing and caching if needed */
         public boolean isTracked() {
             if (cachedIsTracked == null) {
-                if (file.isFile()) {
+                if (!isDirectory) { // files can be tracked
                     Path relativePath = project.getRoot().relativize(file.toPath());
                     cachedIsTracked = project.getRepo().isTracked(relativePath);
                 } else {
@@ -1386,10 +1405,8 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
 
             if (value instanceof DefaultMutableTreeNode node) {
                 if (node.getUserObject() instanceof ProjectTreeNode treeNode) {
-                    File file = treeNode.getFile();
-
-                    // Set appropriate icon
-                    if (file.isDirectory()) {
+                    // Set appropriate icon using cached isDirectory to avoid syscalls
+                    if (treeNode.isDirectory()) {
                         setIcon(expanded ? getOpenIcon() : getClosedIcon());
                     } else {
                         setIcon(getLeafIcon());
@@ -1402,7 +1419,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
 
                     if (patternExcluded || (gitignored && !isTracked)) {
                         setForeground(ThemeColors.getColor(ThemeColors.CI_EXCLUDED_FOREGROUND));
-                    } else if (file.isFile() && !isTracked) {
+                    } else if (!treeNode.isDirectory() && !isTracked) {
                         // Color untracked files red
                         setForeground(Color.RED);
                     }
@@ -1429,6 +1446,8 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         @Override
         protected @Nullable Transferable createTransferable(JComponent c) {
             // Gather files for export: if directories are selected, include all files under them
+            // Note: Swing's DnD API requires synchronous return, so collectProjectFilesUnderDirectory
+            // may cause brief UI freeze when dragging unexpanded directories. This is a known limitation.
             List<ProjectFile> selection = getSelectedProjectFiles();
             if (selection.isEmpty()) {
                 // If right-clicked on a directory and then dragged without selecting files explicitly, try to infer
