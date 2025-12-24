@@ -244,15 +244,15 @@ class EditBlockTest {
     void testApplyEditsFailsForUnknownFile(@TempDir Path tempDir) throws IOException, InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
 
-        Path existingFile = tempDir.resolve("fileA.txt");
-        Files.writeString(existingFile, "Line X\n");
+        Path fileAPath = tempDir.resolve("fileA.txt");
+        Files.writeString(fileAPath, "Line X\n");
 
         String response =
                 """
                           ```
                           unknownFile.txt
                           <<<<<<< SEARCH
-                          replacement
+                          target
                           =======
                           replacement
                           >>>>>>> REPLACE
@@ -264,7 +264,7 @@ class EditBlockTest {
                 .blocks();
         var result = EditBlock.apply(ctx, io, blocks);
 
-        assertFalse(result.failures().isEmpty(), "Expected failures for unknownFile.txt but got none");
+        assertFalse(result.failures().isEmpty(), result.toString());
     }
 
     @Test
@@ -361,7 +361,7 @@ class EditBlockTest {
                           ```
                           fileA.txt
                           <<<<<<< SEARCH
-                          replacement
+                          target
                           =======
                           replacement
                           >>>>>>> REPLACE
@@ -375,7 +375,7 @@ class EditBlockTest {
         var result = EditBlock.apply(ctx, io, blocks);
 
         // Assert exactly one failure with the correct reason
-        assertEquals(1, result.failures().size(), "Expected exactly one failed block");
+        assertEquals(1, result.failures().size(), result.toString());
         assertEquals(
                 EditBlock.EditBlockFailureReason.NO_MATCH,
                 result.failures().getFirst().reason(),
@@ -481,7 +481,7 @@ class EditBlockTest {
         TestContextManager ctx = new TestContextManager(tempDir, Set.of("foo.txt"));
         var result = EditBlockParser.instance.parseEditBlocks(content, ctx.getFilesInContext());
         // Expect exactly one successfully parsed block, no parse errors
-        assertEquals(1, result.blocks().size(), "Should parse a single block");
+        assertEquals(1, result.blocks().size(), result.toString());
         assertNull(result.parseError(), "No parse errors expected");
 
         var block = result.blocks().getFirst();
@@ -540,7 +540,7 @@ class EditBlockTest {
         var result = EditBlock.apply(ctx, io, blocks);
 
         // Assert exactly one failure with NO_MATCH reason
-        assertEquals(1, result.failures().size(), "Expected exactly one failed block");
+        assertEquals(1, result.failures().size(), result.toString());
         var failedBlock = result.failures().getFirst();
         assertEquals(
                 EditBlock.EditBlockFailureReason.NO_MATCH,
@@ -555,6 +555,41 @@ class EditBlockTest {
         // Assert that the file content remains unchanged
         String finalContent = Files.readString(existingFile);
         assertEquals(fileContent, finalContent, "File content should remain unchanged after the failed edit");
+    }
+
+    @Test
+    void testNoMatchFailureWithMatchInOtherFile(@TempDir Path tempDir) throws IOException, InterruptedException {
+        TestConsoleIO io = new TestConsoleIO();
+        Path fileA = tempDir.resolve("fileA.txt");
+        Path fileB = tempDir.resolve("fileB.txt");
+        String contentA = "Content for A\n";
+        String contentB = "Target text to find\n";
+        Files.writeString(fileA, contentA);
+        Files.writeString(fileB, contentB);
+
+        // Try to search for contentB's text inside fileA
+        String response =
+                """
+                          ```
+                          fileA.txt
+                          <<<<<<< SEARCH
+                          Target text to find
+                          =======
+                          Replacement
+                          >>>>>>> REPLACE
+                          ```
+                          """;
+
+        TestContextManager ctx = new TestContextManager(tempDir, Set.of("fileA.txt", "fileB.txt"));
+        var blocks = EditBlockParser.instance
+                .parseEditBlocks(response, ctx.getFilesInContext())
+                .blocks();
+        var result = EditBlock.apply(ctx, io, blocks);
+
+        assertEquals(1, result.failures().size(), result.toString());
+        var failedBlock = result.failures().getFirst();
+        assertEquals(EditBlock.EditBlockFailureReason.NO_MATCH, failedBlock.reason());
+        assertTrue(failedBlock.commentary().contains("fileB.txt"), failedBlock.commentary());
     }
 
     @Test
@@ -586,7 +621,7 @@ class EditBlockTest {
         var result = EditBlock.apply(ctx, io, blocks);
 
         // Assert exactly one failure with NO_MATCH reason
-        assertEquals(1, result.failures().size(), "Expected exactly one failed block");
+        assertEquals(1, result.failures().size(), result.toString());
         var failedBlock = result.failures().getFirst();
         assertEquals(
                 EditBlock.EditBlockFailureReason.NO_MATCH,
@@ -959,7 +994,7 @@ class EditBlockTest {
                 .blocks();
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertEquals(1, result.failures().size(), "One failed block expected");
+        assertEquals(1, result.failures().size(), result.toString());
         var fb = result.failures().getFirst();
         assertEquals(
                 EditBlock.EditBlockFailureReason.AMBIGUOUS_MATCH,
@@ -1078,7 +1113,7 @@ class EditBlockTest {
                 .blocks();
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertEquals(1, result.failures().size(), "Expected one failed block for unknown class");
+        assertEquals(1, result.failures().size(), result.toString());
         var fb = result.failures().getFirst();
         assertEquals(EditBlock.EditBlockFailureReason.NO_MATCH, fb.reason(), "Should be categorized as NO_MATCH");
         assertTrue(
@@ -1121,7 +1156,7 @@ class EditBlockTest {
                 .blocks();
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertEquals(1, result.failures().size(), "Expected one failed block for unknown method");
+        assertEquals(1, result.failures().size(), result.toString());
         var fb = result.failures().getFirst();
         assertEquals(EditBlock.EditBlockFailureReason.NO_MATCH, fb.reason(), "Should be categorized as NO_MATCH");
         assertTrue(

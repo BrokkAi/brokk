@@ -4,6 +4,7 @@ import static ai.brokk.prompts.EditBlockUtils.DEFAULT_FENCE;
 
 import ai.brokk.analyzer.*;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.util.IndentUtil;
 import com.google.common.base.Splitter;
 import java.io.IOException;
@@ -220,16 +221,18 @@ public class EditBlock {
             } catch (NoMatchException | AmbiguousMatchException e) {
                 assert originalContentsThisBatch.containsKey(file);
                 var originalContent = originalContentsThisBatch.get(file);
-                String commentary;
-                try {
-                    replaceMostSimilarChunk(originalContent, block.afterText(), "");
-                    commentary =
-                            """
-                    The replacement text is already present in the file. If we no longer need to apply
-                    this block, omit it from your reply.
-                    """;
-                } catch (NoMatchException | AmbiguousMatchException e2) {
-                    commentary = "";
+                String commentary = "";
+                if (!block.beforeText().contains(block.afterText())) {
+                    try {
+                        replaceMostSimilarChunk(originalContent, block.afterText(), "");
+                        commentary =
+                                """
+                        The replacement text is already present in the file. If we no longer need to apply
+                        this block, omit it from your reply.
+                        """;
+                    } catch (NoMatchException | AmbiguousMatchException e2) {
+                        // expected when afterText is not already in the file
+                    }
                 }
 
                 if (block.beforeText().lines().anyMatch(line -> line.startsWith("-") || line.startsWith("+"))) {
@@ -238,6 +241,29 @@ public class EditBlock {
                               Reminder: Brokk uses SEARCH/REPLACE blocks, not unified diff format.
                               Ensure the `<<<<<<< SEARCH $filename` block matches the existing code exactly.
                               """;
+                }
+
+                if (e instanceof NoMatchException) {
+                    List<String> matchesInOtherFiles = ctx.getEditableFragments()
+                            .filter(cf -> cf.getType() == ContextFragment.FragmentType.PROJECT_PATH)
+                            .flatMap(cf -> cf.files().join().stream())
+                            .filter(f -> !f.equals(file))
+                            .filter(f -> {
+                                try {
+                                    String otherContent = f.read().orElse("");
+                                    replaceMostSimilarChunk(otherContent, effectiveBefore, "");
+                                    return true;
+                                } catch (NoMatchException | AmbiguousMatchException ex) {
+                                    return false;
+                                }
+                            })
+                            .map(ProjectFile::getFileName)
+                            .distinct()
+                            .toList();
+
+                    if (matchesInOtherFiles.size() == 1) {
+                        commentary += "The search text was found in: " + matchesInOtherFiles.getFirst() + "\n";
+                    }
                 }
 
                 logger.debug(
@@ -387,7 +413,7 @@ public class EditBlock {
     }
 
     /**
-     * Attempts perfect/whitespace replacements, then tries "...", then fuzzy. Returns the post-replacement content.
+     * Attempts perfect/whitespace replacements, then tries "...". Returns the post-replacement content.
      * Also supports special *marker* search targets: - BRK_CONFLICT_$n (new single-line syntax; replaces
      * BEGIN/END-delimited region with index $n) - BRK_CONFLICT_BEGIN_<n>...BRK_CONFLICT_END_<n> (back-compat: old
      * behavior where SEARCH contained the whole region) - BRK_CLASS <fqcn> (existing) - BRK_FUNCTION <fqMethodName>
