@@ -9,7 +9,11 @@ import ai.brokk.gui.dialogs.PreviewTextPanel;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
@@ -17,10 +21,10 @@ import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * A tabbed pane specialized for previews, with deduplication logic and custom tab components.
- * Can be used inside a standalone frame or embedded in the main UI.
+ * A panel with a list of tabs on the right and content on the left.
+ * Uses JList for tab selection with full control over alignment.
  */
-public class PreviewTabbedPane extends JTabbedPane implements ThemeAware {
+public class PreviewTabbedPane extends JPanel implements ThemeAware {
     private final Chrome chrome;
     private GuiTheme guiTheme;
     private final Consumer<String> titleChangedCallback;
@@ -29,63 +33,108 @@ public class PreviewTabbedPane extends JTabbedPane implements ThemeAware {
     private final Map<ProjectFile, Component> fileToTabMap = new HashMap<>();
     private final Map<Component, ContextFragment> tabToFragmentMap = new HashMap<>();
 
+    private final DefaultListModel<TabEntry> listModel = new DefaultListModel<>();
+    private final JList<TabEntry> tabList;
+    private final JPanel contentPanel;
+    private final CardLayout cardLayout;
+    private int cardCounter = 0;
+
+    private record TabEntry(String title, JComponent component, @Nullable ProjectFile fileKey,
+                            @Nullable ContextFragment fragmentKey, String cardName) {}
+
     public PreviewTabbedPane(
             Chrome chrome, GuiTheme guiTheme, Consumer<String> titleChangedCallback, Runnable emptyCallback) {
-        super(JTabbedPane.RIGHT, JTabbedPane.SCROLL_TAB_LAYOUT);
+        super(new BorderLayout());
         this.chrome = chrome;
         this.guiTheme = guiTheme;
         this.titleChangedCallback = titleChangedCallback;
         this.emptyCallback = emptyCallback;
 
-        addChangeListener(e -> updateStatus());
-    }
+        // Content panel with CardLayout
+        cardLayout = new CardLayout();
+        contentPanel = new JPanel(cardLayout);
 
-    private void updateStatus() {
-        int index = getSelectedIndex();
-        if (index >= 0) {
-            Component tabComponent = getTabComponentAt(index);
-            if (tabComponent instanceof JPanel tabPanel) {
-                for (Component c : tabPanel.getComponents()) {
-                    if (c instanceof JLabel label) {
-                        titleChangedCallback.accept(label.getText());
-                        return;
+        // Tab list on the right
+        tabList = new JList<>(listModel);
+        tabList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        tabList.setCellRenderer(new TabCellRenderer());
+        tabList.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                updateSelection();
+            }
+        });
+
+        // Handle close button clicks
+        tabList.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                int index = tabList.locationToIndex(e.getPoint());
+                if (index >= 0) {
+                    var cellBounds = tabList.getCellBounds(index, index);
+                    if (cellBounds != null) {
+                        // Check if click is in the close button area (right side)
+                        int closeButtonWidth = 24;
+                        int closeButtonX = cellBounds.x + cellBounds.width - closeButtonWidth;
+                        if (e.getX() >= closeButtonX) {
+                            var entry = listModel.get(index);
+                            closeTab(entry.component(), entry.fileKey());
+                        }
                     }
                 }
             }
+        });
+
+        var listScrollPane = new JScrollPane(tabList);
+        listScrollPane.setPreferredSize(new Dimension(200, 0));
+        listScrollPane.setBorder(BorderFactory.createEmptyBorder());
+
+        add(contentPanel, BorderLayout.CENTER);
+        add(listScrollPane, BorderLayout.EAST);
+    }
+
+    private void updateSelection() {
+        var selected = tabList.getSelectedValue();
+        if (selected != null) {
+            cardLayout.show(contentPanel, selected.cardName());
+            titleChangedCallback.accept(selected.title());
+        } else {
+            titleChangedCallback.accept("");
         }
-        titleChangedCallback.accept("");
     }
 
     public void addOrSelectTab(
             String title, JComponent panel, @Nullable ProjectFile fileKey, @Nullable ContextFragment fragmentKey) {
         String tabTitle = title.startsWith("Preview: ") ? title.substring(9) : title;
 
+        // Check for existing tab by fileKey
         if (fileKey != null) {
             Component existingTab = fileToTabMap.get(fileKey);
             if (existingTab != null) {
-                int index = indexOfComponent(existingTab);
-                if (index >= 0 && tryReplaceOrSelectTab(index, existingTab, panel, tabTitle, fileKey, fragmentKey)) {
+                int index = findIndexByComponent(existingTab);
+                if (index >= 0 && tryReplaceOrSelectTab(index, panel, tabTitle, fileKey, fragmentKey)) {
                     return;
                 }
             }
         }
 
+        // Check for existing tab by fragmentKey
         if (fragmentKey != null) {
             for (var entry : tabToFragmentMap.entrySet()) {
                 if (fragmentsMatch(entry.getValue(), fragmentKey)) {
-                    Component existingTab = entry.getKey();
-                    int index = indexOfComponent(existingTab);
-                    if (index >= 0
-                            && tryReplaceOrSelectTab(index, existingTab, panel, tabTitle, fileKey, fragmentKey)) {
+                    int index = findIndexByComponent(entry.getKey());
+                    if (index >= 0 && tryReplaceOrSelectTab(index, panel, tabTitle, fileKey, fragmentKey)) {
                         return;
                     }
                 }
             }
         }
 
-        addTab(tabTitle, panel);
-        int tabIndex = getTabCount() - 1;
-        setTabComponentAt(tabIndex, createTabComponent(tabTitle, panel, fileKey));
+        // Add new tab
+        String cardName = "card" + (cardCounter++);
+        contentPanel.add(panel, cardName);
+
+        var entry = new TabEntry(tabTitle, panel, fileKey, fragmentKey, cardName);
+        listModel.addElement(entry);
 
         if (fileKey != null) fileToTabMap.put(fileKey, panel);
         if (fragmentKey != null) tabToFragmentMap.put(panel, fragmentKey);
@@ -94,7 +143,16 @@ public class PreviewTabbedPane extends JTabbedPane implements ThemeAware {
             themeAware.applyTheme(guiTheme);
         }
 
-        setSelectedIndex(tabIndex);
+        tabList.setSelectedIndex(listModel.size() - 1);
+    }
+
+    private int findIndexByComponent(Component comp) {
+        for (int i = 0; i < listModel.size(); i++) {
+            if (listModel.get(i).component() == comp) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private boolean fragmentsMatch(ContextFragment existing, ContextFragment candidate) {
@@ -107,20 +165,24 @@ public class PreviewTabbedPane extends JTabbedPane implements ThemeAware {
     }
 
     private boolean tryReplaceOrSelectTab(
-            int index,
-            Component existingTab,
-            JComponent panel,
-            String tabTitle,
-            @Nullable ProjectFile fileKey,
-            @Nullable ContextFragment fragmentKey) {
-        if (existingTab instanceof PreviewTextPanel existingPanel && !existingPanel.confirmClose()) {
-            setSelectedIndex(index);
+            int index, JComponent panel, String tabTitle,
+            @Nullable ProjectFile fileKey, @Nullable ContextFragment fragmentKey) {
+        var oldEntry = listModel.get(index);
+        if (oldEntry.component() instanceof PreviewTextPanel existingPanel && !existingPanel.confirmClose()) {
+            tabList.setSelectedIndex(index);
             return true;
         }
 
-        tabToFragmentMap.remove(existingTab);
-        setComponentAt(index, panel);
-        setTabComponentAt(index, createTabComponent(tabTitle, panel, fileKey));
+        // Remove old component from content panel
+        contentPanel.remove(oldEntry.component());
+        tabToFragmentMap.remove(oldEntry.component());
+
+        // Add new component
+        String cardName = "card" + (cardCounter++);
+        contentPanel.add(panel, cardName);
+
+        var newEntry = new TabEntry(tabTitle, panel, fileKey, fragmentKey, cardName);
+        listModel.set(index, newEntry);
 
         if (fileKey != null) fileToTabMap.put(fileKey, panel);
         if (fragmentKey != null) tabToFragmentMap.put(panel, fragmentKey);
@@ -129,25 +191,8 @@ public class PreviewTabbedPane extends JTabbedPane implements ThemeAware {
             themeAware.applyTheme(guiTheme);
         }
 
-        setSelectedIndex(index);
+        tabList.setSelectedIndex(index);
         return true;
-    }
-
-    private JPanel createTabComponent(String title, JComponent panel, @Nullable ProjectFile fileKey) {
-        JPanel tabPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
-        tabPanel.setOpaque(false);
-        tabPanel.add(new JLabel(title));
-
-        JButton closeButton = new JButton("×");
-        closeButton.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
-        closeButton.setMargin(new Insets(0, 4, 0, 4));
-        closeButton.setContentAreaFilled(false);
-        closeButton.setBorderPainted(false);
-        closeButton.setFocusPainted(false);
-        closeButton.addActionListener(e -> closeTab(panel, fileKey));
-        tabPanel.add(closeButton);
-
-        return tabPanel;
     }
 
     public void closeTab(Component panel, @Nullable ProjectFile fileKey) {
@@ -159,44 +204,47 @@ public class PreviewTabbedPane extends JTabbedPane implements ThemeAware {
         }
         tabToFragmentMap.remove(panel);
 
-        int index = indexOfComponent(panel);
-        if (index >= 0) remove(index);
+        int index = findIndexByComponent(panel);
+        if (index >= 0) {
+            var entry = listModel.get(index);
+            contentPanel.remove(entry.component());
+            listModel.remove(index);
 
-        if (getTabCount() == 0) emptyCallback.run();
+            // Select adjacent tab
+            if (listModel.size() > 0) {
+                tabList.setSelectedIndex(Math.min(index, listModel.size() - 1));
+            }
+        }
+
+        if (listModel.isEmpty()) emptyCallback.run();
     }
 
     public void updateTabTitle(JComponent panel, String newTitle) {
-        int index = indexOfComponent(panel);
+        int index = findIndexByComponent(panel);
         if (index >= 0) {
             String tabTitle = newTitle.startsWith("Preview: ") ? newTitle.substring(9) : newTitle;
-            Component tabComponent = getTabComponentAt(index);
-            if (tabComponent instanceof JPanel tabPanel) {
-                for (Component c : tabPanel.getComponents()) {
-                    if (c instanceof JLabel label) {
-                        label.setText(tabTitle);
-                        break;
-                    }
-                }
-            }
+            var oldEntry = listModel.get(index);
+            var newEntry = new TabEntry(tabTitle, oldEntry.component(), oldEntry.fileKey(),
+                                        oldEntry.fragmentKey(), oldEntry.cardName());
+            listModel.set(index, newEntry);
         }
     }
 
     public void replaceTabComponent(JComponent oldComponent, JComponent newComponent, String title) {
-        int index = indexOfComponent(oldComponent);
+        int index = findIndexByComponent(oldComponent);
         if (index >= 0) {
-            ProjectFile fileKey = null;
-            for (var entry : fileToTabMap.entrySet()) {
-                if (entry.getValue() == oldComponent) {
-                    fileKey = entry.getKey();
-                    break;
-                }
-            }
+            var oldEntry = listModel.get(index);
+            ProjectFile fileKey = oldEntry.fileKey();
             ContextFragment fragmentKey = tabToFragmentMap.remove(oldComponent);
             if (fileKey != null) fileToTabMap.remove(fileKey);
 
-            setComponentAt(index, newComponent);
+            contentPanel.remove(oldComponent);
+            String cardName = "card" + (cardCounter++);
+            contentPanel.add(newComponent, cardName);
+
             String tabTitle = title.startsWith("Preview: ") ? title.substring(9) : title;
-            setTabComponentAt(index, createTabComponent(tabTitle, newComponent, fileKey));
+            var newEntry = new TabEntry(tabTitle, newComponent, fileKey, fragmentKey, cardName);
+            listModel.set(index, newEntry);
 
             if (fileKey != null) fileToTabMap.put(fileKey, newComponent);
             if (fragmentKey != null) tabToFragmentMap.put(newComponent, fragmentKey);
@@ -204,16 +252,16 @@ public class PreviewTabbedPane extends JTabbedPane implements ThemeAware {
             if (newComponent instanceof ThemeAware themeAware) {
                 themeAware.applyTheme(guiTheme);
             }
-            setSelectedIndex(index);
+            tabList.setSelectedIndex(index);
         }
     }
 
     public void refreshTabsForFile(ProjectFile file) {
-        for (int i = 0; i < getTabCount(); i++) {
-            Component comp = getComponentAt(i);
-            if (comp instanceof PreviewTextPanel panel) {
+        for (int i = 0; i < listModel.size(); i++) {
+            var entry = listModel.get(i);
+            if (entry.component() instanceof PreviewTextPanel panel) {
                 if (file.equals(panel.getFile())) panel.refreshFromDisk();
-            } else if (comp instanceof PreviewImagePanel imagePanel) {
+            } else if (entry.component() instanceof PreviewImagePanel imagePanel) {
                 if (file.equals(imagePanel.getFile())) imagePanel.refreshFromDisk();
             }
         }
@@ -222,14 +270,80 @@ public class PreviewTabbedPane extends JTabbedPane implements ThemeAware {
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         this.guiTheme = guiTheme;
-        for (int i = 0; i < getTabCount(); i++) {
-            Component comp = getComponentAt(i);
-            if (comp instanceof ThemeAware themeAware) themeAware.applyTheme(guiTheme);
+        for (int i = 0; i < listModel.size(); i++) {
+            var entry = listModel.get(i);
+            if (entry.component() instanceof ThemeAware themeAware) {
+                themeAware.applyTheme(guiTheme);
+            }
         }
         SwingUtilities.updateComponentTreeUI(this);
     }
 
     public Map<ProjectFile, Component> getFileToTabMap() {
         return fileToTabMap;
+    }
+
+    // Compatibility methods for code that expects JTabbedPane
+    public int getTabCount() {
+        return listModel.size();
+    }
+
+    public Component getComponentAt(int index) {
+        return listModel.get(index).component();
+    }
+
+    public int indexOfComponent(Component comp) {
+        return findIndexByComponent(comp);
+    }
+
+    public void setSelectedIndex(int index) {
+        if (index >= 0 && index < listModel.size()) {
+            tabList.setSelectedIndex(index);
+        }
+    }
+
+    public int getSelectedIndex() {
+        return tabList.getSelectedIndex();
+    }
+
+    /**
+     * Custom cell renderer for left-aligned tab entries with close button
+     */
+    private class TabCellRenderer extends JPanel implements ListCellRenderer<TabEntry> {
+        private final JLabel titleLabel = new JLabel();
+        private final JLabel closeLabel = new JLabel("×");
+
+        TabCellRenderer() {
+            setLayout(new BorderLayout(4, 0));
+            setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 4));
+
+            titleLabel.setHorizontalAlignment(SwingConstants.LEFT);
+            add(titleLabel, BorderLayout.CENTER);
+
+            closeLabel.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+            closeLabel.setHorizontalAlignment(SwingConstants.CENTER);
+            closeLabel.setPreferredSize(new Dimension(20, 20));
+            add(closeLabel, BorderLayout.EAST);
+        }
+
+        @Override
+        public Component getListCellRendererComponent(
+                JList<? extends TabEntry> list, TabEntry value, int index,
+                boolean isSelected, boolean cellHasFocus) {
+            titleLabel.setText(value.title());
+
+            if (isSelected) {
+                setBackground(list.getSelectionBackground());
+                titleLabel.setForeground(list.getSelectionForeground());
+                closeLabel.setForeground(list.getSelectionForeground());
+            } else {
+                setBackground(list.getBackground());
+                titleLabel.setForeground(list.getForeground());
+                closeLabel.setForeground(list.getForeground());
+            }
+
+            setOpaque(true);
+            return this;
+        }
     }
 }
