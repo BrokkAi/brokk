@@ -89,11 +89,22 @@ public class EditBlockParser {
         var result = parse(content, Set.of());
         var output = new StringBuilder();
         int blockCounter = startingIndex + 1;
+        var seenBlocks = new LinkedHashMap<EditBlock.SearchReplaceBlock, Integer>();
 
         for (var block : result.blocks()) {
             if (block.block() != null) {
-                output.append("[BRK_BLOCK_").append(blockCounter++).append("]\n");
-                output.append(block.block().repr());
+                var srb = block.block();
+                var existingIndex = seenBlocks.get(srb);
+                if (existingIndex == null) {
+                    int currentIndex = blockCounter++;
+                    seenBlocks.put(srb, currentIndex);
+                    output.append("[BRK_BLOCK_").append(currentIndex).append("]\n");
+                    output.append(srb.repr());
+                } else {
+                    output.append("[HARNESS NOTE: reundunant block skipped; duplidate of BRK_BLOCK_")
+                            .append(existingIndex)
+                            .append("]\n");
+                }
             } else if (block.text() != null) {
                 output.append(block.text());
             }

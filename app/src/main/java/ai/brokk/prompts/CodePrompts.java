@@ -415,7 +415,7 @@ public abstract class CodePrompts {
                 .filter(i -> blockResults.get(i).succeeded())
                 .mapToObj(i -> "BRK_BLOCK_" + (startingIndex + i + 1))
                 .toList();
-        sb.append("Successful blocks have been merged into the Workspace. You do not need to repeat them. These are:")
+        sb.append("Successful blocks have been merged into the Workspace. You do not need to repeat them. These are: ")
                 .append(successIndices.isEmpty() ? "None" : String.join(", ", successIndices))
                 .append("\n\n");
 

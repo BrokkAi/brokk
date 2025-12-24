@@ -635,6 +635,50 @@ class EditBlockParserTest {
     }
 
     @Test
+    void testTagBlocksWithRedundantBlocks() {
+        String input =
+                """
+                ```
+                file1.txt
+                <<<<<<< SEARCH
+                old1
+                =======
+                new1
+                >>>>>>> REPLACE
+                ```
+                Some text.
+                ```
+                file1.txt
+                <<<<<<< SEARCH
+                old1
+                =======
+                new1
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        String expected =
+                """
+                [BRK_BLOCK_1]
+                ```
+                file1.txt
+                <<<<<<< SEARCH
+                old1
+
+                =======
+                new1
+
+                >>>>>>> REPLACE
+                ```
+                Some text.
+                [HARNESS NOTE: reundunant block skipped; duplidate of BRK_BLOCK_1]
+                """;
+
+        String actual = EditBlockParser.instance.tagBlocks(input);
+        ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals(expected, actual);
+    }
+
+    @Test
     void testContextManagerRedactionExampleParsesToSingleBlock() {
         // This mirrors the snippet from ContextManagerRedactionTest.java in the goal:
         // a single fenced SEARCH/REPLACE block targeting that file path.
