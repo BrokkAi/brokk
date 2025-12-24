@@ -92,6 +92,19 @@ public interface IProject extends AutoCloseable {
     }
 
     /**
+     * Check if a path is ignored by gitignore rules, with explicit directory flag.
+     * This overload avoids filesystem calls to determine directory status, making it
+     * safe to call from any thread when the caller already knows the path type.
+     *
+     * @param relPath Path relative to project root
+     * @param isDirectory true if the path is a directory
+     * @return true if the path is ignored by gitignore rules, false otherwise
+     */
+    default boolean isGitignored(Path relPath, boolean isDirectory) {
+        return isGitignored(relPath); // Default delegates to single-arg version
+    }
+
+    /**
      * Gets the structured build details inferred by the BuildAgent.
      *
      * This should only called directly by awaitBuildDetails and CM::createHeadless!

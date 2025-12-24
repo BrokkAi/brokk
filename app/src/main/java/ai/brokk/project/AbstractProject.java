@@ -61,8 +61,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     protected final FileFilteringService fileFilteringService;
 
     // Cached pattern matcher for file exclusions (invalidated when patterns change)
-    private Set<String> cachedPatternSet = Set.of();
-    private FileFilteringService.FilePatternMatcher cachedPatternMatcher =
+    // Using volatile for thread-safe reads without synchronization
+    private volatile Set<String> cachedPatternSet = Set.of();
+    private volatile FileFilteringService.FilePatternMatcher cachedPatternMatcher =
             FileFilteringService.createPatternMatcher(Set.of());
 
     public AbstractProject(Path root) {
@@ -766,6 +767,20 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
     }
 
+    @Override
+    public boolean isGitignored(Path relPath, boolean isDirectory) {
+        if (!(repo instanceof GitRepo)) {
+            return false; // No git repo = nothing is ignored
+        }
+
+        try {
+            return fileFilteringService.isGitignored(relPath, isDirectory);
+        } catch (Exception e) {
+            logger.warn("Error checking if path {} is gitignored: {}", relPath, e.getMessage());
+            return false; // On error, assume not ignored (conservative)
+        }
+    }
+
     public Optional<Path> getGlobalGitignorePath() {
         if (!(repo instanceof GitRepo)) {
             return Optional.empty();
@@ -805,11 +820,15 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     public boolean isPathExcluded(String relativePath, boolean isDirectory) {
         var patterns = getExclusionPatterns();
-        // Check if cache is still valid
-        if (!patterns.equals(cachedPatternSet)) {
+        // Read volatile fields once for consistency
+        var currentPatterns = cachedPatternSet;
+        var currentMatcher = cachedPatternMatcher;
+        // Check if cache is still valid; if not, update (benign race: might compute twice)
+        if (!patterns.equals(currentPatterns)) {
+            currentMatcher = FileFilteringService.createPatternMatcher(patterns);
+            cachedPatternMatcher = currentMatcher;
             cachedPatternSet = patterns;
-            cachedPatternMatcher = FileFilteringService.createPatternMatcher(patterns);
         }
-        return cachedPatternMatcher.isPathExcluded(relativePath, isDirectory);
+        return currentMatcher.isPathExcluded(relativePath, isDirectory);
     }
 }
