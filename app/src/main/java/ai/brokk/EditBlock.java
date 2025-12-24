@@ -56,16 +56,8 @@ public class EditBlock {
     }
 
     public record EditResult(Map<ProjectFile, String> originalContents, List<ApplyResult> blockResults) {
-        public boolean hadSuccessfulEdits() {
-            return !originalContents.isEmpty();
-        }
-
         public List<ApplyResult> failures() {
             return blockResults.stream().filter(r -> !r.succeeded()).toList();
-        }
-
-        public List<ApplyResult> failedBlocks() {
-            return failures();
         }
 
         public List<ApplyResult> successes() {

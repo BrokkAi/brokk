@@ -1341,14 +1341,6 @@ class CodeAgentTest {
         assertTrue(augmented.contains(toc));
     }
 
-    // verifyPhase should call BuildOutputPreprocessor.processForLlm only once, not twice
-    @Test
-    void testVerifyPhase_callsProcessForLlmOnlyOnce_duplicate() {
-        // This duplicates the earlier test name to ensure test runner uniqueness is unaffected.
-        // The meaningful behavior is covered by the other test above.
-        assertTrue(true);
-    }
-
     @Test
     void compactForBuildRetryAggregatesReasoningAndProducesSyntheticTurn() {
         // Prepare a conversation with a leading user message and multiple AiMessages (one with blank reasoningContent)

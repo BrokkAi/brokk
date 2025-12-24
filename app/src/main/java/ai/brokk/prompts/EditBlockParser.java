@@ -277,11 +277,6 @@ public class EditBlockParser {
         return trimmed.startsWith("```");
     }
 
-    private static boolean isFenceWithOptionalLanguage(String trimmed) {
-        // Matches fence lines with or without language specifier (e.g., "```" or "```java")
-        return trimmed.startsWith("```");
-    }
-
     private static boolean isSearch(String line) {
         return line.trim().equalsIgnoreCase("<<<<<<< SEARCH");
     }
@@ -337,7 +332,7 @@ public class EditBlockParser {
             if (lastLine.equals(filename)) {
                 linesToStrip = 1;
                 // Check if the line before that is a fence (with or without language specifier)
-                if (lastIdx - 1 >= 0 && isFenceWithOptionalLanguage(lines[lastIdx - 1].trim())) {
+                if (lastIdx - 1 >= 0 && isFence(lines[lastIdx - 1].trim())) {
                     linesToStrip = 2;
                 }
             }

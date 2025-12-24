@@ -264,7 +264,7 @@ class EditBlockTest {
                 .blocks();
         var result = EditBlock.apply(ctx, io, blocks);
 
-        assertFalse(result.failedBlocks().isEmpty(), "Expected failures for unknownFile.txt but got none");
+        assertFalse(result.failures().isEmpty(), "Expected failures for unknownFile.txt but got none");
     }
 
     @Test
@@ -291,10 +291,10 @@ class EditBlockTest {
                 .blocks();
         var result = EditBlock.apply(ctx, io, blocks);
 
-        assertEquals(1, result.failedBlocks().size());
+        assertEquals(1, result.failures().size());
         assertEquals(
                 EditBlock.EditBlockFailureReason.FILE_NOT_FOUND,
-                result.failedBlocks().getFirst().reason());
+                result.failures().getFirst().reason());
     }
 
     /**
@@ -375,10 +375,10 @@ class EditBlockTest {
         var result = EditBlock.apply(ctx, io, blocks);
 
         // Assert exactly one failure with the correct reason
-        assertEquals(1, result.failedBlocks().size(), "Expected exactly one failed block");
+        assertEquals(1, result.failures().size(), "Expected exactly one failed block");
         assertEquals(
                 EditBlock.EditBlockFailureReason.NO_MATCH,
-                result.failedBlocks().getFirst().reason(),
+                result.failures().getFirst().reason(),
                 "Expected failure reason to be NO_MATCH");
 
         // Assert that the file content remains unchanged after the failed edit
@@ -455,7 +455,7 @@ class EditBlockTest {
         String actualContent = Files.readString(testFile);
         assertEquals(replacementContent, actualContent);
 
-        assertTrue(result.failedBlocks().isEmpty(), "No failures expected");
+        assertTrue(result.failures().isEmpty(), "No failures expected");
         assertTrue(io.getErrorLog().isEmpty(), "No IO errors expected");
     }
 
@@ -540,8 +540,8 @@ class EditBlockTest {
         var result = EditBlock.apply(ctx, io, blocks);
 
         // Assert exactly one failure with NO_MATCH reason
-        assertEquals(1, result.failedBlocks().size(), "Expected exactly one failed block");
-        var failedBlock = result.failedBlocks().getFirst();
+        assertEquals(1, result.failures().size(), "Expected exactly one failed block");
+        var failedBlock = result.failures().getFirst();
         assertEquals(
                 EditBlock.EditBlockFailureReason.NO_MATCH,
                 failedBlock.reason(),
@@ -586,8 +586,8 @@ class EditBlockTest {
         var result = EditBlock.apply(ctx, io, blocks);
 
         // Assert exactly one failure with NO_MATCH reason
-        assertEquals(1, result.failedBlocks().size(), "Expected exactly one failed block");
-        var failedBlock = result.failedBlocks().getFirst();
+        assertEquals(1, result.failures().size(), "Expected exactly one failed block");
+        var failedBlock = result.failures().getFirst();
         assertEquals(
                 EditBlock.EditBlockFailureReason.NO_MATCH,
                 failedBlock.reason(),
@@ -825,7 +825,7 @@ class EditBlockTest {
         assertEquals("old\n", Files.readString(existingFile), "Existing 'a/b/c/file.java' must remain unchanged");
 
         // And no failures
-        assertTrue(result.failedBlocks().isEmpty(), "No failures expected");
+        assertTrue(result.failures().isEmpty(), "No failures expected");
     }
 
     @Test
@@ -877,7 +877,7 @@ class EditBlockTest {
         var result = EditBlock.apply(ctx, io, List.of(block));
 
         // Should have applied successfully
-        assertTrue(result.failedBlocks().isEmpty(), "No failures expected when replacing unique BRK conflict block");
+        assertTrue(result.failures().isEmpty(), "No failures expected when replacing unique BRK conflict block");
 
         String finalContent = Files.readString(testFile);
         assertEquals("start\nResolved line\nend\n", finalContent);
@@ -920,7 +920,7 @@ class EditBlockTest {
 
         var content = Files.readString(rootDir.resolve("A.java"));
         assertTrue(content.contains("return 2;"), "Method body should be updated");
-        assertTrue(result.failedBlocks().isEmpty(), "No failures expected");
+        assertTrue(result.failures().isEmpty(), "No failures expected");
     }
 
     @Test
@@ -959,8 +959,8 @@ class EditBlockTest {
                 .blocks();
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertEquals(1, result.failedBlocks().size(), "One failed block expected");
-        var fb = result.failedBlocks().getFirst();
+        assertEquals(1, result.failures().size(), "One failed block expected");
+        var fb = result.failures().getFirst();
         assertEquals(
                 EditBlock.EditBlockFailureReason.AMBIGUOUS_MATCH,
                 fb.reason(),
@@ -1012,7 +1012,7 @@ class EditBlockTest {
 
         var content = Files.readString(rootDir.resolve("C.java"));
         assertTrue(content.contains("return 42;"), "Class body should be replaced");
-        assertTrue(result.failedBlocks().isEmpty(), "No failures expected");
+        assertTrue(result.failures().isEmpty(), "No failures expected");
     }
 
     @Test
@@ -1078,8 +1078,8 @@ class EditBlockTest {
                 .blocks();
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertEquals(1, result.failedBlocks().size(), "Expected one failed block for unknown class");
-        var fb = result.failedBlocks().getFirst();
+        assertEquals(1, result.failures().size(), "Expected one failed block for unknown class");
+        var fb = result.failures().getFirst();
         assertEquals(EditBlock.EditBlockFailureReason.NO_MATCH, fb.reason(), "Should be categorized as NO_MATCH");
         assertTrue(
                 fb.commentary().contains("No class source found for 'NoSuchClass'"),
@@ -1121,8 +1121,8 @@ class EditBlockTest {
                 .blocks();
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertEquals(1, result.failedBlocks().size(), "Expected one failed block for unknown method");
-        var fb = result.failedBlocks().getFirst();
+        assertEquals(1, result.failures().size(), "Expected one failed block for unknown method");
+        var fb = result.failures().getFirst();
         assertEquals(EditBlock.EditBlockFailureReason.NO_MATCH, fb.reason(), "Should be categorized as NO_MATCH");
         assertTrue(
                 fb.commentary().contains("No method source found for 'A.missingMethod'"),

@@ -269,12 +269,8 @@ public class CodeAgent {
             es = requestOutcome.es();
 
             // PARSE PHASE parses edit blocks
-            var parseOutcome = parsePhase(
-                    cs,
-                    es,
-                    streamingResult.text(),
-                    parser,
-                    metrics); // Ensure parser is available
+            var parseOutcome =
+                    parsePhase(cs, es, streamingResult.text(), parser, metrics); // Ensure parser is available
             if (parseOutcome instanceof Step.Fatal fatalParse) {
                 stopDetails = fatalParse.stopDetails();
                 break;
@@ -362,8 +358,9 @@ public class CodeAgent {
                     es = es.withConsecutiveParseFailures(updatedConsecutiveParseFailures);
                 } else {
                     messageForContinue = new UserMessage(getContinueFromLastBlockPrompt(blocksToApply.getLast()));
-                    consoleLogForContinue = "LLM indicated response was partial after %d clean blocks; asking to continue"
-                            .formatted(blocksToApply.size());
+                    consoleLogForContinue =
+                            "LLM indicated response was partial after %d clean blocks; asking to continue"
+                                    .formatted(blocksToApply.size());
                 }
                 cs = cs.withNextRequest(messageForContinue);
                 report(consoleLogForContinue);
@@ -454,11 +451,7 @@ public class CodeAgent {
     }
 
     Step parsePhase(
-            ConversationState cs,
-            EditState es,
-            String llmText,
-            EditBlockParser parser,
-            @Nullable Metrics metrics) {
+            ConversationState cs, EditState es, String llmText, EditBlockParser parser, @Nullable Metrics metrics) {
         logger.debug("Got response (potentially partial if LLM connection was cut off)");
         var parseResult =
                 parser.parseEditBlocks(llmText, contextManager.getRepo().getTrackedFiles());
@@ -868,9 +861,7 @@ public class CodeAgent {
                 }
                 updatedConsecutiveApplyFailures = 0; // Reset on success
                 esForStep = es.afterApply(
-                        updatedConsecutiveApplyFailures,
-                        newBlocksAppliedWithoutBuild,
-                        editResult.originalContents());
+                        updatedConsecutiveApplyFailures, newBlocksAppliedWithoutBuild, editResult.originalContents());
                 return new Step.Continue(csForStep, esForStep, blocksToApply);
             }
         } catch (EditStopException e) {
@@ -1410,8 +1401,7 @@ public class CodeAgent {
         }
 
         /** Returns a new WorkspaceState after applying blocks, updating relevant fields. */
-        EditState afterApply(
-                int newApplyFailures, int newBlocksApplied, Map<ProjectFile, String> newOriginalContents) {
+        EditState afterApply(int newApplyFailures, int newBlocksApplied, Map<ProjectFile, String> newOriginalContents) {
             // Merge affected files from this apply into the running changedFiles set.
             var mergedChangedFiles = new HashSet<>(changedFiles);
             mergedChangedFiles.addAll(newOriginalContents.keySet());
@@ -1542,7 +1532,7 @@ public class CodeAgent {
                         if (merged.isEmpty()) {
                             merged.add(w);
                         } else {
-                            var last = merged.get(merged.size() - 1);
+                            var last = merged.getLast();
                             if (w.start <= last.end + 1) { // overlap or adjacent
                                 merged.set(merged.size() - 1, new Window(last.start, Math.max(last.end, w.end)));
                             } else {
@@ -1558,7 +1548,7 @@ public class CodeAgent {
                                     d.getSource().getPosition(),
                                     d.getSource().size(),
                                     d.getTarget().size() - d.getSource().size()))
-                            .sorted(Comparator.comparingInt(s -> s.pos()))
+                            .sorted(Comparator.comparingInt(DeltaShape::pos))
                             .toList();
 
                     for (var w : merged) {
