@@ -15,6 +15,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ViewingPolicy;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.prompts.QuickEditPrompts;
@@ -209,7 +210,8 @@ public class CodeAgent {
                 changedFiles,
                 originalFileContents,
                 Collections.emptyMap(),
-                !initialContext.getBuildError().isBlank());
+                !initialContext.getBuildError().isBlank(),
+                false);
 
         // "Update everything in the workspace" wouldn't be necessary if we were 100% sure that the analyzer were up
         // to date before we paused it, but empirically that is not the case as of this writing.
@@ -232,6 +234,14 @@ public class CodeAgent {
                 logger.debug("CodeAgent interrupted");
                 stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
                 break;
+            }
+
+            // Select the appropriate model for this turn
+            if (es.useArchitectModel()) {
+                var architectConfig = contextManager.getService().getModel(ModelProperties.ModelType.ARCHITECT);
+                coder.setModel(architectConfig);
+            } else {
+                coder.setModel(this.model);
             }
 
             // Make the LLM request
@@ -1328,7 +1338,8 @@ public class CodeAgent {
             Set<ProjectFile> changedFiles,
             Map<ProjectFile, String> originalFileContents,
             Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics,
-            boolean showBuildError) {
+            boolean showBuildError,
+            boolean useArchitectModel) {
 
         public EditState(
                 int consecutiveParseFailures,
@@ -1350,7 +1361,8 @@ public class CodeAgent {
                     changedFiles,
                     originalFileContents,
                     javaLintDiagnostics,
-                    hasAttemptedBuild);
+                    hasAttemptedBuild,
+                    false);
         }
 
         EditState withConsecutiveParseFailures(int count) {
@@ -1364,7 +1376,8 @@ public class CodeAgent {
                     changedFiles,
                     originalFileContents,
                     javaLintDiagnostics,
-                    showBuildError);
+                    showBuildError,
+                    false);
         }
 
         /** Returns a new WorkspaceState with updated parse failures and total parsed count. */
@@ -1379,7 +1392,8 @@ public class CodeAgent {
                     changedFiles,
                     originalFileContents,
                     javaLintDiagnostics,
-                    showBuildError);
+                    showBuildError,
+                    false);
         }
 
         /**
@@ -1387,17 +1401,19 @@ public class CodeAgent {
          * baseline (originalFileContents) for the next turn.
          */
         EditState afterBuildFailure(String newBuildError) {
+            int newBuildFailures = consecutiveBuildFailures + 1;
             return new EditState(
                     consecutiveParseFailures,
                     consecutiveApplyFailures,
-                    consecutiveBuildFailures + 1,
+                    newBuildFailures,
                     0,
                     totalBlocksParsed,
                     newBuildError,
                     changedFiles,
                     originalFileContents,
                     javaLintDiagnostics,
-                    false); // Our own build errors will be inlined into the instructions
+                    false,
+                    newBuildFailures >= 3);
         }
 
         /** Returns a new WorkspaceState after applying blocks, updating relevant fields. */
@@ -1412,6 +1428,7 @@ public class CodeAgent {
                 mergedOriginals.putIfAbsent(e.getKey(), e.getValue());
             }
 
+            boolean shouldUseArchitect = newApplyFailures > 0 && newBlocksApplied == 0;
             return new EditState(
                     consecutiveParseFailures,
                     newApplyFailures,
@@ -1422,7 +1439,8 @@ public class CodeAgent {
                     Collections.unmodifiableSet(mergedChangedFiles),
                     Collections.unmodifiableMap(mergedOriginals),
                     javaLintDiagnostics,
-                    showBuildError);
+                    showBuildError,
+                    shouldUseArchitect);
         }
 
         EditState withJavaLintDiagnostics(Map<ProjectFile, List<JavaDiagnostic>> diags) {
@@ -1436,7 +1454,8 @@ public class CodeAgent {
                     changedFiles,
                     originalFileContents,
                     diags,
-                    showBuildError);
+                    showBuildError,
+                    false);
         }
 
         /**
