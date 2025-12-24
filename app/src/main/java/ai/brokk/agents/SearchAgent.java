@@ -146,7 +146,8 @@ public class SearchAgent {
     private final List<McpPrompts.McpTool> mcpTools;
     private final SearchMetrics metrics;
     private final ScanConfig scanConfig;
-    private boolean scanAlreadyPerformed = false;
+    private boolean scanPerformed;
+    private boolean contextPruned;
 
     // Local working context snapshot for this agent
     private Context context;
@@ -256,13 +257,15 @@ public class SearchAgent {
     }
 
     private boolean shouldAutomaticallyScan() {
-        return scanConfig.autoScan() && !scanAlreadyPerformed && context.isFileContentEmpty();
+        return scanConfig.autoScan() && !scanPerformed && context.isFileContentEmpty();
     }
 
     private TaskResult executeInternal() throws InterruptedException {
         // Create a per-turn WorkspaceTools instance bound to the agent-local Context
         var wst = new WorkspaceTools(context);
         var tr = cm.getToolRegistry().builder().register(wst).register(this).build();
+
+        pruneContext();
 
         // Main loop: propose actions, execute, record, repeat until finalization
         while (true) {
@@ -836,11 +839,13 @@ public class SearchAgent {
         };
     }
 
-    private void performInitialPruningTurn(StreamingChatModel model) throws InterruptedException {
+    public Context pruneContext() throws InterruptedException {
         // Skip if workspace is empty
-        if (context.isEmpty()) {
-            return;
+        if (contextPruned || context.isEmpty()) {
+            return context;
         }
+
+        var model = getScanModel();
 
         var wst = new WorkspaceTools(context);
         var tr = cm.getToolRegistry().builder().register(wst).register(this).build();
@@ -859,7 +864,7 @@ public class SearchAgent {
         jLlm.setOutput(this.io);
         var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
         if (result.error() != null || result.isEmpty()) {
-            return;
+            return context;
         }
 
         // Record the turn
@@ -871,6 +876,9 @@ public class SearchAgent {
         for (var req : ai.toolExecutionRequests()) {
             executeTool(req, tr, wst);
         }
+
+        contextPruned = true;
+        return context;
     }
 
     private List<ChatMessage> buildInitialPruningPrompt() {
@@ -935,16 +943,12 @@ public class SearchAgent {
      * Sets scanAlreadyPerformed to true on success or failure to prevent retries.
      */
     private void performAutoScan() throws InterruptedException {
-        scanInitialContext();
-        scanAlreadyPerformed = true;
+        scanContext();
+        scanPerformed = true;
     }
 
-    public Context scanInitialContext() throws InterruptedException {
-        StreamingChatModel scanModel = (scanConfig.scanModel() != null)
-                ? scanConfig.scanModel()
-                : cm.getService().getScanModel();
-
-        performInitialPruningTurn(scanModel);
+    public Context scanContext() throws InterruptedException {
+        StreamingChatModel scanModel = getScanModel();
 
         Set<ProjectFile> filesBeforeScan = getWorkspaceFileSet();
 
@@ -989,6 +993,10 @@ public class SearchAgent {
         context = scanConfig.appendToScope() ? scope.append(contextAgentResult) : contextAgentResult.context();
 
         return context;
+    }
+
+    private StreamingChatModel getScanModel() {
+        return scanConfig.scanModel() == null ? cm.getService().getScanModel() : scanConfig.scanModel();
     }
 
     /**
