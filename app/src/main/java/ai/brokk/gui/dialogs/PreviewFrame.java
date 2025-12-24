@@ -16,7 +16,6 @@ import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import java.util.Map;
 import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
@@ -88,22 +87,10 @@ public class PreviewFrame extends JFrame implements ThemeAware {
     }
 
     /**
-     * Closes the currently selected tab if any. Attempts to find an associated ProjectFile key for proper tracking.
+     * Closes the currently selected tab.
      */
     private void closeSelectedTab() {
-        int selectedIndex = tabbedPane.getSelectedIndex();
-        if (selectedIndex >= 0) {
-            Component comp = tabbedPane.getComponentAt(selectedIndex);
-            ProjectFile fileKey = null;
-            for (Map.Entry<ProjectFile, Component> entry :
-                    tabbedPane.getFileToTabMap().entrySet()) {
-                if (entry.getValue() == comp) {
-                    fileKey = entry.getKey();
-                    break;
-                }
-            }
-            tabbedPane.closeTab(comp, fileKey);
-        }
+        tabbedPane.closeSelectedTab();
     }
 
     /**
@@ -128,14 +115,7 @@ public class PreviewFrame extends JFrame implements ThemeAware {
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
-        // Apply theme to all tabs
-        for (int i = 0; i < tabbedPane.getTabCount(); i++) {
-            Component comp = tabbedPane.getComponentAt(i);
-            if (comp instanceof ThemeAware themeAware) {
-                themeAware.applyTheme(guiTheme);
-            }
-        }
-        // Update UI components
+        tabbedPane.applyTheme(guiTheme);
         SwingUtilities.updateComponentTreeUI(this);
     }
 }

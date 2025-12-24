@@ -115,7 +115,7 @@ public class RightPanel extends JPanel implements ThemeAware {
 
         // Build | Review | Preview | Terminal Tabs
         buildReviewTabs = new JTabbedPane(JTabbedPane.TOP);
-        buildReviewTabs.addTab("Build", Icons.SCIENCE, buildSplitPane);
+        buildReviewTabs.addTab("Build", Icons.HANDYMAN, buildSplitPane);
         buildReviewTabs.addTab("Review", Icons.FLOWSHEET, sessionChangesPanel);
 
         buildReviewTabs.addTab("Preview", Icons.VISIBILITY, previewTabbedPane);
