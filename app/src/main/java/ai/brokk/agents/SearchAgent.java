@@ -955,38 +955,24 @@ public class SearchAgent {
      * Sets scanAlreadyPerformed to true on success or failure to prevent retries.
      */
     private void performAutoScan() throws InterruptedException {
-        StreamingChatModel modelToUse = (scanConfig.scanModel() != null)
+        StreamingChatModel scanModel = (scanConfig.scanModel() != null)
                 ? scanConfig.scanModel()
                 : cm.getService().getScanModel();
 
-        Context result;
-        boolean appendToScope = scanConfig.appendToScope();
-        // Prune initial workspace when not empty
-        performInitialPruningTurn(modelToUse);
+        performInitialPruningTurn(scanModel);
 
         Set<ProjectFile> filesBeforeScan = getWorkspaceFileSet();
 
-        var contextAgent = new ContextAgent(cm, modelToUse, goal, this.io);
+        var contextAgent = new ContextAgent(cm, scanModel, goal, this.io);
         io.llmOutput("\n**Brokk Context Engine** analyzing repository context…\n", ChatMessageType.AI, true, false);
 
         var recommendation = contextAgent.getRecommendations(context);
         var md = recommendation.metadata();
         var meta =
-                new TaskResult.TaskMeta(TaskResult.Type.CONTEXT, Service.ModelConfig.from(modelToUse, cm.getService()));
+                new TaskResult.TaskMeta(TaskResult.Type.CONTEXT, Service.ModelConfig.from(scanModel, cm.getService()));
 
-        if (!recommendation.success() || recommendation.fragments().isEmpty()) {
-            io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.AI);
-            var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
-            metrics.recordContextScan(0, false, Set.of(), md);
-            if (appendToScope) {
-                context = scope.append(contextAgentResult);
-            } else {
-                context = contextAgentResult.context();
-            }
-            result = context;
-        } else {
-            var totalTokens = contextAgent.calculateFragmentTokens(
-                    recommendation.fragments()); // use `this.model` (search model) not `model` (scan model) here
+        if (recommendation.success() && !recommendation.fragments().isEmpty()) {
+            var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
             int finalBudget =
                     cm.getService().getMaxInputTokens(this.model) / 2 - Messages.getApproximateTokens(context);
             if (totalTokens > finalBudget) {
@@ -996,32 +982,26 @@ public class SearchAgent {
                         "ContextAgent analyzed the repository and marked these fragments as highly relevant. Since including all would exceed the model's context capacity, their summarized descriptions are provided below:\n\n"
                                 + summaries,
                         "Summary of ContextAgent Findings",
-                        recommendation.fragments().stream()
-                                .findFirst()
-                                .orElseThrow()
-                                .syntaxStyle()
-                                .renderNowOr(SyntaxConstants.SYNTAX_STYLE_NONE))));
+                        SyntaxConstants.SYNTAX_STYLE_NONE)));
             } else {
                 logger.debug("Recommended context fits within final budget.");
                 addToWorkspace(recommendation);
                 io.llmOutput(
                         "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.\n",
                         ChatMessageType.AI);
-            } // create a history entry and return it
-            var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta); // Track metrics
-            Set<ProjectFile> filesAfterScan = getWorkspaceFileSet();
-            Set<ProjectFile> filesAdded = new HashSet<>(filesAfterScan);
-            filesAdded.removeAll(filesBeforeScan);
-            metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
-            if (appendToScope) {
-                context = scope.append(contextAgentResult);
-            } else {
-                context = contextAgentResult.context();
             }
-            result = context;
+        } else {
+            io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.AI);
         }
 
-        context = result;
+        // Record metrics and finalize context
+        Set<ProjectFile> filesAfterScan = getWorkspaceFileSet();
+        Set<ProjectFile> filesAdded = new HashSet<>(filesAfterScan);
+        filesAdded.removeAll(filesBeforeScan);
+        metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
+
+        var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
+        context = scanConfig.appendToScope() ? scope.append(contextAgentResult) : contextAgentResult.context();
         scanAlreadyPerformed = true;
     }
 
