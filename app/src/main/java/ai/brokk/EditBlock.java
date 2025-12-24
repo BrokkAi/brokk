@@ -73,14 +73,6 @@ public class EditBlock {
         }
     }
 
-    /** @deprecated Use ApplyResult instead. */
-    @Deprecated
-    public record FailedBlock(SearchReplaceBlock block, EditBlockFailureReason reason, String commentary) {
-        public FailedBlock(SearchReplaceBlock block, EditBlockFailureReason reason) {
-            this(block, reason, "");
-        }
-    }
-
     /**
      * Represents the outcome of applying a single SEARCH/REPLACE block.
      * Unifies success and failure cases into a single type for cleaner result handling.
