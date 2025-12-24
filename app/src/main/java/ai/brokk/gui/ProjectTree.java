@@ -869,56 +869,56 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             CompletableFuture.allOf(futures).join();
             return dirContents;
         }).thenAccept(dirContents -> SwingUtilities.invokeLater(() -> {
-            // Apply preloaded contents to tree nodes and find target
-            var root = (DefaultMutableTreeNode) getModel().getRoot();
-            DefaultMutableTreeNode currentNode = root;
+                // Apply preloaded contents to tree nodes and find target
+                var root = (DefaultMutableTreeNode) getModel().getRoot();
+                DefaultMutableTreeNode currentNode = root;
 
-            for (int depth = 0; depth < relativePath.getNameCount(); depth++) {
-                if (!(currentNode.getUserObject() instanceof ProjectTreeNode ptn)) break;
+                for (int depth = 0; depth < relativePath.getNameCount(); depth++) {
+                    if (!(currentNode.getUserObject() instanceof ProjectTreeNode ptn)) break;
 
-                File nodeDir = ptn.getFile();
-                List<File> children = dirContents.get(nodeDir);
+                    File nodeDir = ptn.getFile();
+                    List<File> children = dirContents.get(nodeDir);
 
-                // Apply children if not already loaded
-                if (!ptn.isChildrenLoaded() && children != null) {
-                    currentNode.removeAllChildren();
-                    for (File child : children) {
-                        var childTreeNode = new ProjectTreeNode(child, false);
-                        var childNode = new DefaultMutableTreeNode(childTreeNode);
-                        if (child.isDirectory()) {
-                            childNode.add(new DefaultMutableTreeNode(LOADING_PLACEHOLDER));
+                    // Apply children if not already loaded
+                    if (!ptn.isChildrenLoaded() && children != null) {
+                        currentNode.removeAllChildren();
+                        for (File child : children) {
+                            var childTreeNode = new ProjectTreeNode(child, false);
+                            var childNode = new DefaultMutableTreeNode(childTreeNode);
+                            if (child.isDirectory()) {
+                                childNode.add(new DefaultMutableTreeNode(LOADING_PLACEHOLDER));
+                            }
+                            currentNode.add(childNode);
                         }
-                        currentNode.add(childNode);
+                        ptn.setChildrenLoaded(true);
+                        ((DefaultTreeModel) getModel()).nodeStructureChanged(currentNode);
                     }
-                    ptn.setChildrenLoaded(true);
-                    ((DefaultTreeModel) getModel()).nodeStructureChanged(currentNode);
-                }
 
-                // Find next node in path
-                String targetName = relativePath.getName(depth).toString();
-                DefaultMutableTreeNode nextNode = null;
-                Enumeration<?> nodeChildren = currentNode.children();
-                while (nodeChildren.hasMoreElements()) {
-                    var childNode = (DefaultMutableTreeNode) nodeChildren.nextElement();
-                    if (childNode.getUserObject() instanceof ProjectTreeNode childPtn
-                            && childPtn.getFile().getName().equals(targetName)) {
-                        nextNode = childNode;
-                        break;
+                    // Find next node in path
+                    String targetName = relativePath.getName(depth).toString();
+                    DefaultMutableTreeNode nextNode = null;
+                    Enumeration<?> nodeChildren = currentNode.children();
+                    while (nodeChildren.hasMoreElements()) {
+                        var childNode = (DefaultMutableTreeNode) nodeChildren.nextElement();
+                        if (childNode.getUserObject() instanceof ProjectTreeNode childPtn
+                                && childPtn.getFile().getName().equals(targetName)) {
+                            nextNode = childNode;
+                            break;
+                        }
                     }
+
+                    if (nextNode == null) {
+                        logger.warn("Could not find path component '{}' in tree", targetName);
+                        return;
+                    }
+                    currentNode = nextNode;
                 }
 
-                if (nextNode == null) {
-                    logger.warn("Could not find path component '{}' in tree", targetName);
-                    return;
-                }
-                currentNode = nextNode;
-            }
-
-            // Expand and select the target
-            TreePath treePath = new TreePath(currentNode.getPath());
-            expandPath(treePath);
-            setSelectionPath(treePath);
-            scrollPathToVisible(treePath);
+                // Expand and select the target
+                TreePath treePath = new TreePath(currentNode.getPath());
+                expandPath(treePath);
+                setSelectionPath(treePath);
+                scrollPathToVisible(treePath);
         }));
     }
 
@@ -1307,10 +1307,14 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         worker.execute();
     }
 
-    /** Node wrapper for file information and loading state */
-    private static class ProjectTreeNode {
+    /** Node wrapper for file information and loading state, with cached coloring state */
+    private class ProjectTreeNode {
         private final File file;
         private boolean childrenLoaded;
+        // Cached coloring state (computed lazily on first render)
+        private Boolean cachedIsExcluded;
+        private Boolean cachedIsGitignored;
+        private Boolean cachedIsTracked;
 
         public ProjectTreeNode(File file, boolean childrenLoaded) {
             this.file = file;
@@ -1329,6 +1333,44 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             this.childrenLoaded = childrenLoaded;
         }
 
+        /** Returns cached excluded state, computing and caching if needed */
+        public boolean isExcluded() {
+            if (cachedIsExcluded == null) {
+                Path relativePath = project.getRoot().relativize(file.toPath());
+                cachedIsExcluded = project.isPathExcluded(relativePath.toString(), file.isDirectory());
+            }
+            return cachedIsExcluded;
+        }
+
+        /** Returns cached gitignored state, computing and caching if needed */
+        public boolean isGitignored() {
+            if (cachedIsGitignored == null) {
+                Path relativePath = project.getRoot().relativize(file.toPath());
+                cachedIsGitignored = project.isGitignored(relativePath);
+            }
+            return cachedIsGitignored;
+        }
+
+        /** Returns cached tracked state, computing and caching if needed */
+        public boolean isTracked() {
+            if (cachedIsTracked == null) {
+                if (file.isFile()) {
+                    Path relativePath = project.getRoot().relativize(file.toPath());
+                    cachedIsTracked = project.getRepo().isTracked(relativePath);
+                } else {
+                    cachedIsTracked = false; // directories are never "tracked"
+                }
+            }
+            return cachedIsTracked;
+        }
+
+        /** Invalidate cached coloring state (call after git operations) */
+        public void invalidateColoringCache() {
+            cachedIsExcluded = null;
+            cachedIsGitignored = null;
+            cachedIsTracked = null;
+        }
+
         @Override
         public String toString() {
             return file.getName();
@@ -1340,7 +1382,6 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         @Override
         public Component getTreeCellRendererComponent(
                 JTree tree, Object value, boolean selected, boolean expanded, boolean leaf, int row, boolean hasFocus) {
-
             super.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus);
 
             if (value instanceof DefaultMutableTreeNode node) {
@@ -1354,14 +1395,10 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                         setIcon(getLeafIcon());
                     }
 
-                    Path relativePath = project.getRoot().relativize(file.toPath());
-                    String relativePathStr = relativePath.toString();
-
-                    // Color CI-excluded paths grey: check LLM patterns AND gitignore
-                    boolean patternExcluded = project.isPathExcluded(relativePathStr, file.isDirectory());
-                    boolean gitignored = project.isGitignored(relativePath);
-                    // For files, check if tracked - gitignore doesn't apply to tracked files
-                    boolean isTracked = file.isFile() && project.getRepo().isTracked(relativePath);
+                    // Use cached coloring state from the node
+                    boolean patternExcluded = treeNode.isExcluded();
+                    boolean gitignored = treeNode.isGitignored();
+                    boolean isTracked = treeNode.isTracked();
 
                     if (patternExcluded || (gitignored && !isTracked)) {
                         setForeground(ThemeColors.getColor(ThemeColors.CI_EXCLUDED_FOREGROUND));
