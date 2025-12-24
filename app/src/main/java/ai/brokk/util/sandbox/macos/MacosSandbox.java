@@ -124,7 +124,8 @@ public final class MacosSandbox {
         return List.copyOf(rules);
     }
 
-    private static List<String> generateWriteRules(List<String> allowWrite, List<String> denyWrite, boolean allowGitConfig) {
+    private static List<String> generateWriteRules(
+            List<String> allowWrite, List<String> denyWrite, boolean allowGitConfig) {
         boolean hasAllow = allowWrite != null && !allowWrite.isEmpty();
         boolean hasDeny = denyWrite != null && !denyWrite.isEmpty();
         if (!hasAllow && !hasDeny) {

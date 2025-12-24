@@ -10,10 +10,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -23,7 +21,6 @@ public final class SandboxBridge {
     private static final Logger logger = LogManager.getLogger(SandboxBridge.class);
 
     private final Path projectRoot;
-    private final boolean allowNetwork;
     private final @Nullable ExecutorConfig executorConfig;
     private final SandboxManager.CommandRunner commandRunner;
 
@@ -36,10 +33,9 @@ public final class SandboxBridge {
             boolean allowNetwork,
             @Nullable ExecutorConfig executorConfig,
             SandboxManager.CommandRunner commandRunner) {
-        this.projectRoot = Objects.requireNonNull(projectRoot, "projectRoot").toAbsolutePath().normalize();
-        this.allowNetwork = allowNetwork;
+        this.projectRoot = projectRoot.toAbsolutePath().normalize();
         this.executorConfig = executorConfig;
-        this.commandRunner = Objects.requireNonNull(commandRunner, "commandRunner");
+        this.commandRunner = commandRunner;
     }
 
     public boolean isAvailable() {
@@ -60,10 +56,7 @@ public final class SandboxBridge {
 
     SandboxConfig buildSandboxConfig() {
         var filesystem = new SandboxConfig.FilesystemConfig(
-                buildDenyReadPatterns(),
-                buildAllowWritePatterns(),
-                buildDenyWritePatterns(),
-                allowGitConfig());
+                buildDenyReadPatterns(), buildAllowWritePatterns(), buildDenyWritePatterns(), allowGitConfig());
         return new SandboxConfig(filesystem, SandboxConfig.LinuxOptions.defaults()).validate();
     }
 
@@ -104,8 +97,8 @@ public final class SandboxBridge {
         return List.of();
     }
 
-    private static SandboxManager.CommandResult runCommand(List<String> command) throws IOException, InterruptedException {
-        Objects.requireNonNull(command, "command");
+    private static SandboxManager.CommandResult runCommand(List<String> command)
+            throws IOException, InterruptedException {
         if (command.isEmpty()) {
             throw new IllegalArgumentException("command must not be empty");
         }
@@ -145,7 +138,8 @@ public final class SandboxBridge {
     private static void copyFully(InputStream in, ByteArrayOutputStream out) {
         try (in) {
             in.transferTo(out);
-        } catch (IOException ignored) {
+        } catch (IOException e) {
+            logger.debug("Failed to copy process stream", e);
         }
     }
 }

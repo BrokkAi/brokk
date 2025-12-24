@@ -38,11 +38,7 @@ public class SandboxExecutionIntegrationTest {
 
         var lines = new ArrayList<String>();
         String output = Environment.instance.runShellCommand(
-                "echo \"hello sandbox\"",
-                tempDir,
-                true,
-                lines::add,
-                Environment.DEFAULT_TIMEOUT);
+                "echo \"hello sandbox\"", tempDir, true, lines::add, Environment.DEFAULT_TIMEOUT);
 
         Assertions.assertTrue(output.contains("hello sandbox"));
     }
@@ -57,11 +53,7 @@ public class SandboxExecutionIntegrationTest {
         var lines = new ArrayList<String>();
         try {
             Environment.instance.runShellCommand(
-                    "touch " + cleanupPath,
-                    tempDir,
-                    true,
-                    lines::add,
-                    Environment.DEFAULT_TIMEOUT);
+                    "touch " + cleanupPath, tempDir, true, lines::add, Environment.DEFAULT_TIMEOUT);
             Assertions.fail("Expected sandboxed write outside project root to fail");
         } catch (Environment.FailureException expected) {
             // expected
@@ -77,11 +69,7 @@ public class SandboxExecutionIntegrationTest {
 
         var lines = new ArrayList<String>();
         String output = Environment.instance.runShellCommand(
-                "echo \"hello sandbox\"",
-                tempDir,
-                true,
-                lines::add,
-                Environment.DEFAULT_TIMEOUT);
+                "echo \"hello sandbox\"", tempDir, true, lines::add, Environment.DEFAULT_TIMEOUT);
 
         Assertions.assertTrue(output.contains("hello sandbox"));
     }
@@ -96,11 +84,7 @@ public class SandboxExecutionIntegrationTest {
         var lines = new ArrayList<String>();
         try {
             Environment.instance.runShellCommand(
-                    "touch " + cleanupPath,
-                    tempDir,
-                    true,
-                    lines::add,
-                    Environment.DEFAULT_TIMEOUT);
+                    "touch " + cleanupPath, tempDir, true, lines::add, Environment.DEFAULT_TIMEOUT);
             Assertions.fail("Expected sandboxed write outside project root to fail");
         } catch (Environment.FailureException expected) {
             // expected

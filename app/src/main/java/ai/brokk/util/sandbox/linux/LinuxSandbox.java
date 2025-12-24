@@ -13,7 +13,10 @@ public final class LinuxSandbox {
     private LinuxSandbox() {}
 
     public static String wrapCommand(
-            String command, SandboxConfig.FilesystemConfig fsConfig, SandboxConfig.LinuxOptions linuxOptions, String shellPath) {
+            String command,
+            SandboxConfig.FilesystemConfig fsConfig,
+            SandboxConfig.LinuxOptions linuxOptions,
+            String shellPath) {
         if (command == null || command.isBlank()) {
             throw new IllegalArgumentException("command must not be null/blank");
         }
@@ -40,14 +43,13 @@ public final class LinuxSandbox {
                 Path bpfPath = SeccompFilter.extractBpfToTemp();
                 Path applySeccompPath = SeccompFilter.extractApplySeccompToTemp();
 
-                sandboxCommand =
-                        shellQuote(applySeccompPath.toString())
-                                + " "
-                                + shellQuote(bpfPath.toString())
-                                + " "
-                                + shellQuote(shell)
-                                + " -c "
-                                + shellQuote(command);
+                sandboxCommand = shellQuote(applySeccompPath.toString())
+                        + " "
+                        + shellQuote(bpfPath.toString())
+                        + " "
+                        + shellQuote(shell)
+                        + " -c "
+                        + shellQuote(command);
             } catch (IOException e) {
                 sandboxCommand = command;
             }
