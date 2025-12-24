@@ -211,7 +211,7 @@ public class CodeAgent {
                 changedFiles,
                 originalFileContents,
                 Collections.emptyMap(),
-                false);
+                !initialContext.getBuildError().isBlank());
 
         // "Update everything in the workspace" wouldn't be necessary if we were 100% sure that the analyzer were up
         // to date before we paused it, but empirically that is not the case as of this writing.
@@ -240,7 +240,7 @@ public class CodeAgent {
             StreamingResult streamingResult;
             try {
                 var viewingPolicy = new ViewingPolicy(TaskResult.Type.CODE);
-                boolean showBuildStatusInWorkspace = !es.hasAttemptedBuild();
+                boolean showBuildStatusInWorkspace = !es.showBuildError();
                 var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(
                         model,
                         context,
@@ -1350,7 +1350,7 @@ public class CodeAgent {
             Set<ProjectFile> changedFiles,
             Map<ProjectFile, String> originalFileContents,
             Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics,
-            boolean hasAttemptedBuild) {
+            boolean showBuildError) {
 
         public EditState(
                 SequencedSet<EditBlock.SearchReplaceBlock> pendingBlocks,
@@ -1390,7 +1390,7 @@ public class CodeAgent {
                     changedFiles,
                     originalFileContents,
                     javaLintDiagnostics,
-                    hasAttemptedBuild);
+                    showBuildError);
         }
 
         /**
@@ -1409,7 +1409,7 @@ public class CodeAgent {
                     changedFiles,
                     originalFileContents,
                     javaLintDiagnostics,
-                    true); // Mark that we've attempted a build
+                    false); // Our own build errors will be inlined into the instructions
         }
 
         /** Returns a new WorkspaceState after applying blocks, updating relevant fields. */
@@ -1440,7 +1440,7 @@ public class CodeAgent {
                     Collections.unmodifiableSet(mergedChangedFiles),
                     Collections.unmodifiableMap(mergedOriginals),
                     javaLintDiagnostics,
-                    hasAttemptedBuild);
+                    showBuildError);
         }
 
         EditState withJavaLintDiagnostics(Map<ProjectFile, List<JavaDiagnostic>> diags) {
@@ -1455,7 +1455,7 @@ public class CodeAgent {
                     changedFiles,
                     originalFileContents,
                     diags,
-                    hasAttemptedBuild);
+                    showBuildError);
         }
 
         /**

@@ -91,11 +91,12 @@ public final class WorkspacePrompts {
      * @param showBuildStatus if true, include build status indicator in TOC; if false, omit
      */
     public static String formatToc(Context ctx, boolean showBuildStatus) {
-        var readOnlyContents =
-                ctx.getReadonlyFragments().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
-
-        var editableFragments = sortByMtime(ctx.getEditableFragments()).toList();
         var buildFragment = ctx.getBuildFragment();
+        var readOnlyContents = ctx.getReadonlyFragments()
+                .filter(cf -> buildFragment.isEmpty() || cf != buildFragment.get())
+                .map(ContextFragment::formatToc)
+                .collect(Collectors.joining("\n"));
+        var editableFragments = sortByMtime(ctx.getEditableFragments()).toList();
 
         var readOnlySection = readOnlyContents.isBlank()
                 ? ""
