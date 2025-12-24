@@ -212,26 +212,6 @@ public class SearchAgent {
     }
 
     /**
-     * Creates a SearchAgent with explicit IO (streaming is enabled unless IO is MutedConsoleIO).
-     *
-     * @param initialContext the initial context
-     * @param goal the search goal
-     * @param model the LLM model to use
-     * @param objective the search objective
-     * @param scope the task scope for history recording
-     * @param io the IConsoleIO instance for output (null defaults to cm.getIo())
-     */
-    public SearchAgent(
-            Context initialContext,
-            String goal,
-            StreamingChatModel model,
-            Objective objective,
-            ContextManager.TaskScope scope,
-            IConsoleIO io) {
-        this(initialContext, goal, model, objective, scope, io, ScanConfig.defaults());
-    }
-
-    /**
      * Creates a SearchAgent with output streaming enabled (default behavior) and default IO.
      */
     public SearchAgent(
@@ -955,6 +935,11 @@ public class SearchAgent {
      * Sets scanAlreadyPerformed to true on success or failure to prevent retries.
      */
     private void performAutoScan() throws InterruptedException {
+        scanInitialContext();
+        scanAlreadyPerformed = true;
+    }
+
+    public Context scanInitialContext() throws InterruptedException {
         StreamingChatModel scanModel = (scanConfig.scanModel() != null)
                 ? scanConfig.scanModel()
                 : cm.getService().getScanModel();
@@ -1002,7 +987,8 @@ public class SearchAgent {
 
         var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
         context = scanConfig.appendToScope() ? scope.append(contextAgentResult) : contextAgentResult.context();
-        scanAlreadyPerformed = true;
+
+        return context;
     }
 
     /**

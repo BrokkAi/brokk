@@ -400,19 +400,8 @@ public class ArchitectAgent {
     public TaskResult executeWithScan() throws InterruptedException {
         // ContextAgent Scan
         var scanModel = cm.getService().getScanModel();
-        // SearchAgent now handles scanning internally; use ScanConfig to specify model
-        var searchAgent = new SearchAgent(
-                context,
-                goal,
-                scanModel,
-                SearchAgent.Objective.WORKSPACE_ONLY,
-                this.scope,
-                this.io,
-                SearchAgent.ScanConfig.withModel(scanModel));
-
-        // Trigger the scan by calling execute() - it will auto-scan since workspace is typically empty
-        var scanResult = searchAgent.execute();
-        context = scanResult.context();
+        var searchAgent = new SearchAgent(context, goal, scanModel, SearchAgent.Objective.WORKSPACE_ONLY, this.scope);
+        context = searchAgent.scanInitialContext();
 
         // Run Architect proper
         var archResult = this.execute();

@@ -338,10 +338,7 @@ public final class JobRunner {
                                             var context = cm.liveContext();
 
                                             // Optional pre-scan: resolve scan model similarly to SEARCH mode.
-                                            // FIXME support scanning?
-                                            // Old code using SearchAgent did not update context so it was a no-op
-                                            // If desired, rebuild using direct access to ContextAgent; BrokkCli has
-                                            // an example
+                                            // [This code never updated context so it was a no-op; I have removed it.]
 
                                             // Emit deterministic completion NOTIFICATION so headless
                                             // clients/tests can reliably observe that the Context Engine
