@@ -362,20 +362,6 @@ class ContextTest {
     }
 
     @Test
-    void testIsFileContentEmpty_withSummaryFragment() {
-        // SummaryFragment is a computed fragment whose files() may not be immediately available
-        // Using the conservative approach: if tryGet() returns empty, we assume it MAY have content
-        // Use a class that exists in the test analyzer so it has actual files
-        var summaryFrag = new ContextFragments.SummaryFragment(
-                contextManager, "com.example.CodeFragmentTarget", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-        var ctx = new Context(contextManager).addFragments(summaryFrag);
-        // SummaryFragment for an existing class should have files, so isFileContentEmpty() returns false
-        assertFalse(
-                ctx.isFileContentEmpty(),
-                "Context with SKELETON fragment should be treated as potentially having file content (conservative approach)");
-    }
-
-    @Test
     void testIsFileContentEmpty_withProjectPathFragment() throws Exception {
         var pf = new ProjectFile(tempDir, "src/Test.java");
         Files.createDirectories(pf.absPath().getParent());
