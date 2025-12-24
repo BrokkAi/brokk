@@ -639,6 +639,32 @@ public class SearchAgent {
 
         var terminalObjective = buildTerminalObjective();
 
+        String emptyProjectGuidance = "";
+        if (cm.getProject().isEmptyProject()) {
+            emptyProjectGuidance =
+                    """
+                    <empty-project-notice>
+                    The project appears to be empty or uninitialized (few or no source files).
+                    Adapt your approach:
+                      - Prefer searching the repository structure first (e.g., `skimDirectory`, `searchFilenames`) to confirm what exists.
+                      - If the user's request requires new code, your role is still to prepare context and produce tasks, not to write code.
+                      - For code-change requests, prefer producing a task list that starts with creating the minimal project skeleton and build/test setup.
+                    </empty-project-notice>
+                    """;
+        }
+
+        String buildSetupTaskGuidance = "";
+        boolean tasksObjective = objective == Objective.LUTZ || objective == Objective.TASKS_ONLY;
+        if (tasksObjective && cm.getProject().loadBuildDetails().equals(BuildAgent.BuildDetails.EMPTY)) {
+            buildSetupTaskGuidance =
+                    """
+                    <build-setup-task-guidance>
+                    If you produce a task list, the FIRST task MUST configure the build and test stack (and any required environment variables)
+                    so that subsequent tasks can run `build/lint` and tests.
+                    </build-setup-task-guidance>
+                    """;
+        }
+
         String directive =
                 """
                         <%s>
@@ -648,6 +674,9 @@ public class SearchAgent {
                         <search-objective>
                         %s
                         </search-objective>
+
+                        %s
+                        %s
 
                         Decide the next tool action(s) to make progress toward the objective in service of the goal.
 
@@ -674,6 +703,8 @@ public class SearchAgent {
                                 goal,
                                 terminalObjective.type(),
                                 terminalObjective.text(),
+                                emptyProjectGuidance,
+                                buildSetupTaskGuidance,
                                 testsGuidance,
                                 finalsStr,
                                 warning);

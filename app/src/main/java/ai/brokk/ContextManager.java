@@ -1900,6 +1900,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return;
         }
 
+        if (project.isEmptyProject()) {
+            logger.debug("Project has no analyzable source files, skipping build details inference");
+            if (!project.hasBuildDetails()) {
+                project.saveBuildDetails(BuildDetails.EMPTY);
+            }
+            return;
+        }
+
         // Check if a BuildAgent task is already in progress
         if (buildAgentFuture != null && !buildAgentFuture.isDone()) {
             logger.debug("BuildAgent task already in progress, skipping");

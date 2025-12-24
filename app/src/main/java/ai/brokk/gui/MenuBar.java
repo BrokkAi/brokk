@@ -8,6 +8,7 @@ import ai.brokk.Service;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.dialogs.AboutDialog;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.dialogs.BlitzForgeDialog;
@@ -147,6 +148,48 @@ public class MenuBar {
         }
     }
 
+    private static void handleNewProject(Chrome chrome) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
+        var chooser = new JFileChooser();
+        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        chooser.setMultiSelectionEnabled(false);
+        chooser.setDialogTitle("New Project");
+
+        int result = chooser.showSaveDialog(chrome.getFrame());
+        if (result != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+
+        File selectedDir = chooser.getSelectedFile();
+        if (selectedDir == null) {
+            chrome.toolError("No directory selected.", "New Project");
+            return;
+        }
+
+        Path projectPath = selectedDir.toPath().toAbsolutePath().normalize();
+
+        Thread.ofPlatform().start(() -> {
+            try {
+                Files.createDirectories(projectPath);
+                GitRepoFactory.initRepo(projectPath);
+                SwingUtilities.invokeLater(
+                        () -> new Brokk.OpenProjectBuilder(projectPath).open().exceptionally(ex -> {
+                            chrome.toolError(
+                                    "Failed to open project: "
+                                            + (ex.getMessage() == null ? ex.toString() : ex.getMessage()),
+                                    "New Project");
+                            return false;
+                        }));
+            } catch (Exception ex) {
+                SwingUtilities.invokeLater(() -> chrome.toolError(
+                        "Failed to create new project at " + projectPath + ": "
+                                + (ex.getMessage() == null ? ex.toString() : ex.getMessage()),
+                        "New Project"));
+            }
+        });
+    }
+
     /**
      * Builds the menu bar
      *
@@ -157,6 +200,10 @@ public class MenuBar {
 
         // File menu
         var fileMenu = new JMenu("File");
+
+        var newProjectItem = new JMenuItem("New Project...");
+        newProjectItem.addActionListener(e -> SwingUtilities.invokeLater(() -> handleNewProject(chrome)));
+        fileMenu.add(newProjectItem);
 
         var openProjectItem = new JMenuItem("Open Project...");
         openProjectItem.addActionListener(e -> Brokk.promptAndOpenProject(chrome.frame)); // No need to block on EDT
