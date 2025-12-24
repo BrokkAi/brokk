@@ -106,6 +106,31 @@ public class SearchAgent {
         public abstract Set<Terminal> terminals();
     }
 
+    /**
+     * Configuration for automatic context scanning behavior.
+     */
+    public record ScanConfig(
+            boolean autoScan, // Whether to auto-scan when workspace is empty or on first search tool
+            @Nullable StreamingChatModel scanModel, // Model to use for ContextAgent (null = use project default)
+            boolean appendToScope // Whether to append scan results to scope history
+            ) {
+        public static ScanConfig defaults() {
+            return new ScanConfig(true, null, true);
+        }
+
+        public static ScanConfig disabled() {
+            return new ScanConfig(false, null, true);
+        }
+
+        public static ScanConfig withModel(StreamingChatModel model) {
+            return new ScanConfig(true, model, true);
+        }
+
+        public static ScanConfig noAppend() {
+            return new ScanConfig(true, null, false);
+        }
+    }
+
     // Keep thresholds consistent with other agents
     private static final int SUMMARIZE_THRESHOLD = 1_000; // ~120 LOC equivalent
     private static final double WORKSPACE_CRITICAL = 0.80; // 90% of input limit
@@ -120,6 +145,9 @@ public class SearchAgent {
     private final Objective objective;
     private final List<McpPrompts.McpTool> mcpTools;
     private final SearchMetrics metrics;
+    private final ScanConfig scanConfig;
+    private boolean scanPerformed;
+    private boolean contextPruned;
 
     // Local working context snapshot for this agent
     private Context context;
@@ -132,14 +160,15 @@ public class SearchAgent {
     private boolean codeAgentJustSucceeded;
 
     /**
-     * Creates a SearchAgent with explicit IO (streaming is enabled unless IO is MutedConsoleIO).
+     * Primary constructor with explicit IO and ScanConfig.
      *
      * @param initialContext the initial context
      * @param goal the search goal
      * @param model the LLM model to use
      * @param objective the search objective
      * @param scope the task scope for history recording
-     * @param io the IConsoleIO instance for output (null defaults to cm.getIo())
+     * @param io the IConsoleIO instance for output
+     * @param scanConfig configuration for automatic context scanning
      */
     public SearchAgent(
             Context initialContext,
@@ -147,7 +176,8 @@ public class SearchAgent {
             StreamingChatModel model,
             Objective objective,
             ContextManager.TaskScope scope,
-            IConsoleIO io) {
+            IConsoleIO io,
+            ScanConfig scanConfig) {
         this.goal = goal;
         this.cm = initialContext.getContextManager();
         this.model = model;
@@ -179,6 +209,7 @@ public class SearchAgent {
         }
         this.mcpTools = List.copyOf(tools);
         this.context = initialContext;
+        this.scanConfig = scanConfig;
     }
 
     /**
@@ -196,7 +227,8 @@ public class SearchAgent {
                 model,
                 objective,
                 scope,
-                initialContext.getContextManager().getIo());
+                initialContext.getContextManager().getIo(),
+                ScanConfig.defaults());
     }
 
     /** Entry point. Runs until answer/abort or interruption. */
@@ -224,10 +256,16 @@ public class SearchAgent {
                 .count();
     }
 
+    private boolean shouldAutomaticallyScan() {
+        return scanConfig.autoScan() && !scanPerformed && context.isFileContentEmpty();
+    }
+
     private TaskResult executeInternal() throws InterruptedException {
         // Create a per-turn WorkspaceTools instance bound to the agent-local Context
         var wst = new WorkspaceTools(context);
         var tr = cm.getToolRegistry().builder().register(wst).register(this).build();
+
+        pruneContext();
 
         // Main loop: propose actions, execute, record, repeat until finalization
         while (true) {
@@ -332,6 +370,13 @@ public class SearchAgent {
                         .toList();
 
                 for (var req : sortedNonterminalCalls) {
+                    // Lazy scan: trigger on first search tool if not already scanned
+                    if (shouldAutomaticallyScan() && isSearchTool(req.name())) {
+                        logger.info("Lazy scan triggered by first search tool: {}", req.name());
+                        performAutoScan(); // Throws InterruptedException if interrupted
+                        // Continue to execute the tool with potentially updated workspace
+                    }
+
                     ToolExecutionResult toolResult = executeTool(req, tr, wst);
                     if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
                         var details =
@@ -668,8 +713,7 @@ public class SearchAgent {
         names.add("getClassSkeletons");
         names.add("getClassSources");
         names.add("getMethodSources");
-        // FIXME re-enable when context freezing is solved
-        //        names.add("getUsages");
+        names.add("getUsages");
 
         // Text-based search
         names.add("searchSubstrings");
@@ -685,8 +729,7 @@ public class SearchAgent {
         names.add("addClassSummariesToWorkspace");
         names.add("addMethodsToWorkspace");
         names.add("addFileSummariesToWorkspace");
-        // FIXME re-enable when context freezing is solved
-        //        names.add("addSymbolUsagesToWorkspace");
+        names.add("addSymbolUsagesToWorkspace");
         names.add("appendNote");
         if (hasDroppableFragments()) {
             names.add("dropWorkspaceFragments");
@@ -797,11 +840,13 @@ public class SearchAgent {
         };
     }
 
-    private void performInitialPruningTurn(StreamingChatModel model) throws InterruptedException {
+    public Context pruneContext() throws InterruptedException {
         // Skip if workspace is empty
-        if (context.isEmpty()) {
-            return;
+        if (contextPruned || context.isEmpty()) {
+            return context;
         }
+
+        var model = getScanModel();
 
         var wst = new WorkspaceTools(context);
         var tr = cm.getToolRegistry().builder().register(wst).register(this).build();
@@ -820,7 +865,7 @@ public class SearchAgent {
         jLlm.setOutput(this.io);
         var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
         if (result.error() != null || result.isEmpty()) {
-            return;
+            return context;
         }
 
         // Record the turn
@@ -832,6 +877,9 @@ public class SearchAgent {
         for (var req : ai.toolExecutionRequests()) {
             executeTool(req, tr, wst);
         }
+
+        contextPruned = true;
+        return context;
     }
 
     private List<ChatMessage> buildInitialPruningPrompt() {
@@ -892,102 +940,72 @@ public class SearchAgent {
     }
 
     /**
-     * Scan initial context using ContextAgent and add recommendations to the workspace.
-     * Callers should invoke this before calling execute() if they want the initial context scan.
-     * Updates the SearchAgent's internal Context, and also returns it.
-     * <p>
-     * If {@code appendToScope} is {@code true}, the context scan result is appended to the scope's history.
-     * If {@code appendToScope} is {@code false}, the method returns the context resulting from the scan
-     * without modifying or appending to the scope's history.
-     * <p>
-     * Callers should invoke this before calling {@code execute()} if they want the initial context scan.
-     *
-     * @param model the LLM model to use for context scanning
-     * @param appendToScope if true, appends the context scan result to the scope; if false, returns context without appending to the scope's history
-     * @return the resulting {@link Context} after the scan, either appended to the scope or not, depending on {@code appendToScope}
+     * Performs auto-scan using configured scan model and append behavior.
+     * Sets scanAlreadyPerformed to true on success or failure to prevent retries.
      */
-    @Blocking
-    public Context scanInitialContext(StreamingChatModel model, boolean appendToScope) throws InterruptedException {
-        // Prune initial workspace when not empty
-        performInitialPruningTurn(model);
+    private void performAutoScan() throws InterruptedException {
+        scanContext();
+        scanPerformed = true;
+    }
+
+    public Context scanContext() throws InterruptedException {
+        StreamingChatModel scanModel = getScanModel();
 
         Set<ProjectFile> filesBeforeScan = getWorkspaceFileSet();
 
-        var contextAgent = new ContextAgent(cm, model, goal, this.io);
+        var contextAgent = new ContextAgent(cm, scanModel, goal, this.io);
         io.llmOutput("\n**Brokk Context Engine** analyzing repository context…\n", ChatMessageType.AI, true, false);
 
         var recommendation = contextAgent.getRecommendations(context);
         var md = recommendation.metadata();
-        var meta = new TaskResult.TaskMeta(TaskResult.Type.CONTEXT, Service.ModelConfig.from(model, cm.getService()));
+        var meta =
+                new TaskResult.TaskMeta(TaskResult.Type.CONTEXT, Service.ModelConfig.from(scanModel, cm.getService()));
 
-        if (!recommendation.success() || recommendation.fragments().isEmpty()) {
-            io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.AI);
-            var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
-            metrics.recordContextScan(0, false, Set.of(), md);
-            if (appendToScope) {
-                context = scope.append(contextAgentResult);
+        if (recommendation.success() && !recommendation.fragments().isEmpty()) {
+            var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
+            int finalBudget =
+                    cm.getService().getMaxInputTokens(this.model) / 2 - Messages.getApproximateTokens(context);
+            if (totalTokens > finalBudget) {
+                var summaries = ContextFragment.describe(recommendation.fragments());
+                context = context.addFragments(List.of(new ContextFragments.StringFragment(
+                        cm,
+                        "ContextAgent analyzed the repository and marked these fragments as highly relevant. Since including all would exceed the model's context capacity, their summarized descriptions are provided below:\n\n"
+                                + summaries,
+                        "Summary of ContextAgent Findings",
+                        SyntaxConstants.SYNTAX_STYLE_NONE)));
             } else {
-                context = contextAgentResult.context();
+                logger.debug("Recommended context fits within final budget.");
+                addToWorkspace(recommendation);
+                io.llmOutput(
+                        "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.\n",
+                        ChatMessageType.AI);
             }
-            return context;
-        }
-
-        var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
-        // use `this.model` (search model) not `model` (scan model) here
-        int finalBudget = cm.getService().getMaxInputTokens(this.model) / 2 - Messages.getApproximateTokens(context);
-        if (totalTokens > finalBudget) {
-            var summaries = ContextFragment.describe(recommendation.fragments());
-            context = context.addFragments(List.of(new ContextFragments.StringFragment(
-                    cm,
-                    "ContextAgent analyzed the repository and marked these fragments as highly relevant. Since including all would exceed the model’s context capacity, their summarized descriptions are provided below:\n\n"
-                            + summaries,
-                    "Summary of ContextAgent Findings",
-                    recommendation.fragments().stream()
-                            .findFirst()
-                            .orElseThrow()
-                            .syntaxStyle()
-                            .renderNowOr(SyntaxConstants.SYNTAX_STYLE_NONE))));
         } else {
-            logger.debug("Recommended context fits within final budget.");
-            addToWorkspace(recommendation);
-            io.llmOutput(
-                    "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.\n",
-                    ChatMessageType.AI);
+            io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.AI);
         }
 
-        // create a history entry and return it
-        var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
-
-        // Track metrics
+        // Record metrics and finalize context
         Set<ProjectFile> filesAfterScan = getWorkspaceFileSet();
         Set<ProjectFile> filesAdded = new HashSet<>(filesAfterScan);
         filesAdded.removeAll(filesBeforeScan);
         metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
-        if (appendToScope) {
-            context = scope.append(contextAgentResult);
-        } else {
-            context = contextAgentResult.context();
-        }
+
+        var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
+        context = scanConfig.appendToScope() ? scope.append(contextAgentResult) : contextAgentResult.context();
+
         return context;
     }
 
-    /**
-     * Scan initial context using ContextAgent and add recommendations to the workspace.
-     * Appends the result to scope by default.
-     */
-    @Blocking
-    public Context scanInitialContext() throws InterruptedException {
-        return scanInitialContext(cm.getService().getScanModel(), true);
+    private StreamingChatModel getScanModel() {
+        return scanConfig.scanModel() == null ? cm.getService().getScanModel() : scanConfig.scanModel();
     }
 
     /**
-     * Scan initial context using ContextAgent and add recommendations to the workspace.
-     *
-     * @param model the LLM model to use for context scanning
+     * Returns true if the tool is a search/exploration tool that benefits from ContextAgent scanning.
+     * Tool names must match those in calculateAllowedToolNames().
      */
-    @Blocking
-    public Context scanInitialContext(StreamingChatModel model) throws InterruptedException {
-        return scanInitialContext(model, true);
+    private boolean isSearchTool(String toolName) {
+        return toolName.startsWith("search");
     }
 
     @Blocking

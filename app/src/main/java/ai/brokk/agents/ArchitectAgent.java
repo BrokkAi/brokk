@@ -336,10 +336,15 @@ public class ArchitectAgent {
                 io.llmOutput("**Search Agent** engaged: " + query, ChatMessageType.AI, true, false);
             }
 
-            var searchAgent =
-                    new SearchAgent(context, query, planningModel, SearchAgent.Objective.WORKSPACE_ONLY, scope, saIo);
-            // Ensure all SAs scan, but do not append individual history entries during batch
-            searchAgent.scanInitialContext(cm.getService().getScanModel(), false);
+            // Use ScanConfig.noAppend() to avoid individual scope entries during parallel batching
+            var searchAgent = new SearchAgent(
+                    context,
+                    query,
+                    planningModel,
+                    SearchAgent.Objective.WORKSPACE_ONLY,
+                    scope,
+                    saIo,
+                    SearchAgent.ScanConfig.noAppend());
             var result = searchAgent.execute();
             // DO NOT set this.context here, it is not threadsafe; the main agent loop will update it via the
             // thread-local
@@ -396,7 +401,8 @@ public class ArchitectAgent {
         // ContextAgent Scan
         var scanModel = cm.getService().getScanModel();
         var searchAgent = new SearchAgent(context, goal, scanModel, SearchAgent.Objective.WORKSPACE_ONLY, this.scope);
-        context = searchAgent.scanInitialContext();
+        searchAgent.pruneContext();
+        context = searchAgent.scanContext();
 
         // Run Architect proper
         var archResult = this.execute();
