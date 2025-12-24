@@ -231,7 +231,6 @@ class CodeAgentTest {
                 "Remember to pay close attention to the SEARCH/REPLACE block format instructions and examples!"));
     }
 
-
     // A-2: applyPhase – total apply failure (below fallback threshold)
     @Test
     void testApplyPhase_totalApplyFailure_belowThreshold() throws IOException {
@@ -584,17 +583,12 @@ class CodeAgentTest {
         // Turn 1: apply "hello world" -> "goodbye world"
         var block1 = new EditBlock.SearchReplaceBlock(file.toString(), "hello world", "goodbye world");
         var es1 = new CodeAgent.EditState(
-                0,
-                0,
-                0,
-                0,
-                "",
-                new HashSet<>(),
-                new HashMap<>(),
-                Collections.emptyMap(),
-                false);
+                0, 0, 0, 0, "", new HashSet<>(), new HashMap<>(), Collections.emptyMap(), false);
         var res1 = codeAgent.applyPhase(
-                createConversationState(List.of(), new UserMessage("req1")), es1, new LinkedHashSet<>(List.of(block1)), null);
+                createConversationState(List.of(), new UserMessage("req1")),
+                es1,
+                new LinkedHashSet<>(List.of(block1)),
+                null);
         assertInstanceOf(CodeAgent.Step.Continue.class, res1);
         var es1b = ((CodeAgent.Step.Continue) res1).es();
 
@@ -608,17 +602,12 @@ class CodeAgentTest {
         // Prepare next turn state with empty per-turn baseline and a new change: "goodbye world" -> "ciao world"
         var block2 = new EditBlock.SearchReplaceBlock(file.toString(), "goodbye world", "ciao world");
         var es2 = new CodeAgent.EditState(
-                0,
-                0,
-                0,
-                0,
-                "",
-                new HashSet<>(),
-                new HashMap<>(),
-                Collections.emptyMap(),
-                false);
+                0, 0, 0, 0, "", new HashSet<>(), new HashMap<>(), Collections.emptyMap(), false);
         var res2 = codeAgent.applyPhase(
-                createConversationState(List.of(), new UserMessage("req2")), es2, new LinkedHashSet<>(List.of(block2)), null);
+                createConversationState(List.of(), new UserMessage("req2")),
+                es2,
+                new LinkedHashSet<>(List.of(block2)),
+                null);
         assertInstanceOf(CodeAgent.Step.Continue.class, res2);
         var es2b = ((CodeAgent.Step.Continue) res2).es();
 
