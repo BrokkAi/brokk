@@ -35,6 +35,7 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
     private final JList<TabEntry> tabList;
     private final JPanel contentPanel;
     private final CardLayout cardLayout;
+    private final Timer refreshTimer;
     private int cardCounter = 0;
 
     private record TabEntry(
@@ -74,10 +75,9 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
                 int index = tabList.locationToIndex(e.getPoint());
                 if (index >= 0) {
                     var cellBounds = tabList.getCellBounds(index, index);
-                    if (cellBounds != null) {
+                    if (cellBounds != null && cellBounds.contains(e.getPoint())) {
                         // Check if click is in the close button area (right side)
-                        int closeButtonWidth = 24;
-                        int closeButtonX = cellBounds.x + cellBounds.width - closeButtonWidth;
+                        int closeButtonX = cellBounds.x + cellBounds.width - TabCellRenderer.CLOSE_WIDTH;
                         if (e.getX() >= closeButtonX) {
                             var entry = listModel.get(index);
                             closeTab(entry.component(), entry.fileKey());
@@ -96,9 +96,15 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
         add(listScrollPane, BorderLayout.EAST);
 
         // Timer to refresh dirty indicators
-        var refreshTimer = new Timer(500, e -> tabList.repaint());
+        refreshTimer = new Timer(500, e -> tabList.repaint());
         refreshTimer.setRepeats(true);
         refreshTimer.start();
+    }
+
+    @Override
+    public void removeNotify() {
+        refreshTimer.stop();
+        super.removeNotify();
     }
 
     private void updateSelection() {
@@ -139,7 +145,7 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
         }
 
         // Add new tab
-        String cardName = "card" + (cardCounter++);
+        String cardName = "card" + cardCounter++;
         contentPanel.add(panel, cardName);
 
         var entry = new TabEntry(tabTitle, panel, fileKey, fragmentKey, cardName);
@@ -190,7 +196,7 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
         tabToFragmentMap.remove(oldEntry.component());
 
         // Add new component
-        String cardName = "card" + (cardCounter++);
+        String cardName = "card" + cardCounter++;
         contentPanel.add(panel, cardName);
 
         var newEntry = new TabEntry(tabTitle, panel, fileKey, fragmentKey, cardName);
@@ -203,6 +209,8 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
             themeAware.applyTheme(guiTheme);
         }
 
+        // Ensure the new card is shown (selection listener may not fire if index unchanged)
+        cardLayout.show(contentPanel, cardName);
         tabList.setSelectedIndex(index);
         return true;
     }
@@ -251,7 +259,7 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
             if (fileKey != null) fileToTabMap.remove(fileKey);
 
             contentPanel.remove(oldComponent);
-            String cardName = "card" + (cardCounter++);
+            String cardName = "card" + cardCounter++;
             contentPanel.add(newComponent, cardName);
 
             String tabTitle = title.startsWith("Preview: ") ? title.substring(9) : title;
@@ -264,6 +272,8 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
             if (newComponent instanceof ThemeAware themeAware) {
                 themeAware.applyTheme(guiTheme);
             }
+            // Ensure the new card is shown (selection listener may not fire if index unchanged)
+            cardLayout.show(contentPanel, cardName);
             tabList.setSelectedIndex(index);
         }
     }
@@ -329,7 +339,7 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
      * Custom cell renderer for left-aligned tab entries with close button.
      * Truncates long file names with ellipsis.
      */
-    private class TabCellRenderer extends JPanel implements ListCellRenderer<TabEntry> {
+    private static class TabCellRenderer extends JPanel implements ListCellRenderer<TabEntry> {
         private static final int FIXED_WIDTH = 200;
         private static final int DIRTY_WIDTH = 16;
         private static final int CLOSE_WIDTH = 20;
