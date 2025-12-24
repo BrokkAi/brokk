@@ -109,7 +109,8 @@ public final class SeccompFilter {
                 perms.add(PosixFilePermission.OTHERS_EXECUTE);
                 Files.setPosixFilePermissions(binaryPath, perms);
             } catch (UnsupportedOperationException e) {
-                // Some filesystems (e.g. non-POSIX) do not support POSIX permissions; executable bit may already be set.
+                // Some filesystems (e.g. non-POSIX) do not support POSIX permissions;
+                // executable bit may already be set.
             }
 
             return binaryPath;

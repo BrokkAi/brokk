@@ -2,7 +2,6 @@ package ai.brokk.util;
 
 import ai.brokk.Brokk;
 import ai.brokk.gui.Chrome;
-import com.google.common.base.Splitter;
 import com.sun.management.UnixOperatingSystemMXBean;
 import java.awt.*;
 import java.io.BufferedReader;
