@@ -186,7 +186,6 @@ public class CodeAgent {
         int blocksAppliedWithoutBuild = 0;
         int totalBlocksParsed = 0;
 
-        SequencedSet<EditBlock.SearchReplaceBlock> blocks = new LinkedHashSet<>();
         Map<ProjectFile, String> originalFileContents = new HashMap<>();
 
         TaskResult.StopDetails stopDetails;
@@ -201,7 +200,6 @@ public class CodeAgent {
         var rawMessages = new ArrayList<ChatMessage>();
         var cs = new ConversationState(rawMessages, taskMessages, nextRequest, 0, userInput.trim());
         var es = new EditState(
-                blocks,
                 0,
                 applyFailures,
                 0,
@@ -275,7 +273,6 @@ public class CodeAgent {
                     cs,
                     es,
                     streamingResult.text(),
-                    streamingResult.isPartial(),
                     parser,
                     metrics); // Ensure parser is available
             if (parseOutcome instanceof Step.Fatal fatalParse) {
@@ -294,7 +291,8 @@ public class CodeAgent {
             es = parseOutcome.es();
 
             // APPLY PHASE applies blocks
-            var applyOutcome = applyPhase(cs, es, metrics);
+            var blocksToApply = ((Step.Continue) parseOutcome).blocks();
+            var applyOutcome = applyPhase(cs, es, blocksToApply, metrics);
             if (applyOutcome instanceof Step.Fatal fatalApply) {
                 stopDetails = fatalApply.stopDetails();
                 break;
@@ -344,6 +342,34 @@ public class CodeAgent {
                 continue; // Restart main loop
             }
 
+            // If the response was partial, we must ask the LLM to continue *after* applying the blocks we got
+            if (streamingResult.isPartial()) {
+                UserMessage messageForContinue;
+                String consoleLogForContinue;
+                if (blocksToApply.isEmpty()) {
+                    // Treat "partial with no blocks" as a parse failure
+                    int updatedConsecutiveParseFailures = es.consecutiveParseFailures() + 1;
+                    if (updatedConsecutiveParseFailures > MAX_PARSE_ATTEMPTS) {
+                        reportComplete("Parse error limit reached (partial with no blocks); ending task.");
+                        stopDetails = new TaskResult.StopDetails(
+                                TaskResult.StopReason.PARSE_ERROR, "Parse error limit reached; ending task.");
+                        break;
+                    }
+                    messageForContinue = new UserMessage(
+                            "It looks like the response was cut off before you provided any code blocks. Please continue with your response.");
+                    consoleLogForContinue =
+                            "LLM indicated response was partial before any blocks; counting as parse failure and asking to continue";
+                    es = es.withConsecutiveParseFailures(updatedConsecutiveParseFailures);
+                } else {
+                    messageForContinue = new UserMessage(getContinueFromLastBlockPrompt(blocksToApply.getLast()));
+                    consoleLogForContinue = "LLM indicated response was partial after %d clean blocks; asking to continue"
+                            .formatted(blocksToApply.size());
+                }
+                cs = cs.withNextRequest(messageForContinue);
+                report(consoleLogForContinue);
+                continue;
+            }
+
             // PARSE-JAVA PHASE: If Java files were edited, run a parse-only check before full build
             Step parseJavaOutcome;
             try {
@@ -367,8 +393,6 @@ public class CodeAgent {
             es = parseJavaOutcome.es();
 
             // VERIFY or finish if build is deferred
-            assert es.pendingBlocks().isEmpty() : es;
-
             if (options.contains(Option.DEFER_BUILD)) {
                 reportComplete(
                         es.blocksAppliedWithoutBuild() > 0
@@ -433,7 +457,6 @@ public class CodeAgent {
             ConversationState cs,
             EditState es,
             String llmText,
-            boolean isPartialResponse,
             EditBlockParser parser,
             @Nullable Metrics metrics) {
         logger.debug("Got response (potentially partial if LLM connection was cut off)");
@@ -481,49 +504,16 @@ public class CodeAgent {
             }
 
             var nextCs = cs.withNextRequest(messageForRetry);
-            // Add any newly parsed blocks before the error to the pending set for the next apply phase
-            var nextPending = new LinkedHashSet<>(es.pendingBlocks());
-            nextPending.addAll(newlyParsedBlocks);
-            var nextEs = es.withPendingBlocks(nextPending, updatedConsecutiveParseFailures, newlyParsedCount);
+            // In the case of a parse error, we still want to update totalBlocksParsed with what we found
+            var nextEs = es.withParsedBlocks(updatedConsecutiveParseFailures, newlyParsedCount);
             report(consoleLogForRetry);
             return new Step.Retry(nextCs, nextEs);
         }
 
-        // No explicit parse error. Reset counter. Add newly parsed blocks to the pending set.
+        // No explicit parse error. Reset counter.
         int updatedConsecutiveParseFailures = 0;
-        var mutablePendingBlocks = new LinkedHashSet<>(es.pendingBlocks());
-        mutablePendingBlocks.addAll(newlyParsedBlocks);
-
-        // Handle case where LLM response was cut short, even if syntactically valid so far.
-        if (isPartialResponse) {
-            UserMessage messageForRetry;
-            String consoleLogForRetry;
-            if (newlyParsedBlocks.isEmpty()) {
-                // Treat "partial with no blocks" as a parse failure subject to MAX_PARSE_ATTEMPTS
-                updatedConsecutiveParseFailures = es.consecutiveParseFailures() + 1;
-                if (updatedConsecutiveParseFailures > MAX_PARSE_ATTEMPTS) {
-                    reportComplete("Parse error limit reached; ending task.");
-                    return new Step.Fatal(new TaskResult.StopDetails(
-                            TaskResult.StopReason.PARSE_ERROR, "Parse error limit reached; ending task."));
-                }
-                messageForRetry = new UserMessage(
-                        "It looks like the response was cut off before you provided any code blocks. Please continue with your response.");
-                consoleLogForRetry =
-                        "LLM indicated response was partial before any blocks; counting as parse failure and asking to continue";
-            } else {
-                messageForRetry = new UserMessage(getContinueFromLastBlockPrompt(newlyParsedBlocks.getLast()));
-                consoleLogForRetry = "LLM indicated response was partial after %d clean blocks; asking to continue"
-                        .formatted(newlyParsedCount);
-            }
-            var nextCs = cs.withNextRequest(messageForRetry);
-            var nextEs = es.withPendingBlocks(mutablePendingBlocks, updatedConsecutiveParseFailures, newlyParsedCount);
-            report(consoleLogForRetry);
-            return new Step.Retry(nextCs, nextEs);
-        }
-
-        // No parse error, not a partial response. This is a successful, complete segment.
-        var nextEs = es.withPendingBlocks(mutablePendingBlocks, updatedConsecutiveParseFailures, newlyParsedCount);
-        return new Step.Continue(cs, nextEs);
+        var nextEs = es.withParsedBlocks(updatedConsecutiveParseFailures, newlyParsedCount);
+        return new Step.Continue(cs, nextEs, newlyParsedBlocks);
     }
 
     /**
@@ -780,15 +770,19 @@ public class CodeAgent {
     }
 
     @Blocking
-    Step applyPhase(ConversationState cs, EditState es, @Nullable Metrics metrics) {
-        if (es.pendingBlocks().isEmpty()) {
+    Step applyPhase(
+            ConversationState cs,
+            EditState es,
+            SequencedSet<EditBlock.SearchReplaceBlock> blocksToApply,
+            @Nullable Metrics metrics) {
+        if (blocksToApply.isEmpty()) {
             logger.debug("nothing to apply, continuing to next phase");
-            return new Step.Continue(cs, es);
+            return new Step.Continue(cs, es, blocksToApply);
         }
 
         // Guardrail: block edits to files designated read-only in the current context
         var readOnlyPaths = computeReadOnlyPaths(context);
-        var violating = es.pendingBlocks().stream()
+        var violating = blocksToApply.stream()
                 .map(EditBlock.SearchReplaceBlock::rawFileName)
                 .filter(readOnlyPaths::contains)
                 .collect(Collectors.toSet());
@@ -805,9 +799,9 @@ public class CodeAgent {
         ConversationState csForStep = cs; // Will be updated
 
         try {
-            editResult = applyBlocksAndHandleErrors(context, es.pendingBlocks());
+            editResult = applyBlocksAndHandleErrors(context, blocksToApply);
 
-            int attemptedBlockCount = es.pendingBlocks().size();
+            int attemptedBlockCount = blocksToApply.size();
             var failedResults = editResult.failures();
             if (metrics != null) {
                 metrics.failedEditBlocks += failedResults.size();
@@ -821,10 +815,8 @@ public class CodeAgent {
                     : "blocksAppliedWithoutBuild cannot be negative: prior=%d, delta=%d"
                             .formatted(es.blocksAppliedWithoutBuild(), succeededCount);
 
-            SequencedSet<EditBlock.SearchReplaceBlock> nextPendingBlocks = new LinkedHashSet<>();
-
             if (!failedResults.isEmpty()) { // Some blocks failed the direct apply
-                if (succeededCount == 0) { // Total failure for this batch of pendingBlocks
+                if (succeededCount == 0) { // Total failure for this batch of blocksToApply
                     updatedConsecutiveApplyFailures++;
                 } else { // Partial success
                     updatedConsecutiveApplyFailures = 0;
@@ -864,24 +856,22 @@ public class CodeAgent {
 
                     csForStep = cs.withNextRequest(retryMessages.retryRequest());
                     esForStep = es.afterApply(
-                            nextPendingBlocks,
                             updatedConsecutiveApplyFailures,
                             newBlocksAppliedWithoutBuild,
                             editResult.originalContents());
                     report("Failed to apply %s block(s), asking LLM to retry".formatted(failedResults.size()));
                     return new Step.Retry(csForStep, esForStep);
                 }
-            } else { // All blocks from es.pendingBlocks() applied successfully
+            } else { // All blocks applied successfully
                 if (succeededCount > 0) {
                     report(succeededCount + " SEARCH/REPLACE blocks applied.");
                 }
                 updatedConsecutiveApplyFailures = 0; // Reset on success
                 esForStep = es.afterApply(
-                        nextPendingBlocks,
                         updatedConsecutiveApplyFailures,
                         newBlocksAppliedWithoutBuild,
                         editResult.originalContents());
-                return new Step.Continue(csForStep, esForStep);
+                return new Step.Continue(csForStep, esForStep, blocksToApply);
             }
         } catch (EditStopException e) {
             // Handle exceptions from findConflicts, preCreateNewFiles (if it threw that), or applyEditBlocks (IO)
@@ -1194,7 +1184,12 @@ public class CodeAgent {
         EditState es();
 
         /** continue to the next phase */
-        record Continue(ConversationState cs, EditState es) implements Step {}
+        record Continue(ConversationState cs, EditState es, SequencedSet<EditBlock.SearchReplaceBlock> blocks)
+                implements Step {
+            public Continue(ConversationState cs, EditState es) {
+                this(cs, es, new LinkedHashSet<>());
+            }
+        }
 
         /** this phase found a problem that it wants to send back to the llm */
         record Retry(ConversationState cs, EditState es) implements Step {}
@@ -1333,8 +1328,6 @@ public class CodeAgent {
     public record JavaDiagnostic(int problemId, @Nullable Integer categoryId, String description) {}
 
     record EditState(
-            // parsed but not yet applied
-            SequencedSet<EditBlock.SearchReplaceBlock> pendingBlocks,
             int consecutiveParseFailures,
             int consecutiveApplyFailures,
             int consecutiveBuildFailures,
@@ -1347,7 +1340,6 @@ public class CodeAgent {
             boolean showBuildError) {
 
         public EditState(
-                SequencedSet<EditBlock.SearchReplaceBlock> pendingBlocks,
                 int consecutiveParseFailures,
                 int consecutiveApplyFailures,
                 int consecutiveBuildFailures,
@@ -1358,7 +1350,6 @@ public class CodeAgent {
                 Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics,
                 boolean hasAttemptedBuild) {
             this(
-                    pendingBlocks,
                     consecutiveParseFailures,
                     consecutiveApplyFailures,
                     consecutiveBuildFailures,
@@ -1371,11 +1362,23 @@ public class CodeAgent {
                     hasAttemptedBuild);
         }
 
-        /** Returns a new WorkspaceState with updated pending blocks and parse failures. */
-        EditState withPendingBlocks(
-                SequencedSet<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures, int newParsedCount) {
+        EditState withConsecutiveParseFailures(int count) {
             return new EditState(
-                    newPendingBlocks,
+                    count,
+                    consecutiveApplyFailures,
+                    consecutiveBuildFailures,
+                    blocksAppliedWithoutBuild,
+                    totalBlocksParsed,
+                    lastBuildError,
+                    changedFiles,
+                    originalFileContents,
+                    javaLintDiagnostics,
+                    showBuildError);
+        }
+
+        /** Returns a new WorkspaceState with updated parse failures and total parsed count. */
+        EditState withParsedBlocks(int newParseFailures, int newParsedCount) {
+            return new EditState(
                     newParseFailures,
                     consecutiveApplyFailures,
                     consecutiveBuildFailures,
@@ -1394,7 +1397,6 @@ public class CodeAgent {
          */
         EditState afterBuildFailure(String newBuildError) {
             return new EditState(
-                    pendingBlocks,
                     consecutiveParseFailures,
                     consecutiveApplyFailures,
                     consecutiveBuildFailures + 1,
@@ -1409,10 +1411,7 @@ public class CodeAgent {
 
         /** Returns a new WorkspaceState after applying blocks, updating relevant fields. */
         EditState afterApply(
-                SequencedSet<EditBlock.SearchReplaceBlock> newPendingBlocks,
-                int newApplyFailures,
-                int newBlocksApplied,
-                Map<ProjectFile, String> newOriginalContents) {
+                int newApplyFailures, int newBlocksApplied, Map<ProjectFile, String> newOriginalContents) {
             // Merge affected files from this apply into the running changedFiles set.
             var mergedChangedFiles = new HashSet<>(changedFiles);
             mergedChangedFiles.addAll(newOriginalContents.keySet());
@@ -1424,7 +1423,6 @@ public class CodeAgent {
             }
 
             return new EditState(
-                    newPendingBlocks,
                     consecutiveParseFailures,
                     newApplyFailures,
                     consecutiveBuildFailures,
@@ -1439,7 +1437,6 @@ public class CodeAgent {
 
         EditState withJavaLintDiagnostics(Map<ProjectFile, List<JavaDiagnostic>> diags) {
             return new EditState(
-                    pendingBlocks,
                     consecutiveParseFailures,
                     consecutiveApplyFailures,
                     consecutiveBuildFailures,

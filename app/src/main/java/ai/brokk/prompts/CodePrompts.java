@@ -223,7 +223,7 @@ public abstract class CodePrompts {
         // Append TOC reminder to the request
         var tocReminder =
                 """
-
+                \n
                 Reminder: here is a list of the full contents of the Workspace that you can refer to above:
                 %s
                 """
