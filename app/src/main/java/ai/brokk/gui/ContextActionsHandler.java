@@ -77,11 +77,6 @@ public class ContextActionsHandler {
         RUN_TESTS
     }
 
-    public enum PopupMenuMode {
-        FULL,
-        COPY_ONLY
-    }
-
     public sealed interface PopupScenario permits NoSelection, FileBadge, SingleFragment, MultiFragment {
         List<Action> getActions(ContextActionsHandler actions);
     }
