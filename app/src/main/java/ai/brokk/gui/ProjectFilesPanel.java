@@ -13,8 +13,10 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
@@ -234,7 +236,7 @@ public class ProjectFilesPanel extends JPanel {
                     return;
                 }
 
-                String typedLower = currentText.toLowerCase(java.util.Locale.ROOT);
+                String typedLower = currentText.toLowerCase(Locale.ROOT);
 
                 // Move file matching off EDT to avoid lag in large repos
                 CompletableFuture.supplyAsync(() -> {
@@ -251,7 +253,7 @@ public class ProjectFilesPanel extends JPanel {
                                     // Check if search text changed while we were matching
                                     if (!searchField
                                             .getText()
-                                            .toLowerCase(java.util.Locale.ROOT)
+                                            .toLowerCase(Locale.ROOT)
                                             .equals(typedLower)) {
                                         return;
                                     }
@@ -264,22 +266,26 @@ public class ProjectFilesPanel extends JPanel {
         });
     }
 
-    private static boolean matchesSearch(ProjectFile pf, String typedLower) {
-        String pathStrLower = pf.getRelPath().toString().toLowerCase(java.util.Locale.ROOT);
-        String fileNameLower = pf.getFileName().toLowerCase(java.util.Locale.ROOT);
+    // Package-private for testing
+    static boolean matchesSearch(ProjectFile pf, String typedLower) {
+        // Normalize path separators to forward slash for cross-platform consistency
+        String pathStrLower = pf.getRelPath().toString().replace('\\', '/').toLowerCase(Locale.ROOT);
+        String fileNameLower = pf.getFileName().toLowerCase(Locale.ROOT);
 
         if (typedLower.contains("/") || typedLower.contains("\\")) {
-            return pathStrLower.startsWith(typedLower);
+            // Normalize search input too
+            String normalizedSearch = typedLower.replace('\\', '/');
+            return pathStrLower.startsWith(normalizedSearch);
         } else {
             if (fileNameLower.contains(typedLower)) {
                 return true;
             }
-            java.nio.file.Path currentParent = pf.getRelPath().getParent();
+            Path currentParent = pf.getRelPath().getParent();
             while (currentParent != null) {
                 if (currentParent
                         .getFileName()
                         .toString()
-                        .toLowerCase(java.util.Locale.ROOT)
+                        .toLowerCase(Locale.ROOT)
                         .contains(typedLower)) {
                     return true;
                 }
@@ -320,7 +326,7 @@ public class ProjectFilesPanel extends JPanel {
             return;
         }
 
-        String typedLower = searchText.toLowerCase(java.util.Locale.ROOT);
+        String typedLower = searchText.toLowerCase(Locale.ROOT);
 
         // Move file matching off EDT
         CompletableFuture.supplyAsync(() -> {
@@ -341,11 +347,9 @@ public class ProjectFilesPanel extends JPanel {
                 })
                 .thenAccept(foundFile -> {
                     if (foundFile != null) {
-                        // Apply on EDT for consistency, even though selectAndExpandToFile handles EDT internally
-                        SwingUtilities.invokeLater(() -> {
-                            projectTree.selectAndExpandToFile(foundFile);
-                            projectTree.requestFocusInWindow();
-                        });
+                        // selectAndExpandToFile handles its own async/EDT internally
+                        projectTree.selectAndExpandToFile(foundFile);
+                        SwingUtilities.invokeLater(() -> projectTree.requestFocusInWindow());
                     }
                 });
     }

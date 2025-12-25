@@ -2514,4 +2514,60 @@ class ProjectFilteringGitRepoTest {
         assertFalse(pattern.matcher("src/Main.java").matches());
         assertFalse(pattern.matcher("test/Main.java").matches());
     }
+
+    // --- isGitignored overload equivalence tests ---
+
+    @Test
+    void isGitignored_overloadEquivalence_forFiles(@TempDir Path tempDir) throws Exception {
+        // Setup git repo with .gitignore
+        initGitRepo(tempDir);
+        Files.writeString(tempDir.resolve(".gitignore"), "*.log\nbuild/\n");
+
+        // Create actual files to test
+        createFile(tempDir, "src/Main.java", "class Main {}");
+        createFile(tempDir, "debug.log", "log content");
+
+        try (var project = new MainProject(tempDir)) {
+            // Test file that should NOT be ignored
+            var srcPath = Path.of("src/Main.java");
+            assertEquals(
+                    project.isGitignored(srcPath),
+                    project.isGitignored(srcPath, false),
+                    "isGitignored overloads should return same result for non-ignored file");
+
+            // Test file that SHOULD be ignored
+            var logPath = Path.of("debug.log");
+            assertEquals(
+                    project.isGitignored(logPath),
+                    project.isGitignored(logPath, false),
+                    "isGitignored overloads should return same result for ignored file");
+        }
+    }
+
+    @Test
+    void isGitignored_overloadEquivalence_forDirectories(@TempDir Path tempDir) throws Exception {
+        // Setup git repo with .gitignore
+        initGitRepo(tempDir);
+        Files.writeString(tempDir.resolve(".gitignore"), "*.log\nbuild/\n");
+
+        // Create actual directories to test
+        Files.createDirectories(tempDir.resolve("src"));
+        Files.createDirectories(tempDir.resolve("build"));
+
+        try (var project = new MainProject(tempDir)) {
+            // Test directory that should NOT be ignored
+            var srcPath = Path.of("src");
+            assertEquals(
+                    project.isGitignored(srcPath),
+                    project.isGitignored(srcPath, true),
+                    "isGitignored overloads should return same result for non-ignored directory");
+
+            // Test directory that SHOULD be ignored
+            var buildPath = Path.of("build");
+            assertEquals(
+                    project.isGitignored(buildPath),
+                    project.isGitignored(buildPath, true),
+                    "isGitignored overloads should return same result for ignored directory");
+        }
+    }
 }
