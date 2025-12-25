@@ -629,7 +629,11 @@ public class ContextActionsHandler {
 
                     switch (data) {
                         case Image image1 -> image = image1;
-                        case InputStream inputStream -> image = ImageIO.read(inputStream);
+                        case InputStream inputStream -> {
+                            try (inputStream) {
+                                image = ImageIO.read(inputStream);
+                            }
+                        }
                         case List<?> fileList
                         when !fileList.isEmpty() -> {
                             var file = fileList.getFirst();
