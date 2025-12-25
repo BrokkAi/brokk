@@ -145,13 +145,12 @@ public class ContextActionsHandler {
         }
 
         @Override
-        @Blocking
         public List<Action> getActions(ContextActionsHandler actions) {
             var list = new ArrayList<Action>();
 
             // Show in Project (for PROJECT_PATH fragments)
             if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
-                fragment.files().join().stream()
+                fragment.files().renderNowOr(Set.of()).stream()
                         .findFirst()
                         .ifPresent(projectFile ->
                                 list.add(WorkspaceAction.SHOW_IN_PROJECT.createFileAction(actions, projectFile)));
@@ -166,7 +165,7 @@ public class ContextActionsHandler {
 
             // View History/Compress History
             if (actions.hasGit() && fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
-                fragment.files().join().stream()
+                fragment.files().renderNowOr(Set.of()).stream()
                         .findFirst()
                         .ifPresent(projectFile ->
                                 list.add(WorkspaceAction.VIEW_HISTORY.createFileAction(actions, projectFile)));
@@ -186,7 +185,7 @@ public class ContextActionsHandler {
 
             // Add Run Tests action if the fragment is associated with a test file
             if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH
-                    && fragment.files().join().stream().anyMatch(ContextManager::isTestFile)) {
+                    && fragment.files().renderNowOr(Set.of()).stream().anyMatch(ContextManager::isTestFile)) {
                 list.add(WorkspaceAction.RUN_TESTS.createFragmentsAction(actions, List.of(fragment)));
             } else {
                 var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("No test files in selection");
@@ -197,7 +196,7 @@ public class ContextActionsHandler {
 
             // Edit/Read/Summarize
             if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
-                fragment.files().join().stream().findFirst().ifPresent(projectFile -> {
+                fragment.files().renderNowOr(Set.of()).stream().findFirst().ifPresent(projectFile -> {
                     var fileData = new TableUtils.FileReferenceList.FileReferenceData(
                             projectFile.getFileName(), projectFile.toString(), projectFile);
 
@@ -251,7 +250,6 @@ public class ContextActionsHandler {
         }
 
         @Override
-        @Blocking
         public List<Action> getActions(ContextActionsHandler actions) {
             var list = new ArrayList<Action>();
 
@@ -259,7 +257,7 @@ public class ContextActionsHandler {
                     "Cannot view contents of multiple items at once."));
             list.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction("Cannot view history for multiple items."));
             // Add Run Tests action if all selected fragment is associated with a test file
-            if (fragments.stream().flatMap(f -> f.files().join().stream()).allMatch(ContextManager::isTestFile)) {
+            if (fragments.stream().flatMap(f -> f.files().renderNowOr(Set.of()).stream()).allMatch(ContextManager::isTestFile)) {
                 list.add(WorkspaceAction.RUN_TESTS.createFragmentsAction(actions, fragments));
             } else {
                 var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("No test files in selection");
@@ -981,19 +979,17 @@ public class ContextActionsHandler {
         return isWorkspaceEditable();
     }
 
-    @Blocking
     private boolean hasFiles(List<ContextFragment> fragments) {
         return fragments.stream()
-                .flatMap(frag -> frag.files().join().stream())
+                .flatMap(frag -> frag.files().renderNowOr(Set.of()).stream())
                 .findAny()
                 .isPresent();
     }
 
-    @Blocking
     private boolean allTrackedProjectFiles(List<ContextFragment> fragments) {
         var project = contextManager.getProject();
         var allFiles =
-                fragments.stream().flatMap(frag -> frag.files().join().stream()).collect(Collectors.toSet());
+                fragments.stream().flatMap(frag -> frag.files().renderNowOr(Set.of()).stream()).collect(Collectors.toSet());
 
         var trackedFiles = project.getRepo().getTrackedFiles();
         return !allFiles.isEmpty() && allFiles.stream().allMatch(pf -> pf.exists() && trackedFiles.contains(pf));
