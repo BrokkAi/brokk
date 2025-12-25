@@ -258,7 +258,7 @@ public class SearchAgent {
     }
 
     private boolean shouldAutomaticallyScan() {
-        return scanConfig.autoScan() && !scanPerformed && context.isFileContentEmpty();
+        return scanConfig.autoScan() && !scanPerformed;
     }
 
     private TaskResult executeInternal() throws InterruptedException {
@@ -267,6 +267,9 @@ public class SearchAgent {
         var tr = cm.getToolRegistry().builder().register(wst).register(this).build();
 
         pruneContext();
+        if (context.isFileContentEmpty()) {
+            performAutoScan();
+        }
 
         // Main loop: propose actions, execute, record, repeat until finalization
         while (true) {
@@ -344,12 +347,20 @@ public class SearchAgent {
                 return errorResult(details, taskMeta());
             }
 
+            // If we haven't scanned yet and the model needs to search, preempt the turn with scan and retry
+            var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
+            if (shouldAutomaticallyScan()
+                    && ai.toolExecutionRequests().stream().anyMatch(req -> isSearchTool(req.name()))) {
+                logger.debug("Lazy scan triggered by first search tool");
+                performAutoScan();
+                continue;
+            }
+
             // Record turn
             sessionMessages.add(new UserMessage("What tools do you want to use next?"));
             sessionMessages.add(result.aiMessage());
 
-            // De-duplicate requested tools and handle answer/abort isolation
-            var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
+            // LLM tries to enforce tc requirement so don't retry if it's missing; we're done
             if (!ai.hasToolExecutionRequests()) {
                 return errorResult(
                         new TaskResult.StopDetails(
@@ -370,13 +381,6 @@ public class SearchAgent {
                         .toList();
 
                 for (var req : sortedNonterminalCalls) {
-                    // Lazy scan: trigger on first search tool if not already scanned
-                    if (shouldAutomaticallyScan() && isSearchTool(req.name())) {
-                        logger.info("Lazy scan triggered by first search tool: {}", req.name());
-                        performAutoScan(); // Throws InterruptedException if interrupted
-                        // Continue to execute the tool with potentially updated workspace
-                    }
-
                     ToolExecutionResult toolResult = executeTool(req, tr, wst);
                     if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
                         var details =
