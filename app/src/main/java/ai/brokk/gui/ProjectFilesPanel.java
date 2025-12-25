@@ -16,6 +16,7 @@ import java.awt.event.FocusEvent;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
@@ -234,39 +235,45 @@ public class ProjectFilesPanel extends JPanel {
                 }
 
                 String typedLower = currentText.toLowerCase(java.util.Locale.ROOT);
-                Set<ProjectFile> trackedFiles = project.getRepo().getTrackedFiles();
 
-                List<ProjectFile> matches = trackedFiles.stream()
-                        .filter(pf -> {
-                            String pathStrLower = pf.getRelPath().toString().toLowerCase(java.util.Locale.ROOT);
-                            String fileNameLower = pf.getFileName().toLowerCase(java.util.Locale.ROOT);
+                // Move file matching off EDT to avoid lag in large repos
+                CompletableFuture.supplyAsync(() -> {
+                    Set<ProjectFile> trackedFiles = project.getRepo().getTrackedFiles();
+                    return trackedFiles.stream()
+                            .filter(pf -> matchesSearch(pf, typedLower))
+                            .toList();
+                }).thenAccept(matches -> {
+                    // Check if search text changed while we were matching (stale result)
+                    if (!searchField.getText().toLowerCase(java.util.Locale.ROOT).equals(typedLower)) {
+                        return;
+                    }
+                    if (matches.size() == 1) {
+                        projectTree.selectAndExpandToFile(matches.getFirst());
+                        SwingUtilities.invokeLater(() -> searchField.requestFocusInWindow());
+                    }
+                });
+            }
 
-                            if (typedLower.contains("/") || typedLower.contains("\\")) {
-                                return pathStrLower.startsWith(typedLower);
-                            } else {
-                                if (fileNameLower.contains(typedLower)) {
-                                    return true;
-                                }
-                                java.nio.file.Path currentParent =
-                                        pf.getRelPath().getParent();
-                                while (currentParent != null) {
-                                    if (currentParent
-                                            .getFileName()
-                                            .toString()
-                                            .toLowerCase(java.util.Locale.ROOT)
-                                            .contains(typedLower)) {
-                                        return true;
-                                    }
-                                    currentParent = currentParent.getParent();
-                                }
-                                return false;
-                            }
-                        })
-                        .toList();
+            private boolean matchesSearch(ProjectFile pf, String typedLower) {
+                String pathStrLower = pf.getRelPath().toString().toLowerCase(java.util.Locale.ROOT);
+                String fileNameLower = pf.getFileName().toLowerCase(java.util.Locale.ROOT);
 
-                if (matches.size() == 1) {
-                    projectTree.selectAndExpandToFile(matches.getFirst());
-                    SwingUtilities.invokeLater(() -> searchField.requestFocusInWindow());
+                if (typedLower.contains("/") || typedLower.contains("\\")) {
+                    return pathStrLower.startsWith(typedLower);
+                } else {
+                    if (fileNameLower.contains(typedLower)) {
+                        return true;
+                    }
+                    java.nio.file.Path currentParent = pf.getRelPath().getParent();
+                    while (currentParent != null) {
+                        if (currentParent.getFileName().toString()
+                                .toLowerCase(java.util.Locale.ROOT)
+                                .contains(typedLower)) {
+                            return true;
+                        }
+                        currentParent = currentParent.getParent();
+                    }
+                    return false;
                 }
             }
         });
