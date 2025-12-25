@@ -85,18 +85,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Regex to identify test files. Matches the word "test"/"tests" (case-insensitive)
     // when it appears as its own path segment or at a camel-case boundary, as well as
     // common JS/TS conventions: *.spec.<ext>, *.test.<ext>, and files under __tests__/.
-    static final Pattern TEST_FILE_PATTERN = Pattern.compile(
-            "(?s).*"
-                    + "(?:"
-                    + "(?:[/\\\\.]|\\b|_|(?<=[a-z])(?=[A-Z])|(?<=[A-Z]))"
-                    + "(?i:tests?)"
-                    + "(?:[/\\\\.]|\\b|_|(?=[A-Z][^a-z])|(?=[A-Z][a-z])|$)"
-                    + "|"
-                    + "(?i:.*\\.(?:spec|test)\\.[^/\\\\.]+$)"
-                    + "|"
-                    + ".*(?:^|[/\\\\])__tests__(?:[/\\\\].*)"
-                    + ")"
-                    + ".*");
+    static final Pattern TEST_FILE_PATTERN = Pattern.compile("(?s).*"
+            + "(?:"
+            + "(?:[/\\\\.]|\\b|_|(?<=[a-z])(?=[A-Z])|(?<=[A-Z]))"
+            + "(?i:tests?)"
+            + "(?:[/\\\\.]|\\b|_|(?=[A-Z][^a-z])|(?=[A-Z][a-z])|$)"
+            + "|"
+            + "(?i:.*\\.(?:spec|test)\\.[^/\\\\.]+$)"
+            + "|"
+            + ".*(?:^|[/\\\\])__tests__(?:[/\\\\].*)"
+            + ")"
+            + ".*");
 
     public static final String DEFAULT_SESSION_NAME = "New Session";
     // Cutoff: sessions modified on or after this UTC instant will NOT be migrated
