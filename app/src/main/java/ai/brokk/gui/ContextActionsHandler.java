@@ -24,7 +24,6 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import java.awt.Component;
 import java.awt.Image;
-import java.awt.Toolkit;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.ActionEvent;
@@ -257,7 +256,9 @@ public class ContextActionsHandler {
                     "Cannot view contents of multiple items at once."));
             list.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction("Cannot view history for multiple items."));
             // Add Run Tests action if all selected fragment is associated with a test file
-            if (fragments.stream().flatMap(f -> f.files().renderNowOr(Set.of()).stream()).allMatch(ContextManager::isTestFile)) {
+            if (fragments.stream()
+                    .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
+                    .allMatch(ContextManager::isTestFile)) {
                 list.add(WorkspaceAction.RUN_TESTS.createFragmentsAction(actions, fragments));
             } else {
                 var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("No test files in selection");
@@ -988,8 +989,9 @@ public class ContextActionsHandler {
 
     private boolean allTrackedProjectFiles(List<ContextFragment> fragments) {
         var project = contextManager.getProject();
-        var allFiles =
-                fragments.stream().flatMap(frag -> frag.files().renderNowOr(Set.of()).stream()).collect(Collectors.toSet());
+        var allFiles = fragments.stream()
+                .flatMap(frag -> frag.files().renderNowOr(Set.of()).stream())
+                .collect(Collectors.toSet());
 
         var trackedFiles = project.getRepo().getTrackedFiles();
         return !allFiles.isEmpty() && allFiles.stream().allMatch(pf -> pf.exists() && trackedFiles.contains(pf));
