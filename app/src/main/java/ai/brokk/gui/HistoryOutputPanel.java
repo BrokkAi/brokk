@@ -904,7 +904,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
                 var copyItem = new JMenuItem("Copy Output");
                 copyItem.addActionListener(event -> performContextActionOnLatestHistoryFragment(
-                        WorkspacePanel.ContextAction.COPY, "No active context to copy from."));
+                        ContextActionsHandler.ContextAction.COPY, "No active context to copy from."));
                 copyItem.setEnabled(copyButton.isEnabled());
                 popup.add(copyItem);
 
@@ -917,7 +917,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
                 var clearItem = new JMenuItem("Clear Output");
                 clearItem.addActionListener(event -> performContextActionOnLatestHistoryFragment(
-                        WorkspacePanel.ContextAction.DROP, "No active context to clear from."));
+                        ContextActionsHandler.ContextAction.DROP, "No active context to clear from."));
                 clearItem.setEnabled(clearButton.isEnabled());
                 popup.add(clearItem);
 
@@ -957,7 +957,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      * context. Shows appropriate user feedback if there is no active context or no history fragment.
      */
     private void performContextActionOnLatestHistoryFragment(
-            WorkspacePanel.ContextAction action, String noContextMessage) {
+            ContextActionsHandler.ContextAction action, String noContextMessage) {
         var ctx = contextManager.selectedContext();
         if (ctx == null) {
             chrome.showNotification(IConsoleIO.NotificationRole.INFO, noContextMessage);
@@ -975,7 +975,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
 
         var historyFrag = historyOpt.get();
-        chrome.getContextPanel().performContextActionAsync(action, List.of(historyFrag));
+        chrome.getContextActionsHandler().performContextActionAsync(action, List.of(historyFrag));
     }
 
     // Notification API

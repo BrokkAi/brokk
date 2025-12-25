@@ -123,7 +123,7 @@ public class Chrome
     private JSplitPane horizontalSplitPane;
 
     // Panels:
-    private final WorkspacePanel workspacePanel;
+    private final ContextActionsHandler contextActionsHandler;
     private final ProjectFilesPanel projectFilesPanel; // New panel for project files
     private final TestRunnerPanel testRunnerPanel;
     private final DependenciesPanel dependenciesPanel;
@@ -229,8 +229,8 @@ public class Chrome
         var testRunsStore = new FileBasedTestRunsStore(brokkDir.resolve("test_runs.json"));
         this.testRunnerPanel = new TestRunnerPanel(this, testRunsStore);
 
-        // Create workspace panel, dependencies panel, and project files panel
-        workspacePanel = new WorkspacePanel(this, contextManager);
+        // Create context actions, dependencies panel, and project files panel
+        contextActionsHandler = new ContextActionsHandler(this, contextManager);
         dependenciesPanel = new DependenciesPanel(this);
         projectFilesPanel = new ProjectFilesPanel(this, contextManager, dependenciesPanel);
 
@@ -396,14 +396,11 @@ public class Chrome
         final boolean updateOutput = (!activeContext.equals(ctx) && !contextManager.isTaskScopeInProgress());
         activeContext = ctx;
         SwingUtilities.invokeLater(() -> {
-            workspacePanel.populateContextTable(ctx);
             rightPanel.getTaskListPanel().contextChanged(ctx);
             // Determine if the current context (ctx) is the latest one in the history
             boolean isEditable;
             Context latestContext = contextManager.getContextHistory().liveContext();
             isEditable = latestContext.equals(ctx);
-            // workspacePanel is a final field initialized in the constructor, so it won't be null here.
-            workspacePanel.setWorkspaceEditable(isEditable);
             // Toggle read-only state for InstructionsPanel UI (chips + token bar)
             rightPanel.getInstructionsPanel().setContextReadOnly(!isEditable);
             // Also update instructions panel (token bar/chips) to reflect the selected context and read-only state
@@ -871,7 +868,7 @@ public class Chrome
         rootPane.getActionMap().put("attachContext", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                SwingUtilities.invokeLater(() -> getContextPanel().attachContextViaDialog());
+                SwingUtilities.invokeLater(() -> getContextActionsHandler().attachContextViaDialog());
             }
         });
 
@@ -882,7 +879,7 @@ public class Chrome
         rootPane.getActionMap().put("attachFilesAndSummarize", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                SwingUtilities.invokeLater(() -> getContextPanel().attachContextViaDialog(true));
+                SwingUtilities.invokeLater(() -> getContextActionsHandler().attachContextViaDialog(true));
             }
         });
 
@@ -1063,7 +1060,6 @@ public class Chrome
                 var hop = rightPanel.getHistoryOutputPanel();
                 if (hop.getHistoryTable() != null) {
                     if (newFocusOwner == rightPanel.getInstructionsPanel().getInstructionsArea()
-                            || SwingUtilities.isDescendingFrom(newFocusOwner, workspacePanel)
                             || SwingUtilities.isDescendingFrom(newFocusOwner, hop.getHistoryTable())
                             || SwingUtilities.isDescendingFrom(newFocusOwner, hop.getLlmStreamArea())) {
                         this.lastRelevantFocusOwner = newFocusOwner;
@@ -1476,7 +1472,7 @@ public class Chrome
 
     @Override
     public void updateWorkspace() {
-        workspacePanel.updateContextTable();
+        // No-op for now; WorkspaceItemsChipPanel updates via ContextListener
     }
 
     public ContextManager getContextManager() {
@@ -1485,10 +1481,6 @@ public class Chrome
 
     public ProjectFilesPanel getProjectFilesPanel() {
         return projectFilesPanel;
-    }
-
-    public List<ContextFragment> getSelectedFragments() {
-        return workspacePanel.getSelectedFragments();
     }
 
     public Map<String, JDialog> getOpenDialogs() {
@@ -1647,8 +1639,8 @@ public class Chrome
         return rightPanel.getTaskListPanel();
     }
 
-    public WorkspacePanel getContextPanel() {
-        return workspacePanel;
+    public ContextActionsHandler getContextActionsHandler() {
+        return contextActionsHandler;
     }
 
     public HistoryOutputPanel getHistoryOutputPanel() {
@@ -1911,12 +1903,11 @@ public class Chrome
 
     private boolean isFocusInContextArea(@Nullable Component focusOwner) {
         if (focusOwner == null) return false;
-        // Check if focus is within ContextPanel or HistoryOutputPanel's historyTable
-        boolean inContextPanel = SwingUtilities.isDescendingFrom(focusOwner, workspacePanel);
+        // Check if focus is within HistoryOutputPanel's historyTable
         var hop = rightPanel.getHistoryOutputPanel();
         boolean inHistoryTable =
                 hop.getHistoryTable() != null && SwingUtilities.isDescendingFrom(focusOwner, hop.getHistoryTable());
-        return inContextPanel || inHistoryTable;
+        return inHistoryTable;
     }
 
     public GuiTheme getThemeManager() {
@@ -2015,15 +2006,9 @@ public class Chrome
                 ip.getInstructionsArea().copy();
             } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, hop.getLlmStreamArea())) {
                 hop.getLlmStreamArea().copy(); // Assumes MarkdownOutputPanel has copy()
-            } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, workspacePanel)
-                    || SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, hop.getHistoryTable())) {
-                // If focus is in ContextPanel, use its selected fragments.
-                // If focus is in HistoryTable, it's like "Copy All" from ContextPanel.
-                List<ContextFragment> fragmentsToCopy = List.of(); // Default to "all"
-                if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, workspacePanel)) {
-                    fragmentsToCopy = workspacePanel.getSelectedFragments();
-                }
-                workspacePanel.performContextActionAsync(WorkspacePanel.ContextAction.COPY, fragmentsToCopy);
+            } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, hop.getHistoryTable())) {
+                // If focus is in HistoryTable, it's like "Copy All"
+                contextActionsHandler.performContextActionAsync(ContextActionsHandler.ContextAction.COPY, List.of());
             }
         }
 
@@ -2054,9 +2039,8 @@ public class Chrome
                 return;
             }
 
-            // Focus is in a context area (Workspace panel or History table): Copy is available.
-            if (SwingUtilities.isDescendingFrom(focusOwner, workspacePanel)
-                    || SwingUtilities.isDescendingFrom(focusOwner, hop.getHistoryTable())) {
+            // Focus is in History table: Copy is available.
+            if (SwingUtilities.isDescendingFrom(focusOwner, hop.getHistoryTable())) {
                 setEnabled(true);
                 return;
             }
@@ -2154,16 +2138,6 @@ public class Chrome
             var ip = rightPanel.getInstructionsPanel();
             if (lastRelevantFocusOwner == ip.getInstructionsArea()) {
                 ip.getInstructionsArea().paste();
-            } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, workspacePanel)) {
-                // Check clipboard availability before attempting paste to avoid Windows clipboard lock exceptions.
-                // On Windows, the system clipboard can be temporarily locked by other processes, causing
-                // IllegalStateException. We treat this as transient and show a notification instead of failing.
-                var clipboard = getSystemClipboardSafe();
-                if (clipboard == null) {
-                    showNotification(NotificationRole.INFO, "Clipboard is temporarily unavailable");
-                    return;
-                }
-                workspacePanel.performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of());
             }
         }
 
@@ -2176,9 +2150,6 @@ public class Chrome
                 // Use safe wrapper instead of direct isDataFlavorAvailable() to avoid Windows clipboard
                 // lock exceptions during rapid focus changes on EDT. See JDK-8353950.
                 canPasteNow = readStringFromClipboardSafe() != null;
-            } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, workspacePanel)) {
-                // ContextPanel's doPasteAction checks clipboard content type
-                canPasteNow = true;
             }
             setEnabled(canPasteNow);
         }

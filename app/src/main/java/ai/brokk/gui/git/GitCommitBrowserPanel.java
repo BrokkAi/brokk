@@ -595,8 +595,10 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
         var firstCommitInfo = (ICommitInfo) commitsTableModel.getValueAt(selectedRows[0], COL_COMMIT_OBJ);
         boolean isStash = firstCommitInfo.stashIndex().isPresent(); // boolean preferred by style guide
-        boolean hasWorkspaceSelections =
-                !chrome.getContextPanel().getSelectedProjectFiles().isEmpty();
+        var ctx = chrome.getContextManager().selectedContext();
+        boolean hasWorkspaceSelections = ctx != null
+                && ctx.getAllFragmentsInDisplayOrder().stream()
+                        .anyMatch(f -> !f.files().renderNowOr(Set.of()).isEmpty());
 
         viewChangesItem.setEnabled(selectedRows.length == 1);
         compareAllToLocalItem.setEnabled(selectedRows.length == 1 && !isStash);
@@ -692,7 +694,13 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             final String shortId = getRepo().shortHash(commitId);
 
             // Gather selected project files from the workspace
-            var selectedFiles = chrome.getContextPanel().getSelectedProjectFiles();
+            var ctx = chrome.getContextManager().selectedContext();
+            var selectedFiles = (ctx == null)
+                    ? Set.<ProjectFile>of()
+                    : ctx.getAllFragmentsInDisplayOrder().stream()
+                            .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
+                            .collect(Collectors.toSet());
+
             if (selectedFiles.isEmpty()) {
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO, "No project files selected in the workspace to capture.");
