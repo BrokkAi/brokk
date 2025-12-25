@@ -62,9 +62,9 @@ public class ContextActionsHandler {
     private static final Logger logger = LogManager.getLogger(ContextActionsHandler.class);
 
     private static final OkHttpClient httpClient = new OkHttpClient.Builder()
-            .connectTimeout(1, TimeUnit.SECONDS)
-            .readTimeout(1, TimeUnit.SECONDS)
-            .writeTimeout(1, TimeUnit.SECONDS)
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .writeTimeout(5, TimeUnit.SECONDS)
             .followRedirects(true)
             .build();
 
