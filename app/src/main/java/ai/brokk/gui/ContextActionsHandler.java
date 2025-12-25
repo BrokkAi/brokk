@@ -555,9 +555,17 @@ public class ContextActionsHandler {
     private void doCopyAction(List<? extends ContextFragment> selectedFragments) {
         var content = getSelectedContent(selectedFragments);
         var sel = new StringSelection(content);
-        var cb = Toolkit.getDefaultToolkit().getSystemClipboard();
-        cb.setContents(sel, sel);
-        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Content copied to clipboard");
+        var cb = Chrome.getSystemClipboardSafe();
+        if (cb == null) {
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Clipboard temporarily unavailable");
+            return;
+        }
+        try {
+            cb.setContents(sel, sel);
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Content copied to clipboard");
+        } catch (IllegalStateException e) {
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Clipboard temporarily unavailable");
+        }
     }
 
     @Blocking
@@ -595,7 +603,12 @@ public class ContextActionsHandler {
     private void doPasteAction() {
         assert !SwingUtilities.isEventDispatchThread();
 
-        var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+        var clipboard = Chrome.getSystemClipboardSafe();
+        if (clipboard == null) {
+            chrome.toolError("Clipboard temporarily unavailable");
+            return;
+        }
+
         var contents = clipboard.getContents(null);
         if (contents == null) {
             chrome.toolError("Clipboard is empty or unavailable");

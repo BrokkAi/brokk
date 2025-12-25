@@ -2069,7 +2069,7 @@ public class Chrome
      * @return The system clipboard, or null if temporarily unavailable
      */
     @Nullable
-    private static Clipboard getSystemClipboardSafe() {
+    static Clipboard getSystemClipboardSafe() {
         try {
             return Toolkit.getDefaultToolkit().getSystemClipboard();
         } catch (IllegalStateException | HeadlessException e) {
