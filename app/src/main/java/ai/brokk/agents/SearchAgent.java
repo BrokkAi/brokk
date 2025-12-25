@@ -267,7 +267,7 @@ public class SearchAgent {
         var tr = cm.getToolRegistry().builder().register(wst).register(this).build();
 
         pruneContext();
-        if (context.isFileContentEmpty()) {
+        if (shouldAutomaticallyScan() && context.isFileContentEmpty()) {
             performAutoScan();
         }
 
