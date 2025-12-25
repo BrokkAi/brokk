@@ -238,51 +238,67 @@ public class ProjectFilesPanel extends JPanel {
 
                 // Move file matching off EDT to avoid lag in large repos
                 CompletableFuture.supplyAsync(() -> {
-                    Set<ProjectFile> trackedFiles = project.getRepo().getTrackedFiles();
-                    return trackedFiles.stream()
-                            .filter(pf -> matchesSearch(pf, typedLower))
-                            .toList();
-                }).thenAccept(matches -> {
-                    // Check if search text changed while we were matching (stale result)
-                    if (!searchField.getText().toLowerCase(java.util.Locale.ROOT).equals(typedLower)) {
-                        return;
-                    }
-                    if (matches.size() == 1) {
-                        projectTree.selectAndExpandToFile(matches.getFirst());
-                        SwingUtilities.invokeLater(() -> searchField.requestFocusInWindow());
-                    }
-                });
-            }
-
-            private boolean matchesSearch(ProjectFile pf, String typedLower) {
-                String pathStrLower = pf.getRelPath().toString().toLowerCase(java.util.Locale.ROOT);
-                String fileNameLower = pf.getFileName().toLowerCase(java.util.Locale.ROOT);
-
-                if (typedLower.contains("/") || typedLower.contains("\\")) {
-                    return pathStrLower.startsWith(typedLower);
-                } else {
-                    if (fileNameLower.contains(typedLower)) {
-                        return true;
-                    }
-                    java.nio.file.Path currentParent = pf.getRelPath().getParent();
-                    while (currentParent != null) {
-                        if (currentParent.getFileName().toString()
-                                .toLowerCase(java.util.Locale.ROOT)
-                                .contains(typedLower)) {
-                            return true;
-                        }
-                        currentParent = currentParent.getParent();
-                    }
-                    return false;
-                }
+                            Set<ProjectFile> trackedFiles = project.getRepo().getTrackedFiles();
+                            return trackedFiles.stream()
+                                    .filter(pf -> matchesSearch(pf, typedLower))
+                                    .toList();
+                        })
+                        .thenAccept(matches -> {
+                            if (matches.size() == 1) {
+                                var match = matches.getFirst();
+                                // Apply selection on EDT, check staleness there
+                                SwingUtilities.invokeLater(() -> {
+                                    // Check if search text changed while we were matching
+                                    if (!searchField
+                                            .getText()
+                                            .toLowerCase(java.util.Locale.ROOT)
+                                            .equals(typedLower)) {
+                                        return;
+                                    }
+                                    projectTree.selectAndExpandToFile(match);
+                                    searchField.requestFocusInWindow();
+                                });
+                            }
+                        });
             }
         });
+    }
+
+    private static boolean matchesSearch(ProjectFile pf, String typedLower) {
+        String pathStrLower = pf.getRelPath().toString().toLowerCase(java.util.Locale.ROOT);
+        String fileNameLower = pf.getFileName().toLowerCase(java.util.Locale.ROOT);
+
+        if (typedLower.contains("/") || typedLower.contains("\\")) {
+            return pathStrLower.startsWith(typedLower);
+        } else {
+            if (fileNameLower.contains(typedLower)) {
+                return true;
+            }
+            java.nio.file.Path currentParent = pf.getRelPath().getParent();
+            while (currentParent != null) {
+                if (currentParent
+                        .getFileName()
+                        .toString()
+                        .toLowerCase(java.util.Locale.ROOT)
+                        .contains(typedLower)) {
+                    return true;
+                }
+                currentParent = currentParent.getParent();
+            }
+            return false;
+        }
     }
 
     private void handleSearchConfirmation() {
         // This action is triggered when Enter is pressed in the search field.
         // Priority: If there's a tree selection, focus tree and show context menu immediately.
         // Otherwise, try to find and select a file based on search text.
+
+        // Cancel any pending debounce - Enter takes precedence
+        if (searchDebounceTimer != null) {
+            searchDebounceTimer.stop();
+            searchDebounceTimer = null;
+        }
 
         String searchText = searchField.getText();
 
@@ -299,34 +315,39 @@ public class ProjectFilesPanel extends JPanel {
             return;
         }
 
-        // No tree selection - try to find and select a file based on search text
+        // No tree selection - find and select file immediately (same logic as expandToSingleMatch but without debounce)
         if (searchText == null || searchText.trim().isEmpty()) {
-            return; // Nothing to do if no selection and no search text
+            return;
         }
 
-        try {
-            ProjectFile targetFile = contextManager.toFile(searchText);
-            if (targetFile.exists()) {
-                projectTree.selectAndExpandToFile(targetFile);
-                SwingUtilities.invokeLater(() -> projectTree.requestFocusInWindow());
-                return;
-            }
+        String typedLower = searchText.toLowerCase(java.util.Locale.ROOT);
 
-            // Fallback: If toFile didn't find it, check if current text exactly matches a completion's replacement.
-            List<Completion> completions = ac.getCompletionProvider().getCompletions(searchField);
-            for (Completion comp : completions) {
-                if (comp instanceof ProjectFileCompletion pfc
-                        && pfc.getReplacementText().equals(searchText)) {
-                    projectTree.selectAndExpandToFile(pfc.getProjectFile());
-                    SwingUtilities.invokeLater(() -> projectTree.requestFocusInWindow());
-                    return;
-                }
-            }
-            logger.debug("Enter on search field: No exact file found for '" + searchText
-                    + "'. Tree selection relies on DocumentListener for unique prefixes.");
-        } catch (Exception ex) {
-            logger.error("Error on search confirmation for file: " + searchText, ex);
-        }
+        // Move file matching off EDT
+        CompletableFuture.supplyAsync(() -> {
+                    Set<ProjectFile> trackedFiles = project.getRepo().getTrackedFiles();
+
+                    // First try exact path match
+                    for (ProjectFile pf : trackedFiles) {
+                        if (pf.getRelPath().toString().equals(searchText)) {
+                            return pf;
+                        }
+                    }
+
+                    // Fall back to the same matching logic as expandToSingleMatch
+                    var matches = trackedFiles.stream()
+                            .filter(pf -> matchesSearch(pf, typedLower))
+                            .toList();
+                    return matches.size() == 1 ? matches.getFirst() : null;
+                })
+                .thenAccept(foundFile -> {
+                    if (foundFile != null) {
+                        // Apply on EDT for consistency, even though selectAndExpandToFile handles EDT internally
+                        SwingUtilities.invokeLater(() -> {
+                            projectTree.selectAndExpandToFile(foundFile);
+                            projectTree.requestFocusInWindow();
+                        });
+                    }
+                });
     }
 
     public void showFileInTree(@Nullable ProjectFile file) {
@@ -456,26 +477,14 @@ public class ProjectFilesPanel extends JPanel {
                     this,
                     pf.getFileName(),
                     pf.getRelPath().toString(),
-                    pf.getRelPath().toString(),
-                    pf);
+                    pf.getRelPath().toString());
         }
     }
 
     private static class ProjectFileCompletion extends ShorthandCompletion {
-        private final ProjectFile projectFile;
-
         public ProjectFileCompletion(
-                DefaultCompletionProvider provider,
-                String inputText,
-                String replacementText,
-                String shortDesc,
-                ProjectFile projectFile) {
+                DefaultCompletionProvider provider, String inputText, String replacementText, String shortDesc) {
             super(provider, inputText, replacementText, shortDesc);
-            this.projectFile = projectFile;
-        }
-
-        public ProjectFile getProjectFile() {
-            return projectFile;
         }
     }
 }
