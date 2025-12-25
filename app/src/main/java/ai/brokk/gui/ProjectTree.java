@@ -148,7 +148,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         if (path != null) {
             DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
             if (node.getUserObject() instanceof ProjectTreeNode treeNode
-                    && treeNode.getFile().isFile()) {
+                    && !treeNode.isDirectory()) {
                 ProjectFile projectFile = getProjectFileFromNode(node);
                 if (projectFile != null) {
                     var fragment = new ContextFragments.ProjectPathFragment(projectFile, contextManager);
@@ -193,14 +193,14 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                 DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
                 if (node.getUserObject() instanceof ProjectTreeNode treeNode) {
                     File f = treeNode.getFile();
-                    if (f.isDirectory()) {
+                    if (treeNode.isDirectory()) {
                         // Collect directory contents async to avoid EDT I/O
                         final int menuX = e.getX(), menuY = e.getY();
                         CompletableFuture.supplyAsync(() -> collectProjectFilesUnderDirectory(f))
                                 .thenAccept(files -> SwingUtilities.invokeLater(
                                         () -> prepareAndShowContextMenu(menuX, menuY, files, true, f)));
                         return;
-                    } else if (f.isFile()) {
+                    } else if (!treeNode.isDirectory()) {
                         var selectedFiles = getSelectedProjectFiles();
                         if (!selectedFiles.isEmpty()) {
                             targetFiles = selectedFiles;
@@ -696,7 +696,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         if (parentNode.getChildCount() == 1) {
             DefaultMutableTreeNode onlyChild = (DefaultMutableTreeNode) parentNode.getChildAt(0);
             if (onlyChild.getUserObject() instanceof ProjectTreeNode childTreeNode
-                    && childTreeNode.getFile().isDirectory()) {
+                    && childTreeNode.isDirectory()) {
 
                 TreePath childPath = new TreePath(onlyChild.getPath());
                 // Only expand if it's not already expanded AND its children are not yet loaded
@@ -718,7 +718,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
     }
 
     private void invalidateAllChildrenRecursively(DefaultMutableTreeNode node) {
-        if (node.getUserObject() instanceof ProjectTreeNode ptn && ptn.getFile().isDirectory()) {
+        if (node.getUserObject() instanceof ProjectTreeNode ptn && ptn.isDirectory()) {
             ptn.setChildrenLoaded(false); // Mark as not loaded
         }
         Enumeration<?> children = node.children();
@@ -733,7 +733,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             return;
         }
 
-        if (ptn.getFile().isDirectory()) {
+        if (ptn.isDirectory()) {
             TreePath currentPath = new TreePath(node.getPath());
             if (isExpanded(currentPath)) {
                 expandedPaths.add(project.getRoot().relativize(ptn.getFile().toPath()));
@@ -942,7 +942,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             DefaultMutableTreeNode currentNode, Path relativePath, int depth) {
         // Ensure current node's children are loaded if it's a directory and not yet loaded
         if (currentNode.getUserObject() instanceof ProjectTreeNode currentPtn
-                && currentPtn.getFile().isDirectory()) {
+                && currentPtn.isDirectory()) {
             if (!currentPtn.isChildrenLoaded()
                     && currentNode.getChildCount() > 0
                     && LOADING_PLACEHOLDER.equals(((DefaultMutableTreeNode) currentNode.getFirstChild())
@@ -969,7 +969,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             }
             // If the path was, e.g. "src/main" and "main" is the dir node.
             if (currentNode.getUserObject() instanceof ProjectTreeNode ptn
-                    && ptn.getFile().isDirectory()
+                    && ptn.isDirectory()
                     && depth > 0
                     && ptn.getFile()
                             .getName()
@@ -980,7 +980,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         }
 
         if (!(currentNode.getUserObject() instanceof ProjectTreeNode currentPtn
-                && currentPtn.getFile().isDirectory())) {
+                && currentPtn.isDirectory())) {
             return null; // Current node is not a directory, or not a ProjectTreeNode, cannot go deeper.
         }
 
@@ -991,7 +991,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             if (childNode.getUserObject() instanceof ProjectTreeNode childPtn
                     && childPtn.getFile().getName().equals(targetComponentName)) {
 
-                if (childPtn.getFile().isDirectory()) {
+                if (childPtn.isDirectory()) {
                     TreePath childPath = new TreePath(childNode.getPath());
                     if (!isExpanded(childPath)) {
                         // Expanding will trigger TreeWillExpandListener, which calls loadChildrenForNode
@@ -1021,7 +1021,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         // Ensure current node's children are loaded if it's a directory and not yet loaded
         CompletableFuture<Void> loadFuture;
         if (currentNode.getUserObject() instanceof ProjectTreeNode currentPtn
-                && currentPtn.getFile().isDirectory()) {
+                && currentPtn.isDirectory()) {
             if (!currentPtn.isChildrenLoaded()
                     && currentNode.getChildCount() > 0
                     && LOADING_PLACEHOLDER.equals(((DefaultMutableTreeNode) currentNode.getFirstChild())
@@ -1046,7 +1046,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                     }
                 }
                 if (currentNode.getUserObject() instanceof ProjectTreeNode ptn
-                        && ptn.getFile().isDirectory()
+                        && ptn.isDirectory()
                         && depth > 0
                         && ptn.getFile()
                                 .getName()
@@ -1057,7 +1057,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             }
 
             if (!(currentNode.getUserObject() instanceof ProjectTreeNode currentPtn
-                    && currentPtn.getFile().isDirectory())) {
+                    && currentPtn.isDirectory())) {
                 return CompletableFuture.completedFuture(null);
             }
 
@@ -1068,7 +1068,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                 if (childNode.getUserObject() instanceof ProjectTreeNode childPtn
                         && childPtn.getFile().getName().equals(targetComponentName)) {
 
-                    if (expandDuringTraversal && childPtn.getFile().isDirectory()) {
+                    if (expandDuringTraversal && childPtn.isDirectory()) {
                         TreePath childPath = new TreePath(childNode.getPath());
                         if (!isExpanded(childPath)) {
                             expandPath(childPath);
@@ -1092,7 +1092,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         for (TreePath path : selectionPaths) {
             DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
             if (node.getUserObject() instanceof ProjectTreeNode treeNode
-                    && treeNode.getFile().isFile()) {
+                    && !treeNode.isDirectory()) {
                 ProjectFile pf = getProjectFileFromNode(node);
                 if (pf != null) {
                     selectedFilesList.add(pf);
@@ -1459,7 +1459,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                 if (lead != null) {
                     DefaultMutableTreeNode node = (DefaultMutableTreeNode) lead.getLastPathComponent();
                     if (node.getUserObject() instanceof ProjectTreeNode treeNode
-                            && treeNode.getFile().isDirectory()) {
+                            && treeNode.isDirectory()) {
                         selection = collectProjectFilesUnderDirectory(treeNode.getFile());
                     }
                 }
