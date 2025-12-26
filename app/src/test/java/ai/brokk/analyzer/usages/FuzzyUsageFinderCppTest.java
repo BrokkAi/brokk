@@ -100,11 +100,7 @@ public class FuzzyUsageFinderCppTest {
                 "Expected comprehensive usage patterns in class_usage_patterns.cpp; actual: " + files);
 
         var classUsageHits = hits.stream()
-                .filter(h -> h.file()
-                        .absPath()
-                        .getFileName()
-                        .toString()
-                        .equals("class_usage_patterns.cpp"))
+                .filter(h -> h.file().absPath().getFileName().toString().equals("class_usage_patterns.cpp"))
                 .toList();
         assertTrue(
                 classUsageHits.size() >= 2,

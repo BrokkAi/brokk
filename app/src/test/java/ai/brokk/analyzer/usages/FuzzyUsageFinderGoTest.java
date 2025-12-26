@@ -100,11 +100,7 @@ public class FuzzyUsageFinderGoTest {
                 "Expected comprehensive usage patterns in class_usage_patterns.go; actual: " + files);
 
         var classUsageHits = hits.stream()
-                .filter(h -> h.file()
-                        .absPath()
-                        .getFileName()
-                        .toString()
-                        .equals("class_usage_patterns.go"))
+                .filter(h -> h.file().absPath().getFileName().toString().equals("class_usage_patterns.go"))
                 .toList();
         assertTrue(
                 classUsageHits.size() >= 2,

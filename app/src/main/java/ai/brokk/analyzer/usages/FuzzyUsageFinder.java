@@ -119,7 +119,8 @@ public final class FuzzyUsageFinder {
             // Case 2: This is a uniquely named code unit, no need to check with LLM.
             logger.debug("Found {} hits for unique code unit {}", hits.size(), target);
             return new FuzzyResult.Success(hits);
-        } else if (hits.size() > maxUsages) {
+        }
+        if (hits.size() > maxUsages) {
             // Case 3: Too many call sites to disambiguate with the LLM
             logger.debug(
                     "Too many call sites to disambiguate with the LLM {}: {} usage locations matched",

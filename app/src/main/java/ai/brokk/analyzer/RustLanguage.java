@@ -76,14 +76,14 @@ public class RustLanguage implements Language {
                     );
         } else if (type == CodeUnitType.CLASS) {
             return Set.of(
-                    "\\b$ident\\s*\\{", // struct initialization
-                    "\\b$ident\\s*\\(", // tuple struct
-                    "\\bimpl\\s+.*\\s+for\\s+$ident\\b", // trait impl
-                    "\\bimpl\\s+$ident\\b", // inherent impl
+                    "\\b$ident(?:<.+?>)?\\s*\\{", // struct initialization with optional generics
+                    "\\b$ident(?:<.+?>)?\\s*\\(", // tuple struct with optional generics
+                    "\\bimpl\\s+.*\\s+for\\s+$ident(?:<.+?>)?", // trait impl with optional generics
+                    "\\bimpl(?:<.+?>)?\\s+$ident(?:<.+?>)?", // inherent impl with optional generics
                     "\\b$ident::", // path/associated items
-                    ":\\s*$ident\\b", // type annotations
-                    "->\\s*$ident\\b", // return types
-                    "<\\s*$ident\\s*>", // generics
+                    ":\\s*$ident(?:<.+?>)?", // type annotations with optional generics
+                    "->\\s*$ident(?:<.+?>)?", // return types with optional generics
+                    "<\\s*$ident\\s*>", // as generic type argument
                     "\\buse\\s+.*::$ident\\b" // import statements
                     );
         }

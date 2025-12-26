@@ -71,14 +71,14 @@ public class JavaLanguage implements Language {
                     );
         } else if (type == CodeUnitType.CLASS) {
             return Set.of(
-                    "\\bnew\\s+$ident\\s*\\(", // constructor calls
-                    "\\bextends\\s+$ident\\b", // inheritance
-                    "\\bimplements\\s+$ident\\b", // interface implementation
+                    "\\bnew\\s+$ident(?:<.+?>)?\\s*\\(", // constructor calls with optional generics
+                    "\\bextends\\s+$ident(?:<.+?>)?", // inheritance with optional generics
+                    "\\bimplements\\s+$ident(?:<.+?>)?", // interface implementation with optional generics
                     "\\b$ident\\s*\\.", // static access
-                    "\\b$ident\\s+\\w+\\s*[;=]", // variable declaration
-                    "\\b$ident\\s+\\w+\\s*\\)", // parameter
-                    "<\\s*$ident\\s*>", // generics
-                    "\\(\\s*$ident\\s*\\)", // cast
+                    "\\b$ident(?:<.+?>)?\\s+\\w+\\s*[;=]", // variable declaration with optional generics
+                    "\\b$ident(?:<.+?>)?\\s+\\w+\\s*\\)", // parameter with optional generics
+                    "<\\s*$ident\\s*>", // as generic type argument
+                    "\\(\\s*$ident(?:<.+?>)?\\s*\\)", // cast with optional generics
                     "\\bimport\\s+.*\\.$ident\\b" // import
                     );
         }

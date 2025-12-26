@@ -53,6 +53,29 @@ public class AnalyzerUtil {
             }
         });
 
+        // Handle fields by showing their containing class skeleton
+        maybeSkeletonProvider.ifPresent(skeletonProvider -> {
+            var fieldUses = uses.stream().filter(CodeUnit::isField).sorted().toList();
+            for (var field : fieldUses) {
+                // Get the parent class by parsing the fqName (e.g., "com.example.Class.field" -> "com.example.Class")
+                var fqName = field.fqName();
+                var lastDot = fqName.lastIndexOf('.');
+                if (lastDot > 0) {
+                    var parentClassName = fqName.substring(0, lastDot);
+                    var parentClasses = analyzer.getDefinitions(parentClassName);
+                    if (!parentClasses.isEmpty()) {
+                        var parentClass = parentClasses.iterator().next();
+                        var skeletonHeader = skeletonProvider.getSkeletonHeader(parentClass);
+                        skeletonHeader.ifPresent(header -> results.add(new CodeWithSource(header, parentClass)));
+                    } else {
+                        logger.warn("Unable to find parent class {} for field {}", parentClassName, field.fqName());
+                    }
+                } else {
+                    logger.warn("Unable to parse parent class from field fqName: {}", field.fqName());
+                }
+            }
+        });
+
         return results;
     }
 

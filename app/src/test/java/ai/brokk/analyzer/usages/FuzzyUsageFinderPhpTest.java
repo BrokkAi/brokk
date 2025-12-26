@@ -100,11 +100,7 @@ public class FuzzyUsageFinderPhpTest {
                 "Expected comprehensive usage patterns in ClassUsagePatterns.php; actual: " + files);
 
         var classUsageHits = hits.stream()
-                .filter(h -> h.file()
-                        .absPath()
-                        .getFileName()
-                        .toString()
-                        .equals("ClassUsagePatterns.php"))
+                .filter(h -> h.file().absPath().getFileName().toString().equals("ClassUsagePatterns.php"))
                 .toList();
         assertTrue(
                 classUsageHits.size() >= 2,

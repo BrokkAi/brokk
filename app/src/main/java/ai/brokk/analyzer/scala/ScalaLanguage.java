@@ -49,14 +49,15 @@ public class ScalaLanguage implements Language {
                     );
         } else if (type == CodeUnitType.CLASS) {
             return Set.of(
-                    "\\bnew\\s+$ident\\s*\\(", // constructor calls
-                    "\\bextends\\s+$ident\\b", // inheritance
-                    "\\bwith\\s+$ident\\b", // trait mixing
+                    "\\bnew\\s+$ident(?:\\[.+?\\])?\\s*\\(", // constructor calls with optional type parameters
+                    "\\bextends\\s+$ident(?:\\[.+?\\])?", // inheritance with optional type parameters
+                    "\\bwith\\s+$ident(?:\\[.+?\\])?", // trait mixing with optional type parameters
                     "\\b$ident\\s*\\.", // companion object access
-                    ":\\s*$ident\\b", // type annotations
+                    ":\\s*$ident(?:\\[.+?\\])?", // type annotations with optional type parameters
                     "<\\s*$ident\\s*>", // generics (deprecated syntax)
-                    "\\[\\s*$ident\\s*\\]", // type parameters
-                    "\\bcase\\s+class\\s+\\w+.*:\\s*$ident", // case class parameter type
+                    "\\[\\s*$ident\\s*\\]", // as type parameter argument
+                    "\\bcase\\s+class\\s+\\w+.*:\\s*$ident(?:\\[.+?\\])?", // case class parameter type with optional
+                    // type parameters
                     "\\bimport\\s+.*\\.$ident\\b" // import statements
                     );
         }

@@ -60,10 +60,10 @@ public class Languages {
                         );
             } else if (type == CodeUnitType.CLASS) {
                 return Set.of(
-                        "\\bnew\\s+$ident\\s*\\(", // constructor calls
-                        "\\bclass\\s+\\w+\\s*:\\s*$ident\\b", // inheritance
-                        "\\b$ident\\s+\\w+\\s*[;=]", // variable declarations
-                        "<\\s*$ident\\s*>", // generics
+                        "\\bnew\\s+$ident(?:<.+?>)?\\s*\\(", // constructor calls with optional generics
+                        "\\bclass\\s+\\w+\\s*:\\s*$ident(?:<.+?>)?", // inheritance with optional generics
+                        "\\b$ident(?:<.+?>)?\\s+\\w+\\s*[;=]", // variable declarations with optional generics
+                        "<\\s*$ident\\s*>", // as generic type argument
                         "\\b$ident\\s*\\.", // static access
                         "\\busing\\s+.*\\.$ident\\b" // using directives
                         );
@@ -205,14 +205,17 @@ public class Languages {
                         );
             } else if (type == CodeUnitType.CLASS) {
                 return Set.of(
-                        "\\bnew\\s+$ident\\s*\\(", // constructor with new
-                        "\\bclass\\s+\\w+\\s*:\\s*public\\s+$ident\\b", // public inheritance
-                        "\\bclass\\s+\\w+\\s*:\\s*private\\s+$ident\\b", // private inheritance
-                        "\\bclass\\s+\\w+\\s*:\\s*protected\\s+$ident\\b", // protected inheritance
-                        "\\b$ident\\s+\\w+\\s*[;=]", // variable declarations
-                        "\\b$ident\\s*\\*", // pointer types
-                        "\\b$ident\\s*&", // reference types
-                        "<\\s*$ident\\s*>", // template usage
+                        "\\bnew\\s+$ident(?:<.+?>)?\\s*\\(", // constructor with new and optional templates
+                        "\\bclass\\s+\\w+\\s*:\\s*public\\s+$ident(?:<.+?>)?", // public inheritance with optional
+                        // templates
+                        "\\bclass\\s+\\w+\\s*:\\s*private\\s+$ident(?:<.+?>)?", // private inheritance with optional
+                        // templates
+                        "\\bclass\\s+\\w+\\s*:\\s*protected\\s+$ident(?:<.+?>)?", // protected inheritance with optional
+                        // templates
+                        "\\b$ident(?:<.+?>)?\\s+\\w+\\s*[;=]", // variable declarations with optional templates
+                        "\\b$ident(?:<.+?>)?\\s*\\*", // pointer types with optional templates
+                        "\\b$ident(?:<.+?>)?\\s*&", // reference types with optional templates
+                        "<\\s*$ident\\s*>", // as template argument
                         "#include\\s+\"$ident\\.h\"" // header includes
                         );
             }
@@ -328,14 +331,17 @@ public class Languages {
                         );
             } else if (type == CodeUnitType.CLASS) {
                 return Set.of(
-                        "\\bnew\\s+$ident\\s*\\(", // constructor with new
-                        "\\bclass\\s+\\w+\\s*:\\s*public\\s+$ident\\b", // public inheritance
-                        "\\bclass\\s+\\w+\\s*:\\s*private\\s+$ident\\b", // private inheritance
-                        "\\bclass\\s+\\w+\\s*:\\s*protected\\s+$ident\\b", // protected inheritance
-                        "\\b$ident\\s+\\w+\\s*[;=]", // variable declarations
-                        "\\b$ident\\s*\\*", // pointer types
-                        "\\b$ident\\s*&", // reference types
-                        "<\\s*$ident\\s*>", // template usage
+                        "\\bnew\\s+$ident(?:<.+?>)?\\s*\\(", // constructor with new and optional templates
+                        "\\bclass\\s+\\w+\\s*:\\s*public\\s+$ident(?:<.+?>)?", // public inheritance with optional
+                        // templates
+                        "\\bclass\\s+\\w+\\s*:\\s*private\\s+$ident(?:<.+?>)?", // private inheritance with optional
+                        // templates
+                        "\\bclass\\s+\\w+\\s*:\\s*protected\\s+$ident(?:<.+?>)?", // protected inheritance with optional
+                        // templates
+                        "\\b$ident(?:<.+?>)?\\s+\\w+\\s*[;=]", // variable declarations with optional templates
+                        "\\b$ident(?:<.+?>)?\\s*\\*", // pointer types with optional templates
+                        "\\b$ident(?:<.+?>)?\\s*&", // reference types with optional templates
+                        "<\\s*$ident\\s*>", // as template argument
                         "#include\\s+\"$ident\\.h\"" // header includes
                         );
             }
@@ -530,13 +536,13 @@ public class Languages {
                         );
             } else if (type == CodeUnitType.CLASS) {
                 return Set.of(
-                        "\\bnew\\s+$ident\\s*\\(", // constructor calls
-                        "\\bclass\\s+\\w+\\s+extends\\s+$ident\\b", // class extends
-                        "\\bimplements\\s+$ident\\b", // interface implementation
+                        "\\bnew\\s+$ident(?:<.+?>)?\\s*\\(", // constructor calls with optional generics
+                        "\\bclass\\s+\\w+\\s+extends\\s+$ident(?:<.+?>)?", // class extends with optional generics
+                        "\\bimplements\\s+$ident(?:<.+?>)?", // interface implementation with optional generics
                         "\\b$ident\\s*\\.", // static access
-                        ":\\s*$ident\\b", // type annotations
-                        "->\\s*$ident\\b", // arrow function return type
-                        "<\\s*$ident\\s*>", // generics
+                        ":\\s*$ident(?:<.+?>)?", // type annotations with optional generics
+                        "=>\\s*$ident(?:<.+?>)?", // arrow function return type with optional generics
+                        "<\\s*$ident\\s*>", // as generic type argument
                         "\\bimport\\s+.*$ident", // import statements
                         "\\bfrom\\s+.*\\{.*$ident.*\\}" // named imports
                         );
