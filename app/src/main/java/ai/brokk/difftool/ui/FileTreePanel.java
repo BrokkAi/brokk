@@ -26,7 +26,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     private final JTree fileTree;
     private final DefaultTreeModel treeModel;
     private DefaultMutableTreeNode rootNode;
-    private final List<BrokkDiffPanel.FileComparisonInfo> fileComparisons;
+    private final List<FileComparisonInfo> fileComparisons;
     private final Path projectRoot;
     private final JScrollPane scrollPane;
 
@@ -42,12 +42,11 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     private final Set<Integer> dirtyIndices = new HashSet<>();
     private volatile int pendingInitialSelection = -1;
 
-    public FileTreePanel(List<BrokkDiffPanel.FileComparisonInfo> fileComparisons, Path projectRoot) {
+    public FileTreePanel(List<FileComparisonInfo> fileComparisons, Path projectRoot) {
         this(fileComparisons, projectRoot, null);
     }
 
-    public FileTreePanel(
-            List<BrokkDiffPanel.FileComparisonInfo> fileComparisons, Path projectRoot, @Nullable String rootTitle) {
+    public FileTreePanel(List<FileComparisonInfo> fileComparisons, Path projectRoot, @Nullable String rootTitle) {
         super(new BorderLayout());
         this.fileComparisons = fileComparisons;
         this.projectRoot = projectRoot;
@@ -340,7 +339,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     }
 
     @Nullable
-    private String extractFilePath(BrokkDiffPanel.FileComparisonInfo comparison) {
+    private String extractFilePath(FileComparisonInfo comparison) {
         // Try to get the best available path information
         String leftPath = getSourcePath(comparison.leftSource);
         String rightPath = getSourcePath(comparison.rightSource);
@@ -416,7 +415,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         return null;
     }
 
-    private DiffStatus determineDiffStatus(BrokkDiffPanel.FileComparisonInfo comparison) {
+    private DiffStatus determineDiffStatus(FileComparisonInfo comparison) {
         boolean leftExists = comparison.leftSource.sizeInBytes() > 0;
         boolean rightExists = comparison.rightSource.sizeInBytes() > 0;
 

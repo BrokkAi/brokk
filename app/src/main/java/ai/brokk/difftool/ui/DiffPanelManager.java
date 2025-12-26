@@ -4,8 +4,8 @@ import ai.brokk.ContextManager;
 import ai.brokk.difftool.performance.PerformanceConstants;
 import ai.brokk.difftool.ui.unified.UnifiedDiffDocument;
 import ai.brokk.difftool.ui.unified.UnifiedDiffPanel;
-import ai.brokk.util.SlidingWindowCache;
 import ai.brokk.gui.theme.GuiTheme;
+import ai.brokk.util.SlidingWindowCache;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -21,8 +21,10 @@ import org.jetbrains.annotations.Nullable;
 public class DiffPanelManager implements DiffNavigationTarget {
     private static final Logger logger = LogManager.getLogger(DiffPanelManager.class);
 
-    @Nullable private final BrokkDiffPanel parent;
-    private final List<BrokkDiffPanel.FileComparisonInfo> fileComparisons;
+    @Nullable
+    private final BrokkDiffPanel parent;
+
+    private final List<FileComparisonInfo> fileComparisons;
     private final ContextManager contextManager;
     private final Consumer<AbstractDiffPanel> displayCallback;
     private final Supplier<GuiTheme> themeSupplier;
@@ -32,7 +34,7 @@ public class DiffPanelManager implements DiffNavigationTarget {
 
     public DiffPanelManager(
             @Nullable BrokkDiffPanel parent,
-            List<BrokkDiffPanel.FileComparisonInfo> fileComparisons,
+            List<FileComparisonInfo> fileComparisons,
             ContextManager contextManager,
             Consumer<AbstractDiffPanel> displayCallback,
             Supplier<GuiTheme> themeSupplier) {
@@ -42,8 +44,7 @@ public class DiffPanelManager implements DiffNavigationTarget {
         this.displayCallback = displayCallback;
         this.themeSupplier = themeSupplier;
         this.panelCache = new SlidingWindowCache<>(
-                PerformanceConstants.MAX_CACHED_DIFF_PANELS,
-                PerformanceConstants.DEFAULT_SLIDING_WINDOW);
+                PerformanceConstants.MAX_CACHED_DIFF_PANELS, PerformanceConstants.DEFAULT_SLIDING_WINDOW);
     }
 
     @Override
@@ -102,19 +103,13 @@ public class DiffPanelManager implements DiffNavigationTarget {
             parent.showLoadingForFile();
         }
 
-        BrokkDiffPanel.FileComparisonInfo compInfo = fileComparisons.get(fileIndex);
-        
+        FileComparisonInfo compInfo = fileComparisons.get(fileIndex);
+
         GuiTheme theme = themeSupplier.get();
         boolean isMultipleCommits = parent != null && parent.isMultipleCommitsContext();
 
         BrokkDiffPanel.createDiffPanel(
-                compInfo.leftSource,
-                compInfo.rightSource,
-                parent,
-                theme,
-                contextManager,
-                isMultipleCommits,
-                fileIndex);
+                compInfo.leftSource, compInfo.rightSource, parent, theme, contextManager, isMultipleCommits, fileIndex);
     }
 
     public void cachePanel(int fileIndex, AbstractDiffPanel panel) {
@@ -164,8 +159,9 @@ public class DiffPanelManager implements DiffNavigationTarget {
     }
 
     private void preloadIfNeeded(int index) {
-        if (index >= 0 && index < fileComparisons.size() 
-                && panelCache.get(index) == null 
+        if (index >= 0
+                && index < fileComparisons.size()
+                && panelCache.get(index) == null
                 && panelCache.isInWindow(index)) {
             preloadFile(index);
         }
@@ -184,7 +180,7 @@ public class DiffPanelManager implements DiffNavigationTarget {
 
             if (result.isSuccess() && result.getDiffNode() != null) {
                 result.getDiffNode().diff();
-                
+
                 SwingUtilities.invokeLater(() -> {
                     // Check if still in window and not loaded by now
                     if (panelCache.get(fileIndex) == null && panelCache.isInWindow(fileIndex)) {

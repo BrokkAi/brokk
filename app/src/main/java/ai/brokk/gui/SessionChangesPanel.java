@@ -4,9 +4,9 @@ import ai.brokk.ContextManager;
 import ai.brokk.context.Context;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.AbstractDiffPanel;
-import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.ui.DiffPanelManager;
+import ai.brokk.difftool.ui.FileComparisonInfo;
 import ai.brokk.difftool.ui.FileTreePanel;
 import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.GitWorkflow;
@@ -319,8 +319,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         var root = contextManager.getProject().getRoot();
         if (root.getFileName() != null) projectName = root.getFileName().toString();
 
-        List<BrokkDiffPanel.FileComparisonInfo> comparisons = prepared.stream()
-                .map(entry -> new BrokkDiffPanel.FileComparisonInfo(
+        List<FileComparisonInfo> comparisons = prepared.stream()
+                .map(entry -> new FileComparisonInfo(
                         new BufferSource.StringSource(entry.getValue().oldContent(), "", entry.getKey(), null),
                         new BufferSource.StringSource(entry.getValue().newContent(), "", entry.getKey(), null)))
                 .toList();
@@ -328,7 +328,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         fileTreePanel = new FileTreePanel(comparisons, root, projectName);
 
         panelManager = new DiffPanelManager(
-                null, // No parent BrokkDiffPanel needed for SessionChangesPanel management
+                null,
                 comparisons,
                 contextManager,
                 panel -> {

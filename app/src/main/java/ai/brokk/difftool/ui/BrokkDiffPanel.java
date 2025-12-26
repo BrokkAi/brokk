@@ -22,7 +22,6 @@ import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.util.ContentDiffUtils;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
-import ai.brokk.util.SlidingWindowCache;
 import ai.brokk.util.SyntaxDetector;
 import dev.langchain4j.data.message.ChatMessage;
 import java.awt.*;
@@ -234,40 +233,6 @@ public class BrokkDiffPanel extends JPanel
 
         mainPanel.cachePanel(fileIndex, panel);
         mainPanel.displayAndRefreshPanel(fileIndex, panel);
-    }
-
-    /**
-     * Inner class to hold a single file comparison metadata Note: No longer holds the diffPanel directly - that's
-     * managed by the cache
-     */
-    public static class FileComparisonInfo {
-        public final BufferSource leftSource;
-        public final BufferSource rightSource;
-
-        public FileComparisonInfo(BufferSource leftSource, BufferSource rightSource) {
-            this.leftSource = leftSource;
-            this.rightSource = rightSource;
-        }
-
-        String getDisplayName() {
-            // Returns formatted name for UI display
-            String leftName = getSourceName(leftSource);
-            String rightName = getSourceName(rightSource);
-
-            if (leftName.equals(rightName)) {
-                return leftName;
-            }
-            return leftName + " vs " + rightName;
-        }
-
-        private String getSourceName(BufferSource source) {
-            if (source instanceof BufferSource.FileSource fs) {
-                return fs.file().getFileName();
-            } else if (source instanceof BufferSource.StringSource ss) {
-                return ss.filename() != null ? ss.filename() : ss.title();
-            }
-            return source.title();
-        }
     }
 
     public BrokkDiffPanel(Builder builder, GuiTheme theme) {
@@ -913,8 +878,7 @@ public class BrokkDiffPanel extends JPanel
         }
 
         if (currentPanel != null) {
-            var isFirstChangeOverall =
-                    panelManager.getCurrentFileIndex() == 0 && currentPanel.isAtFirstLogicalChange();
+            var isFirstChangeOverall = panelManager.getCurrentFileIndex() == 0 && currentPanel.isAtFirstLogicalChange();
             var isLastChangeOverall = panelManager.getCurrentFileIndex() == fileComparisons.size() - 1
                     && currentPanel.isAtLastLogicalChange();
             btnPrevious.setEnabled(!isFirstChangeOverall);

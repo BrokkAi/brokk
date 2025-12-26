@@ -57,7 +57,7 @@ class DiffPanelManagerTest {
         // Old panels at 0 and 1 should be evicted because they are far from center 8
         assertNull(cache.get(0), "Panel 0 should be evicted as it is far from center 8");
         assertNull(cache.get(1), "Panel 1 should be evicted as it is far from center 8");
-        
+
         // Index 0 should not be in window when center is 8
         assertFalse(cache.isInWindow(0), "Index 0 should not be in window when center is 8");
     }
@@ -118,9 +118,7 @@ class DiffPanelManagerTest {
 
         // Verify disposal occurred - note: disposal is deferred so may not happen immediately in tests
         // The key behavior we test is that panels are removed from cache
-        assertTrue(panel0.isDisposed() || cache.get(0) == null, 
-                "Panel 0 should be disposed or evicted");
-        assertTrue(panel1.isDisposed() || cache.get(1) == null, 
-                "Panel 1 should be disposed or evicted");
+        assertTrue(panel0.isDisposed() || cache.get(0) == null, "Panel 0 should be disposed or evicted");
+        assertTrue(panel1.isDisposed() || cache.get(1) == null, "Panel 1 should be disposed or evicted");
     }
 }
