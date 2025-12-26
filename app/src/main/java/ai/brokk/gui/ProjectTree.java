@@ -586,10 +586,11 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             return CompletableFuture.completedFuture(null);
         }
 
-        // If already loaded, nothing to do.
-        if (treeNode.isChildrenLoaded()) {
+        // If already loaded or currently loading, nothing to do.
+        if (treeNode.isChildrenLoaded() || treeNode.isLoading()) {
             return CompletableFuture.completedFuture(null);
         }
+        treeNode.setLoading(true);
 
         // Ensure there's a visible "Loading..." placeholder while background work runs.
         if (node.getChildCount() == 0) {
@@ -666,12 +667,16 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                             }
 
                             currentTreeNode.setChildrenLoaded(true);
+                            currentTreeNode.setLoading(false);
                             ((DefaultTreeModel) getModel()).nodeStructureChanged(node);
 
                             // Attempt to auto-expand single-directory chains as before.
                             expandSingleDirectoryChildren(node);
                             result.complete(null);
                         } catch (Exception ex) {
+                            if (node.getUserObject() instanceof ProjectTreeNode ptn) {
+                                ptn.setLoading(false);
+                            }
                             logger.error("Error applying loaded children to tree node", ex);
                             SwingUtilities.invokeLater(
                                     () -> chrome.toolError("Failed to update project tree: " + ex.getMessage()));
@@ -681,7 +686,12 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                 })
                 .exceptionally(ex -> {
                     logger.error("Error loading directory contents async for: " + expectedDirectory, ex);
-                    SwingUtilities.invokeLater(() -> chrome.toolError("Failed to read directory: " + ex.getMessage()));
+                    SwingUtilities.invokeLater(() -> {
+                        if (node.getUserObject() instanceof ProjectTreeNode ptn) {
+                            ptn.setLoading(false);
+                        }
+                        chrome.toolError("Failed to read directory: " + ex.getMessage());
+                    });
                     result.completeExceptionally(ex);
                     return null;
                 });
@@ -1341,6 +1351,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         private final File file;
         private final boolean isDirectory; // Cached at construction to avoid repeated syscalls
         private boolean childrenLoaded;
+        private boolean isLoading = false;
         // Cached coloring state (computed lazily, but can be pre-warmed off EDT)
         private @Nullable Boolean cachedIsExcluded;
         private @Nullable Boolean cachedIsGitignored;
@@ -1366,6 +1377,14 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
 
         public void setChildrenLoaded(boolean childrenLoaded) {
             this.childrenLoaded = childrenLoaded;
+        }
+
+        public boolean isLoading() {
+            return isLoading;
+        }
+
+        public void setLoading(boolean loading) {
+            this.isLoading = loading;
         }
 
         /** Returns cached excluded state, computing and caching if needed */
