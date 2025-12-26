@@ -83,8 +83,8 @@ public class WatchServiceFactory {
             logger.debug("Unable to read MainProject watch service preference: {}", t.getMessage());
         }
 
-        // 4) Default to native to preserve previous behavior
-        return WATCH_SERVICE_IMPL_LEGACY;
+        // 4) Default to native
+        return WATCH_SERVICE_IMPL_NATIVE;
     }
 
     /**
