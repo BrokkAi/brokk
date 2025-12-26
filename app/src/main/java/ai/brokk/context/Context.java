@@ -426,6 +426,10 @@ public class Context {
         return markedReadonlyFragments.stream();
     }
 
+    public Stream<ContextFragment> getPinnedFragments() {
+        return pinnedFragments.stream();
+    }
+
     /**
      * Anything that's not editable is implicitly read-only
      */
