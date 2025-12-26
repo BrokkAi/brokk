@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
@@ -564,20 +565,12 @@ public class GoAnalyzerTest {
     @Test
     public void getUsesClassComprehensivePatternsTest() {
         var finder = newFinder();
-        var symbol = "BaseStruct";
+        var symbol = "main.BaseStruct";
         var either = finder.findUsages(symbol).toEither();
 
-        if (either.hasErrorMessage()) {
-            logger.info("Go test skipped: " + either.getErrorMessage());
-            return;
-        }
+        assumeFalse(either.hasErrorMessage(), "Go analyzer unavailable");
 
         var hits = either.getUsages();
-        if (hits.isEmpty()) {
-            logger.info("Go test: no hits found, skipping validation");
-            return;
-        }
-
         var files = fileNamesFromHits(hits);
         assertTrue(
                 files.contains("class_usage_patterns.go"),

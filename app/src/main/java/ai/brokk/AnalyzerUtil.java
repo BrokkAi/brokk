@@ -64,7 +64,8 @@ public class AnalyzerUtil {
                     var parentClassName = fqName.substring(0, lastDot);
                     var parentClasses = analyzer.getDefinitions(parentClassName);
                     if (!parentClasses.isEmpty()) {
-                        var parentClass = analyzer.sortDefinitions(parentClasses).getFirst();
+                        var parentClass =
+                                analyzer.sortDefinitions(parentClasses).getFirst();
                         var skeletonHeader = skeletonProvider.getSkeletonHeader(parentClass);
                         skeletonHeader.ifPresent(header -> results.add(new CodeWithSource(header, parentClass)));
                     } else {

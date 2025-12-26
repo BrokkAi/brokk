@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
@@ -1962,21 +1963,12 @@ public final class PythonAnalyzerTest {
     @Test
     public void getUsesClassComprehensivePatternsTest() {
         var finder = newFinder();
-        var symbol = "BaseClass";
+        var symbol = "class_usage_patterns.BaseClass";
         var either = finder.findUsages(symbol).toEither();
 
-        // Python analyzer may not find definitions immediately, which is acceptable
-        if (either.hasErrorMessage()) {
-            logger.info("Python test skipped: " + either.getErrorMessage());
-            return;
-        }
+        assumeFalse(either.hasErrorMessage(), "Python analyzer unavailable");
 
         var hits = either.getUsages();
-        if (hits.isEmpty()) {
-            logger.info("Python test: no hits found, skipping validation");
-            return;
-        }
-
         var files = fileNamesFromHits(hits);
         assertTrue(
                 files.contains("class_usage_patterns.py"),

@@ -1,6 +1,7 @@
 package ai.brokk.analyzer;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
@@ -1602,17 +1603,9 @@ public class CppAnalyzerTest {
         var symbol = "BaseClass";
         var either = finder.findUsages(symbol).toEither();
 
-        if (either.hasErrorMessage()) {
-            logger.info("C++ test skipped: " + either.getErrorMessage());
-            return;
-        }
+        assumeFalse(either.hasErrorMessage(), "C++ analyzer unavailable");
 
         var hits = either.getUsages();
-        if (hits.isEmpty()) {
-            logger.info("C++ test: no hits found, skipping validation");
-            return;
-        }
-
         var files = fileNamesFromHits(hits);
         assertTrue(
                 files.contains("class_usage_patterns.cpp"),

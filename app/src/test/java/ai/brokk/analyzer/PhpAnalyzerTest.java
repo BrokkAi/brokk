@@ -3,6 +3,7 @@ package ai.brokk.analyzer;
 import static ai.brokk.testutil.AssertionHelperUtil.*;
 import static ai.brokk.testutil.TestProject.createTestProject;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
@@ -263,17 +264,9 @@ public class PhpAnalyzerTest {
         var symbol = "BaseClass";
         var either = finder.findUsages(symbol).toEither();
 
-        if (either.hasErrorMessage()) {
-            logger.info("PHP test skipped: " + either.getErrorMessage());
-            return;
-        }
+        assumeFalse(either.hasErrorMessage(), "PHP analyzer unavailable");
 
         var hits = either.getUsages();
-        if (hits.isEmpty()) {
-            logger.info("PHP test: no hits found, skipping validation");
-            return;
-        }
-
         var files = fileNamesFromHits(hits);
         assertTrue(
                 files.contains("ClassUsagePatterns.php"),
