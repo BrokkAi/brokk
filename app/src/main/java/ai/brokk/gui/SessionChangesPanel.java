@@ -3,8 +3,11 @@ package ai.brokk.gui;
 import ai.brokk.ContextManager;
 import ai.brokk.context.Context;
 import ai.brokk.context.DiffService;
+import ai.brokk.difftool.ui.AbstractDiffPanel;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
+import ai.brokk.difftool.ui.DiffPanelManager;
+import ai.brokk.difftool.ui.FileTreePanel;
 import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.MaterialButton;
@@ -43,7 +46,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private DiffService.CumulativeChanges lastCumulativeChanges = null;
 
     @Nullable
-    private BrokkDiffPanel diffPanel;
+    private DiffPanelManager panelManager;
+
+    @Nullable
+    private FileTreePanel fileTreePanel;
+
+    private final JPanel diffContainer = new JPanel(new BorderLayout());
 
     @FunctionalInterface
     public interface TabTitleUpdater {
@@ -242,10 +250,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             @Nullable String baselineLabel,
             @Nullable BaselineMode baselineMode) {
 
-        if (diffPanel != null) {
-            diffPanel.dispose();
+        if (panelManager != null) {
+            panelManager.clearCache();
         }
-
+        diffContainer.removeAll();
         removeAll();
 
         var headerPanel = new JPanel(new BorderLayout(8, 0));
@@ -311,26 +319,39 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         var root = contextManager.getProject().getRoot();
         if (root.getFileName() != null) projectName = root.getFileName().toString();
 
-        var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
-                .setMultipleCommitsContext(false)
-                .setRootTitle(projectName)
-                .setInitialFileIndex(0)
-                .setForceFileTree(true);
+        List<BrokkDiffPanel.FileComparisonInfo> comparisons = prepared.stream()
+                .map(entry -> new BrokkDiffPanel.FileComparisonInfo(
+                        new BufferSource.StringSource(entry.getValue().oldContent(), "", entry.getKey(), null),
+                        new BufferSource.StringSource(entry.getValue().newContent(), "", entry.getKey(), null)))
+                .toList();
 
-        for (var entry : prepared) {
-            builder.addComparison(
-                    new BufferSource.StringSource(entry.getValue().oldContent(), "", entry.getKey(), null),
-                    new BufferSource.StringSource(entry.getValue().newContent(), "", entry.getKey(), null));
-        }
+        fileTreePanel = new FileTreePanel(comparisons, root, projectName);
 
-        diffPanel = builder.build();
-        diffPanel.applyTheme(chrome.getTheme());
+        panelManager = new DiffPanelManager(
+                null, // No parent BrokkDiffPanel needed for SessionChangesPanel management
+                comparisons,
+                contextManager,
+                panel -> {
+                    diffContainer.removeAll();
+                    diffContainer.add(panel.getComponent(), BorderLayout.CENTER);
+                    diffContainer.revalidate();
+                    diffContainer.repaint();
+                },
+                chrome::getTheme);
 
-        topContainer.add(diffPanel, BorderLayout.CENTER);
+        fileTreePanel.setSelectionListener(panelManager);
+        fileTreePanel.initializeTree();
+
+        var splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, fileTreePanel, diffContainer);
+        splitPane.setDividerLocation(250);
+        topContainer.add(splitPane, BorderLayout.CENTER);
 
         setBorder(new CompoundBorder(
                 new LineBorder(UIManager.getColor("Separator.foreground"), 1), new EmptyBorder(6, 6, 6, 6)));
         add(topContainer, BorderLayout.CENTER);
+
+        panelManager.navigateToFile(0);
+        applyTheme(chrome.getTheme());
 
         revalidate();
         repaint();
@@ -400,12 +421,19 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
-        if (diffPanel != null) diffPanel.applyTheme(guiTheme);
+        if (fileTreePanel != null) fileTreePanel.applyTheme(guiTheme);
+        if (panelManager != null) {
+            for (AbstractDiffPanel panel : panelManager.getCachedPanels()) {
+                panel.applyTheme(guiTheme);
+            }
+        }
     }
 
     public void dispose() {
-        if (diffPanel != null) diffPanel.dispose();
-        diffPanel = null;
+        if (panelManager != null) {
+            panelManager.clearCache();
+        }
+        panelManager = null;
     }
 
     public enum BaselineMode {

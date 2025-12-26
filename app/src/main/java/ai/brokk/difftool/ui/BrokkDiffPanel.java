@@ -240,11 +240,11 @@ public class BrokkDiffPanel extends JPanel
      * Inner class to hold a single file comparison metadata Note: No longer holds the diffPanel directly - that's
      * managed by the cache
      */
-    static class FileComparisonInfo {
-        final BufferSource leftSource;
-        final BufferSource rightSource;
+    public static class FileComparisonInfo {
+        public final BufferSource leftSource;
+        public final BufferSource rightSource;
 
-        FileComparisonInfo(BufferSource leftSource, BufferSource rightSource) {
+        public FileComparisonInfo(BufferSource leftSource, BufferSource rightSource) {
             this.leftSource = leftSource;
             this.rightSource = rightSource;
         }
@@ -288,7 +288,7 @@ public class BrokkDiffPanel extends JPanel
         this.fileComparisons = new ArrayList<>(builder.fileComparisons);
         assert !this.fileComparisons.isEmpty() : "File comparisons cannot be empty";
         this.panelManager = new DiffPanelManager(
-                this, this.fileComparisons, contextManager, this::displayCachedFileInternal);
+                this, this.fileComparisons, contextManager, this::displayCachedFileInternal, this::getTheme);
         this.currentDiffPanel = null; // Initialize @Nullable field
 
         // Make the container focusable, so it can handle key events

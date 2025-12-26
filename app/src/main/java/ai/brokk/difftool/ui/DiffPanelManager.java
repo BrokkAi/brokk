@@ -5,9 +5,11 @@ import ai.brokk.difftool.performance.PerformanceConstants;
 import ai.brokk.difftool.ui.unified.UnifiedDiffDocument;
 import ai.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import ai.brokk.util.SlidingWindowCache;
+import ai.brokk.gui.theme.GuiTheme;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -19,23 +21,26 @@ import org.jetbrains.annotations.Nullable;
 public class DiffPanelManager implements DiffNavigationTarget {
     private static final Logger logger = LogManager.getLogger(DiffPanelManager.class);
 
-    private final BrokkDiffPanel parent;
+    @Nullable private final BrokkDiffPanel parent;
     private final List<BrokkDiffPanel.FileComparisonInfo> fileComparisons;
     private final ContextManager contextManager;
     private final Consumer<AbstractDiffPanel> displayCallback;
+    private final Supplier<GuiTheme> themeSupplier;
     private final SlidingWindowCache<Integer, AbstractDiffPanel> panelCache;
 
     private int currentFileIndex = 0;
 
     public DiffPanelManager(
-            BrokkDiffPanel parent,
+            @Nullable BrokkDiffPanel parent,
             List<BrokkDiffPanel.FileComparisonInfo> fileComparisons,
             ContextManager contextManager,
-            Consumer<AbstractDiffPanel> displayCallback) {
+            Consumer<AbstractDiffPanel> displayCallback,
+            Supplier<GuiTheme> themeSupplier) {
         this.parent = parent;
         this.fileComparisons = fileComparisons;
         this.contextManager = contextManager;
         this.displayCallback = displayCallback;
+        this.themeSupplier = themeSupplier;
         this.panelCache = new SlidingWindowCache<>(
                 PerformanceConstants.MAX_CACHED_DIFF_PANELS,
                 PerformanceConstants.DEFAULT_SLIDING_WINDOW);
@@ -87,30 +92,35 @@ public class DiffPanelManager implements DiffNavigationTarget {
             AbstractDiffPanel nowCached = panelCache.get(fileIndex);
             if (nowCached != null) {
                 displayCachedFile(fileIndex, nowCached);
-            } else if (!skipLoadingUI) {
+            } else if (!skipLoadingUI && parent != null) {
                 parent.showLoadingForFile();
             }
             return;
         }
 
-        if (!skipLoadingUI) {
+        if (!skipLoadingUI && parent != null) {
             parent.showLoadingForFile();
         }
 
         BrokkDiffPanel.FileComparisonInfo compInfo = fileComparisons.get(fileIndex);
+        
+        GuiTheme theme = themeSupplier.get();
+        boolean isMultipleCommits = parent != null && parent.isMultipleCommitsContext();
+
         BrokkDiffPanel.createDiffPanel(
                 compInfo.leftSource,
                 compInfo.rightSource,
                 parent,
-                parent.getTheme(),
+                theme,
                 contextManager,
-                parent.isMultipleCommitsContext(),
+                isMultipleCommits,
                 fileIndex);
     }
 
     public void cachePanel(int fileIndex, AbstractDiffPanel panel) {
         // Ensure we don't cache panels from the wrong view mode
-        if (panel instanceof UnifiedDiffPanel != parent.isUnifiedView()) {
+        boolean isUnified = parent != null ? parent.isUnifiedView() : false;
+        if (panel instanceof UnifiedDiffPanel != isUnified) {
             return;
         }
 
@@ -118,7 +128,7 @@ public class DiffPanelManager implements DiffNavigationTarget {
         panel.resetAutoScrollFlag();
 
         // Apply global font settings
-        if (parent.getCurrentFontIndex() >= 0) {
+        if (parent != null && parent.getCurrentFontIndex() >= 0) {
             panel.applyEditorFontSize(BrokkDiffPanel.FONT_SIZES.get(parent.getCurrentFontIndex()));
         }
 
@@ -134,7 +144,8 @@ public class DiffPanelManager implements DiffNavigationTarget {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
         // If the cached panel mode doesn't match current view mode, discard and reload
-        if (cachedPanel instanceof UnifiedDiffPanel != parent.isUnifiedView()) {
+        boolean isUnified = parent != null ? parent.isUnifiedView() : false;
+        if (cachedPanel instanceof UnifiedDiffPanel != isUnified) {
             cachedPanel.dispose();
             panelCache.clear();
             panelCache.updateWindowCenter(currentFileIndex, fileComparisons.size());
@@ -167,8 +178,9 @@ public class DiffPanelManager implements DiffNavigationTarget {
                 return;
             }
 
+            boolean isMultipleCommits = parent != null && parent.isMultipleCommitsContext();
             var result = FileComparisonHelper.createFileLoadingResult(
-                    compInfo.leftSource, compInfo.rightSource, contextManager, parent.isMultipleCommitsContext());
+                    compInfo.leftSource, compInfo.rightSource, contextManager, isMultipleCommits);
 
             if (result.isSuccess() && result.getDiffNode() != null) {
                 result.getDiffNode().diff();
@@ -177,17 +189,18 @@ public class DiffPanelManager implements DiffNavigationTarget {
                     // Check if still in window and not loaded by now
                     if (panelCache.get(fileIndex) == null && panelCache.isInWindow(fileIndex)) {
                         AbstractDiffPanel panel;
-                        if (parent.isUnifiedView()) {
-                            panel = new UnifiedDiffPanel(parent, parent.getTheme(), result.getDiffNode());
+                        GuiTheme theme = themeSupplier.get();
+                        if (parent != null && parent.isUnifiedView()) {
+                            panel = new UnifiedDiffPanel(parent, theme, result.getDiffNode());
                             var targetMode = parent.getGlobalShowAllLinesInUnified()
                                     ? UnifiedDiffDocument.ContextMode.FULL_CONTEXT
                                     : UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
                             ((UnifiedDiffPanel) panel).setContextMode(targetMode);
                         } else {
-                            panel = new BufferDiffPanel(parent, parent.getTheme());
+                            panel = new BufferDiffPanel(parent, theme);
                             panel.setDiffNode(result.getDiffNode());
                         }
-                        panel.applyTheme(parent.getTheme());
+                        panel.applyTheme(theme);
                         cachePanel(fileIndex, panel);
                     }
                 });
