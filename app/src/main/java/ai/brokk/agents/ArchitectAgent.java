@@ -6,6 +6,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.AbstractService.ModelConfig;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
+import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
@@ -67,7 +68,7 @@ public class ArchitectAgent {
     // Result of executing a single search request: both the tool execution result and the SearchAgent result
     private record SearchTaskResult(ToolExecutionResult toolResult, TaskResult taskResult) {}
 
-    private final ContextManager cm;
+    private final IContextManager cm;
     private final StreamingChatModel planningModel;
     private final StreamingChatModel codeModel;
     private final String goal;
@@ -96,7 +97,7 @@ public class ArchitectAgent {
      * @param goal      The initial user instruction or goal for the agent.
      */
     public ArchitectAgent(
-            ContextManager contextManager,
+            IContextManager contextManager,
             StreamingChatModel planningModel,
             StreamingChatModel codeModel,
             String goal,

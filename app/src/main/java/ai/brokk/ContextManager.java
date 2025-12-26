@@ -951,6 +951,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
+    @Override
     public boolean undoContext() {
         return withFileChangeNotificationsPaused(() -> {
             UndoResult result = contextHistory.undo(1, io, project);
