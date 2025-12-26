@@ -10,6 +10,7 @@ import ai.brokk.Llm;
 import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.ModelProperties.ModelType;
@@ -44,6 +45,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -167,13 +169,16 @@ public class ArchitectAgent {
         // Update local context with the CodeAgent's resulting context
         var initialContext = context;
         context = scope.append(result);
-        // Detect whether this CodeAgent run made any changes
-        boolean didChange = !context.getChangedFiles(initialContext).isEmpty();
+        var changedFiles = context.getChangedFiles(initialContext);
 
         if (result.stopDetails().reason() == StopReason.SUCCESS) {
             var resultString = deferBuild ? "CodeAgent finished." : "CodeAgent finished with a successful build.";
+            var fileList =
+                    changedFiles.stream().map(ProjectFile::toString).sorted().collect(Collectors.joining(", "));
+            resultString += " Changed files: " + (fileList.isEmpty() ? "None" : fileList);
+
             logger.debug("callCodeAgent finished successfully");
-            codeAgentJustSucceeded = !deferBuild && didChange;
+            codeAgentJustSucceeded = !deferBuild && !changedFiles.isEmpty();
             return resultString;
         }
 
@@ -194,7 +199,7 @@ public class ArchitectAgent {
         logger.debug("CodeAgent failed with reason {}: {}", reason, stopDetails.explanation());
 
         // Offer undo if the CodeAgent failed and left changes behind
-        if (didChange) {
+        if (!changedFiles.isEmpty()) {
             this.offerUndoToolNext = true;
         }
 
