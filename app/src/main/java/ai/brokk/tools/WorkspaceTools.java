@@ -23,6 +23,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
@@ -250,7 +251,7 @@ public class WorkspaceTools {
         // Apply removal and upsert DISCARDED_CONTEXT in the local context
         var droppedIds = toDrop.stream().map(ContextFragment::id).collect(Collectors.toSet());
         var next =
-                context.removeFragmentsByIds(droppedIds).putSpecial(SpecialTextType.DISCARDED_CONTEXT, discardedJson);
+                context.removeFragmentsByIds(droppedIds).withSpecial(SpecialTextType.DISCARDED_CONTEXT, discardedJson);
         context = next;
 
         logger.debug(
@@ -394,8 +395,12 @@ public class WorkspaceTools {
         var existed =
                 context.getSpecial(SpecialTextType.SEARCH_NOTES.description()).isPresent();
 
-        context = context.updateSpecial(
-                SpecialTextType.SEARCH_NOTES, prev -> prev.isBlank() ? markdown : prev + "\n\n" + markdown);
+        var current = context.getSpecial(SpecialTextType.SEARCH_NOTES.description())
+                .map(ContextFragment::text)
+                .map(ComputedValue::join)
+                .orElse("");
+        var updated = current.isBlank() ? markdown : current + "\n\n" + markdown;
+        context = context.withSpecial(SpecialTextType.SEARCH_NOTES, updated);
 
         logger.debug(
                 "appendNote: {} Task Notes fragment ({} chars).",

@@ -34,7 +34,6 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
-import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -797,8 +796,19 @@ public class Context {
     }
 
     @Blocking
-    public Context putSpecial(SpecialTextType type, String content) {
+    private Context withSpecial(SpecialTextType type, String content, CompletableFuture<String> action) {
+        var next = withSpecial(type, content);
+        return this == next ? this : next.withAction(action);
+    }
+
+    @Blocking
+    public Context withSpecial(SpecialTextType type, String content) {
         var desc = type.description();
+
+        var existing = getSpecial(desc);
+        if (existing.isPresent() && content.equals(existing.get().text().join())) {
+            return this;
+        }
 
         var idsToDrop = type.singleton()
                 ? virtualFragments()
@@ -826,16 +836,6 @@ public class Context {
                 null,
                 null,
                 afterClear.markedReadonlyFragments);
-    }
-
-    @Blocking
-    public Context updateSpecial(SpecialTextType type, UnaryOperator<String> updater) {
-        var current = getSpecial(type.description())
-                .map(ContextFragments.AbstractStaticFragment::text)
-                .map(cv -> cv.renderNowOr(""))
-                .orElse("");
-        var updated = updater.apply(current);
-        return putSpecial(type, updated);
     }
 
     public boolean workspaceContentEquals(Context other) {
@@ -1063,33 +1063,21 @@ public class Context {
 
     /**
      * Updates the Latest Build Results special fragment.
-     * - On success: remove existing BUILD_RESULTS StringFragment if present; no fragment otherwise.
-     * - On failure: upsert the BUILD_RESULTS StringFragment with the processed output.
+     * - On success: remove existing BUILD_RESULTS fragment if present.
+     * - On failure: upsert the BUILD_RESULTS fragment with the processed output.
      */
     @Blocking
     public Context withBuildResult(boolean success, String processedOutput) {
-        var desc = SpecialTextType.BUILD_RESULTS.description();
-
-        var fragmentsToDrop = virtualFragments()
-                .filter(f -> f.getType() == ContextFragment.FragmentType.BUILD_LOG
-                        || (f.getType() == ContextFragment.FragmentType.STRING
-                                && f instanceof ContextFragments.AbstractStaticFragment sf
-                                && desc.equals(sf.description().renderNowOrNull())))
-                .toList();
-
-        var afterClear = fragmentsToDrop.isEmpty() ? this : removeFragments(fragmentsToDrop);
         if (success) {
-            var existing = afterClear.getSpecial(SpecialTextType.BUILD_RESULTS.description());
+            var existing = getSpecial(SpecialTextType.BUILD_RESULTS.description());
             if (existing.isEmpty()) {
-                return afterClear.withAction(CompletableFuture.completedFuture("Build results cleared (success)"));
+                return this;
             }
-            return afterClear
-                    .removeFragmentsByIds(List.of(existing.get().id()))
+            return removeFragmentsByIds(List.of(existing.get().id()))
                     .withAction(CompletableFuture.completedFuture("Build results cleared (success)"));
         }
-        return afterClear
-                .putSpecial(SpecialTextType.BUILD_RESULTS, processedOutput)
-                .withAction(CompletableFuture.completedFuture("Build results updated (failure)"));
+
+        return withSpecial(SpecialTextType.BUILD_RESULTS, processedOutput, CompletableFuture.completedFuture("Build results updated (failure)"));
     }
 
     /**
@@ -1125,8 +1113,7 @@ public class Context {
      * Updates the Task List fragment with the provided JSON. Clears previous Task List fragments before adding a new one.
      */
     private Context withTaskList(String json, String action) {
-        var next = putSpecial(SpecialTextType.TASK_LIST, json);
-        return next.withParsedOutput(null, CompletableFuture.completedFuture(action));
+        return withSpecial(SpecialTextType.TASK_LIST, json, CompletableFuture.completedFuture(action));
     }
 
     /**
@@ -1134,12 +1121,6 @@ public class Context {
      * If the task list is empty, removes any existing Task List fragment instead of creating an empty one.
      */
     public Context withTaskList(TaskList.TaskListData data, String action) {
-        // Guard: if data hasn't changed, return this context unchanged
-        var currentData = getTaskListDataOrEmpty();
-        if (currentData.equals(data)) {
-            return this;
-        }
-
         // If tasks are empty, remove the Task List fragment instead of creating an empty one
         if (data.tasks().isEmpty()) {
             var existing = getSpecial(SpecialTextType.TASK_LIST.description());
