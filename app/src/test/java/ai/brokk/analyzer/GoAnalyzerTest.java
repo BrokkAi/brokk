@@ -2,9 +2,13 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.analyzer.usages.FuzzyUsageFinder;
+import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.testutil.TestService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,6 +19,8 @@ import java.util.Set;
 import java.util.stream.Collectors; // Already present, no change needed to this line, but ensure it's here
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TSParser;
@@ -22,6 +28,8 @@ import org.treesitter.TSTree;
 import org.treesitter.TreeSitterGo;
 
 public class GoAnalyzerTest {
+    private static final Logger logger = LoggerFactory.getLogger(GoAnalyzerTest.class);
+
     private static TestProject testProject;
     private static GoAnalyzer analyzer;
     private static final TSLanguage GO_LANGUAGE = new TreeSitterGo(); // For direct parsing tests
@@ -542,5 +550,37 @@ public class GoAnalyzerTest {
 
         // Test with an empty set
         assertTrue(analyzer.getSymbols(Set.of()).isEmpty(), "getSymbols with empty set should return empty.");
+    }
+
+    private static Set<String> fileNamesFromHits(Set<UsageHit> hits) {
+        return hits.stream()
+                .map(hit -> hit.file().absPath().getFileName().toString())
+                .collect(Collectors.toSet());
+    }
+
+    private static FuzzyUsageFinder newFinder() {
+        return new FuzzyUsageFinder(testProject, analyzer, new TestService(testProject), null);
+    }
+
+    @Test
+    public void getUsesClassComprehensivePatternsTest() {
+        var finder = newFinder();
+        var symbol = "main.BaseStruct";
+        var either = finder.findUsages(symbol).toEither();
+
+        assumeFalse(either.hasErrorMessage(), "Go analyzer unavailable");
+
+        var hits = either.getUsages();
+        var files = fileNamesFromHits(hits);
+        assertTrue(
+                files.contains("class_usage_patterns.go"),
+                "Expected comprehensive usage patterns in class_usage_patterns.go; actual: " + files);
+
+        var classUsageHits = hits.stream()
+                .filter(h -> h.file().absPath().getFileName().toString().equals("class_usage_patterns.go"))
+                .toList();
+        assertTrue(
+                classUsageHits.size() >= 2,
+                "Expected at least 2 different usage patterns, found: " + classUsageHits.size());
     }
 }
