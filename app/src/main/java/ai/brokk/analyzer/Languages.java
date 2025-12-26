@@ -272,10 +272,15 @@ public class Languages {
                 return Set.of(
                         "\\b$ident\\s*\\{", // struct initialization
                         "\\b$ident\\{", // compact struct init
-                        "\\btype\\s+\\w+\\s+struct", // struct definition (for finding usages)
+                        "\\btype\\s+$ident\\s+struct", // struct definition
                         "\\*$ident", // pointer types
-                        "\\b$ident\\b", // type in signatures
-                        "\\bfunc\\s+\\(\\w+\\s+\\*$ident\\)", // method receiver
+                        "\\bvar\\s+\\w+\\s+\\*?$ident\\b", // variable declarations
+                        "\\[\\]\\*?$ident\\b", // slice types
+                        "\\[\\d+\\]\\*?$ident\\b", // array types
+                        "map\\[.+?\\]\\*?$ident\\b", // map value types
+                        "\\)\\s+\\*?$ident\\b", // return types
+                        "\\.\\(\\*?$ident\\)", // type assertions
+                        "\\bfunc\\s+\\(\\w+\\s+\\*?$ident\\)", // method receiver
                         "\\bimport\\s+.*\".*/$ident\"" // import statements
                         );
             }
