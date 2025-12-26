@@ -63,10 +63,21 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
         listeners.add(listener);
     }
 
+    public void setBusy(boolean busy) {
+        generateButton.setEnabled(!busy);
+        generateButton.setText(busy ? "Generating..." : "Guided Review");
+    }
+
     private void triggerReviewGeneration() {
-        // This would typically involve an agent call. 
-        // For now, we assume the review is triggered via contextManager 
-        // and updated via a separate data binding or callback.
+        for (ReviewNavigationListener l : listeners) {
+            if (l instanceof ReviewTriggerListener rtl) {
+                rtl.onTriggerReview();
+            }
+        }
+    }
+
+    public interface ReviewTriggerListener extends ReviewNavigationListener {
+        void onTriggerReview();
     }
 
     public void displayReview(GuidedReview review) {

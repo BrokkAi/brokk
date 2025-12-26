@@ -1,6 +1,8 @@
 package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
+import ai.brokk.EditBlock;
+import ai.brokk.ICodeReview;
 import ai.brokk.context.Context;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.AbstractDiffPanel;
@@ -51,7 +53,16 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Nullable
     private FileTreePanel fileTreePanel;
 
+    @Nullable
+    private CodeReviewPanel codeReviewPanel;
+
     private final JPanel diffContainer = new JPanel(new BorderLayout());
+
+    private List<FileComparisonInfo> currentComparisons = List.of();
+    private List<String> currentComparisonPaths = List.of();
+    private List<String> currentComparisonNewContents = List.of();
+    private int currentExcerptIndex = 0;
+    private List<ICodeReview.CodeExcerpt> currentExcerpts = List.of();
 
     @FunctionalInterface
     public interface TabTitleUpdater {
@@ -319,17 +330,37 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         var root = contextManager.getProject().getRoot();
         if (root.getFileName() != null) projectName = root.getFileName().toString();
 
-        List<FileComparisonInfo> comparisons = prepared.stream()
+        this.currentComparisonPaths = prepared.stream()
+                .map(Map.Entry::getKey)
+                .toList();
+        this.currentComparisonNewContents = prepared.stream()
+                .map(entry -> entry.getValue().newContent())
+                .toList();
+        this.currentComparisons = prepared.stream()
                 .map(entry -> new FileComparisonInfo(
                         new BufferSource.StringSource(entry.getValue().oldContent(), "", entry.getKey(), null),
                         new BufferSource.StringSource(entry.getValue().newContent(), "", entry.getKey(), null)))
                 .toList();
 
-        fileTreePanel = new FileTreePanel(comparisons, root, projectName);
+        fileTreePanel = new FileTreePanel(currentComparisons, root, projectName);
+        codeReviewPanel = new CodeReviewPanel(contextManager);
+        codeReviewPanel.addReviewNavigationListener(new CodeReviewPanel.ReviewTriggerListener() {
+            @Override
+            public void onTriggerReview() {
+                generateGuidedReview(baselineLabel, baselineMode);
+            }
+
+            @Override
+            public void onSelect(String explanation, List<ICodeReview.CodeExcerpt> excerpts) {
+                currentExcerpts = excerpts;
+                currentExcerptIndex = 0;
+                navigateToExcerpt(0);
+            }
+        });
 
         panelManager = new DiffPanelManager(
                 null,
-                comparisons,
+                currentComparisons,
                 contextManager,
                 panel -> {
                     diffContainer.removeAll();
@@ -342,8 +373,25 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         fileTreePanel.setSelectionListener(panelManager);
         fileTreePanel.initializeTree();
 
-        var splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, fileTreePanel, diffContainer);
-        splitPane.setDividerLocation(250);
+        // Add "Next Excerpt" functionality if multiple excerpts exist
+        Action nextExcerptAction = new AbstractAction("Next Excerpt") {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                if (currentExcerpts.size() > 1) {
+                    currentExcerptIndex = (currentExcerptIndex + 1) % currentExcerpts.size();
+                    navigateToExcerpt(currentExcerptIndex);
+                }
+            }
+        };
+        this.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke("released F3"), "nextExcerpt");
+        this.getActionMap().put("nextExcerpt", nextExcerptAction);
+
+        var leftSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel, fileTreePanel);
+        leftSplit.setDividerLocation(300);
+        leftSplit.setResizeWeight(0.5);
+
+        var splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplit, diffContainer);
+        splitPane.setDividerLocation(300);
         topContainer.add(splitPane, BorderLayout.CENTER);
 
         setBorder(new CompoundBorder(
@@ -419,9 +467,94 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
     }
 
+    private void generateGuidedReview(@Nullable String baselineLabel, @Nullable BaselineMode baselineMode) {
+        if (codeReviewPanel == null || lastCumulativeChanges == null) return;
+
+        codeReviewPanel.setBusy(true);
+        contextManager.submitBackgroundTask("Generating Guided Review", () -> {
+            // We use the contextManager to trigger the review generation via the specialized service
+            // Based on the error, getService() takes no arguments.
+            Object service = contextManager.getService();
+            
+            try {
+                var method = service.getClass().getMethod("generateReview", String.class, DiffService.CumulativeChanges.class);
+                return (ICodeReview.GuidedReview) method.invoke(service, baselineLabel, lastCumulativeChanges);
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to invoke GuidedReviewService via " + service.getClass(), e);
+            }
+        }).thenAccept(review -> SwingUtilities.invokeLater(() -> {
+            if (codeReviewPanel != null && review != null) {
+                codeReviewPanel.displayReview(review);
+                codeReviewPanel.setBusy(false);
+            }
+        })).exceptionally(ex -> {
+            logger.error("Failed to generate guided review", ex);
+            SwingUtilities.invokeLater(() -> {
+                if (codeReviewPanel != null) codeReviewPanel.setBusy(false);
+                chrome.toolError("Review generation failed: " + ex.getMessage());
+            });
+            return null;
+        });
+    }
+
+    private void navigateToExcerpt(int index) {
+        if (panelManager == null || index < 0 || index >= currentExcerpts.size()) return;
+
+        ICodeReview.CodeExcerpt excerpt = currentExcerpts.get(index);
+        String relPath = excerpt.file().getRelPath().toString();
+        String excerptText = excerpt.excerpt();
+
+        int targetFileIndex = -1;
+        for (int i = 0; i < currentComparisonPaths.size(); i++) {
+            if (currentComparisonPaths.get(i).equals(relPath)) {
+                targetFileIndex = i;
+                break;
+            }
+        }
+
+        if (targetFileIndex == -1) return;
+
+        // Find the line number using whitespace-insensitive search in the NEW content
+        String newContent = currentComparisonNewContents.get(targetFileIndex);
+        String[] lines = newContent.split("\\r?\\n", -1);
+        String[] targetLines = excerptText.split("\\r?\\n", -1);
+
+        int lineNum = findLineIgnoringWhitespace(lines, targetLines);
+        if (lineNum != -1) {
+            panelManager.navigateToLocation(targetFileIndex, lineNum + 1);
+        } else {
+            panelManager.navigateToFile(targetFileIndex);
+        }
+    }
+
+    /**
+     * Finds the starting line index where targetLines match in originalLines,
+     * ignoring leading/trailing whitespace differences on each line.
+     * Returns -1 if no match found.
+     */
+    private static int findLineIgnoringWhitespace(String[] originalLines, String[] targetLines) {
+        if (targetLines.length == 0) return -1;
+        if (targetLines.length > originalLines.length) return -1;
+
+        for (int start = 0; start <= originalLines.length - targetLines.length; start++) {
+            boolean matches = true;
+            for (int j = 0; j < targetLines.length; j++) {
+                if (!originalLines[start + j].strip().equals(targetLines[j].strip())) {
+                    matches = false;
+                    break;
+                }
+            }
+            if (matches) {
+                return start;
+            }
+        }
+        return -1;
+    }
+
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         if (fileTreePanel != null) fileTreePanel.applyTheme(guiTheme);
+        if (codeReviewPanel != null) codeReviewPanel.applyTheme(guiTheme);
         if (panelManager != null) {
             for (AbstractDiffPanel panel : panelManager.getCachedPanels()) {
                 panel.applyTheme(guiTheme);
