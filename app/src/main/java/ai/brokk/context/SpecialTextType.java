@@ -1,6 +1,5 @@
 package ai.brokk.context;
 
-import ai.brokk.TaskResult;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Json;
 import java.util.Optional;
@@ -152,9 +151,7 @@ public enum SpecialTextType {
 
         @Override
         public boolean canViewContent(ViewingPolicy policy) {
-            return (policy.taskType() == TaskResult.Type.SEARCH && policy.useTaskList())
-                    || policy.taskType() == TaskResult.Type.ASK
-                    || policy.taskType() == TaskResult.Type.COPY; // COPY used for CopyExternal prompts
+            return policy.useTaskList();
         }
     };
 

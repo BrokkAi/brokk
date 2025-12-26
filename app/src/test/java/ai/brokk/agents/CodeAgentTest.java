@@ -909,7 +909,7 @@ class CodeAgentTest {
 
         assertFalse(fragments.isEmpty(), "Context should contain a fragment for the modified file");
 
-        var fragmentContent = fragments.getFirst().format().join();
+        var fragmentContent = fragments.getFirst().text().join();
         assertTrue(fragmentContent.contains("goodbye"), fragmentContent);
         assertFalse(fragmentContent.contains("hello"), fragmentContent);
     }
@@ -1057,7 +1057,7 @@ class CodeAgentTest {
         // Assert: TaskResult.output contains the conversation
         var outputFragment = result.output();
         assertNotNull(outputFragment, "TaskResult.output should not be null");
-        var outputText = outputFragment.format().join();
+        var outputText = outputFragment.text().join();
         assertTrue(outputText.contains("goodbye"), "Output should contain the LLM response with the edit");
 
         // Assert: TaskResult.context does NOT have the conversation baked in

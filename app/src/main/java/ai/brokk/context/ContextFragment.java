@@ -134,11 +134,6 @@ public interface ContextFragment {
     ComputedValue<String> text();
 
     /**
-     * content formatted for LLM
-     */
-    ComputedValue<String> format();
-
-    /**
      * fragment toc entry, usually id + description
      */
     default String formatToc(boolean isPinned) {

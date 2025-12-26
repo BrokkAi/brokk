@@ -1,5 +1,6 @@
 package ai.brokk.prompts;
 
+import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
@@ -287,17 +288,11 @@ public final class WorkspacePrompts {
 
     private static List<ChatMessage> buildEditableAll(Context ctx, boolean showBuildStatusInWorkspace) {
         var editableFragments = sortByMtime(ctx.getEditableFragments()).toList();
-        @Nullable ContextFragment buildFragment = ctx.getBuildFragment().orElse(null);
-        var editableTextFragments = new StringBuilder();
-        editableFragments.forEach(fragment -> {
-            // Editable fragments use their own formatting; ViewingPolicy does not currently affect them.
-            String formatted = fragment.format().join();
-            if (!formatted.isBlank()) {
-                editableTextFragments.append(formatted).append("\n\n");
-            }
-        });
+        var editableTextFragments =
+                formatWithPolicy(ctx, editableFragments, new ViewingPolicy(TaskResult.Type.CODE, false)).text;
 
-        boolean shouldShowBuild = showBuildStatusInWorkspace && buildFragment != null;
+        boolean shouldShowBuild =
+                showBuildStatusInWorkspace && ctx.getBuildFragment().isPresent();
         if (editableTextFragments.isEmpty() && !shouldShowBuild) {
             return List.of();
         }
@@ -319,8 +314,7 @@ public final class WorkspacePrompts {
                             </workspace_editable>
                             """;
 
-            String editableText = editableSectionTemplate.formatted(
-                    editableTextFragments.toString().trim());
+            String editableText = editableSectionTemplate.formatted(editableTextFragments.trim());
 
             combinedText.append(editableText);
         }
@@ -454,7 +448,7 @@ public final class WorkspacePrompts {
                 if (cf instanceof ContextFragments.StringFragment sf) {
                     visibleText = sf.textForAgent(vp);
                 } else {
-                    visibleText = cf.format().join();
+                    visibleText = cf.text().join();
                 }
                 String idOrPinned = ctx.isPinned(cf) ? "pinned=\"true\"" : "fragmentid=\"%s\"".formatted(cf.id());
                 String formatted;
@@ -478,7 +472,7 @@ public final class WorkspacePrompts {
                     var l4jImage = ImageUtil.toL4JImage(ImageUtil.bytesToImage(imageBytes.join()));
                     imageList.add(ImageContent.from(l4jImage));
                 }
-                textBuilder.append(cf.format().join()).append("\n\n");
+                textBuilder.append(cf.text().join()).append("\n\n");
             } catch (IOException | UncheckedIOException e) {
                 logger.error(
                         "Failed to process image fragment {} for LLM message",
