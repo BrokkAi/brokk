@@ -1039,73 +1039,87 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
      * Finds a node by path, optionally expanding directories along the way.
      * When expandDuringTraversal is false, directories are loaded but not visually expanded,
      * allowing the caller to expand the full path at once for a smoother UX.
+     *
+     * All tree node access is performed on the EDT for thread-safety.
      */
     private CompletableFuture<@Nullable DefaultMutableTreeNode> findNodeAsync(
             DefaultMutableTreeNode currentNode, Path relativePath, int depth, boolean expandDuringTraversal) {
 
-        // Ensure current node's children are loaded if it's a directory and not yet loaded
-        CompletableFuture<Void> loadFuture;
-        if (currentNode.getUserObject() instanceof ProjectTreeNode currentPtn && currentPtn.isDirectory()) {
-            if (!currentPtn.isChildrenLoaded()
-                    && currentNode.getChildCount() > 0
-                    && LOADING_PLACEHOLDER.equals(((DefaultMutableTreeNode) currentNode.getFirstChild())
-                            .getUserObject()
-                            .toString())) {
-                loadFuture = loadChildrenForNodeAsync(currentNode);
+        var result = new CompletableFuture<@Nullable DefaultMutableTreeNode>();
+
+        // All tree access must happen on EDT
+        SwingUtilities.invokeLater(() -> {
+            // Check if current node's children need loading
+            CompletableFuture<Void> loadFuture;
+            if (currentNode.getUserObject() instanceof ProjectTreeNode currentPtn && currentPtn.isDirectory()) {
+                if (!currentPtn.isChildrenLoaded()
+                        && currentNode.getChildCount() > 0
+                        && LOADING_PLACEHOLDER.equals(((DefaultMutableTreeNode) currentNode.getFirstChild())
+                                .getUserObject()
+                                .toString())) {
+                    loadFuture = loadChildrenForNodeAsync(currentNode);
+                } else {
+                    loadFuture = CompletableFuture.completedFuture(null);
+                }
             } else {
                 loadFuture = CompletableFuture.completedFuture(null);
             }
-        } else {
-            loadFuture = CompletableFuture.completedFuture(null);
-        }
 
-        return loadFuture.thenCompose(ignored -> {
-            if (depth == relativePath.getNameCount()) {
-                // Base case: We've traversed all path components.
-                if (currentNode.getUserObject() instanceof ProjectTreeNode ptn) {
-                    if (ptn.getFile()
-                            .getName()
-                            .equals(relativePath.getFileName().toString())) {
-                        return CompletableFuture.completedFuture(currentNode);
-                    }
-                }
-                if (currentNode.getUserObject() instanceof ProjectTreeNode ptn
-                        && ptn.isDirectory()
-                        && depth > 0
-                        && ptn.getFile()
+            // After loading completes, continue traversal on EDT
+            loadFuture.thenAccept(ignored -> SwingUtilities.invokeLater(() -> {
+                if (depth == relativePath.getNameCount()) {
+                    // Base case: We've traversed all path components.
+                    if (currentNode.getUserObject() instanceof ProjectTreeNode ptn) {
+                        if (ptn.getFile()
                                 .getName()
-                                .equals(relativePath.getName(depth - 1).toString())) {
-                    return CompletableFuture.completedFuture(currentNode);
+                                .equals(relativePath.getFileName().toString())) {
+                            result.complete(currentNode);
+                            return;
+                        }
+                    }
+                    if (currentNode.getUserObject() instanceof ProjectTreeNode ptn
+                            && ptn.isDirectory()
+                            && depth > 0
+                            && ptn.getFile()
+                                    .getName()
+                                    .equals(relativePath.getName(depth - 1).toString())) {
+                        result.complete(currentNode);
+                        return;
+                    }
+                    result.complete(null);
+                    return;
                 }
-                return CompletableFuture.completedFuture(null);
-            }
 
-            if (!(currentNode.getUserObject() instanceof ProjectTreeNode currentPtn && currentPtn.isDirectory())) {
-                return CompletableFuture.completedFuture(null);
-            }
+                if (!(currentNode.getUserObject() instanceof ProjectTreeNode currentPtn2
+                        && currentPtn2.isDirectory())) {
+                    result.complete(null);
+                    return;
+                }
 
-            String targetComponentName = relativePath.getName(depth).toString();
-            Enumeration<?> children = currentNode.children();
-            while (children.hasMoreElements()) {
-                var childNode = (DefaultMutableTreeNode) children.nextElement();
-                if (childNode.getUserObject() instanceof ProjectTreeNode childPtn
-                        && childPtn.getFile().getName().equals(targetComponentName)) {
+                String targetComponentName = relativePath.getName(depth).toString();
+                Enumeration<?> children = currentNode.children();
+                while (children.hasMoreElements()) {
+                    var childNode = (DefaultMutableTreeNode) children.nextElement();
+                    if (childNode.getUserObject() instanceof ProjectTreeNode childPtn
+                            && childPtn.getFile().getName().equals(targetComponentName)) {
 
-                    if (expandDuringTraversal && childPtn.isDirectory()) {
-                        // Expand on EDT since isExpanded/expandPath are JTree methods
-                        SwingUtilities.invokeLater(() -> {
+                        if (expandDuringTraversal && childPtn.isDirectory()) {
                             TreePath childPath = new TreePath(childNode.getPath());
                             if (!isExpanded(childPath)) {
                                 expandPath(childPath);
                             }
-                        });
+                        }
+                        // Recurse and chain result
+                        findNodeAsync(childNode, relativePath, depth + 1, expandDuringTraversal)
+                                .thenAccept(result::complete);
+                        return;
                     }
-                    // Recurse asynchronously
-                    return findNodeAsync(childNode, relativePath, depth + 1, expandDuringTraversal);
                 }
-            }
-            return CompletableFuture.completedFuture(null);
+                result.complete(null);
+            }));
         });
+
+        return result;
     }
 
     private List<ProjectFile> getSelectedProjectFiles() {
