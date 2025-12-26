@@ -72,7 +72,7 @@ public class PythonLanguage implements Language {
         } else if (type == CodeUnitType.CLASS) {
             return Set.of(
                     "\\b$ident\\s*\\(", // constructor calls
-                    "\\bclass\\s+\\w+\\s*\\(.*$ident", // inheritance
+                    "\\bclass\\s+\\w+\\s*\\([^)]*$ident[^)]*\\):", // inheritance
                     "\\b$ident\\s*\\.", // static/class access
                     ":\\s*$ident\\b", // type hints
                     "->\\s*$ident\\b", // return type hints
