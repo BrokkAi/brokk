@@ -36,6 +36,10 @@ import org.jetbrains.annotations.Blocking;
 public interface IContextManager {
     Logger logger = LogManager.getLogger(IContextManager.class);
 
+    default boolean undoContext() {
+        throw new UnsupportedOperationException();
+    }
+
     /** Callback interface for analyzer update events. */
     interface AnalyzerCallback {
         /** Called before each analyzer build begins. */

@@ -145,7 +145,6 @@ public class SearchAgent {
 
     // State toggles
     private boolean beastMode;
-    private boolean codeAgentJustSucceeded;
 
     /**
      * Primary constructor with explicit IO and ScanConfig.
@@ -180,7 +179,6 @@ public class SearchAgent {
         this.summarizer = cm.getLlm(summarizeModel, "Summarizer: " + goal);
 
         this.beastMode = false;
-        this.codeAgentJustSucceeded = false;
         this.objective = objective;
         this.metrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))
                 ? SearchMetrics.tracking()
@@ -421,13 +419,6 @@ public class SearchAgent {
                         return errorResult(
                                 new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, "Aborted: " + display),
                                 taskMeta());
-                    } else if (termReq.name().equals("callCodeAgent")) {
-                        if (codeAgentJustSucceeded) {
-                            // code agent already appended output to history, empty messages are skipped by scope.append
-                            return TaskResult.humanResult(
-                                    cm, "CodeAgent finished", List.of(), context, TaskResult.StopReason.SUCCESS);
-                        }
-                        // If CodeAgent did not succeed, continue planning/search loop
                     } else {
                         return createResult(termReq.name(), goal);
                     }
@@ -821,21 +812,15 @@ public class SearchAgent {
         // Append first the SearchAgent's result so far; CodeAgent appends its own result
         context = scope.append(createResult("Search: " + goal, goal));
 
+        // Call the agent (actually Architect, not Code, so it can recover if the Context isn't quite complete)
         logger.debug("SearchAgent.callCodeAgent invoked with instructions: {}", instructions);
         io.llmOutput("**Code Agent** engaged: " + instructions, ChatMessageType.AI, true, false);
-        var agent = new CodeAgent(cm, cm.getCodeModel());
-        var opts = new HashSet<CodeAgent.Option>();
-
-        // Keep a snapshot to determine if changes occurred
-        Context contextBefore = context;
-
-        var result = agent.executeWithoutHistory(context, instructions, opts);
+        var agent = new ArchitectAgent(
+                cm, cm.getService().getModel(ModelType.ARCHITECT), cm.getCodeModel(), instructions, scope);
+        var result = agent.execute();
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
-
         context = scope.append(result);
-
-        boolean didChange = !context.getChangedFiles(contextBefore).isEmpty();
 
         if (reason == TaskResult.StopReason.SUCCESS) {
             // housekeeping
@@ -843,11 +828,10 @@ public class SearchAgent {
             cm.compressHistory();
             // CodeAgent appended its own result; we don't need to llmOutput anything redundant
             logger.debug("SearchAgent.callCodeAgent finished successfully");
-            codeAgentJustSucceeded = true;
             return "CodeAgent finished with a successful build!";
         }
 
-        // propagate critical failures
+        // handle failure
         if (reason == TaskResult.StopReason.INTERRUPTED) {
             throw new InterruptedException();
         }
@@ -856,31 +840,7 @@ public class SearchAgent {
             logger.error("Fatal LLM error during CodeAgent execution: {}", stopDetails.explanation());
             throw new ToolRegistry.FatalLlmException(stopDetails.explanation());
         }
-
-        // Non-success outcomes: continue planning on next loop
-        codeAgentJustSucceeded = false;
-        logger.debug("SearchAgent.callCodeAgent failed with reason {}; continuing planning", reason);
-
-        // Provide actionable guidance; reserve workspace details only for BUILD_ERROR
-        StringBuilder sb = new StringBuilder();
-        if (reason == TaskResult.StopReason.BUILD_ERROR) {
-            sb.append("CodeAgent was not able to get to a clean build. Details are in the Workspace.\n");
-            if (didChange) {
-                sb.append("Changes were made; you can undo with 'undoLastChanges' if they are negative progress.\n");
-            }
-            sb.append(
-                    "Consider retrying with 'deferBuild=true' for multi-step changes, then complete follow-up fixes.\n");
-        } else {
-            sb.append("CodeAgent did not complete successfully.\n");
-            if (didChange) {
-                sb.append("If the changes are not helpful, you can undo with 'undoLastChanges'.\n");
-            }
-            sb.append(
-                    "Try smaller, focused edits with valid SEARCH/REPLACE blocks; add or refresh required files using workspace tools "
-                            + "(e.g., addFilesToWorkspace, addFileSummariesToWorkspace), or use callSearchAgent to locate the correct targets, then retry callCodeAgent.\n");
-        }
-        sb.append("Continuing search and planning.\n");
-        return sb.toString();
+        throw new ToolRegistry.ToolCallException(ToolExecutionResult.Status.FATAL, stopDetails.explanation());
     }
 
     // =======================
