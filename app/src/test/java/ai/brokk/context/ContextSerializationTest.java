@@ -1210,6 +1210,50 @@ public class ContextSerializationTest {
     }
 
     @Test
+    void testPinnedRoundTrip() throws Exception {
+        // Setup a fragment and pin it
+        var sf = new ContextFragments.StringFragment(
+                mockContextManager, "Pinned content", "Pinned Desc", SyntaxConstants.SYNTAX_STYLE_NONE);
+        var ctx = new Context(mockContextManager).addFragments(sf).withPinned(sf, true);
+
+        assertTrue(ctx.isPinned(sf), "Fragment should be pinned in original context");
+
+        ContextHistory ch = new ContextHistory(ctx);
+        Path zipFile = tempDir.resolve("pinned_roundtrip.zip");
+        HistoryIo.writeZip(ch, zipFile);
+
+        // Deserialize
+        ContextHistory loaded = HistoryIo.readZip(zipFile, mockContextManager);
+        Context loadedCtx = loaded.getHistory().getFirst();
+
+        var loadedSf = loadedCtx
+                .virtualFragments()
+                .filter(f -> f.description().join().equals("Pinned Desc"))
+                .findFirst()
+                .orElseThrow();
+
+        assertTrue(loadedCtx.isPinned(loadedSf), "Fragment should remain pinned after round-trip");
+
+        // Verify unpinned fragment stays unpinned
+        var sf2 = new ContextFragments.StringFragment(
+                mockContextManager, "Unpinned content", "Unpinned Desc", SyntaxConstants.SYNTAX_STYLE_NONE);
+        var ctx2 = ctx.addFragments(sf2);
+        assertFalse(ctx2.isPinned(sf2));
+
+        Path zipFile2 = tempDir.resolve("pinned_mixed_roundtrip.zip");
+        HistoryIo.writeZip(new ContextHistory(ctx2), zipFile2);
+
+        ContextHistory loaded2 = HistoryIo.readZip(zipFile2, mockContextManager);
+        Context loadedCtx2 = loaded2.getHistory().getFirst();
+        var loadedSf2 = loadedCtx2
+                .virtualFragments()
+                .filter(f -> f.description().join().equals("Unpinned Desc"))
+                .findFirst()
+                .orElseThrow();
+        assertFalse(loadedCtx2.isPinned(loadedSf2), "Unpinned fragment should remain unpinned");
+    }
+
+    @Test
     void testReadOnlyRoundTripForEditableFragments() throws Exception {
         // Create editable ProjectPathFragment and CodeFragment, plus non-editable StringFragment
         var projectFile = new ProjectFile(tempDir, "src/RoTest.java");

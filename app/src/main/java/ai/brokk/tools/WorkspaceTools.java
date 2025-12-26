@@ -199,7 +199,8 @@ public class WorkspaceTools {
             value =
                     "Remove specified fragments (files, text snippets, task history, analysis results) from the Workspace and record explanations in DISCARDED_CONTEXT as a JSON map. Do not drop file fragments that you still need to read, or need to edit as part of your current task, unless the edits are localized to a single function.")
     public String dropWorkspaceFragments(
-            @P("List of fragments to remove from the Workspace. Must not be empty.") List<FragmentRemoval> fragments) {
+            @P("List of fragments to remove from the Workspace. Must not be empty. Pinned fragments are ineligible.")
+                    List<FragmentRemoval> fragments) {
         if (fragments.isEmpty()) {
             return "Fragments list cannot be empty.";
         }

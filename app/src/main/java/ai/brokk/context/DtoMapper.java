@@ -28,7 +28,6 @@ import java.util.ArrayList;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
@@ -61,6 +60,11 @@ public class DtoMapper {
                 .toList();
 
         var readonlyFragments = dto.readonly().stream()
+                .map(fragmentCache::get)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        var pinnedFragments = dto.pinned().stream()
                 .map(fragmentCache::get)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
@@ -145,7 +149,7 @@ public class DtoMapper {
                 groupUuid,
                 dto.groupLabel(),
                 readonlyFragments,
-                Set.of());
+                pinnedFragments);
     }
 
     public record GitStateDto(String commitHash, @Nullable String diffContentId) {}
@@ -175,12 +179,17 @@ public class DtoMapper {
         var virtualIds = ctx.virtualFragments().map(ContextFragment::id).toList();
         var readonlyIds =
                 ctx.getMarkedReadonlyFragments().map(ContextFragment::id).toList();
+        var pinnedIds = ctx.allFragments()
+                .filter(ctx::isPinned)
+                .map(ContextFragment::id)
+                .toList();
 
         return new CompactContextDto(
                 ctx.id().toString(),
                 editableIds,
                 readonlyIds,
                 virtualIds,
+                pinnedIds,
                 taskEntryRefs,
                 ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null,
                 action,
