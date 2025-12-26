@@ -14,7 +14,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.SequencedSet;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -44,8 +43,7 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
         // Minimal conversation and edit state; use raw generics to avoid direct ChatMessage dependency.
         var cs = new CodeAgent.ConversationState(new ArrayList<>(), new ArrayList<>(), null, 0, "");
 
-        var es = new CodeAgent.EditState(
-                0, 0, 0, 0, 0, "", Set.of(), Map.of(), Map.of(), false, false, Map.of());
+        var es = new CodeAgent.EditState(0, 0, 0, 0, 0, "", Set.of(), Map.of(), Map.of(), false, false, Map.of());
 
         // Ensure Java-only editable workspace to satisfy BRK_* guard
         var cm = codeAgent.contextManager;

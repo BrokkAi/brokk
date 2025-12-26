@@ -132,7 +132,7 @@ class CodeAgentTest {
                 false, // showBuildError
                 false, // useArchitectModel
                 Map.of() // simulatedContents
-        );
+                );
     }
 
     private CodeAgent.ConversationState createBasicConversationState() {
@@ -275,7 +275,8 @@ class CodeAgentTest {
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = createEditState(0);
-        var result = codeAgent.applyPhase(cs, es, new LinkedHashSet<>(List.of(successBlock, failureBlock)), null, Set.of());
+        var result =
+                codeAgent.applyPhase(cs, es, new LinkedHashSet<>(List.of(successBlock, failureBlock)), null, Set.of());
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
@@ -639,18 +640,7 @@ class CodeAgentTest {
         file.write(revised);
 
         var es = new CodeAgent.EditState(
-                0,
-                0,
-                0,
-                1,
-                0,
-                "",
-                changedFiles,
-                originalMap,
-                Collections.emptyMap(),
-                false,
-                false,
-                Map.of());
+                0, 0, 0, 1, 0, "", changedFiles, originalMap, Collections.emptyMap(), false, false, Map.of());
 
         var blocks = es.toSearchReplaceBlocks();
         // Expect two distinct blocks (one per changed line)
