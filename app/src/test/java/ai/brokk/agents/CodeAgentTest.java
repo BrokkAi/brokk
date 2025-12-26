@@ -14,7 +14,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
-import ai.brokk.context.ViewingPolicy;
+import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.CodePrompts;
@@ -799,7 +799,7 @@ class CodeAgentTest {
                 prologue,
                 taskMessages,
                 nextRequest,
-                new ViewingPolicy(TaskResult.Type.CODE),
+                java.util.EnumSet.of(SpecialTextType.TASK_LIST),
                 Messages.getText(nextRequest),
                 false);
 
@@ -1290,7 +1290,7 @@ class CodeAgentTest {
                 List.of(),
                 List.of(),
                 request,
-                new ViewingPolicy(TaskResult.Type.CODE),
+                java.util.EnumSet.of(SpecialTextType.TASK_LIST),
                 Messages.getText(request),
                 false);
 
@@ -1317,7 +1317,7 @@ class CodeAgentTest {
                 List.of(),
                 List.of(),
                 request,
-                new ViewingPolicy(TaskResult.Type.CODE),
+                java.util.EnumSet.of(SpecialTextType.TASK_LIST),
                 Messages.getText(request),
                 false);
 
@@ -1440,7 +1440,7 @@ class CodeAgentTest {
                 List.of(),
                 List.of(),
                 request,
-                new ViewingPolicy(TaskResult.Type.CODE),
+                java.util.EnumSet.of(SpecialTextType.TASK_LIST),
                 "My special goal text",
                 false);
 

@@ -904,12 +904,12 @@ public class ContextFragments {
             return specialType().map(st -> st.renderPreview(snapshot.text())).orElse(snapshot.text());
         }
 
-        public String textForAgent(ViewingPolicy viewPolicy) {
+        public String textForAgent(java.util.Set<SpecialTextType> suppressedTypes) {
             var st = specialType();
             if (st.isEmpty()) return snapshot.text();
-            if (!st.get().canViewContent(viewPolicy)) {
-                return "[%s content hidden for %s]"
-                        .formatted(snapshot.description(), viewPolicy.taskType().name());
+            if (!st.get().canViewContent(suppressedTypes)) {
+                return "[%s content hidden]"
+                        .formatted(snapshot.description());
             }
             return snapshot.text();
         }

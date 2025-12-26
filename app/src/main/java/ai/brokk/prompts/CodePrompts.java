@@ -11,7 +11,7 @@ import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.context.ViewingPolicy;
+import ai.brokk.context.SpecialTextType;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.data.message.ChatMessage;
@@ -200,13 +200,13 @@ public abstract class CodePrompts {
             List<ChatMessage> prologue,
             List<ChatMessage> taskMessages,
             UserMessage request,
-            ViewingPolicy viewingPolicy,
+            java.util.Set<ai.brokk.context.SpecialTextType> suppressedTypes,
             String goal,
             boolean includeBuildStatus) {
         var cm = ctx.getContextManager();
         var messages = new ArrayList<ChatMessage>();
         var reminder = codeReminder(cm.getService(), model);
-        var codeAgentWorkspace = WorkspacePrompts.getMessagesForCodeAgent(ctx, viewingPolicy, includeBuildStatus);
+        var codeAgentWorkspace = WorkspacePrompts.getMessagesForCodeAgent(ctx, suppressedTypes, includeBuildStatus);
 
         messages.add(systemMessage(reminder, goal));
         messages.addAll(getHistoryMessages(ctx));
@@ -242,10 +242,10 @@ public abstract class CodePrompts {
     public final List<ChatMessage> collectAskMessages(Context ctx, String input) throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
 
-        var viewingPolicy = new ViewingPolicy(TaskResult.Type.ASK);
+        var suppressed = java.util.EnumSet.of(SpecialTextType.TASK_LIST);
         String reminder = askReminder();
         messages.add(systemMessage(reminder, null));
-        messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(ctx, viewingPolicy));
+        messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(ctx, suppressed));
         messages.addAll(getHistoryMessages(ctx));
         messages.add(askRequest(input));
 

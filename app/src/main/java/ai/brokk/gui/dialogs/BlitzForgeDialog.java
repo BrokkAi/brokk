@@ -16,7 +16,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
-import ai.brokk.context.ViewingPolicy;
+import ai.brokk.context.SpecialTextType;
 import ai.brokk.gui.BorderUtils;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.InstructionsPanel;
@@ -993,7 +993,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     Context ctx = cm.liveContext();
                     workspaceTokens =
                             Messages.getApproximateMessageTokens(WorkspacePrompts.getMessagesGroupedByMutability(
-                                    ctx, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
+                                    ctx, java.util.EnumSet.of(SpecialTextType.TASK_LIST)));
                     workspaceAdd = workspaceTokens * n;
                 }
 
@@ -1114,7 +1114,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                 // Token counting and message construction happen in this background thread.
                 Context ctx = cm.liveContext();
                 workspaceTokens = Messages.getApproximateMessageTokens(WorkspacePrompts.getMessagesGroupedByMutability(
-                        ctx, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
+                        ctx, java.util.EnumSet.of(SpecialTextType.TASK_LIST)));
                 historyTokens = Messages.getApproximateMessageTokens(cm.getHistoryMessages());
             } catch (Throwable t) {
                 logger.debug("Failed to compute token warning", t);
@@ -1431,7 +1431,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     var ctx = cm.liveContext();
                     var list = new ArrayList<ChatMessage>();
                     list.addAll(WorkspacePrompts.getMessagesGroupedByMutability(
-                            ctx, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
+                            ctx, java.util.EnumSet.of(SpecialTextType.TASK_LIST)));
                     list.addAll(CodePrompts.instance.getHistoryMessages(ctx));
                     var text = "";
                     for (var m : list) {
@@ -1604,7 +1604,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
             try {
                 if (fIncludeWorkspace) {
                     readOnlyMessages.addAll(WorkspacePrompts.getMessagesGroupedByMutability(
-                            context, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
+                            context, java.util.EnumSet.of(SpecialTextType.TASK_LIST)));
                     readOnlyMessages.addAll(CodePrompts.instance.getHistoryMessages(context));
                 }
                 if (fRelatedK != null) {

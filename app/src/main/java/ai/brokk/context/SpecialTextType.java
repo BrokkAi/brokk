@@ -30,8 +30,8 @@ public enum SpecialTextType {
         }
 
         @Override
-        public boolean canViewContent(ViewingPolicy policy) {
-            return true;
+        public boolean canViewContent(java.util.Set<SpecialTextType> suppressedTypes) {
+            return !suppressedTypes.contains(this);
         }
     },
 
@@ -47,8 +47,8 @@ public enum SpecialTextType {
         }
 
         @Override
-        public boolean canViewContent(ViewingPolicy policy) {
-            return true;
+        public boolean canViewContent(java.util.Set<SpecialTextType> suppressedTypes) {
+            return !suppressedTypes.contains(this);
         }
     },
 
@@ -64,8 +64,8 @@ public enum SpecialTextType {
         }
 
         @Override
-        public boolean canViewContent(ViewingPolicy policy) {
-            return true;
+        public boolean canViewContent(java.util.Set<SpecialTextType> suppressedTypes) {
+            return !suppressedTypes.contains(this);
         }
     },
 
@@ -150,8 +150,8 @@ public enum SpecialTextType {
         }
 
         @Override
-        public boolean canViewContent(ViewingPolicy policy) {
-            return policy.useTaskList();
+        public boolean canViewContent(java.util.Set<SpecialTextType> suppressedTypes) {
+            return !suppressedTypes.contains(this);
         }
     };
 
@@ -169,7 +169,9 @@ public enum SpecialTextType {
 
     public abstract String renderPreview(String rawContent);
 
-    public abstract boolean canViewContent(ViewingPolicy policy);
+    public boolean canViewContent(java.util.Set<SpecialTextType> suppressedTypes) {
+        return !suppressedTypes.contains(this);
+    }
 
     // --- Lookups and helpers ---
 

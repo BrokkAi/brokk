@@ -4,7 +4,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
-import ai.brokk.context.ViewingPolicy;
+import ai.brokk.context.SpecialTextType;
 import ai.brokk.util.ImageUtil;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -17,6 +17,7 @@ import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -148,7 +149,7 @@ public final class WorkspacePrompts {
      * {@code <workspace>} block, with the style guide from the context.
      */
     @Blocking
-    public static List<ChatMessage> getMessagesInAddedOrder(Context ctx, ViewingPolicy viewingPolicy) {
+    public static List<ChatMessage> getMessagesInAddedOrder(Context ctx, Set<SpecialTextType> suppressedTypes) {
         var allFragments = ctx.allFragments().toList();
         var styleGuide = ctx.getContextManager().getProject().getStyleGuide();
 
@@ -156,7 +157,7 @@ public final class WorkspacePrompts {
             return List.of();
         }
 
-        var rendered = formatWithPolicy(ctx, allFragments, viewingPolicy);
+        var rendered = formatWithPolicy(ctx, allFragments, suppressedTypes);
         if (rendered.text.isEmpty() && rendered.images.isEmpty() && styleGuide.isBlank()) {
             return List.of();
         }
@@ -189,8 +190,8 @@ public final class WorkspacePrompts {
      * @param viewingPolicy             viewing policy (controls StringFragment visibility)
      */
     @Blocking
-    public static List<ChatMessage> getMessagesGroupedByMutability(Context ctx, ViewingPolicy viewingPolicy) {
-        return getMessagesGroupedByMutability(ctx, viewingPolicy, true);
+    public static List<ChatMessage> getMessagesGroupedByMutability(Context ctx, Set<SpecialTextType> suppressedTypes) {
+        return getMessagesGroupedByMutability(ctx, suppressedTypes, true);
     }
 
     /**
@@ -202,10 +203,10 @@ public final class WorkspacePrompts {
      *                                   (it will be shown inline in the request instead).
      */
     private static List<ChatMessage> getMessagesGroupedByMutability(
-            Context ctx, ViewingPolicy viewingPolicy, boolean showBuildStatusInWorkspace) {
+            Context ctx, Set<SpecialTextType> suppressedTypes, boolean showBuildStatusInWorkspace) {
         // Compose read-only (optionally with build fragment) + all editable + build status into a single <workspace>
         // message
-        var readOnlyMessages = buildReadOnlyForContents(ctx, viewingPolicy, showBuildStatusInWorkspace);
+        var readOnlyMessages = buildReadOnlyForContents(ctx, suppressedTypes, showBuildStatusInWorkspace);
         var editableMessages = buildEditableAll(ctx, showBuildStatusInWorkspace);
 
         var styleGuide = ctx.getContextManager().getProject().getStyleGuide();
@@ -280,8 +281,8 @@ public final class WorkspacePrompts {
      */
     @Blocking
     public static CodeAgentMessages getMessagesForCodeAgent(
-            Context ctx, ViewingPolicy viewingPolicy, boolean showBuildStatusInWorkspace) {
-        var workspace = getMessagesGroupedByMutability(ctx, viewingPolicy, showBuildStatusInWorkspace);
+            Context ctx, Set<SpecialTextType> suppressedTypes, boolean showBuildStatusInWorkspace) {
+        var workspace = getMessagesGroupedByMutability(ctx, suppressedTypes, showBuildStatusInWorkspace);
         var buildFailure = ctx.getBuildFragment().map(f -> f.text().join()).orElse(null);
         return new CodeAgentMessages(workspace, buildFailure);
     }
@@ -289,7 +290,7 @@ public final class WorkspacePrompts {
     private static List<ChatMessage> buildEditableAll(Context ctx, boolean showBuildStatusInWorkspace) {
         var editableFragments = sortByMtime(ctx.getEditableFragments()).toList();
         var editableTextFragments =
-                formatWithPolicy(ctx, editableFragments, new ViewingPolicy(TaskResult.Type.CODE, false)).text;
+                formatWithPolicy(ctx, editableFragments, java.util.EnumSet.of(SpecialTextType.TASK_LIST)).text;
 
         boolean shouldShowBuild =
                 showBuildStatusInWorkspace && ctx.getBuildFragment().isPresent();
@@ -344,14 +345,14 @@ public final class WorkspacePrompts {
     }
 
     private static List<ChatMessage> buildReadOnlyForContents(
-            Context ctx, ViewingPolicy viewingPolicy, boolean showBuildStatusInWorkspace) {
+            Context ctx, Set<SpecialTextType> suppressedTypes, boolean showBuildStatusInWorkspace) {
         // Build read-only section; optionally include the build fragment as part of read-only workspace
         var buildFragment = ctx.getBuildFragment().orElse(null);
         var readOnlyFragments = ctx.getReadonlyFragments()
                 .filter(f -> showBuildStatusInWorkspace || f != buildFragment)
                 .toList();
 
-        var renderedReadOnly = renderReadOnlyFragments(ctx, readOnlyFragments, viewingPolicy);
+        var renderedReadOnly = renderReadOnlyFragments(ctx, readOnlyFragments, suppressedTypes);
 
         if (renderedReadOnly.text.isEmpty() && renderedReadOnly.images.isEmpty()) {
             return List.of();
@@ -407,7 +408,7 @@ public final class WorkspacePrompts {
      * @return RenderedContent with formatted text and images
      */
     private static RenderedContent renderReadOnlyFragments(
-            Context ctx, List<ContextFragment> readOnly, ViewingPolicy vp) {
+            Context ctx, List<ContextFragment> readOnly, Set<SpecialTextType> suppressedTypes) {
         var summaryFragments = readOnly.stream()
                 .filter(ContextFragments.SummaryFragment.class::isInstance)
                 .map(ContextFragments.SummaryFragment.class::cast)
@@ -417,7 +418,7 @@ public final class WorkspacePrompts {
                 .filter(f -> !(f instanceof ContextFragments.SummaryFragment))
                 .toList();
 
-        var renderedOther = formatWithPolicy(ctx, otherFragments, vp);
+        var renderedOther = formatWithPolicy(ctx, otherFragments, suppressedTypes);
         var textBuilder = new StringBuilder(renderedOther.text);
 
         if (!summaryFragments.isEmpty()) {
@@ -438,7 +439,7 @@ public final class WorkspacePrompts {
         return new RenderedContent(textBuilder.toString().trim(), renderedOther.images);
     }
 
-    private static RenderedContent formatWithPolicy(Context ctx, List<ContextFragment> fragments, ViewingPolicy vp) {
+    private static RenderedContent formatWithPolicy(Context ctx, List<ContextFragment> fragments, Set<SpecialTextType> suppressedTypes) {
         var textBuilder = new StringBuilder();
         var imageList = new ArrayList<ImageContent>();
 
@@ -446,7 +447,7 @@ public final class WorkspacePrompts {
             if (cf.isText()) {
                 String visibleText;
                 if (cf instanceof ContextFragments.StringFragment sf) {
-                    visibleText = sf.textForAgent(vp);
+                    visibleText = sf.textForAgent(suppressedTypes);
                 } else {
                     visibleText = cf.text().join();
                 }

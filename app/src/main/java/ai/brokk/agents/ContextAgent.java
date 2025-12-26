@@ -15,7 +15,7 @@ import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
-import ai.brokk.context.ViewingPolicy;
+import ai.brokk.context.SpecialTextType;
 import ai.brokk.git.GitDistance;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.WorkspacePrompts;
@@ -211,7 +211,7 @@ public class ContextAgent {
     @Blocking
     public RecommendationResult getRecommendations(Context context) throws InterruptedException {
         var workspaceRepresentation =
-                WorkspacePrompts.getMessagesInAddedOrder(context, new ViewingPolicy(TaskResult.Type.CONTEXT));
+                WorkspacePrompts.getMessagesInAddedOrder(context, java.util.EnumSet.of(SpecialTextType.TASK_LIST));
 
         // Subtract workspace tokens from both budgets.
         int workspaceTokens = Messages.getApproximateMessageTokens(workspaceRepresentation);
