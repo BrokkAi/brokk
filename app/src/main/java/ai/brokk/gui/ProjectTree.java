@@ -1367,9 +1367,10 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         private boolean childrenLoaded;
         private boolean isLoading = false;
         // Cached coloring state (computed lazily, but can be pre-warmed off EDT)
-        private @Nullable Boolean cachedIsExcluded;
-        private @Nullable Boolean cachedIsGitignored;
-        private @Nullable Boolean cachedIsTracked;
+        // Volatile for cross-thread visibility between pre-warming (ForkJoinPool) and rendering (EDT)
+        private volatile @Nullable Boolean cachedIsExcluded;
+        private volatile @Nullable Boolean cachedIsGitignored;
+        private volatile @Nullable Boolean cachedIsTracked;
 
         public ProjectTreeNode(File file, boolean childrenLoaded) {
             this.file = file;

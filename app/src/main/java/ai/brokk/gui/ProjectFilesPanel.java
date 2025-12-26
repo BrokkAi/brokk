@@ -1,5 +1,7 @@
 package ai.brokk.gui;
 
+import static ai.brokk.project.FileFilteringService.toUnixPath;
+
 import ai.brokk.Completions;
 import ai.brokk.ContextManager;
 import ai.brokk.analyzer.ProjectFile;
@@ -269,12 +271,12 @@ public class ProjectFilesPanel extends JPanel {
     // Package-private for testing
     static boolean matchesSearch(ProjectFile pf, String typedLower) {
         // Normalize path separators to forward slash for cross-platform consistency
-        String pathStrLower = pf.getRelPath().toString().replace('\\', '/').toLowerCase(Locale.ROOT);
+        String pathStrLower = toUnixPath(pf.getRelPath()).toLowerCase(Locale.ROOT);
         String fileNameLower = pf.getFileName().toLowerCase(Locale.ROOT);
 
         if (typedLower.contains("/") || typedLower.contains("\\")) {
             // Normalize search input too
-            String normalizedSearch = typedLower.replace('\\', '/');
+            String normalizedSearch = toUnixPath(typedLower);
             return pathStrLower.startsWith(normalizedSearch);
         } else {
             if (fileNameLower.contains(typedLower)) {
@@ -332,9 +334,10 @@ public class ProjectFilesPanel extends JPanel {
         CompletableFuture.supplyAsync(() -> {
                     Set<ProjectFile> trackedFiles = project.getRepo().getTrackedFiles();
 
-                    // First try exact path match
+                    // First try exact path match (normalize separators and case)
+                    String normalizedSearch = toUnixPath(searchText).toLowerCase(Locale.ROOT);
                     for (ProjectFile pf : trackedFiles) {
-                        if (pf.getRelPath().toString().equals(searchText)) {
+                        if (toUnixPath(pf.getRelPath()).toLowerCase(Locale.ROOT).equals(normalizedSearch)) {
                             return pf;
                         }
                     }
