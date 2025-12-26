@@ -94,7 +94,7 @@ public final class WorkspacePrompts {
         var buildFragment = ctx.getBuildFragment();
         var readOnlyContents = ctx.getReadonlyFragments()
                 .filter(cf -> buildFragment.isEmpty() || cf != buildFragment.get())
-                .map(ContextFragment::formatToc)
+                .map(cf -> cf.formatToc(ctx.isPinned(cf)))
                 .collect(Collectors.joining("\n"));
         var editableFragments = sortByMtime(ctx.getEditableFragments()).toList();
 
@@ -112,8 +112,9 @@ public final class WorkspacePrompts {
             parts.add(readOnlySection);
         }
 
-        var editableContents =
-                editableFragments.stream().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
+        var editableContents = editableFragments.stream()
+                .map(cf -> cf.formatToc(ctx.isPinned(cf)))
+                .collect(Collectors.joining("\n"));
         if (!editableContents.isBlank()) {
             parts.add(
                     """
@@ -152,7 +153,7 @@ public final class WorkspacePrompts {
             return List.of();
         }
 
-        var rendered = formatWithPolicy(allFragments, viewingPolicy);
+        var rendered = formatWithPolicy(ctx, allFragments, viewingPolicy);
         if (rendered.text.isEmpty() && rendered.images.isEmpty() && styleGuide.isBlank()) {
             return List.of();
         }
@@ -352,7 +353,7 @@ public final class WorkspacePrompts {
                 .filter(f -> showBuildStatusInWorkspace || f != buildFragment)
                 .toList();
 
-        var renderedReadOnly = renderReadOnlyFragments(readOnlyFragments, viewingPolicy);
+        var renderedReadOnly = renderReadOnlyFragments(ctx, readOnlyFragments, viewingPolicy);
 
         if (renderedReadOnly.text.isEmpty() && renderedReadOnly.images.isEmpty()) {
             return List.of();
@@ -402,11 +403,13 @@ public final class WorkspacePrompts {
      * - Summary fragments are combined into a single <api_summaries> block
      * - All images are collected and returned
      *
+     * @param ctx          the current context
      * @param readOnly     readonly fragments to render
      * @param vp           viewing policy for visibility control
      * @return RenderedContent with formatted text and images
      */
-    private static RenderedContent renderReadOnlyFragments(List<ContextFragment> readOnly, ViewingPolicy vp) {
+    private static RenderedContent renderReadOnlyFragments(
+            Context ctx, List<ContextFragment> readOnly, ViewingPolicy vp) {
         var summaryFragments = readOnly.stream()
                 .filter(ContextFragments.SummaryFragment.class::isInstance)
                 .map(ContextFragments.SummaryFragment.class::cast)
@@ -416,7 +419,7 @@ public final class WorkspacePrompts {
                 .filter(f -> !(f instanceof ContextFragments.SummaryFragment))
                 .toList();
 
-        var renderedOther = formatWithPolicy(otherFragments, vp);
+        var renderedOther = formatWithPolicy(ctx, otherFragments, vp);
         var textBuilder = new StringBuilder(renderedOther.text);
 
         if (!summaryFragments.isEmpty()) {
@@ -437,7 +440,7 @@ public final class WorkspacePrompts {
         return new RenderedContent(textBuilder.toString().trim(), renderedOther.images);
     }
 
-    private static RenderedContent formatWithPolicy(List<ContextFragment> fragments, ViewingPolicy vp) {
+    private static RenderedContent formatWithPolicy(Context ctx, List<ContextFragment> fragments, ViewingPolicy vp) {
         var textBuilder = new StringBuilder();
         var imageList = new ArrayList<ImageContent>();
 
@@ -446,15 +449,19 @@ public final class WorkspacePrompts {
                 String formatted;
                 if (fragment instanceof ContextFragments.StringFragment sf) {
                     var visibleText = sf.textForAgent(vp);
+                    String idOrPinned = ctx.isPinned(sf) ? "pinned=\"true\"" : "fragmentid=\"%s\"".formatted(sf.id());
                     formatted =
                             """
-                            <fragment description="%s" fragmentid="%s">
+                            <fragment description="%s" %s>
                             %s
                             </fragment>
                             """
-                                    .formatted(sf.description().join(), sf.id(), visibleText);
+                                    .formatted(sf.description().join(), idOrPinned, visibleText);
                 } else {
                     formatted = fragment.format().join();
+                    if (ctx.isPinned(fragment)) {
+                        formatted = formatted.replace("fragmentid=\"%s\"".formatted(fragment.id()), "pinned=\"true\"");
+                    }
                 }
                 if (!formatted.isBlank()) {
                     textBuilder.append(formatted).append("\n\n");

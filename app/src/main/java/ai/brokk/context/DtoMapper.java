@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
@@ -143,7 +144,8 @@ public class DtoMapper {
                 actionFuture,
                 groupUuid,
                 dto.groupLabel(),
-                readonlyFragments);
+                readonlyFragments,
+                Set.of());
     }
 
     public record GitStateDto(String commitHash, @Nullable String diffContentId) {}

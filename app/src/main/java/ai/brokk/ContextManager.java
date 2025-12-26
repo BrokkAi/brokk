@@ -1097,16 +1097,22 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 if (!fragmentsToAdd.isEmpty()) {
                     modifiedCtx = modifiedCtx.addFragments(fragmentsToAdd);
                 }
+                UUID id = Context.newContextId();
+                List<ContextFragment> fragments = modifiedCtx.allFragments().toList();
+                Future<String> action = CompletableFuture.completedFuture(actionMessage);
+                @Nullable UUID groupId = currentLiveCtx.getGroupId();
+                @Nullable String groupLabel = currentLiveCtx.getGroupLabel();
                 return Context.createWithId(
-                                Context.newContextId(),
+                                id,
                                 this,
-                                modifiedCtx.allFragments().toList(),
+                                fragments,
                                 newHistory,
                                 null,
-                                CompletableFuture.completedFuture(actionMessage),
-                                currentLiveCtx.getGroupId(),
-                                currentLiveCtx.getGroupLabel(),
-                                currentLiveCtx.getMarkedReadonlyFragments().collect(Collectors.toSet()))
+                                action,
+                                groupId,
+                                groupLabel,
+                                currentLiveCtx.getMarkedReadonlyFragments().collect(Collectors.toSet()),
+                                Set.of())
                         .copyAndRefresh("Copy from History");
             });
 

@@ -223,9 +223,9 @@ public class WorkspaceTools {
         var unknownIds =
                 idsToDropSet.stream().filter(id -> !byId.containsKey(id)).toList();
 
-        // Partition found into droppable vs protected based on SpecialTextType policy
+        // Partition found into droppable vs protected based on pinning policy
         var partitioned =
-                foundFragments.stream().collect(Collectors.partitioningBy(WorkspaceTools::isDroppableFragment));
+                foundFragments.stream().collect(Collectors.partitioningBy(fragment -> !context.isPinned(fragment)));
         var toDrop = NullnessUtil.castNonNull(partitioned.get(true));
         var protectedFragments = NullnessUtil.castNonNull(partitioned.get(false));
 
@@ -504,13 +504,5 @@ public class WorkspaceTools {
 
     private IAnalyzer getAnalyzer() {
         return context.getContextManager().getAnalyzerUninterrupted();
-    }
-
-    // Helper: determine if a fragment can be dropped per SpecialTextType policy.
-    private static boolean isDroppableFragment(ContextFragment fragment) {
-        if (fragment instanceof ContextFragments.StringFragment sf) {
-            return sf.droppable();
-        }
-        return true;
     }
 }

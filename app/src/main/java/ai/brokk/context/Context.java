@@ -83,6 +83,7 @@ public class Context {
     private final String groupLabel;
 
     private final Set<ContextFragment> markedReadonlyFragments;
+    private final Set<ContextFragment> pinnedFragments;
 
     /**
      * Constructor for initial empty context
@@ -97,6 +98,7 @@ public class Context {
                 CompletableFuture.completedFuture(WELCOME_ACTION),
                 null,
                 null,
+                Set.of(),
                 Set.of());
     }
 
@@ -109,7 +111,8 @@ public class Context {
             Future<String> action,
             @Nullable UUID groupId,
             @Nullable String groupLabel,
-            Set<ContextFragment> markedReadonlyFragments) {
+            Set<ContextFragment> markedReadonlyFragments,
+            Set<ContextFragment> pinnedFragments) {
         this.id = id;
         this.contextManager = contextManager;
         this.fragments = List.copyOf(fragments);
@@ -119,6 +122,7 @@ public class Context {
         this.groupId = groupId;
         this.groupLabel = groupLabel;
         this.markedReadonlyFragments = validateReadOnlyFragments(markedReadonlyFragments, fragments);
+        this.pinnedFragments = validatePinnedFragments(pinnedFragments, fragments);
     }
 
     public Context(
@@ -127,7 +131,17 @@ public class Context {
             List<TaskEntry> taskHistory,
             @Nullable ContextFragments.TaskFragment parsedOutput,
             Future<String> action) {
-        this(newContextId(), contextManager, fragments, taskHistory, parsedOutput, action, null, null, Set.of());
+        this(
+                newContextId(),
+                contextManager,
+                fragments,
+                taskHistory,
+                parsedOutput,
+                action,
+                null,
+                null,
+                Set.of(),
+                Set.of());
     }
 
     public Map<ProjectFile, String> buildRelatedIdentifiers(int k) throws InterruptedException {
@@ -295,7 +309,8 @@ public class Context {
                 action,
                 null,
                 null,
-                this.markedReadonlyFragments);
+                this.markedReadonlyFragments,
+                this.pinnedFragments);
     }
 
     /**
@@ -387,6 +402,13 @@ public class Context {
         return markedReadonlyFragments.contains(fragment);
     }
 
+    /**
+     * Returns true if the fragment is pinned (protected from being dropped by tools).
+     */
+    public boolean isPinned(ContextFragment fragment) {
+        return pinnedFragments.contains(fragment);
+    }
+
     public Stream<ContextFragment> fileFragments() {
         return fragments.stream().filter(f -> f.getType().isPath());
     }
@@ -446,8 +468,11 @@ public class Context {
             return this;
         }
 
-        // Remove any read-only tracking for dropped fragments
+        // Remove any tracking for dropped fragments
         var newReadOnly = this.markedReadonlyFragments.stream()
+                .filter(f -> !toRemoveSet.contains(f))
+                .collect(Collectors.toSet());
+        var newPinned = this.pinnedFragments.stream()
                 .filter(f -> !toRemoveSet.contains(f))
                 .collect(Collectors.toSet());
 
@@ -461,7 +486,8 @@ public class Context {
                 CompletableFuture.completedFuture(actionString),
                 null,
                 null,
-                newReadOnly);
+                newReadOnly,
+                newPinned);
     }
 
     public Context removeAll() {
@@ -475,7 +501,31 @@ public class Context {
                 CompletableFuture.completedFuture(action),
                 null,
                 null,
+                Set.of(),
                 Set.of());
+    }
+
+    public Context withPinned(ContextFragment fragment, boolean pinned) {
+        assert fragments.contains(fragment) : "%s is not part of %s".formatted(fragment, fragments);
+
+        var newPinned = new HashSet<>(this.pinnedFragments);
+        if (pinned) {
+            newPinned.add(fragment);
+        } else {
+            newPinned.remove(fragment);
+        }
+
+        return new Context(
+                newContextId(),
+                contextManager,
+                fragments,
+                taskHistory,
+                parsedOutput,
+                this.action,
+                null,
+                null,
+                this.markedReadonlyFragments,
+                newPinned);
     }
 
     public Context setReadonly(ContextFragment fragment, boolean readonly) {
@@ -506,7 +556,16 @@ public class Context {
         actionFuture = actionCf;
 
         return new Context(
-                newContextId(), contextManager, fragments, taskHistory, null, actionFuture, null, null, newReadOnly);
+                newContextId(),
+                contextManager,
+                fragments,
+                taskHistory,
+                null,
+                actionFuture,
+                null,
+                null,
+                newReadOnly,
+                this.pinnedFragments);
     }
 
     public boolean isEmpty() {
@@ -540,7 +599,8 @@ public class Context {
                 action,
                 null,
                 null,
-                this.markedReadonlyFragments);
+                this.markedReadonlyFragments,
+                this.pinnedFragments);
     }
 
     public Context clearHistory() {
@@ -553,7 +613,8 @@ public class Context {
                 CompletableFuture.completedFuture(ActivityTableRenderers.CLEARED_TASK_HISTORY),
                 null,
                 null,
-                this.markedReadonlyFragments);
+                this.markedReadonlyFragments,
+                this.pinnedFragments);
     }
 
     /**
@@ -625,7 +686,8 @@ public class Context {
                 action,
                 null,
                 null,
-                this.markedReadonlyFragments);
+                this.markedReadonlyFragments,
+                this.pinnedFragments);
     }
 
     public Context withParsedOutput(@Nullable ContextFragments.TaskFragment parsedOutput, String action) {
@@ -639,7 +701,8 @@ public class Context {
                 CompletableFuture.completedFuture(action),
                 null,
                 null,
-                this.markedReadonlyFragments);
+                this.markedReadonlyFragments,
+                this.pinnedFragments);
     }
 
     public Context withAction(Future<String> action) {
@@ -653,7 +716,8 @@ public class Context {
                 action,
                 null,
                 null,
-                this.markedReadonlyFragments);
+                this.markedReadonlyFragments,
+                this.pinnedFragments);
     }
 
     public Context withGroup(@Nullable UUID groupId, @Nullable String groupLabel) {
@@ -666,22 +730,13 @@ public class Context {
                 action,
                 groupId,
                 groupLabel,
-                this.markedReadonlyFragments);
-    }
-
-    public static Context createWithId(
-            UUID id,
-            IContextManager cm,
-            List<ContextFragment> fragments,
-            List<TaskEntry> history,
-            @Nullable ContextFragments.TaskFragment parsed,
-            Future<String> action) {
-        return createWithId(id, cm, fragments, history, parsed, action, null, null, Set.of());
+                this.markedReadonlyFragments,
+                this.pinnedFragments);
     }
 
     /**
-     * Creates a Context with explicit control over the read-only fragment IDs to persist.
-     * Prefer this when deriving a new Context from an existing one to preserve read-only tracking.
+     * Creates a Context with explicit control over the read-only and pinned fragment tracking.
+     * Prefer this when deriving a new Context from an existing one to preserve tracking state.
      */
     public static Context createWithId(
             UUID id,
@@ -692,8 +747,10 @@ public class Context {
             Future<String> action,
             @Nullable UUID groupId,
             @Nullable String groupLabel,
-            Set<ContextFragment> readOnlyFragments) {
-        return new Context(id, cm, fragments, history, parsed, action, groupId, groupLabel, readOnlyFragments);
+            Set<ContextFragment> readOnlyFragments,
+            Set<ContextFragment> pinnedFragments) {
+        return new Context(
+                id, cm, fragments, history, parsed, action, groupId, groupLabel, readOnlyFragments, pinnedFragments);
     }
 
     /**
@@ -710,7 +767,8 @@ public class Context {
                 CompletableFuture.completedFuture("Compress History"),
                 null,
                 null,
-                this.markedReadonlyFragments);
+                this.markedReadonlyFragments,
+                this.pinnedFragments);
     }
 
     @Nullable
@@ -745,7 +803,8 @@ public class Context {
                 CompletableFuture.completedFuture("Reset context to historical state"),
                 sourceContext.getGroupId(),
                 sourceContext.getGroupLabel(),
-                sourceContext.markedReadonlyFragments);
+                sourceContext.markedReadonlyFragments,
+                sourceContext.pinnedFragments);
     }
 
     @Override
@@ -823,6 +882,11 @@ public class Context {
         var newFragments = new ArrayList<>(afterClear.fragments);
         newFragments.add(sf);
 
+        var newPinned = new HashSet<>(afterClear.pinnedFragments);
+        if (!type.droppable()) {
+            newPinned.add(sf);
+        }
+
         // Preserve parsedOutput and action by default; callers can override action as needed.
         return new Context(
                 newContextId(),
@@ -833,7 +897,8 @@ public class Context {
                 afterClear.action,
                 null,
                 null,
-                afterClear.markedReadonlyFragments);
+                afterClear.markedReadonlyFragments,
+                newPinned);
     }
 
     public boolean workspaceContentEquals(Context other) {
@@ -1221,13 +1286,17 @@ public class Context {
             return this;
         }
 
-        // Remap read-only membership to refreshed fragments to preserve state across replacement
+        // Remap read-only and pinned membership to refreshed fragments to preserve state across replacement
         var newReadOnly = new HashSet<>(this.markedReadonlyFragments);
+        var newPinned = new HashSet<>(this.pinnedFragments);
         for (var e : replacementMap.entrySet()) {
             var oldFrag = e.getKey();
             var newFrag = e.getValue();
             if (newReadOnly.remove(oldFrag)) {
                 newReadOnly.add(newFrag);
+            }
+            if (newPinned.remove(oldFrag)) {
+                newPinned.add(newFrag);
             }
         }
 
@@ -1240,7 +1309,8 @@ public class Context {
                 CompletableFuture.completedFuture(action),
                 this.groupId,
                 this.groupLabel,
-                newReadOnly);
+                newReadOnly,
+                newPinned);
     }
 
     /**
@@ -1287,5 +1357,14 @@ public class Context {
         }
 
         return Set.copyOf(readonly);
+    }
+
+    private static Set<ContextFragment> validatePinnedFragments(
+            Set<ContextFragment> pinned, List<ContextFragment> all) {
+        for (var cf : pinned) {
+            assert all.contains(cf);
+        }
+
+        return Set.copyOf(pinned);
     }
 }

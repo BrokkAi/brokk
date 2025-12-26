@@ -141,11 +141,12 @@ public interface ContextFragment {
     /**
      * fragment toc entry, usually id + description
      */
-    default String formatToc() {
+    default String formatToc(boolean isPinned) {
         // Non-blocking best-effort rendering
+        String idOrPinned = isPinned ? "pinned=\"true\"" : "fragmentid=\"%s\"".formatted(id());
         return """
-                <fragment-toc description="%s" fragmentid="%s" />"""
-                .formatted(description().renderNowOr(""), id());
+                <fragment-toc description="%s" %s />"""
+                .formatted(description().renderNowOr(""), idOrPinned);
     }
 
     default boolean isText() {
