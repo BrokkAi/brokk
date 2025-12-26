@@ -15,7 +15,6 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
@@ -267,23 +266,6 @@ public interface ContextFragment {
         }
         throw new IllegalArgumentException(
                 "Unsupported BrokkFile subtype: " + bf.getClass().getName());
-    }
-
-    record StringFragmentType(String description, String syntaxStyle) {}
-
-    StringFragmentType BUILD_RESULTS =
-            new StringFragmentType("Latest Build Results", SyntaxConstants.SYNTAX_STYLE_NONE);
-    StringFragmentType SEARCH_NOTES =
-            new StringFragmentType("Code Notes", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
-    StringFragmentType DISCARDED_CONTEXT =
-            new StringFragmentType("Discarded Context", SyntaxConstants.SYNTAX_STYLE_JSON);
-
-    static @Nullable StringFragmentType getStringFragmentType(String description) {
-        if (description.isBlank()) return null;
-        if (BUILD_RESULTS.description().equals(description)) return BUILD_RESULTS;
-        if (SEARCH_NOTES.description().equals(description)) return SEARCH_NOTES;
-        if (DISCARDED_CONTEXT.description().equals(description)) return DISCARDED_CONTEXT;
-        return null;
     }
 
     enum SummaryType {

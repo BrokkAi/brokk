@@ -970,15 +970,13 @@ public class ContextFragments {
         }
 
         public String previewText() {
-            return specialType()
-                    .map(st -> st.previewRenderer().apply(snapshot.text()))
-                    .orElse(snapshot.text());
+            return specialType().map(st -> st.renderPreview(snapshot.text())).orElse(snapshot.text());
         }
 
         public String textForAgent(ViewingPolicy viewPolicy) {
             var st = specialType();
             if (st.isEmpty()) return snapshot.text();
-            if (!st.get().canViewContent().test(viewPolicy)) {
+            if (!st.get().canViewContent(viewPolicy)) {
                 return "[%s content hidden for %s]"
                         .formatted(snapshot.description(), viewPolicy.taskType().name());
             }
@@ -998,11 +996,12 @@ public class ContextFragments {
         public boolean hasSameSource(ContextFragment other) {
             if (this == other) return true;
             if (!(other instanceof StringFragment that)) return false;
-            StringFragmentType thisType = ContextFragment.getStringFragmentType(this.snapshot.description());
-            StringFragmentType thatType = ContextFragment.getStringFragmentType(that.snapshot.description());
-            if (thisType != null && thatType != null) return Objects.equals(thisType, thatType);
-            return this.snapshot.description().equals(that.snapshot.description())
-                    && this.snapshot.syntaxStyle().equals(that.snapshot.syntaxStyle());
+            var thisType = SpecialTextType.fromDescription(this.snapshot.description());
+            var thatType = SpecialTextType.fromDescription(that.snapshot.description());
+            if (thisType.isPresent() && thisType.equals(thatType)) {
+                return true;
+            }
+            return Objects.equals(this.snapshot, that.snapshot);
         }
     }
 

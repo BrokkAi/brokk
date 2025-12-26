@@ -798,7 +798,7 @@ public class Context {
     @Blocking
     private Context withSpecial(SpecialTextType type, String content, CompletableFuture<String> action) {
         var next = withSpecial(type, content);
-        return this == next ? this : next.withAction(action);
+        return this.equals(next) ? this : next.withAction(action);
     }
 
     @Blocking
@@ -1075,7 +1075,10 @@ public class Context {
                     .withAction(CompletableFuture.completedFuture("Build results cleared (success)"));
         }
 
-        return withSpecial(SpecialTextType.BUILD_RESULTS, processedOutput, CompletableFuture.completedFuture("Build results updated (failure)"));
+        return withSpecial(
+                SpecialTextType.BUILD_RESULTS,
+                processedOutput,
+                CompletableFuture.completedFuture("Build results updated (failure)"));
     }
 
     /**

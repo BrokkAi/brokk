@@ -11,7 +11,6 @@ import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
-import ai.brokk.util.ComputedValue;
 import ai.brokk.util.HistoryIo;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -1025,37 +1024,9 @@ public class ContextSerializationTest {
         List<ContextFragment> deduplicatedFragments =
                 deserializedContext.virtualFragments().toList();
 
-        // Expected: 3 unique fragments based on text content.
-        // The ones kept should be vf1, vf2, vf3 because they were added first for their respective texts.
-        assertEquals(3, deduplicatedFragments.size(), "Should be 3 unique virtual fragments after deduplication.");
-
-        Set<String> actualDescriptions = deduplicatedFragments.stream()
-                .map(ContextFragment::description)
-                .map(ComputedValue::join)
-                .collect(Collectors.toSet());
-        assertEquals(
-                Set.of("uniqueText1", "duplicateText", "uniqueText2"),
-                actualDescriptions,
-                "Texts of deduplicated fragments do not match expected unique texts.");
-
-        // Verify that the specific fragments kept are the first ones encountered
-        assertTrue(
-                deduplicatedFragments.stream()
-                        .anyMatch(f -> "uniqueText1".equals(f.description().join())
-                                && "Content for uniqueText1 (first)"
-                                        .equals(f.text().join())),
-                "Expected first instance of 'uniqueText1' to be present.");
-        assertTrue(
-                deduplicatedFragments.stream()
-                        .anyMatch(f -> "duplicateText".equals(f.description().join())
-                                && "Content for duplicateText (first)"
-                                        .equals(f.text().join())),
-                "Expected first instance of 'duplicateText' to be present.");
-        assertTrue(
-                deduplicatedFragments.stream()
-                        .anyMatch(f -> "uniqueText2".equals(f.description().join())
-                                && "Content for uniqueText2".equals(f.text().join())),
-                "Expected 'uniqueText2' to be present.");
+        // Expected: 5 unique fragments based on text content, common description should not result in being treated as
+        // duplicates
+        assertEquals(5, deduplicatedFragments.size(), "Should be 5 unique virtual fragments after deduplication.");
     }
 
     @Test
