@@ -732,8 +732,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
         };
 
+        var matcher = compiledPattern.matcher("");
         return this.state.codeUnitState.keySet().stream()
-                .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
+                .filter(cu -> matcher.reset(cu.fqName()).find())
                 .filter(anonPredicate)
                 .collect(Collectors.toSet());
     }
